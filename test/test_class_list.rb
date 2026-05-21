@@ -1,0 +1,62 @@
+# frozen_string_literal: true
+
+require_relative "test_helper"
+
+class TestClassList < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window("<div id='x' class='foo bar'></div>")
+    @el = @win.document.get_element_by_id("x")
+    @list = @el.class_list
+  end
+
+  def test_contains_existing
+    assert_equal(true, @list.__js_call__("contains", ["foo"]))
+    assert_equal(true, @list.__js_call__("contains", ["bar"]))
+  end
+
+  def test_contains_missing
+    assert_equal(false, @list.__js_call__("contains", ["nope"]))
+  end
+
+  def test_add_token
+    @list.__js_call__("add", ["baz"])
+    assert_equal("foo bar baz", @el.class_name)
+  end
+
+  def test_add_existing_is_idempotent
+    @list.__js_call__("add", ["foo"])
+    assert_equal("foo bar", @el.class_name)
+  end
+
+  def test_remove_token
+    @list.__js_call__("remove", ["foo"])
+    assert_equal("bar", @el.class_name)
+  end
+
+  def test_remove_missing_is_noop
+    @list.__js_call__("remove", ["nope"])
+    assert_equal("foo bar", @el.class_name)
+  end
+
+  def test_toggle_off_when_present
+    assert_equal(false, @list.__js_call__("toggle", ["foo"]))
+    refute(@list.__js_call__("contains", ["foo"]))
+  end
+
+  def test_toggle_on_when_absent
+    assert_equal(true, @list.__js_call__("toggle", ["baz"]))
+    assert(@list.__js_call__("contains", ["baz"]))
+  end
+
+  def test_toggle_force_true_keeps_token
+    @list.__js_call__("toggle", ["foo", true])
+    assert(@list.__js_call__("contains", ["foo"]))
+  end
+
+  def test_toggle_force_false_removes_token
+    @list.__js_call__("toggle", ["foo", false])
+    refute(@list.__js_call__("contains", ["foo"]))
+  end
+end
