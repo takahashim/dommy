@@ -124,8 +124,11 @@ module Dommy
       @uri.port = value.to_s.empty? ? nil : value.to_i
     end
 
+    # WHATWG: for opaque-body schemes (javascript:, mailto:, data:,
+    # tel:, blob:) the body sits in `URI`'s `opaque` slot, not `path`.
     def pathname
-      @uri.path.to_s
+      opaque = @uri.respond_to?(:opaque) ? @uri.opaque : nil
+      opaque ? opaque.to_s : @uri.path.to_s
     end
 
     def pathname=(value)
@@ -134,15 +137,19 @@ module Dommy
       @uri.path = v
     end
 
+    # WHATWG: `url.search` is the raw query string (with `?` prefix),
+    # preserving percent-encoding and stray `?` characters as parsed.
+    # `url.searchParams.toString()` re-serializes via the form-encoded
+    # contract (`+` for space, etc.) — distinct from `url.search`.
     def search
-      q = @search_params.to_s
-      q.empty? ? "" : "?#{q}"
+      q = @uri.query
+      q.nil? || q.empty? ? "" : "?#{q}"
     end
 
     def search=(value)
       q = value.to_s.sub(/^\?/, "")
+      @uri.query = q.empty? ? nil : q
       @search_params.__replace__(q)
-      sync_uri_query
     end
 
     def hash
@@ -278,19 +285,28 @@ module Dommy
     def build_href
       out = +""
       out << "#{@uri.scheme}:" if @uri.scheme
-      if @uri.host
-        out << "//"
-        if @uri.user
-          out << @uri.user
-          out << ":#{@uri.password}" if @uri.password
-          out << "@"
+
+      opaque = @uri.respond_to?(:opaque) ? @uri.opaque : nil
+      if opaque
+        # Opaque-body scheme (javascript:, mailto:, data:, tel:, blob:)
+        # — emit the body verbatim, no authority section.
+        out << opaque
+      else
+        if @uri.host
+          out << "//"
+          if @uri.user
+            out << @uri.user
+            out << ":#{@uri.password}" if @uri.password
+            out << "@"
+          end
+
+          out << @uri.host
+          out << ":#{@uri.port}" if @uri.port && @uri.port != @uri.default_port
         end
 
-        out << @uri.host
-        out << ":#{@uri.port}" if @uri.port && @uri.port != @uri.default_port
+        out << @uri.path.to_s
       end
 
-      out << @uri.path.to_s
       out << search
       out << hash
       out

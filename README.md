@@ -207,6 +207,7 @@ Implemented:
 > - layout-dependent Range / Selection geometry (`getBoundingClientRect` returns zero rects)
 > - SVG-specific value types (SVGAnimatedLength, SVGTransform, SVGMatrix)
 > - Web Animations: no actual value interpolation — `Animation` is a state machine (`idle` / `running` / `paused` / `finished`) for testing lifecycle and event wiring
+> - URL parsing diverges from WHATWG where Ruby's stdlib `URI` does: IDN hosts (`http://日本.test/` raises instead of Punycode-encoding), `file://` special-scheme rules, and some percent-encoding edge cases
 
 ## Running the tests
 

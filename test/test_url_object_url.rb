@@ -100,7 +100,7 @@ class TestURLObjectURL < Minitest::Test
     win = make_window
     url_ctor = win.__js_get__("URL")
     u = url_ctor.__js_new__(["https://x.test/a/b"])
-    assert_kind_of(Dommy::Url, u)
+    assert_kind_of(Dommy::URL, u)
     assert_equal("https://x.test/a/b", u.__js_get__("href"))
   end
 end

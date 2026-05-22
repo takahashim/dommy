@@ -68,7 +68,7 @@ class TestLocationFull < Minitest::Test
   end
 
   def test_assign_accepts_url_object
-    url = Dommy::Url.new("/dashboard", "http://localhost")
+    url = Dommy::URL.new("/dashboard", "http://localhost")
     @loc.__js_call__("assign", [url.__js_get__("href")])
     assert_equal("/dashboard", @loc.__js_get__("pathname"))
   end

@@ -52,6 +52,51 @@ class TestURLBasics < Minitest::Test
   end
 end
 
+# WHATWG-ish behavior for opaque-body schemes (no authority section)
+# and verbatim search-string preservation.
+class TestURLOpaqueAndRawSearch < Minitest::Test
+  def test_javascript_scheme_preserves_body
+    u = Dommy::URL.new("javascript:alert(1)")
+    assert_equal("javascript:alert(1)", u.href)
+    assert_equal("javascript:", u.protocol)
+    assert_equal("alert(1)", u.pathname)
+  end
+
+  def test_mailto_scheme_preserves_body
+    u = Dommy::URL.new("mailto:foo@bar.com")
+    assert_equal("mailto:foo@bar.com", u.href)
+    assert_equal("foo@bar.com", u.pathname)
+  end
+
+  def test_data_scheme_preserves_body
+    u = Dommy::URL.new("data:text/plain,hello")
+    assert_equal("data:text/plain,hello", u.href)
+    assert_equal("text/plain,hello", u.pathname)
+  end
+
+  def test_tel_scheme_preserves_body
+    u = Dommy::URL.new("tel:+1-555-1234")
+    assert_equal("tel:+1-555-1234", u.href)
+  end
+
+  def test_search_preserves_percent_encoded_space
+    u = Dommy::URL.new("http://h.test/?k=%20v")
+    assert_equal("?k=%20v", u.search)
+  end
+
+  def test_search_preserves_multiple_question_marks
+    u = Dommy::URL.new("http://h.test/p?a?b")
+    assert_equal("?a?b", u.search)
+  end
+
+  def test_search_params_still_form_encoded
+    # `searchParams.toString()` follows application/x-www-form-urlencoded
+    # — space stays as `+`. Distinct from `url.search`, which is raw.
+    u = Dommy::URL.new("http://h.test/?k=%20v")
+    assert_equal("k=+v", u.search_params.to_s)
+  end
+end
+
 class TestURLMutation < Minitest::Test
   def test_set_pathname
     u = Dommy::URL.new("https://example.test/")

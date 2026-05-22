@@ -73,7 +73,7 @@ module Dommy
       @session_storage = Storage.new
       @location = Location.new(self)
       @history = History.new(self, @location)
-      @url_ctor = Bridge::Constructor.new { |args| Url.new(args[0], args[1]) }
+      @url_ctor = Bridge::Constructor.new { |args| URL.new(args[0], args[1]) }
       @url_ctor.define_class_method("createObjectURL") { |args| URL.create_object_url(args[0]) }
       @url_ctor.define_class_method("revokeObjectURL") { |args| URL.revoke_object_url(args[0]) }
       # `JS.global[:__some_key__] = ...` from user code lands here.
