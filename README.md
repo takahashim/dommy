@@ -185,7 +185,7 @@ Implemented:
 - form validation
 - Scheduler (timers + microtasks with `advance_time`)
 - Promise
-- Location / History / URL
+- Location / History / URL (WHATWG-leaning parsing with whitespace/tab/newline stripping, percent-encoding of unsafe path chars, `\` → `/` conversion for special schemes, `./` and `../` resolution, IPv4 number forms normalization, ws/wss default port stripping, Punycode hostname encoding, full UTS #46 IDNA with RFC 5893 Bidi and RFC 5892 ContextJ/ContextO)
 - Storage
 - fetch (stub) / XMLHttpRequest (stub-driven, sync + async, shares the `__fetchy_stub__` fixture map)
 - WebSocket / EventSource — test seams (`__simulate_open__` / `__simulate_message__` / `__simulate_close__`) drive the streams
@@ -195,19 +195,18 @@ Implemented:
 - Geolocation (mock position via `navigator.geolocation.__set_position__`)
 - `window.matchMedia` returning a `MediaQueryList` (`__set_matches__` flips and fires `change`)
 - `requestIdleCallback` / `cancelIdleCallback` (modelled on scheduler), `structuredClone` global
-- `crypto.subtle` digest (SHA-1/256/384/512) and HMAC sign/verify/import/generateKey
+- `crypto.subtle.digest` (SHA-1/256/384/512), HMAC sign/verify/import/generateKey, and AES-GCM encrypt/decrypt (128/256-bit with additionalData and tagLength options)
 - Streams API (`ReadableStream` / `WritableStream` / `TransformStream` + `TextEncoderStream` / `TextDecoderStream`)
 - `CompressionStream` / `DecompressionStream` (gzip / deflate / deflate-raw via Ruby `Zlib`)
 - Worker (inline-emulated — same-process message round-trip; tests register handlers via `worker.__on_message__`)
 - Performance User Timing (`performance.mark` / `measure` / `getEntriesByName`)
 - `cookieStore` (async Cookie Store API, backed by the same jar `document.cookie` uses)
-- Navigator extras: `share` / `vibrate` / `wakeLock.request` / `getBattery` / `locks` (Web Locks) / `storage.estimate`
+- Navigator extras: `share` / `vibrate` / `wakeLock.request` / `getBattery` / `locks` (Web Locks) / `storage.estimate` / `persist` / `persisted` (StorageManager)
 - Layout-adjacent stubs: `element.scrollIntoView` / `scrollTo` / scroll & client / offset metrics (return 0), `getComputedStyle` (inline style passthrough)
 - Popover API (`showPopover` / `hidePopover` / `togglePopover` with `beforetoggle` / `toggle` events)
 - Fullscreen API (`element.requestFullscreen` / `document.exitFullscreen` / `fullscreenchange`)
-- `URLPattern` (path / hostname / search pattern matching with named groups)
+- `URLPattern` (pattern matching for URL components — protocol, username, password, hostname, port, pathname, search, hash — with named capture groups and modifiers: `:id`, `*`, `:version+`, `:version?`)
 - `document.startViewTransition` (View Transitions API stub)
-- `crypto.subtle.encrypt` / `decrypt` (AES-GCM 128/256)
 - Navigator / Clipboard
 - TreeWalker / NodeIterator / NodeFilter
 - File API (Blob / File / FileList / FormData / DataTransfer)
@@ -227,7 +226,6 @@ Implemented:
 > - layout-dependent Range / Selection geometry (`getBoundingClientRect` returns zero rects)
 > - SVG-specific value types (SVGAnimatedLength, SVGTransform, SVGMatrix)
 > - Web Animations: no actual value interpolation — `Animation` is a state machine (`idle` / `running` / `paused` / `finished`) for testing lifecycle and event wiring
-> - URL parsing now leans WHATWG: leading/trailing whitespace and embedded tab/newline are stripped; spaces / `<>{}|` / control chars / non-ASCII in path are percent-encoded; `\` is converted to `/` for special schemes (http/https/ws/wss/ftp/file); `./` and `../` are resolved; empty paths on special schemes canonicalize to `/`; IPv4 number forms (`0x7f.1`, `0177.0.0.1`, `2130706433`) normalize to dotted-decimal; ws/wss default ports (80/443) strip from `href`; the `hostname=` setter Punycode-encodes non-ASCII. `origin` follows the spec: tuple origin for http(s)/ws(s)/ftp, `"null"` for file/data/javascript, inner-URL origin for `blob:`. IDN hosts use full UTS #46 + RFC 5893 Bidi + RFC 5892 ContextJ/ContextO via vendored Unicode 16.0 tables (`vendor/unicode/`, regenerated via `script/build_idna_tables.rb`)
 
 ## Running the tests
 
