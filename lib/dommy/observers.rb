@@ -7,6 +7,8 @@ module Dommy
   #
   # Spec: https://w3c.github.io/IntersectionObserver/
   class IntersectionObserver
+    include Internal::ObservableCallback
+
     attr_reader :callback, :root, :root_margin, :thresholds
 
     def initialize(callback, options = nil)
@@ -76,16 +78,6 @@ module Dommy
         take_records
       end
     end
-
-    private
-
-    def invoke_callback(entries)
-      if @callback.respond_to?(:__js_call__)
-        @callback.__js_call__("call", [entries, self])
-      elsif @callback.respond_to?(:call)
-        @callback.call(entries, self)
-      end
-    end
   end
 
   # `ResizeObserver` — stub for the element-resize API. Same shape as
@@ -94,6 +86,8 @@ module Dommy
   #
   # Spec: https://drafts.csswg.org/resize-observer/
   class ResizeObserver
+    include Internal::ObservableCallback
+
     attr_reader :callback
 
     def initialize(callback)
@@ -134,16 +128,6 @@ module Dommy
         disconnect
       end
     end
-
-    private
-
-    def invoke_callback(entries)
-      if @callback.respond_to?(:__js_call__)
-        @callback.__js_call__("call", [entries, self])
-      elsif @callback.respond_to?(:call)
-        @callback.call(entries, self)
-      end
-    end
   end
 
   # `PerformanceObserver` — stub. Same observe/disconnect shape, with
@@ -151,6 +135,8 @@ module Dommy
   #
   # Spec: https://w3c.github.io/performance-timeline/
   class PerformanceObserver
+    include Internal::ObservableCallback
+
     attr_reader :callback
 
     def initialize(callback)
@@ -192,16 +178,6 @@ module Dommy
         disconnect
       when "takeRecords"
         take_records
-      end
-    end
-
-    private
-
-    def invoke_callback(entries)
-      if @callback.respond_to?(:__js_call__)
-        @callback.__js_call__("call", [entries, self])
-      elsif @callback.respond_to?(:call)
-        @callback.call(entries, self)
       end
     end
   end

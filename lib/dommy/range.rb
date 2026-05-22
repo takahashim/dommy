@@ -114,7 +114,7 @@ module Dommy
     # --- Content extraction ----------------------------------------
 
     def to_s
-      collect_text(@start_container, @start_offset, @end_container, @end_offset)
+      Internal::RangeTextSerializer.new(self).serialize
     end
 
     # cloneContents — returns a DocumentFragment with a deep clone of
@@ -329,27 +329,6 @@ module Dommy
       end
     end
 
-    def parent_of(node)
-      node.respond_to?(:parent_node) ? node.parent_node : nil
-    end
-
-    def child_index_of(parent, node)
-      return 0 unless parent.respond_to?(:child_nodes)
-
-      parent.child_nodes.to_a.index { |n| n.equal?(node) } || 0
-    end
-
-    def ancestor_chain(node)
-      chain = [node]
-      current = node
-      while (p = parent_of(current))
-        chain << p
-        current = p
-      end
-
-      chain
-    end
-
     def insert_into_parent_at(parent, idx, node)
       children = parent.respond_to?(:child_nodes) ? parent.child_nodes.to_a : []
       if idx >= children.length
@@ -409,39 +388,80 @@ module Dommy
       compare_points(parent, node_offset, container, offset)
     end
 
+    # --- Tree-ordering helpers --------------------------------------
+
+    def parent_of(node)
+      node.respond_to?(:parent_node) ? node.parent_node : nil
+    end
+
+    def child_index_of(parent, node)
+      return 0 unless parent.respond_to?(:child_nodes)
+
+      parent.child_nodes.to_a.index { |n| n.equal?(node) } || 0
+    end
+
+    def ancestor_chain(node)
+      chain = [node]
+      current = node
+      while (p = parent_of(current))
+        chain << p
+        current = p
+      end
+
+      chain
+    end
+
     # Compare (a_container, a_offset) vs (b_container, b_offset).
     # Returns -1 if A precedes B, +1 if A follows, 0 if equal.
-    # Best-effort tree-ordering implementation.
+    #
+    # Dispatches on the three topological cases:
+    #   1. both points are inside the same container (offset compare)
+    #   2. one container is an ancestor of the other (subtree case)
+    #   3. neither contains the other → use lowest common ancestor
     def compare_points(a_container, a_offset, b_container, b_offset)
       return a_offset <=> b_offset if a_container.equal?(b_container)
 
-      # Build ancestor chains (self → root) for both containers.
       a_chain = ancestor_chain(a_container)
       b_chain = ancestor_chain(b_container)
 
-      # If a_container is an ancestor of b_container, then a's position
-      # is (a_offset) and b's position relative to a_container is the
-      # index of the b-branch (the ancestor of b that is a's direct child).
-      b_branch_in_a = b_chain.find { |n| parent_of(n)&.equal?(a_container) }
-      if b_branch_in_a
-        b_idx = child_index_of(a_container, b_branch_in_a)
-        # b is at child b_idx with some offset into it — but we only need
-        # to compare a's offset against b's branch index.
-        return a_offset <=> (b_idx + 1) if a_offset > b_idx
-
-        return -1
+      if (b_branch = branch_under(b_chain, a_container))
+        return compare_offset_to_branch(a_offset, a_container, b_branch, ahead: -1)
       end
 
-      # Symmetric: a_container is descendant of b_container.
-      a_branch_in_b = a_chain.find { |n| parent_of(n)&.equal?(b_container) }
-      if a_branch_in_b
-        a_idx = child_index_of(b_container, a_branch_in_b)
-        return a_idx <=> b_offset if b_offset > a_idx
-
-        return 1
+      if (a_branch = branch_under(a_chain, b_container))
+        return compare_branch_to_offset(b_offset, b_container, a_branch, behind: 1)
       end
 
-      # Otherwise both have a common ancestor strictly above both.
+      compare_via_lca(a_chain, b_chain)
+    end
+
+    # The direct child of `container` that lies on `chain`'s path,
+    # or nil if `container` isn't on the chain.
+    def branch_under(chain, container)
+      chain.find { |n| parent_of(n)&.equal?(container) }
+    end
+
+    # Case 2a: a_container is an ancestor of b_container. a sits at
+    # offset a_offset; b's branch sits at child index b_idx. If
+    # a_offset > b_idx, a comes after; otherwise a precedes b.
+    def compare_offset_to_branch(a_offset, a_container, b_branch, ahead:)
+      b_idx = child_index_of(a_container, b_branch)
+      return a_offset <=> (b_idx + 1) if a_offset > b_idx
+
+      ahead
+    end
+
+    # Case 2b: b_container is an ancestor of a_container.
+    def compare_branch_to_offset(b_offset, b_container, a_branch, behind:)
+      a_idx = child_index_of(b_container, a_branch)
+      return a_idx <=> b_offset if b_offset > a_idx
+
+      behind
+    end
+
+    # Case 3: disjoint subtrees — compare branch indices under the
+    # lowest common ancestor.
+    def compare_via_lca(a_chain, b_chain)
       lca = a_chain.find { |n| b_chain.any? { |b| b.equal?(n) } }
       return 0 unless lca
 
@@ -450,54 +470,6 @@ module Dommy
       return 0 unless a_branch && b_branch
 
       child_index_of(lca, a_branch) <=> child_index_of(lca, b_branch)
-    end
-
-    # Concatenate text content from start point to end point. Simple
-    # implementation: take text_content of common ancestor's nodes
-    # entirely inside, plus partial text from start/end containers.
-    def collect_text(_start_container, _start_offset, _end_container, _end_offset)
-      ancestor = common_ancestor_container
-      return "" unless ancestor
-
-      if @start_container.equal?(@end_container) && text_node?(@start_container)
-        # Both endpoints in the same text node.
-        return @start_container.data.to_s[@start_offset, @end_offset - @start_offset].to_s
-      end
-
-      pieces = []
-      walk_text_in_range(ancestor, pieces)
-      pieces.join
-    end
-
-    def walk_text_in_range(node, pieces)
-      # Walk descendants of `node`; collect text contributions intersecting
-      # the range.
-      return unless node.respond_to?(:child_nodes)
-
-      node.child_nodes.to_a.each do |child|
-        if text_node?(child)
-          contribution = text_contribution(child)
-          pieces << contribution unless contribution.empty?
-        else
-          # Recurse only if child intersects the range
-          walk_text_in_range(child, pieces) if intersects_node(child)
-        end
-      end
-    end
-
-    def text_contribution(text_node)
-      txt = text_node.data.to_s
-      if text_node.equal?(@start_container) && text_node.equal?(@end_container)
-        txt[@start_offset, @end_offset - @start_offset].to_s
-      elsif text_node.equal?(@start_container)
-        txt[@start_offset..].to_s
-      elsif text_node.equal?(@end_container)
-        txt[0, @end_offset].to_s
-      elsif intersects_node(text_node)
-        txt
-      else
-        ""
-      end
     end
   end
 
