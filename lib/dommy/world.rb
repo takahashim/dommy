@@ -46,6 +46,29 @@ module Dommy
         )
       }
       @drag_event_ctor = Bridge::Constructor.new { |args| DragEvent.new(args[0], args[1]) }
+      @input_event_ctor = Bridge::Constructor.new { |args| InputEvent.new(args[0], args[1]) }
+      @pointer_event_ctor = Bridge::Constructor.new { |args| PointerEvent.new(args[0], args[1]) }
+      @progress_event_ctor = Bridge::Constructor.new { |args| ProgressEvent.new(args[0], args[1]) }
+      @touch_ctor = Bridge::Constructor.new { |args| Touch.new(args[0] || {}) }
+      @touch_event_ctor = Bridge::Constructor.new { |args| TouchEvent.new(args[0], args[1]) }
+      @clipboard_event_ctor = Bridge::Constructor.new { |args| ClipboardEvent.new(args[0], args[1]) }
+      @composition_event_ctor = Bridge::Constructor.new { |args| CompositionEvent.new(args[0], args[1]) }
+      @wheel_event_ctor = Bridge::Constructor.new { |args| WheelEvent.new(args[0], args[1]) }
+      @focus_event_ctor = Bridge::Constructor.new { |args| FocusEvent.new(args[0], args[1]) }
+      @before_unload_event_ctor = Bridge::Constructor.new { |args|
+        BeforeUnloadEvent.new(args[0] || "beforeunload", args[1])
+      }
+      win_ref = self
+      @animation_ctor = Bridge::Constructor.new { |args| Animation.new(args[0], args[1], window: win_ref) }
+      @keyframe_effect_ctor = Bridge::Constructor.new { |args| KeyframeEffect.new(args[0], args[1] || [], args[2]) }
+      @crypto = Crypto.new
+      @text_encoder_ctor = Bridge::Constructor.new { |_args| TextEncoder.new }
+      @text_decoder_ctor = Bridge::Constructor.new { |args| TextDecoder.new(args[0] || "utf-8", args[1]) }
+      @intersection_observer_ctor = Bridge::Constructor.new { |args| IntersectionObserver.new(args[0], args[1]) }
+      @resize_observer_ctor = Bridge::Constructor.new { |args| ResizeObserver.new(args[0]) }
+      @performance_observer_ctor = Bridge::Constructor.new { |args| PerformanceObserver.new(args[0]) }
+      @request_ctor = Bridge::Constructor.new { |args| Request.new(args[0], args[1]) }
+      @range_ctor = Bridge::Constructor.new { |_args| Range.new(@document) }
       @local_storage = Storage.new
       @session_storage = Storage.new
       @location = Location.new(self)
@@ -105,6 +128,46 @@ module Dommy
         @data_transfer_ctor
       when "DragEvent"
         @drag_event_ctor
+      when "InputEvent"
+        @input_event_ctor
+      when "PointerEvent"
+        @pointer_event_ctor
+      when "ProgressEvent"
+        @progress_event_ctor
+      when "Touch"
+        @touch_ctor
+      when "TouchEvent"
+        @touch_event_ctor
+      when "ClipboardEvent"
+        @clipboard_event_ctor
+      when "CompositionEvent"
+        @composition_event_ctor
+      when "WheelEvent"
+        @wheel_event_ctor
+      when "FocusEvent"
+        @focus_event_ctor
+      when "BeforeUnloadEvent"
+        @before_unload_event_ctor
+      when "Animation"
+        @animation_ctor
+      when "KeyframeEffect"
+        @keyframe_effect_ctor
+      when "crypto"
+        @crypto
+      when "TextEncoder"
+        @text_encoder_ctor
+      when "TextDecoder"
+        @text_decoder_ctor
+      when "IntersectionObserver"
+        @intersection_observer_ctor
+      when "ResizeObserver"
+        @resize_observer_ctor
+      when "PerformanceObserver"
+        @performance_observer_ctor
+      when "Request"
+        @request_ctor
+      when "Range"
+        @range_ctor
         # handled by Symbol sentinel
       when "console"
         :console

@@ -443,6 +443,374 @@ module Dommy
     end
   end
 
+  # `InputEvent` — fired by `input` / `beforeinput`. Carries `data`
+  # (the inserted text, if any) and `inputType` (insertText,
+  # deleteContentBackward, etc.).
+  class InputEvent < Event
+    def initialize(type, init = nil)
+      super
+      @data = read_init(init, "data")
+      @input_type = (read_init(init, "inputType") || "").to_s
+      @is_composing = !!read_init(init, "isComposing")
+    end
+
+    def __js_get__(key)
+      case key
+      when "data"
+        @data
+      when "inputType"
+        @input_type
+      when "isComposing"
+        @is_composing
+      else
+        super
+      end
+    end
+  end
+
+  # `PointerEvent` — pointer (mouse / touch / pen) unified events.
+  # Inherits from MouseEvent for coords / modifier keys; adds
+  # pointerId, pointerType, pressure, width, height, etc.
+  class PointerEvent < MouseEvent
+    def initialize(type, init = nil)
+      super
+      @pointer_id = (read_init(init, "pointerId") || 0).to_i
+      @pointer_type = (read_init(init, "pointerType") || "mouse").to_s
+      @pressure = (read_init(init, "pressure") || 0).to_f
+      @tangential_pressure = (read_init(init, "tangentialPressure") || 0).to_f
+      @width = (read_init(init, "width") || 1).to_f
+      @height = (read_init(init, "height") || 1).to_f
+      @tilt_x = (read_init(init, "tiltX") || 0).to_i
+      @tilt_y = (read_init(init, "tiltY") || 0).to_i
+      @twist = (read_init(init, "twist") || 0).to_i
+      @is_primary = !!read_init(init, "isPrimary")
+    end
+
+    def __js_get__(key)
+      case key
+      when "pointerId"
+        @pointer_id
+      when "pointerType"
+        @pointer_type
+      when "pressure"
+        @pressure
+      when "tangentialPressure"
+        @tangential_pressure
+      when "width"
+        @width
+      when "height"
+        @height
+      when "tiltX"
+        @tilt_x
+      when "tiltY"
+        @tilt_y
+      when "twist"
+        @twist
+      when "isPrimary"
+        @is_primary
+      else
+        super
+      end
+    end
+  end
+
+  # `ProgressEvent` — fired during long-running operations (XHR,
+  # fetch upload/download progress). Carries `loaded` / `total` /
+  # `lengthComputable`.
+  class ProgressEvent < Event
+    def initialize(type, init = nil)
+      super
+      @loaded = (read_init(init, "loaded") || 0).to_i
+      @total = (read_init(init, "total") || 0).to_i
+      @length_computable = !!read_init(init, "lengthComputable")
+    end
+
+    def __js_get__(key)
+      case key
+      when "loaded"
+        @loaded
+      when "total"
+        @total
+      when "lengthComputable"
+        @length_computable
+      else
+        super
+      end
+    end
+  end
+
+  # `Touch` — a single touch point on a touch-capable surface.
+  # Constructed by tests; tied to a target element and coordinate set.
+  #
+  # Spec: https://w3c.github.io/touch-events/#touch-interface
+  class Touch
+    attr_reader(
+      :identifier,
+      :target,
+      :client_x,
+      :client_y,
+      :page_x,
+      :page_y,
+      :screen_x,
+      :screen_y,
+      :radius_x,
+      :radius_y,
+      :rotation_angle,
+      :force
+    )
+
+    def initialize(init = {})
+      @identifier = (init["identifier"] || init[:identifier] || 0).to_i
+      @target = init["target"] || init[:target]
+      @client_x = (init["clientX"] || init[:clientX] || 0).to_f
+      @client_y = (init["clientY"] || init[:clientY] || 0).to_f
+      @page_x = (init["pageX"] || init[:pageX] || @client_x).to_f
+      @page_y = (init["pageY"] || init[:pageY] || @client_y).to_f
+      @screen_x = (init["screenX"] || init[:screenX] || @client_x).to_f
+      @screen_y = (init["screenY"] || init[:screenY] || @client_y).to_f
+      @radius_x = (init["radiusX"] || init[:radiusX] || 0).to_f
+      @radius_y = (init["radiusY"] || init[:radiusY] || 0).to_f
+      @rotation_angle = (init["rotationAngle"] || init[:rotationAngle] || 0).to_f
+      @force = (init["force"] || init[:force] || 0).to_f
+    end
+
+    def __js_get__(key)
+      case key
+      when "identifier"
+        @identifier
+      when "target"
+        @target
+      when "clientX"
+        @client_x
+      when "clientY"
+        @client_y
+      when "pageX"
+        @page_x
+      when "pageY"
+        @page_y
+      when "screenX"
+        @screen_x
+      when "screenY"
+        @screen_y
+      when "radiusX"
+        @radius_x
+      when "radiusY"
+        @radius_y
+      when "rotationAngle"
+        @rotation_angle
+      when "force"
+        @force
+      end
+    end
+  end
+
+  # `TouchList` — immutable, indexed collection of Touch points.
+  class TouchList
+    include Enumerable
+
+    def initialize(touches = [])
+      @touches = touches.to_a.freeze
+    end
+
+    def length
+      @touches.length
+    end
+
+    def item(index)
+      @touches[index.to_i]
+    end
+
+    def [](index)
+      item(index)
+    end
+
+    def each(&block)
+      @touches.each(&block)
+      self
+    end
+
+    def __js_get__(key)
+      case key
+      when "length"
+        length
+      else
+        item(key.to_i) if key.is_a?(Integer) || key.to_s.match?(/\A-?\d+\z/)
+      end
+    end
+
+    def __js_call__(method, args)
+      case method
+      when "item"
+        item(args[0])
+      end
+    end
+  end
+
+  # `TouchEvent` — fires for touchstart / touchmove / touchend /
+  # touchcancel. Carries three TouchLists plus modifier keys.
+  #
+  # Spec: https://w3c.github.io/touch-events/#touchevent-interface
+  class TouchEvent < Event
+    def initialize(type, init = nil)
+      super
+      @touches = TouchList.new(Array(read_init(init, "touches") || []))
+      @target_touches = TouchList.new(Array(read_init(init, "targetTouches") || []))
+      @changed_touches = TouchList.new(Array(read_init(init, "changedTouches") || []))
+      @alt_key = !!read_init(init, "altKey")
+      @ctrl_key = !!read_init(init, "ctrlKey")
+      @shift_key = !!read_init(init, "shiftKey")
+      @meta_key = !!read_init(init, "metaKey")
+    end
+
+    attr_reader :touches, :target_touches, :changed_touches
+
+    def __js_get__(key)
+      case key
+      when "touches"
+        @touches
+      when "targetTouches"
+        @target_touches
+      when "changedTouches"
+        @changed_touches
+      when "altKey"
+        @alt_key
+      when "ctrlKey"
+        @ctrl_key
+      when "shiftKey"
+        @shift_key
+      when "metaKey"
+        @meta_key
+      else
+        super
+      end
+    end
+  end
+
+  # `ClipboardEvent` — fires for copy / cut / paste. Carries the
+  # `clipboardData` payload as a DataTransfer.
+  #
+  # Spec: https://w3c.github.io/clipboard-apis/#clipboard-event-interface
+  class ClipboardEvent < Event
+    def initialize(type, init = nil)
+      super
+      @clipboard_data = read_init(init, "clipboardData")
+    end
+
+    attr_reader :clipboard_data
+
+    def __js_get__(key)
+      case key
+      when "clipboardData"
+        @clipboard_data
+      else
+        super
+      end
+    end
+  end
+
+  # `CompositionEvent` — IME composition events (compositionstart /
+  # compositionupdate / compositionend). `data` holds the composing text.
+  class CompositionEvent < Event
+    def initialize(type, init = nil)
+      super
+      @data = (read_init(init, "data") || "").to_s
+    end
+
+    attr_reader :data
+
+    def __js_get__(key)
+      case key
+      when "data"
+        @data
+      else
+        super
+      end
+    end
+  end
+
+  # `WheelEvent` — wheel-scroll events. Inherits MouseEvent (coords +
+  # modifier keys) and adds delta values + a delta mode.
+  class WheelEvent < MouseEvent
+    DOM_DELTA_PIXEL = 0
+    DOM_DELTA_LINE = 1
+    DOM_DELTA_PAGE = 2
+
+    def initialize(type, init = nil)
+      super
+      @delta_x = (read_init(init, "deltaX") || 0).to_f
+      @delta_y = (read_init(init, "deltaY") || 0).to_f
+      @delta_z = (read_init(init, "deltaZ") || 0).to_f
+      @delta_mode = (read_init(init, "deltaMode") || 0).to_i
+    end
+
+    attr_reader :delta_x, :delta_y, :delta_z, :delta_mode
+
+    def __js_get__(key)
+      case key
+      when "deltaX"
+        @delta_x
+      when "deltaY"
+        @delta_y
+      when "deltaZ"
+        @delta_z
+      when "deltaMode"
+        @delta_mode
+      else
+        super
+      end
+    end
+  end
+
+  # `FocusEvent` — focus / blur / focusin / focusout. `relatedTarget`
+  # is the element gaining/losing focus on the other side.
+  class FocusEvent < Event
+    def initialize(type, init = nil)
+      super
+      @related_target = read_init(init, "relatedTarget")
+    end
+
+    attr_reader :related_target
+
+    def __js_get__(key)
+      case key
+      when "relatedTarget"
+        @related_target
+      else
+        super
+      end
+    end
+  end
+
+  # `BeforeUnloadEvent` — `beforeunload` event. Setting `return_value`
+  # to a non-empty string (or calling `preventDefault`) signals the
+  # browser to prompt the user before navigating away.
+  class BeforeUnloadEvent < Event
+    def initialize(type = "beforeunload", init = nil)
+      super
+      @return_value = (read_init(init, "returnValue") || "").to_s
+    end
+
+    attr_accessor :return_value
+
+    def __js_get__(key)
+      case key
+      when "returnValue"
+        @return_value
+      else
+        super
+      end
+    end
+
+    def __js_set__(key, value)
+      case key
+      when "returnValue"
+        @return_value = value.to_s
+      else
+        super
+      end
+    end
+  end
+
   # `AbortController` + `AbortSignal` subset. Signal fires an
   # "abort" event and flips `[:aborted]` to true when the controller's
   # `abort()` is called; otherwise it stays inert.

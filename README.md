@@ -191,6 +191,11 @@ Implemented:
 - Navigator / Clipboard
 - TreeWalker / NodeIterator / NodeFilter
 - File API (Blob / File / FileList / FormData / DataTransfer)
+- Web Crypto (`crypto.randomUUID`, `getRandomValues`) / TextEncoder / TextDecoder
+- IntersectionObserver / ResizeObserver / PerformanceObserver (test-driven `__trigger__`)
+- Range / Selection (DOM-level only, no layout)
+- Web Animations API (Animation / KeyframeEffect; lifecycle via scheduler, finished/ready Promises)
+- Extended events: Touch / Clipboard / Composition / Wheel / Focus / BeforeUnload / Input / Pointer / Progress / Drag
 
 > [!IMPORTANT]
 > Out of scope:
@@ -199,8 +204,9 @@ Implemented:
 > - CSS scoping (`:host`, `::slotted`, computed styles)
 > - JS evaluation
 > - Canvas / WebGL / media playback
-> - layout-dependent Range / Selection
-> - SVG-specific value types (SVGAnimatedLength, SVGTransform, SVGMatrix); uncommon SVG elements (filter primitives, animation elements) fall through to the generic `Dommy::SVGElement`
+> - layout-dependent Range / Selection geometry (`getBoundingClientRect` returns zero rects)
+> - SVG-specific value types (SVGAnimatedLength, SVGTransform, SVGMatrix)
+> - Web Animations: no actual value interpolation — `Animation` is a state machine (`idle` / `running` / `paused` / `finished`) for testing lifecycle and event wiring
 
 ## Running the tests
 

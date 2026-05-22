@@ -491,11 +491,29 @@ module Dommy
   # positioning sees zeroed values; absolute layout assertions need
   # the real browser.
   class DOMRect
+    attr_reader :x, :y, :width, :height
+
     def initialize(x: 0, y: 0, width: 0, height: 0)
       @x = x
       @y = y
       @width = width
       @height = height
+    end
+
+    def top
+      @y
+    end
+
+    def left
+      @x
+    end
+
+    def right
+      @x + @width
+    end
+
+    def bottom
+      @y + @height
     end
 
     def __js_get__(key)
@@ -1760,6 +1778,26 @@ module Dommy
       nil
     end
 
+    # Web Animations: start an animation on this element.
+    # Returns the new Animation. Dommy doesn't interpolate; the
+    # animation simply transitions through the `playState` lifecycle,
+    # finishing via `scheduler.advance_time(duration)` or an
+    # explicit `animation.finish`.
+    def animate(keyframes, options = nil)
+      effect = KeyframeEffect.new(self, keyframes, options)
+      animation = Animation.new(effect, nil, window: @document.default_view)
+      @__animations ||= []
+      @__animations << animation
+      animation.play
+      animation
+    end
+
+    def get_animations(_options = nil)
+      (@__animations ||= []).dup
+    end
+
+    alias getAnimations get_animations
+
     def query_selector(selector)
       return nil if selector.nil? || selector.to_s.empty?
 
@@ -1981,7 +2019,10 @@ module Dommy
       :clone_node,
       :query_selector,
       :query_selector_all,
-      :closest
+      :closest,
+      :animate,
+      :get_animations,
+      :getAnimations
     )
   end
 end

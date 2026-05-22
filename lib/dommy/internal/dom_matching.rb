@@ -44,7 +44,7 @@ module Dommy
           actual.positive?
         when Integer
           actual == expected
-        when Range
+        when ::Range
           expected.cover?(actual)
         else
           false

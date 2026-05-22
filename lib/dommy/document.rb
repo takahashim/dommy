@@ -256,7 +256,11 @@ module Dommy
     alias has_focus has_focus?
 
     def get_selection
-      nil
+      @__selection ||= Selection.new(self)
+    end
+
+    def create_range
+      Range.new(self)
     end
 
     def element_from_point(_x, _y)

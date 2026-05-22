@@ -100,8 +100,10 @@ class TestDocumentAdvanced < Minitest::Test
     assert_equal(true, @doc.has_focus?)
   end
 
-  def test_get_selection_returns_nil
-    assert_nil(@doc.get_selection)
+  def test_get_selection_returns_selection
+    sel = @doc.get_selection
+    assert_kind_of(Dommy::Selection, sel)
+    assert_equal(0, sel.range_count)
   end
 
   def test_element_from_point_returns_nil
