@@ -10,7 +10,7 @@ module Dommy
       # Stops at Nokogiri::XML::Document (the root).
       def self.each_ancestor(node)
         current = node.respond_to?(:parent) ? node.parent : nil
-        while current && !current.is_a?(Nokogiri::XML::Document)
+        while current && !current.is_a?(Backend.document_class)
           yield current
           current = current.respond_to?(:parent) ? current.parent : nil
         end

@@ -56,7 +56,7 @@ module Dommy
       @cookie_jar = Internal::CookieJar.new
       @template_content_registry = Internal::TemplateContentRegistry.new(self)
       @mutation_coordinator = Internal::MutationCoordinator.new(self, @observer_manager)
-      @nokogiri_doc = nokogiri_doc || Nokogiri::HTML5("<!doctype html><html><head></head><body></body></html>")
+      @nokogiri_doc = nokogiri_doc || Backend.parse("<!doctype html><html><head></head><body></body></html>")
       body_node = @nokogiri_doc.at_css("body")
       @body = wrap_node(body_node) if body_node
     end
@@ -675,17 +675,17 @@ module Dommy
     # adoptNode for cross-document transfer.
     def clone_into_doc(source, deep)
       copy = if source.element?
-        new_el = Nokogiri::XML::Node.new(source.name, @nokogiri_doc)
+        new_el = Backend.create_element(source.name, @nokogiri_doc)
         source.attribute_nodes.each { |a| new_el[a.name] = a.value }
         new_el
       elsif source.text?
-        Nokogiri::XML::Text.new(source.content, @nokogiri_doc)
-      elsif source.is_a?(Nokogiri::XML::Comment)
-        Nokogiri::XML::Comment.new(@nokogiri_doc, source.content)
+        Backend.create_text(source.content, @nokogiri_doc)
+      elsif source.is_a?(Backend.comment_class)
+        Backend.create_comment(source.content, @nokogiri_doc)
       else
         # Fallback: serialize + reparse via fragment for unusual types.
         fragment = Parser.fragment(source.to_html, owner_doc: @nokogiri_doc)
-        fragment.children.first || Nokogiri::XML::Text.new("", @nokogiri_doc)
+        fragment.children.first || Backend.create_text("", @nokogiri_doc)
       end
 
       if deep && source.respond_to?(:children)
@@ -709,12 +709,12 @@ module Dommy
 
       title = head.at_css("title")
       unless title
-        title = Nokogiri::XML::Node.new("title", @nokogiri_doc)
+        title = Backend.create_element("title", @nokogiri_doc)
         head.add_child(title)
       end
 
       title.children.each(&:unlink)
-      title.add_child(Nokogiri::XML::Text.new(value, @nokogiri_doc))
+      title.add_child(Backend.create_text(value, @nokogiri_doc))
     end
 
   end

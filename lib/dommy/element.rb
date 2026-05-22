@@ -860,7 +860,7 @@ module Dommy
       parent = @__node__.parent
       return unless parent
 
-      if parent.is_a?(Nokogiri::XML::Document)
+      if parent.is_a?(Backend.document_class)
         raise(
           DOMException::NoModificationAllowedError,
           "outerHTML setter not allowed on the document element"
@@ -905,7 +905,7 @@ module Dommy
       loop do
         parent = current.respond_to?(:parent) ? current.parent : nil
         break unless parent
-        if parent.is_a?(Nokogiri::XML::Document)
+        if parent.is_a?(Backend.document_class)
           attached = true
           break
         end
@@ -1054,7 +1054,7 @@ module Dommy
 
         parent = current.respond_to?(:parent) ? current.parent : nil
         return false unless parent
-        return true if parent.is_a?(Nokogiri::XML::Document)
+        return true if parent.is_a?(Backend.document_class)
 
         sr = @document.__shadow_root_for_fragment__(parent)
         if sr
@@ -1745,7 +1745,7 @@ module Dommy
       # the bubble path's next stop is the ShadowRoot itself — not
       # the bare Fragment wrapper. The ShadowRoot's __event_parent__
       # will return nil (composed events route to host explicitly).
-      if parent_node.is_a?(Nokogiri::XML::DocumentFragment)
+      if parent_node.is_a?(Backend.document_fragment_class)
         sr = @document.__shadow_root_for_fragment__(parent_node)
         return sr if sr
       end
@@ -1996,7 +1996,7 @@ module Dommy
       return unless child.respond_to?(:__node__)
 
       node = child.__node__
-      return unless node.is_a?(Nokogiri::XML::Node)
+      return unless node.is_a?(Backend.node_class)
 
       if node == @__node__ || @__node__.ancestors.any? { |a| a == node }
         raise(

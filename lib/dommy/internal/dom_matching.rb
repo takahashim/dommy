@@ -57,7 +57,7 @@ module Dommy
       #
       # @param html [String]
       def normalize_html(html)
-        Nokogiri::HTML5.fragment(html.to_s).to_html.gsub(/\s+/, " ").strip
+        Backend.fragment(html.to_s, owner_doc: nil).to_html.gsub(/\s+/, " ").strip
       end
 
       # Get the text_content of a scope, handling Document (which has

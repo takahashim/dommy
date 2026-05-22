@@ -1,9 +1,9 @@
 # frozen_string_literal: true
 
-require "nokogiri"
 require "set"
 
 require_relative "dommy/version"
+require_relative "dommy/backend"
 require_relative "dommy/dom_exception"
 require_relative "dommy/node"
 require_relative "dommy/html_collection"
@@ -73,12 +73,21 @@ module Dommy
   def self.parse(html)
     s = html.to_s
     if s.match?(/\A\s*(<!doctype|<html\b)/i)
-      Window.new(nil, nokogiri_doc: Nokogiri::HTML5(s))
+      Window.new(nil, nokogiri_doc: Backend.parse(s))
     else
       window = Window.new
       window.document.body.inner_html = s
       window
     end
+  end
+
+  # Convenience accessor: `Dommy.backend` / `Dommy.backend=`.
+  def self.backend
+    Backend.current
+  end
+
+  def self.backend=(new_backend)
+    Backend.current = new_backend
   end
 
   # Build a fresh, empty Window (no host). Equivalent to opening a

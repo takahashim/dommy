@@ -33,15 +33,15 @@ module Dommy
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
         raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless str.match?(NAME_RE)
 
-        wrap_node(Nokogiri::XML::Node.new(str.downcase, @document.nokogiri_doc))
+        wrap_node(Backend.create_element(str.downcase, @document.nokogiri_doc))
       end
 
       def create_text_node(text)
-        wrap_node(Nokogiri::XML::Text.new(text.to_s, @document.nokogiri_doc))
+        wrap_node(Backend.create_text(text.to_s, @document.nokogiri_doc))
       end
 
       def create_comment(text)
-        wrap_node(Nokogiri::XML::Comment.new(@document.nokogiri_doc, text.to_s))
+        wrap_node(Backend.create_comment(text.to_s, @document.nokogiri_doc))
       end
 
       def create_document_fragment
@@ -69,8 +69,11 @@ module Dommy
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
         raise DOMException::InvalidCharacterError, "invalid qualified name: #{str.inspect}" unless str.match?(NAME_RE)
 
-        el = Nokogiri::XML::Node.new(str, @document.nokogiri_doc)
-        el.add_namespace_definition(nil, namespace_uri.to_s) if namespace_uri && !namespace_uri.to_s.empty?
+        el = Backend.create_element(str, @document.nokogiri_doc)
+        if namespace_uri && !namespace_uri.to_s.empty?
+          Backend.add_namespace_definition(el, nil, namespace_uri.to_s)
+        end
+
         wrap(el)
       end
 
@@ -139,20 +142,20 @@ module Dommy
 
       def build_wrapper_for(node)
         case node
-        when Nokogiri::XML::Element
+        when Backend.element_class
           build_element_wrapper(node)
-        when Nokogiri::XML::Text
+        when Backend.text_class
           TextNode.new(@document, node)
-        when Nokogiri::XML::Comment
+        when Backend.comment_class
           CommentNode.new(@document, node)
-        when Nokogiri::XML::DocumentFragment
+        when Backend.document_fragment_class
           Fragment.new(@document, node)
         end
       end
 
       def build_element_wrapper(node)
         custom_klass = custom_element_class_for(node.name)
-        klass = custom_klass || Dommy.element_class_for(node.name, node.namespace&.href)
+        klass = custom_klass || Dommy.element_class_for(node.name, Backend.namespace_of(node)&.href)
         instance = klass.new(@document, node)
 
         @wrappers[node.object_id] = instance

@@ -29,6 +29,8 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb", "README.md"]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency("nokogiri", "~> 1.15")
-
+  # Dommy supports multiple HTML parser backends via Dommy::Backend.
+  # Users must install one of: nokogiri or nokolexbor.
+  # Default: nokogiri (mature, full namespace support).
+  # Alternative: nokolexbor (3-7× faster CSS selectors, Lexbor-based).
 end

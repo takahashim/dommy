@@ -44,12 +44,13 @@ module Dommy
     private
 
     def parse_html(str)
-      nokogiri_doc = Nokogiri::HTML5(str.empty? ? "<html><body></body></html>" : str, max_errors: 0)
+      nokogiri_doc = Backend.parse(str.empty? ? "<html><body></body></html>" : str)
       Document.new(nil, nokogiri_doc: nokogiri_doc)
     end
 
     def parse_xml(str)
-      nokogiri_doc = Nokogiri::XML(str)
+      # Backends are HTML-only; parse XML input as HTML for now.
+      nokogiri_doc = Backend.parse(str.empty? ? "<html><body></body></html>" : str)
       Document.new(nil, nokogiri_doc: nokogiri_doc)
     end
   end

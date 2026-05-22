@@ -48,7 +48,7 @@ module Dommy
 
     def text_content=(value)
       @__node__.children.each(&:unlink)
-      @__node__.add_child(Nokogiri::XML::Text.new(value.to_s, @document.nokogiri_doc))
+      @__node__.add_child(Backend.create_text(value.to_s, @document.nokogiri_doc))
     end
 
     def children
@@ -242,7 +242,7 @@ module Dommy
     def detach_dom_nodes(value)
       case value
       when String
-        [Nokogiri::XML::Text.new(value, @document.nokogiri_doc)]
+        [Backend.create_text(value, @document.nokogiri_doc)]
       else
         node = value.respond_to?(:__node__) ? value.__node__ : nil
         return [] unless node

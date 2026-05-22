@@ -247,7 +247,7 @@ module Dommy
 
     def wrapped_parent(node)
       parent_nk = node.respond_to?(:__node__) ? node.__node__.parent : nil
-      return nil unless parent_nk && !parent_nk.is_a?(Nokogiri::XML::Document)
+      return nil unless parent_nk && !parent_nk.is_a?(Backend.document_class)
 
       doc = node.instance_variable_get(:@document) || (@root.respond_to?(:document) ? @root.document : @root)
       doc.wrap_node(parent_nk)
@@ -413,7 +413,7 @@ module Dommy
 
     def parent_node_of(node)
       parent_nk = node.respond_to?(:__node__) ? node.__node__.parent : nil
-      return nil unless parent_nk && !parent_nk.is_a?(Nokogiri::XML::Document)
+      return nil unless parent_nk && !parent_nk.is_a?(Backend.document_class)
 
       document_for(node).wrap_node(parent_nk)
     end
