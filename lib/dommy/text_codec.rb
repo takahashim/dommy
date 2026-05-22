@@ -103,4 +103,73 @@ module Dommy
       end
     end
   end
+
+  # `TextEncoderStream` — Stream-shaped wrapper over `TextEncoder`.
+  # `write(string)` flushes UTF-8 bytes downstream.
+  class TextEncoderStream
+    attr_reader :readable, :writable
+
+    def initialize(window)
+      encoder = TextEncoder.new
+      @readable = ReadableStream.new(window)
+      controller = TransformStreamDefaultController.new(@readable)
+
+      @writable = WritableStream.new(
+        window,
+        {
+          "write" => proc { |chunk| controller.enqueue(encoder.encode(chunk)) },
+          "close" => proc { @readable.__close__ },
+          "abort" => proc { |r| @readable.__error__(r) }
+        }
+      )
+    end
+
+    def encoding
+      "utf-8"
+    end
+
+    def __js_get__(key)
+      case key
+      when "readable"
+        @readable
+      when "writable"
+        @writable
+      when "encoding"
+        encoding
+      end
+    end
+  end
+
+  # `TextDecoderStream` — Stream-shaped wrapper over `TextDecoder`.
+  # `write(bytes)` flushes decoded strings downstream.
+  class TextDecoderStream
+    attr_reader :readable, :writable, :encoding
+
+    def initialize(window, label = "utf-8", _options = nil)
+      decoder = TextDecoder.new(label)
+      @encoding = decoder.encoding
+      @readable = ReadableStream.new(window)
+      controller = TransformStreamDefaultController.new(@readable)
+
+      @writable = WritableStream.new(
+        window,
+        {
+          "write" => proc { |chunk| controller.enqueue(decoder.decode(chunk)) },
+          "close" => proc { @readable.__close__ },
+          "abort" => proc { |r| @readable.__error__(r) }
+        }
+      )
+    end
+
+    def __js_get__(key)
+      case key
+      when "readable"
+        @readable
+      when "writable"
+        @writable
+      when "encoding"
+        @encoding
+      end
+    end
+  end
 end

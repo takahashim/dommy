@@ -187,7 +187,21 @@ Implemented:
 - Promise
 - Location / History / URL
 - Storage
-- fetch (stub)
+- fetch (stub) / XMLHttpRequest (stub-driven, sync + async, shares the `__fetchy_stub__` fixture map)
+- WebSocket / EventSource — test seams (`__simulate_open__` / `__simulate_message__` / `__simulate_close__`) drive the streams
+- MessageChannel / MessagePort / BroadcastChannel — in-process pub/sub with `structuredClone`-on-transfer
+- FileReader (`readAsText` / `readAsDataURL` / `readAsArrayBuffer` / `readAsBinaryString`)
+- Notification (permission settable via `Notification.__set_permission__`)
+- Geolocation (mock position via `navigator.geolocation.__set_position__`)
+- `window.matchMedia` returning a `MediaQueryList` (`__set_matches__` flips and fires `change`)
+- `requestIdleCallback` / `cancelIdleCallback` (modelled on scheduler), `structuredClone` global
+- `crypto.subtle` digest (SHA-1/256/384/512) and HMAC sign/verify/import/generateKey
+- Streams API (`ReadableStream` / `WritableStream` / `TransformStream` + `TextEncoderStream` / `TextDecoderStream`)
+- `CompressionStream` / `DecompressionStream` (gzip / deflate / deflate-raw via Ruby `Zlib`)
+- Worker (inline-emulated — same-process message round-trip; tests register handlers via `worker.__on_message__`)
+- Performance User Timing (`performance.mark` / `measure` / `getEntriesByName`)
+- `cookieStore` (async Cookie Store API, backed by the same jar `document.cookie` uses)
+- Navigator extras: `share` / `vibrate` / `wakeLock.request` / `getBattery`
 - Navigator / Clipboard
 - TreeWalker / NodeIterator / NodeFilter
 - File API (Blob / File / FileList / FormData / DataTransfer)

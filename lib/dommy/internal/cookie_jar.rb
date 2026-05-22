@@ -5,6 +5,8 @@ module Dommy
     # Manages document cookie storage (in-memory, not persisted).
     # Implements the simple document.cookie key=value; key=value interface.
     class CookieJar
+      attr_reader :cookies
+
       def initialize
         @cookies = {}
       end

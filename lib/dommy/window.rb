@@ -68,6 +68,30 @@ module Dommy
       @resize_observer_ctor = Bridge::Constructor.new { |args| ResizeObserver.new(args[0]) }
       @performance_observer_ctor = Bridge::Constructor.new { |args| PerformanceObserver.new(args[0]) }
       @request_ctor = Bridge::Constructor.new { |args| Request.new(args[0], args[1]) }
+      xhr_win_ref = self
+      @xhr_ctor = Bridge::Constructor.new { |_args| XMLHttpRequest.new(xhr_win_ref) }
+      @file_reader_ctor = Bridge::Constructor.new { |_args| FileReader.new(xhr_win_ref) }
+      @message_channel_ctor = Bridge::Constructor.new { |_args| MessageChannel.new(xhr_win_ref) }
+      @broadcast_channel_ctor = Bridge::Constructor.new { |args| BroadcastChannel.new(xhr_win_ref, args[0]) }
+      @web_socket_ctor = Bridge::Constructor.new { |args| WebSocket.new(xhr_win_ref, args[0], args[1]) }
+      @event_source_ctor = Bridge::Constructor.new { |args| EventSource.new(xhr_win_ref, args[0], args[1]) }
+      @notification_ctor = Bridge::Constructor.new { |args| Notification.new(xhr_win_ref, args[0], args[1]) }
+      @notification_ctor.define_class_method("requestPermission") do |args|
+        Notification.request_permission(xhr_win_ref, args[0])
+      end
+
+      @worker_ctor = Bridge::Constructor.new { |args| Worker.new(xhr_win_ref, args[0], args[1]) }
+      @readable_stream_ctor = Bridge::Constructor.new { |args| ReadableStream.new(xhr_win_ref, args[0]) }
+      @writable_stream_ctor = Bridge::Constructor.new { |args| WritableStream.new(xhr_win_ref, args[0]) }
+      @transform_stream_ctor = Bridge::Constructor.new { |args| TransformStream.new(xhr_win_ref, args[0]) }
+      @text_encoder_stream_ctor = Bridge::Constructor.new { |_args| TextEncoderStream.new(xhr_win_ref) }
+      @text_decoder_stream_ctor = Bridge::Constructor.new { |args|
+        TextDecoderStream.new(xhr_win_ref, args[0] || "utf-8", args[1])
+      }
+      @compression_stream_ctor = Bridge::Constructor.new { |args| CompressionStream.new(xhr_win_ref, args[0]) }
+      @decompression_stream_ctor = Bridge::Constructor.new { |args| DecompressionStream.new(xhr_win_ref, args[0]) }
+      @cookie_store = CookieStore.new(xhr_win_ref)
+
       @range_ctor = Bridge::Constructor.new { |_args| Range.new(@document) }
       @local_storage = Storage.new
       @session_storage = Storage.new
@@ -166,6 +190,38 @@ module Dommy
         @performance_observer_ctor
       when "Request"
         @request_ctor
+      when "XMLHttpRequest"
+        @xhr_ctor
+      when "FileReader"
+        @file_reader_ctor
+      when "MessageChannel"
+        @message_channel_ctor
+      when "BroadcastChannel"
+        @broadcast_channel_ctor
+      when "WebSocket"
+        @web_socket_ctor
+      when "EventSource"
+        @event_source_ctor
+      when "Notification"
+        @notification_ctor
+      when "Worker"
+        @worker_ctor
+      when "ReadableStream"
+        @readable_stream_ctor
+      when "WritableStream"
+        @writable_stream_ctor
+      when "TransformStream"
+        @transform_stream_ctor
+      when "TextEncoderStream"
+        @text_encoder_stream_ctor
+      when "TextDecoderStream"
+        @text_decoder_stream_ctor
+      when "CompressionStream"
+        @compression_stream_ctor
+      when "DecompressionStream"
+        @decompression_stream_ctor
+      when "cookieStore"
+        @cookie_store
       when "Range"
         @range_ctor
         # handled by Symbol sentinel
@@ -179,7 +235,7 @@ module Dommy
       when "JSON"
         :json_ctor
       when "performance"
-        {"now" => @scheduler.now_ms.to_f}
+        @performance ||= Performance.new(self)
       when "localStorage"
         @local_storage
       when "sessionStorage"
@@ -245,6 +301,25 @@ module Dommy
         @scheduler.cancel_animation_frame(args[0])
       when "queueMicrotask"
         @scheduler.queue_microtask(args[0])
+      when "requestIdleCallback"
+        # WHATWG `requestIdleCallback` — no real idle period in
+        # dommy, so we model it as a deferred setTimeout. The
+        # callback receives an `IdleDeadline`-shaped Hash.
+        @scheduler.set_timeout(
+          proc {
+            args[0].respond_to?(:__js_call__) ? args[0].__js_call__(
+              "call",
+              [{"timeRemaining" => 50.0, "didTimeout" => false}]
+            ) : args[0].call({"timeRemaining" => 50.0, "didTimeout" => false})
+          },
+          (args[1].is_a?(Hash) && args[1]["timeout"]) || 0
+        )
+      when "cancelIdleCallback"
+        @scheduler.clear_timeout(args[0])
+      when "structuredClone"
+        Dommy.structured_clone(args[0])
+      when "matchMedia"
+        MediaQueryList.new(self, args[0].to_s)
       else
         # Additional window-level methods (fetch, location, history,
         # Promise, MutationObserver, etc.) arrive in later sessions.

@@ -21,9 +21,49 @@ module Dommy
       @cookie_enabled = true
       @clipboard = Clipboard.new(window)
       @permissions = Permissions.new(window)
+      @geolocation = Geolocation.new(window)
+      @vibration_log = []
+      @wake_lock = WakeLock.new(window)
     end
 
-    attr_reader :clipboard, :permissions
+    attr_reader :clipboard, :permissions, :geolocation, :wake_lock
+
+    # Web Share API. Returns a Promise; tests can inspect
+    # `__last_shared__` to verify what was offered.
+    def share(data = nil)
+      @last_shared = data
+      PromiseValue.resolve(@window, nil)
+    end
+
+    def can_share(_data = nil)
+      true
+    end
+
+    alias canShare can_share
+
+    # Vibration API. No-op in dommy, but the requested pattern is
+    # recorded so tests can assert "we asked to vibrate".
+    def vibrate(pattern)
+      list = pattern.is_a?(Array) ? pattern : [pattern]
+      @vibration_log << list.map(&:to_i)
+      true
+    end
+
+    def __vibration_log__
+      @vibration_log.dup
+    end
+
+    def __last_shared__
+      @last_shared
+    end
+
+    # Battery Status API stub. Returns a Promise resolving to a fixed
+    # `BatteryManager` snapshot.
+    def get_battery
+      PromiseValue.resolve(@window, BatteryManager.new)
+    end
+
+    alias getBattery get_battery
 
     def [](key)
       __js_get__(key.to_s)
@@ -53,6 +93,23 @@ module Dommy
         @clipboard
       when "permissions"
         @permissions
+      when "geolocation"
+        @geolocation
+      when "wakeLock"
+        @wake_lock
+      end
+    end
+
+    def __js_call__(method, args)
+      case method
+      when "share"
+        share(args[0])
+      when "canShare"
+        can_share(args[0])
+      when "vibrate"
+        vibrate(args[0])
+      when "getBattery"
+        get_battery
       end
     end
 
@@ -261,6 +318,197 @@ module Dommy
         remove_event_listener(args[0], args[1])
       when "dispatchEvent"
         dispatch_event(args[0])
+      end
+    end
+
+    def __event_parent__
+      nil
+    end
+  end
+
+  # `navigator.geolocation` — stub Geolocation API. Real implementations
+  # query the OS; dommy holds a mock position tests configure via
+  # `__set_position__(coords)` or `__set_error__(error_code)`.
+  #
+  # Spec: https://www.w3.org/TR/geolocation/
+  class Geolocation
+    DEFAULT_COORDS = {
+      "latitude" => 0.0,
+      "longitude" => 0.0,
+      "accuracy" => 0.0,
+      "altitude" => nil,
+      "altitudeAccuracy" => nil,
+      "heading" => nil,
+      "speed" => nil
+    }.freeze
+
+    def initialize(window)
+      @window = window
+      @position = nil
+      @error = nil
+      @watches = {}
+      @next_watch_id = 0
+    end
+
+    # Test seam: install a mock position.
+    def __set_position__(coords = {})
+      merged = DEFAULT_COORDS.merge(coords.transform_keys(&:to_s))
+      @position = {"coords" => merged, "timestamp" => @window.scheduler.now_ms}
+      @error = nil
+    end
+
+    # Test seam: install a permission/positioning error (code 1=PERMISSION_DENIED,
+    # 2=POSITION_UNAVAILABLE, 3=TIMEOUT).
+    def __set_error__(code, message = "")
+      @position = nil
+      @error = {"code" => code.to_i, "message" => message.to_s}
+    end
+
+    def get_current_position(success, failure = nil, _options = nil)
+      @window.scheduler.queue_microtask(proc { deliver(success, failure) })
+      nil
+    end
+
+    alias getCurrentPosition get_current_position
+
+    def watch_position(success, failure = nil, _options = nil)
+      id = (@next_watch_id += 1)
+      @watches[id] = [success, failure]
+      @window.scheduler.queue_microtask(proc { deliver(success, failure) })
+      id
+    end
+
+    alias watchPosition watch_position
+
+    def clear_watch(id)
+      @watches.delete(id)
+      nil
+    end
+
+    alias clearWatch clear_watch
+
+    def __js_call__(method, args)
+      case method
+      when "getCurrentPosition"
+        get_current_position(args[0], args[1], args[2])
+      when "watchPosition"
+        watch_position(args[0], args[1], args[2])
+      when "clearWatch"
+        clear_watch(args[0])
+      end
+    end
+
+    private
+
+    def deliver(success, failure)
+      if @position
+        invoke(success, @position)
+      else
+        invoke(failure, @error || {"code" => 2, "message" => "POSITION_UNAVAILABLE"})
+      end
+    end
+
+    def invoke(callback, payload)
+      return if callback.nil?
+
+      if callback.respond_to?(:__js_call__)
+        callback.__js_call__("call", [payload])
+      elsif callback.respond_to?(:call)
+        callback.call(payload)
+      end
+    end
+  end
+
+  # `navigator.wakeLock` — Screen Wake Lock API stub. `request(type)`
+  # returns a Promise of a `WakeLockSentinel` whose `release()` flips
+  # `released` and dispatches a `release` event.
+  #
+  # Spec: https://www.w3.org/TR/screen-wake-lock/
+  class WakeLock
+    def initialize(window)
+      @window = window
+    end
+
+    def request(type = "screen")
+      PromiseValue.resolve(@window, WakeLockSentinel.new(@window, type.to_s))
+    end
+
+    def __js_call__(method, args)
+      case method
+      when "request"
+        request(args[0] || "screen")
+      end
+    end
+  end
+
+  class WakeLockSentinel
+    include EventTarget
+
+    attr_reader :type
+
+    def initialize(window, type)
+      @window = window
+      @type = type
+      @released = false
+    end
+
+    def released
+      @released
+    end
+
+    def release
+      return PromiseValue.resolve(@window, nil) if @released
+
+      @released = true
+      dispatch_event(Event.new("release"))
+      PromiseValue.resolve(@window, nil)
+    end
+
+    def __js_get__(key)
+      case key
+      when "type"
+        @type
+      when "released"
+        @released
+      end
+    end
+
+    def __js_call__(method, _args)
+      case method
+      when "release"
+        release
+      end
+    end
+
+    def __event_parent__
+      nil
+    end
+  end
+
+  # `navigator.getBattery()` returns one of these. Fixed snapshot —
+  # tests that need different values can stub.
+  class BatteryManager
+    include EventTarget
+
+    attr_reader :charging, :charging_time, :discharging_time, :level
+
+    def initialize(charging: true, level: 1.0, charging_time: 0, discharging_time: Float::INFINITY)
+      @charging = charging
+      @level = level
+      @charging_time = charging_time
+      @discharging_time = discharging_time
+    end
+
+    def __js_get__(key)
+      case key
+      when "charging"
+        @charging
+      when "chargingTime"
+        @charging_time
+      when "dischargingTime"
+        @discharging_time
+      when "level"
+        @level
       end
     end
 
