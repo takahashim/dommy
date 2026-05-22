@@ -207,7 +207,7 @@ Implemented:
 > - layout-dependent Range / Selection geometry (`getBoundingClientRect` returns zero rects)
 > - SVG-specific value types (SVGAnimatedLength, SVGTransform, SVGMatrix)
 > - Web Animations: no actual value interpolation — `Animation` is a state machine (`idle` / `running` / `paused` / `finished`) for testing lifecycle and event wiring
-> - URL parsing diverges from WHATWG where Ruby's stdlib `URI` does: IDN hosts (`http://日本.test/` raises instead of Punycode-encoding), `file://` special-scheme rules, and some percent-encoding edge cases
+> - URL parsing now leans WHATWG: leading/trailing whitespace and embedded tab/newline are stripped; spaces / `<>{}|` / control chars / non-ASCII in path are percent-encoded; `\` is converted to `/` for special schemes (http/https/ws/wss/ftp/file); `./` and `../` are resolved; empty paths on special schemes canonicalize to `/`; IPv4 number forms (`0x7f.1`, `0177.0.0.1`, `2130706433`) normalize to dotted-decimal; ws/wss default ports (80/443) strip from `href`; the `hostname=` setter Punycode-encodes non-ASCII. `origin` follows the spec: tuple origin for http(s)/ws(s)/ftp, `"null"` for file/data/javascript, inner-URL origin for `blob:`. IDN hosts use full UTS #46 + RFC 5893 Bidi + RFC 5892 ContextJ/ContextO via vendored Unicode 16.0 tables (`vendor/unicode/`, regenerated via `script/build_idna_tables.rb`)
 
 ## Running the tests
 

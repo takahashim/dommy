@@ -93,7 +93,7 @@ module Dommy
 
     def host
       port = @uri.port
-      default = @uri.default_port
+      default = default_port_for(@uri.scheme.to_s.downcase)
       hostpart = @uri.host.to_s
       return hostpart if port.nil? || port == default
 
@@ -111,11 +111,14 @@ module Dommy
     end
 
     def hostname=(value)
-      @uri.host = value.to_s
+      # WHATWG: a non-ASCII hostname assigned through the setter is
+      # Punycode-encoded before storage (matches `new URL("...")`).
+      @uri.host = Internal::IDNA.to_ascii(value.to_s)
     end
 
     def port
-      return "" if @uri.port.nil? || @uri.port == @uri.default_port
+      default = default_port_for(@uri.scheme.to_s.downcase)
+      return "" if @uri.port.nil? || @uri.port == default
 
       @uri.port.to_s
     end
@@ -126,9 +129,16 @@ module Dommy
 
     # WHATWG: for opaque-body schemes (javascript:, mailto:, data:,
     # tel:, blob:) the body sits in `URI`'s `opaque` slot, not `path`.
+    # For special schemes (http/https/ws/wss/ftp), an empty path is
+    # canonicalized to `"/"`.
     def pathname
       opaque = @uri.respond_to?(:opaque) ? @uri.opaque : nil
-      opaque ? opaque.to_s : @uri.path.to_s
+      return opaque.to_s if opaque
+
+      path = @uri.path.to_s
+      return "/" if path.empty? && special_scheme?
+
+      path
     end
 
     def pathname=(value)
@@ -162,11 +172,30 @@ module Dommy
       @uri.fragment = f.empty? ? nil : f
     end
 
+    # WHATWG URL §origin. Tuple origins for http(s) / ws(s) / ftp;
+    # `"null"` for file/data/javascript/etc. Blob URLs unwrap their
+    # inner URL recursively.
     def origin
-      return "null" unless @uri.scheme && @uri.host
+      scheme = @uri.scheme.to_s.downcase
+      return blob_inner_origin if scheme == "blob"
+      return "null" unless TUPLE_ORIGIN_SCHEMES.include?(scheme)
+      return "null" unless @uri.host
 
-      port_part = (@uri.port && @uri.port != @uri.default_port) ? ":#{@uri.port}" : ""
-      "#{@uri.scheme}://#{@uri.host}#{port_part}"
+      default = default_port_for(scheme)
+      port_part = (@uri.port && @uri.port != default) ? ":#{@uri.port}" : ""
+      "#{scheme}://#{@uri.host}#{port_part}"
+    end
+
+    def blob_inner_origin
+      # `blob:<inner-url>` — the body after `blob:` is itself a URL
+      # whose origin we adopt. Anything that fails to parse falls
+      # back to "null".
+      opaque = @uri.respond_to?(:opaque) ? @uri.opaque : nil
+      return "null" if opaque.nil? || opaque.empty?
+
+      URL.new(opaque).origin
+    rescue DOMException::SyntaxError
+      "null"
     end
 
     def username
@@ -264,22 +293,200 @@ module Dommy
       sync_uri_query
     end
 
+    SPECIAL_SCHEMES = %w[http https ws wss ftp file].freeze
+
+    # WHATWG: only http(s) / ws(s) / ftp produce a tuple origin. file
+    # / data / javascript / etc. resolve to `"null"`. `blob:` is
+    # handled specially (inner-URL origin).
+    TUPLE_ORIGIN_SCHEMES = %w[http https ws wss ftp].freeze
+
+    # Default ports per scheme (Ruby URI knows http/https/ftp; we add
+    # ws/wss).
+    DEFAULT_PORTS = {
+      "http" => 80,
+      "https" => 443,
+      "ws" => 80,
+      "wss" => 443,
+      "ftp" => 21
+    }.freeze
+
+    # Chars that Ruby URI rejects in the path/query/fragment portion
+    # but WHATWG silently percent-encodes.
+    UNSAFE_PATH_CHARS = /[ "<>`{}|\\\^\[\]]/
+
     private
 
+    def special_scheme?
+      SPECIAL_SCHEMES.include?(@uri.scheme.to_s.downcase)
+    end
+
+    def default_port_for(scheme)
+      DEFAULT_PORTS[scheme]
+    end
+
     def parse_with_base(input, base)
-      str = input.to_s
+      str = preprocess(input.to_s)
       uri = nil
       if base
-        base_uri = base.is_a?(URL) ? URI.parse(base.href) : URI.parse(base.to_s)
+        base_str = preprocess(base.is_a?(URL) ? base.href : base.to_s)
+        base_uri = URI.parse(base_str)
         uri = URI.join(base_uri, str)
       else
         uri = URI.parse(str)
         raise DOMException::SyntaxError, "Invalid URL: #{str}" unless uri.scheme
       end
 
+      normalize_path_segments(uri) if special_scheme_for?(uri)
       uri
     rescue URI::InvalidURIError => e
       raise DOMException::SyntaxError, "Invalid URL: #{e.message}"
+    rescue Internal::Punycode::Error, Internal::IDNA::Error => e
+      raise DOMException::SyntaxError, "Invalid URL host: #{e.message}"
+    end
+
+    # WHATWG URL preprocessing — turn a raw input string into a form
+    # Ruby URI accepts. Order matters: each step can depend on
+    # earlier normalizations.
+    def preprocess(str)
+      str = strip_c0_and_space(str)
+      str = strip_tab_and_newline(str)
+      str = replace_backslashes_for_special_scheme(str)
+      str = normalize_idn_host(str)
+      str = normalize_ipv4_host(str)
+      percent_encode_unsafe(str)
+    end
+
+    # WHATWG §basic-url-parser step 1: strip leading and trailing
+    # C0 controls and ASCII space.
+    def strip_c0_and_space(str)
+      str.sub(/\A[\x00-\x20]+/, "").sub(/[\x00-\x20]+\z/, "")
+    end
+
+    # WHATWG: remove ASCII tab and newline anywhere in the URL.
+    def strip_tab_and_newline(str)
+      str.delete("\t\n\r")
+    end
+
+    # WHATWG: for special-scheme URLs, treat `\` as `/` in the
+    # authority and path portions.
+    def replace_backslashes_for_special_scheme(str)
+      m = str.match(/\A([a-zA-Z][a-zA-Z0-9+.\-]*):/)
+      return str unless m
+      return str unless SPECIAL_SCHEMES.include?(m[1].downcase)
+
+      scheme_end = m.end(0)
+      str[0...scheme_end] + str[scheme_end..].tr("\\", "/")
+    end
+
+    # Percent-encode chars after the authority section that Ruby URI
+    # would reject (space, `<`, `>`, `{`, `}`, `|`, etc.) and any
+    # non-ASCII byte. Preserves already-encoded `%XX` sequences.
+    def percent_encode_unsafe(str)
+      m = str.match(%r{\A([a-zA-Z][a-zA-Z0-9+.\-]*:(?://[^/?#]*)?)(.*)\z}m)
+      return str unless m
+
+      prefix = m[1]
+      tail = m[2]
+      out = +""
+      i = 0
+      while i < tail.length
+        c = tail[i]
+        if c == "%" && tail[i + 1, 2].to_s.match?(/\A[0-9A-Fa-f]{2}\z/)
+          out << tail[i, 3]
+          i += 3
+          next
+        end
+
+        needs_encoding = c.bytesize > 1 ||
+          c.ord < 0x20 ||
+          c.ord == 0x7F ||
+          UNSAFE_PATH_CHARS.match?(c)
+
+        if needs_encoding
+          c.bytes.each { |b| out << format("%%%02X", b) }
+        else
+          out << c
+        end
+
+        i += 1
+      end
+
+      prefix + out
+    end
+
+    # Detect dotted-quad / hex / octal / short-form IPv4 hosts and
+    # canonicalize to dotted-decimal. Touches the authority section
+    # only; non-special schemes are skipped.
+    def normalize_ipv4_host(str)
+      m = str.match(%r{\A([a-zA-Z][a-zA-Z0-9+.\-]*://(?:[^@/?#]*@)?)([^/:?#]+)(.*)\z}m)
+      return str unless m
+
+      scheme = str.match(/\A([a-zA-Z][a-zA-Z0-9+.\-]*):/)[1].downcase
+      return str unless SPECIAL_SCHEMES.include?(scheme)
+
+      ip = Internal::Ipv4Parser.parse(m[2])
+      return str unless ip
+
+      "#{m[1]}#{ip}#{m[3]}"
+    end
+
+    def special_scheme_for?(uri)
+      SPECIAL_SCHEMES.include?(uri.scheme.to_s.downcase)
+    end
+
+    # WHATWG: resolve `.` / `..` path segments. Applied only to
+    # special-scheme URIs (opaque schemes' path is verbatim).
+    def normalize_path_segments(uri)
+      path = uri.path
+      return if path.nil? || path.empty?
+
+      segments = path.split("/", -1)
+      result = []
+      segments.each do |seg|
+        case seg
+        when ".."
+          # Pop unless we'd remove the leading-empty marker.
+          result.pop if result.length > 1
+        when "."
+          # Skip.
+        else
+          result << seg
+        end
+      end
+
+      # Preserve the trailing slash if the input had one.
+      result << "" if path.end_with?("/", ".") && result.last != ""
+      uri.path = result.join("/")
+    end
+
+    # WHATWG: non-ASCII host labels must be Punycode-encoded
+    # (`日本.test` → `xn--wgv71a.test`) before storage. Ruby's URI
+    # parser rejects non-ASCII hosts outright, so we rewrite the host
+    # portion of the authority section here. Userinfo / port / path /
+    # query / fragment are left untouched.
+    def normalize_idn_host(str)
+      return str unless str.is_a?(String)
+      return str unless str.match?(%r{://})
+
+      str.sub(%r{(://)([^/?#]*)}) do
+        sep = Regexp.last_match(1)
+        authority = Regexp.last_match(2)
+        sep + rewrite_authority(authority)
+      end
+    end
+
+    def rewrite_authority(authority)
+      userinfo, hostport = authority.include?("@") ? authority.split("@", 2) : [nil, authority]
+      host, port = hostport.rpartition(":").then { |h, sep, p|
+        sep.empty? || h.empty? ? [hostport, nil] : [h, p]
+      }
+
+      ascii_host = Internal::IDNA.to_ascii(host)
+      out = +""
+      out << "#{userinfo}@" if userinfo
+      out << ascii_host
+      out << ":#{port}" if port
+      out
     end
 
     def build_href
@@ -301,10 +508,15 @@ module Dommy
           end
 
           out << @uri.host
-          out << ":#{@uri.port}" if @uri.port && @uri.port != @uri.default_port
+          default = default_port_for(@uri.scheme.to_s.downcase)
+          out << ":#{@uri.port}" if @uri.port && @uri.port != default
         end
 
-        out << @uri.path.to_s
+        path = @uri.path.to_s
+        # WHATWG: for special schemes the path is normalized to `/`
+        # when empty (matches `pathname` accessor).
+        path = "/" if path.empty? && special_scheme?
+        out << path
       end
 
       out << search

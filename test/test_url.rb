@@ -97,6 +97,210 @@ class TestURLOpaqueAndRawSearch < Minitest::Test
   end
 end
 
+# IDN hosts are Punycode-encoded transparently, matching WHATWG behavior.
+# Limitations (no NFC / Bidi) are intentional — see README.
+class TestURLIDN < Minitest::Test
+  def test_idn_host_encoded_to_punycode
+    u = Dommy::URL.new("http://日本.test/")
+    assert_equal("xn--wgv71a.test", u.host)
+    assert_equal("xn--wgv71a.test", u.hostname)
+    assert_equal("http://xn--wgv71a.test/", u.href)
+  end
+
+  def test_ascii_host_lowercased
+    u = Dommy::URL.new("http://EXAMPLE.com/path")
+    assert_equal("example.com", u.host)
+  end
+
+  def test_pre_encoded_xn_host_passthrough
+    u = Dommy::URL.new("http://xn--wgv71a.test/")
+    assert_equal("xn--wgv71a.test", u.host)
+    assert_equal("http://xn--wgv71a.test/", u.href)
+  end
+
+  def test_idn_host_with_port
+    u = Dommy::URL.new("http://日本.test:8080/p")
+    assert_equal("xn--wgv71a.test:8080", u.host)
+    assert_equal("8080", u.port)
+  end
+
+  def test_idn_host_with_userinfo
+    u = Dommy::URL.new("http://u:p@日本.test/")
+    assert_equal("http://u:p@xn--wgv71a.test/", u.href)
+  end
+
+  def test_idn_host_via_base
+    u = Dommy::URL.new("/p", "http://日本.test")
+    assert_equal("http://xn--wgv71a.test/p", u.href)
+  end
+
+  def test_invalid_url_still_raises
+    assert_raises(Dommy::DOMException::SyntaxError) { Dommy::URL.new("not a url") }
+  end
+end
+
+# WHATWG URL preprocessing — accept inputs Ruby's URI would reject:
+# whitespace, tabs/newlines, backslashes (for special schemes),
+# non-ASCII / control / `<>{}|` in path, etc.
+class TestURLWhatwgPreprocessing < Minitest::Test
+  def test_strips_leading_trailing_whitespace
+    assert_equal("http://h.test/", Dommy::URL.new("  http://h.test/  ").href)
+  end
+
+  def test_strips_embedded_tab_and_newline
+    assert_equal("http://h.test/p", Dommy::URL.new("http://h.test\t/p").href)
+    assert_equal("http://h.test/p", Dommy::URL.new("http://h.test\n/p").href)
+  end
+
+  def test_percent_encodes_space_in_path
+    assert_equal("/a%20b", Dommy::URL.new("http://h.test/a b").pathname)
+  end
+
+  def test_percent_encodes_angle_brackets_and_braces
+    assert_equal("/%3Cx%3E%7By%7D", Dommy::URL.new("http://h.test/<x>{y}").pathname)
+  end
+
+  def test_does_not_double_encode_existing_percent_sequences
+    assert_equal("/a%20b", Dommy::URL.new("http://h.test/a%20b").pathname)
+  end
+
+  def test_backslash_to_slash_in_special_scheme
+    assert_equal("http://h.test/path", Dommy::URL.new("http://h.test\\path").href)
+  end
+
+  def test_empty_path_normalized_to_slash_for_special_scheme
+    assert_equal("/", Dommy::URL.new("http://h.test").pathname)
+    assert_equal("http://h.test/", Dommy::URL.new("http://h.test").href)
+  end
+
+  def test_opaque_scheme_path_not_normalized
+    # mailto/javascript/etc. preserve their body verbatim.
+    assert_equal("foo@bar.com", Dommy::URL.new("mailto:foo@bar.com").pathname)
+    assert_equal("alert(1)", Dommy::URL.new("javascript:alert(1)").pathname)
+  end
+end
+
+class TestURLPathNormalization < Minitest::Test
+  def test_dotdot_segment_collapsed
+    assert_equal("/a/c", Dommy::URL.new("http://h.test/a/b/../c").pathname)
+  end
+
+  def test_dot_segment_skipped
+    assert_equal("/a/b", Dommy::URL.new("http://h.test/a/./b").pathname)
+  end
+
+  def test_multiple_dotdot
+    # `/a/b/c/../../x` → two pops from `c` reach `a`, then `x`.
+    assert_equal("/a/x", Dommy::URL.new("http://h.test/a/b/c/../../x").pathname)
+  end
+
+  def test_trailing_slash_preserved
+    assert_equal("/a/b/", Dommy::URL.new("http://h.test/a/b/").pathname)
+  end
+end
+
+class TestURLIPv4Normalization < Minitest::Test
+  def test_hex_form
+    assert_equal("127.0.0.1", Dommy::URL.new("http://0x7f000001/").host)
+  end
+
+  def test_octal_form
+    assert_equal("127.0.0.1", Dommy::URL.new("http://0177.0.0.1/").host)
+  end
+
+  def test_short_two_segment_form
+    # `0x7f.1` → 127.0.0.1 (last segment is 24-bit, but `1` fits in 8)
+    assert_equal("127.0.0.1", Dommy::URL.new("http://0x7f.1/").host)
+  end
+
+  def test_single_decimal_number
+    # 2130706433 == 0x7f000001
+    assert_equal("127.0.0.1", Dommy::URL.new("http://2130706433/").host)
+  end
+
+  def test_standard_dotted_quad_untouched
+    assert_equal("192.168.1.1", Dommy::URL.new("http://192.168.1.1/").host)
+  end
+
+  def test_non_ipv4_passthrough
+    # Anything that isn't an IPv4 number form is left alone.
+    assert_equal("h.test", Dommy::URL.new("http://h.test/").host)
+  end
+end
+
+class TestURLOriginAndPorts < Minitest::Test
+  def test_ws_default_port_80_stripped
+    assert_equal("ws://h.test/", Dommy::URL.new("ws://h.test:80/").href)
+    assert_equal("", Dommy::URL.new("ws://h.test:80/").port)
+  end
+
+  def test_wss_default_port_443_stripped
+    assert_equal("wss://h.test/", Dommy::URL.new("wss://h.test:443/").href)
+    assert_equal("", Dommy::URL.new("wss://h.test:443/").port)
+  end
+
+  def test_ws_non_default_port_kept
+    assert_equal("ws://h.test:8080/", Dommy::URL.new("ws://h.test:8080/").href)
+    assert_equal("8080", Dommy::URL.new("ws://h.test:8080/").port)
+  end
+
+  def test_http_default_port_still_stripped
+    assert_equal("http://h.test/", Dommy::URL.new("http://h.test:80/").href)
+  end
+
+  def test_file_origin_is_null
+    assert_equal("null", Dommy::URL.new("file:///p/a").origin)
+    assert_equal("null", Dommy::URL.new("file://host/p").origin)
+  end
+
+  def test_data_origin_is_null
+    assert_equal("null", Dommy::URL.new("data:text/plain,hi").origin)
+  end
+
+  def test_javascript_origin_is_null
+    assert_equal("null", Dommy::URL.new("javascript:alert(1)").origin)
+  end
+
+  def test_blob_origin_resolves_inner_url
+    assert_equal("http://x.test", Dommy::URL.new("blob:http://x.test/abc").origin)
+    assert_equal(
+      "https://x.test:8443",
+      Dommy::URL.new("blob:https://x.test:8443/abc").origin
+    )
+  end
+
+  def test_blob_with_invalid_inner_url_returns_null
+    assert_equal("null", Dommy::URL.new("blob:not-a-url").origin)
+  end
+
+  def test_http_origin_tuple
+    assert_equal("http://h.test", Dommy::URL.new("http://h.test/p").origin)
+  end
+
+  def test_ws_origin_tuple
+    assert_equal("ws://h.test", Dommy::URL.new("ws://h.test/").origin)
+  end
+
+  def test_ftp_origin_tuple
+    assert_equal("ftp://files.test", Dommy::URL.new("ftp://files.test/p").origin)
+  end
+end
+
+class TestURLHostnameSetter < Minitest::Test
+  def test_setter_idn_encodes_non_ascii
+    u = Dommy::URL.new("http://x.test/")
+    u.hostname = "日本.test"
+    assert_equal("xn--wgv71a.test", u.hostname)
+    assert_equal("http://xn--wgv71a.test/", u.href)
+  end
+
+  def test_setter_lowercases_ascii
+    u = Dommy::URL.new("http://x.test/")
+    u.hostname = "EXAMPLE.com"
+    assert_equal("example.com", u.hostname)
+  end
+end
+
 class TestURLMutation < Minitest::Test
   def test_set_pathname
     u = Dommy::URL.new("https://example.test/")
