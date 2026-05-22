@@ -1,30 +1,19 @@
 # frozen_string_literal: true
 
 module Dommy
-  # Base for specialized HTMLElement subclasses. Adds the reflected
-  # IDL boolean / string attribute helpers each subclass uses.
+  # Base for specialized HTMLElement subclasses. Inherits reflection
+  # helpers from Internal::ReflectedAttributes (also shared with
+  # SVGElement).
   class HTMLElement < Element
-    private
+    include Internal::ReflectedAttributes
 
-    def reflected_boolean(name)
-      @__node__.key?(name.to_s.downcase)
-    end
-
-    def set_reflected_boolean(name, value)
-      key = name.to_s.downcase
-      if value
-        set_attribute(key, "")
-      elsif @__node__.key?(key)
-        remove_attribute(key)
-      end
-    end
-
-    def reflected_string(name)
-      @__node__[name.to_s.downcase].to_s
-    end
-
-    def set_reflected_string(name, value)
-      set_attribute(name.to_s.downcase, value.to_s)
+    # HTML attribute names are case-insensitive — the browser DOM
+    # lowercases everything. Override to make this explicit at the
+    # HTMLElement level (Element's default would already pick this up
+    # via namespace inspection, but spelling it out shortcuts the
+    # namespace check for HTML's hot path).
+    def case_sensitive_attribute_names?
+      false
     end
   end
 
@@ -4449,7 +4438,13 @@ module Dommy
     "html" => HTMLHtmlElement
   }.freeze
 
-  def self.element_class_for(tag_name)
-    HTML_ELEMENT_CLASSES[tag_name.to_s.downcase] || Element
+  SVG_NAMESPACE_URI = "http://www.w3.org/2000/svg"
+
+  def self.element_class_for(tag_name, namespace_uri = nil)
+    if namespace_uri == SVG_NAMESPACE_URI
+      SVG_ELEMENT_CLASSES[tag_name.to_s.downcase] || SVGElement
+    else
+      HTML_ELEMENT_CLASSES[tag_name.to_s.downcase] || Element
+    end
   end
 end

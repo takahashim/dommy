@@ -152,7 +152,7 @@ module Dommy
 
       def build_element_wrapper(node)
         custom_klass = custom_element_class_for(node.name)
-        klass = custom_klass || Dommy.element_class_for(node.name)
+        klass = custom_klass || Dommy.element_class_for(node.name, node.namespace&.href)
         instance = klass.new(@document, node)
 
         @wrappers[node.object_id] = instance

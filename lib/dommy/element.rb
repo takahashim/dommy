@@ -1665,6 +1665,11 @@ module Dommy
 
     private
 
+    def normalize_attr_key(name)
+      s = name.to_s
+      case_sensitive_attribute_names? ? s : s.downcase
+    end
+
     def element_children
       @__node__.element_children.each_with_object([]) do |node, out|
         wrapped = @document.wrap_node(node)
@@ -1697,20 +1702,27 @@ module Dommy
       @document.template_content_fragment(self)
     end
 
-    # HTML attribute names are case-insensitive — browser DOM stores
-    # them in lowercase regardless of the case passed to setAttribute.
-    # Matches that behavior so callers using `"SRC"` / `"Action"` /
-    # etc. interoperate with `getAttribute("src")` round-trips.
+    # Attribute name handling depends on the element's namespace:
+    # - HTML: case-insensitive (browser DOM stores everything lowercase).
+    # - SVG / other XML: case-sensitive (`viewBox` ≠ `viewbox`).
+    # Subclasses with a known namespace override `case_sensitive_attribute_names?`
+    # to flip the behavior. Generic Element nodes inspect the namespace
+    # URI directly.
+    def case_sensitive_attribute_names?
+      ns = namespace_uri
+      !ns.nil? && ns != "http://www.w3.org/1999/xhtml"
+    end
+
     def get_attribute(name)
       return nil if name.nil?
 
-      @__node__[name.to_s.downcase]
+      @__node__[normalize_attr_key(name)]
     end
 
     def set_attribute(name, value)
       return nil if name.nil?
 
-      key = name.to_s.downcase
+      key = normalize_attr_key(name)
       old = @__node__[key]
       @__node__[key] = value.to_s
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
@@ -1720,13 +1732,13 @@ module Dommy
     def has_attribute?(name)
       return false if name.nil?
 
-      @__node__.key?(name.to_s.downcase)
+      @__node__.key?(normalize_attr_key(name))
     end
 
     def remove_attribute(name)
       return nil if name.nil?
 
-      key = name.to_s.downcase
+      key = normalize_attr_key(name)
       return nil unless @__node__.key?(key)
 
       old = @__node__[key]

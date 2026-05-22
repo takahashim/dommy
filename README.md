@@ -177,6 +177,7 @@ Implemented:
 
 - Core DOM (Document, Element, Text/Comment/Fragment, NodeList, Attr)
 - 26 specialized HTMLElement subclasses
+- SVG: SVGElement base + ~63 specialized subclasses covering shapes, gradients, marker / mask, the full set of standard filter primitives (Gaussian blur, offset, blend, color matrix, flood, composite, merge, component transfer, tile, morphology, image, drop shadow, turbulence, displacement map, convolve matrix, diffuse / specular lighting + light sources), `<a>` / `<textPath>` / `<view>` / `<switch>` / `<metadata>`, and SMIL animation (`<animate>` / `<animateTransform>` / `<animateMotion>` / `<set>` / `<mpath>` / `<discard>`) — with case-sensitive attribute round-trip
 - events with composedPath / AbortSignal
 - MutationObserver (childList / attributes / characterData / subtree)
 - Custom Elements lifecycle
@@ -199,7 +200,7 @@ Implemented:
 > - JS evaluation
 > - Canvas / WebGL / media playback
 > - layout-dependent Range / Selection
-> - SVG specialized classes
+> - SVG-specific value types (SVGAnimatedLength, SVGTransform, SVGMatrix); uncommon SVG elements (filter primitives, animation elements) fall through to the generic `Dommy::SVGElement`
 
 ## Running the tests
 
