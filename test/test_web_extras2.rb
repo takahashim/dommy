@@ -119,30 +119,39 @@ class TestSubtleCryptoHMAC < Minitest::Test
   end
 
   def test_import_key_and_sign_verify_roundtrip
-    key = @subtle.import_key("raw", "secret", "HMAC")
-    sig = @subtle.sign({"name" => "HMAC"}, key, "hello world")
+    key = @subtle.import_key("raw", "secret", {"name" => "HMAC", "hash" => "SHA-256"}).await
+    sig = @subtle.sign({"name" => "HMAC"}, key, "hello world").await
     assert_kind_of(Array, sig)
-    # default SHA-256
+    # SHA-256
     assert_equal(32, sig.length)
-    assert(@subtle.verify({"name" => "HMAC"}, key, sig, "hello world"))
+    assert(@subtle.verify({"name" => "HMAC"}, key, sig, "hello world").await)
   end
 
   def test_verify_fails_on_tampered_data
-    key = @subtle.import_key("raw", "secret", "HMAC")
-    sig = @subtle.sign({"name" => "HMAC"}, key, "original")
-    refute(@subtle.verify({"name" => "HMAC"}, key, sig, "tampered"))
+    key = @subtle.import_key("raw", "secret", {"name" => "HMAC", "hash" => "SHA-256"}).await
+    sig = @subtle.sign({"name" => "HMAC"}, key, "original").await
+    refute(@subtle.verify({"name" => "HMAC"}, key, sig, "tampered").await)
   end
 
   def test_generate_key_produces_unique_keys
-    a = @subtle.generate_key({"name" => "HMAC", "hash" => "SHA-256"})
-    b = @subtle.generate_key({"name" => "HMAC", "hash" => "SHA-256"})
+    a = @subtle.generate_key({"name" => "HMAC", "hash" => "SHA-256"}).await
+    b = @subtle.generate_key({"name" => "HMAC", "hash" => "SHA-256"}).await
     refute_equal(a.__bytes__, b.__bytes__)
   end
 
   def test_explicit_sha512_hash
-    key = @subtle.import_key("raw", "k", {"name" => "HMAC", "hash" => "SHA-512"})
-    sig = @subtle.sign({"name" => "HMAC"}, key, "x")
+    key = @subtle.import_key("raw", "k", {"name" => "HMAC", "hash" => "SHA-512"}).await
+    sig = @subtle.sign({"name" => "HMAC"}, key, "x").await
     assert_equal(64, sig.length)
+  end
+
+  def test_hmac_without_hash_rejects
+    # WebCrypto requires an explicit hash; dommy now matches the spec
+    # and refuses to silently default to SHA-256.
+    assert_raises(ArgumentError) { @subtle.import_key("raw", "k", "HMAC").await }
+    assert_raises(ArgumentError) do
+      @subtle.import_key("raw", "k", {"name" => "HMAC"}).await
+    end
   end
 end
 

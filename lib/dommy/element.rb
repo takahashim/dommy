@@ -1422,6 +1422,26 @@ module Dommy
         1
       when "isConnected"
         is_connected?
+      when
+          "scrollTop",
+          "scrollLeft",
+          "scrollWidth",
+          "scrollHeight",
+          "clientWidth",
+          "clientHeight",
+          "clientTop",
+          "clientLeft",
+          "offsetWidth",
+          "offsetHeight",
+          "offsetTop",
+          "offsetLeft"
+        # No layout engine — zeroed values match what real browsers
+        # report for hidden / pre-paint elements.
+        0
+      when "offsetParent"
+        nil
+      when "popover"
+        get_attribute("popover")
       when "children"
         @live_children
       when "firstElementChild"
@@ -1676,6 +1696,26 @@ module Dommy
         dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
       when "getBoundingClientRect"
         DOMRect.new
+      when "getClientRects"
+        []
+      when "scrollIntoView", "scroll", "scrollTo", "scrollBy"
+        # No layout — record the request for tests to assert against.
+        @__scroll_log__ ||= []
+        @__scroll_log__ << [method, args]
+        nil
+      when "requestFullscreen"
+        @document.__set_fullscreen_element__(self)
+        PromiseValue.resolve(@document.default_view, nil)
+      when "showPopover"
+        toggle_popover_state(true)
+        nil
+      when "hidePopover"
+        toggle_popover_state(false)
+        nil
+      when "togglePopover"
+        new_state = !@__popover_open__
+        toggle_popover_state(new_state)
+        new_state
       else
         nil
       end
@@ -2002,6 +2042,35 @@ module Dommy
         node.document.css(selector).any? { |candidate| candidate == node }
       end
     end
+
+    # Popover state — modern HTML pattern. `show`/`hide`/`toggle`
+    # fire `beforetoggle` and `toggle` events (no real visual change).
+    def toggle_popover_state(open)
+      old_state = @__popover_open__ ? "open" : "closed"
+      new_state = open ? "open" : "closed"
+      return if old_state == new_state
+
+      dispatch_event(
+        CustomEvent.new(
+          "beforetoggle",
+          "detail" => {"oldState" => old_state, "newState" => new_state}
+        )
+      )
+      @__popover_open__ = open
+      dispatch_event(
+        CustomEvent.new(
+          "toggle",
+          "detail" => {"oldState" => old_state, "newState" => new_state}
+        )
+      )
+    end
+
+    # Test inspector for scroll calls (no real layout to scroll).
+    def __scroll_log__
+      @__scroll_log__ ||= []
+    end
+
+    public :__scroll_log__
 
     # Re-expose snake_case methods that the JS bridge dispatch routes
     # to. Defined as private originally so internal helpers (element_children,

@@ -61,7 +61,7 @@ module Dommy
       win_ref = self
       @animation_ctor = Bridge::Constructor.new { |args| Animation.new(args[0], args[1], window: win_ref) }
       @keyframe_effect_ctor = Bridge::Constructor.new { |args| KeyframeEffect.new(args[0], args[1] || [], args[2]) }
-      @crypto = Crypto.new
+      @crypto = Crypto.new(self)
       @text_encoder_ctor = Bridge::Constructor.new { |_args| TextEncoder.new }
       @text_decoder_ctor = Bridge::Constructor.new { |args| TextDecoder.new(args[0] || "utf-8", args[1]) }
       @intersection_observer_ctor = Bridge::Constructor.new { |args| IntersectionObserver.new(args[0], args[1]) }
@@ -90,6 +90,7 @@ module Dommy
       }
       @compression_stream_ctor = Bridge::Constructor.new { |args| CompressionStream.new(xhr_win_ref, args[0]) }
       @decompression_stream_ctor = Bridge::Constructor.new { |args| DecompressionStream.new(xhr_win_ref, args[0]) }
+      @url_pattern_ctor = Bridge::Constructor.new { |args| URLPattern.new(args[0], args[1]) }
       @cookie_store = CookieStore.new(xhr_win_ref)
 
       @range_ctor = Bridge::Constructor.new { |_args| Range.new(@document) }
@@ -220,6 +221,8 @@ module Dommy
         @compression_stream_ctor
       when "DecompressionStream"
         @decompression_stream_ctor
+      when "URLPattern"
+        @url_pattern_ctor
       when "cookieStore"
         @cookie_store
       when "Range"
@@ -320,6 +323,12 @@ module Dommy
         Dommy.structured_clone(args[0])
       when "matchMedia"
         MediaQueryList.new(self, args[0].to_s)
+      when "getComputedStyle"
+        # No CSS engine — return the element's inline style. That
+        # covers `getComputedStyle(el).getPropertyValue("color")` for
+        # values the test set inline via `el.style.color = "..."`.
+        target = args[0]
+        target.respond_to?(:style) ? target.style : nil
       else
         # Additional window-level methods (fetch, location, history,
         # Promise, MutationObserver, etc.) arrive in later sessions.

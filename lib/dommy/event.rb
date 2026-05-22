@@ -348,6 +348,8 @@ module Dommy
   end
 
   class CustomEvent < Event
+    attr_reader :detail
+
     def initialize(type, init = nil)
       super
       @detail = read_init(init, "detail")

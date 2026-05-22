@@ -201,7 +201,13 @@ Implemented:
 - Worker (inline-emulated — same-process message round-trip; tests register handlers via `worker.__on_message__`)
 - Performance User Timing (`performance.mark` / `measure` / `getEntriesByName`)
 - `cookieStore` (async Cookie Store API, backed by the same jar `document.cookie` uses)
-- Navigator extras: `share` / `vibrate` / `wakeLock.request` / `getBattery`
+- Navigator extras: `share` / `vibrate` / `wakeLock.request` / `getBattery` / `locks` (Web Locks) / `storage.estimate`
+- Layout-adjacent stubs: `element.scrollIntoView` / `scrollTo` / scroll & client / offset metrics (return 0), `getComputedStyle` (inline style passthrough)
+- Popover API (`showPopover` / `hidePopover` / `togglePopover` with `beforetoggle` / `toggle` events)
+- Fullscreen API (`element.requestFullscreen` / `document.exitFullscreen` / `fullscreenchange`)
+- `URLPattern` (path / hostname / search pattern matching with named groups)
+- `document.startViewTransition` (View Transitions API stub)
+- `crypto.subtle.encrypt` / `decrypt` (AES-GCM 128/256)
 - Navigator / Clipboard
 - TreeWalker / NodeIterator / NodeFilter
 - File API (Blob / File / FileList / FormData / DataTransfer)

@@ -400,24 +400,28 @@ class TestSubtleCrypto < Minitest::Test
   end
 
   def test_sha256_known_vector
-    bytes = @subtle.digest("SHA-256", "hello")
+    bytes = @subtle.digest("SHA-256", "hello").await
     hex = bytes.map { |b| format("%02x", b) }.join
     assert_equal("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", hex)
   end
 
   def test_sha1_known_vector
-    bytes = @subtle.digest("SHA-1", "abc")
+    bytes = @subtle.digest("SHA-1", "abc").await
     hex = bytes.map { |b| format("%02x", b) }.join
     assert_equal("a9993e364706816aba3e25717850c26c9cd0d89d", hex)
   end
 
   def test_algorithm_accepts_hash
-    bytes_a = @subtle.digest("SHA-256", "x")
-    bytes_b = @subtle.digest({"name" => "SHA-256"}, "x")
+    bytes_a = @subtle.digest("SHA-256", "x").await
+    bytes_b = @subtle.digest({"name" => "SHA-256"}, "x").await
     assert_equal(bytes_a, bytes_b)
   end
 
-  def test_unsupported_algorithm_raises
-    assert_raises(ArgumentError) { @subtle.digest("MD5", "x") }
+  def test_unsupported_algorithm_rejects
+    assert_raises(ArgumentError) { @subtle.digest("MD5", "x").await }
+  end
+
+  def test_returns_promise_value
+    assert_kind_of(Dommy::PromiseValue, @subtle.digest("SHA-256", "x"))
   end
 end

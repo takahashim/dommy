@@ -263,6 +263,29 @@ module Dommy
       Range.new(self)
     end
 
+    # Fullscreen API — no actual fullscreen mode, just track which
+    # element claimed it. `element.requestFullscreen()` sets it; this
+    # is the read side.
+    attr_reader :fullscreen_element
+
+    def __set_fullscreen_element__(element)
+      previous = @fullscreen_element
+      @fullscreen_element = element
+      return if previous == element
+
+      dispatch_event(Event.new("fullscreenchange"))
+    end
+
+    def exit_fullscreen
+      return PromiseValue.resolve(@default_view, nil) if @fullscreen_element.nil?
+
+      @fullscreen_element = nil
+      dispatch_event(Event.new("fullscreenchange"))
+      PromiseValue.resolve(@default_view, nil)
+    end
+
+    alias exitFullscreen exit_fullscreen
+
     def element_from_point(_x, _y)
       nil
     end
@@ -363,6 +386,12 @@ module Dommy
         doctype
       when "defaultView"
         @default_view
+      when "fullscreenElement"
+        @fullscreen_element
+      when "fullscreenEnabled"
+        true
+      when "scrollingElement"
+        wrap_node(@nokogiri_doc.at_css("html"))
       when "documentElement"
         wrap_node(@nokogiri_doc.at_css("html"))
       when "title"
@@ -417,6 +446,20 @@ module Dommy
 
     def __js_call__(method, args)
       case method
+      when "exitFullscreen"
+        exit_fullscreen
+      when "startViewTransition"
+        # View Transitions API stub. Spec: invoke the callback
+        # synchronously; return a ViewTransition with already-resolved
+        # `finished` / `ready` / `updateCallbackDone` promises.
+        callback = args[0]
+        if callback.respond_to?(:__js_call__)
+          callback.__js_call__("call", [])
+        elsif callback.respond_to?(:call)
+          callback.call
+        end
+
+        ViewTransition.new(@default_view)
       when "createElement"
         create_element(args[0])
       when "createElementNS"
@@ -674,5 +717,50 @@ module Dommy
       title.add_child(Nokogiri::XML::Text.new(value, @nokogiri_doc))
     end
 
+  end
+
+  # `ViewTransition` — return value of `document.startViewTransition()`.
+  # All three Promises (`finished` / `ready` / `updateCallbackDone`)
+  # resolve immediately since dommy has no actual paint phase.
+  #
+  # Spec: https://drafts.csswg.org/css-view-transitions/
+  class ViewTransition
+    def initialize(window)
+      @finished = PromiseValue.resolve(window, nil)
+      @ready = PromiseValue.resolve(window, nil)
+      @update_callback_done = PromiseValue.resolve(window, nil)
+    end
+
+    attr_reader :finished, :ready
+
+    def update_callback_done
+      @update_callback_done
+    end
+
+    alias updateCallbackDone update_callback_done
+
+    def skip_transition
+      nil
+    end
+
+    alias skipTransition skip_transition
+
+    def __js_get__(key)
+      case key
+      when "finished"
+        @finished
+      when "ready"
+        @ready
+      when "updateCallbackDone"
+        @update_callback_done
+      end
+    end
+
+    def __js_call__(method, _args)
+      case method
+      when "skipTransition"
+        skip_transition
+      end
+    end
   end
 end

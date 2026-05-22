@@ -24,9 +24,11 @@ module Dommy
       @geolocation = Geolocation.new(window)
       @vibration_log = []
       @wake_lock = WakeLock.new(window)
+      @locks = LockManager.new(window)
+      @storage = StorageManager.new(window)
     end
 
-    attr_reader :clipboard, :permissions, :geolocation, :wake_lock
+    attr_reader :clipboard, :permissions, :geolocation, :wake_lock, :locks, :storage
 
     # Web Share API. Returns a Promise; tests can inspect
     # `__last_shared__` to verify what was offered.
@@ -97,6 +99,10 @@ module Dommy
         @geolocation
       when "wakeLock"
         @wake_lock
+      when "locks"
+        @locks
+      when "storage"
+        @storage
       end
     end
 
@@ -514,6 +520,112 @@ module Dommy
 
     def __event_parent__
       nil
+    end
+  end
+
+  # `navigator.locks` — Web Locks API. Locks are scoped to the
+  # Navigator instance; serial execution per name. Real browsers
+  # coordinate across tabs; dommy is single-process so it just
+  # serializes calls within the same Window.
+  #
+  # Spec: https://w3c.github.io/web-locks/
+  class LockManager
+    def initialize(window)
+      @window = window
+      @held = {}
+    end
+
+    def request(name, options_or_callback, callback = nil)
+      if options_or_callback.is_a?(Hash) || options_or_callback.nil?
+        options = options_or_callback || {}
+        cb = callback
+      else
+        options = {}
+        cb = options_or_callback
+      end
+
+      key = name.to_s
+      if @held[key] && options["ifAvailable"]
+        return invoke_with_lock(cb, nil)
+      end
+
+      lock = Lock.new(key, options["mode"] || "exclusive")
+      @held[key] = lock
+      result = invoke_with_lock(cb, lock)
+      @held.delete(key)
+      result
+    end
+
+    def query
+      held = @held.map { |name, lock| {"name" => name, "mode" => lock.mode, "clientId" => "dommy"} }
+      PromiseValue.resolve(@window, {"held" => held, "pending" => []})
+    end
+
+    def __js_call__(method, args)
+      case method
+      when "request"
+        request(args[0], args[1], args[2])
+      when "query"
+        query
+      end
+    end
+
+    private
+
+    def invoke_with_lock(callback, lock)
+      value = if callback.respond_to?(:__js_call__)
+        callback.__js_call__("call", [lock])
+      elsif callback.respond_to?(:call)
+        callback.call(lock)
+      end
+
+      PromiseValue.resolve(@window, value)
+    end
+  end
+
+  Lock = Struct.new(:name, :mode) do
+    def __js_get__(key)
+      case key
+      when "name"
+        name
+      when "mode"
+        mode
+      end
+    end
+  end
+
+  # `navigator.storage` — StorageManager API. Returns fixed-value
+  # estimates; `persist`/`persisted` always resolve `true`.
+  #
+  # Spec: https://storage.spec.whatwg.org/
+  class StorageManager
+    def initialize(window)
+      @window = window
+      @persisted = false
+    end
+
+    def estimate
+      PromiseValue.resolve(@window, {"quota" => 1_073_741_824, "usage" => 0, "usageDetails" => {}})
+    end
+
+    def persist
+      @persisted = true
+      PromiseValue.resolve(@window, true)
+    end
+
+    def persisted
+      PromiseValue.resolve(@window, @persisted)
+    end
+
+    def __js_call__(method, _args)
+      case method
+      when "estimate"
+        estimate
+      when "persist"
+        persist
+      when "persisted"
+        persisted
+      end
     end
   end
 end
