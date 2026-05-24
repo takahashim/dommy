@@ -1,7 +1,7 @@
 # Dommy
 
-A pure-Ruby DOM polyfill on top of [Nokogiri::HTML5](https://nokogiri.org/) — a Ruby-side analogue to happy-dom / jsdom.
-Dommy exposes browser-like DOM semantics (events, MutationObserver, Custom Elements, Shadow DOM, File API, timers, Storage) so view / component / request specs can verify DOM structure and behavior without spinning up a real browser.
+Dommy is a pure Ruby DOM polyfill built on [Nokogiri::HTML5](https://nokogiri.org/), inspired by happy-dom and jsdom.
+It gives Ruby tests a browser style DOM with events, MutationObserver, Custom Elements, Shadow DOM, the File API, timers, and Storage, without requiring a real browser.
 
 ## Quick start
 
@@ -74,22 +74,24 @@ input.validation_message    #=> "Please fill out this field."
 ### File API (Blob / File / FormData / DataTransfer)
 
 ```ruby
+win = Dommy.parse("<form><input type='file' name='attachment'></form>")
 file = Dommy::File.new(["pdf body"], "doc.pdf", "type" => "application/pdf")
 
 # Seed a file input for tests
-input = dom.query_selector("input[type='file']")
+input = win.document.query_selector("input[type='file']")
 input.__set_files__([file])
 
 # FormData picks it up
-fd = Dommy::FormData.new(dom.query_selector("form"))
+fd = Dommy::FormData.new(win.document.query_selector("form"))
 fd.entries.to_a   #=> [["attachment", #<Dommy::File doc.pdf>]]
 
 # Drag-and-drop simulation
 dt = Dommy::DataTransfer.new(files: [file])
 ev = Dommy::DragEvent.new("drop", "dataTransfer" => dt, "bubbles" => true)
-dropzone.dispatch_event(ev)
+win.document.body.dispatch_event(ev)
 
 # Blob URLs
+blob = Dommy::Blob.new(["blob body"], "type" => "text/plain")
 url = Dommy::URL.create_object_url(blob)   # "blob:dommy/..."
 ```
 
@@ -102,7 +104,7 @@ response = win.__js_call__("fetch", ["/api"]).await
 ```
 
 > [!WARNING]
-> Most Dommy accessors (`Blob#text`, `Response#text`, `localStorage.get_item`) return synchronous Ruby values — not Promises. `.await` is for the JS-bridged async surface.
+> Most Dommy accessors (`Blob#text`, `localStorage.get_item`) return synchronous Ruby values — not Promises. `.await` is only for the JS-bridged async surface (e.g., `fetch()`, `window.__js_call__`). Methods like `Response#text()` are Promise-returning and require `.await`.
 
 ## Test helpers
 
@@ -176,8 +178,7 @@ Supported Capybara-style options: `text:` / `exact:` / `count:` (Integer or Rang
 Implemented:
 
 - Core DOM (Document, Element, Text/Comment/Fragment, NodeList, Attr)
-- 26 specialized HTMLElement subclasses
-- SVG: SVGElement base + ~63 specialized subclasses covering shapes, gradients, marker / mask, the full set of standard filter primitives (Gaussian blur, offset, blend, color matrix, flood, composite, merge, component transfer, tile, morphology, image, drop shadow, turbulence, displacement map, convolve matrix, diffuse / specular lighting + light sources), `<a>` / `<textPath>` / `<view>` / `<switch>` / `<metadata>`, and SMIL animation (`<animate>` / `<animateTransform>` / `<animateMotion>` / `<set>` / `<mpath>` / `<discard>`) — with case-sensitive attribute round-trip
+- Specialized HTML and SVG element classes
 - events with composedPath / AbortSignal
 - MutationObserver (childList / attributes / characterData / subtree)
 - Custom Elements lifecycle
@@ -185,47 +186,34 @@ Implemented:
 - form validation
 - Scheduler (timers + microtasks with `advance_time`)
 - Promise
-- Location / History / URL (WHATWG-leaning parsing with whitespace/tab/newline stripping, percent-encoding of unsafe path chars, `\` → `/` conversion for special schemes, `./` and `../` resolution, IPv4 number forms normalization, ws/wss default port stripping, Punycode hostname encoding, full UTS #46 IDNA with RFC 5893 Bidi and RFC 5892 ContextJ/ContextO)
+- Location / History / URL
 - Storage
-- fetch (stub) / XMLHttpRequest (stub-driven, sync + async, shares the `__fetchy_stub__` fixture map)
-- WebSocket / EventSource — test seams (`__simulate_open__` / `__simulate_message__` / `__simulate_close__`) drive the streams
-- MessageChannel / MessagePort / BroadcastChannel — in-process pub/sub with `structuredClone`-on-transfer
-- FileReader (`readAsText` / `readAsDataURL` / `readAsArrayBuffer` / `readAsBinaryString`)
-- Notification (permission settable via `Notification.__set_permission__`)
-- Geolocation (mock position via `navigator.geolocation.__set_position__`)
-- `window.matchMedia` returning a `MediaQueryList` (`__set_matches__` flips and fires `change`)
-- `requestIdleCallback` / `cancelIdleCallback` (modelled on scheduler), `structuredClone` global
-- `crypto.subtle.digest` (SHA-1/256/384/512), HMAC sign/verify/import/generateKey, and AES-GCM encrypt/decrypt (128/256-bit with additionalData and tagLength options)
-- Streams API (`ReadableStream` / `WritableStream` / `TransformStream` + `TextEncoderStream` / `TextDecoderStream`)
-- `CompressionStream` / `DecompressionStream` (gzip / deflate / deflate-raw via Ruby `Zlib`)
-- Worker (inline-emulated — same-process message round-trip; tests register handlers via `worker.__on_message__`)
-- Performance User Timing (`performance.mark` / `measure` / `getEntriesByName`)
-- `cookieStore` (async Cookie Store API, backed by the same jar `document.cookie` uses)
-- Navigator extras: `share` / `vibrate` / `wakeLock.request` / `getBattery` / `locks` (Web Locks) / `storage.estimate` / `persist` / `persisted` (StorageManager)
-- Layout-adjacent stubs: `element.scrollIntoView` / `scrollTo` / scroll & client / offset metrics (return 0), `getComputedStyle` (inline style passthrough)
-- Popover API (`showPopover` / `hidePopover` / `togglePopover` with `beforetoggle` / `toggle` events)
-- Fullscreen API (`element.requestFullscreen` / `document.exitFullscreen` / `fullscreenchange`)
-- `URLPattern` (pattern matching for URL components — protocol, username, password, hostname, port, pathname, search, hash — with named capture groups and modifiers: `:id`, `*`, `:version+`, `:version?`)
-- `document.startViewTransition` (View Transitions API stub)
+- fetch / XMLHttpRequest stubs
+- WebSocket / EventSource / MessageChannel / BroadcastChannel test doubles
+- FileReader / Notification / Geolocation / `matchMedia`
+- `requestIdleCallback`, `structuredClone`, `URLPattern`
+- Web Crypto, Streams, Compression Streams, Worker
+- `performance`, `cookieStore`, Navigator extras
+- Popover API, Fullscreen API, View Transitions API stub
 - Navigator / Clipboard
 - TreeWalker / NodeIterator / NodeFilter
 - File API (Blob / File / FileList / FormData / DataTransfer)
-- Web Crypto (`crypto.randomUUID`, `getRandomValues`) / TextEncoder / TextDecoder
 - IntersectionObserver / ResizeObserver / PerformanceObserver (test-driven `__trigger__`)
 - Range / Selection (DOM-level only, no layout)
-- Web Animations API (Animation / KeyframeEffect; lifecycle via scheduler, finished/ready Promises)
+- Web Animations API (Animation / KeyframeEffect)
 - Extended events: Touch / Clipboard / Composition / Wheel / Focus / BeforeUnload / Input / Pointer / Progress / Drag
+
+For implementation notes and tradeoffs, see [design.md](./design.md).
 
 > [!IMPORTANT]
 > Out of scope:
 >
-> - requires a layout / CSS engine or media subsystems: real `getBoundingClientRect` / scroll metrics
-> - CSS scoping (`:host`, `::slotted`, computed styles)
+> - layout and CSS-engine behavior
 > - JS evaluation
 > - Canvas / WebGL / media playback
-> - layout-dependent Range / Selection geometry (`getBoundingClientRect` returns zero rects)
-> - SVG-specific value types (SVGAnimatedLength, SVGTransform, SVGMatrix)
-> - Web Animations: no actual value interpolation — `Animation` is a state machine (`idle` / `running` / `paused` / `finished`) for testing lifecycle and event wiring
+> - layout-dependent Range / Selection geometry
+> - SVG-specific value types
+> - animation value interpolation
 
 ## Running the tests
 
