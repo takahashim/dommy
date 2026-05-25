@@ -68,6 +68,12 @@ module Dommy
         break if event.propagation_stopped?
       end
 
+      # WHATWG: after dispatch completes, currentTarget reverts to
+      # null and eventPhase reverts to NONE. Dommy derives
+      # eventPhase from currentTarget, so clearing it here covers
+      # both spec requirements.
+      event.__set_current_target__(nil)
+
       !event.default_prevented?
     end
 

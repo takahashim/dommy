@@ -91,14 +91,18 @@ class TestWPTEventPhaseTransitions < Minitest::Test
     assert_equal(3, captured)
   end
 
-  def test_event_phase_after_dispatch_reflects_last_listener
-    # Dommy deviation: WHATWG resets eventPhase to NONE after dispatch
-    # completes, but Dommy derives eventPhase from currentTarget which
-    # is not cleared post-dispatch. Verify the implementation-observable
-    # behaviour: phase remains AT_TARGET after a target-only dispatch.
+  def test_event_phase_resets_to_none_after_dispatch
+    # WHATWG: after dispatch completes, eventPhase reverts to NONE.
     ev = Dommy::Event.new("click")
     @inner.dispatch_event(ev)
-    assert_equal(2, ev.__js_get__("eventPhase"))
+    assert_equal(0, ev.__js_get__("eventPhase"))
+  end
+
+  def test_current_target_resets_to_nil_after_dispatch
+    # WHATWG: currentTarget reverts to null after dispatch.
+    ev = Dommy::Event.new("click")
+    @inner.dispatch_event(ev)
+    assert_nil(ev.__js_get__("currentTarget"))
   end
 end
 
