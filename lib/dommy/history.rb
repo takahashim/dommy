@@ -59,13 +59,16 @@ module Dommy
     def push(state, url)
       @stack = @stack[0..@cursor]
       @location.__set_url__(url.to_s) if url
-      @stack << {state: state, url: nil}
+      # WHATWG: pushState serializes the state via structured-clone
+      # so subsequent caller-side mutation of the original cannot
+      # affect history.state.
+      @stack << {state: Dommy.structured_clone(state), url: nil}
       @cursor = @stack.size - 1
     end
 
     def replace(state, url)
       @location.__set_url__(url.to_s) if url
-      @stack[@cursor] = {state: state, url: nil}
+      @stack[@cursor] = {state: Dommy.structured_clone(state), url: nil}
     end
 
     def go(delta)

@@ -71,13 +71,9 @@ class TestWPTHistoryStackTruncation < Minitest::Test
 end
 
 class TestWPTHistoryStateStorage < Minitest::Test
-  # Dommy deviation: WHATWG specifies that pushState/replaceState
-  # store a structured clone of the supplied state object, so
-  # external mutation of the original cannot affect history.state.
-  # Dommy holds the original reference, so mutating the caller's
-  # hash mutates history.state too. This test documents the current
-  # behaviour rather than the spec; a future structured_clone()
-  # hook in pushState/replaceState would flip this assertion.
+  # Per WHATWG, pushState/replaceState serialize the supplied state
+  # via structured-clone, so caller-side mutation of the original
+  # cannot reach history.state.
 
   include DommyTestHelper
 
@@ -86,19 +82,26 @@ class TestWPTHistoryStateStorage < Minitest::Test
     @hist = @win.__js_get__("history")
   end
 
-  def test_pushstate_state_is_held_by_reference_not_cloned
+  def test_pushstate_state_is_isolated_from_caller_mutation
     state = {"count" => 1}
     @hist.__js_call__("pushState", [state, "", "/a"])
     state["count"] = 999
-    # Spec would say "count" => 1 (structured clone at push time).
-    # Dommy reflects the mutation.
-    assert_equal(999, @hist.__js_get__("state")["count"])
+    assert_equal(1, @hist.__js_get__("state")["count"])
   end
 
-  def test_replacestate_state_is_held_by_reference_not_cloned
+  def test_replacestate_state_is_isolated_from_caller_mutation
     state = {"value" => "old"}
     @hist.__js_call__("replaceState", [state, "", "/r"])
     state["value"] = "new"
-    assert_equal("new", @hist.__js_get__("state")["value"])
+    assert_equal("old", @hist.__js_get__("state")["value"])
+  end
+
+  def test_state_round_trip_includes_nested_values
+    state = {"nested" => {"a" => 1, "b" => [1, 2, 3]}}
+    @hist.__js_call__("pushState", [state, "", "/n"])
+    state["nested"]["a"] = 999
+    state["nested"]["b"] << 4
+    # Both the outer hash and inner array are deep-cloned.
+    assert_equal({"a" => 1, "b" => [1, 2, 3]}, @hist.__js_get__("state")["nested"])
   end
 end
