@@ -74,22 +74,29 @@ class TestWPTHeadersEntries < Minitest::Test
 end
 
 class TestWPTHeadersForEach < Minitest::Test
-  # WHATWG spec passes `(value, key, headers)` to the callback. Dommy
-  # passes `(value, key)` only; the third argument is omitted. This
-  # is sufficient for most consumers but is a known deviation.
+  # WHATWG spec: forEach(callback) invokes the callback with
+  # (value, key, headers) for each pair.
 
   def test_for_each_invokes_callback_for_each_pair
     h = Dommy::Headers.new("Content-Type" => "text/plain", "X-Foo" => "bar")
     seen = []
-    cb = proc { |value, key| seen << [key, value] }
+    cb = proc { |value, key, _h| seen << [key, value] }
     h.__js_call__("forEach", [cb])
     assert_equal([["Content-Type", "text/plain"], ["X-Foo", "bar"]], seen)
+  end
+
+  def test_for_each_passes_headers_as_third_argument
+    h = Dommy::Headers.new("X-Foo" => "bar")
+    captured = nil
+    cb = proc { |_value, _key, headers| captured = headers }
+    h.__js_call__("forEach", [cb])
+    assert_same(h, captured)
   end
 
   def test_for_each_does_not_invoke_for_empty_headers
     h = Dommy::Headers.new({})
     called = false
-    cb = proc { |_, _| called = true }
+    cb = proc { |_, _, _| called = true }
     h.__js_call__("forEach", [cb])
     refute(called)
   end

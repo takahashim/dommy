@@ -286,13 +286,15 @@ module Dommy
         name = args[0].to_s
         @hash.key?(name) || @hash.key?(Headers.canonical(name))
       when "forEach"
-        # Browser API: forEach(callback) — callback(value, key)
+        # WHATWG: forEach(callback) — callback(value, key, headers).
+        # Pass `self` as the third argument so consumers that read
+        # `(_, _, h) => h.get("Foo")` work the same as in a browser.
         cb = args[0]
         @hash.each do |k, v|
           if cb.respond_to?(:__js_call__)
-            cb.__js_call__("call", [v, k])
+            cb.__js_call__("call", [v, k, self])
           elsif cb.respond_to?(:call)
-            cb.call(v, k)
+            cb.call(v, k, self)
           end
         end
 
