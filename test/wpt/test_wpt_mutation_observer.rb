@@ -106,6 +106,44 @@ class TestWPTMutationObserverChildList < Minitest::Test
     assert_equal(1, @records.size)
     assert_equal([comment], @records.first.__js_get__("removedNodes"))
   end
+
+  # ---- textContent= triggers childList ----
+  # Regression: setting textContent removes all existing children
+  # and (for non-empty values) appends one text node. Both halves
+  # must be reflected in a MutationRecord.
+  # WPT: dom/nodes/MutationObserver-childList.html (textContent cases)
+
+  def test_textContent_set_to_non_empty_records_removal_and_addition
+    @root.append_child(@doc.create_element("span"))
+    @obs.__js_call__("observe", [@root, {"childList" => true}])
+    @root.__js_set__("textContent", "hello")
+    @win.scheduler.drain_microtasks
+    assert_equal(1, @records.size)
+    rec = @records.first
+    refute_empty(rec.__js_get__("removedNodes"))
+    refute_empty(rec.__js_get__("addedNodes"))
+  end
+
+  def test_textContent_set_to_empty_records_removal_only
+    @root.append_child(@doc.create_element("span"))
+    @obs.__js_call__("observe", [@root, {"childList" => true}])
+    @root.__js_set__("textContent", "")
+    @win.scheduler.drain_microtasks
+    assert_equal(1, @records.size)
+    rec = @records.first
+    refute_empty(rec.__js_get__("removedNodes"))
+    assert_empty(rec.__js_get__("addedNodes"))
+  end
+
+  def test_textContent_on_empty_element_does_not_record
+    # No existing children, value is "" -> nothing changes, no
+    # record should be emitted (the notify call's empty-list guard
+    # in MutationCoordinator covers this).
+    @obs.__js_call__("observe", [@root, {"childList" => true}])
+    @root.__js_set__("textContent", "")
+    @win.scheduler.drain_microtasks
+    assert_empty(@records)
+  end
 end
 
 class TestWPTMutationObserverAttributes < Minitest::Test

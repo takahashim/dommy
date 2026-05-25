@@ -1552,7 +1552,20 @@ module Dommy
     def __js_set__(key, value)
       case key
       when "textContent"
+        # `node.content =` removes all existing children and (if
+        # value is non-empty) appends a single text node. Capture
+        # before/after to feed MutationObserver — mirrors the
+        # innerHTML branch below.
+        removed = @__node__.children.to_a
         @__node__.content = value.to_s
+        added = @__node__.children.to_a
+        if removed.any? || added.any?
+          @document.notify_child_list_mutation(
+            target_node: @__node__,
+            added_nodes: added,
+            removed_nodes: removed
+          )
+        end
       when "innerHTML"
         removed = @__node__.children.to_a
         if @__node__.name == "template"
