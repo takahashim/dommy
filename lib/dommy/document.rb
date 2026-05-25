@@ -216,13 +216,28 @@ module Dommy
 
       src = node.__node__
       src.unlink if src.parent
-      moved = if src.document == @nokogiri_doc
-        src
-      else
-        clone_into_doc(src, true)
-      end
 
-      wrap_node(moved)
+      # Same document: just return the wrapper after the detach above.
+      return wrap_node(src) if src.document == @nokogiri_doc
+
+      # Cross-document: Nokogiri reassigns `src.document` when src is
+      # added under a node owned by another document. We transiently
+      # attach to our root, then unlink so src ends up free-floating
+      # but now belongs to @nokogiri_doc. The underlying Ruby object
+      # identity is preserved.
+      src_doc_wrapper = node.instance_variable_get(:@document)
+      @nokogiri_doc.root.add_child(src)
+      src.unlink
+
+      # Move the caller's Dommy wrapper from the source document's
+      # wrapper cache into ours, and re-point its @document. This
+      # keeps `adopt_node(x).equal?(x)` true across documents.
+      node.instance_variable_set(:@document, self)
+      if src_doc_wrapper.respond_to?(:__reset_wrapper__)
+        src_doc_wrapper.__reset_wrapper__(src)
+      end
+      @node_wrapper_cache.register(src, node)
+      node
     end
 
     # Legacy `document.createEvent("EventName")` factory. Returns an

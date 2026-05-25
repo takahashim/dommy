@@ -134,6 +134,14 @@ module Dommy
         @wrappers.delete(nokogiri_node.object_id)
       end
 
+      # Register an externally-built wrapper. Used by
+      # Document#adopt_node when migrating a wrapper from another
+      # document so the existing Ruby object survives the move
+      # rather than being replaced by a freshly-built one.
+      def register(nokogiri_node, wrapper)
+        @wrappers[nokogiri_node.object_id] = wrapper
+      end
+
       private
 
       def wrap_node(node)

@@ -89,14 +89,24 @@ class TestWPTDocumentAdoptCrossDoc < Minitest::Test
     assert_nil(external.__node__.parent)
   end
 
-  def test_adopt_node_cross_document_returns_new_instance
-    # Dommy deviation: WHATWG specifies that adoptNode reuses the
-    # exact same node and only changes its ownerDocument. Dommy
-    # performs a deep clone into the target document, so the
-    # returned wrapper is distinct from the source. Test documents
-    # the current behaviour rather than the spec.
+  def test_adopt_node_cross_document_preserves_identity
+    # Per WHATWG, adoptNode reuses the exact same node and only
+    # changes its ownerDocument. Nokogiri reassigns
+    # `node.document` when the node is attached under a host in
+    # another document, so Dommy migrates the existing wrapper
+    # rather than deep-cloning.
     external = @source_doc.create_element("p")
     adopted = @target_doc.adopt_node(external)
-    refute_same(external, adopted)
+    assert_same(external, adopted)
+  end
+
+  def test_adopt_node_cross_document_repoints_owner_document
+    external = @source_doc.create_element("p")
+    @target_doc.adopt_node(external)
+    # After adoption, the wrapper's internal @document points at
+    # the target document, and the underlying Nokogiri node is
+    # registered with the target document's nokogiri_doc.
+    assert_same(@target_doc, external.instance_variable_get(:@document))
+    assert_same(@target_doc.nokogiri_doc, external.__node__.document)
   end
 end
