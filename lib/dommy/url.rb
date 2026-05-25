@@ -61,6 +61,23 @@ module Dommy
       def __reset_blob_urls__
         @blob_urls.clear
       end
+
+      # WHATWG URL Standard — `URL.parse(input, base)` is the
+      # non-throwing static factory. Returns a URL on success, `nil`
+      # on parse failure. The constructor (`new URL(...)`) raises
+      # `SyntaxError` for the same failure case.
+      def parse(input, base = nil)
+        new(input, base)
+      rescue DOMException::SyntaxError
+        nil
+      end
+
+      # WHATWG URL Standard — `URL.canParse(input, base)`. Boolean
+      # counterpart to `parse`: lets callers peek at validity
+      # without rescuing an exception or holding a URL reference.
+      def can_parse(input, base = nil)
+        !parse(input, base).nil?
+      end
     end
 
     attr_reader :search_params

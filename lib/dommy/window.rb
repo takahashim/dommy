@@ -101,6 +101,8 @@ module Dommy
       @url_ctor = Bridge::Constructor.new { |args| URL.new(args[0], args[1]) }
       @url_ctor.define_class_method("createObjectURL") { |args| URL.create_object_url(args[0]) }
       @url_ctor.define_class_method("revokeObjectURL") { |args| URL.revoke_object_url(args[0]) }
+      @url_ctor.define_class_method("parse") { |args| URL.parse(args[0], args[1]) }
+      @url_ctor.define_class_method("canParse") { |args| URL.can_parse(args[0], args[1]) }
       # `JS.global[:__some_key__] = ...` from user code lands here.
       # Test code uses this for stub installation (e.g. a custom
       # `__fetch_stub__`); production code stays on the typed
