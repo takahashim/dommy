@@ -255,14 +255,98 @@ module Dommy
       nil
     end
 
-    def __js_call__(method, _args)
+    def __js_call__(method, args)
       case method
       when "remove"
         remove
+      when "before"
+        before(*args)
+      when "after"
+        after(*args)
+      when "replaceWith"
+        replace_with(*args)
       end
     end
 
+    # ChildNode mixin: WHATWG DOM defines `before`, `after`,
+    # `replaceWith` on all child nodes, including Text and Comment.
+    # Implementations operate on the Nokogiri layer and notify the
+    # MutationObserver with the underlying nodes (mirroring
+    # Element#remove_child / replace_child).
+
+    def before(*args)
+      parent = @__node__.parent
+      return nil unless parent
+
+      added = args.map { |arg| coerce_node(arg) }.compact
+      added.reverse_each { |node| @__node__.add_previous_sibling(node) }
+      notify_child_list_added(parent, added)
+      nil
+    end
+
+    def after(*args)
+      parent = @__node__.parent
+      return nil unless parent
+
+      added = args.map { |arg| coerce_node(arg) }.compact
+      anchor = @__node__.next_sibling
+      if anchor
+        added.reverse_each { |node| anchor.add_previous_sibling(node) }
+      else
+        added.each { |node| parent.add_child(node) }
+      end
+      notify_child_list_added(parent, added)
+      nil
+    end
+
+    def replace_with(*args)
+      parent = @__node__.parent
+      return nil unless parent
+
+      added = args.map { |arg| coerce_node(arg) }.compact
+      removed = @__node__
+      anchor = @__node__.next_sibling
+      @__node__.unlink
+      if anchor
+        added.reverse_each { |node| anchor.add_previous_sibling(node) }
+      else
+        added.each { |node| parent.add_child(node) }
+      end
+      @document.notify_child_list_mutation(
+        target_node: parent,
+        added_nodes: added,
+        removed_nodes: [removed]
+      )
+      nil
+    end
+
     private
+
+    # Coerce a `before` / `after` / `replaceWith` argument into a raw
+    # Nokogiri node, ready to be linked into a parent. Strings become
+    # fresh text nodes; existing nodes are detached from their current
+    # parent first (matching Element#detach_dom_nodes minus the
+    # Fragment branch which is rarely needed off a text/comment node).
+    def coerce_node(arg)
+      case arg
+      when String
+        @document.create_text_node(arg).__node__
+      else
+        node = arg.respond_to?(:__node__) ? arg.__node__ : nil
+        node.unlink if node && node.parent
+        node
+      end
+    end
+
+    def notify_child_list_added(parent, added)
+      return if added.empty?
+
+      @document.notify_child_list_mutation(
+        target_node: parent,
+        added_nodes: added,
+        removed_nodes: []
+      )
+    end
 
     def write_data(value)
       old = @__node__.content
