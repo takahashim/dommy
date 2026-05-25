@@ -148,17 +148,27 @@ module Dommy
         raise TypeError, "MutationObserver.observe: at least one of childList, attributes, characterData must be true"
       end
 
-      @observed <<
-        {
-          target: target,
-          child_list: child_list_on,
-          subtree: truthy_option(opts, "subtree"),
-          attributes: attributes_on,
-          attribute_filter: attribute_filter,
-          attribute_old_value: truthy_option(opts, "attributeOldValue"),
-          character_data: character_data_on,
-          character_data_old_value: truthy_option(opts, "characterDataOldValue")
-        }
+      entry = {
+        target: target,
+        child_list: child_list_on,
+        subtree: truthy_option(opts, "subtree"),
+        attributes: attributes_on,
+        attribute_filter: attribute_filter,
+        attribute_old_value: truthy_option(opts, "attributeOldValue"),
+        character_data: character_data_on,
+        character_data_old_value: truthy_option(opts, "characterDataOldValue")
+      }
+
+      # WHATWG MutationObserver §observe: if `target` is already
+      # observed, replace the existing registration's options
+      # (don't merge or stack).
+      existing_index = @observed.index { |e| e[:target].equal?(target) }
+      if existing_index
+        @observed[existing_index] = entry
+      else
+        @observed << entry
+      end
+
       @document.register_observer(self)
       nil
     end

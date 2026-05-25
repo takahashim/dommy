@@ -283,6 +283,25 @@ class TestWPTMutationObserverDelivery < Minitest::Test
     assert_empty(again)
   end
 
+  def test_re_observing_same_target_replaces_options
+    # Spec: calling observe() twice on the same target replaces the
+    # previous registration's options rather than adding a second
+    # entry. Before the fix, a duplicate observe() left two entries
+    # so every matching mutation produced two records.
+    win = make_window
+    doc = win.document
+    target = doc.create_element("div")
+    doc.body.append_child(target)
+    records = []
+    obs = Dommy::MutationObserver.new(win, proc { |recs| records.concat(recs) })
+    obs.__js_call__("observe", [target, {"childList" => true}])
+    obs.__js_call__("observe", [target, {"childList" => true}])
+    target.append_child(doc.create_element("span"))
+    win.scheduler.drain_microtasks
+    assert_equal(1, records.size)
+    obs.__js_call__("disconnect", [])
+  end
+
   def test_takeRecords_prevents_callback_delivery
     delivered = []
     obs = Dommy::MutationObserver.new(@win, proc { |recs| delivered.concat(recs) })
