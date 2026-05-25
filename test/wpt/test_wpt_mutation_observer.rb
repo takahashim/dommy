@@ -79,6 +79,33 @@ class TestWPTMutationObserverChildList < Minitest::Test
     @win.scheduler.drain_microtasks
     refute_empty(@records)
   end
+
+  # ---- TextNode / CommentNode remove triggers childList ----
+  # Regression: CharacterDataNode#remove previously called
+  # @__node__.unlink without notifying the MutationObserver, so
+  # removing a text or comment node was silent.
+  # WPT: dom/nodes/MutationObserver-characterData.html
+  # (text removal is observed via the parent's childList list).
+
+  def test_childList_records_text_node_removal
+    text = @doc.create_text_node("hello")
+    @root.append_child(text)
+    @obs.__js_call__("observe", [@root, {"childList" => true}])
+    text.remove
+    @win.scheduler.drain_microtasks
+    assert_equal(1, @records.size)
+    assert_equal([text], @records.first.__js_get__("removedNodes"))
+  end
+
+  def test_childList_records_comment_node_removal
+    comment = @doc.create_comment("note")
+    @root.append_child(comment)
+    @obs.__js_call__("observe", [@root, {"childList" => true}])
+    comment.remove
+    @win.scheduler.drain_microtasks
+    assert_equal(1, @records.size)
+    assert_equal([comment], @records.first.__js_get__("removedNodes"))
+  end
 end
 
 class TestWPTMutationObserverAttributes < Minitest::Test

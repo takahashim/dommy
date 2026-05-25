@@ -191,7 +191,19 @@ module Dommy
     end
 
     def remove
+      parent = @__node__.parent
+      removed = @__node__
       @__node__.unlink
+      # Mirror Element#remove_child: notify with the Nokogiri::Node
+      # (not the Dommy wrapper) so MutationCoordinator's wrap_node
+      # cache keys consistently.
+      if parent
+        @document.notify_child_list_mutation(
+          target_node: parent,
+          added_nodes: [],
+          removed_nodes: [removed]
+        )
+      end
       nil
     end
 
@@ -246,8 +258,7 @@ module Dommy
     def __js_call__(method, _args)
       case method
       when "remove"
-        @__node__.unlink
-        nil
+        remove
       end
     end
 
