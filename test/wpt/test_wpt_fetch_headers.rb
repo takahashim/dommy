@@ -34,10 +34,8 @@ class TestWPTHeadersGet < Minitest::Test
 end
 
 class TestWPTHeadersHas < Minitest::Test
-  # Dommy-specific: `has` performs an *exact* key match without the
-  # canonical fallback that `get` uses. Code that relies on
-  # case-insensitive existence checking should canonicalize the name
-  # before querying, or use `get` and check for nil.
+  # Per WHATWG, `has` is case-insensitive. Dommy mirrors `get`'s
+  # canonical fallback: try the raw name, then the Title-Case form.
 
   def test_has_returns_true_for_exact_match
     h = Dommy::Headers.new("Content-Type" => "text/plain")
@@ -49,12 +47,10 @@ class TestWPTHeadersHas < Minitest::Test
     assert_equal(false, h.__js_call__("has", ["X-Missing"]))
   end
 
-  def test_has_does_not_apply_canonical_fallback
-    # Dommy deviation: WHATWG spec defines `has` as case-insensitive.
-    # Dommy's implementation checks `@hash.key?(name)` against the
-    # original storage casing only.
+  def test_has_is_case_insensitive_via_canonical_fallback
     h = Dommy::Headers.new("Content-Type" => "text/plain")
-    assert_equal(false, h.__js_call__("has", ["content-type"]))
+    assert_equal(true, h.__js_call__("has", ["content-type"]))
+    assert_equal(true, h.__js_call__("has", ["CONTENT-TYPE"]))
   end
 end
 

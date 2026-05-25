@@ -280,7 +280,11 @@ module Dommy
       when "entries"
         @hash.to_a
       when "has"
-        @hash.key?(args[0].to_s)
+        # Match `get`'s case-insensitive lookup: try the raw name
+        # first, then the Title-Case canonical form. WHATWG defines
+        # header names as case-insensitive throughout the Headers API.
+        name = args[0].to_s
+        @hash.key?(name) || @hash.key?(Headers.canonical(name))
       when "forEach"
         # Browser API: forEach(callback) — callback(value, key)
         cb = args[0]
