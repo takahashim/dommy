@@ -52,16 +52,14 @@ class TestWPTXHRAbortInOpenedState < Minitest::Test
     @xhr.open("GET", "/ok")
   end
 
-  def test_abort_after_open_but_before_send_fires_abort_and_loadend
-    # Dommy's abort() short-circuits only for UNSENT and DONE states;
-    # in OPENED it still dispatches abort + loadend. (The WHATWG
-    # spec also makes the send() flag a factor, but Dommy tracks
-    # only readyState.) Verify the firing pattern as-implemented.
+  def test_abort_after_open_but_before_send_is_noop
+    # WHATWG: when readyState is OPENED but the send() flag is unset,
+    # abort() does nothing. No events dispatch.
     fired = []
     @xhr.add_event_listener("abort", proc { |_e| fired << :abort })
     @xhr.add_event_listener("loadend", proc { |_e| fired << :loadend })
     @xhr.abort
-    assert_equal(%i[abort loadend], fired)
+    assert_empty(fired)
   end
 end
 

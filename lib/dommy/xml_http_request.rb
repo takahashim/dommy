@@ -117,6 +117,11 @@ module Dommy
 
     def abort
       return if @ready_state == UNSENT || @ready_state == DONE
+      # WHATWG: abort() is a no-op when in OPENED with the send()
+      # flag unset. Without this guard, `xhr.open(); xhr.abort()`
+      # would fire abort + loadend even though no request is
+      # in flight.
+      return if @ready_state == OPENED && !@sent
 
       @aborted = true
       @generation += 1
