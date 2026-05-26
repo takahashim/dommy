@@ -10,15 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = "happy-dom-style DOM polyfill in pure Ruby"
   spec.description = <<~DESC
-    A pure-Ruby DOM polyfill on top of Nokogiri::HTML5, a Ruby-side
-    analogue to JavaScript DOM libraries like happy-dom and jsdom.
-    It exposes browser-like DOM semantics — events, MutationObserver,
-    Custom Elements, Shadow DOM, the File API (Blob / File / FormData /
-    DataTransfer), URL, Promise, timers, and Storage — without spinning
-    up a real browser.
-
-    Aimed at testing Ruby code that emits or consumes HTML. Includes
-    drop-in RSpec matchers and Minitest assertions.
+    A pure Ruby DOM polyfill built on Nokogiri::HTML5, inspired by happy-dom and jsdom. It gives Ruby tests a browser style DOM with events, MutationObserver, Custom Elements, Shadow DOM, the File API, timers, and Storage, without requiring a real browser.
   DESC
   spec.homepage = "https://github.com/takahashim/dommy"
   spec.required_ruby_version = ">= 3.0"
