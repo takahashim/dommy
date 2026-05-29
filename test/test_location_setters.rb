@@ -36,6 +36,20 @@ class TestLocationSetters < Minitest::Test
     assert_equal("/new-path", @loc.__js_get__("pathname"))
   end
 
+  def test_href_absolute_url_updates_origin
+    @loc.__js_set__("href", "https://example.com:3000/a?b=1#c")
+    assert_equal("https://example.com:3000", @loc.__js_get__("origin"))
+    assert_equal("/a", @loc.__js_get__("pathname"))
+    assert_equal("?b=1", @loc.__js_get__("search"))
+    assert_equal("#c", @loc.__js_get__("hash"))
+  end
+
+  def test_href_relative_url_keeps_origin
+    @loc.__js_set__("href", "/only/path")
+    assert_equal("http://localhost", @loc.__js_get__("origin"))
+    assert_equal("/only/path", @loc.__js_get__("pathname"))
+  end
+
   def test_replace_sets_url
     @loc.__js_call__("replace", ["/replaced"])
     assert_equal("/replaced", @loc.__js_get__("pathname"))

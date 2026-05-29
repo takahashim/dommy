@@ -43,6 +43,23 @@ class TestDocumentFull < Minitest::Test
     assert_equal("", @doc.referrer)
   end
 
+  def test_origin_matches_location_origin
+    @win.location.__js_set__("href", "http://example.org/posts/1")
+    assert_equal("http://example.org", @doc.origin)
+    assert_equal(@doc.origin, @doc.__js_get__("origin"))
+  end
+
+  def test_content_type_defaults_to_text_html
+    assert_equal("text/html", @doc.content_type)
+    assert_equal("text/html", @doc.__js_get__("contentType"))
+  end
+
+  def test_content_type_is_settable
+    @doc.content_type = "application/xhtml+xml"
+    assert_equal("application/xhtml+xml", @doc.content_type)
+    assert_equal("application/xhtml+xml", @doc.__js_get__("contentType"))
+  end
+
   def test_links_returns_anchors_with_href
     assert_equal(2, @doc.links.size)
     assert_equal("A", @doc.links[0].tag_name)

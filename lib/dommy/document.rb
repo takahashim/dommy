@@ -46,6 +46,9 @@ module Dommy
 
     attr_reader :body, :nokogiri_doc
     attr_accessor :default_view
+    # content_type defaults to "text/html"; settable so an integration layer
+    # can reflect the response Content-Type. Read-only over the JS bridge.
+    attr_accessor :content_type
 
     def initialize(host = nil, nokogiri_doc: nil, default_view: nil)
       @host = host
@@ -59,6 +62,7 @@ module Dommy
       @nokogiri_doc = nokogiri_doc || Backend.parse("<!doctype html><html><head></head><body></body></html>")
       body_node = @nokogiri_doc.at_css("body")
       @body = wrap_node(body_node) if body_node
+      @content_type = "text/html"
     end
 
     # ----- Public Ruby API (snake_case) -----
@@ -114,6 +118,15 @@ module Dommy
       return "" unless view&.location
 
       view.location.__js_get__("hostname").to_s
+    end
+
+    # `document.origin` — serialized origin of the document URL, mirroring
+    # `window.location.origin`. Empty when there is no associated window.
+    def origin
+      view = @default_view
+      return "" unless view&.location
+
+      view.location.__js_get__("origin").to_s
     end
 
     # `document.referrer` — Dommy never has a referring page, so this
@@ -423,6 +436,10 @@ module Dommy
         base_uri
       when "domain"
         domain
+      when "origin"
+        origin
+      when "contentType"
+        content_type
       when "referrer"
         referrer
       when "links"

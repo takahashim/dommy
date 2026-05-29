@@ -74,9 +74,9 @@ class TestWPTLocationNavigationMethods < Minitest::Test
   # the same `__set_url__` path and neither touches History.length.
   # The browser would push (assign) or overwrite (replace) the
   # current history entry; Dommy treats them identically as URL
-  # updates. The origin is preserved on relative-ish updates --
-  # `assign("http://example.test/x")` resolves the path against the
-  # current origin (localhost) rather than navigating cross-origin.
+  # updates. Relative updates preserve the current origin; an absolute
+  # URL (with scheme + host) updates the origin too, matching the
+  # browser's cross-origin navigation.
 
   include DommyTestHelper
 

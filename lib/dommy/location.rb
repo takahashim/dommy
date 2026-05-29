@@ -89,6 +89,10 @@ module Dommy
         @hash = raw
       else
         uri = URI.join(@origin + @pathname + @search + @hash, raw) rescue URI(raw)
+        # An absolute URL (carrying scheme + host) navigates to a new
+        # origin; a relative URL inherits the current origin from the
+        # join base, so rebuilding with the same parts is a no-op.
+        rebuild_origin(scheme: uri.scheme, host: uri.host, port: uri.port) if uri.scheme && uri.host
         @pathname = uri.path.to_s == "" ? "/" : uri.path
         @search = uri.query ? "?#{uri.query}" : ""
         @hash = uri.fragment ? "##{uri.fragment}" : ""
