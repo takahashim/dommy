@@ -1,0 +1,21 @@
+# frozen_string_literal: true
+
+require "bundler/gem_tasks"
+require "rspec/core/rake_task"
+
+# Everything (fast unit specs + Capybara compliance suite).
+RSpec::Core::RakeTask.new(:spec)
+
+namespace :spec do
+  desc "Run only the fast unit specs (no compliance harness / TestApp)"
+  RSpec::Core::RakeTask.new(:unit) do |t|
+    t.pattern = "spec/unit/**/*_spec.rb"
+  end
+
+  desc "Run only the Capybara driver compliance suite"
+  RSpec::Core::RakeTask.new(:compliance) do |t|
+    t.pattern = "spec/compliance/**/*_spec.rb"
+  end
+end
+
+task default: :spec

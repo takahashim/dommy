@@ -4,3 +4,12 @@
 /Gemfile.lock
 /pkg/
 *.gem
+
+# Per-gem build/dev artifacts (each gem is built from its own subdirectory).
+gems/*/Gemfile.lock
+gems/*/.bundle/
+gems/*/coverage/
+gems/*/tmp/
+gems/*/pkg/
+gems/*/save_path_tmp/
+.ruby-lsp/

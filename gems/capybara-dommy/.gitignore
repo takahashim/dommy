@@ -1,0 +1,11 @@
+/.bundle/
+/Gemfile.lock
+/.yardoc
+/_yardoc/
+/coverage/
+/doc/
+/pkg/
+/spec/reports/
+/tmp/
+# Capybara save_path artifacts from compliance specs
+/save_path_tmp/

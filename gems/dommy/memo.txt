@@ -1,0 +1,29 @@
+  タスクリストには含めていませんが、まだ取り組める領域です：
+
+  🟢 WPT カバレッジ追加候補（実装は既にあり、テストのみ）
+
+  - Range API (lib/dommy/range.rb) — 既存テストは限定的、WPT には豊富な dom/ranges/* がある
+  - NodeIterator / TreeWalker — test_wpt_traversal.rb で部分カバー、whatToShow / filter のエッジケース未網羅
+  - Element.getAttributeNames — 実装の有無未確認
+  - DocumentType.publicId / systemId — DOCTYPE 関連
+  - Selection API (lib/dommy/range.rb 内)
+
+  🟢 既存テストの仕様差分の更なる検出
+
+  - grep -rn "Dommy.*deviation\|deviation\|deviates\|differs" test/ で残存差分を網羅的に確認
+  - 修正可能かを 1 件ずつ判定
+
+  🟢 ドキュメント更新
+
+  - README.md に新規 API (URL.parse/canParse, CharacterDataNode の ChildNode メソッド) を追記
+  - 修正された WPT 仕様差分を CHANGELOG 的にまとめる
+
+  🟢 残存仕様差分の再評価
+
+  - XHR abort 後 UNSENT — 本当に意図的な設計か再確認
+  - Response#arrayBuffer/blob を実型に — 中規模実装
+
+  🟡 リファクタリング候補
+
+  - Element と CharacterDataNode の before/after/replace_with の重複削減（Mixin 化）— 前回失敗領域
+  - Element#detach_dom_nodes の Fragment 対応を CharacterDataNode 側にも

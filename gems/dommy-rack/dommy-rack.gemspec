@@ -1,0 +1,39 @@
+# frozen_string_literal: true
+
+require_relative "lib/dommy/rack/version"
+
+Gem::Specification.new do |spec|
+  spec.name = "dommy-rack"
+  spec.version = Dommy::Rack::VERSION
+  spec.authors = ["takahashim"]
+  spec.email = ["takahashimm@gmail.com"]
+
+  spec.summary = "Rack-backed browser session layer for Dommy"
+  spec.description = <<~DESC
+    dommy-rack lets a Rack application (including Rails) be visited and manipulated
+    as a Dommy::Document without launching a real browser. It provides a small,
+    synchronous, browser-like session API with navigation, cookies, redirects,
+    link clicking, and form submission.
+  DESC
+  spec.homepage = "https://github.com/takahashim/dommy"
+  spec.license = "MIT"
+  spec.required_ruby_version = ">= 3.0"
+  spec.metadata["homepage_uri"] = spec.homepage
+  spec.metadata["source_code_uri"] = "https://github.com/takahashim/dommy/tree/main/gems/dommy-rack"
+
+  # Specify which files should be added to the gem when it is released.
+  # The `git ls-files -z` loads the files in the RubyGem that have been added into git.
+  gemspec = File.basename(__FILE__)
+  spec.files = IO.popen(%w[git ls-files -z], chdir: __dir__, err: IO::NULL) do |ls|
+    ls.readlines("\x0", chomp: true).reject do |f|
+      (f == gemspec) ||
+        f.start_with?(*%w[bin/ Gemfile .gitignore test/])
+    end
+  end
+  spec.bindir = "exe"
+  spec.executables = spec.files.grep(%r{\Aexe/}) { |f| File.basename(f) }
+  spec.require_paths = ["lib"]
+
+  spec.add_dependency "dommy", ">= 0.7"
+  spec.add_dependency "rack", ">= 2.0"
+end

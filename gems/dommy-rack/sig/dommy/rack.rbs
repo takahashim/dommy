@@ -1,0 +1,232 @@
+module Dommy
+  module Rack
+    VERSION: String
+
+    # --- Errors ---
+    class Error < StandardError
+    end
+
+    class ElementNotFoundError < Error
+    end
+
+    class ElementNotClickableError < Error
+    end
+
+    class AmbiguousElementError < Error
+    end
+
+    class UnsupportedURLError < Error
+    end
+
+    class CrossOriginError < Error
+    end
+
+    class TooManyRedirectsError < Error
+    end
+
+    class UnsupportedContentTypeError < Error
+    end
+
+    class InvalidFormError < Error
+    end
+
+    class FileNotFoundError < Error
+    end
+
+    type headers = Hash[String, untyped]
+    type params = Hash[untyped, untyped]
+    type redirect_mode = :follow | :manual | :error
+    type redirect_entry = { status: Integer, url: String, location: String? }
+
+    # A single completed Rack response plus the URL it was fetched at.
+    class Response
+      HTML_CONTENT_TYPES: Array[String]
+      REDIRECT_STATUSES: Array[Integer]
+
+      attr_reader status: Integer
+      attr_reader headers: headers
+      attr_reader url: String?
+      attr_accessor redirects: Array[redirect_entry]
+
+      def initialize: (untyped status, headers? headers, untyped body, url: String?) -> void
+      def body: () -> String
+      def content_type: () -> String?
+      def html?: () -> bool
+      def json?: () -> bool
+      def json: (?symbolize_names: bool) -> untyped
+      def redirect?: () -> bool
+      def success?: () -> bool
+      def client_error?: () -> bool
+      def server_error?: () -> bool
+      def error?: () -> bool
+      def not_found?: () -> bool
+      def location_header: () -> String?
+      def meta_refresh_url: () -> String?
+      def set_cookie_strings: () -> Array[String]
+      def window: () -> untyped
+      def document: () -> untyped
+    end
+
+    # A simplified, same-origin cookie store.
+    class CookieJar
+      class CookieEntry < Struct[untyped]
+      end
+
+      def initialize: () -> void
+      def store_from_header: (String set_cookie_string, String request_url) -> void
+      def set!: (untyped name, untyped value, ?domain: String?, ?path: String?, ?expires: untyped, ?secure: bool, ?http_only: bool) -> untyped
+      def get: (untyped name) -> String?
+      def clear: () -> void
+      def all: () -> Array[untyped]
+      def cookies_for: (String request_url) -> String
+    end
+
+    # Browser-tab-style history stack.
+    class History
+      def initialize: () -> void
+      def push: (String url) -> void
+      def back: () -> String?
+      def forward: () -> String?
+      def current: () -> String?
+      def entries: () -> Array[String]
+    end
+
+    # Finds DOM elements within a document/element by Capybara-style locators.
+    class Locator
+      def initialize: (untyped document) -> void
+      def find_field: (untyped locator) -> untyped
+      def find_link: (untyped locator) -> untyped
+      def find_button: (untyped locator) -> untyped
+      def find_option: (untyped select_el, untyped value) -> untyped
+      def form_for: (untyped element) -> untyped
+    end
+
+    # URL resolution, redirect following, same-origin enforcement, meta refresh.
+    class Navigation
+      def initialize: (Session session) -> void
+      def resolve_url: (untyped url_or_path, String? base_url) -> String
+      def check_same_origin!: (String url) -> void
+      def navigate: (method: untyped, url: untyped, ?params: params?, ?body: untyped, ?headers: headers) -> Response
+      def fetch: (untyped url, ?method: untyped, ?params: params?, ?body: untyped, ?headers: headers, ?redirect: redirect_mode) -> Response
+      def revisit: (String url) -> Response
+      def run: (method: untyped, url: untyped, ?params: params?, ?body: untyped, ?headers: headers, ?follow: bool) -> [ Response, String ]
+    end
+
+    # A single browser-like session over a Rack application.
+    class Session
+      DEFAULT_ACCEPT: String
+
+      class Config < Struct[untyped]
+      end
+
+      attr_reader last_request: untyped
+      attr_reader last_response: Response?
+      attr_reader history: History
+
+      def initialize: (untyped app, ?default_host: String, ?follow_redirects: bool, ?max_redirects: Integer, ?respect_method_override: bool, ?method_override_param: String, ?user_agent: String, ?accept: String, ?enforce_same_origin: bool, ?follow_meta_refresh: bool) -> void
+
+      # config readers
+      def default_host: () -> String
+      def follow_redirects?: () -> bool
+      def max_redirects: () -> Integer
+      def enforce_same_origin?: () -> bool
+      def follow_meta_refresh?: () -> bool
+      def config: () -> untyped
+
+      # navigation
+      def visit: (untyped path) -> Response
+      def navigate: (method: untyped, url: untyped, ?params: params?, ?body: untyped, ?headers: headers) -> Response
+      def reload: () -> Response
+      def back: () -> Response?
+      def forward: () -> Response?
+      def get: (untyped path, ?headers: headers) -> Response
+      def post: (untyped path, ?params: params?, ?body: untyped, ?headers: headers) -> Response
+      def put: (untyped path, ?params: params?, ?body: untyped, ?headers: headers) -> Response
+      def patch: (untyped path, ?params: params?, ?body: untyped, ?headers: headers) -> Response
+      def delete: (untyped path, ?params: params?, ?body: untyped, ?headers: headers) -> Response
+      def request: (untyped method, untyped path, ?params: params?, ?body: untyped, ?headers: headers) -> Response
+      def fetch: (untyped url, ?method: untyped, ?headers: headers, ?body: untyped, ?params: params?, ?redirect: redirect_mode) -> Response
+
+      # JSON
+      def post_json: (untyped path, untyped data, ?headers: headers) -> Response
+      def put_json: (untyped path, untyped data, ?headers: headers) -> Response
+      def patch_json: (untyped path, untyped data, ?headers: headers) -> Response
+      def delete_json: (untyped path, untyped data, ?headers: headers) -> Response
+      def json: (?symbolize_names: bool) -> untyped
+
+      # persistent headers / auth
+      def default_headers: () -> headers
+      def set_header: (untyped name, untyped value) -> self
+      def delete_header: (untyped name) -> self
+      def basic_auth: (untyped user, untyped password) -> self
+      def authorization_bearer: (untyped token) -> self
+
+      # current page state
+      def current_url: () -> String?
+      def current_path: () -> String?
+      def current_host: () -> String?
+      def status: () -> Integer?
+      def headers: () -> headers?
+      def body: () -> String?
+      def document: () -> untyped
+      def html: () -> String?
+      def text: () -> String?
+      def save_page: (?String? path) -> String
+
+      # status predicates
+      def success?: () -> bool
+      def client_error?: () -> bool
+      def server_error?: () -> bool
+      def not_found?: () -> bool
+
+      # redirect chain
+      def redirects: () -> Array[redirect_entry]
+      def redirected?: () -> bool
+
+      # instrumentation
+      def on_request: () { (untyped env) -> void } -> self
+      def on_response: () { (Response response) -> void } -> self
+
+      # DOM queries
+      def at_css: (String selector) -> untyped
+      def all_css: (String selector) -> untyped
+      def at_xpath: (String xpath) -> untyped
+      def all_xpath: (String xpath) -> untyped
+
+      # scoping and matchers
+      def within: (String selector) ?{ (Session) -> void } -> untyped
+      def within_frame: (?untyped locator) ?{ (Session) -> void } -> untyped
+      def has_css?: (String selector, ?count: Integer?) -> bool
+      def has_no_css?: (String selector, ?count: Integer?) -> bool
+      def has_text?: (untyped string) -> bool
+      def has_no_text?: (untyped string) -> bool
+      def has_link?: (untyped locator) -> bool
+      def has_button?: (untyped locator) -> bool
+      def has_field?: (untyped locator) -> bool
+
+      # links and forms
+      def click_link: (untyped locator) -> untyped
+      def click_link_element: (untyped element) -> untyped
+      def fill_in: (untyped locator, with: untyped) -> untyped
+      def choose: (untyped locator) -> untyped
+      def check: (untyped locator) -> untyped
+      def uncheck: (untyped locator) -> untyped
+      def attach_file: (untyped locator, untyped path) -> untyped
+      def select: (untyped value, from: untyped) -> untyped
+      def unselect: (untyped value, from: untyped) -> untyped
+      def click_button: (untyped locator) -> untyped
+      def submit_form: (untyped form, ?submitter: untyped) -> Response
+      def submit: (untyped form, ?submitter: untyped) -> Response
+
+      # cookies
+      def cookies: () -> Array[untyped]
+      def set_cookie: (untyped name, untyped value, ?path: String, ?domain: String?, **untyped opts) -> untyped
+      def get_cookie: (untyped name) -> String?
+      def clear_cookies: () -> void
+
+      # collaboration API used by Navigation
+      def raw_request: (untyped method, String absolute_url, ?params: params?, ?body: untyped, ?headers: headers) -> Response
+      def apply_navigation_response: (Response response, String final_url, ?push_history: bool) -> void
+    end
+  end
+end
