@@ -2105,7 +2105,7 @@ module Dommy
     private
 
     def matching_light_nodes
-      sr = @document.internal_shadow_root_containing(@__node__)
+      sr = @document.__internal_shadow_root_containing__(@__node__)
       return [] unless sr
 
       host = sr.host

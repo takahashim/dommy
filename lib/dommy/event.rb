@@ -54,17 +54,17 @@ module Dommy
       # Per spec, dispatchEvent must receive an Event instance.
       raise TypeError, "dispatchEvent requires an Event, got #{event.class}" unless event.is_a?(Event)
 
-      event.internal_prepare_for_dispatch(self)
+      event.__internal_prepare_for_dispatch__(self)
       path = if event.bubbles?
         event.__js_get__("composed") ? composed_bubble_path(event) : event_bubble_path
       else
         [self]
       end
 
-      event.internal_record_path(path) if event.respond_to?(:internal_record_path)
+      event.__internal_record_path__(path) if event.respond_to?(:__internal_record_path__)
       path.each do |target|
-        event.internal_set_current_target(target)
-        target.internal_deliver_event(event)
+        event.__internal_set_current_target__(target)
+        target.__internal_deliver_event__(event)
         break if event.propagation_stopped?
       end
 
@@ -72,12 +72,12 @@ module Dommy
       # null and eventPhase reverts to NONE. Dommy derives
       # eventPhase from currentTarget, so clearing it here covers
       # both spec requirements.
-      event.internal_set_current_target(nil)
+      event.__internal_set_current_target__(nil)
 
       !event.default_prevented?
     end
 
-    def internal_deliver_event(event)
+    def __internal_deliver_event__(event)
       listeners = listeners_for(event.type).dup
       listeners.each do |entry|
         invoke_listener(entry.listener, event)
@@ -112,7 +112,7 @@ module Dommy
     def event_bubble_path
       path = [self]
       current = self
-      while (current = current.send(:internal_event_parent))
+      while (current = current.send(:__internal_event_parent__))
         path << current
       end
 
@@ -122,12 +122,12 @@ module Dommy
     # Build the propagation path with optional shadow-boundary
     # crossing. When the in-flight event has `composed: true`, the
     # walk continues from a ShadowRoot to its host; otherwise it
-    # stops at the shadow boundary (nil from `internal_event_parent`).
+    # stops at the shadow boundary (nil from `__internal_event_parent__`).
     def composed_bubble_path(event)
       path = [self]
       current = self
       loop do
-        nxt = current.send(:internal_event_parent)
+        nxt = current.send(:__internal_event_parent__)
         if nxt.nil? && event.respond_to?(:__js_get__) && event.__js_get__("composed")
           # Try to cross a shadow boundary
           if current.is_a?(ShadowRoot)
@@ -157,9 +157,9 @@ module Dommy
       return nil unless target.respond_to?(:__node__)
 
       doc = target.instance_variable_get(:@document)
-      return nil unless doc && doc.respond_to?(:internal_shadow_root_containing)
+      return nil unless doc && doc.respond_to?(:__internal_shadow_root_containing__)
 
-      doc.internal_shadow_root_containing(target.__node__)
+      doc.__internal_shadow_root_containing__(target.__node__)
     end
 
     public
@@ -197,7 +197,7 @@ module Dommy
       end
     end
 
-    def internal_event_parent
+    def __internal_event_parent__
       nil
     end
   end
@@ -238,11 +238,11 @@ module Dommy
       @immediate_propagation_stopped
     end
 
-    def internal_prepare_for_dispatch(target)
+    def __internal_prepare_for_dispatch__(target)
       @target ||= target
     end
 
-    def internal_set_current_target(target)
+    def __internal_set_current_target__(target)
       @current_target = target
     end
 
@@ -320,7 +320,7 @@ module Dommy
     # Per spec, `load` events do not propagate to the Window when
     # composed paths are computed (resource-finished signal stays at
     # the target).
-    def internal_record_path(targets)
+    def __internal_record_path__(targets)
       @composed_path = if @type == "load"
         targets.reject { |t| t.is_a?(Window) }
       else
@@ -829,7 +829,7 @@ module Dommy
     # signal. Convenient for APIs that need an already-cancelled token.
     def self.abort(reason = nil)
       signal = new
-      signal.internal_mark_aborted(reason)
+      signal.__internal_mark_aborted__(reason)
       signal
     end
 
@@ -842,9 +842,9 @@ module Dommy
       signal = new
       reason = DOMException::TimeoutError.new("operation timed out")
       if scheduler
-        scheduler.set_timeout(proc { signal.internal_mark_aborted(reason) }, ms.to_i)
+        scheduler.set_timeout(proc { signal.__internal_mark_aborted__(reason) }, ms.to_i)
       else
-        signal.internal_schedule_thread_timeout(ms.to_i, reason)
+        signal.__internal_schedule_thread_timeout__(ms.to_i, reason)
       end
 
       signal
@@ -859,12 +859,12 @@ module Dommy
       list = Array(signals).select { |s| s.is_a?(AbortSignal) }
       already = list.find(&:aborted?)
       if already
-        composite.internal_mark_aborted(already.reason)
+        composite.__internal_mark_aborted__(already.reason)
         return composite
       end
 
       list.each do |sig|
-        sig.add_event_listener("abort", proc { composite.internal_mark_aborted(sig.reason) })
+        sig.add_event_listener("abort", proc { composite.__internal_mark_aborted__(sig.reason) })
       end
 
       composite
@@ -877,11 +877,11 @@ module Dommy
 
     # Background-thread timeout used by `AbortSignal.timeout` when no
     # scheduler is provided. Kept package-private; tests can also
-    # drive the abort manually via `internal_mark_aborted`.
-    def internal_schedule_thread_timeout(ms, reason)
+    # drive the abort manually via `__internal_mark_aborted__`.
+    def __internal_schedule_thread_timeout__(ms, reason)
       Thread.new do
         sleep(ms.to_f / 1000.0)
-        internal_mark_aborted(reason)
+        __internal_mark_aborted__(reason)
       end
 
       nil
@@ -931,7 +931,7 @@ module Dommy
       end
     end
 
-    def internal_mark_aborted(reason = nil)
+    def __internal_mark_aborted__(reason = nil)
       return if @aborted
 
       @aborted = true
@@ -958,7 +958,7 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "abort"
-        @signal.internal_mark_aborted(args[0])
+        @signal.__internal_mark_aborted__(args[0])
       end
     end
   end

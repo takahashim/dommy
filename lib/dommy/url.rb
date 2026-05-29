@@ -95,7 +95,7 @@ module Dommy
     def href=(value)
       raw = parse_with_base(value.to_s, nil)
       @uri = raw
-      @search_params.internal_replace(raw.query.to_s)
+      @search_params.__internal_replace__(raw.query.to_s)
       build_href
     end
 
@@ -176,7 +176,7 @@ module Dommy
     def search=(value)
       q = value.to_s.sub(/^\?/, "")
       @uri.query = q.empty? ? nil : q
-      @search_params.internal_replace(q)
+      @search_params.__internal_replace__(q)
     end
 
     def hash
@@ -306,7 +306,7 @@ module Dommy
     # Called by URLSearchParams when it mutates; we need to keep the
     # underlying URI's query string in sync so subsequent `href` is
     # accurate.
-    def internal_notify_params_changed
+    def __internal_notify_params_changed__
       sync_uri_query
     end
 
@@ -653,7 +653,7 @@ module Dommy
       @pairs.map { |k, v| "#{encode(k)}=#{encode(v)}" }.join("&")
     end
 
-    def internal_replace(query_string)
+    def __internal_replace__(query_string)
       @pairs = parse(query_string)
       nil
     end
@@ -718,7 +718,7 @@ module Dommy
     end
 
     def notify
-      @owner&.internal_notify_params_changed
+      @owner&.__internal_notify_params_changed__
     end
   end
 end

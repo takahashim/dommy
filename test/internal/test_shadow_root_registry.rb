@@ -35,13 +35,13 @@ class TestShadowRootRegistry < Minitest::Test
 
   def test_find_enclosing_walks_ancestors
     # Document's registry already has the shadow registered
-    result = @doc.internal_shadow_root_containing(@btn_node)
+    result = @doc.__internal_shadow_root_containing__(@btn_node)
     assert_equal(@shadow, result)
   end
 
   def test_find_enclosing_returns_nil_outside_shadow_tree
     body_node = @doc.body.__node__
-    result = @doc.internal_shadow_root_containing(body_node)
+    result = @doc.__internal_shadow_root_containing__(body_node)
     assert_nil(result)
   end
 end

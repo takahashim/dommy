@@ -23,7 +23,7 @@ module Dommy
       @slot_assignment = slot_assignment.to_s
       @document = host.document
       @__node__ = @document.nokogiri_doc.fragment("")
-      @document.internal_register_shadow_fragment(@__node__, self)
+      @document.__internal_register_shadow_fragment__(@__node__, self)
     end
 
     # ---- Public Ruby API (ParentNode + DocumentFragment mixin) ----
@@ -233,7 +233,7 @@ module Dommy
     # Event bubbling stops at the ShadowRoot unless event has
     # `composed: true`. The host is the bubble-path successor when
     # composition crosses the boundary (handled in Event dispatch).
-    def internal_event_parent
+    def __internal_event_parent__
       nil
     end
 

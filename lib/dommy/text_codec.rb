@@ -118,8 +118,8 @@ module Dommy
         window,
         {
           "write" => proc { |chunk| controller.enqueue(encoder.encode(chunk)) },
-          "close" => proc { @readable.internal_close },
-          "abort" => proc { |r| @readable.internal_error(r) }
+          "close" => proc { @readable.__internal_close__ },
+          "abort" => proc { |r| @readable.__internal_error__(r) }
         }
       )
     end
@@ -155,8 +155,8 @@ module Dommy
         window,
         {
           "write" => proc { |chunk| controller.enqueue(decoder.decode(chunk)) },
-          "close" => proc { @readable.internal_close },
-          "abort" => proc { |r| @readable.internal_error(r) }
+          "close" => proc { @readable.__internal_close__ },
+          "abort" => proc { |r| @readable.__internal_error__(r) }
         }
       )
     end

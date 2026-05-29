@@ -193,7 +193,7 @@ module Dommy
       end
     end
 
-    def internal_event_parent
+    def __internal_event_parent__
       nil
     end
   end
@@ -237,7 +237,7 @@ module Dommy
       @overrides[key] = state.to_s
       @statuses ||= {}
       status = @statuses[key]
-      status&.internal_set_state(state.to_s)
+      status&.__internal_set_state__(state.to_s)
       nil
     end
 
@@ -286,7 +286,7 @@ module Dommy
       @onchange = nil
     end
 
-    def internal_set_state(new_state)
+    def __internal_set_state__(new_state)
       return if @state == new_state
 
       @state = new_state
@@ -327,7 +327,7 @@ module Dommy
       end
     end
 
-    def internal_event_parent
+    def __internal_event_parent__
       nil
     end
   end
@@ -486,7 +486,7 @@ module Dommy
       end
     end
 
-    def internal_event_parent
+    def __internal_event_parent__
       nil
     end
   end
@@ -518,7 +518,7 @@ module Dommy
       end
     end
 
-    def internal_event_parent
+    def __internal_event_parent__
       nil
     end
   end

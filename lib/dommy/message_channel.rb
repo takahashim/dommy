@@ -12,8 +12,8 @@ module Dommy
     def initialize(window)
       @port1 = MessagePort.new(window)
       @port2 = MessagePort.new(window)
-      @port1.internal_entangle(@port2)
-      @port2.internal_entangle(@port1)
+      @port1.__internal_entangle__(@port2)
+      @port2.__internal_entangle__(@port1)
     end
 
     def __js_get__(key)
@@ -39,7 +39,7 @@ module Dommy
       @pending = []
     end
 
-    def internal_entangle(other)
+    def __internal_entangle__(other)
       @entangled = other
     end
 
@@ -50,10 +50,10 @@ module Dommy
       @window.scheduler.queue_microtask(
         proc do
           evt = MessageEvent.new("message", "data" => Dommy.structured_clone(data))
-          if port.internal_started?
+          if port.__internal_started?
             port.dispatch_event(evt)
           else
-            port.internal_enqueue(evt)
+            port.__internal_enqueue__(evt)
           end
         end
       )
@@ -76,11 +76,11 @@ module Dommy
       nil
     end
 
-    def internal_started?
+    def __internal_started?
       @started || !@inline_message_handler.nil?
     end
 
-    def internal_enqueue(event)
+    def __internal_enqueue__(event)
       @pending << event
     end
 
@@ -122,7 +122,7 @@ module Dommy
       end
     end
 
-    def internal_event_parent
+    def __internal_event_parent__
       nil
     end
   end
@@ -242,7 +242,7 @@ module Dommy
       end
     end
 
-    def internal_event_parent
+    def __internal_event_parent__
       nil
     end
   end

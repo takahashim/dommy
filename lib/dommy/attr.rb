@@ -81,13 +81,13 @@ module Dommy
 
     # Internal: called by Element when the attr is being transferred
     # to (or detached from) an Element.
-    def internal_attach(element)
+    def __internal_attach__(element)
       @owner = element
       @detached_value = ""
       nil
     end
 
-    def internal_detach
+    def __internal_detach__
       cached = value
       @owner = nil
       @detached_value = cached
@@ -131,7 +131,7 @@ module Dommy
 
       key = attr.name
       val = attr.value
-      attr.internal_attach(@element)
+      attr.__internal_attach__(@element)
       @element.set_attribute(key, val)
       attr
     end

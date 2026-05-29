@@ -45,17 +45,17 @@ module Dommy
   # tree rooted at `root` and filter by `whatToShow` + an optional
   # filter callable (or object with `acceptNode`).
   module TreeTraversalCore
+    private
+
     # Returns FILTER_ACCEPT / FILTER_REJECT / FILTER_SKIP for the
     # given wrapped node.
-    def internal_accept(node)
+    def accept(node)
       return NodeFilter::FILTER_REJECT unless node
       return NodeFilter::FILTER_SKIP if (NodeFilter.bitmask_for(node) & @what_to_show) == 0
 
       result = invoke_filter(node)
       result || NodeFilter::FILTER_ACCEPT
     end
-
-    private
 
     def invoke_filter(node)
       return NodeFilter::FILTER_ACCEPT if @filter.nil?
@@ -92,7 +92,7 @@ module Dommy
     def next_node
       node = first_descendant_or_following(@current_node)
       while node
-        verdict = internal_accept(node)
+        verdict = accept(node)
         if verdict == NodeFilter::FILTER_ACCEPT
           @current_node = node
           return node
@@ -109,7 +109,7 @@ module Dommy
     def previous_node
       node = preceding(@current_node)
       while node && node != @root
-        verdict = internal_accept(node)
+        verdict = accept(node)
         if verdict == NodeFilter::FILTER_ACCEPT
           @current_node = node
           return node
@@ -124,7 +124,7 @@ module Dommy
     def parent_node
       node = wrapped_parent(@current_node)
       while node && reachable_from_root?(node)
-        return @current_node = node if internal_accept(node) == NodeFilter::FILTER_ACCEPT
+        return @current_node = node if accept(node) == NodeFilter::FILTER_ACCEPT
 
         node = wrapped_parent(node)
       end
@@ -192,7 +192,7 @@ module Dommy
     def walk_siblings(start, direction)
       node = start
       while node
-        v = internal_accept(node)
+        v = accept(node)
         return @current_node = node if v == NodeFilter::FILTER_ACCEPT
 
         node = (v == NodeFilter::FILTER_REJECT) ? nil : send(direction, node)
@@ -306,7 +306,7 @@ module Dommy
 
         @reference_node = node
         @pointer_before_reference = false
-        return node if internal_accept(node) == NodeFilter::FILTER_ACCEPT
+        return node if accept(node) == NodeFilter::FILTER_ACCEPT
       end
     end
 
@@ -322,7 +322,7 @@ module Dommy
 
         @reference_node = node
         @pointer_before_reference = true
-        return node if internal_accept(node) == NodeFilter::FILTER_ACCEPT
+        return node if accept(node) == NodeFilter::FILTER_ACCEPT
       end
     end
 
