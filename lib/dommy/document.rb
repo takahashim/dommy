@@ -83,6 +83,21 @@ module Dommy
       wrap_node(@nokogiri_doc.at_css("head"))
     end
 
+    # Serialize the whole document to HTML (including the doctype).
+    def to_html
+      @nokogiri_doc.to_html
+    end
+
+    # XPath queries returning wrapped nodes (Element / TextNode / etc).
+    def at_xpath(expression)
+      node = @nokogiri_doc.at_xpath(expression)
+      node && wrap_node(node)
+    end
+
+    def xpath(expression)
+      @nokogiri_doc.xpath(expression).map { |node| wrap_node(node) }
+    end
+
     # `document.URL` / `documentURI` — both return location.href in
     # real browsers (legacy aliases of the same field).
     def url

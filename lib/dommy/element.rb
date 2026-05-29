@@ -1958,6 +1958,21 @@ module Dommy
       NodeList.new(@__node__.css(selector.to_s).map { |node| @document.wrap_node(node) }.compact)
     end
 
+    # XPath queries scoped to this element, returning wrapped nodes.
+    def at_xpath(expression)
+      node = @__node__.at_xpath(expression)
+      node && @document.wrap_node(node)
+    end
+
+    def xpath(expression)
+      @__node__.xpath(expression).map { |node| @document.wrap_node(node) }
+    end
+
+    # The XPath string locating this element in its document.
+    def path
+      @__node__.path
+    end
+
     def append_child(child)
       check_hierarchy!(child)
       nodes = detach_dom_nodes(child)
@@ -2196,6 +2211,9 @@ module Dommy
       :clone_node,
       :query_selector,
       :query_selector_all,
+      :at_xpath,
+      :xpath,
+      :path,
       :closest,
       :animate,
       :get_animations,

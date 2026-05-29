@@ -60,6 +60,28 @@ class TestDocumentFull < Minitest::Test
     assert_equal("application/xhtml+xml", @doc.__js_get__("contentType"))
   end
 
+  def test_to_html_serializes_document
+    html = @doc.to_html
+    assert_includes(html, "<h1>Title</h1>")
+    assert_includes(html, "<html")
+  end
+
+  def test_at_xpath_returns_wrapped_element
+    node = @doc.at_xpath("//h1")
+    refute_nil(node)
+    assert_equal("Title", node.text_content)
+  end
+
+  def test_at_xpath_returns_nil_when_missing
+    assert_nil(@doc.at_xpath("//nonexistent"))
+  end
+
+  def test_xpath_returns_all_wrapped_elements
+    nodes = @doc.xpath("//a")
+    assert_equal(2, nodes.size)
+    assert_equal("A", nodes[0].text_content)
+  end
+
   def test_links_returns_anchors_with_href
     assert_equal(2, @doc.links.size)
     assert_equal("A", @doc.links[0].tag_name)

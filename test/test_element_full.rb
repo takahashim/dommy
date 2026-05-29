@@ -105,4 +105,19 @@ class TestElementFull < Minitest::Test
   def test_local_name_lowercased
     assert_equal("div", @root.local_name)
   end
+
+  def test_xpath_scoped_to_element
+    nodes = @root.xpath(".//span")
+    assert_equal(2, nodes.size)
+    assert_equal(%w[A B], nodes.map(&:text_content))
+  end
+
+  def test_at_xpath_returns_first_or_nil
+    assert_equal("A", @root.at_xpath(".//span").text_content)
+    assert_nil(@root.at_xpath(".//em"))
+  end
+
+  def test_path_returns_node_xpath
+    assert_equal("/html/body/div/span[1]", @a.path)
+  end
 end
