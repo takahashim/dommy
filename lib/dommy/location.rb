@@ -5,7 +5,7 @@ require "uri"
 module Dommy
   # `window.location` polyfill. The Window owns one Location and one
   # History instance, and they share the same underlying state. Hash
-  # / pushState / replaceState all flow through `__set_url__`.
+  # / pushState / replaceState all flow through `internal_set_url`.
   class Location
     def initialize(window, origin: "http://localhost", pathname: "/", search: "", hash: "")
       @window = window
@@ -41,7 +41,7 @@ module Dommy
     def __js_set__(key, value)
       case key
       when "href"
-        __set_url__(value.to_s)
+        internal_set_url(value.to_s)
       when "hash"
         new_hash = value.to_s
         new_hash = "##{new_hash}" unless new_hash.empty? || new_hash.start_with?("#")
@@ -68,7 +68,7 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "assign", "replace"
-        __set_url__(args[0].to_s)
+        internal_set_url(args[0].to_s)
       when "reload"
         nil
       when "toString"
@@ -83,7 +83,7 @@ module Dommy
     # Internal — accepts an absolute or relative URL string and
     # updates pathname / search / hash. Called by History pushState /
     # replaceState and by `location.href = ...`.
-    def __set_url__(raw)
+    def internal_set_url(raw)
       previous_hash = @hash
       if raw.start_with?("#")
         @hash = raw

@@ -63,7 +63,7 @@ module Dommy
       idx = index.nil? ? @css_rules.length : index.to_i
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx > @css_rules.length
 
-      @css_rules.__insert__(idx, CSSRule.new(rule_text.to_s, self))
+      @css_rules.internal_insert(idx, CSSRule.new(rule_text.to_s, self))
       idx
     end
 
@@ -71,17 +71,17 @@ module Dommy
       idx = index.to_i
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx >= @css_rules.length
 
-      @css_rules.__delete_at__(idx)
+      @css_rules.internal_delete_at(idx)
       nil
     end
 
     # `replaceSync(text)` — replace all rules with a single rule blob
     # (no parsing — we keep it as one opaque entry).
     def replace_sync(text)
-      @css_rules.__clear__
+      @css_rules.internal_clear
       return nil if text.to_s.empty?
 
-      @css_rules.__insert__(0, CSSRule.new(text.to_s, self))
+      @css_rules.internal_insert(0, CSSRule.new(text.to_s, self))
       nil
     end
 
@@ -173,15 +173,15 @@ module Dommy
       @rules.dup
     end
 
-    def __insert__(index, rule)
+    def internal_insert(index, rule)
       @rules.insert(index, rule)
     end
 
-    def __delete_at__(index)
+    def internal_delete_at(index)
       @rules.delete_at(index)
     end
 
-    def __clear__
+    def internal_clear
       @rules.clear
     end
 

@@ -31,7 +31,7 @@ module Dommy
     attr_reader :clipboard, :permissions, :geolocation, :wake_lock, :locks, :storage
 
     # Web Share API. Returns a Promise; tests can inspect
-    # `__last_shared__` to verify what was offered.
+    # `__test_last_shared__` to verify what was offered.
     def share(data = nil)
       @last_shared = data
       PromiseValue.resolve(@window, nil)
@@ -51,11 +51,11 @@ module Dommy
       true
     end
 
-    def __vibration_log__
+    def __test_vibration_log__
       @vibration_log.dup
     end
 
-    def __last_shared__
+    def __test_last_shared__
       @last_shared
     end
 
@@ -193,7 +193,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
   end
@@ -237,7 +237,7 @@ module Dommy
       @overrides[key] = state.to_s
       @statuses ||= {}
       status = @statuses[key]
-      status&.__set_state__(state.to_s)
+      status&.internal_set_state(state.to_s)
       nil
     end
 
@@ -286,7 +286,7 @@ module Dommy
       @onchange = nil
     end
 
-    def __set_state__(new_state)
+    def internal_set_state(new_state)
       return if @state == new_state
 
       @state = new_state
@@ -327,14 +327,14 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
   end
 
   # `navigator.geolocation` — stub Geolocation API. Real implementations
   # query the OS; dommy holds a mock position tests configure via
-  # `__set_position__(coords)` or `__set_error__(error_code)`.
+  # `__test_set_position__(coords)` or `__test_set_error__(error_code)`.
   #
   # Spec: https://www.w3.org/TR/geolocation/
   class Geolocation
@@ -357,7 +357,7 @@ module Dommy
     end
 
     # Test seam: install a mock position.
-    def __set_position__(coords = {})
+    def __test_set_position__(coords = {})
       merged = DEFAULT_COORDS.merge(coords.transform_keys(&:to_s))
       @position = {"coords" => merged, "timestamp" => @window.scheduler.now_ms}
       @error = nil
@@ -365,7 +365,7 @@ module Dommy
 
     # Test seam: install a permission/positioning error (code 1=PERMISSION_DENIED,
     # 2=POSITION_UNAVAILABLE, 3=TIMEOUT).
-    def __set_error__(code, message = "")
+    def __test_set_error__(code, message = "")
       @position = nil
       @error = {"code" => code.to_i, "message" => message.to_s}
     end
@@ -486,7 +486,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
   end
@@ -518,7 +518,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
   end

@@ -4,9 +4,9 @@ module Dommy
   # `EventSource` (Server-Sent Events). Like `WebSocket`, dommy
   # provides simulation seams instead of network IO:
   #
-  #   es.__simulate_open__
-  #   es.__simulate_message__(data, event: "msg", id: "1")
-  #   es.__simulate_error__
+  #   es.__test_simulate_open__
+  #   es.__test_simulate_message__(data, event: "msg", id: "1")
+  #   es.__test_simulate_error__
   #
   # Auto-opens on a microtask after construction, mirroring real
   # browser behavior.
@@ -31,7 +31,7 @@ module Dommy
       @with_credentials = !!(opts["withCredentials"] || opts[:withCredentials])
       @inline_handlers = {}
 
-      @window.scheduler.queue_microtask(proc { __simulate_open__ })
+      @window.scheduler.queue_microtask(proc { __test_simulate_open__ })
     end
 
     def close
@@ -41,14 +41,14 @@ module Dommy
 
     # --- Test seams ------------------------------------------------
 
-    def __simulate_open__
+    def __test_simulate_open__
       return if @ready_state != CONNECTING
 
       @ready_state = OPEN
       dispatch_event(Event.new("open"))
     end
 
-    def __simulate_message__(data, event: "message", id: nil, retry_ms: nil)
+    def __test_simulate_message__(data, event: "message", id: nil, retry_ms: nil)
       return if @ready_state != OPEN
 
       payload = {"data" => data.to_s}
@@ -57,7 +57,7 @@ module Dommy
       dispatch_event(MessageEvent.new(event.to_s, payload))
     end
 
-    def __simulate_error__
+    def __test_simulate_error__
       dispatch_event(Event.new("error"))
     end
 
@@ -101,7 +101,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
 

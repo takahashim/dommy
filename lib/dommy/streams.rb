@@ -51,7 +51,7 @@ module Dommy
     end
 
     # Convenience: iterate all chunks synchronously into an Array.
-    def __drain__
+    def internal_drain
       out = []
       until @queue.empty?
         out << @queue.shift
@@ -60,25 +60,25 @@ module Dommy
       out
     end
 
-    def __enqueue__(chunk)
+    def internal_enqueue(chunk)
       raise Error, "stream is not readable" unless @state == :readable
 
       @queue << chunk
       flush_pending_reads
     end
 
-    def __close__
+    def internal_close
       @state = :closed
       flush_pending_reads
     end
 
-    def __error__(reason)
+    def internal_error(reason)
       @state = :errored
       @error_reason = reason
       flush_pending_reads
     end
 
-    def __read__
+    def internal_read
       promise = PromiseValue.new(@window)
 
       if !@queue.empty?
@@ -147,15 +147,15 @@ module Dommy
     end
 
     def enqueue(chunk)
-      @stream.__enqueue__(chunk)
+      @stream.internal_enqueue(chunk)
     end
 
     def close
-      @stream.__close__
+      @stream.internal_close
     end
 
     def error(reason)
-      @stream.__error__(reason)
+      @stream.internal_error(reason)
     end
 
     def __js_call__(method, args)
@@ -177,7 +177,7 @@ module Dommy
     end
 
     def read
-      @stream.__read__
+      @stream.internal_read
     end
 
     def release_lock
@@ -227,18 +227,18 @@ module Dommy
       !@writer.nil?
     end
 
-    def __write__(chunk)
+    def internal_write(chunk)
       invoke(@sink["write"], [chunk])
       PromiseValue.resolve(@window, nil)
     end
 
-    def __close__
+    def internal_close
       @state = :closed
       invoke(@sink["close"], [])
       PromiseValue.resolve(@window, nil)
     end
 
-    def __abort__(reason)
+    def internal_abort(reason)
       @state = :errored
       invoke(@sink["abort"], [reason])
       PromiseValue.resolve(@window, nil)
@@ -256,9 +256,9 @@ module Dommy
       when "getWriter"
         get_writer
       when "close"
-        __close__
+        internal_close
       when "abort"
-        __abort__(args[0])
+        internal_abort(args[0])
       end
     end
 
@@ -284,15 +284,15 @@ module Dommy
     end
 
     def write(chunk)
-      @stream.__write__(chunk)
+      @stream.internal_write(chunk)
     end
 
     def close
-      @stream.__close__
+      @stream.internal_close
     end
 
     def abort(reason = nil)
-      @stream.__abort__(reason)
+      @stream.internal_abort(reason)
     end
 
     def __js_call__(method, args)
@@ -331,8 +331,8 @@ module Dommy
               controller.enqueue(chunk)
             end
           end,
-          "close" => proc { @readable.__close__ },
-          "abort" => proc { |reason| @readable.__error__(reason) }
+          "close" => proc { @readable.internal_close },
+          "abort" => proc { |reason| @readable.internal_error(reason) }
         }
       )
 
@@ -361,15 +361,15 @@ module Dommy
     end
 
     def enqueue(chunk)
-      @readable.__enqueue__(chunk)
+      @readable.internal_enqueue(chunk)
     end
 
     def terminate
-      @readable.__close__
+      @readable.internal_close
     end
 
     def error(reason)
-      @readable.__error__(reason)
+      @readable.internal_error(reason)
     end
 
     def __js_call__(method, args)

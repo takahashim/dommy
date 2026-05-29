@@ -4,7 +4,7 @@ module Dommy
   # `MediaQueryList` — what `window.matchMedia(query)` returns.
   #
   # Dommy has no layout / viewport, so `matches` is `false` by default.
-  # Tests drive media query changes via `__set_matches__(bool)`, which
+  # Tests drive media query changes via `__test_set_matches__(bool)`, which
   # flips the boolean and fires a `change` event — exactly the surface
   # libraries like Material-UI / Bootstrap / @testing-library consult.
   #
@@ -42,7 +42,7 @@ module Dommy
 
     # Test seam: flip the match state and dispatch a `change` event so
     # subscribers re-render.
-    def __set_matches__(value)
+    def __test_set_matches__(value)
       return if @matches == !!value
 
       @matches = !!value
@@ -89,7 +89,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
   end

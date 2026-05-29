@@ -147,7 +147,7 @@ module Dommy
 
     # Fragments aren't part of the bubble chain; nil terminates
     # bubbling at the boundary (shadow root, detached fragment, etc.).
-    def __event_parent__
+    def internal_event_parent
       nil
     end
   end
@@ -992,7 +992,7 @@ module Dommy
     # inside a shadow tree, returns that ShadowRoot. Otherwise walks
     # until we hit the Nokogiri Document (then returns the Document).
     def root_node
-      sr = @document.__shadow_root_containing__(@__node__)
+      sr = @document.internal_shadow_root_containing(@__node__)
       return sr if sr
 
       current = @__node__
@@ -1151,7 +1151,7 @@ module Dommy
         return false unless parent
         return true if parent.is_a?(Backend.document_class)
 
-        sr = @document.__shadow_root_for_fragment__(parent)
+        sr = @document.internal_shadow_root_for_fragment(parent)
         if sr
           host = sr.host
           return false unless host
@@ -1169,12 +1169,12 @@ module Dommy
     # tests rely on `document.activeElement` updating. Track the most
     # recently focused element on the document.
     def focus
-      @document.__set_active_element__(self)
+      @document.internal_set_active_element(self)
       nil
     end
 
     def blur
-      @document.__set_active_element__(nil)
+      @document.internal_set_active_element(nil)
       nil
     end
 
@@ -1244,7 +1244,7 @@ module Dommy
 
     # Internal — gives access to the shadow root regardless of mode.
     # Used by event composition / `composedPath()`.
-    def __shadow_root__
+    def internal_shadow_root
       @__shadow_root
     end
 
@@ -1808,11 +1808,11 @@ module Dommy
         []
       when "scrollIntoView", "scroll", "scrollTo", "scrollBy"
         # No layout — record the request for tests to assert against.
-        @__scroll_log__ ||= []
-        @__scroll_log__ << [method, args]
+        @scroll_log ||= []
+        @scroll_log << [method, args]
         nil
       when "requestFullscreen"
-        @document.__set_fullscreen_element__(self)
+        @document.internal_set_fullscreen_element(self)
         PromiseValue.resolve(@document.default_view, nil)
       when "showPopover"
         toggle_popover_state(true)
@@ -1847,14 +1847,14 @@ module Dommy
       @document.wrap_node(node)
     end
 
-    def __event_parent__
+    def internal_event_parent
       parent_node = @__node__.parent
       # If our Nokogiri parent is a shadow tree's backing fragment,
       # the bubble path's next stop is the ShadowRoot itself — not
-      # the bare Fragment wrapper. The ShadowRoot's __event_parent__
+      # the bare Fragment wrapper. The ShadowRoot's internal_event_parent
       # will return nil (composed events route to host explicitly).
       if parent_node.is_a?(Backend.document_fragment_class)
-        sr = @document.__shadow_root_for_fragment__(parent_node)
+        sr = @document.internal_shadow_root_for_fragment(parent_node)
         return sr if sr
       end
 
@@ -2189,11 +2189,11 @@ module Dommy
     end
 
     # Test inspector for scroll calls (no real layout to scroll).
-    def __scroll_log__
-      @__scroll_log__ ||= []
+    def __test_scroll_log__
+      @scroll_log ||= []
     end
 
-    public :__scroll_log__
+    public :__test_scroll_log__
 
     # Re-expose snake_case methods that the JS bridge dispatch routes
     # to. Defined as private originally so internal helpers (element_children,

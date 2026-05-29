@@ -84,13 +84,13 @@ class TestNavigatorExtras < Minitest::Test
 
   def test_share_records_last_payload
     @nav.share({"title" => "hi", "url" => "https://x"}).await
-    assert_equal({"title" => "hi", "url" => "https://x"}, @nav.__last_shared__)
+    assert_equal({"title" => "hi", "url" => "https://x"}, @nav.__test_last_shared__)
   end
 
   def test_vibrate_records_pattern
     @nav.vibrate([100, 50, 200])
     @nav.vibrate(80)
-    assert_equal([[100, 50, 200], [80]], @nav.__vibration_log__)
+    assert_equal([[100, 50, 200], [80]], @nav.__test_vibration_log__)
   end
 
   def test_wake_lock_request_returns_sentinel
@@ -277,7 +277,7 @@ class TestWorker < Minitest::Test
 
   def test_post_message_round_trips_via_handler
     w = Dommy::Worker.new(@win, "echo.js")
-    w.__on_message__ { |msg| w.__post_to_main__("echo: #{msg["data"]}") }
+    w.__test_on_message__ { |msg| w.__test_post_to_main__("echo: #{msg["data"]}") }
     received = nil
     w.add_event_listener("message", proc { |e| received = e.data })
     w.post_message("hello")
@@ -289,7 +289,7 @@ class TestWorker < Minitest::Test
   def test_terminate_blocks_further_messages
     w = Dommy::Worker.new(@win, "x.js")
     received = nil
-    w.__on_message__ { |_msg| received = "got it" }
+    w.__test_on_message__ { |_msg| received = "got it" }
     w.terminate
     w.post_message("hi")
     @win.scheduler.drain_microtasks

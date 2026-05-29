@@ -30,7 +30,7 @@ module Dommy
 
     class << self
       # Create a unique blob: URL that resolves back to `blob` via
-      # `URL.__resolve_blob_url__(url)`. Returns nil for non-Blob input.
+      # `URL.__test_resolve_blob_url__(url)`. Returns nil for non-Blob input.
       def create_object_url(blob)
         return nil unless blob.is_a?(Blob)
 
@@ -53,12 +53,12 @@ module Dommy
 
       # Resolve a blob: URL back to its Blob, or nil if revoked / unknown.
       # Internal — used by fetch / XHR implementations that load blob URLs.
-      def __resolve_blob_url__(url)
+      def __test_resolve_blob_url__(url)
         @blob_urls[url.to_s]
       end
 
       # Test seam: drop all registered blob URLs.
-      def __reset_blob_urls__
+      def __test_reset_blob_urls__
         @blob_urls.clear
       end
 
@@ -95,7 +95,7 @@ module Dommy
     def href=(value)
       raw = parse_with_base(value.to_s, nil)
       @uri = raw
-      @search_params.__replace__(raw.query.to_s)
+      @search_params.internal_replace(raw.query.to_s)
       build_href
     end
 
@@ -176,7 +176,7 @@ module Dommy
     def search=(value)
       q = value.to_s.sub(/^\?/, "")
       @uri.query = q.empty? ? nil : q
-      @search_params.__replace__(q)
+      @search_params.internal_replace(q)
     end
 
     def hash
@@ -306,7 +306,7 @@ module Dommy
     # Called by URLSearchParams when it mutates; we need to keep the
     # underlying URI's query string in sync so subsequent `href` is
     # accurate.
-    def __notify_params_changed__
+    def internal_notify_params_changed
       sync_uri_query
     end
 
@@ -653,7 +653,7 @@ module Dommy
       @pairs.map { |k, v| "#{encode(k)}=#{encode(v)}" }.join("&")
     end
 
-    def __replace__(query_string)
+    def internal_replace(query_string)
       @pairs = parse(query_string)
       nil
     end
@@ -718,7 +718,7 @@ module Dommy
     end
 
     def notify
-      @owner&.__notify_params_changed__
+      @owner&.internal_notify_params_changed
     end
   end
 end

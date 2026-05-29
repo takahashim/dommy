@@ -31,9 +31,9 @@ module Dommy
           "close" => proc do
             compressed = compressor.call(@buffer)
             controller.enqueue(compressed)
-            @readable.__close__
+            @readable.internal_close
           end,
-          "abort" => proc { |r| @readable.__error__(r) }
+          "abort" => proc { |r| @readable.internal_error(r) }
         }
       )
     end
@@ -98,9 +98,9 @@ module Dommy
           "close" => proc do
             plain = decompressor.call(@buffer)
             controller.enqueue(plain)
-            @readable.__close__
+            @readable.internal_close
           end,
-          "abort" => proc { |r| @readable.__error__(r) }
+          "abort" => proc { |r| @readable.internal_error(r) }
         }
       )
     end

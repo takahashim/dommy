@@ -71,7 +71,7 @@ end
 
 class TestWPTLocationNavigationMethods < Minitest::Test
   # Dommy deviation: assign() and replace() both update the URL via
-  # the same `__set_url__` path and neither touches History.length.
+  # the same `internal_set_url` path and neither touches History.length.
   # The browser would push (assign) or overwrite (replace) the
   # current history entry; Dommy treats them identically as URL
   # updates. Relative updates preserve the current origin; an absolute

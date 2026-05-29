@@ -3,7 +3,7 @@
 module Dommy
   # `ResizeObserver` — stub for the element-resize API. Same shape as
   # IntersectionObserver: observe / unobserve / disconnect, plus
-  # `__trigger__` for tests to drive callbacks.
+  # `__test_trigger__` for tests to drive callbacks.
   #
   # Spec: https://drafts.csswg.org/resize-observer/
   class ResizeObserver
@@ -35,7 +35,7 @@ module Dommy
       @targets.dup
     end
 
-    def __trigger__(entries)
+    def __test_trigger__(entries)
       invoke_callback(entries)
     end
 

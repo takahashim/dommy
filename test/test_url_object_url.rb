@@ -6,7 +6,7 @@ class TestURLObjectURL < Minitest::Test
   include DommyTestHelper
 
   def setup
-    Dommy::URL.__reset_blob_urls__
+    Dommy::URL.__test_reset_blob_urls__
   end
 
   # --- createObjectURL ---------------------------------------------
@@ -33,7 +33,7 @@ class TestURLObjectURL < Minitest::Test
     file = Dommy::File.new(["csv"], "data.csv", "type" => "text/csv")
     url = Dommy::URL.create_object_url(file)
     assert_kind_of(String, url)
-    assert_same(file, Dommy::URL.__resolve_blob_url__(url))
+    assert_same(file, Dommy::URL.__test_resolve_blob_url__(url))
   end
 
   # --- resolve back to blob ----------------------------------------
@@ -41,11 +41,11 @@ class TestURLObjectURL < Minitest::Test
   def test_resolve_blob_url_returns_original_blob
     blob = Dommy::Blob.new(["hello"], "type" => "text/plain")
     url = Dommy::URL.create_object_url(blob)
-    assert_same(blob, Dommy::URL.__resolve_blob_url__(url))
+    assert_same(blob, Dommy::URL.__test_resolve_blob_url__(url))
   end
 
   def test_resolve_blob_url_returns_nil_for_unknown
-    assert_nil(Dommy::URL.__resolve_blob_url__("blob:dommy/unknown"))
+    assert_nil(Dommy::URL.__test_resolve_blob_url__("blob:dommy/unknown"))
   end
 
   # --- revokeObjectURL ---------------------------------------------
@@ -54,7 +54,7 @@ class TestURLObjectURL < Minitest::Test
     blob = Dommy::Blob.new(["x"])
     url = Dommy::URL.create_object_url(blob)
     Dommy::URL.revoke_object_url(url)
-    assert_nil(Dommy::URL.__resolve_blob_url__(url))
+    assert_nil(Dommy::URL.__test_resolve_blob_url__(url))
   end
 
   def test_revoke_object_url_is_idempotent
@@ -73,7 +73,7 @@ class TestURLObjectURL < Minitest::Test
     blob = Dommy::Blob.new(["x"])
     url = Dommy::URL.createObjectURL(blob)
     Dommy::URL.revokeObjectURL(url)
-    assert_nil(Dommy::URL.__resolve_blob_url__(url))
+    assert_nil(Dommy::URL.__test_resolve_blob_url__(url))
   end
 
   # --- Window / JS bridge ------------------------------------------
@@ -84,7 +84,7 @@ class TestURLObjectURL < Minitest::Test
     blob = Dommy::Blob.new(["hi"], "type" => "text/plain")
     url = url_ctor.__js_call__("createObjectURL", [blob])
     assert_match(/\Ablob:/, url)
-    assert_same(blob, Dommy::URL.__resolve_blob_url__(url))
+    assert_same(blob, Dommy::URL.__test_resolve_blob_url__(url))
   end
 
   def test_window_url_constructor_exposes_revoke_object_url
@@ -93,7 +93,7 @@ class TestURLObjectURL < Minitest::Test
     blob = Dommy::Blob.new(["x"])
     url = url_ctor.__js_call__("createObjectURL", [blob])
     url_ctor.__js_call__("revokeObjectURL", [url])
-    assert_nil(Dommy::URL.__resolve_blob_url__(url))
+    assert_nil(Dommy::URL.__test_resolve_blob_url__(url))
   end
 
   def test_window_url_constructor_still_creates_url_instances

@@ -203,7 +203,7 @@ module Dommy
       @active_element || @body
     end
 
-    def __set_active_element__(el)
+    def internal_set_active_element(el)
       @active_element = el
     end
 
@@ -261,8 +261,8 @@ module Dommy
       # wrapper cache into ours, and re-point its @document. This
       # keeps `adopt_node(x).equal?(x)` true across documents.
       node.instance_variable_set(:@document, self)
-      if src_doc_wrapper.respond_to?(:__reset_wrapper__)
-        src_doc_wrapper.__reset_wrapper__(src)
+      if src_doc_wrapper.respond_to?(:internal_reset_wrapper)
+        src_doc_wrapper.internal_reset_wrapper(src)
       end
       @node_wrapper_cache.register(src, node)
       node
@@ -311,7 +311,7 @@ module Dommy
     # is the read side.
     attr_reader :fullscreen_element
 
-    def __set_fullscreen_element__(element)
+    def internal_set_fullscreen_element(element)
       previous = @fullscreen_element
       @fullscreen_element = element
       return if previous == element
@@ -568,7 +568,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       @default_view
     end
 
@@ -580,7 +580,7 @@ module Dommy
     # Clear the cached wrapper so the next `wrap_node` creates a new
     # one. Used by `customElements.define` to upgrade nodes that were
     # constructed before the registration landed.
-    def __reset_wrapper__(nokogiri_node)
+    def internal_reset_wrapper(nokogiri_node)
       @node_wrapper_cache.reset_wrapper(nokogiri_node)
     end
 
@@ -590,15 +590,15 @@ module Dommy
     # node back to its shadow boundary.
     # Delegate to ShadowRootRegistry
 
-    def __register_shadow_fragment__(fragment_node, shadow_root)
+    def internal_register_shadow_fragment(fragment_node, shadow_root)
       @shadow_registry.register(fragment_node, shadow_root)
     end
 
-    def __shadow_root_for_fragment__(fragment_node)
+    def internal_shadow_root_for_fragment(fragment_node)
       @shadow_registry.find_for_fragment(fragment_node)
     end
 
-    def __shadow_root_containing__(node)
+    def internal_shadow_root_containing(node)
       @shadow_registry.find_enclosing(node)
     end
 
@@ -607,23 +607,23 @@ module Dommy
     # break the whole mutation pipeline.
     # Delegate to MutationCoordinator
 
-    def __notify_connected__(element)
+    def internal_notify_connected(element)
       @mutation_coordinator.notify_connected(element)
     end
 
-    def __notify_disconnected__(element)
+    def internal_notify_disconnected(element)
       @mutation_coordinator.notify_disconnected(element)
     end
 
-    def __notify_connected_subtree__(nk)
+    def internal_notify_connected_subtree(nk)
       @mutation_coordinator.notify_connected_subtree(nk)
     end
 
-    def __notify_disconnected_subtree__(nk)
+    def internal_notify_disconnected_subtree(nk)
       @mutation_coordinator.notify_disconnected_subtree(nk)
     end
 
-    def __notify_attribute_changed__(element, name, old_value, new_value)
+    def internal_notify_attribute_changed(element, name, old_value, new_value)
       @mutation_coordinator.notify_attribute_changed(element, name, old_value, new_value)
     end
 

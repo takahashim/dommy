@@ -41,7 +41,7 @@ class TestObservers < Minitest::Test
   def test_intersection_observer_trigger_fires_callback
     received = nil
     io = Dommy::IntersectionObserver.new(proc { |entries| received = entries })
-    io.__trigger__([{"target" => @target, "isIntersecting" => true}])
+    io.__test_trigger__([{"target" => @target, "isIntersecting" => true}])
     refute_nil(received)
     assert_equal(true, received.first["isIntersecting"])
   end
@@ -66,7 +66,7 @@ class TestObservers < Minitest::Test
   def test_resize_observer_trigger_fires_callback
     fired = false
     ro = Dommy::ResizeObserver.new(proc { fired = true })
-    ro.__trigger__([])
+    ro.__test_trigger__([])
     assert(fired)
   end
 
@@ -94,7 +94,7 @@ class TestObservers < Minitest::Test
     received = nil
     po = Dommy::PerformanceObserver.new(proc { |entries| received = entries })
     po.observe("type" => "measure")
-    po.__trigger__([{"name" => "x", "duration" => 5}])
+    po.__test_trigger__([{"name" => "x", "duration" => 5}])
     refute_nil(received)
   end
 

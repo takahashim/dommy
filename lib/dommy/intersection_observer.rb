@@ -3,7 +3,7 @@
 module Dommy
   # `IntersectionObserver` — stub for the viewport-intersection API.
   # Dommy has no layout engine, so callbacks never fire automatically.
-  # Tests can drive callbacks explicitly via `__trigger__(entries)`.
+  # Tests can drive callbacks explicitly via `__test_trigger__(entries)`.
   #
   # Spec: https://w3c.github.io/IntersectionObserver/
   class IntersectionObserver
@@ -51,7 +51,7 @@ module Dommy
 
     # Test seam: invoke the callback with a synthetic entries list.
     # Each entry is whatever shape the test wants (usually a Hash).
-    def __trigger__(entries)
+    def __test_trigger__(entries)
       invoke_callback(entries)
     end
 

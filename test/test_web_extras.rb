@@ -22,7 +22,7 @@ class TestMatchMedia < Minitest::Test
     mql = @win.__js_call__("matchMedia", ["(prefers-color-scheme: dark)"])
     fired = nil
     mql.add_event_listener("change", proc { |e| fired = e.matches })
-    mql.__set_matches__(true)
+    mql.__test_set_matches__(true)
     assert(mql.matches)
     assert_equal(true, fired)
   end
@@ -33,7 +33,7 @@ class TestMatchMedia < Minitest::Test
     second = nil
     mql.__js_set__("onchange", proc { |e| first = e.matches })
     mql.__js_set__("onchange", proc { |e| second = e.matches })
-    mql.__set_matches__(true)
+    mql.__test_set_matches__(true)
     assert_nil(first)
     assert_equal(true, second)
   end
@@ -42,7 +42,7 @@ class TestMatchMedia < Minitest::Test
     mql = @win.__js_call__("matchMedia", ["(max-width: 800px)"])
     captured = nil
     mql.add_listener(proc { |e| captured = e.matches })
-    mql.__set_matches__(true)
+    mql.__test_set_matches__(true)
     assert_equal(true, captured)
   end
 end
@@ -157,15 +157,15 @@ class TestNotification < Minitest::Test
   end
 
   def test_permission_default
-    Dommy::Notification.__set_permission__("default")
+    Dommy::Notification.__test_set_permission__("default")
     assert_equal("default", Dommy::Notification.permission)
   end
 
   def test_permission_can_be_set
-    Dommy::Notification.__set_permission__("granted")
+    Dommy::Notification.__test_set_permission__("granted")
     assert_equal("granted", Dommy::Notification.permission)
     # reset
-    Dommy::Notification.__set_permission__("default")
+    Dommy::Notification.__test_set_permission__("default")
   end
 
   def test_close_fires_close_event
@@ -195,7 +195,7 @@ class TestGeolocation < Minitest::Test
   end
 
   def test_get_current_position_returns_set_coords
-    @geo.__set_position__("latitude" => 35.0, "longitude" => 139.0)
+    @geo.__test_set_position__("latitude" => 35.0, "longitude" => 139.0)
     pos = nil
     @geo.get_current_position(proc { |p| pos = p })
     @win.scheduler.drain_microtasks
@@ -204,7 +204,7 @@ class TestGeolocation < Minitest::Test
   end
 
   def test_get_current_position_uses_error_callback
-    @geo.__set_error__(1, "denied")
+    @geo.__test_set_error__(1, "denied")
     err = nil
     @geo.get_current_position(
       proc { |_| flunk("should not succeed") },
@@ -216,7 +216,7 @@ class TestGeolocation < Minitest::Test
   end
 
   def test_watch_returns_id_and_clear_works
-    @geo.__set_position__
+    @geo.__test_set_position__
     id = @geo.watch_position(proc { |_| })
     assert_kind_of(Integer, id)
     @geo.clear_watch(id)
@@ -317,7 +317,7 @@ class TestWebSocket < Minitest::Test
     @win.scheduler.drain_microtasks
     ws.send("hello")
     ws.send("world")
-    assert_equal(%w[hello world], ws.__sent_messages__)
+    assert_equal(%w[hello world], ws.__test_sent_messages__)
   end
 
   def test_simulate_message_dispatches_event
@@ -325,7 +325,7 @@ class TestWebSocket < Minitest::Test
     @win.scheduler.drain_microtasks
     received = nil
     ws.add_event_listener("message", proc { |e| received = e.data })
-    ws.__simulate_message__("from server")
+    ws.__test_simulate_message__("from server")
     assert_equal("from server", received)
   end
 
@@ -375,7 +375,7 @@ class TestEventSource < Minitest::Test
     @win.scheduler.drain_microtasks
     payload = nil
     es.add_event_listener("message", proc { |e| payload = e.data })
-    es.__simulate_message__("event-1")
+    es.__test_simulate_message__("event-1")
     assert_equal("event-1", payload)
   end
 
@@ -384,7 +384,7 @@ class TestEventSource < Minitest::Test
     @win.scheduler.drain_microtasks
     captured = nil
     es.add_event_listener("user-joined", proc { |e| captured = e.data })
-    es.__simulate_message__("alice", event: "user-joined")
+    es.__test_simulate_message__("alice", event: "user-joined")
     assert_equal("alice", captured)
   end
 end

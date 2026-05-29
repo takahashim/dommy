@@ -241,7 +241,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
 
@@ -421,7 +421,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
   end

@@ -3,7 +3,7 @@
 module Dommy
   # `Notification` polyfill. Real browsers prompt the user; dommy
   # exposes the permission state as a class-level slot tests can
-  # toggle via `Notification.__set_permission__("granted")`.
+  # toggle via `Notification.__test_set_permission__("granted")`.
   #
   # Spec: https://notifications.spec.whatwg.org/
   class Notification
@@ -14,7 +14,7 @@ module Dommy
     class << self
       attr_reader :permission
 
-      def __set_permission__(value)
+      def __test_set_permission__(value)
         @permission = value.to_s
       end
 
@@ -82,7 +82,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
   end

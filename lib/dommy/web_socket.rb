@@ -5,11 +5,11 @@ module Dommy
   # connection; dommy exposes an in-memory transport tests drive via
   # the `__*` seams:
   #
-  #   ws.__simulate_open__               — fires `open`
-  #   ws.__simulate_message__(data)      — fires `message`
-  #   ws.__simulate_close__(code, reason) — fires `close`
-  #   ws.__simulate_error__              — fires `error`
-  #   ws.__sent_messages__               — array of sent payloads
+  #   ws.__test_simulate_open__               — fires `open`
+  #   ws.__test_simulate_message__(data)      — fires `message`
+  #   ws.__test_simulate_close__(code, reason) — fires `close`
+  #   ws.__test_simulate_error__              — fires `error`
+  #   ws.__test_sent_messages__               — array of sent payloads
   #
   # By default a `new WebSocket(url)` auto-opens via microtask so the
   # common pattern (`ws.onopen = ...; ws.send(...)`) works without
@@ -42,7 +42,7 @@ module Dommy
 
       # Auto-open via microtask unless tests disable.
       auto_open = window.globals["__ws_auto_open__"]
-      @window.scheduler.queue_microtask(proc { __simulate_open__ }) unless auto_open == false
+      @window.scheduler.queue_microtask(proc { __test_simulate_open__ }) unless auto_open == false
     end
 
     def send(data)
@@ -56,30 +56,30 @@ module Dommy
       return if @ready_state == CLOSED || @ready_state == CLOSING
 
       @ready_state = CLOSING
-      @window.scheduler.queue_microtask(proc { __simulate_close__(code, reason) })
+      @window.scheduler.queue_microtask(proc { __test_simulate_close__(code, reason) })
       nil
     end
 
     # --- Test seams ------------------------------------------------
 
-    def __sent_messages__
+    def __test_sent_messages__
       @sent_messages.dup
     end
 
-    def __simulate_open__
+    def __test_simulate_open__
       return if @ready_state != CONNECTING
 
       @ready_state = OPEN
       dispatch_event(Event.new("open"))
     end
 
-    def __simulate_message__(data)
+    def __test_simulate_message__(data)
       return if @ready_state != OPEN
 
       dispatch_event(MessageEvent.new("message", "data" => data))
     end
 
-    def __simulate_close__(code = 1000, reason = "", was_clean: true)
+    def __test_simulate_close__(code = 1000, reason = "", was_clean: true)
       @ready_state = CLOSED
       dispatch_event(
         CloseEvent.new(
@@ -91,7 +91,7 @@ module Dommy
       )
     end
 
-    def __simulate_error__
+    def __test_simulate_error__
       dispatch_event(Event.new("error"))
     end
 
@@ -151,7 +151,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
 

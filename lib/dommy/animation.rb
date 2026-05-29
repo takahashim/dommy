@@ -244,7 +244,7 @@ module Dommy
     end
 
     # Event bubbling stops at Animation — it isn't part of the DOM tree.
-    def __event_parent__
+    def internal_event_parent
       nil
     end
 

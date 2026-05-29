@@ -2,7 +2,7 @@
 
 module Dommy
   # `PerformanceObserver` — stub. Same observe/disconnect shape, with
-  # `__trigger__` for tests.
+  # `__test_trigger__` for tests.
   #
   # Spec: https://w3c.github.io/performance-timeline/
   class PerformanceObserver
@@ -37,7 +37,7 @@ module Dommy
       @entry_types.dup
     end
 
-    def __trigger__(entries)
+    def __test_trigger__(entries)
       invoke_callback(entries)
     end
 

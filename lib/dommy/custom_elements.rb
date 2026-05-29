@@ -71,9 +71,9 @@ module Dommy
         next unless @definitions.key?(nk.name)
 
         # Force re-wrap by clearing the document's cached wrapper.
-        @window.document.__reset_wrapper__(nk)
+        @window.document.internal_reset_wrapper(nk)
         wrapped = @window.document.wrap_node(nk)
-        @window.document.__notify_connected__(wrapped) if wrapped
+        @window.document.internal_notify_connected(wrapped) if wrapped
       end
 
       nil
@@ -109,9 +109,9 @@ module Dommy
     def upgrade_existing(name)
       doc = @window.document
       doc.nokogiri_doc.css(name).each do |nk|
-        doc.__reset_wrapper__(nk)
+        doc.internal_reset_wrapper(nk)
         wrapped = doc.wrap_node(nk)
-        doc.__notify_connected__(wrapped) if wrapped
+        doc.internal_notify_connected(wrapped) if wrapped
       end
     end
 

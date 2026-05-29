@@ -6,11 +6,11 @@ module Dommy
   #
   #   - `new Worker("/path/to/worker.js")` records the URL.
   #   - The script body is not executed. Tests install message
-  #     handlers on the worker-side via `worker.__on_message__ { ... }`
+  #     handlers on the worker-side via `worker.__test_on_message__ { ... }`
   #     to simulate behavior.
   #   - `worker.postMessage(data)` queues a microtask that delivers
   #     to the worker-side handler.
-  #   - The worker-side handler can call `worker.__post_to_main__(data)`
+  #   - The worker-side handler can call `worker.__test_post_to_main__(data)`
   #     to deliver a message back to the main side's `message` event.
   #
   # This is enough surface to test "the app correctly posts/receives
@@ -56,12 +56,12 @@ module Dommy
 
     # Register a callback that runs in the "worker side". Multiple
     # registrations stack.
-    def __on_message__(&block)
+    def __test_on_message__(&block)
       @worker_side_handlers << block
     end
 
     # Worker-side: deliver a message to the main-side `message` event.
-    def __post_to_main__(data)
+    def __test_post_to_main__(data)
       cloned = Dommy.structured_clone(data)
       @window.scheduler.queue_microtask(
         proc do
@@ -104,7 +104,7 @@ module Dommy
       end
     end
 
-    def __event_parent__
+    def internal_event_parent
       nil
     end
 

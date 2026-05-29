@@ -14,12 +14,12 @@ class TestElementScrollAndSize < Minitest::Test
 
   def test_scroll_into_view_records_call
     @el.__js_call__("scrollIntoView", [true])
-    assert_equal([["scrollIntoView", [true]]], @el.__scroll_log__)
+    assert_equal([["scrollIntoView", [true]]], @el.__test_scroll_log__)
   end
 
   def test_scroll_to_records_call
     @el.__js_call__("scrollTo", [{"top" => 100, "behavior" => "smooth"}])
-    assert_equal("scrollTo", @el.__scroll_log__.first.first)
+    assert_equal("scrollTo", @el.__test_scroll_log__.first.first)
   end
 
   def test_scroll_metrics_zero
