@@ -46,9 +46,9 @@ module Dommy
       return nil if key.empty?
 
       to_a.find do |el|
-        next false unless el.respond_to?(:__node__)
+        next false unless el.respond_to?(:__dommy_backend_node__)
 
-        el.__node__["id"].to_s == key || el.__node__["name"].to_s == key
+        el.__dommy_backend_node__["id"].to_s == key || el.__dommy_backend_node__["name"].to_s == key
       end
     end
 
@@ -125,7 +125,7 @@ module Dommy
     # accepts either another option (insert before that node) or an
     # integer index. Strings/`null` append.
     def add(option, before = nil)
-      return nil unless option.respond_to?(:__node__)
+      return nil unless option.respond_to?(:__dommy_backend_node__)
 
       case before
       when nil
@@ -134,7 +134,7 @@ module Dommy
         anchor = item(before)
         anchor ? @owner.insert_before(option, anchor) : @owner.append_child(option)
       else
-        if before.respond_to?(:__node__)
+        if before.respond_to?(:__dommy_backend_node__)
           @owner.insert_before(option, before)
         else
           @owner.append_child(option)

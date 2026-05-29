@@ -230,9 +230,9 @@ module Dommy
     # wrapper is owned by `this`. Per spec, the source node is left
     # in place. `deep: true` copies the entire subtree.
     def import_node(node, deep = false)
-      return nil unless node.respond_to?(:__node__)
+      return nil unless node.respond_to?(:__dommy_backend_node__)
 
-      copy = clone_into_doc(node.__node__, deep)
+      copy = clone_into_doc(node.__dommy_backend_node__, deep)
       wrap_node(copy)
     end
 
@@ -240,9 +240,9 @@ module Dommy
     # node is detached from its previous owner and its ownerDocument
     # becomes this. Returns the (possibly re-wrapped) node.
     def adopt_node(node)
-      return nil unless node.respond_to?(:__node__)
+      return nil unless node.respond_to?(:__dommy_backend_node__)
 
-      src = node.__node__
+      src = node.__dommy_backend_node__
       src.unlink if src.parent
 
       # Same document: just return the wrapper after the detach above.
@@ -382,8 +382,8 @@ module Dommy
       fragment = Parser.fragment(html, owner_doc: @nokogiri_doc)
       removed = []
       added = fragment.children.to_a
-      added.each { |node| @body.__node__.add_child(node) }
-      notify_child_list_mutation(target_node: @body.__node__, added_nodes: added, removed_nodes: removed)
+      added.each { |node| @body.__dommy_backend_node__.add_child(node) }
+      notify_child_list_mutation(target_node: @body.__dommy_backend_node__, added_nodes: added, removed_nodes: removed)
       nil
     end
 

@@ -193,7 +193,7 @@ class TestQuerySelectorSweep < Minitest::Test
 
   def test_closest_returns_self_if_matches
     span = @doc.query_selector("span.class1.class2")
-    assert_same(span.__node__, span.closest("span").__node__)
+    assert_same(span.__dommy_backend_node__, span.closest("span").__dommy_backend_node__)
   end
 
   def test_get_element_by_id_after_dynamic_insert

@@ -131,19 +131,19 @@ class TestShadowRootTreeOps < Minitest::Test
 
   def test_append_with_string_and_node
     @sr.append("first ", @doc.create_element("em"), " last")
-    assert_equal(3, @sr.__node__.children.size)
+    assert_equal(3, @sr.__dommy_backend_node__.children.size)
   end
 
   def test_prepend_with_text
     @sr.append_child(@doc.create_element("p"))
     @sr.prepend("hello ")
-    assert_equal("hello ", @sr.__node__.children[0].content)
+    assert_equal("hello ", @sr.__dommy_backend_node__.children[0].content)
   end
 
   def test_replace_children_clears_and_inserts
     @sr.append_child(@doc.create_element("p"))
     @sr.replace_children(@doc.create_element("span"), "tail")
-    assert_equal(2, @sr.__node__.children.size)
+    assert_equal(2, @sr.__dommy_backend_node__.children.size)
     assert_equal("SPAN", @sr.children[0].tag_name)
   end
 

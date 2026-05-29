@@ -53,7 +53,7 @@ class TestWPTCollections < Minitest::Test
   def test_namedItem_by_name_attribute
     el = @doc.forms.named_item("login")
     refute_nil(el)
-    assert_equal("login", el.__node__["name"])
+    assert_equal("login", el.__dommy_backend_node__["name"])
   end
 
   def test_namedItem_missing_returns_nil
@@ -63,7 +63,7 @@ class TestWPTCollections < Minitest::Test
   def test_bracket_named_access
     el = @doc.forms["login"]
     refute_nil(el)
-    assert_equal("login", el.__node__["name"])
+    assert_equal("login", el.__dommy_backend_node__["name"])
   end
 
   # ---- HTMLCollection-empty-name ----

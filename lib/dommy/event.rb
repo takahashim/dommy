@@ -154,12 +154,12 @@ module Dommy
     private
 
     def enclosing_shadow_root_of(target)
-      return nil unless target.respond_to?(:__node__)
+      return nil unless target.respond_to?(:__dommy_backend_node__)
 
       doc = target.instance_variable_get(:@document)
       return nil unless doc && doc.respond_to?(:__internal_shadow_root_containing__)
 
-      doc.__internal_shadow_root_containing__(target.__node__)
+      doc.__internal_shadow_root_containing__(target.__dommy_backend_node__)
     end
 
     public

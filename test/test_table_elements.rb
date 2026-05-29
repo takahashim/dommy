@@ -75,7 +75,7 @@ class TestHTMLTableElement < Minitest::Test
     new_row = @table.insert_row(1)
     new_row.insert_cell.text_content = "Inserted"
     # Row 0 = thead's tr, Row 1 should now be new_row.
-    assert_same(new_row.__node__, @table.rows[1].__node__)
+    assert_same(new_row.__dommy_backend_node__, @table.rows[1].__dommy_backend_node__)
   end
 
   def test_delete_row_by_index
@@ -86,7 +86,7 @@ class TestHTMLTableElement < Minitest::Test
 
   def test_create_caption_returns_existing_if_present
     cap = @table.create_caption
-    assert_same(@table.caption.__node__, cap.__node__)
+    assert_same(@table.caption.__dommy_backend_node__, cap.__dommy_backend_node__)
   end
 
   def test_create_caption_when_absent
@@ -94,12 +94,12 @@ class TestHTMLTableElement < Minitest::Test
     assert_nil(@table.caption)
     cap = @table.create_caption
     refute_nil(@table.caption)
-    assert_same(cap.__node__, @table.caption.__node__)
+    assert_same(cap.__dommy_backend_node__, @table.caption.__dommy_backend_node__)
   end
 
   def test_create_t_head_returns_existing
     head = @table.create_t_head
-    assert_same(@table.t_head.__node__, head.__node__)
+    assert_same(@table.t_head.__dommy_backend_node__, head.__dommy_backend_node__)
   end
 
   def test_create_t_head_when_absent
@@ -149,7 +149,7 @@ class TestHTMLTableSectionElement < Minitest::Test
 
   def test_insert_row_at_position
     new_row = @body.insert_row(1)
-    assert_same(new_row.__node__, @body.rows[1].__node__)
+    assert_same(new_row.__dommy_backend_node__, @body.rows[1].__dommy_backend_node__)
   end
 
   def test_delete_row
@@ -207,7 +207,7 @@ class TestHTMLTableRowElement < Minitest::Test
 
   def test_insert_cell_at_position
     cell = @r1.insert_cell(1)
-    assert_same(cell.__node__, @r1.cells[1].__node__)
+    assert_same(cell.__dommy_backend_node__, @r1.cells[1].__dommy_backend_node__)
   end
 
   def test_delete_cell

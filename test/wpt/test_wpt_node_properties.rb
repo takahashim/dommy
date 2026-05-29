@@ -96,12 +96,12 @@ class TestWPTNodeProperties < Minitest::Test
 
   def test_parentNode_for_child
     p = @root.children[0]
-    assert_same(@root.__node__, p.parent_node.__node__)
+    assert_same(@root.__dommy_backend_node__, p.parent_node.__dommy_backend_node__)
   end
 
   def test_parentElement_for_child
     p = @root.children[0]
-    assert_same(@root.__node__, p.parent_element.__node__)
+    assert_same(@root.__dommy_backend_node__, p.parent_element.__dommy_backend_node__)
   end
 
   def test_parentElement_nil_for_detached

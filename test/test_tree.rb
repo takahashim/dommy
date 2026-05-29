@@ -66,7 +66,7 @@ class TestTree < Minitest::Test
 
   def test_parent_node
     a = @doc.get_element_by_id("a")
-    assert_same(@list.__node__, a.parent_node.__node__)
+    assert_same(@list.__dommy_backend_node__, a.parent_node.__dommy_backend_node__)
   end
 
   def test_query_selector_within_subtree

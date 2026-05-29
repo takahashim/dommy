@@ -49,7 +49,7 @@ class TestWPTCreateElementValidation < Minitest::Test
     el = @doc.create_element("DIV")
     # tag_name normalizes uppercase for HTML
     assert_equal("DIV", el.tag_name)
-    assert_equal("div", el.__node__.name)
+    assert_equal("div", el.__dommy_backend_node__.name)
   end
 
   def test_createAttribute_empty_throws

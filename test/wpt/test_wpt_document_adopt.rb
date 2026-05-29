@@ -24,9 +24,9 @@ class TestWPTDocumentAdoptSameDoc < Minitest::Test
   def test_adopt_node_detaches_from_current_parent
     el = @doc.create_element("div")
     @doc.body.append_child(el)
-    assert(el.__node__.parent)
+    assert(el.__dommy_backend_node__.parent)
     @doc.adopt_node(el)
-    assert_nil(el.__node__.parent)
+    assert_nil(el.__dommy_backend_node__.parent)
   end
 
   def test_adopt_node_returns_same_wrapper_for_same_document
@@ -40,7 +40,7 @@ class TestWPTDocumentAdoptSameDoc < Minitest::Test
     el = @doc.create_element("div")
     adopted = @doc.adopt_node(el)
     assert_same(el, adopted)
-    assert_nil(el.__node__.parent)
+    assert_nil(el.__dommy_backend_node__.parent)
   end
 
   def test_adopt_node_returns_nil_for_non_node_input
@@ -86,7 +86,7 @@ class TestWPTDocumentAdoptCrossDoc < Minitest::Test
     external = @source_doc.create_element("p")
     @source_doc.body.append_child(external)
     @target_doc.adopt_node(external)
-    assert_nil(external.__node__.parent)
+    assert_nil(external.__dommy_backend_node__.parent)
   end
 
   def test_adopt_node_cross_document_preserves_identity
@@ -107,6 +107,6 @@ class TestWPTDocumentAdoptCrossDoc < Minitest::Test
     # the target document, and the underlying Nokogiri node is
     # registered with the target document's nokogiri_doc.
     assert_same(@target_doc, external.instance_variable_get(:@document))
-    assert_same(@target_doc.nokogiri_doc, external.__node__.document)
+    assert_same(@target_doc.nokogiri_doc, external.__dommy_backend_node__.document)
   end
 end

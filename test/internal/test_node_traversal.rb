@@ -8,9 +8,9 @@ class TestNodeTraversal < Minitest::Test
   def setup
     @win = make_window("<div id='outer'><div id='middle'><span id='inner'>X</span></div></div>")
     @doc = @win.document
-    @outer = @doc.get_element_by_id("outer").__node__
-    @middle = @doc.get_element_by_id("middle").__node__
-    @inner = @doc.get_element_by_id("inner").__node__
+    @outer = @doc.get_element_by_id("outer").__dommy_backend_node__
+    @middle = @doc.get_element_by_id("middle").__dommy_backend_node__
+    @inner = @doc.get_element_by_id("inner").__dommy_backend_node__
   end
 
   def test_each_ancestor_yields_ancestors_from_closest_to_root
@@ -47,7 +47,7 @@ class TestNodeTraversal < Minitest::Test
   end
 
   def test_ancestor_of_returns_false_for_unrelated_node
-    other = @doc.create_element("p").__node__
+    other = @doc.create_element("p").__dommy_backend_node__
     refute(Dommy::Internal::NodeTraversal.ancestor_of?(other, @inner))
   end
 

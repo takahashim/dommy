@@ -211,7 +211,7 @@ module Dommy
       el = self
       HTMLCollection.new do
         el
-          .__node__
+          .__dommy_backend_node__
           .css("input, select, textarea, button, output, fieldset")
           .map do |n|
             el.document.wrap_node(n)
@@ -245,7 +245,7 @@ module Dommy
     # `submitter` (if given) must be a button inside this form.
     def request_submit(submitter = nil)
       if submitter
-        unless submitter.respond_to?(:__node__) && submitter.__node__.ancestors.include?(@__node__)
+        unless submitter.respond_to?(:__dommy_backend_node__) && submitter.__dommy_backend_node__.ancestors.include?(@__node__)
           raise DOMException::NotFoundError, "submitter is not a descendant of this form"
         end
 
@@ -1381,13 +1381,13 @@ module Dommy
     def host_attr_value(name)
       return "" unless @host
 
-      @host.__node__[name].to_s
+      @host.__dommy_backend_node__[name].to_s
     end
 
     def host_attr_present?(name)
       return false unless @host
 
-      @host.__node__.key?(name.to_s)
+      @host.__dommy_backend_node__.key?(name.to_s)
     end
 
     def host_type
@@ -1482,7 +1482,7 @@ module Dommy
       sel = closest("select")
       return 0 unless sel
 
-      sel.options.find_index { |o| o.__node__ == @__node__ } || 0
+      sel.options.find_index { |o| o.__dommy_backend_node__ == @__node__ } || 0
     end
 
     def __js_get__(key)
@@ -1865,7 +1865,7 @@ module Dommy
       el = self
       HTMLCollection.new do
         el
-          .__node__
+          .__dommy_backend_node__
           .css("input, select, textarea, button, output, fieldset")
           .map do |n|
             el.document.wrap_node(n)
@@ -2062,7 +2062,7 @@ module Dommy
     # call and fire `slotchange` in both modes; named mode simply
     # ignores the override.
     def assign(*nodes)
-      @__manual_assignment = nodes.flatten.select { |n| n.respond_to?(:__node__) }
+      @__manual_assignment = nodes.flatten.select { |n| n.respond_to?(:__dommy_backend_node__) }
       dispatch_event(Event.new("slotchange", "bubbles" => true))
       nil
     end
@@ -2118,7 +2118,7 @@ module Dommy
       end
 
       host
-        .__node__
+        .__dommy_backend_node__
         .children
         .map do |child|
           wrapped = @document.wrap_node(child)
@@ -2165,7 +2165,7 @@ module Dommy
     def options
       el = self
       HTMLOptionsCollection.new(self) do
-        el.__node__.css("option").map { |n| el.document.wrap_node(n) }.compact
+        el.__dommy_backend_node__.css("option").map { |n| el.document.wrap_node(n) }.compact
       end
     end
 
@@ -2175,8 +2175,8 @@ module Dommy
     def selected_options
       el = self
       HTMLCollection.new do
-        opts = el.__node__.css("option").map { |n| el.document.wrap_node(n) }.compact
-        chosen = opts.select { |o| o.__node__.key?("selected") }
+        opts = el.__dommy_backend_node__.css("option").map { |n| el.document.wrap_node(n) }.compact
+        chosen = opts.select { |o| o.__dommy_backend_node__.key?("selected") }
         next chosen unless chosen.empty?
         next [] if el.multiple
 
@@ -2196,7 +2196,7 @@ module Dommy
     # not multiple, or -1 if multiple and none.
     def selected_index
       opts = options
-      idx = opts.find_index { |o| o.__node__.key?("selected") }
+      idx = opts.find_index { |o| o.__dommy_backend_node__.key?("selected") }
       return idx if idx
 
       multiple ? -1 : (opts.empty? ? -1 : 0)
@@ -2207,7 +2207,7 @@ module Dommy
       opts.each_with_index do |o, idx|
         if idx == i.to_i
           o.set_attribute("selected", "")
-        elsif o.__node__.key?("selected")
+        elsif o.__dommy_backend_node__.key?("selected")
           o.remove_attribute("selected")
         end
       end
@@ -2216,15 +2216,15 @@ module Dommy
     # `value` of the select = value of the selected option, or "".
     def value
       opts = options
-      sel = opts.find { |o| o.__node__.key?("selected") } || opts.first
-      sel ? (sel.__node__["value"] || sel.text_content).to_s : ""
+      sel = opts.find { |o| o.__dommy_backend_node__.key?("selected") } || opts.first
+      sel ? (sel.__dommy_backend_node__["value"] || sel.text_content).to_s : ""
     end
 
     def value=(new_value)
-      target = options.find { |o| (o.__node__["value"] || o.text_content).to_s == new_value.to_s }
+      target = options.find { |o| (o.__dommy_backend_node__["value"] || o.text_content).to_s == new_value.to_s }
       return unless target
 
-      options.each { |o| o.remove_attribute("selected") if o.__node__.key?("selected") }
+      options.each { |o| o.remove_attribute("selected") if o.__dommy_backend_node__.key?("selected") }
       target.set_attribute("selected", "")
     end
 
@@ -2235,9 +2235,9 @@ module Dommy
 
     # `select.add(option, before)` — appends or inserts before `before`.
     def add(option, before = nil)
-      return nil unless option.respond_to?(:__node__)
+      return nil unless option.respond_to?(:__dommy_backend_node__)
 
-      if before.respond_to?(:__node__)
+      if before.respond_to?(:__dommy_backend_node__)
         insert_before(option, before)
       else
         append_child(option)
@@ -2652,7 +2652,7 @@ module Dommy
       row = closest("tr")
       return -1 unless row
 
-      row.cells.find_index { |c| c.__node__ == @__node__ } || -1
+      row.cells.find_index { |c| c.__dommy_backend_node__ == @__node__ } || -1
     end
 
     def col_span
@@ -2742,7 +2742,7 @@ module Dommy
       el = self
       HTMLCollection.new do
         el
-          .__node__
+          .__dommy_backend_node__
           .element_children
           .select { |n| %w[td th].include?(n.name) }
           .map { |n| el.document.wrap_node(n) }
@@ -2754,7 +2754,7 @@ module Dommy
       table = closest("table")
       return -1 unless table
 
-      table.rows.find_index { |r| r.__node__ == @__node__ } || -1
+      table.rows.find_index { |r| r.__dommy_backend_node__ == @__node__ } || -1
     end
 
     def section_row_index
@@ -2816,7 +2816,7 @@ module Dommy
       el = self
       HTMLCollection.new do
         el
-          .__node__
+          .__dommy_backend_node__
           .element_children
           .select { |n| n.name == "tr" }
           .map { |n| el.document.wrap_node(n) }
@@ -2872,10 +2872,10 @@ module Dommy
 
     def caption=(new_caption)
       delete_caption
-      return unless new_caption.respond_to?(:__node__)
+      return unless new_caption.respond_to?(:__dommy_backend_node__)
 
       first = @__node__.children.first
-      first ? first.add_previous_sibling(new_caption.__node__) : @__node__.add_child(new_caption.__node__)
+      first ? first.add_previous_sibling(new_caption.__dommy_backend_node__) : @__node__.add_child(new_caption.__dommy_backend_node__)
     end
 
     def t_head
@@ -2890,7 +2890,7 @@ module Dommy
       el = self
       HTMLCollection.new do
         el
-          .__node__
+          .__dommy_backend_node__
           .element_children
           .select { |n| n.name == "tbody" }
           .map { |n| el.document.wrap_node(n) }
@@ -2902,10 +2902,10 @@ module Dommy
       el = self
       HTMLCollection.new do
         ordered = []
-        head = el.__node__.element_children.find { |n| n.name == "thead" }
-        bodies = el.__node__.element_children.select { |n| n.name == "tbody" }
-        direct = el.__node__.element_children.select { |n| n.name == "tr" }
-        foot = el.__node__.element_children.find { |n| n.name == "tfoot" }
+        head = el.__dommy_backend_node__.element_children.find { |n| n.name == "thead" }
+        bodies = el.__dommy_backend_node__.element_children.select { |n| n.name == "tbody" }
+        direct = el.__dommy_backend_node__.element_children.select { |n| n.name == "tr" }
+        foot = el.__dommy_backend_node__.element_children.find { |n| n.name == "tfoot" }
         [head, *bodies, foot].compact.each do |sec|
           sec.element_children.select { |n| n.name == "tr" }.each { |n| ordered << n }
         end
@@ -2921,7 +2921,7 @@ module Dommy
 
       cap = @document.create_element("caption")
       first = @__node__.children.first
-      first ? first.add_previous_sibling(cap.__node__) : @__node__.add_child(cap.__node__)
+      first ? first.add_previous_sibling(cap.__dommy_backend_node__) : @__node__.add_child(cap.__dommy_backend_node__)
       cap
     end
 
@@ -2938,10 +2938,10 @@ module Dommy
       head = @document.create_element("thead")
       cap = caption
       if cap
-        cap.__node__.add_next_sibling(head.__node__)
+        cap.__dommy_backend_node__.add_next_sibling(head.__dommy_backend_node__)
       else
         first = @__node__.children.first
-        first ? first.add_previous_sibling(head.__node__) : @__node__.add_child(head.__node__)
+        first ? first.add_previous_sibling(head.__dommy_backend_node__) : @__node__.add_child(head.__dommy_backend_node__)
       end
 
       head
@@ -2957,7 +2957,7 @@ module Dommy
       return existing if existing
 
       foot = @document.create_element("tfoot")
-      @__node__.add_child(foot.__node__)
+      @__node__.add_child(foot.__dommy_backend_node__)
       foot
     end
 
@@ -2970,9 +2970,9 @@ module Dommy
       tb = @document.create_element("tbody")
       last_tbody = t_bodies.last
       if last_tbody
-        last_tbody.__node__.add_next_sibling(tb.__node__)
+        last_tbody.__dommy_backend_node__.add_next_sibling(tb.__dommy_backend_node__)
       else
-        @__node__.add_child(tb.__node__)
+        @__node__.add_child(tb.__dommy_backend_node__)
       end
 
       tb
@@ -2995,10 +2995,10 @@ module Dommy
         target_section.append_child(tr)
       else
         anchor = list[idx]
-        section = anchor.__node__.parent
+        section = anchor.__dommy_backend_node__.parent
         if section
-          anchor.__node__.add_previous_sibling(tr.__node__)
-          @document.notify_child_list_mutation(target_node: section, added_nodes: [tr.__node__], removed_nodes: [])
+          anchor.__dommy_backend_node__.add_previous_sibling(tr.__dommy_backend_node__)
+          @document.notify_child_list_mutation(target_node: section, added_nodes: [tr.__dommy_backend_node__], removed_nodes: [])
         end
       end
 

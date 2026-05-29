@@ -28,7 +28,7 @@ module Dommy
 
     def value
       if @owner
-        @owner.__node__[@name].to_s
+        @owner.__dommy_backend_node__[@name].to_s
       else
         @detached_value
       end
@@ -109,19 +109,19 @@ module Dommy
     end
 
     def length
-      @element.__node__.attribute_nodes.size
+      @element.__dommy_backend_node__.attribute_nodes.size
     end
 
     alias size length
 
     def item(index)
-      name = @element.__node__.attribute_nodes[index.to_i]&.name
+      name = @element.__dommy_backend_node__.attribute_nodes[index.to_i]&.name
       name && Attr.new(name, owner: @element)
     end
 
     def get_named_item(name)
       key = name.to_s.downcase
-      return nil unless @element.__node__.key?(key)
+      return nil unless @element.__dommy_backend_node__.key?(key)
 
       Attr.new(key, owner: @element)
     end
@@ -138,15 +138,15 @@ module Dommy
 
     def remove_named_item(name)
       key = name.to_s.downcase
-      return nil unless @element.__node__.key?(key)
+      return nil unless @element.__dommy_backend_node__.key?(key)
 
-      attr = Attr.new(key, owner: nil, value: @element.__node__[key].to_s)
+      attr = Attr.new(key, owner: nil, value: @element.__dommy_backend_node__[key].to_s)
       @element.remove_attribute(key)
       attr
     end
 
     def each(&blk)
-      @element.__node__.attribute_nodes.each do |a|
+      @element.__dommy_backend_node__.attribute_nodes.each do |a|
         yield Attr.new(a.name, owner: @element)
       end
     end
@@ -194,7 +194,7 @@ module Dommy
     end
 
     def respond_to_missing?(name, include_private = false)
-      @element.__node__.key?(name.to_s.downcase) || super
+      @element.__dommy_backend_node__.key?(name.to_s.downcase) || super
     end
   end
 end

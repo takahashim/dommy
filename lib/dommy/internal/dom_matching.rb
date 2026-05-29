@@ -91,9 +91,9 @@ module Dommy
       # ancestors (head/script/style/template), inline `display:none` /
       # `visibility:hidden` on element or any ancestor.
       def visible?(element)
-        return true unless element.respond_to?(:__node__)
+        return true unless element.respond_to?(:__dommy_backend_node__)
 
-        node = element.__node__
+        node = element.__dommy_backend_node__
         return false if node_invisible_self?(node)
 
         NodeTraversal.each_ancestor(node) do |ancestor|

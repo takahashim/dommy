@@ -142,8 +142,8 @@ module Dommy
       collect_nodes_in_range.each do |node|
         if node.respond_to?(:remove)
           node.remove
-        elsif node.respond_to?(:__node__)
-          node.__node__.unlink
+        elsif node.respond_to?(:__dommy_backend_node__)
+          node.__dommy_backend_node__.unlink
         end
       end
 

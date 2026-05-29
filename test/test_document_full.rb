@@ -114,7 +114,7 @@ class TestDocumentFull < Minitest::Test
   def test_first_last_element_child
     refute_nil(@doc.first_element_child)
     refute_nil(@doc.last_element_child)
-    assert_same(@doc.first_element_child.__node__, @doc.last_element_child.__node__)
+    assert_same(@doc.first_element_child.__dommy_backend_node__, @doc.last_element_child.__dommy_backend_node__)
   end
 
   def test_node_name_for_document

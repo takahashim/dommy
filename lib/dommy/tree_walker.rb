@@ -246,7 +246,7 @@ module Dommy
     end
 
     def wrapped_parent(node)
-      parent_nk = node.respond_to?(:__node__) ? node.__node__.parent : nil
+      parent_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.parent : nil
       return nil unless parent_nk && !parent_nk.is_a?(Backend.document_class)
 
       doc = node.instance_variable_get(:@document) || (@root.respond_to?(:document) ? @root.document : @root)
@@ -254,22 +254,22 @@ module Dommy
     end
 
     def first_wrapped_child(node)
-      child_nk = node.respond_to?(:__node__) ? node.__node__.children.first : nil
+      child_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.children.first : nil
       child_nk && document_for(node).wrap_node(child_nk)
     end
 
     def last_wrapped_child(node)
-      child_nk = node.respond_to?(:__node__) ? node.__node__.children.last : nil
+      child_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.children.last : nil
       child_nk && document_for(node).wrap_node(child_nk)
     end
 
     def next_sibling_wrapped(node)
-      n = node.respond_to?(:__node__) ? node.__node__.next : nil
+      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.next : nil
       n && document_for(node).wrap_node(n)
     end
 
     def previous_sibling_wrapped(node)
-      n = node.respond_to?(:__node__) ? node.__node__.previous : nil
+      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.previous : nil
       n && document_for(node).wrap_node(n)
     end
 
@@ -392,27 +392,27 @@ module Dommy
     end
 
     def first_child_node(node)
-      n = node.respond_to?(:__node__) ? node.__node__.children.first : nil
+      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.children.first : nil
       n && document_for(node).wrap_node(n)
     end
 
     def last_child_node(node)
-      n = node.respond_to?(:__node__) ? node.__node__.children.last : nil
+      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.children.last : nil
       n && document_for(node).wrap_node(n)
     end
 
     def next_sibling_node(node)
-      n = node.respond_to?(:__node__) ? node.__node__.next : nil
+      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.next : nil
       n && document_for(node).wrap_node(n)
     end
 
     def previous_sibling_node(node)
-      n = node.respond_to?(:__node__) ? node.__node__.previous : nil
+      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.previous : nil
       n && document_for(node).wrap_node(n)
     end
 
     def parent_node_of(node)
-      parent_nk = node.respond_to?(:__node__) ? node.__node__.parent : nil
+      parent_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.parent : nil
       return nil unless parent_nk && !parent_nk.is_a?(Backend.document_class)
 
       document_for(node).wrap_node(parent_nk)

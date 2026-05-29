@@ -146,7 +146,7 @@ module Dommy
         next if name.empty?
         next if disabled?(el)
 
-        case el.__node__.name
+        case el.__dommy_backend_node__.name
         when "input"
           collect_input(el, name)
         when "select"

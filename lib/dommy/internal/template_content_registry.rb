@@ -19,16 +19,16 @@ module Dommy
       # Parse HTML into a fragment and attach it as the template's content.
       # Drops any pre-existing direct children of the template element.
       def attach(template_element, html)
-        template_element.__node__.children.each(&:unlink)
+        template_element.__dommy_backend_node__.children.each(&:unlink)
         fragment = @document.nokogiri_doc.fragment(html.to_s)
-        @fragments[template_element.__node__.object_id] = fragment
+        @fragments[template_element.__dommy_backend_node__.object_id] = fragment
         fragment
       end
 
       # Get the wrapped Fragment for a template element, seeding from
       # the template's current children if not previously migrated.
       def fragment_for(template_element)
-        fragment = @fragments[template_element.__node__.object_id]
+        fragment = @fragments[template_element.__dommy_backend_node__.object_id]
         fragment ||= seed(template_element)
         @document.wrap_node(fragment)
       end
@@ -40,7 +40,7 @@ module Dommy
       end
 
       def inner_html_of(template_element)
-        fragment = @fragments[template_element.__node__.object_id]
+        fragment = @fragments[template_element.__dommy_backend_node__.object_id]
         return "" unless fragment
 
         fragment.children.map(&:to_html).join
@@ -79,8 +79,8 @@ module Dommy
       end
 
       def seed(template_element)
-        migrate_one(template_element.__node__)
-        @fragments[template_element.__node__.object_id]
+        migrate_one(template_element.__dommy_backend_node__)
+        @fragments[template_element.__dommy_backend_node__.object_id]
       end
 
       def migrate_one(template_node)

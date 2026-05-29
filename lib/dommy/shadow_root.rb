@@ -14,7 +14,9 @@ module Dommy
     include EventTarget
     include Node
 
-    attr_reader :__node__, :host, :mode, :delegates_focus, :slot_assignment, :document
+    attr_reader :host, :mode, :delegates_focus, :slot_assignment, :document
+
+    def __dommy_backend_node__ = @__node__
 
     def initialize(host, mode:, delegates_focus: false, slot_assignment: "named")
       @host = host
@@ -140,9 +142,9 @@ module Dommy
     end
 
     def contains?(other)
-      return false unless other.respond_to?(:__node__)
+      return false unless other.respond_to?(:__dommy_backend_node__)
 
-      other_node = other.__node__
+      other_node = other.__dommy_backend_node__
       return true if other_node == @__node__
 
       Internal::NodeTraversal.ancestor_of?(@__node__, other_node)
@@ -244,7 +246,7 @@ module Dommy
       when String
         [Backend.create_text(value, @document.nokogiri_doc)]
       else
-        node = value.respond_to?(:__node__) ? value.__node__ : nil
+        node = value.respond_to?(:__dommy_backend_node__) ? value.__dommy_backend_node__ : nil
         return [] unless node
 
         node.unlink if node.parent

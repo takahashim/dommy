@@ -64,9 +64,9 @@ module Dommy
     # registered; fires `connectedCallback` for each upgraded node
     # that's currently attached to a document tree.
     def upgrade(root)
-      return nil unless root.respond_to?(:__node__)
+      return nil unless root.respond_to?(:__dommy_backend_node__)
 
-      walk_descendants(root.__node__) do |nk|
+      walk_descendants(root.__dommy_backend_node__) do |nk|
         next unless nk.element?
         next unless @definitions.key?(nk.name)
 

@@ -12,11 +12,11 @@ class TestShadowRootRegistry < Minitest::Test
     # Real ShadowRoot creation registers via Document, so we test via that path too
     @shadow = @host.attach_shadow({"mode" => "open"})
     @shadow.inner_html = "<button id='btn'>X</button>"
-    @btn_node = @shadow.get_element_by_id("btn").__node__
+    @btn_node = @shadow.get_element_by_id("btn").__dommy_backend_node__
   end
 
   def test_find_for_fragment_returns_shadow_root
-    fragment_node = @shadow.__node__
+    fragment_node = @shadow.__dommy_backend_node__
     registry = Dommy::Internal::ShadowRootRegistry.new
     registry.register(fragment_node, @shadow)
     assert_equal(@shadow, registry.find_for_fragment(fragment_node))
@@ -40,7 +40,7 @@ class TestShadowRootRegistry < Minitest::Test
   end
 
   def test_find_enclosing_returns_nil_outside_shadow_tree
-    body_node = @doc.body.__node__
+    body_node = @doc.body.__dommy_backend_node__
     result = @doc.__internal_shadow_root_containing__(body_node)
     assert_nil(result)
   end

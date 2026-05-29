@@ -9,7 +9,9 @@ module Dommy
     include EventTarget
     include Node
 
-    attr_reader :__node__, :document
+    attr_reader :document
+
+    def __dommy_backend_node__ = @__node__
 
     def initialize(document, nokogiri_node)
       @document = document
@@ -128,9 +130,9 @@ module Dommy
     def detach_dom_nodes(value)
       case value
       when String
-        [@document.create_text_node(value).__node__]
+        [@document.create_text_node(value).__dommy_backend_node__]
       else
-        node = value.respond_to?(:__node__) ? value.__node__ : nil
+        node = value.respond_to?(:__dommy_backend_node__) ? value.__dommy_backend_node__ : nil
         return [] unless node
 
         node.unlink if node.parent
@@ -157,7 +159,7 @@ module Dommy
   class CharacterDataNode
     include Node
 
-    attr_reader :__node__
+    def __dommy_backend_node__ = @__node__
 
     def initialize(document, nokogiri_node)
       @document = document
@@ -330,9 +332,9 @@ module Dommy
     def coerce_node(arg)
       case arg
       when String
-        @document.create_text_node(arg).__node__
+        @document.create_text_node(arg).__dommy_backend_node__
       else
-        node = arg.respond_to?(:__node__) ? arg.__node__ : nil
+        node = arg.respond_to?(:__dommy_backend_node__) ? arg.__dommy_backend_node__ : nil
         node.unlink if node && node.parent
         node
       end
@@ -406,7 +408,7 @@ module Dommy
     end
 
     def value
-      @element.__node__["class"].to_s
+      @element.__dommy_backend_node__["class"].to_s
     end
 
     def value=(new_value)
@@ -539,14 +541,14 @@ module Dommy
     end
 
     def class_tokens
-      raw = @element.__node__["class"].to_s
+      raw = @element.__dommy_backend_node__["class"].to_s
       raw.split(/\s+/).reject(&:empty?)
     end
 
     def update_tokens
       tokens = yield(class_tokens)
       if tokens.empty?
-        @element.remove_attribute("class") if @element.__node__.key?("class")
+        @element.remove_attribute("class") if @element.__dommy_backend_node__.key?("class")
       else
         @element.set_attribute("class", tokens.join(" "))
       end
@@ -562,7 +564,7 @@ module Dommy
     end
 
     def __js_get__(key)
-      @element.__node__[attr_name(key)]
+      @element.__dommy_backend_node__[attr_name(key)]
     end
 
     def __js_set__(key, value)
@@ -769,7 +771,7 @@ module Dommy
     end
 
     def properties
-      raw = @element.__node__["style"].to_s
+      raw = @element.__dommy_backend_node__["style"].to_s
       raw.split(";").each_with_object({}) do |entry, out|
         key, value = entry.split(":", 2)
         next unless key && value
@@ -780,7 +782,7 @@ module Dommy
 
     def write_properties(props)
       if props.empty?
-        @element.remove_attribute("style") if @element.__node__.key?("style")
+        @element.remove_attribute("style") if @element.__dommy_backend_node__.key?("style")
       else
         @element.set_attribute("style", props.map { |k, v| "#{k}:#{v}" }.join(";"))
       end
@@ -791,7 +793,9 @@ module Dommy
     include EventTarget
     include Node
 
-    attr_reader :__node__, :document
+    attr_reader :document
+
+    def __dommy_backend_node__ = @__node__
 
     def initialize(document, nokogiri_node)
       @document = document
@@ -979,9 +983,9 @@ module Dommy
     # `el.contains(other)` — true if `other` is `el` itself or any
     # descendant. Per spec, returns false for null/non-Node.
     def contains?(other)
-      return false unless other.respond_to?(:__node__)
+      return false unless other.respond_to?(:__dommy_backend_node__)
 
-      other_node = other.__node__
+      other_node = other.__dommy_backend_node__
       return true if other_node == @__node__
 
       Internal::NodeTraversal.ancestor_of?(@__node__, other_node)
@@ -1156,7 +1160,7 @@ module Dommy
           host = sr.host
           return false unless host
 
-          current = host.__node__
+          current = host.__dommy_backend_node__
         else
           current = parent
         end
@@ -1252,7 +1256,7 @@ module Dommy
     # "beforebegin", "afterbegin", "beforeend", "afterend". Returns the
     # inserted element or nil if position has no anchor (root cases).
     def insert_adjacent_element(position, element)
-      return nil unless element.respond_to?(:__node__)
+      return nil unless element.respond_to?(:__dommy_backend_node__)
 
       case position.to_s
       when "beforebegin"
@@ -1351,10 +1355,10 @@ module Dommy
     # nodes).
     def compare_document_position(other)
       return 0 if equal?(other)
-      return DOCUMENT_POSITION_DISCONNECTED unless other.respond_to?(:__node__)
+      return DOCUMENT_POSITION_DISCONNECTED unless other.respond_to?(:__dommy_backend_node__)
 
       self_node = @__node__
-      other_node = other.__node__
+      other_node = other.__dommy_backend_node__
 
       self_ancestors = ancestor_chain(self_node)
       other_ancestors = ancestor_chain(other_node)
@@ -1404,11 +1408,11 @@ module Dommy
     # suite and standard DOM Node.isEqualNode.
     def equal_node?(other)
       return false unless other.is_a?(Element)
-      return false unless @__node__.name == other.__node__.name
+      return false unless @__node__.name == other.__dommy_backend_node__.name
       return false unless attribute_signature == other.send(:attribute_signature)
-      return false unless @__node__.children.size == other.__node__.children.size
+      return false unless @__node__.children.size == other.__dommy_backend_node__.children.size
 
-      @__node__.children.zip(other.__node__.children).all? do |a, b|
+      @__node__.children.zip(other.__dommy_backend_node__.children).all? do |a, b|
         wa = @document.wrap_node(a)
         wb = @document.wrap_node(b)
         wa.respond_to?(:equal_node?) ? wa.equal_node?(wb) : a.content == b.content
@@ -2116,9 +2120,9 @@ module Dommy
     # produce a cycle (inserting an ancestor as a descendant of
     # itself). Strings and Fragments are always safe.
     def check_hierarchy!(child)
-      return unless child.respond_to?(:__node__)
+      return unless child.respond_to?(:__dommy_backend_node__)
 
-      node = child.__node__
+      node = child.__dommy_backend_node__
       return unless node.is_a?(Backend.node_class)
 
       if node == @__node__ || @__node__.ancestors.any? { |a| a == node }
@@ -2136,13 +2140,13 @@ module Dommy
     def detach_dom_nodes(value)
       case value
       when Element, TextNode, CommentNode
-        node = value.__node__
+        node = value.__dommy_backend_node__
         node.unlink if node.parent
         [node]
       when Fragment
         value.extract_children
       when String
-        [@document.create_text_node(value).__node__]
+        [@document.create_text_node(value).__dommy_backend_node__]
       else
         node = unwrap_dom_node(value)
         return [] unless node
@@ -2153,7 +2157,7 @@ module Dommy
     end
 
     def unwrap_dom_node(value)
-      return value.__node__ if value.respond_to?(:__node__)
+      return value.__dommy_backend_node__ if value.respond_to?(:__dommy_backend_node__)
 
       nil
     end

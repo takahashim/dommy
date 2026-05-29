@@ -89,7 +89,7 @@ class TestWPTCharacterData < Minitest::Test
     p = @doc.create_element("p")
     t = @doc.create_text_node("x")
     p.append_child(t)
-    assert_same(p.__node__, t.parent_node.__node__)
+    assert_same(p.__dommy_backend_node__, t.parent_node.__dommy_backend_node__)
   end
 
   def test_text_no_children

@@ -50,7 +50,7 @@ class TestWPTDocumentImportNodeShallow < Minitest::Test
     @source.body.append_child(external)
     @target.import_node(external, false)
     # The source node must not be detached or moved.
-    assert(external.__node__.parent)
+    assert(external.__dommy_backend_node__.parent)
   end
 end
 
@@ -91,7 +91,7 @@ class TestWPTDocumentImportNodeDeep < Minitest::Test
     external.append_child(@source.create_element("span"))
     @source.body.append_child(external)
     @target.import_node(external, true)
-    assert(external.__node__.parent)
+    assert(external.__dommy_backend_node__.parent)
     assert_equal(1, external.child_nodes.length)
   end
 end

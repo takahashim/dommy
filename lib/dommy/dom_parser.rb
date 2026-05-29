@@ -64,8 +64,8 @@ module Dommy
 
       if node.respond_to?(:outer_html)
         node.outer_html
-      elsif node.respond_to?(:__node__)
-        node.__node__.to_xml
+      elsif node.respond_to?(:__dommy_backend_node__)
+        node.__dommy_backend_node__.to_xml
       elsif node.respond_to?(:to_xml)
         node.to_xml
       else
