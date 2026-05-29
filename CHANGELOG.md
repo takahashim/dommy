@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.7.0 — 2026-05-29
+
+### Added
+
+#### Queries & serialization
+- XPath queries and document serialization helpers
+- `:disabled` / `:enabled` / `:checked` CSS pseudo-classes in selector queries
+
+#### URL
+- WHATWG `URL.parse` / `URL.canParse` static methods
+
+#### Document
+- `document.origin` / `document.contentType`; `Location` origin now updates on absolute-URL navigation
+
+#### FormData
+- `multipart/form-data` encoding
+
+#### CharacterData
+- `ChildNode` mixin methods (`before` / `after` / `replaceWith` / `remove`) on `CharacterDataNode`
+
+### Fixed
+
+- `Headers#has` is now case-insensitive
+- `Headers#forEach` passes the `Headers` object as the third callback argument
+- `History.pushState` / `replaceState` now structured-clone the state argument
+- `XHR.abort()` is a no-op when `OPENED` and the send() flag is unset
+- `Event` dispatch resets `currentTarget` / `eventPhase` to their defaults afterward
+- `Document.adoptNode` preserves node identity across documents
+- `MutationObserver.observe()` replaces options on re-observation
+- `CharacterDataNode#remove` and `Element#textContent=` now notify `MutationObserver`
+
+### Changed
+
+- **Breaking:** `Response#arrayBuffer` / `XHR` `responseType: "arraybuffer"` now resolve to a byte array (`Array<Integer>`), and `Response#blob` / `XHR` `responseType: "blob"` now resolve to a real `Dommy::Blob` (MIME type taken from the `Content-Type` header) — previously both returned the raw body string. Aligns with `FileReader` / `Blob`.
+- Removed serialization from `FormData`
+- Standardized gem-internal method naming conventions (`internal_` / `__test_` prefixes, JS-bridge dunder methods renamed)
+- Added `__js_method_names__` to expose JS-bridge callable methods
+
 ## 0.6.0 — 2026-05-22
 
 ### Added
