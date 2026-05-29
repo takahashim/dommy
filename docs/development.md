@@ -1,8 +1,6 @@
 # Development
 
-Notes for contributors working on Dommy's internals. For *why* the library is
-shaped the way it is (goals, non-goals, per-subsystem rationale), see
-[design.md](../design.md).
+Notes for contributors working on Dommy's internals.
 
 ## Ecosystem
 
