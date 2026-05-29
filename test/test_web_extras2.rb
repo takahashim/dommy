@@ -136,7 +136,7 @@ class TestSubtleCryptoHMAC < Minitest::Test
   def test_generate_key_produces_unique_keys
     a = @subtle.generate_key({"name" => "HMAC", "hash" => "SHA-256"}).await
     b = @subtle.generate_key({"name" => "HMAC", "hash" => "SHA-256"}).await
-    refute_equal(a.__bytes__, b.__bytes__)
+    refute_equal(a.__dommy_bytes__, b.__dommy_bytes__)
   end
 
   def test_explicit_sha512_hash

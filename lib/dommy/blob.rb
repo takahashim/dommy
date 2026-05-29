@@ -48,7 +48,7 @@ module Dommy
 
     # Raw binary bytes (Ruby ASCII-8BIT string). Used by FormData /
     # fetch when serializing multipart bodies.
-    def __bytes__
+    def __dommy_bytes__
       @data
     end
 
@@ -79,7 +79,7 @@ module Dommy
       parts.each do |part|
         case part
         when Blob
-          buf << part.__bytes__
+          buf << part.__dommy_bytes__
         when String
           buf << part.dup.force_encoding(Encoding::ASCII_8BIT)
         when Array

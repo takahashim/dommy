@@ -182,7 +182,7 @@ module Dommy
         raise ArgumentError, "HMAC key required" unless key.is_a?(CryptoKey) && key.algorithm_name == "HMAC"
         raise ArgumentError, "key.usages must include 'sign'" unless key.usages.include?("sign")
 
-        OpenSSL::HMAC.digest(openssl_digest_name(key.hash_name), key.__bytes__, coerce_bytes(data)).bytes
+        OpenSSL::HMAC.digest(openssl_digest_name(key.hash_name), key.__dommy_bytes__, coerce_bytes(data)).bytes
       end
     end
 
@@ -192,7 +192,7 @@ module Dommy
         raise ArgumentError, "HMAC key required" unless key.is_a?(CryptoKey) && key.algorithm_name == "HMAC"
         raise ArgumentError, "key.usages must include 'verify'" unless key.usages.include?("verify")
 
-        expected = OpenSSL::HMAC.digest(openssl_digest_name(key.hash_name), key.__bytes__, coerce_bytes(data))
+        expected = OpenSSL::HMAC.digest(openssl_digest_name(key.hash_name), key.__dommy_bytes__, coerce_bytes(data))
         sig_bytes = coerce_bytes(signature)
         if expected.bytesize == sig_bytes.bytesize
           OpenSSL.fixed_length_secure_compare(expected, sig_bytes)
@@ -327,7 +327,7 @@ module Dommy
     end
 
     def build_gcm_cipher(direction, algorithm, key)
-      raw_key = key.is_a?(CryptoKey) ? key.__bytes__ : coerce_bytes(key)
+      raw_key = key.is_a?(CryptoKey) ? key.__dommy_bytes__ : coerce_bytes(key)
       raise ArgumentError, "AES-GCM key must be 16/24/32 bytes" unless [16, 24, 32].include?(raw_key.bytesize)
 
       iv = algorithm.is_a?(Hash) ? (algorithm["iv"] || algorithm[:iv]) : nil
@@ -359,9 +359,9 @@ module Dommy
   end
 
   # `CryptoKey` — opaque key handle returned by SubtleCrypto.
-  # `extractable: false` keys reject export attempts; the
-  # `__bytes__` accessor stays internal-only (`__double_underscore__`
-  # convention) so production code paths can't read the raw bytes.
+  # `extractable: false` keys reject export attempts; the raw bytes are
+  # reachable only through the `__dommy_bytes__` ecosystem accessor, never
+  # the public (Web-mirroring) API.
   class CryptoKey
     attr_reader :type, :algorithm_name, :hash_name, :usages, :extractable
 
@@ -374,8 +374,9 @@ module Dommy
       @usages = usages.map(&:to_s).freeze
     end
 
-    # Test / internal seam — production callers should not reach in.
-    def __bytes__
+    # Low-level ecosystem accessor (see __dommy_ convention) — the public
+    # Web API never exposes raw key bytes.
+    def __dommy_bytes__
       @bytes
     end
 
