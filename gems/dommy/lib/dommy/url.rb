@@ -291,6 +291,8 @@ module Dommy
         self.username = value
       when "password"
         self.password = value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

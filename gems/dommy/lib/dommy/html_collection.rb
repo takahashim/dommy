@@ -188,6 +188,8 @@ module Dommy
         self.selected_index = value
       when "length"
         self.length = value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

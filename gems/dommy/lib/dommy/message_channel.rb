@@ -100,6 +100,8 @@ module Dommy
         @inline_message_handler = value
         add_event_listener("message", value) if value
         start if value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil
@@ -222,6 +224,8 @@ module Dommy
         remove_event_listener("message", @onmessage) if @onmessage
         @onmessage = value
         add_event_listener("message", value) if value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

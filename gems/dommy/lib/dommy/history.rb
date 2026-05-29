@@ -34,6 +34,8 @@ module Dommy
         # values silently retain the current value.
         v = value.to_s
         @scroll_restoration = v if %w[auto manual].include?(v)
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

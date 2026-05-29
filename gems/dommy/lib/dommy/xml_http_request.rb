@@ -210,7 +210,9 @@ module Dommy
         @with_credentials = !!value
       else
         event = inline_event_for(key)
-        set_inline_handler(event, value) if event
+        return Bridge::UNHANDLED unless event
+
+        set_inline_handler(event, value)
       end
 
       nil

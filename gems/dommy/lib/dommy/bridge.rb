@@ -18,6 +18,11 @@ module Dommy
   #     args (Array)
   #   - `__js_new__(args)` invokes the value as a JS constructor
   module Bridge
+    # Sentinel returned by `__js_set__` when a key is not a known DOM property
+    # (so the JS host can keep it as a JS-side expando, preserving identity)
+    # rather than silently dropping it.
+    UNHANDLED = :__js_unhandled__
+
     # Wraps an external callback handle (registered in a host-side
     # callback table) so the JS bridge can resolve / invoke it. The
     # external host that creates these is responsible for honoring

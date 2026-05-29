@@ -120,7 +120,7 @@ module Dommy
     end
 
     def __js_set__(_key, _value)
-      nil
+      Bridge::UNHANDLED
     end
   end
 
@@ -171,7 +171,7 @@ module Dommy
     end
 
     def __js_set__(_key, _value)
-      nil
+      Bridge::UNHANDLED
     end
 
     def __js_call__(method, args)
@@ -259,7 +259,7 @@ module Dommy
     end
 
     def __js_set__(_key, _value)
-      nil
+      Bridge::UNHANDLED
     end
 
     def __js_call__(method, args)
@@ -311,6 +311,8 @@ module Dommy
         remove_event_listener("change", @onchange) if @onchange
         @onchange = value
         add_event_listener("change", value) if value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

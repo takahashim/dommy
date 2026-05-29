@@ -85,7 +85,9 @@ module Dommy
 
     def __js_set__(key, value)
       event = inline_event_for(key)
-      set_inline_handler(event, value) if event
+      return Bridge::UNHANDLED unless event
+
+      set_inline_handler(event, value)
       nil
     end
 

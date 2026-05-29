@@ -67,6 +67,8 @@ module Dommy
         remove_event_listener("change", @onchange) if @onchange
         @onchange = value
         add_event_listener("change", value) if value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

@@ -212,7 +212,7 @@ module Dommy
     end
 
     def __js_set__(_key, _value)
-      nil
+      Bridge::UNHANDLED
     end
 
     def __js_call__(method, _args)
@@ -271,7 +271,7 @@ module Dommy
     end
 
     def __js_set__(_key, _value)
-      nil
+      Bridge::UNHANDLED
     end
 
     def __js_call__(method, args)

@@ -198,6 +198,8 @@ module Dommy
         self.inner_html = value
       when "textContent"
         self.text_content = value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

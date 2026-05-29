@@ -283,6 +283,8 @@ module Dommy
         # Setting to truthy stops propagation; spec quirk that
         # `cancelBubble = false` does NOT un-stop (browser observation).
         @propagation_stopped = true if value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil
@@ -933,7 +935,7 @@ module Dommy
     end
 
     def __js_set__(_key, _value)
-      nil
+      Bridge::UNHANDLED
     end
 
     # Methods routed through __js_call__ (keep in sync with its when-arms).
@@ -976,7 +978,7 @@ module Dommy
     end
 
     def __js_set__(_key, _value)
-      nil
+      Bridge::UNHANDLED
     end
 
     # Methods routed through __js_call__ (keep in sync with its when-arms).

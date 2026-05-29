@@ -847,6 +847,11 @@ module Dommy
       @live_children = HTMLCollection.new do
         @__node__.element_children.map { |n| @document.wrap_node(n) }.compact
       end
+      # Live `childNodes` (all node types, not just elements), cached so
+      # `el.childNodes === el.childNodes` holds like the spec's live NodeList.
+      @live_child_nodes = LiveNodeList.new do
+        @__node__.children.map { |n| @document.wrap_node(n) }.compact
+      end
     end
 
     # ----- Public Ruby API (snake_case) -----
@@ -1579,8 +1584,26 @@ module Dommy
         get_attribute("popover")
       when "children"
         @live_children
+      when "childNodes"
+        @live_child_nodes
+      when "firstChild"
+        first_child
+      when "lastChild"
+        last_child
+      when "childElementCount"
+        child_element_count
+      when "lastElementChild"
+        last_element_child
+      when "nextSibling"
+        next_sibling
+      when "previousSibling"
+        previous_sibling
+      when "nextElementSibling"
+        next_element_sibling
+      when "previousElementSibling"
+        previous_element_sibling
       when "firstElementChild"
-        @document.wrap_node(@__node__.element_children.first)
+        first_element_child
       when "parentElement", "parent"
         wrap_parent(@__node__.parent)
       when "parentNode"
@@ -1734,7 +1757,9 @@ module Dommy
         if key.start_with?("on") && key.length > 2
           set_on_handler(event_name_from_on(key), value)
         else
-          nil
+          # Not a known DOM property — tell the JS host to keep it as a
+          # JS-side expando (so object/instance fields keep their identity).
+          Bridge::UNHANDLED
         end
       end
     end

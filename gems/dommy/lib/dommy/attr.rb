@@ -67,6 +67,8 @@ module Dommy
       case key
       when "value", "nodeValue"
         self.value = val
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

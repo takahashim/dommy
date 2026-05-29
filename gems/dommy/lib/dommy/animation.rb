@@ -217,6 +217,8 @@ module Dommy
         @playback_rate = value.to_f
       when "id"
         @id = value.to_s
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

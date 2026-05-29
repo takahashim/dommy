@@ -486,6 +486,8 @@ module Dommy
         write_title(value.to_s)
       when "cookie"
         self.cookie = value.to_s
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

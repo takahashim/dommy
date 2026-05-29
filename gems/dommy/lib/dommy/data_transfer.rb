@@ -64,6 +64,8 @@ module Dommy
         @drop_effect = value.to_s
       when "effectAllowed"
         @effect_allowed = value.to_s
+      else
+        return Bridge::UNHANDLED
       end
 
       nil

@@ -164,7 +164,9 @@ module Dommy
     end
 
     def __js_set__(key, value)
-      @current_node = value if key == "currentNode"
+      return Bridge::UNHANDLED unless key == "currentNode"
+
+      @current_node = value
       nil
     end
 
