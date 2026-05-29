@@ -100,6 +100,12 @@ module Dommy
       end
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[cloneNode querySelector querySelectorAll getElementById appendChild].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
       when "cloneNode"
@@ -257,6 +263,12 @@ module Dommy
       nil
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[remove before after replaceWith].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
       when "remove"
@@ -362,6 +374,12 @@ module Dommy
       3
     end
 
+    # Own __js_call__ methods, on top of CharacterDataNode's.
+    JS_METHOD_NAMES = %w[cloneNode].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
       when "cloneNode"
@@ -375,6 +393,12 @@ module Dommy
   class CommentNode < CharacterDataNode
     def node_type
       8
+    end
+
+    # Own __js_call__ methods, on top of CharacterDataNode's.
+    JS_METHOD_NAMES = %w[cloneNode].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
     end
 
     def __js_call__(method, args)
@@ -478,6 +502,12 @@ module Dommy
       end
 
       nil
+    end
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[add remove contains toggle replace item].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
     end
 
     def __js_call__(method, args)
@@ -724,6 +754,12 @@ module Dommy
       end
 
       nil
+    end
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[setProperty removeProperty getPropertyValue item].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
     end
 
     def __js_call__(method, args)
@@ -1722,6 +1758,21 @@ module Dommy
     end
 
     public
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[
+      getAttribute setAttribute hasAttribute removeAttribute getAttributeNames closest
+      querySelector querySelectorAll getElementsByClassName getElementsByTagName
+      insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches
+      toString getAttributeNode setAttributeNode removeAttributeNode focus blur attachShadow
+      addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
+      replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
+      remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
+      scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover
+    ].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
 
     def __js_call__(method, args)
       case method

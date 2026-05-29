@@ -72,6 +72,12 @@ module Dommy
       nil
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[cloneNode].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, _args)
       case method
       when "cloneNode"
@@ -173,6 +179,12 @@ module Dommy
           get_named_item(key)
         end
       end
+    end
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[item getNamedItem setNamedItem removeNamedItem].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
     end
 
     def __js_call__(method, args)

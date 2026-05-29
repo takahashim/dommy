@@ -154,6 +154,12 @@ module Dommy
   # `<form>` — element collection, submit/reset, and a stubbed
   # validation surface.
   class HTMLFormElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[submit reset requestSubmit checkValidity reportValidity].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def name
       reflected_string("name")
     end
@@ -346,6 +352,15 @@ module Dommy
 
   # `<input>` — covers the most-used form control surface.
   class HTMLInputElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[
+      select setSelectionRange setRangeText stepUp stepDown
+      checkValidity reportValidity setCustomValidity
+    ].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def type
       raw = @__node__["type"].to_s
       raw.empty? ? "text" : raw.downcase
@@ -1569,6 +1584,14 @@ module Dommy
 
   # `<textarea>` — multi-line text input.
   class HTMLTextAreaElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[
+      select setSelectionRange setRangeText checkValidity reportValidity setCustomValidity
+    ].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def value
       @__node__["value"] || text_content
     end
@@ -2031,6 +2054,12 @@ module Dommy
   # `slot` attribute go to the unnamed default slot. If nothing is
   # assigned, the slot's own children render as fallback content.
   class HTMLSlotElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[assignedNodes assignedElements assign].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def name
       reflected_string("name")
     end
@@ -2139,6 +2168,12 @@ module Dommy
   # `selectedIndex`, and dispatches change events. Minimal compared to
   # happy-dom's full HTMLSelectElement, but covers common test cases.
   class HTMLSelectElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[item add checkValidity reportValidity setCustomValidity].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def name
       reflected_string("name")
     end
@@ -2367,6 +2402,12 @@ module Dommy
   # `close(returnValue?)`. Dommy has no modal stack, so showModal is
   # functionally identical to show (no backdrop, no escape-to-close).
   class HTMLDialogElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[show showModal close].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def open
       reflected_boolean("open")
     end
@@ -2738,6 +2779,12 @@ module Dommy
   # `rowIndex` walks the enclosing table; `sectionRowIndex` walks
   # the enclosing thead/tbody/tfoot.
   class HTMLTableRowElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[insertCell deleteCell].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def cells
       el = self
       HTMLCollection.new do
@@ -2812,6 +2859,12 @@ module Dommy
   # `<thead>` / `<tbody>` / `<tfoot>` — share section-level row
   # collection + insertRow / deleteRow.
   class HTMLTableSectionElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[insertRow deleteRow].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def rows
       el = self
       HTMLCollection.new do
@@ -2866,6 +2919,15 @@ module Dommy
   # tbody elements. `insertRow(-1)` appends to the last tbody (or
   # creates one); `deleteRow` works against the merged `rows` list.
   class HTMLTableElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[
+      insertRow deleteRow createCaption deleteCaption createTHead deleteTHead
+      createTFoot deleteTFoot createTBody
+    ].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     def caption
       @__node__.element_children.find { |n| n.name == "caption" }&.then { |n| @document.wrap_node(n) }
     end
@@ -3066,6 +3128,12 @@ module Dommy
   # absent in Dommy — getters return inert values, `play()` returns
   # a resolved Promise, and `pause()` flips `paused` back to true.
   class HTMLMediaElement < HTMLElement
+    # Own __js_call__ methods, on top of Element's.
+    JS_METHOD_NAMES = %w[play pause load canPlayType].freeze
+    def __js_method_names__
+      super + JS_METHOD_NAMES
+    end
+
     NETWORK_EMPTY = 0
     NETWORK_IDLE = 1
     NETWORK_LOADING = 2

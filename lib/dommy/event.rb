@@ -184,6 +184,12 @@ module Dommy
   class StandaloneEventTarget
     include EventTarget
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[addEventListener removeEventListener dispatchEvent].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
       when "addEventListener"
@@ -280,6 +286,12 @@ module Dommy
       end
 
       nil
+    end
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[preventDefault stopPropagation stopImmediatePropagation composedPath initEvent].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
     end
 
     def __js_call__(method, args)
@@ -646,6 +658,12 @@ module Dommy
       end
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[item].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
       when "item"
@@ -918,6 +936,12 @@ module Dommy
       nil
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[addEventListener removeEventListener dispatchEvent throwIfAborted].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
       when "addEventListener"
@@ -953,6 +977,12 @@ module Dommy
 
     def __js_set__(_key, _value)
       nil
+    end
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[abort].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
     end
 
     def __js_call__(method, args)
