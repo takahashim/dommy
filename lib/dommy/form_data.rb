@@ -198,8 +198,6 @@ module Dommy
       # File / Blob values pass through unchanged (multipart form
       # encoding handles them); other values are stringified per spec.
       return value if value.is_a?(Blob)
-      # Backward-compat: embedders' own file-marker objects.
-      return value if value.respond_to?(:__file_marker__)
       return "" if value.nil?
 
       value.to_s
