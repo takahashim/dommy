@@ -77,6 +77,12 @@ module Dommy
       @scheduled = false
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[observe disconnect takeRecords].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
       when "observe"

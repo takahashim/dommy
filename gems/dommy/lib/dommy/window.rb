@@ -38,6 +38,7 @@ module Dommy
       @blob_ctor = Bridge::Constructor.new { |args| Blob.new(args[0] || [], args[1] || {}) }
       @file_ctor = Bridge::Constructor.new { |args| File.new(args[0] || [], args[1].to_s, args[2] || {}) }
       @file_list_ctor = Bridge::Constructor.new { |args| FileList.new(args[0] || []) }
+      @form_data_ctor = Bridge::Constructor.new { |args| FormData.new(args[0]) }
       @data_transfer_ctor = Bridge::Constructor.new { |args|
         opts = args[0] || {}
         DataTransfer.new(
@@ -147,6 +148,8 @@ module Dommy
         @abort_controller_ctor
       when "Blob"
         @blob_ctor
+      when "FormData"
+        @form_data_ctor
       when "File"
         @file_ctor
       when "FileList"

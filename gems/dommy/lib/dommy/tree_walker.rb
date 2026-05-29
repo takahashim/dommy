@@ -170,6 +170,12 @@ module Dommy
       nil
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[nextNode previousNode parentNode firstChild lastChild nextSibling previousSibling].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, _args)
       case method
       when "nextNode"
@@ -345,6 +351,12 @@ module Dommy
       when "pointerBeforeReferenceNode"
         @pointer_before_reference
       end
+    end
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[nextNode previousNode detach].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
     end
 
     def __js_call__(method, _args)
