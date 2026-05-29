@@ -1949,13 +1949,13 @@ module Dommy
     def query_selector(selector)
       return nil if selector.nil? || selector.to_s.empty?
 
-      @document.wrap_node(@__node__.at_css(selector.to_s))
+      @document.wrap_node(@__node__.at_css(selector.to_s, Internal::CSS_PSEUDO_HANDLERS))
     end
 
     def query_selector_all(selector)
       return NodeList.new if selector.nil? || selector.to_s.empty?
 
-      NodeList.new(@__node__.css(selector.to_s).map { |node| @document.wrap_node(node) }.compact)
+      NodeList.new(@__node__.css(selector.to_s, Internal::CSS_PSEUDO_HANDLERS).map { |node| @document.wrap_node(node) }.compact)
     end
 
     # XPath queries scoped to this element, returning wrapped nodes.
