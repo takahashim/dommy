@@ -422,14 +422,14 @@ module Dommy
     end
 
     # `files` — for `<input type="file">`. Browsers populate this via
-    # user interaction; in tests, code uses `__set_files__` to seed it.
+    # user interaction; in tests, code uses `__driver_set_files__` to seed it.
     def files
       @__files ||= FileList.new
     end
 
     # Test-only seam: set the input's file list directly.
     # Accepts an array (wrapped in a FileList) or a FileList itself.
-    def __set_files__(files_input)
+    def __driver_set_files__(files_input)
       @__files = files_input.is_a?(FileList) ? files_input : FileList.new(Array(files_input))
     end
 

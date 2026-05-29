@@ -79,7 +79,7 @@ file = Dommy::File.new(["pdf body"], "doc.pdf", "type" => "application/pdf")
 
 # Seed a file input for tests
 input = win.document.query_selector("input[type='file']")
-input.__set_files__([file])
+input.__driver_set_files__([file])
 
 # FormData picks it up
 fd = Dommy::FormData.new(win.document.query_selector("form"))
