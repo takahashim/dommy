@@ -141,3 +141,41 @@ class TestFormDataFromForm < Minitest::Test
     assert_equal("blue", fd.get("color"))
   end
 end
+
+class TestFormDataMultipart < Minitest::Test
+  def test_text_only_multipart_structure
+    fd = Dommy::FormData.new
+    fd.append("title", "Hello")
+    body, content_type = fd.__encode_multipart__("BOUND")
+
+    assert_equal("multipart/form-data; boundary=BOUND", content_type)
+    expected = +"--BOUND\r\n"
+    expected << %(Content-Disposition: form-data; name="title"\r\n\r\n)
+    expected << "Hello\r\n"
+    expected << "--BOUND--\r\n"
+    assert_equal(expected, body)
+  end
+
+  def test_file_part_includes_filename_and_content_type
+    fd = Dommy::FormData.new
+    fd.append("doc", Dommy::File.new(["hi"], "a.txt", "type" => "text/plain"))
+    body, = fd.__encode_multipart__("BOUND")
+
+    assert_includes(body, %(Content-Disposition: form-data; name="doc"; filename="a.txt"))
+    assert_includes(body, "Content-Type: text/plain\r\n\r\nhi\r\n")
+  end
+
+  def test_file_without_type_defaults_to_octet_stream
+    fd = Dommy::FormData.new
+    fd.append("doc", Dommy::File.new(["x"], "f"))
+    body, = fd.__encode_multipart__("BOUND")
+
+    assert_includes(body, "Content-Type: application/octet-stream")
+  end
+
+  def test_content_type_has_generated_boundary
+    body, content_type = Dommy::FormData.new.__encode_multipart__
+    assert_match(%r{\Amultipart/form-data; boundary=----DommyFormBoundary[0-9a-f]+\z}, content_type)
+    assert_equal(Encoding::ASCII_8BIT, body.encoding)
+  end
+end

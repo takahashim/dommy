@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "securerandom"
+
 module Dommy
   # `FormData` — collects name/value entries from an `<form>` (or
   # programmatically), preserving insertion order. Values are
@@ -101,6 +103,30 @@ module Dommy
       @pairs.map { |k, v| "#{k}=#{v}" }.join("&")
     end
 
+    # Serialize entries as multipart/form-data. Blob/File values become
+    # file parts (with filename + Content-Type); other values are text
+    # parts. Returns [body (ASCII-8BIT String), content_type with boundary].
+    def __encode_multipart__(boundary = nil)
+      boundary ||= "----DommyFormBoundary#{SecureRandom.hex(16)}"
+      body = String.new(encoding: Encoding::ASCII_8BIT)
+      @pairs.each do |name, value|
+        body << "--#{boundary}\r\n"
+        if value.is_a?(Blob)
+          filename = value.respond_to?(:name) ? value.name : ""
+          body << %(Content-Disposition: form-data; name="#{escape_field(name)}"; filename="#{escape_field(filename)}"\r\n)
+          ctype = value.type.to_s.empty? ? "application/octet-stream" : value.type
+          body << "Content-Type: #{ctype}\r\n\r\n"
+          body << value.__bytes__
+        else
+          body << %(Content-Disposition: form-data; name="#{escape_field(name)}"\r\n\r\n)
+          body << value.to_s.dup.force_encoding(Encoding::ASCII_8BIT)
+        end
+        body << "\r\n"
+      end
+      body << "--#{boundary}--\r\n"
+      [body, "multipart/form-data; boundary=#{boundary}"]
+    end
+
     def __js_get__(key)
       case key
       when "size", "length"
@@ -192,6 +218,10 @@ module Dommy
 
     def disabled?(el)
       el.respond_to?(:disabled) && el.disabled
+    end
+
+    def escape_field(str)
+      str.to_s.gsub('"', "%22").gsub(/[\r\n]/, "")
     end
 
     def stringify(value)
