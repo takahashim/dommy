@@ -106,14 +106,31 @@ class TestWPTResponseBodyConsumption < Minitest::Test
     assert_raises(RuntimeError) { promise.await }
   end
 
-  def test_array_buffer_returns_body
+  # arrayBuffer() resolves to the body bytes as Array<Integer>,
+  # matching FileReader#readAsArrayBuffer and Blob#arrayBuffer.
+  def test_array_buffer_resolves_to_byte_array
     r = Dommy::Response.new(@win, body: "binary-ish")
-    assert_equal("binary-ish", r.__js_call__("arrayBuffer", []).await)
+    assert_equal("binary-ish".bytes, r.__js_call__("arrayBuffer", []).await)
   end
 
-  def test_blob_returns_body
+  # blob() resolves to a real Dommy::Blob whose bytes round-trip.
+  def test_blob_resolves_to_blob_instance
     r = Dommy::Response.new(@win, body: "blob body")
-    assert_equal("blob body", r.__js_call__("blob", []).await)
+    blob = r.__js_call__("blob", []).await
+    assert_kind_of(Dommy::Blob, blob)
+    assert_equal("blob body", blob.text)
+  end
+
+  # Blob inherits the Content-Type header as its MIME type.
+  def test_blob_type_comes_from_content_type_header
+    r = Dommy::Response.new(@win, body: "{}", headers: {"Content-Type" => "application/json"})
+    blob = r.__js_call__("blob", []).await
+    assert_equal("application/json", blob.type)
+  end
+
+  def test_blob_type_empty_without_content_type
+    r = Dommy::Response.new(@win, body: "x")
+    assert_equal("", r.__js_call__("blob", []).await.type)
   end
 end
 

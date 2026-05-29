@@ -365,13 +365,23 @@ module Dommy
           nil
         end
 
-      when "arraybuffer", "blob"
-        body
+      when "arraybuffer"
+        body.bytes
+      when "blob"
+        Blob.new([body], "type" => response_content_type)
       when "document"
         parse_document(body)
       else
         body
       end
+    end
+
+    # Content-Type of the received response, read straight from
+    # `@response_headers` (not `get_response_header`, which gates on
+    # `readyState` — decode runs before that flag advances).
+    def response_content_type
+      hit = @response_headers.find { |k, _| k.to_s.downcase == "content-type" }
+      hit ? hit.last.to_s : ""
     end
 
     def parse_document(body)

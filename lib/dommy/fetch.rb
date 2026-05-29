@@ -227,8 +227,10 @@ module Dommy
           rejected(err)
         end
 
-      when "arrayBuffer", "blob"
-        immediate(@body)
+      when "arrayBuffer"
+        immediate(@body.bytes)
+      when "blob"
+        immediate(Blob.new([@body], "type" => @headers.__js_call__("get", ["content-type"]) || ""))
       when "clone"
         Response.new(
           @window,

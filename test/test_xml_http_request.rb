@@ -150,6 +150,24 @@ class TestXMLHttpRequest < Minitest::Test
     assert_equal("hello world", xhr.response)
   end
 
+  def test_response_type_arraybuffer_returns_byte_array
+    xhr = new_xhr
+    xhr.response_type = "arraybuffer"
+    xhr.open("GET", "/api/foo", false)
+    xhr.send
+    assert_equal("hello world".bytes, xhr.response)
+  end
+
+  def test_response_type_blob_returns_blob_with_content_type
+    xhr = new_xhr
+    xhr.response_type = "blob"
+    xhr.open("GET", "/api/foo", false)
+    xhr.send
+    assert_kind_of(Dommy::Blob, xhr.response)
+    assert_equal("hello world", xhr.response.text)
+    assert_equal("text/plain", xhr.response.type)
+  end
+
   # --- Request headers --------------------------------------------
 
   def test_set_request_header_records_value
