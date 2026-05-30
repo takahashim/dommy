@@ -851,15 +851,34 @@ module Dommy
     end
 
     def text_content=(value)
-      __js_set__("textContent", value)
+      # `node.content =` removes all existing children and (if value is
+      # non-empty) appends a single text node. Capture before/after to feed
+      # MutationObserver.
+      removed = @__node__.children.to_a
+      @__node__.content = value.to_s
+      added = @__node__.children.to_a
+      notify_child_list(added: added, removed: removed)
     end
 
     def inner_html
-      __js_get__("innerHTML")
+      if @__node__.name == "template"
+        @document.template_content_inner_html(self)
+      else
+        @__node__.inner_html
+      end
     end
 
     def inner_html=(value)
-      __js_set__("innerHTML", value)
+      removed = @__node__.children.to_a
+      if @__node__.name == "template"
+        # `<template>` content is invisible to outer selectors in real DOM (it
+        # lives in a separate DocumentFragment exposed via `[:content]`).
+        @document.attach_template_content(self, value.to_s)
+      else
+        @__node__.inner_html = value.to_s
+        @document.migrate_template_descendants(@__node__)
+      end
+      notify_child_list(added: @__node__.children.to_a, removed: removed)
     end
 
     HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
@@ -1497,7 +1516,10 @@ module Dommy
     public
 
     def remove
-      __js_call__("remove", [])
+      parent = @__node__.parent
+      @__node__.unlink
+      notify_child_list(removed: [@__node__], target: parent) if parent
+      nil
     end
 
     # ChildNode mixin — before / after / replaceWith with mixed args.
@@ -1526,7 +1548,43 @@ module Dommy
     end
 
     def click
-      __js_call__("click", [])
+      dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+    end
+
+    def get_attribute_names
+      Backend.attribute_nodes(@__node__).map(&:name)
+    end
+
+    # No layout engine — geometry getters return zeroed rects.
+    def get_bounding_client_rect
+      DOMRect.new
+    end
+
+    def get_client_rects
+      []
+    end
+
+    def request_fullscreen
+      @document.__internal_set_fullscreen_element__(self)
+      PromiseValue.resolve(@document.default_view, nil)
+    end
+
+    # Popover API — show / hide / toggle fire beforetoggle + toggle events
+    # (no real visual change). Return values mirror the IDL.
+    def show_popover
+      toggle_popover_state(true)
+      nil
+    end
+
+    def hide_popover
+      toggle_popover_state(false)
+      nil
+    end
+
+    def toggle_popover
+      new_state = !@__popover_open__
+      toggle_popover_state(new_state)
+      new_state
     end
 
     # Ruby block-style listener (in addition to the (type, callable,
@@ -1606,12 +1664,7 @@ module Dommy
       when "textContent"
         @__node__.text
       when "innerHTML"
-        if @__node__.name == "template"
-          @document.template_content_inner_html(self)
-        else
-          @__node__.inner_html
-        end
-
+        inner_html
       when "tagName"
         tag_name
       when "prefix"
@@ -1693,28 +1746,9 @@ module Dommy
     def __js_set__(key, value)
       case key
       when "textContent"
-        # `node.content =` removes all existing children and (if
-        # value is non-empty) appends a single text node. Capture
-        # before/after to feed MutationObserver — mirrors the
-        # innerHTML branch below.
-        removed = @__node__.children.to_a
-        @__node__.content = value.to_s
-        added = @__node__.children.to_a
-        notify_child_list(added: added, removed: removed)
+        self.text_content = value
       when "innerHTML"
-        removed = @__node__.children.to_a
-        if @__node__.name == "template"
-          # `<template>` content is invisible to outer selectors in
-          # real DOM (it lives in a separate DocumentFragment exposed
-          # via `[:content]`). Mirror that here so child placeholders
-          # inside the template don't pollute outer queries.
-          @document.attach_template_content(self, value.to_s)
-        else
-          @__node__.inner_html = value.to_s
-          @document.migrate_template_descendants(@__node__)
-        end
-
-        notify_child_list(added: @__node__.children.to_a, removed: removed)
+        self.inner_html = value
       when "hidden", "disabled", "checked", "readOnly", "multiple", "required"
         # Boolean reflected property — funnel through set_attribute /
         # remove_attribute so MutationObserver attribute records fire.
@@ -1810,7 +1844,7 @@ module Dommy
       when "setAttributeNodeNS"
         set_attribute_node(args[0])
       when "getAttributeNames"
-        Backend.attribute_nodes(@__node__).map(&:name)
+        get_attribute_names
       when "closest"
         closest(args[0])
       when "querySelector"
@@ -1876,36 +1910,25 @@ module Dommy
       when "getInnerHTML", "getHTML"
         inner_html
       when "remove"
-        parent = @__node__.parent
-        @__node__.unlink
-        notify_child_list(removed: [@__node__], target: parent) if parent
-        nil
+        remove
       when "replaceWith"
         replace_with(args)
       when "click"
-        dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+        click
       when "getBoundingClientRect"
-        DOMRect.new
+        get_bounding_client_rect
       when "getClientRects"
-        []
+        get_client_rects
       when "scrollIntoView", "scroll", "scrollTo", "scrollBy"
-        # No layout — record the request for tests to assert against.
-        @scroll_log ||= []
-        @scroll_log << [method, args]
-        nil
+        record_scroll(method, args)
       when "requestFullscreen"
-        @document.__internal_set_fullscreen_element__(self)
-        PromiseValue.resolve(@document.default_view, nil)
+        request_fullscreen
       when "showPopover"
-        toggle_popover_state(true)
-        nil
+        show_popover
       when "hidePopover"
-        toggle_popover_state(false)
-        nil
+        hide_popover
       when "togglePopover"
-        new_state = !@__popover_open__
-        toggle_popover_state(new_state)
-        new_state
+        toggle_popover
       else
         nil
       end
@@ -2163,7 +2186,7 @@ module Dommy
       else
         clone = @document.create_element(@__node__.name)
         Backend.attribute_nodes(@__node__).each do |attr|
-          clone.__js_call__("setAttribute", [attr.name, attr.value])
+          clone.set_attribute(attr.name, attr.value)
         end
 
         clone
@@ -2252,6 +2275,13 @@ module Dommy
       else
         node.document.css(selector).any? { |candidate| candidate == node }
       end
+    end
+
+    # No real layout — record the scroll request so tests can assert it.
+    def record_scroll(name, args)
+      @scroll_log ||= []
+      @scroll_log << [name, args]
+      nil
     end
 
     # Popover state — modern HTML pattern. `show`/`hide`/`toggle`
