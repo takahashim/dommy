@@ -13,6 +13,7 @@ module Dommy
   class ShadowRoot
     include EventTarget
     include Node
+    include Internal::ParentNode
 
     attr_reader :host, :mode, :delegates_focus, :slot_assignment, :document
 
@@ -40,7 +41,7 @@ module Dommy
       fragment = Parser.fragment(html.to_s, owner_doc: @document.nokogiri_doc)
       added = fragment.children.to_a
       added.each { |n| @__node__.add_child(n) }
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: added, removed_nodes: removed)
+      notify_child_list(added: added, removed: removed)
       nil
     end
 
@@ -79,42 +80,6 @@ module Dommy
 
     def last_element_child
       @document.wrap_node(@__node__.element_children.last)
-    end
-
-    def append_child(child)
-      nodes = detach_dom_nodes(child)
-      nodes.each { |n| @__node__.add_child(n) }
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
-      child
-    end
-
-    def append(*args)
-      nodes = args.flat_map { |a| detach_dom_nodes(a) }
-      nodes.each { |n| @__node__.add_child(n) }
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
-      nil
-    end
-
-    def prepend(*args)
-      nodes = args.flat_map { |a| detach_dom_nodes(a) }
-      anchor = @__node__.children.first
-      if anchor
-        nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
-      else
-        nodes.each { |n| @__node__.add_child(n) }
-      end
-
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
-      nil
-    end
-
-    def replace_children(*args)
-      removed = @__node__.children.to_a
-      removed.each(&:unlink)
-      nodes = args.flat_map { |a| detach_dom_nodes(a) }
-      nodes.each { |n| @__node__.add_child(n) }
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: removed)
-      nil
     end
 
     def query_selector(selector)
@@ -246,19 +211,5 @@ module Dommy
       nil
     end
 
-    private
-
-    def detach_dom_nodes(value)
-      case value
-      when String
-        [Backend.create_text(value, @document.nokogiri_doc)]
-      else
-        node = value.respond_to?(:__dommy_backend_node__) ? value.__dommy_backend_node__ : nil
-        return [] unless node
-
-        node.unlink if node.parent
-        [node]
-      end
-    end
   end
 end

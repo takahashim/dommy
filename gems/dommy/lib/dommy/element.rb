@@ -8,6 +8,7 @@ module Dommy
   class Fragment
     include EventTarget
     include Node
+    include Internal::ParentNode
 
     attr_reader :document
 
@@ -50,13 +51,6 @@ module Dommy
 
     def text_content
       @__node__.text
-    end
-
-    def append_child(child)
-      nodes = detach_dom_nodes(child)
-      nodes.each { |n| @__node__.add_child(n) }
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
-      child
     end
 
     def query_selector(selector)
@@ -130,19 +124,6 @@ module Dommy
     end
 
     private
-
-    def detach_dom_nodes(value)
-      case value
-      when String
-        [@document.create_text_node(value).__dommy_backend_node__]
-      else
-        node = value.respond_to?(:__dommy_backend_node__) ? value.__dommy_backend_node__ : nil
-        return [] unless node
-
-        node.unlink if node.parent
-        [node]
-      end
-    end
 
     def element_children
       @__node__.element_children.each_with_object([]) do |node, out|
@@ -827,6 +808,7 @@ module Dommy
   class Element
     include EventTarget
     include Node
+    include Internal::ParentNode
 
     attr_reader :document
 
@@ -1038,7 +1020,7 @@ module Dommy
         new_nodes.each { |n| parent.add_child(n) }
       end
 
-      @document.notify_child_list_mutation(target_node: parent, added_nodes: new_nodes, removed_nodes: [removed])
+      notify_child_list(added: new_nodes, removed: [removed], target: parent)
     end
 
     # `el.contains(other)` — true if `other` is `el` itself or any
@@ -1331,22 +1313,22 @@ module Dommy
 
         node = detach_for_insert(element)
         @__node__.add_previous_sibling(node)
-        @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: [node], removed_nodes: [])
+        notify_child_list(added: [node], target: @__node__.parent)
       when "afterbegin"
         node = detach_for_insert(element)
         first = @__node__.children.first
         first ? first.add_previous_sibling(node) : @__node__.add_child(node)
-        @document.notify_child_list_mutation(target_node: @__node__, added_nodes: [node], removed_nodes: [])
+        notify_child_list(added: [node])
       when "beforeend"
         node = detach_for_insert(element)
         @__node__.add_child(node)
-        @document.notify_child_list_mutation(target_node: @__node__, added_nodes: [node], removed_nodes: [])
+        notify_child_list(added: [node])
       when "afterend"
         return nil unless @__node__.parent
 
         node = detach_for_insert(element)
         @__node__.add_next_sibling(node)
-        @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: [node], removed_nodes: [])
+        notify_child_list(added: [node], target: @__node__.parent)
       else
         return nil
       end
@@ -1362,7 +1344,7 @@ module Dommy
         return nil unless @__node__.parent
 
         nodes.reverse_each { |n| @__node__.add_previous_sibling(n) }
-        @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: nodes, removed_nodes: [])
+        notify_child_list(added: nodes, target: @__node__.parent)
       when "afterbegin"
         first = @__node__.children.first
         if first
@@ -1371,15 +1353,15 @@ module Dommy
           nodes.each { |n| @__node__.add_child(n) }
         end
 
-        @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
+        notify_child_list(added: nodes)
       when "beforeend"
         nodes.each { |n| @__node__.add_child(n) }
-        @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
+        notify_child_list(added: nodes)
       when "afterend"
         return nil unless @__node__.parent
 
         nodes.reverse_each { |n| @__node__.add_next_sibling(n) }
-        @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: nodes, removed_nodes: [])
+        notify_child_list(added: nodes, target: @__node__.parent)
       end
 
       nil
@@ -1512,26 +1494,6 @@ module Dommy
 
     def remove
       __js_call__("remove", [])
-    end
-
-    # ParentNode mixin methods — append / prepend / replaceChildren
-    # take a mix of Node and String args (strings become text nodes).
-
-    def append(*args)
-      append_nodes(args)
-    end
-
-    def prepend(*args)
-      prepend_nodes(args)
-    end
-
-    def replace_children(*args)
-      removed = @__node__.children.to_a
-      removed.each(&:unlink)
-      nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
-      nodes.each { |n| @__node__.add_child(n) }
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: removed)
-      nil
     end
 
     # ChildNode mixin — before / after / replaceWith with mixed args.
@@ -1734,13 +1696,7 @@ module Dommy
         removed = @__node__.children.to_a
         @__node__.content = value.to_s
         added = @__node__.children.to_a
-        if removed.any? || added.any?
-          @document.notify_child_list_mutation(
-            target_node: @__node__,
-            added_nodes: added,
-            removed_nodes: removed
-          )
-        end
+        notify_child_list(added: added, removed: removed)
       when "innerHTML"
         removed = @__node__.children.to_a
         if @__node__.name == "template"
@@ -1754,11 +1710,7 @@ module Dommy
           @document.migrate_template_descendants(@__node__)
         end
 
-        @document.notify_child_list_mutation(
-          target_node: @__node__,
-          added_nodes: @__node__.children.to_a,
-          removed_nodes: removed
-        )
+        notify_child_list(added: @__node__.children.to_a, removed: removed)
       when "hidden", "disabled", "checked", "readOnly", "multiple", "required"
         # Boolean reflected property — funnel through set_attribute /
         # remove_attribute so MutationObserver attribute records fire.
@@ -1906,9 +1858,9 @@ module Dommy
       when "cloneNode"
         clone_node(args[0])
       when "append"
-        append_nodes(args)
+        append(*args)
       when "prepend"
-        prepend_nodes(args)
+        prepend(*args)
       when "replaceChildren"
         replace_children(*args)
       when "before"
@@ -1920,7 +1872,7 @@ module Dommy
       when "remove"
         parent = @__node__.parent
         @__node__.unlink
-        @document.notify_child_list_mutation(target_node: parent, added_nodes: [], removed_nodes: [@__node__]) if parent
+        notify_child_list(removed: [@__node__], target: parent) if parent
         nil
       when "replaceWith"
         replace_with(args)
@@ -2148,14 +2100,6 @@ module Dommy
       @__node__.path
     end
 
-    def append_child(child)
-      check_hierarchy!(child)
-      nodes = detach_dom_nodes(child)
-      append_dom_nodes(nodes)
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
-      child
-    end
-
     def insert_before(child, reference)
       check_hierarchy!(child)
       nodes = detach_dom_nodes(child)
@@ -2173,7 +2117,7 @@ module Dommy
         end
       end
 
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
+      notify_child_list(added: nodes)
       child
     end
 
@@ -2184,7 +2128,7 @@ module Dommy
       end
 
       node.unlink
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: [], removed_nodes: [node])
+      notify_child_list(removed: [node])
       child
     end
 
@@ -2200,11 +2144,7 @@ module Dommy
       new_nodes = detach_dom_nodes(new_child)
       new_nodes.reverse_each { |node| old_node.add_previous_sibling(node) }
       old_node.unlink
-      @document.notify_child_list_mutation(
-        target_node: @__node__,
-        added_nodes: new_nodes,
-        removed_nodes: [old_node]
-      )
+      notify_child_list(added: new_nodes, removed: [old_node])
       old_child
     end
 
@@ -2224,26 +2164,6 @@ module Dommy
       end
     end
 
-    def append_nodes(args)
-      nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
-      append_dom_nodes(nodes)
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
-      nil
-    end
-
-    def prepend_nodes(args)
-      nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
-      anchor = @__node__.children.first
-      if anchor
-        nodes.reverse_each { |node| anchor.add_previous_sibling(node) }
-      else
-        append_dom_nodes(nodes)
-      end
-
-      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: nodes, removed_nodes: [])
-      nil
-    end
-
     def insert_adjacent(side, args)
       parent = @__node__.parent
       return nil unless parent
@@ -2261,7 +2181,7 @@ module Dommy
         end
       end
 
-      @document.notify_child_list_mutation(target_node: parent, added_nodes: nodes, removed_nodes: [])
+      notify_child_list(added: nodes, target: parent)
       nil
     end
 
@@ -2279,12 +2199,18 @@ module Dommy
         nodes.each { |node| parent.add_child(node) }
       end
 
-      @document.notify_child_list_mutation(target_node: parent, added_nodes: nodes, removed_nodes: [removed])
+      notify_child_list(added: nodes, removed: [removed], target: parent)
       nil
     end
 
     def append_dom_nodes(nodes)
       nodes.each { |node| @__node__.add_child(node) }
+    end
+
+    # ParentNode hook: Element enforces the no-cycle hierarchy check that
+    # Fragment / ShadowRoot skip.
+    def check_insertion!(child)
+      check_hierarchy!(child)
     end
 
     # Raise HierarchyRequestError when the proposed insertion would
@@ -2306,25 +2232,6 @@ module Dommy
 
     def detach_for_insert(value)
       detach_dom_nodes(value).first
-    end
-
-    def detach_dom_nodes(value)
-      case value
-      when Element, TextNode, CommentNode
-        node = value.__dommy_backend_node__
-        node.unlink if node.parent
-        [node]
-      when Fragment
-        value.extract_children
-      when String
-        [@document.create_text_node(value).__dommy_backend_node__]
-      else
-        node = unwrap_dom_node(value)
-        return [] unless node
-
-        node.unlink if node.parent
-        [node]
-      end
     end
 
     def unwrap_dom_node(value)
@@ -2384,7 +2291,6 @@ module Dommy
       :has_attribute_ns?,
       :remove_attribute_ns,
       :get_attribute_node_ns,
-      :append_child,
       :insert_before,
       :remove_child,
       :replace_child,
