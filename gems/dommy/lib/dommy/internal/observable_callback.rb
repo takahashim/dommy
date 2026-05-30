@@ -14,11 +14,7 @@ module Dommy
       private
 
       def invoke_callback(entries)
-        if @callback.respond_to?(:__js_call__)
-          @callback.__js_call__("call", [entries, self])
-        elsif @callback.respond_to?(:call)
-          @callback.call(entries, self)
-        end
+        CallableInvoker.invoke(@callback, entries, self)
       end
     end
   end

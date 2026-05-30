@@ -28,7 +28,7 @@ module Dommy
       @pull_callback = source["pull"]
 
       start = source["start"]
-      invoke(start, [@controller]) if start
+      CallableInvoker.invoke(start, @controller) if start
     end
 
     def get_reader
@@ -89,7 +89,7 @@ module Dommy
         promise.reject(@error_reason)
       else
         @pending_reads << promise
-        invoke(@pull_callback, [@controller]) if @pull_callback
+        CallableInvoker.invoke(@pull_callback, @controller) if @pull_callback
       end
 
       promise
@@ -128,16 +128,6 @@ module Dommy
         else
           promise.fulfill({"value" => nil, "done" => true})
         end
-      end
-    end
-
-    def invoke(callback, args)
-      return if callback.nil?
-
-      if callback.respond_to?(:__js_call__)
-        callback.__js_call__("call", args)
-      elsif callback.respond_to?(:call)
-        callback.call(*args)
       end
     end
   end
@@ -218,7 +208,7 @@ module Dommy
       @writer = nil
       @state = :writable
       @sink = underlying_sink.is_a?(Hash) ? underlying_sink.transform_keys(&:to_s) : {}
-      invoke(@sink["start"], [])
+      CallableInvoker.invoke(@sink["start"])
     end
 
     def get_writer
@@ -234,19 +224,19 @@ module Dommy
     end
 
     def __internal_write__(chunk)
-      invoke(@sink["write"], [chunk])
+      CallableInvoker.invoke(@sink["write"], chunk)
       PromiseValue.resolve(@window, nil)
     end
 
     def __internal_close__
       @state = :closed
-      invoke(@sink["close"], [])
+      CallableInvoker.invoke(@sink["close"])
       PromiseValue.resolve(@window, nil)
     end
 
     def __internal_abort__(reason)
       @state = :errored
-      invoke(@sink["abort"], [reason])
+      CallableInvoker.invoke(@sink["abort"], reason)
       PromiseValue.resolve(@window, nil)
     end
 
@@ -273,17 +263,6 @@ module Dommy
     class Error < StandardError
     end
 
-    private
-
-    def invoke(callback, args)
-      return if callback.nil?
-
-      if callback.respond_to?(:__js_call__)
-        callback.__js_call__("call", args)
-      elsif callback.respond_to?(:call)
-        callback.call(*args)
-      end
-    end
   end
 
   class WritableStreamDefaultWriter

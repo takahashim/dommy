@@ -80,7 +80,7 @@ module Dommy
     def __internal_deliver_event__(event)
       listeners = listeners_for(event.type).dup
       listeners.each do |entry|
-        invoke_listener(entry.listener, event)
+        CallableInvoker.invoke_listener(entry.listener, event)
         if entry.once?
           listeners_for(event.type).reject! { |candidate| candidate.listener.equal?(entry.listener) }
         end
@@ -162,23 +162,6 @@ module Dommy
       doc.__internal_shadow_root_containing__(target.__dommy_backend_node__)
     end
 
-    public
-
-    def invoke_listener(listener, event)
-      # DOM spec: a listener can be (a) a function, or (b) an object
-      # with a `handleEvent` method. Both Ruby and JS-bridged callables
-      # are supported.
-      if listener.respond_to?(:handle_event)
-        listener.handle_event(event)
-      elsif listener.respond_to?(:call) && !listener.is_a?(Module)
-        listener.call(event)
-      elsif listener.respond_to?(:__js_call__)
-        # Prefer handleEvent if the bridge object advertises it; fall
-        # back to call. We can't introspect on the JS side, so we just
-        # try call (the common case for JS.callback {}).
-        listener.__js_call__("call", [event])
-      end
-    end
   end
 
   class StandaloneEventTarget

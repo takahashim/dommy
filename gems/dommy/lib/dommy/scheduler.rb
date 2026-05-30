@@ -53,7 +53,7 @@ module Dommy
     def drain_microtasks
       until @microtasks.empty?
         callback = @microtasks.shift
-        invoke_callback(callback, [@now_ms])
+        CallableInvoker.invoke(callback, @now_ms)
       end
 
       nil
@@ -113,22 +113,14 @@ module Dommy
         case timer.kind
         when :raf
           @timers.delete(timer.id)
-          invoke_callback(timer.callback, [@now_ms.to_f])
+          CallableInvoker.invoke(timer.callback, @now_ms.to_f)
         when :interval
-          invoke_callback(timer.callback, [])
+          CallableInvoker.invoke(timer.callback)
           timer.due_at = @now_ms + timer.interval_ms if timer.active
         else
           @timers.delete(timer.id)
-          invoke_callback(timer.callback, [])
+          CallableInvoker.invoke(timer.callback)
         end
-      end
-    end
-
-    def invoke_callback(callback, args)
-      if callback.respond_to?(:__js_call__)
-        callback.__js_call__("call", args)
-      elsif callback.respond_to?(:call)
-        callback.call(*args)
       end
     end
   end

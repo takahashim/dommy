@@ -173,7 +173,7 @@ module Dommy
         return
       end
 
-      result = invoke_callback(callback, @value)
+      result = CallableInvoker.invoke(callback, @value)
       if result.is_a?(PromiseValue) && !result.equal?(handler.child)
         # Adopt the returned thenable. The continuation procs return nil so their
         # `self`-returning fulfill/reject don't get re-adopted (infinite chain).
@@ -194,14 +194,6 @@ module Dommy
 
     def propagate(child)
       @state == :fulfilled ? child.fulfill(@value) : child.reject(@value)
-    end
-
-    def invoke_callback(callback, value)
-      if callback.respond_to?(:__js_call__)
-        callback.__js_call__("call", [value])
-      else
-        callback.call(value)
-      end
     end
   end
 end

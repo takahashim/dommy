@@ -137,11 +137,7 @@ module Dommy
     end
 
     def invoke(callback, args)
-      if callback.respond_to?(:__js_call__)
-        callback.__js_call__("call", args)
-      elsif callback.respond_to?(:call)
-        callback.call(*args)
-      end
+      CallableInvoker.invoke(callback, *args)
     end
   end
 end
