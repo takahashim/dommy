@@ -63,15 +63,30 @@ module Dommy
       end
 
       def self.parse_number(str)
-        return 0 if str == "0"
+        return nil if str.empty?
 
-        if str.match?(/\A0[xX][0-9a-fA-F]+\z/)
-          str[2..].to_i(16)
-        elsif str.match?(/\A0[0-7]+\z/)
-          str.to_i(8)
-        elsif str.match?(/\A[1-9][0-9]*\z/)
-          str.to_i
+        radix = 10
+        digits = str
+        if str.length >= 2 && (str[0, 2] == "0x" || str[0, 2] == "0X")
+          radix = 16
+          digits = str[2..]
+        elsif str.length >= 2 && str[0] == "0"
+          radix = 8
+          digits = str[1..]
         end
+
+        # A bare radix prefix (`0x`, `0`) denotes the number 0.
+        return 0 if digits.empty?
+
+        valid =
+          case radix
+          when 16 then digits.match?(/\A[0-9a-fA-F]+\z/)
+          when 8 then digits.match?(/\A[0-7]+\z/)
+          else digits.match?(/\A[0-9]+\z/)
+          end
+        return nil unless valid
+
+        digits.to_i(radix)
       end
     end
   end

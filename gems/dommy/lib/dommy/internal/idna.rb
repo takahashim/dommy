@@ -87,14 +87,21 @@ module Dommy
       end
 
       # `domain` → ASCII-only form. Returns nil for nil input.
-      def self.to_ascii(domain)
+      #
+      # `check_hyphens` / `verify_dns_length` default to the strict
+      # RFC 5891 profile. The WHATWG URL "domain to ASCII" operation
+      # instead runs UTS #46 with CheckHyphens=false and
+      # VerifyDnsLength=false (so leading/trailing/3-4 hyphens, empty
+      # labels, and over-long labels/domains are all permitted); the
+      # URL parser passes both as false.
+      def self.to_ascii(domain, check_hyphens: true, verify_dns_length: true)
         return domain if domain.nil?
 
         mapped = uts46_map(domain.to_s)
         normalized = mapped.unicode_normalize(:nfc)
         labels = normalized.split(".", -1)
 
-        validate_no_empty_intermediate(labels)
+        validate_no_empty_intermediate(labels) if verify_dns_length
         bidi_domain = labels.any? { |l| bidi_label?(l) }
 
         encoded = labels.map do |label|
@@ -111,13 +118,15 @@ module Dommy
             validate_a_label_roundtrip(label, decoded)
           end
 
-          validate_label(decoded, bidi_domain: bidi_domain)
+          validate_label(decoded, bidi_domain: bidi_domain, check_hyphens: check_hyphens)
           encode_label(decoded)
         end
 
-        encoded.each { |label| validate_a_label_form(label) }
+        if verify_dns_length
+          encoded.each { |label| validate_a_label_form(label) }
+        end
         result = encoded.join(".")
-        validate_total_length(result)
+        validate_total_length(result) if verify_dns_length
         result
       end
 
@@ -165,10 +174,10 @@ module Dommy
 
       # --- Step 5: validate per-label ---------------------------------
 
-      def self.validate_label(label, bidi_domain:)
+      def self.validate_label(label, bidi_domain:, check_hyphens: true)
         return if label.empty?
 
-        validate_hyphens(label)
+        validate_hyphens(label) if check_hyphens
         validate_no_leading_combining_mark(label)
         check_contextj(label)
         check_contexto(label)

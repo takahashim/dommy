@@ -2,6 +2,7 @@
 
 require "uri"
 require "cgi"
+require_relative "internal/url_parser"
 
 module Dommy
   # `URL` — WHATWG-style URL parsing. Public API mirrors the JS class:
@@ -80,482 +81,246 @@ module Dommy
       end
     end
 
-    attr_reader :search_params
+  attr_reader :search_params
 
-    def initialize(input, base = nil)
-      raw = parse_with_base(input, base)
-      @uri = raw
-      @search_params = URLSearchParams.new(raw.query.to_s, owner: self)
+  def initialize(input, base = nil)
+    base_str = base.is_a?(URL) ? base.href : base
+    @record = Internal::UrlParser.parse(input.to_s, base_str)
+    @search_params = URLSearchParams.new(@record.query.to_s, owner: self)
+  rescue Internal::UrlParser::Failure => e
+    raise DOMException::SyntaxError, "Invalid URL: #{e.message}"
+  end
+
+  def href
+    Internal::UrlParser.serialize(@record)
+  end
+
+  def href=(value)
+    @record = Internal::UrlParser.parse(value.to_s, nil)
+    @search_params.__internal_replace__(@record.query.to_s)
+    href
+  rescue Internal::UrlParser::Failure => e
+    raise DOMException::SyntaxError, "Invalid URL: #{e.message}"
+  end
+
+  def protocol
+    "#{@record.scheme}:"
+  end
+
+  def protocol=(value)
+    s = value.to_s.sub(/:\z/, "").downcase
+    @record.scheme = s if s.match?(/\A[a-z][a-z0-9+\-.]*\z/)
+  end
+
+  def host
+    return "" if @record.host.nil?
+
+    @record.port ? "#{@record.host}:#{@record.port}" : @record.host
+  end
+
+  def host=(value)
+    h, sep, p = value.to_s.partition(":")
+    begin
+      @record.host = Internal::UrlParser.parse_host(h, @record.special?)
+    rescue Internal::UrlParser::Failure
+      return
     end
-
-    def href
-      build_href
-    end
-
-    def href=(value)
-      raw = parse_with_base(value.to_s, nil)
-      @uri = raw
-      @search_params.__internal_replace__(raw.query.to_s)
-      build_href
-    end
-
-    def protocol
-      @uri.scheme ? "#{@uri.scheme}:" : ""
-    end
-
-    def protocol=(value)
-      s = value.to_s.sub(/:$/, "")
-      @uri.scheme = s
-    end
-
-    def host
-      port = @uri.port
-      default = default_port_for(@uri.scheme.to_s.downcase)
-      hostpart = @uri.host.to_s
-      return hostpart if port.nil? || port == default
-
-      "#{hostpart}:#{port}"
-    end
-
-    def host=(value)
-      h, p = value.to_s.split(":", 2)
-      @uri.host = h
-      @uri.port = p.to_i if p
-    end
-
-    def hostname
-      @uri.host.to_s
-    end
-
-    def hostname=(value)
-      # WHATWG: a non-ASCII hostname assigned through the setter is
-      # Punycode-encoded before storage (matches `new URL("...")`).
-      @uri.host = Internal::IDNA.to_ascii(value.to_s)
-    end
-
-    def port
-      default = default_port_for(@uri.scheme.to_s.downcase)
-      return "" if @uri.port.nil? || @uri.port == default
-
-      @uri.port.to_s
-    end
-
-    def port=(value)
-      @uri.port = value.to_s.empty? ? nil : value.to_i
-    end
-
-    # WHATWG: for opaque-body schemes (javascript:, mailto:, data:,
-    # tel:, blob:) the body sits in `URI`'s `opaque` slot, not `path`.
-    # For special schemes (http/https/ws/wss/ftp), an empty path is
-    # canonicalized to `"/"`.
-    def pathname
-      opaque = @uri.respond_to?(:opaque) ? @uri.opaque : nil
-      return opaque.to_s if opaque
-
-      path = @uri.path.to_s
-      return "/" if path.empty? && special_scheme?
-
-      path
-    end
-
-    def pathname=(value)
-      v = value.to_s
-      v = "/#{v}" if !v.start_with?("/") && !v.empty?
-      @uri.path = v
-    end
-
-    # WHATWG: `url.search` is the raw query string (with `?` prefix),
-    # preserving percent-encoding and stray `?` characters as parsed.
-    # `url.searchParams.toString()` re-serializes via the form-encoded
-    # contract (`+` for space, etc.) — distinct from `url.search`.
-    def search
-      q = @uri.query
-      q.nil? || q.empty? ? "" : "?#{q}"
-    end
-
-    def search=(value)
-      q = value.to_s.sub(/^\?/, "")
-      @uri.query = q.empty? ? nil : q
-      @search_params.__internal_replace__(q)
-    end
-
-    def hash
-      f = @uri.fragment.to_s
-      f.empty? ? "" : "##{f}"
-    end
-
-    def hash=(value)
-      f = value.to_s.sub(/^#/, "")
-      @uri.fragment = f.empty? ? nil : f
-    end
-
-    # WHATWG URL §origin. Tuple origins for http(s) / ws(s) / ftp;
-    # `"null"` for file/data/javascript/etc. Blob URLs unwrap their
-    # inner URL recursively.
-    def origin
-      scheme = @uri.scheme.to_s.downcase
-      return blob_inner_origin if scheme == "blob"
-      return "null" unless TUPLE_ORIGIN_SCHEMES.include?(scheme)
-      return "null" unless @uri.host
-
-      default = default_port_for(scheme)
-      port_part = (@uri.port && @uri.port != default) ? ":#{@uri.port}" : ""
-      "#{scheme}://#{@uri.host}#{port_part}"
-    end
-
-    def blob_inner_origin
-      # `blob:<inner-url>` — the body after `blob:` is itself a URL
-      # whose origin we adopt. Anything that fails to parse falls
-      # back to "null".
-      opaque = @uri.respond_to?(:opaque) ? @uri.opaque : nil
-      return "null" if opaque.nil? || opaque.empty?
-
-      URL.new(opaque).origin
-    rescue DOMException::SyntaxError
-      "null"
-    end
-
-    def username
-      @uri.user.to_s
-    end
-
-    def username=(value)
-      @uri.user = value.to_s.empty? ? nil : value.to_s
-    end
-
-    def password
-      @uri.password.to_s
-    end
-
-    def password=(value)
-      @uri.password = value.to_s.empty? ? nil : value.to_s
-    end
-
-    def to_s
-      href
-    end
-
-    def to_json(*_args)
-      # match JSON.stringify(url) -> "\"<href>\""
-      href.inspect
-    end
-
-    def __js_get__(key)
-      case key
-      when "href"
-        href
-      when "protocol"
-        protocol
-      when "host"
-        host
-      when "hostname"
-        hostname
-      when "port"
-        port
-      when "pathname"
-        pathname
-      when "search"
-        search
-      when "hash"
-        hash
-      when "origin"
-        origin
-      when "username"
-        username
-      when "password"
-        password
-      when "searchParams"
-        @search_params
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "href"
-        self.href = value
-      when "protocol"
-        self.protocol = value
-      when "host"
-        self.host = value
-      when "hostname"
-        self.hostname = value
-      when "port"
-        self.port = value
-      when "pathname"
-        self.pathname = value
-      when "search"
-        self.search = value
-      when "hash"
-        self.hash = value
-      when "username"
-        self.username = value
-      when "password"
-        self.password = value
-      else
-        return Bridge::UNHANDLED
-      end
-
-      nil
-    end
-
-    include Bridge::Methods
-    js_methods %w[toString toJSON]
-    def __js_call__(method, _args)
-      case method
-      when "toString", "toJSON"
-        href
-      end
-    end
-
-    # Called by URLSearchParams when it mutates; we need to keep the
-    # underlying URI's query string in sync so subsequent `href` is
-    # accurate.
-    def __internal_notify_params_changed__
-      sync_uri_query
-    end
-
-    SPECIAL_SCHEMES = %w[http https ws wss ftp file].freeze
-
-    # WHATWG: only http(s) / ws(s) / ftp produce a tuple origin. file
-    # / data / javascript / etc. resolve to `"null"`. `blob:` is
-    # handled specially (inner-URL origin).
-    TUPLE_ORIGIN_SCHEMES = %w[http https ws wss ftp].freeze
-
-    # Default ports per scheme (Ruby URI knows http/https/ftp; we add
-    # ws/wss).
-    DEFAULT_PORTS = {
-      "http" => 80,
-      "https" => 443,
-      "ws" => 80,
-      "wss" => 443,
-      "ftp" => 21
-    }.freeze
-
-    # Chars that Ruby URI rejects in the path/query/fragment portion
-    # but WHATWG silently percent-encodes.
-    UNSAFE_PATH_CHARS = /[ "<>`{}|\\\^\[\]]/
-
-    private
-
-    def special_scheme?
-      SPECIAL_SCHEMES.include?(@uri.scheme.to_s.downcase)
-    end
-
-    def default_port_for(scheme)
-      DEFAULT_PORTS[scheme]
-    end
-
-    def parse_with_base(input, base)
-      str = preprocess(input.to_s)
-      uri = nil
-      if base
-        base_str = preprocess(base.is_a?(URL) ? base.href : base.to_s)
-        base_uri = URI.parse(base_str)
-        uri = URI.join(base_uri, str)
-      else
-        uri = URI.parse(str)
-        raise DOMException::SyntaxError, "Invalid URL: #{str}" unless uri.scheme
-      end
-
-      normalize_path_segments(uri) if special_scheme_for?(uri)
-      uri
-    rescue URI::InvalidURIError => e
-      raise DOMException::SyntaxError, "Invalid URL: #{e.message}"
-    rescue Internal::Punycode::Error, Internal::IDNA::Error => e
-      raise DOMException::SyntaxError, "Invalid URL host: #{e.message}"
-    end
-
-    # WHATWG URL preprocessing — turn a raw input string into a form
-    # Ruby URI accepts. Order matters: each step can depend on
-    # earlier normalizations.
-    def preprocess(str)
-      str = strip_c0_and_space(str)
-      str = strip_tab_and_newline(str)
-      str = replace_backslashes_for_special_scheme(str)
-      str = normalize_idn_host(str)
-      str = normalize_ipv4_host(str)
-      percent_encode_unsafe(str)
-    end
-
-    # WHATWG §basic-url-parser step 1: strip leading and trailing
-    # C0 controls and ASCII space.
-    def strip_c0_and_space(str)
-      str.sub(/\A[\x00-\x20]+/, "").sub(/[\x00-\x20]+\z/, "")
-    end
-
-    # WHATWG: remove ASCII tab and newline anywhere in the URL.
-    def strip_tab_and_newline(str)
-      str.delete("\t\n\r")
-    end
-
-    # WHATWG: for special-scheme URLs, treat `\` as `/` in the
-    # authority and path portions.
-    def replace_backslashes_for_special_scheme(str)
-      m = str.match(/\A([a-zA-Z][a-zA-Z0-9+.\-]*):/)
-      return str unless m
-      return str unless SPECIAL_SCHEMES.include?(m[1].downcase)
-
-      scheme_end = m.end(0)
-      str[0...scheme_end] + str[scheme_end..].tr("\\", "/")
-    end
-
-    # Percent-encode chars after the authority section that Ruby URI
-    # would reject (space, `<`, `>`, `{`, `}`, `|`, etc.) and any
-    # non-ASCII byte. Preserves already-encoded `%XX` sequences.
-    def percent_encode_unsafe(str)
-      m = str.match(%r{\A([a-zA-Z][a-zA-Z0-9+.\-]*:(?://[^/?#]*)?)(.*)\z}m)
-      return str unless m
-
-      prefix = m[1]
-      tail = m[2]
-      out = +""
-      i = 0
-      while i < tail.length
-        c = tail[i]
-        if c == "%" && tail[i + 1, 2].to_s.match?(/\A[0-9A-Fa-f]{2}\z/)
-          out << tail[i, 3]
-          i += 3
-          next
-        end
-
-        needs_encoding = c.bytesize > 1 ||
-          c.ord < 0x20 ||
-          c.ord == 0x7F ||
-          UNSAFE_PATH_CHARS.match?(c)
-
-        if needs_encoding
-          c.bytes.each { |b| out << format("%%%02X", b) }
-        else
-          out << c
-        end
-
-        i += 1
-      end
-
-      prefix + out
-    end
-
-    # Detect dotted-quad / hex / octal / short-form IPv4 hosts and
-    # canonicalize to dotted-decimal. Touches the authority section
-    # only; non-special schemes are skipped.
-    def normalize_ipv4_host(str)
-      m = str.match(%r{\A([a-zA-Z][a-zA-Z0-9+.\-]*://(?:[^@/?#]*@)?)([^/:?#]+)(.*)\z}m)
-      return str unless m
-
-      scheme = str.match(/\A([a-zA-Z][a-zA-Z0-9+.\-]*):/)[1].downcase
-      return str unless SPECIAL_SCHEMES.include?(scheme)
-
-      ip = Internal::Ipv4Parser.parse(m[2])
-      return str unless ip
-
-      "#{m[1]}#{ip}#{m[3]}"
-    end
-
-    def special_scheme_for?(uri)
-      SPECIAL_SCHEMES.include?(uri.scheme.to_s.downcase)
-    end
-
-    # WHATWG: resolve `.` / `..` path segments. Applied only to
-    # special-scheme URIs (opaque schemes' path is verbatim).
-    def normalize_path_segments(uri)
-      path = uri.path
-      return if path.nil? || path.empty?
-
-      segments = path.split("/", -1)
-      result = []
-      segments.each do |seg|
-        case seg
-        when ".."
-          # Pop unless we'd remove the leading-empty marker.
-          result.pop if result.length > 1
-        when "."
-          # Skip.
-        else
-          result << seg
-        end
-      end
-
-      # Preserve the trailing slash if the input had one.
-      result << "" if path.end_with?("/", ".") && result.last != ""
-      uri.path = result.join("/")
-    end
-
-    # WHATWG: non-ASCII host labels must be Punycode-encoded
-    # (`日本.test` → `xn--wgv71a.test`) before storage. Ruby's URI
-    # parser rejects non-ASCII hosts outright, so we rewrite the host
-    # portion of the authority section here. Userinfo / port / path /
-    # query / fragment are left untouched.
-    def normalize_idn_host(str)
-      return str unless str.is_a?(String)
-      return str unless str.match?(%r{://})
-
-      str.sub(%r{(://)([^/?#]*)}) do
-        sep = Regexp.last_match(1)
-        authority = Regexp.last_match(2)
-        sep + rewrite_authority(authority)
-      end
-    end
-
-    def rewrite_authority(authority)
-      userinfo, hostport = authority.include?("@") ? authority.split("@", 2) : [nil, authority]
-      host, port = hostport.rpartition(":").then { |h, sep, p|
-        sep.empty? || h.empty? ? [hostport, nil] : [h, p]
-      }
-
-      ascii_host = Internal::IDNA.to_ascii(host)
-      out = +""
-      out << "#{userinfo}@" if userinfo
-      out << ascii_host
-      out << ":#{port}" if port
-      out
-    end
-
-    def build_href
-      out = +""
-      out << "#{@uri.scheme}:" if @uri.scheme
-
-      opaque = @uri.respond_to?(:opaque) ? @uri.opaque : nil
-      if opaque
-        # Opaque-body scheme (javascript:, mailto:, data:, tel:, blob:)
-        # — emit the body verbatim, no authority section.
-        out << opaque
-      else
-        if @uri.host
-          out << "//"
-          if @uri.user
-            out << @uri.user
-            out << ":#{@uri.password}" if @uri.password
-            out << "@"
-          end
-
-          out << @uri.host
-          default = default_port_for(@uri.scheme.to_s.downcase)
-          out << ":#{@uri.port}" if @uri.port && @uri.port != default
-        end
-
-        path = @uri.path.to_s
-        # WHATWG: for special schemes the path is normalized to `/`
-        # when empty (matches `pathname` accessor).
-        path = "/" if path.empty? && special_scheme?
-        out << path
-      end
-
-      out << search
-      out << hash
-      out
-    end
-
-    def sync_uri_query
-      q = @search_params.to_s
-      @uri.query = q.empty? ? nil : q
+    self.port = p unless sep.empty?
+  end
+
+  def hostname
+    @record.host.to_s
+  end
+
+  def hostname=(value)
+    @record.host = Internal::UrlParser.parse_host(value.to_s, @record.special?)
+  rescue Internal::UrlParser::Failure
+    nil
+  end
+
+  def port
+    @record.port.nil? ? "" : @record.port.to_s
+  end
+
+  def port=(value)
+    v = value.to_s
+    if v.empty?
+      @record.port = nil
+    elsif v.match?(/\A[0-9]+\z/)
+      n = v.to_i
+      @record.port = (n == @record.default_port ? nil : n) if n <= 65_535
     end
   end
 
-  # `URLSearchParams` — query-string manipulation. Constructed from a
-  # raw string (`"a=1&b=2"`), an array of `[k, v]` pairs, or a Hash.
-  # Order is preserved. Values are stringified per spec.
+  def pathname
+    Internal::UrlParser.serialize_path(@record)
+  end
+
+  def pathname=(value)
+    return if @record.opaque_path?
+
+    v = value.to_s
+    v = v.tr("\\", "/") if @record.special?
+    segs = v.split("/", -1)
+    segs.shift if segs.first == ""
+    set = Internal::UrlParser.method(:path_set?)
+    @record.path = segs.map { |s| s.each_char.map { |ch| Internal::UrlParser.pe(ch, set) }.join }
+    @record.path = [""] if @record.path.empty? && @record.special?
+  end
+
+  def search
+    q = @record.query
+    q.nil? || q.empty? ? "" : "?#{q}"
+  end
+
+  def search=(value)
+    v = value.to_s.sub(/\A\?/, "")
+    if v.empty?
+      @record.query = nil
+    else
+      set = @record.special? ? Internal::UrlParser.method(:special_query_set?) : Internal::UrlParser.method(:query_set?)
+      @record.query = v.each_char.map { |ch| Internal::UrlParser.pe(ch, set) }.join
+    end
+    @search_params.__internal_replace__(@record.query.to_s)
+  end
+
+  def hash
+    f = @record.fragment
+    f.nil? || f.empty? ? "" : "##{f}"
+  end
+
+  def hash=(value)
+    v = value.to_s.sub(/\A#/, "")
+    if v.empty?
+      @record.fragment = nil
+    else
+      set = Internal::UrlParser.method(:fragment_set?)
+      @record.fragment = v.each_char.map { |ch| Internal::UrlParser.pe(ch, set) }.join
+    end
+  end
+
+  # WHATWG URL §origin. Tuple origins for http(s) / ws(s) / ftp; `"null"`
+  # for file/data/javascript/etc. Blob URLs unwrap their inner URL.
+  def origin
+    scheme = @record.scheme
+    return blob_inner_origin if scheme == "blob"
+    return "null" unless TUPLE_ORIGIN_SCHEMES.include?(scheme)
+    return "null" if @record.host.nil?
+
+    port_part = @record.port ? ":#{@record.port}" : ""
+    "#{scheme}://#{@record.host}#{port_part}"
+  end
+
+  def username
+    @record.username
+  end
+
+  def username=(value)
+    return if cannot_have_credentials?
+
+    set = Internal::UrlParser.method(:userinfo_set?)
+    @record.username = value.to_s.each_char.map { |ch| Internal::UrlParser.pe(ch, set) }.join
+  end
+
+  def password
+    @record.password
+  end
+
+  def password=(value)
+    return if cannot_have_credentials?
+
+    set = Internal::UrlParser.method(:userinfo_set?)
+    @record.password = value.to_s.each_char.map { |ch| Internal::UrlParser.pe(ch, set) }.join
+  end
+
+  def to_s
+    href
+  end
+
+  def to_json(*_args)
+    href.inspect
+  end
+
+  def __js_get__(key)
+    case key
+    when "href" then href
+    when "protocol" then protocol
+    when "host" then host
+    when "hostname" then hostname
+    when "port" then port
+    when "pathname" then pathname
+    when "search" then search
+    when "hash" then hash
+    when "origin" then origin
+    when "username" then username
+    when "password" then password
+    when "searchParams" then @search_params
+    end
+  end
+
+  def __js_set__(key, value)
+    case key
+    when "href" then self.href = value
+    when "protocol" then self.protocol = value
+    when "host" then self.host = value
+    when "hostname" then self.hostname = value
+    when "port" then self.port = value
+    when "pathname" then self.pathname = value
+    when "search" then self.search = value
+    when "hash" then self.hash = value
+    when "username" then self.username = value
+    when "password" then self.password = value
+    else
+      return Bridge::UNHANDLED
+    end
+
+    nil
+  end
+
+  include Bridge::Methods
+  js_methods %w[toString toJSON]
+  def __js_call__(method, _args)
+    case method
+    when "toString", "toJSON"
+      href
+    end
+  end
+
+  # Called by URLSearchParams when it mutates; keep the record's query in sync.
+  def __internal_notify_params_changed__
+    q = @search_params.to_s
+    @record.query = q.empty? ? nil : q
+  end
+
+  # WHATWG: only http(s) / ws(s) / ftp produce a tuple origin. file / data /
+  # javascript / etc. resolve to `"null"`. `blob:` is handled specially.
+  TUPLE_ORIGIN_SCHEMES = %w[http https ws wss ftp].freeze
+
+  private
+
+  def cannot_have_credentials?
+    @record.host.nil? || @record.host == "" || @record.scheme == "file"
+  end
+
+  def blob_inner_origin
+    return "null" unless @record.opaque_path?
+
+    body = @record.path
+    return "null" if body.nil? || body.empty?
+
+    URL.new(body).origin
+  rescue DOMException::SyntaxError
+    "null"
+  end
+  end
+
   class URLSearchParams
     include Enumerable
+
+    # Sentinel distinguishing "no second argument" from an explicit null/value
+    # in the two-argument has()/delete() forms.
+    UNSET = Object.new
+    private_constant :UNSET
 
     def initialize(input = "", owner: nil)
       @owner = owner
@@ -563,24 +328,32 @@ module Dommy
     end
 
     def get(name)
-      pair = @pairs.find { |k, _| k == name.to_s }
+      key = stringify(name)
+      pair = @pairs.find { |k, _| k == key }
       pair && pair[1]
     end
 
     def get_all(name)
-      @pairs.select { |k, _| k == name.to_s }.map { |_, v| v }
+      key = stringify(name)
+      @pairs.select { |k, _| k == key }.map { |_, v| v }
     end
 
     alias getAll get_all
 
-    def has(name)
-      @pairs.any? { |k, _| k == name.to_s }
+    # WHATWG has(name) / has(name, value): with a value, only matches a pair
+    # whose value also equals it.
+    def has(name, value = UNSET)
+      key = stringify(name)
+      return @pairs.any? { |k, _| k == key } if UNSET.equal?(value)
+
+      val = stringify(value)
+      @pairs.any? { |k, v| k == key && v == val }
     end
 
     alias has? has
 
     def set(name, value)
-      key = name.to_s
+      key = stringify(name)
       first_done = false
       @pairs = @pairs.reject do |k, _|
         next false unless k == key
@@ -593,33 +366,44 @@ module Dommy
         end
       end
 
-      @pairs.map! { |pair| pair[0] == key ? [key, value.to_s] : pair }
-      @pairs << [key, value.to_s] unless first_done
+      val = stringify(value)
+      @pairs.map! { |pair| pair[0] == key ? [key, val] : pair }
+      @pairs << [key, val] unless first_done
       notify
       nil
     end
 
     def append(name, value)
-      @pairs << [name.to_s, value.to_s]
+      @pairs << [stringify(name), stringify(value)]
       notify
       nil
     end
 
-    def delete(name, value = nil)
-      key = name.to_s
-      if value.nil?
+    # WHATWG delete(name) / delete(name, value): with a value, only removes
+    # pairs whose value also matches.
+    def delete(name, value = UNSET)
+      key = stringify(name)
+      if UNSET.equal?(value)
         @pairs.reject! { |k, _| k == key }
       else
-        v = value.to_s
-        @pairs.reject! { |k, vv| k == key && vv == v }
+        val = stringify(value)
+        @pairs.reject! { |k, vv| k == key && vv == val }
       end
 
       notify
       nil
     end
 
+    # WHATWG: sort by comparison of the names' UTF-16 *code units*
+    # (not code points — so a surrogate-pair character sorts by its
+    # leading 0xD800–0xDBFF unit), preserving the relative order of
+    # pairs with equal names (Ruby's sort_by is not stable, hence the
+    # index tiebreak).
     def sort
-      @pairs.sort_by! { |k, _| k }
+      @pairs = @pairs
+        .each_with_index
+        .sort_by { |(name, _value), idx| [name.encode(Encoding::UTF_16BE).unpack("n*"), idx] }
+        .map(&:first)
       notify
       nil
     end
@@ -678,19 +462,30 @@ module Dommy
       when "getAll"
         get_all(args[0])
       when "has"
-        has(args[0])
+        args.length >= 2 ? has(args[0], args[1]) : has(args[0])
       when "set"
         set(args[0], args[1])
       when "append"
         append(args[0], args[1])
       when "delete"
-        delete(args[0], args[1])
+        args.length >= 2 ? delete(args[0], args[1]) : delete(args[0])
       when "sort"
         sort
       when "toString"
         to_s
       when "forEach"
-        for_each(&args[0])
+        # The callback is a live JS function (HostCallback), not a Ruby Proc, so
+        # invoke it through the bridge ABI rather than `&block` (which would try
+        # to to_proc it). callback(value, key, this) per WHATWG.
+        cb = args[0]
+        @pairs.each do |k, v|
+          if cb.respond_to?(:__js_call__)
+            cb.__js_call__("call", [v, k, self])
+          elsif cb.respond_to?(:call)
+            cb.call(v, k, self)
+          end
+        end
+        nil
       when "keys"
         keys
       when "values"
@@ -712,15 +507,30 @@ module Dommy
         s = input.to_s.sub(/^\?/, "")
         return [] if s.empty?
 
-        s.split("&").map do |pair|
+        # WHATWG urlencoded parser: split on "&" and skip empty sequences (so
+        # "a=b&&c" / trailing "&" don't yield phantom empty-name pairs).
+        s.split("&").reject(&:empty?).map do |pair|
           k, v = pair.split("=", 2)
-          [CGI.unescape(k.to_s), CGI.unescape(v.to_s)]
+          [decode(k.to_s), decode(v.to_s)]
         end
       end
     end
 
+    def decode(str)
+      CGI.unescape(str)
+    end
+
+    # WHATWG application/x-www-form-urlencoded serializer: byte-encode, keeping
+    # alphanumerics and *-._ literal, space as "+", everything else as %XX.
+    # (CGI.escape differs — notably it percent-encodes "*".)
     def encode(str)
-      CGI.escape(str.to_s)
+      str.to_s.b.gsub(/[^*\-._A-Za-z0-9]/n) { |c| c == " " ? "+" : format("%%%02X", c.ord) }
+    end
+
+    # USVString coercion for name/value arguments. JS null arrives as Ruby nil
+    # and must stringify to "null" (ToString(null)), not "".
+    def stringify(value)
+      value.nil? ? "null" : value.to_s
     end
 
     def notify

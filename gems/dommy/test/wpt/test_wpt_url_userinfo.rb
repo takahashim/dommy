@@ -63,10 +63,11 @@ class TestWPTURLUserinfoSetters < Minitest::Test
   def test_username_setter_empty_string_clears
     url = Dommy::URL.new("https://alice:secret@example.test/")
     url.username = ""
-    # Clearing username drops the entire userinfo segment in the
-    # current backend (Ruby URI requires user to be non-nil when
-    # password is set).
-    refute(url.href.include?("@"))
+    # Per WHATWG, clearing the username keeps the userinfo segment as
+    # long as a password is still set — the "@" and password are
+    # retained (only when both are empty does the segment drop).
+    assert_equal("", url.username)
+    assert_equal("https://:secret@example.test/", url.href)
   end
 
   def test_password_setter_empty_string_clears_password
