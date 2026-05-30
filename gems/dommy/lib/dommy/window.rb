@@ -26,99 +26,26 @@ module Dommy
     def initialize(host = nil, nokogiri_doc: nil)
       @host = host
       @scheduler = Scheduler.new
-      @event_ctor = Bridge::Constructor.new { |args| Event.new(args[0], args[1]) }
-      @custom_event_ctor = Bridge::Constructor.new { |args| CustomEvent.new(args[0], args[1]) }
-      @mouse_event_ctor = Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) }
-      @keyboard_event_ctor = Bridge::Constructor.new { |args| KeyboardEvent.new(args[0], args[1]) }
-      @event_target_ctor = Bridge::Constructor.new { |_args| StandaloneEventTarget.new }
-      @error_ctor = Bridge::Constructor.new { |args| ErrorValue.new(args[0]) }
-      @promise_ctor = Bridge::PromiseConstructor.new(self)
-      @mutation_observer_ctor = Bridge::Constructor.new { |args| MutationObserver.new(self, args[0]) }
-      @abort_controller_ctor = Bridge::Constructor.new { |_args| AbortController.new }
-      @blob_ctor = Bridge::Constructor.new { |args| Blob.new(args[0] || [], args[1] || {}) }
-      @file_ctor = Bridge::Constructor.new { |args| File.new(args[0] || [], args[1].to_s, args[2] || {}) }
-      @file_list_ctor = Bridge::Constructor.new { |args| FileList.new(args[0] || []) }
-      @form_data_ctor = Bridge::Constructor.new { |args| FormData.new(args[0]) }
-      @dom_parser_ctor = Bridge::Constructor.new { |_args| DOMParser.new }
-      @xml_serializer_ctor = Bridge::Constructor.new { |_args| XMLSerializer.new }
-      @url_search_params_ctor = Bridge::Constructor.new { |args| URLSearchParams.new(args[0] || "") }
-      @headers_ctor = Bridge::Constructor.new { |args| Headers.new(args[0] || {}) }
-      @css_namespace = CSSNamespace.new
-      @data_transfer_ctor = Bridge::Constructor.new { |args|
-        opts = args[0] || {}
-        DataTransfer.new(
-          files: opts["files"] || opts[:files] || [],
-          data: opts["data"] || opts[:data] || {}
-        )
-      }
-      @drag_event_ctor = Bridge::Constructor.new { |args| DragEvent.new(args[0], args[1]) }
-      @input_event_ctor = Bridge::Constructor.new { |args| InputEvent.new(args[0], args[1]) }
-      @pointer_event_ctor = Bridge::Constructor.new { |args| PointerEvent.new(args[0], args[1]) }
-      @progress_event_ctor = Bridge::Constructor.new { |args| ProgressEvent.new(args[0], args[1]) }
-      @touch_ctor = Bridge::Constructor.new { |args| Touch.new(args[0] || {}) }
-      @touch_event_ctor = Bridge::Constructor.new { |args| TouchEvent.new(args[0], args[1]) }
-      @clipboard_event_ctor = Bridge::Constructor.new { |args| ClipboardEvent.new(args[0], args[1]) }
-      @composition_event_ctor = Bridge::Constructor.new { |args| CompositionEvent.new(args[0], args[1]) }
-      @wheel_event_ctor = Bridge::Constructor.new { |args| WheelEvent.new(args[0], args[1]) }
-      @focus_event_ctor = Bridge::Constructor.new { |args| FocusEvent.new(args[0], args[1]) }
-      @before_unload_event_ctor = Bridge::Constructor.new { |args|
-        BeforeUnloadEvent.new(args[0] || "beforeunload", args[1])
-      }
-      win_ref = self
-      @animation_ctor = Bridge::Constructor.new { |args| Animation.new(args[0], args[1], window: win_ref) }
-      @keyframe_effect_ctor = Bridge::Constructor.new { |args| KeyframeEffect.new(args[0], args[1] || [], args[2]) }
       @crypto = Crypto.new(self)
-      @text_encoder_ctor = Bridge::Constructor.new { |_args| TextEncoder.new }
-      @text_decoder_ctor = Bridge::Constructor.new { |args| TextDecoder.new(args[0] || "utf-8", args[1]) }
-      @intersection_observer_ctor = Bridge::Constructor.new { |args| IntersectionObserver.new(args[0], args[1]) }
-      @resize_observer_ctor = Bridge::Constructor.new { |args| ResizeObserver.new(args[0]) }
-      @performance_observer_ctor = Bridge::Constructor.new { |args| PerformanceObserver.new(args[0]) }
-      @request_ctor = Bridge::Constructor.new { |args| Request.new(args[0], args[1]) }
-      xhr_win_ref = self
-      @xhr_ctor = Bridge::Constructor.new { |_args| XMLHttpRequest.new(xhr_win_ref) }
-      @file_reader_ctor = Bridge::Constructor.new { |_args| FileReader.new(xhr_win_ref) }
-      @message_channel_ctor = Bridge::Constructor.new { |_args| MessageChannel.new(xhr_win_ref) }
-      @broadcast_channel_ctor = Bridge::Constructor.new { |args| BroadcastChannel.new(xhr_win_ref, args[0]) }
-      @web_socket_ctor = Bridge::Constructor.new { |args| WebSocket.new(xhr_win_ref, args[0], args[1]) }
-      @event_source_ctor = Bridge::Constructor.new { |args| EventSource.new(xhr_win_ref, args[0], args[1]) }
-      @notification_ctor = Bridge::Constructor.new { |args| Notification.new(xhr_win_ref, args[0], args[1]) }
-      @notification_ctor.define_class_method("requestPermission") do |args|
-        Notification.request_permission(xhr_win_ref, args[0])
-      end
-
-      @worker_ctor = Bridge::Constructor.new { |args| Worker.new(xhr_win_ref, args[0], args[1]) }
-      @readable_stream_ctor = Bridge::Constructor.new { |args| ReadableStream.new(xhr_win_ref, args[0]) }
-      @writable_stream_ctor = Bridge::Constructor.new { |args| WritableStream.new(xhr_win_ref, args[0]) }
-      @transform_stream_ctor = Bridge::Constructor.new { |args| TransformStream.new(xhr_win_ref, args[0]) }
-      @text_encoder_stream_ctor = Bridge::Constructor.new { |_args| TextEncoderStream.new(xhr_win_ref) }
-      @text_decoder_stream_ctor = Bridge::Constructor.new { |args|
-        TextDecoderStream.new(xhr_win_ref, args[0] || "utf-8", args[1])
-      }
-      @compression_stream_ctor = Bridge::Constructor.new { |args| CompressionStream.new(xhr_win_ref, args[0]) }
-      @decompression_stream_ctor = Bridge::Constructor.new { |args| DecompressionStream.new(xhr_win_ref, args[0]) }
-      @url_pattern_ctor = Bridge::Constructor.new { |args| URLPattern.new(args[0], args[1]) }
-      @cookie_store = CookieStore.new(xhr_win_ref)
-
-      @range_ctor = Bridge::Constructor.new { |_args| Range.new(@document) }
+      @css_namespace = CSSNamespace.new
+      @cookie_store = CookieStore.new(self)
       @local_storage = Storage.new
       @session_storage = Storage.new
       @location = Location.new(self)
       @history = History.new(self, @location)
-      @url_ctor = Bridge::Constructor.new { |args| URL.new(args[0], args[1]) }
-      @url_ctor.define_class_method("createObjectURL") { |args| URL.create_object_url(args[0]) }
-      @url_ctor.define_class_method("revokeObjectURL") { |args| URL.revoke_object_url(args[0]) }
-      @url_ctor.define_class_method("parse") { |args| URL.parse(args[0], args[1]) }
-      @url_ctor.define_class_method("canParse") { |args| URL.can_parse(args[0], args[1]) }
-      # `JS.global[:__some_key__] = ...` from user code lands here.
-      # Test code uses this for stub installation (e.g. a custom
-      # `__fetch_stub__`); production code stays on the typed
-      # accessors above. We keep it last in the read fallback to
-      # avoid shadowing intentional getters.
+      # `JS.global[:__some_key__] = ...` from user code lands here. Test code
+      # uses this for stub installation (e.g. a custom `__fetch_stub__`);
+      # production code stays on the typed accessors. Kept last in the read
+      # fallback so it can't shadow intentional getters.
       @globals = {}
       @document = Document.new(host, nokogiri_doc: nokogiri_doc)
       @document.default_view = self
       @custom_elements = CustomElementRegistry.new(self)
       @navigator = Navigator.new(self)
+      # All JS global constructors (`new Event()`, `new URL()`, ...) live in a
+      # single name→Constructor registry rather than one ivar + one __js_get__
+      # arm each.
+      @constructors = Bridge::ConstructorRegistry.new(build_constructors)
     end
 
     # Bridge protocol: respond to a JS-style property read by name.
@@ -130,6 +57,9 @@ module Dommy
     # nil (= JS undefined). Spec failures here are the signal to widen
     # the surface in a future session.
     def __js_get__(key)
+      ctor = @constructors[key]
+      return ctor if ctor
+
       case key
       when "document"
         @document
@@ -138,118 +68,12 @@ module Dommy
         # window (not nil) lets `window === window.parent` and frame-walking
         # loops (e.g. testharness.js's `while (w != w.parent)`) terminate.
         self
-      when "Event"
-        @event_ctor
-      when "CustomEvent"
-        @custom_event_ctor
-      when "MouseEvent"
-        @mouse_event_ctor
-      when "KeyboardEvent"
-        @keyboard_event_ctor
-      when "EventTarget"
-        @event_target_ctor
-      when "Error"
-        @error_ctor
-      when "Promise"
-        @promise_ctor
-      when "MutationObserver"
-        @mutation_observer_ctor
-      when "AbortController"
-        @abort_controller_ctor
-      when "Blob"
-        @blob_ctor
-      when "FormData"
-        @form_data_ctor
-      when "DOMParser"
-        @dom_parser_ctor
-      when "XMLSerializer"
-        @xml_serializer_ctor
-      when "File"
-        @file_ctor
-      when "FileList"
-        @file_list_ctor
-      when "DataTransfer"
-        @data_transfer_ctor
-      when "DragEvent"
-        @drag_event_ctor
-      when "InputEvent"
-        @input_event_ctor
-      when "PointerEvent"
-        @pointer_event_ctor
-      when "ProgressEvent"
-        @progress_event_ctor
-      when "Touch"
-        @touch_ctor
-      when "TouchEvent"
-        @touch_event_ctor
-      when "ClipboardEvent"
-        @clipboard_event_ctor
-      when "CompositionEvent"
-        @composition_event_ctor
-      when "WheelEvent"
-        @wheel_event_ctor
-      when "FocusEvent"
-        @focus_event_ctor
-      when "BeforeUnloadEvent"
-        @before_unload_event_ctor
-      when "Animation"
-        @animation_ctor
-      when "KeyframeEffect"
-        @keyframe_effect_ctor
       when "crypto"
         @crypto
-      when "TextEncoder"
-        @text_encoder_ctor
-      when "TextDecoder"
-        @text_decoder_ctor
-      when "IntersectionObserver"
-        @intersection_observer_ctor
-      when "ResizeObserver"
-        @resize_observer_ctor
-      when "PerformanceObserver"
-        @performance_observer_ctor
-      when "Request"
-        @request_ctor
-      when "XMLHttpRequest"
-        @xhr_ctor
-      when "FileReader"
-        @file_reader_ctor
-      when "MessageChannel"
-        @message_channel_ctor
-      when "BroadcastChannel"
-        @broadcast_channel_ctor
-      when "WebSocket"
-        @web_socket_ctor
-      when "EventSource"
-        @event_source_ctor
-      when "Notification"
-        @notification_ctor
-      when "Worker"
-        @worker_ctor
-      when "ReadableStream"
-        @readable_stream_ctor
-      when "WritableStream"
-        @writable_stream_ctor
-      when "TransformStream"
-        @transform_stream_ctor
-      when "TextEncoderStream"
-        @text_encoder_stream_ctor
-      when "TextDecoderStream"
-        @text_decoder_stream_ctor
-      when "CompressionStream"
-        @compression_stream_ctor
-      when "DecompressionStream"
-        @decompression_stream_ctor
-      when "URLPattern"
-        @url_pattern_ctor
       when "cookieStore"
         @cookie_store
-      when "Range"
-        @range_ctor
-        # handled by Symbol sentinel
       when "console"
         :console
-        # likewise
       when "Object"
         :object_ctor
       when "Array"
@@ -266,12 +90,6 @@ module Dommy
         @location
       when "history"
         @history
-      when "URL"
-        @url_ctor
-      when "URLSearchParams"
-        @url_search_params_ctor
-      when "Headers"
-        @headers_ctor
       when "CSS"
         @css_namespace
       when "fetch"
@@ -383,6 +201,87 @@ module Dommy
     def fire_hashchange(old_hash, new_hash)
       event = CustomEvent.new("hashchange", "detail" => {"oldURL" => old_hash, "newURL" => new_hash})
       dispatch_event(event)
+    end
+
+    private
+
+    # Build the JS-global constructor map. Blocks are lazy (run at `new X()`
+    # time), so they may reference `win` / `@document` freely.
+    def build_constructors
+      win = self
+
+      notification = Bridge::Constructor.new { |args| Notification.new(win, args[0], args[1]) }
+      notification.define_class_method("requestPermission") { |args| Notification.request_permission(win, args[0]) }
+
+      url = Bridge::Constructor.new { |args| URL.new(args[0], args[1]) }
+      url.define_class_method("createObjectURL") { |args| URL.create_object_url(args[0]) }
+      url.define_class_method("revokeObjectURL") { |args| URL.revoke_object_url(args[0]) }
+      url.define_class_method("parse") { |args| URL.parse(args[0], args[1]) }
+      url.define_class_method("canParse") { |args| URL.can_parse(args[0], args[1]) }
+
+      {
+        "Event" => Bridge::Constructor.new { |args| Event.new(args[0], args[1]) },
+        "CustomEvent" => Bridge::Constructor.new { |args| CustomEvent.new(args[0], args[1]) },
+        "MouseEvent" => Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) },
+        "KeyboardEvent" => Bridge::Constructor.new { |args| KeyboardEvent.new(args[0], args[1]) },
+        "EventTarget" => Bridge::Constructor.new { |_args| StandaloneEventTarget.new },
+        "Error" => Bridge::Constructor.new { |args| ErrorValue.new(args[0]) },
+        "Promise" => Bridge::PromiseConstructor.new(win),
+        "MutationObserver" => Bridge::Constructor.new { |args| MutationObserver.new(win, args[0]) },
+        "AbortController" => Bridge::Constructor.new { |_args| AbortController.new },
+        "Blob" => Bridge::Constructor.new { |args| Blob.new(args[0] || [], args[1] || {}) },
+        "File" => Bridge::Constructor.new { |args| File.new(args[0] || [], args[1].to_s, args[2] || {}) },
+        "FileList" => Bridge::Constructor.new { |args| FileList.new(args[0] || []) },
+        "FormData" => Bridge::Constructor.new { |args| FormData.new(args[0]) },
+        "DOMParser" => Bridge::Constructor.new { |_args| DOMParser.new },
+        "XMLSerializer" => Bridge::Constructor.new { |_args| XMLSerializer.new },
+        "URLSearchParams" => Bridge::Constructor.new { |args| URLSearchParams.new(args[0] || "") },
+        "Headers" => Bridge::Constructor.new { |args| Headers.new(args[0] || {}) },
+        "DataTransfer" => Bridge::Constructor.new { |args|
+          opts = args[0] || {}
+          DataTransfer.new(
+            files: opts["files"] || opts[:files] || [],
+            data: opts["data"] || opts[:data] || {}
+          )
+        },
+        "DragEvent" => Bridge::Constructor.new { |args| DragEvent.new(args[0], args[1]) },
+        "InputEvent" => Bridge::Constructor.new { |args| InputEvent.new(args[0], args[1]) },
+        "PointerEvent" => Bridge::Constructor.new { |args| PointerEvent.new(args[0], args[1]) },
+        "ProgressEvent" => Bridge::Constructor.new { |args| ProgressEvent.new(args[0], args[1]) },
+        "Touch" => Bridge::Constructor.new { |args| Touch.new(args[0] || {}) },
+        "TouchEvent" => Bridge::Constructor.new { |args| TouchEvent.new(args[0], args[1]) },
+        "ClipboardEvent" => Bridge::Constructor.new { |args| ClipboardEvent.new(args[0], args[1]) },
+        "CompositionEvent" => Bridge::Constructor.new { |args| CompositionEvent.new(args[0], args[1]) },
+        "WheelEvent" => Bridge::Constructor.new { |args| WheelEvent.new(args[0], args[1]) },
+        "FocusEvent" => Bridge::Constructor.new { |args| FocusEvent.new(args[0], args[1]) },
+        "BeforeUnloadEvent" => Bridge::Constructor.new { |args| BeforeUnloadEvent.new(args[0] || "beforeunload", args[1]) },
+        "Animation" => Bridge::Constructor.new { |args| Animation.new(args[0], args[1], window: win) },
+        "KeyframeEffect" => Bridge::Constructor.new { |args| KeyframeEffect.new(args[0], args[1] || [], args[2]) },
+        "TextEncoder" => Bridge::Constructor.new { |_args| TextEncoder.new },
+        "TextDecoder" => Bridge::Constructor.new { |args| TextDecoder.new(args[0] || "utf-8", args[1]) },
+        "IntersectionObserver" => Bridge::Constructor.new { |args| IntersectionObserver.new(args[0], args[1]) },
+        "ResizeObserver" => Bridge::Constructor.new { |args| ResizeObserver.new(args[0]) },
+        "PerformanceObserver" => Bridge::Constructor.new { |args| PerformanceObserver.new(args[0]) },
+        "Request" => Bridge::Constructor.new { |args| Request.new(args[0], args[1]) },
+        "XMLHttpRequest" => Bridge::Constructor.new { |_args| XMLHttpRequest.new(win) },
+        "FileReader" => Bridge::Constructor.new { |_args| FileReader.new(win) },
+        "MessageChannel" => Bridge::Constructor.new { |_args| MessageChannel.new(win) },
+        "BroadcastChannel" => Bridge::Constructor.new { |args| BroadcastChannel.new(win, args[0]) },
+        "WebSocket" => Bridge::Constructor.new { |args| WebSocket.new(win, args[0], args[1]) },
+        "EventSource" => Bridge::Constructor.new { |args| EventSource.new(win, args[0], args[1]) },
+        "Notification" => notification,
+        "Worker" => Bridge::Constructor.new { |args| Worker.new(win, args[0], args[1]) },
+        "ReadableStream" => Bridge::Constructor.new { |args| ReadableStream.new(win, args[0]) },
+        "WritableStream" => Bridge::Constructor.new { |args| WritableStream.new(win, args[0]) },
+        "TransformStream" => Bridge::Constructor.new { |args| TransformStream.new(win, args[0]) },
+        "TextEncoderStream" => Bridge::Constructor.new { |_args| TextEncoderStream.new(win) },
+        "TextDecoderStream" => Bridge::Constructor.new { |args| TextDecoderStream.new(win, args[0] || "utf-8", args[1]) },
+        "CompressionStream" => Bridge::Constructor.new { |args| CompressionStream.new(win, args[0]) },
+        "DecompressionStream" => Bridge::Constructor.new { |args| DecompressionStream.new(win, args[0]) },
+        "URLPattern" => Bridge::Constructor.new { |args| URLPattern.new(args[0], args[1]) },
+        "Range" => Bridge::Constructor.new { |_args| Range.new(@document) },
+        "URL" => url,
+      }
     end
   end
 end
