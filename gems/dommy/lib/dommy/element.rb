@@ -1984,6 +1984,15 @@ module Dommy
       !ns.nil? && ns != "http://www.w3.org/1999/xhtml"
     end
 
+    # ---- Public Ruby API ----
+    # These snake_case methods are both the public CRuby API (called with an
+    # explicit receiver: `el.get_attribute(...)`) and the targets the JS bridge
+    # dispatch routes to. They live in their own `public` section so the
+    # visibility is decided at the definition site; the internal helpers above
+    # (element_children, detach_dom_nodes, etc.) stay private, and the helpers
+    # below `insert_adjacent` revert to private.
+    public
+
     def get_attribute(name)
       return nil if name.nil?
 
@@ -2193,6 +2202,9 @@ module Dommy
       end
     end
 
+    # ---- Internal helpers (private again) ----
+    private
+
     def insert_adjacent(side, args)
       parent = @__node__.parent
       return nil unless parent
@@ -2307,39 +2319,8 @@ module Dommy
     end
 
     # Test inspector for scroll calls (no real layout to scroll).
-    def __test_scroll_log__
+    public def __test_scroll_log__
       @scroll_log ||= []
     end
-
-    public :__test_scroll_log__
-
-    # Re-expose snake_case methods that the JS bridge dispatch routes
-    # to. Defined as private originally so internal helpers (element_children,
-    # detach_dom_nodes, etc.) stay encapsulated; CRuby users call these
-    # as the public Ruby API.
-    public(
-      :get_attribute,
-      :set_attribute,
-      :has_attribute?,
-      :remove_attribute,
-      :get_attribute_ns,
-      :set_attribute_ns,
-      :has_attribute_ns?,
-      :remove_attribute_ns,
-      :get_attribute_node_ns,
-      :insert_before,
-      :remove_child,
-      :replace_child,
-      :clone_node,
-      :query_selector,
-      :query_selector_all,
-      :at_xpath,
-      :xpath,
-      :path,
-      :closest,
-      :animate,
-      :get_animations,
-      :getAnimations
-    )
   end
 end
