@@ -152,7 +152,7 @@ module Capybara
         class_eval <<~RUBY, __FILE__, __LINE__ + 1
           def #{meth_name}(...)
             stale_check
-            method(:"unchecked_#{meth_name}").call(...)
+            send(:"unchecked_#{meth_name}", ...)
           end
         RUBY
       end
