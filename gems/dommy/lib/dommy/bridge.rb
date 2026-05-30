@@ -23,11 +23,19 @@ module Dommy
     # rather than silently dropping it.
     UNHANDLED = :__js_unhandled__
 
-    # Sentinel a `__js_call__` returns for a void (undefined-returning) operation
-    # so the JS host marshals it to `undefined` rather than `null`. Ruby `nil`
-    # otherwise maps to JS `null`, which is wrong for spec methods that "return
-    # nothing" (e.g. DOMTokenList add/remove return undefined).
-    UNDEFINED = :__js_undefined__
+    # Sentinel for the JS `undefined` value, used in both directions:
+    #   - a `__js_call__` returns it for a void (undefined-returning) op, so the
+    #     host marshals JS `undefined` rather than the `null` a bare Ruby `nil`
+    #     would (e.g. DOMTokenList add/remove return undefined);
+    #   - a top-level JS `undefined` *argument* arrives as it (whereas JS `null`
+    #     arrives as `nil`), so WebIDL-style dispatch can tell an omitted optional
+    #     argument from an explicit null.
+    # Its `to_s` is "undefined" so a DOMString coercion of a stray undefined is
+    # still spec-faithful.
+    UNDEFINED = Object.new
+    def UNDEFINED.to_s = "undefined"
+    def UNDEFINED.inspect = "#<Dommy::Bridge::UNDEFINED>"
+    UNDEFINED.freeze
 
     # Wraps an external callback handle (registered in a host-side
     # callback table) so the JS bridge can resolve / invoke it. The

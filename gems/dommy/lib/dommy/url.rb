@@ -84,6 +84,9 @@ module Dommy
   attr_reader :search_params
 
   def initialize(input, base = nil)
+    # An explicit JS `undefined` base means "no base" (WebIDL optional arg),
+    # distinct from a string base. (JS null already arrives as nil.)
+    base = nil if base.equal?(Bridge::UNDEFINED)
     base_str = base.is_a?(URL) ? base.href : base
     @record = Internal::UrlParser.parse(input.to_s, base_str)
     @search_params = URLSearchParams.new(@record.query.to_s, owner: self)
@@ -462,13 +465,13 @@ module Dommy
       when "getAll"
         get_all(args[0])
       when "has"
-        args.length >= 2 ? has(args[0], args[1]) : has(args[0])
+        value_given?(args) ? has(args[0], args[1]) : has(args[0])
       when "set"
         set(args[0], args[1])
       when "append"
         append(args[0], args[1])
       when "delete"
-        args.length >= 2 ? delete(args[0], args[1]) : delete(args[0])
+        value_given?(args) ? delete(args[0], args[1]) : delete(args[0])
       when "sort"
         sort
       when "toString"
@@ -496,6 +499,12 @@ module Dommy
     end
 
     private
+
+    # True when a real second argument (value) was passed to has()/delete().
+    # An explicit JS `undefined` counts as "not provided" (one-arg form).
+    def value_given?(args)
+      args.length >= 2 && !args[1].equal?(Bridge::UNDEFINED)
+    end
 
     def parse(input)
       case input

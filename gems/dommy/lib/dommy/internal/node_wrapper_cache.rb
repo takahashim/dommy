@@ -27,7 +27,7 @@ module Dommy
       # Factory methods
 
       def create_element(name)
-        str = name.to_s
+        str = domstring(name)
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
         raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless str.match?(Namespaces::NAME)
 
@@ -47,7 +47,7 @@ module Dommy
       end
 
       def create_attribute(name)
-        str = name.to_s
+        str = domstring(name)
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
         raise DOMException::InvalidCharacterError, "invalid attribute name: #{str.inspect}" unless str.match?(Namespaces::NAME)
 
@@ -55,21 +55,27 @@ module Dommy
       end
 
       def create_attribute_ns(namespace_uri, qualified_name)
+        namespace_uri = nil if namespace_uri.equal?(Bridge::UNDEFINED)
+        qualified_name = domstring(qualified_name)
         ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name)
-        Attr.new(qualified_name.to_s, namespace_uri: ns, prefix: prefix, local_name: local)
+        Attr.new(qualified_name, namespace_uri: ns, prefix: prefix, local_name: local)
       end
 
       def create_element_ns(namespace_uri, qualified_name)
         # WHATWG "validate and extract": QName-validate the qualifiedName
         # (InvalidCharacterError) and apply the prefix/namespace rules
         # (NamespaceError), then build the element with its prefix bound.
+        # namespace is nullable (undefined → null); qualifiedName is a plain
+        # DOMString (undefined → "undefined", null → "null").
+        namespace_uri = nil if namespace_uri.equal?(Bridge::UNDEFINED)
+        qualified_name = domstring(qualified_name)
         ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name)
 
-        el = Backend.create_element(qualified_name.to_s, @document.nokogiri_doc)
+        el = Backend.create_element(qualified_name, @document.nokogiri_doc)
         Backend.add_namespace_definition(el, prefix, ns) if ns
 
         wrapper = wrap(el)
-        wrapper.__internal_set_namespace__(ns, prefix, local, qualified_name.to_s)
+        wrapper.__internal_set_namespace__(ns, prefix, local, qualified_name)
         wrapper
       end
 
@@ -139,6 +145,15 @@ module Dommy
       end
 
       private
+
+      # WebIDL DOMString coercion for a name/qualifiedName argument: JS
+      # `undefined` → "undefined", JS `null` (Ruby nil) → "null", else #to_s.
+      def domstring(value)
+        return "undefined" if value.equal?(Bridge::UNDEFINED)
+        return "null" if value.nil?
+
+        value.to_s
+      end
 
       def wrap_node(node)
         wrap(node)
