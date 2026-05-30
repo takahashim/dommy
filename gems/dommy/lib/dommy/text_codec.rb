@@ -114,7 +114,6 @@ module Dommy
 
       out = []
       queue = bytes.bytes
-      queue.shift(3) if !@u8_started && !@ignore_bom && queue[0, 3] == [0xEF, 0xBB, 0xBF]
       @u8_started = true
 
       until queue.empty?
@@ -164,7 +163,25 @@ module Dommy
           reset_utf8_state
           out << utf8_error
         end
+      end
+
+      # Strip a leading byte-order mark at the code-point level, not the byte
+      # level: a BOM split across streaming chunks (EF BB in one decode() call,
+      # BF in the next) only surfaces as a single U+FEFF once the full sequence
+      # decodes, which a byte-prefix check would miss. The "BOM seen" flag
+      # persists across `{stream: true}` calls and is reset on flush.
+      unless @ignore_bom || @u8_bom_seen
+        if out[0] == 0xFEFF
+          out.shift
+          @u8_bom_seen = true
+        elsif !out.empty?
+          @u8_bom_seen = true
+        end
+      end
+
+      unless stream
         @u8_started = false
+        @u8_bom_seen = false
       end
 
       out.pack("U*")
