@@ -20,38 +20,7 @@ module Dommy
   # `<a>` — exposes URL-component getters/setters via the `href`
   # attribute, plus reflected `target` / `download` / `rel` / `type`.
   class HTMLAnchorElement < HTMLElement
-    def target
-      reflected_string("target")
-    end
-
-    def target=(v)
-      set_reflected_string("target", v)
-    end
-
-    def download
-      reflected_string("download")
-    end
-
-    def download=(v)
-      set_reflected_string("download", v)
-    end
-
-    def rel
-      reflected_string("rel")
-    end
-
-    def rel=(v)
-      set_reflected_string("rel", v)
-    end
-
-    def hreflang
-      reflected_string("hreflang")
-    end
-
-    def type
-      reflected_string("type")
-    end
-
+    reflect_string :target, :download, :rel, :hreflang, :type
     # URL-decomposition helpers. The anchor's `href` is resolved to
     # an absolute URL (inherited from Element#anchor_href); break it
     # into the standard components on demand.
@@ -89,16 +58,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "target"
-        target
-      when "download"
-        download
-      when "rel"
-        rel
-      when "hreflang"
-        hreflang
-      when "type"
-        type
       when "hash"
         self.hash
       when "host"
@@ -115,15 +74,6 @@ module Dommy
         port
       when "origin"
         origin
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "target", "download", "rel", "hreflang"
-        set_reflected_string(key, value)
       else
         super
       end
@@ -950,58 +900,8 @@ module Dommy
 
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
-    def src
-      reflected_string("src")
-    end
-
-    def src=(v)
-      set_reflected_string("src", v)
-    end
-
-    def type
-      reflected_string("type")
-    end
-
-    def type=(v)
-      set_reflected_string("type", v)
-    end
-
-    def integrity
-      reflected_string("integrity")
-    end
-
-    def nonce
-      reflected_string("nonce")
-    end
-
-    def referrer_policy
-      reflected_string("referrerpolicy")
-    end
-
-    def async
-      reflected_boolean("async")
-    end
-
-    def async=(v)
-      set_reflected_boolean("async", v)
-    end
-
-    def defer
-      reflected_boolean("defer")
-    end
-
-    def defer=(v)
-      set_reflected_boolean("defer", v)
-    end
-
-    def no_module
-      reflected_boolean("nomodule")
-    end
-
-    def no_module=(v)
-      set_reflected_boolean("nomodule", v)
-    end
-
+    reflect_string :src, :type, :integrity, :nonce, referrer_policy: "referrerpolicy"
+    reflect_boolean :async, :defer, no_module: "nomodule"
     # `text` is an alias for textContent on <script>.
     def text
       text_content
@@ -1013,22 +913,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "src"
-        src
-      when "type"
-        type
-      when "async"
-        async
-      when "defer"
-        defer
-      when "noModule"
-        no_module
-      when "integrity"
-        integrity
-      when "nonce"
-        nonce
-      when "referrerPolicy"
-        referrer_policy
       when "text"
         text
       else
@@ -1038,16 +922,6 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "src", "type", "integrity", "nonce"
-        set_reflected_string(key, value)
-      when "async"
-        set_reflected_boolean("async", value)
-      when "defer"
-        set_reflected_boolean("defer", value)
-      when "noModule"
-        set_reflected_boolean("nomodule", value)
-      when "referrerPolicy"
-        set_reflected_string("referrerpolicy", value)
       when "text"
         self.text_content = value
       else
@@ -1058,58 +932,7 @@ module Dommy
 
   # `<link>` — primarily for stylesheets, icons, preload, manifests.
   class HTMLLinkElement < HTMLElement
-    def href
-      reflected_string("href")
-    end
-
-    def href=(v)
-      set_reflected_string("href", v)
-    end
-
-    def rel
-      reflected_string("rel")
-    end
-
-    def rel=(v)
-      set_reflected_string("rel", v)
-    end
-
-    def type
-      reflected_string("type")
-    end
-
-    def type=(v)
-      set_reflected_string("type", v)
-    end
-
-    def media
-      reflected_string("media")
-    end
-
-    def sizes
-      reflected_string("sizes")
-    end
-
-    def hreflang
-      reflected_string("hreflang")
-    end
-
-    def as_attr
-      reflected_string("as")
-    end
-
-    def crossorigin
-      reflected_string("crossorigin")
-    end
-
-    def integrity
-      reflected_string("integrity")
-    end
-
-    def referrer_policy
-      reflected_string("referrerpolicy")
-    end
-
+    reflect_string :href, :rel, :type, :media, :sizes, :hreflang, :integrity, as_attr: { attr: "as", js: "as" }, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
     # `link.sheet` — non-nil only when this link is a stylesheet
     # (`rel` contains "stylesheet"). The sheet itself is a stub:
     # Dommy doesn't fetch or parse CSS, but consumers can still
@@ -1128,41 +951,8 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "href"
-        href
-      when "rel"
-        rel
-      when "type"
-        type
-      when "media"
-        media
-      when "sizes"
-        sizes
-      when "hreflang"
-        hreflang
-      when "as"
-        as_attr
-      when "crossOrigin"
-        crossorigin
-      when "integrity"
-        integrity
-      when "referrerPolicy"
-        referrer_policy
       when "sheet"
         sheet
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "href", "rel", "type", "media", "sizes", "hreflang", "as", "integrity"
-        set_reflected_string(key, value)
-      when "crossOrigin"
-        set_reflected_string("crossorigin", value)
-      when "referrerPolicy"
-        set_reflected_string("referrerpolicy", value)
       else
         super
       end
@@ -1764,14 +1554,7 @@ module Dommy
   # `<label>` — `htmlFor` IDL maps to the HTML `for` attribute;
   # `control` returns the labelled form control.
   class HTMLLabelElement < HTMLElement
-    def html_for
-      reflected_string("for")
-    end
-
-    def html_for=(v)
-      set_reflected_string("for", v)
-    end
-
+    reflect_string html_for: "for"
     # `label.control` — the form control associated with this label.
     # Priority: explicit `for=`, then first form control descendant.
     def control
@@ -1789,21 +1572,10 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "htmlFor"
-        html_for
       when "control"
         control
       when "form"
         form
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, v)
-      case key
-      when "htmlFor"
-        self.html_for = v
       else
         super
       end
@@ -1813,22 +1585,8 @@ module Dommy
   # `<fieldset>` — disabled-state-propagating wrapper; exposes
   # `elements` collection like form.
   class HTMLFieldsetElement < HTMLElement
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def disabled
-      reflected_boolean("disabled")
-    end
-
-    def disabled=(v)
-      set_reflected_boolean("disabled", v)
-    end
-
+    reflect_string :name
+    reflect_boolean :disabled
     def type
       "fieldset"
     end
@@ -1864,10 +1622,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "name"
-        name
-      when "disabled"
-        disabled
       when "type"
         type
       when "form"
@@ -1876,17 +1630,6 @@ module Dommy
         elements
       when "validity"
         validity
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, v)
-      case key
-      when "name"
-        self.name = v
-      when "disabled"
-        self.disabled = v
       else
         super
       end
@@ -3399,46 +3142,7 @@ module Dommy
   end
 
   class HTMLSourceElement < HTMLElement
-    def src
-      reflected_string("src")
-    end
-
-    def src=(v)
-      set_reflected_string("src", v)
-    end
-
-    def type
-      reflected_string("type")
-    end
-
-    def type=(v)
-      set_reflected_string("type", v)
-    end
-
-    def media
-      reflected_string("media")
-    end
-
-    def media=(v)
-      set_reflected_string("media", v)
-    end
-
-    def srcset
-      reflected_string("srcset")
-    end
-
-    def srcset=(v)
-      set_reflected_string("srcset", v)
-    end
-
-    def sizes
-      reflected_string("sizes")
-    end
-
-    def sizes=(v)
-      set_reflected_string("sizes", v)
-    end
-
+    reflect_string :src, :type, :media, :srcset, :sizes
     def width
       @__node__["width"].to_s.to_i
     end
@@ -3457,16 +3161,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "src"
-        src
-      when "type"
-        type
-      when "media"
-        media
-      when "srcset"
-        srcset
-      when "sizes"
-        sizes
       when "width"
         width
       when "height"
@@ -3478,8 +3172,6 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "src", "type", "media", "srcset", "sizes"
-        set_reflected_string(key, value)
       when "width"
         self.width = value
       when "height"
@@ -3491,50 +3183,12 @@ module Dommy
   end
 
   class HTMLTrackElement < HTMLElement
+    reflect_string :kind, :src, :srclang, :label
+    reflect_boolean default_: { attr: "default", js: "default" }
     NONE = 0
     LOADING = 1
     LOADED = 2
     ERROR = 3
-
-    def kind
-      reflected_string("kind")
-    end
-
-    def kind=(v)
-      set_reflected_string("kind", v)
-    end
-
-    def src
-      reflected_string("src")
-    end
-
-    def src=(v)
-      set_reflected_string("src", v)
-    end
-
-    def srclang
-      reflected_string("srclang")
-    end
-
-    def srclang=(v)
-      set_reflected_string("srclang", v)
-    end
-
-    def label
-      reflected_string("label")
-    end
-
-    def label=(v)
-      set_reflected_string("label", v)
-    end
-
-    def default_
-      reflected_boolean("default")
-    end
-
-    def default_=(v)
-      set_reflected_boolean("default", v)
-    end
 
     def ready_state
       NONE
@@ -3542,29 +3196,8 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "kind"
-        kind
-      when "src"
-        src
-      when "srclang"
-        srclang
-      when "label"
-        label
-      when "default"
-        default_
       when "readyState"
         ready_state
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "kind", "src", "srclang", "label"
-        set_reflected_string(key, value)
-      when "default"
-        self.default_ = value
       else
         super
       end
@@ -3572,70 +3205,8 @@ module Dommy
   end
 
   class HTMLIFrameElement < HTMLElement
-    def src
-      reflected_string("src")
-    end
-
-    def src=(v)
-      set_reflected_string("src", v)
-    end
-
-    def srcdoc
-      reflected_string("srcdoc")
-    end
-
-    def srcdoc=(v)
-      set_reflected_string("srcdoc", v)
-    end
-
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def sandbox
-      reflected_string("sandbox")
-    end
-
-    def sandbox=(v)
-      set_reflected_string("sandbox", v)
-    end
-
-    def allow
-      reflected_string("allow")
-    end
-
-    def allow=(v)
-      set_reflected_string("allow", v)
-    end
-
-    def allow_fullscreen
-      reflected_boolean("allowfullscreen")
-    end
-
-    def allow_fullscreen=(v)
-      set_reflected_boolean("allowfullscreen", v)
-    end
-
-    def referrer_policy
-      reflected_string("referrerpolicy")
-    end
-
-    def referrer_policy=(v)
-      set_reflected_string("referrerpolicy", v)
-    end
-
-    def loading
-      reflected_string("loading")
-    end
-
-    def loading=(v)
-      set_reflected_string("loading", v)
-    end
-
+    reflect_string :src, :srcdoc, :name, :sandbox, :allow, :loading, referrer_policy: "referrerpolicy"
+    reflect_boolean allow_fullscreen: "allowfullscreen"
     def width
       @__node__["width"].to_s
     end
@@ -3669,22 +3240,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "src"
-        src
-      when "srcdoc"
-        srcdoc
-      when "name"
-        name
-      when "sandbox"
-        sandbox
-      when "allow"
-        allow
-      when "allowFullscreen"
-        allow_fullscreen
-      when "referrerPolicy"
-        referrer_policy
-      when "loading"
-        loading
       when "width"
         width
       when "height"
@@ -3700,12 +3255,6 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "src", "srcdoc", "name", "sandbox", "allow", "loading"
-        set_reflected_string(key, value)
-      when "allowFullscreen"
-        self.allow_fullscreen = value
-      when "referrerPolicy"
-        set_reflected_string("referrerpolicy", value)
       when "width"
         self.width = value
       when "height"
@@ -3805,14 +3354,7 @@ module Dommy
   end
 
   class HTMLMapElement < HTMLElement
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
+    reflect_string :name
     def areas
       HTMLCollection.new do
         @__node__.css("area").map { |n| @document.wrap_node(n) }.compact
@@ -3821,8 +3363,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "name"
-        name
       when "areas"
         areas
       else
@@ -3836,38 +3376,7 @@ module Dommy
   end
 
   class HTMLObjectElement < HTMLElement
-    def data
-      reflected_string("data")
-    end
-
-    def data=(v)
-      set_reflected_string("data", v)
-    end
-
-    def type
-      reflected_string("type")
-    end
-
-    def type=(v)
-      set_reflected_string("type", v)
-    end
-
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def use_map
-      reflected_string("usemap")
-    end
-
-    def use_map=(v)
-      set_reflected_string("usemap", v)
-    end
-
+    reflect_string :data, :type, :name, use_map: "usemap"
     def width
       @__node__["width"].to_s
     end
@@ -3894,14 +3403,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "data"
-        data
-      when "type"
-        type
-      when "name"
-        name
-      when "useMap"
-        use_map
       when "width"
         width
       when "height"
@@ -3917,10 +3418,6 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "data", "type", "name"
-        set_reflected_string(key, value)
-      when "useMap"
-        set_reflected_string("usemap", value)
       when "width"
         self.width = value
       when "height"
@@ -3932,22 +3429,7 @@ module Dommy
   end
 
   class HTMLEmbedElement < HTMLElement
-    def src
-      reflected_string("src")
-    end
-
-    def src=(v)
-      set_reflected_string("src", v)
-    end
-
-    def type
-      reflected_string("type")
-    end
-
-    def type=(v)
-      set_reflected_string("type", v)
-    end
-
+    reflect_string :src, :type
     def width
       @__node__["width"].to_s
     end
@@ -3966,10 +3448,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "src"
-        src
-      when "type"
-        type
       when "width"
         width
       when "height"
@@ -3981,8 +3459,6 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "src", "type"
-        set_reflected_string(key, value)
       when "width"
         self.width = value
       when "height"
@@ -4002,22 +3478,7 @@ module Dommy
   end
 
   class HTMLStyleElement < HTMLElement
-    def type
-      reflected_string("type")
-    end
-
-    def type=(v)
-      set_reflected_string("type", v)
-    end
-
-    def media
-      reflected_string("media")
-    end
-
-    def media=(v)
-      set_reflected_string("media", v)
-    end
-
+    reflect_string :type, :media
     def disabled
       @__disabled == true
     end
@@ -4040,10 +3501,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "type"
-        type
-      when "media"
-        media
       when "disabled"
         disabled
       when "sheet"
@@ -4055,8 +3512,6 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "type", "media"
-        set_reflected_string(key, value)
       when "disabled"
         self.disabled = value
       else
