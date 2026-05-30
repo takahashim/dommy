@@ -959,7 +959,7 @@ module Dommy
     end
 
     def has_attributes?
-      @__node__.attribute_nodes.any?
+      Backend.attribute_nodes(@__node__).any?
     end
 
     def next_sibling
@@ -1144,7 +1144,7 @@ module Dommy
 
     # HTML namespace constants — most HTML elements live in xhtml ns.
     def namespace_uri
-      ns = @__node__.namespace
+      ns = Backend.namespace_of(@__node__)
       ns ? ns.href : "http://www.w3.org/1999/xhtml"
     end
 
@@ -1480,7 +1480,7 @@ module Dommy
     end
 
     def attribute_signature
-      @__node__.attribute_nodes.map { |a| [a.name, a.value] }.sort
+      Backend.attribute_nodes(@__node__).map { |a| [a.name, a.value] }.sort
     end
 
     public
@@ -1827,7 +1827,7 @@ module Dommy
       when "setAttributeNodeNS"
         set_attribute_node(args[0])
       when "getAttributeNames"
-        @__node__.attribute_nodes.map(&:name)
+        Backend.attribute_nodes(@__node__).map(&:name)
       when "closest"
         closest(args[0])
       when "querySelector"
@@ -2189,7 +2189,7 @@ module Dommy
         )
       else
         clone = @document.create_element(@__node__.name)
-        @__node__.attribute_nodes.each do |attr|
+        Backend.attribute_nodes(@__node__).each do |attr|
           clone.__js_call__("setAttribute", [attr.name, attr.value])
         end
 
