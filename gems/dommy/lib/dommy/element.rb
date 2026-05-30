@@ -81,6 +81,8 @@ module Dommy
       case key
       when "nodeType"
         11
+      when "nodeName"
+        "#document-fragment"
       when "children"
         element_children
       when "childNodes"
@@ -231,10 +233,22 @@ module Dommy
       __js_set__(key.to_s, value)
     end
 
+    # WHATWG nodeName for character-data nodes is a per-type constant
+    # ("#text" / "#comment" / "#cdata-section"), not the element name.
+    def node_name
+      case node_type
+      when 3 then "#text"
+      when 4 then "#cdata-section"
+      when 8 then "#comment"
+      end
+    end
+
     def __js_get__(key)
       case key
       when "nodeType"
         node_type
+      when "nodeName"
+        node_name
       when "textContent"
         @__node__.content
       when "data"
@@ -1718,6 +1732,13 @@ module Dommy
         end
 
       when "className"
+        set_attribute("class", value.to_s)
+      when "classList"
+        # WHATWG [PutForwards=value]: `el.classList = x` forwards to
+        # `el.classList.value = x` (set the class attribute). Handling it here
+        # (instead of letting the write fall through as unhandled) stops the JS
+        # bridge from stashing a string expando that would shadow the classList
+        # getter for the rest of the element's life.
         set_attribute("class", value.to_s)
       when "id"
         set_attribute("id", value.to_s)

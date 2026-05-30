@@ -135,8 +135,12 @@ module Dommy
       other.__js_call__(
         "then",
         [
-          proc { |resolved| fulfill(resolved) },
-          proc { |reason| reject(reason) }
+          # Return nil, not the result of fulfill/reject: those return `self`
+          # (a PromiseValue), and run_handler would treat that as a thenable to
+          # chain onto — re-adopting forever. These are adoption sinks; their
+          # return value must be ignored.
+          proc { |resolved| fulfill(resolved); nil },
+          proc { |reason| reject(reason); nil }
         ]
       )
       self
@@ -170,12 +174,14 @@ module Dommy
       end
 
       result = invoke_callback(callback, @value)
-      if result.is_a?(PromiseValue)
+      if result.is_a?(PromiseValue) && !result.equal?(handler.child)
+        # Adopt the returned thenable. The continuation procs return nil so their
+        # `self`-returning fulfill/reject don't get re-adopted (infinite chain).
         result.__js_call__(
           "then",
           [
-            proc { |resolved| handler.child.fulfill(resolved) },
-            proc { |reason| handler.child.reject(reason) }
+            proc { |resolved| handler.child.fulfill(resolved); nil },
+            proc { |reason| handler.child.reject(reason); nil }
           ]
         )
       else

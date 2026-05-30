@@ -27,6 +27,9 @@ module Dommy
       case key
       when "name"
         @name
+      when "nodeName"
+        # WHATWG: a DocumentType's nodeName is its name.
+        @name
       when "nodeType"
         10
       when "publicId"
