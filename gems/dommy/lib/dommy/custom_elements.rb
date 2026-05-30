@@ -10,7 +10,14 @@ module Dommy
   #
   # Names must contain a hyphen per the HTML spec (e.g., `my-button`).
   class CustomElementRegistry
-    NAME_RE = /\A[a-z][a-z0-9-]*-[a-z0-9-]*\z/
+    # https://html.spec.whatwg.org/#valid-custom-element-name
+    # PCENChar — the characters allowed after the first (ASCII-lower) char: a
+    # superset of [-._0-9a-z] plus wide Unicode ranges. A valid name is
+    # `[a-z] PCENChar* - PCENChar*` (i.e. lower-alpha start + at least one "-").
+    PCEN = "\\-._0-9a-z\\u00B7\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u037D" \
+           "\\u037F-\\u1FFF\\u200C-\\u200D\\u203F-\\u2040\\u2070-\\u218F" \
+           "\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}"
+    NAME_RE = Regexp.new("\\A[a-z][#{PCEN}]*-[#{PCEN}]*\\z")
 
     # Hyphenated names that the HTML spec reserves (SVG / MathML elements), so
     # they are NOT valid custom element names even though they match NAME_RE.
@@ -30,7 +37,7 @@ module Dommy
     def define(name, klass, _options = nil)
       key = name.to_s
       unless key.match?(NAME_RE)
-        raise DOMException::SyntaxError, "name must be a hyphenated string, got #{name.inspect}"
+        raise DOMException::SyntaxError, "#{name.inspect} is not a valid custom element name"
       end
       if RESERVED_NAMES.include?(key)
         raise DOMException::SyntaxError, "#{name.inspect} is a reserved element name"
@@ -120,7 +127,12 @@ module Dommy
     # new class and fire connectedCallback.
     def upgrade_existing(name)
       doc = @window.document
-      doc.nokogiri_doc.css(name).each do |nk|
+      # Match by tag name rather than interpolating `name` into a CSS selector:
+      # a spec-valid custom element name may contain "." (a CSS class selector
+      # char) or other metacharacters, which would corrupt the query.
+      doc.nokogiri_doc.css("*").each do |nk|
+        next unless nk.name == name
+
         doc.__internal_reset_wrapper__(nk)
         wrapped = doc.wrap_node(nk)
         doc.__internal_notify_connected__(wrapped) if wrapped

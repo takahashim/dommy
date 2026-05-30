@@ -35,6 +35,23 @@ class TestCustomElementsRegistry < Minitest::Test
     assert_equal Dommy::HTMLElement, @registry.get("font-faces")
   end
 
+  # Per the spec's PotentialCustomElementName production, names may contain
+  # ".", "_", digits, and a wide Unicode range after the first ASCII-lower char.
+  def test_define_allows_spec_valid_pcen_names
+    %w[my-button x-_y a-b.c emoji-😀].each do |name|
+      @registry.define(name, Dommy::HTMLElement)
+      assert_equal Dommy::HTMLElement, @registry.get(name), "expected #{name} to register"
+    end
+  end
+
+  def test_define_rejects_uppercase_and_digit_start
+    ["Foo-bar", "1-x", "-x", "no space-x"].each do |name|
+      assert_raises(Dommy::DOMException::SyntaxError, "expected #{name} to be rejected") do
+        @registry.define(name, Dommy::HTMLElement)
+      end
+    end
+  end
+
   def test_define_rejects_double_registration
     klass = Class.new(Dommy::HTMLElement)
     @registry.define("my-thing", klass)
