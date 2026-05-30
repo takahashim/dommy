@@ -138,16 +138,29 @@ module Dommy
       # is supplied; `characterData: true` is implied if
       # characterDataOldValue is supplied. Matches the spec's option
       # normalization in MutationObserverInit.
-      attrs_implied = !attribute_filter.nil? || truthy_option(opts, "attributeOldValue")
-      char_implied = truthy_option(opts, "characterDataOldValue")
-      attributes_on = truthy_option(opts, "attributes") || attrs_implied
+      # `attributes`/`characterData` are *implied* true only when their
+      # old-value/filter companion is present AND the member itself is omitted.
+      # If the member is present but false, that companion is a TypeError.
+      attr_present = opts.key?("attributes") || opts.key?(:attributes)
+      char_present = opts.key?("characterData") || opts.key?(:characterData)
+      attrs_extras = !attribute_filter.nil? || truthy_option(opts, "attributeOldValue")
+      char_extras = truthy_option(opts, "characterDataOldValue")
+
+      if attrs_extras && attr_present && !truthy_option(opts, "attributes")
+        raise Bridge::TypeError, "attributeOldValue/attributeFilter requires attributes to be true"
+      end
+      if char_extras && char_present && !truthy_option(opts, "characterData")
+        raise Bridge::TypeError, "characterDataOldValue requires characterData to be true"
+      end
+
+      attributes_on = truthy_option(opts, "attributes") || (attrs_extras && !attr_present)
       child_list_on = truthy_option(opts, "childList")
-      character_data_on = truthy_option(opts, "characterData") || char_implied
+      character_data_on = truthy_option(opts, "characterData") || (char_extras && !char_present)
 
       # Per spec, observe() must request at least one of childList,
       # attributes, or characterData; otherwise TypeError.
       unless child_list_on || attributes_on || character_data_on
-        raise TypeError, "MutationObserver.observe: at least one of childList, attributes, characterData must be true"
+        raise Bridge::TypeError, "MutationObserver.observe: at least one of childList, attributes, characterData must be true"
       end
 
       entry = {
@@ -196,10 +209,11 @@ module Dommy
 
       records = @records.dup
       @records.clear
+      # Per spec the callback receives (mutationRecords, observer).
       if @callback.respond_to?(:__js_call__)
-        @callback.__js_call__("call", [records])
+        @callback.__js_call__("call", [records, self])
       elsif @callback.respond_to?(:call)
-        @callback.call(records)
+        @callback.call(records, self)
       end
     end
 

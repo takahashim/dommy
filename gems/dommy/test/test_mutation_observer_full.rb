@@ -20,11 +20,11 @@ class TestMutationObserverFull < Minitest::Test
   end
 
   def test_observe_with_no_true_option_raises
-    assert_raises(TypeError) { @obs.__js_call__("observe", [@root, {}]) }
+    assert_raises(Dommy::Bridge::TypeError) { @obs.__js_call__("observe", [@root, {}]) }
   end
 
   def test_observe_with_only_subtree_raises
-    assert_raises(TypeError) do
+    assert_raises(Dommy::Bridge::TypeError) do
       @obs.__js_call__("observe", [@root, {"subtree" => true}])
     end
   end

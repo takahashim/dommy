@@ -232,6 +232,43 @@ module Dommy
       end
     end
 
+    # CharacterData length / mutation methods. Offsets and counts are UTF-16 code
+    # units per spec; for BMP text (the common case) Ruby char indices match.
+    # Each mutating op routes through write_data, which fires the characterData
+    # MutationObserver record.
+
+    def length
+      @__node__.content.length
+    end
+
+    def substring_data(offset, count)
+      s = @__node__.content
+      raise DOMException::IndexSizeError, "offset out of bounds" if offset.to_i.negative? || offset.to_i > s.length
+
+      s[offset.to_i, [count.to_i, 0].max].to_s
+    end
+
+    def append_data(value)
+      write_data(@__node__.content + value.to_s)
+    end
+
+    def insert_data(offset, value)
+      replace_data(offset, 0, value)
+    end
+
+    def delete_data(offset, count)
+      replace_data(offset, count, "")
+    end
+
+    def replace_data(offset, count, value)
+      s = @__node__.content
+      o = offset.to_i
+      raise DOMException::IndexSizeError, "offset out of bounds" if o.negative? || o > s.length
+
+      c = [[count.to_i, 0].max, s.length - o].min
+      write_data(s[0, o].to_s + value.to_s + s[(o + c)..].to_s)
+    end
+
     def __js_get__(key)
       case key
       when "nodeType"
@@ -244,6 +281,8 @@ module Dommy
         @__node__.content
       when "nodeValue"
         @__node__.content
+      when "length"
+        length
       when "parentNode"
         parent_node
       when "nextSibling"
@@ -263,9 +302,20 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[remove before after replaceWith isEqualNode]
+    js_methods %w[remove before after replaceWith isEqualNode
+      appendData insertData deleteData replaceData substringData]
     def __js_call__(method, args)
       case method
+      when "appendData"
+        append_data(args[0])
+      when "insertData"
+        insert_data(args[0], args[1])
+      when "deleteData"
+        delete_data(args[0], args[1])
+      when "replaceData"
+        replace_data(args[0], args[1], args[2])
+      when "substringData"
+        substring_data(args[0], args[1])
       when "remove"
         remove
       when "before"

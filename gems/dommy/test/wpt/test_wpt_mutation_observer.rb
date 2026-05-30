@@ -23,7 +23,7 @@ class TestWPTMutationObserverChildList < Minitest::Test
   # WPT: MutationObserver-childList.html
 
   def test_observe_requires_at_least_one_flag
-    assert_raises(TypeError) { @obs.__js_call__("observe", [@root, {}]) }
+    assert_raises(Dommy::Bridge::TypeError) { @obs.__js_call__("observe", [@root, {}]) }
   end
 
   def test_childList_records_appended_node
