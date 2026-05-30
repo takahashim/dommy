@@ -97,6 +97,12 @@ module Dommy
         current.attribute_ns_info(attr_node)
       end
 
+      # The element's attribute nodes (each readable via attribute_ns_info).
+      # The single choke point so DOM code doesn't touch parser internals.
+      def attribute_nodes(node)
+        current.attribute_nodes(node)
+      end
+
       # Type constants — proxy through to the current backend so
       # `node.is_a?(Backend::Element)` resolves dynamically.
       def element_class

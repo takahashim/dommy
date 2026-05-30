@@ -147,13 +147,13 @@ module Dommy
     end
 
     def length
-      @element.__dommy_backend_node__.attribute_nodes.size
+      Backend.attribute_nodes(@element.__dommy_backend_node__).size
     end
 
     alias size length
 
     def item(index)
-      node = @element.__dommy_backend_node__.attribute_nodes[index.to_i]
+      node = Backend.attribute_nodes(@element.__dommy_backend_node__)[index.to_i]
       node && attr_for(node)
     end
 
@@ -175,7 +175,7 @@ module Dommy
 
     def get_named_item(name)
       key = name.to_s.downcase
-      node = @element.__dommy_backend_node__.attribute_nodes.find do |a|
+      node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
         Backend.attribute_ns_info(a)[:qualified_name] == key
       end
       node && attr_for(node)
@@ -187,7 +187,7 @@ module Dommy
 
     def remove_named_item(name)
       key = name.to_s.downcase
-      node = @element.__dommy_backend_node__.attribute_nodes.find do |a|
+      node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
         Backend.attribute_ns_info(a)[:qualified_name] == key
       end
       return nil unless node
@@ -198,7 +198,7 @@ module Dommy
     end
 
     def each
-      @element.__dommy_backend_node__.attribute_nodes.each do |a|
+      Backend.attribute_nodes(@element.__dommy_backend_node__).each do |a|
         yield attr_for(a)
       end
     end
@@ -249,7 +249,7 @@ module Dommy
     # ----- Namespaced named-item access (getNamedItemNS etc.) -----
 
     def get_named_item_ns(namespace, local_name)
-      node = @element.__dommy_backend_node__.attribute_nodes.find do |a|
+      node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
         info = Backend.attribute_ns_info(a)
         info[:local_name] == local_name.to_s &&
           (info[:namespace_uri] || nil) == (namespace.to_s.empty? ? nil : namespace.to_s)

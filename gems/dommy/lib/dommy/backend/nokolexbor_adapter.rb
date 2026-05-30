@@ -96,6 +96,10 @@ module Dommy
         }
       end
 
+      def attribute_nodes(node)
+        node.attribute_nodes
+      end
+
       # Internal helper — visible to allow testing.
       def in_svg_subtree?(node)
         return true if node.name.to_s.downcase == "svg"

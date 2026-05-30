@@ -739,7 +739,7 @@ module Dommy
     def clone_into_doc(source, deep)
       copy = if source.element?
         new_el = Backend.create_element(source.name, @nokogiri_doc)
-        source.attribute_nodes.each { |a| new_el[a.name] = a.value }
+        Backend.attribute_nodes(source).each { |a| new_el[a.name] = a.value }
         new_el
       elsif source.text?
         Backend.create_text(source.content, @nokogiri_doc)

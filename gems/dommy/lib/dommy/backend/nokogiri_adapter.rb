@@ -98,6 +98,10 @@ module Dommy
         }
       end
 
+      def attribute_nodes(node)
+        node.attribute_nodes
+      end
+
       # Finds the attribute node matching (namespace, localName). A null
       # namespace matches only the un-namespaced attribute of that local name.
       def find_attr_ns(node, namespace, local_name)
