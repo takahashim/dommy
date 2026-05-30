@@ -136,7 +136,9 @@ class TestWPTDocumentCreate < Minitest::Test
 
   def test_createElementNS_with_explicit_namespace
     el = @doc.create_element_ns("http://www.w3.org/2000/svg", "svg")
-    assert_equal("SVG", el.tag_name)
+    # Non-HTML-namespace elements preserve case; only an HTML-namespace element
+    # in an HTML document upper-cases its tagName.
+    assert_equal("svg", el.tag_name)
   end
 
   def test_createElementNS_nil_namespace

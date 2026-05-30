@@ -188,6 +188,12 @@ module Dommy
       end
     end
 
+    # All child nodes of the document (doctype + document element, …), as a
+    # NodeList — unlike `children`, which is element-only.
+    def child_nodes
+      NodeList.new(@nokogiri_doc.children.map { |n| wrap_node(n) }.compact)
+    end
+
     def child_element_count
       children.size
     end
@@ -470,6 +476,8 @@ module Dommy
         images
       when "children"
         children
+      when "childNodes"
+        child_nodes
       when "childElementCount"
         child_element_count
       when "firstElementChild"

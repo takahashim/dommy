@@ -63,12 +63,14 @@ module Dommy
         # WHATWG "validate and extract": QName-validate the qualifiedName
         # (InvalidCharacterError) and apply the prefix/namespace rules
         # (NamespaceError), then build the element with its prefix bound.
-        ns, prefix, _local = Namespaces.validate_and_extract(namespace_uri, qualified_name)
+        ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name)
 
         el = Backend.create_element(qualified_name.to_s, @document.nokogiri_doc)
         Backend.add_namespace_definition(el, prefix, ns) if ns
 
-        wrap(el)
+        wrapper = wrap(el)
+        wrapper.__internal_set_namespace__(ns, prefix, local, qualified_name.to_s)
+        wrapper
       end
 
       # Query methods

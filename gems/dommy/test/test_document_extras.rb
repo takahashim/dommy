@@ -36,7 +36,8 @@ class TestDocumentExtras < Minitest::Test
   def test_create_element_ns
     el = @doc.create_element_ns("http://www.w3.org/2000/svg", "svg")
     refute_nil(el)
-    assert_equal("SVG", el.tag_name)
+    # SVG (non-HTML namespace) preserves case — tagName is "svg", not "SVG".
+    assert_equal("svg", el.tag_name)
   end
 
   def test_get_elements_by_tag_name

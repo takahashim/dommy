@@ -876,8 +876,29 @@ module Dommy
       __js_set__("innerHTML", value)
     end
 
+    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+
+    # Record the namespace/prefix/localName an element was created with via
+    # createElementNS, so the getters report them faithfully (Nokogiri can't
+    # always round-trip a foreign-namespace prefix).
+    def __internal_set_namespace__(namespace, prefix, local_name, qualified_name)
+      @__ns_uri = namespace
+      @__ns_prefix = prefix
+      @__ns_local = local_name
+      @__ns_qname = qualified_name
+      nil
+    end
+
+    # tagName is the qualified name, upper-cased only for an HTML-namespace
+    # element in an HTML document (here: created with the HTML namespace).
     def tag_name
-      @__node__.name.upcase
+      return @__node__.name.upcase unless @__ns_qname
+
+      @__ns_uri == HTML_NAMESPACE ? @__ns_qname.upcase : @__ns_qname
+    end
+
+    def element_prefix
+      @__ns_prefix
     end
 
     def id
@@ -1144,11 +1165,15 @@ module Dommy
 
     # HTML namespace constants — most HTML elements live in xhtml ns.
     def namespace_uri
+      return @__ns_uri if @__ns_qname
+
       ns = Backend.namespace_of(@__node__)
-      ns ? ns.href : "http://www.w3.org/1999/xhtml"
+      ns ? ns.href : HTML_NAMESPACE
     end
 
     def local_name
+      return @__ns_local if @__ns_qname
+
       @__node__.name.downcase
     end
 
@@ -1622,7 +1647,9 @@ module Dommy
         end
 
       when "tagName"
-        @__node__.name.upcase
+        tag_name
+      when "prefix"
+        element_prefix
       when "classList"
         @class_list
       when "style"
@@ -1656,7 +1683,7 @@ module Dommy
       when "localName"
         local_name
       when "nodeName"
-        @__node__.name.upcase
+        tag_name
       when "slot"
         slot
       when "role"
