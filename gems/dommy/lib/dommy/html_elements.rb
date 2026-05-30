@@ -648,6 +648,9 @@ module Dommy
       case key
       when "sheet"
         sheet
+      when "sizes"
+        # `link.sizes` is a DOMTokenList (`img`/`source` `sizes` stay strings).
+        reflected_token_list("sizes", "sizes")
       else
         super
       end
@@ -1338,7 +1341,8 @@ module Dommy
       when "validity"
         validity
       when "htmlFor"
-        reflected_string("for")
+        # `output.htmlFor` is a DOMTokenList (unlike `label.htmlFor`, a string).
+        reflected_token_list("htmlFor", "for")
       else
         super
       end
@@ -2694,6 +2698,11 @@ module Dommy
         content_document
       when "contentWindow"
         content_window
+      when "sandbox"
+        # JS-side `iframe.sandbox` is a DOMTokenList (the Ruby `#sandbox` string
+        # accessor from reflect_string is kept for internal use). Non-iframe
+        # frame elements get undefined via the element/namespace check.
+        reflected_token_list("sandbox", "sandbox")
       else
         super
       end
@@ -2835,6 +2844,11 @@ module Dommy
         content_document
       when "contentWindow"
         content_window
+      when "sandbox"
+        # JS-side `iframe.sandbox` is a DOMTokenList (the Ruby `#sandbox` string
+        # accessor from reflect_string is kept for internal use). Non-iframe
+        # frame elements get undefined via the element/namespace check.
+        reflected_token_list("sandbox", "sandbox")
       else
         super
       end

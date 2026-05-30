@@ -294,6 +294,14 @@ module Dommy
       end
     end
 
+    # WebIDL "supported property names" for NamedNodeMap: the qualified name of
+    # each attribute, in order (the indexed names are reflected separately).
+    def __js_named_props__
+      Backend.attribute_nodes(@element.__dommy_backend_node__).map do |a|
+        Backend.attribute_ns_info(a)[:qualified_name]
+      end
+    end
+
     include Bridge::Methods
     js_methods %w[item getNamedItem setNamedItem removeNamedItem
                   getNamedItemNS setNamedItemNS removeNamedItemNS]

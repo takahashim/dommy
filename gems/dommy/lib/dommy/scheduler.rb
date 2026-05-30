@@ -17,9 +17,17 @@ module Dommy
       @next_id = 1
       @timers = {}
       @microtasks = []
+      @native_microtask_scheduler = nil
     end
 
     attr_reader :now_ms
+
+    # An optional hook (set by a JS runtime) that enqueues a microtask onto the
+    # engine's NATIVE promise-job queue. When present, `queue_microtask` routes
+    # through it so host-side microtasks (e.g. MutationObserver delivery)
+    # interleave FIFO with JS `await`/Promise reactions instead of draining on a
+    # separate pass. Absent in vanilla CRuby use (falls back to `@microtasks`).
+    attr_accessor :native_microtask_scheduler
 
     def set_timeout(callback, delay_ms)
       register_timer(:timeout, callback, delay_ms.to_i, nil)
@@ -60,7 +68,11 @@ module Dommy
     end
 
     def queue_microtask(callback)
-      @microtasks << callback
+      if @native_microtask_scheduler
+        @native_microtask_scheduler.call(callback)
+      else
+        @microtasks << callback
+      end
       nil
     end
 

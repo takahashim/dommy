@@ -90,7 +90,10 @@ class TestTreeWalker < Minitest::Test
       visited << n.text_content
     end
 
-    assert_equal(["c", "b"], visited)
+    # Per WHATWG previousNode(): after "c" and "b", walking up from the first
+    # child returns the root itself (unlike parentNode(), previousNode() can
+    # return the root). The root is body, whose text is "b"+"c"+"d".
+    assert_equal(["c", "b", "bcd"], visited)
   end
 
   def test_first_child_and_next_sibling

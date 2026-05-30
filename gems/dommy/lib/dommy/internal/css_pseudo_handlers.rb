@@ -43,5 +43,45 @@ module Dommy
     def self.scoped_pseudo_handlers(scope_node)
       ScopedCSSPseudoHandlers.new(scope_node)
     end
+
+    # The complete set of CSS pseudo-classes (+ the four legacy single-colon
+    # pseudo-elements). A `:identifier` outside this set is an unknown selector
+    # token → SyntaxError, whereas a known-but-unimplemented one (`:hover`) is a
+    # valid selector that simply matches nothing.
+    KNOWN_PSEUDOS = %w[
+      active any-link autofill blank checked current default defined disabled empty
+      enabled first first-child first-of-type focus focus-visible focus-within
+      fullscreen future has host hover in-range indeterminate invalid is lang
+      last-child last-of-type left link local-link modal not nth-child nth-col
+      nth-last-child nth-last-col nth-last-of-type nth-of-type only-child
+      only-of-type optional out-of-range past placeholder-shown playing paused
+      read-only read-write required right root scope target target-within
+      user-invalid user-valid valid visited where dir
+      before after first-line first-letter
+    ].to_set.freeze
+
+    # Validate a non-null CSS selector for `querySelector`/`matches`/`closest`,
+    # raising SyntaxError for cases Nokogiri silently accepts: the empty string,
+    # a selector list beginning with a combinator (a relative selector these
+    # methods don't accept), and an unknown pseudo-class.
+    def self.validate_selector!(selector)
+      s = selector.to_s
+      invalid = s.empty? || s.match?(/\A\s*[>+~]/) || unknown_pseudo?(s)
+      raise ::Dommy::DOMException::SyntaxError, "'#{s}' is not a valid selector" if invalid
+
+      s
+    end
+
+    # True when the selector names a pseudo-class outside KNOWN_PSEUDOS. Only
+    # checked for selectors without attribute selectors / strings / escapes,
+    # where a bare `:ident` (single colon, not a `::` pseudo-element) is
+    # unambiguous; otherwise we defer to the backend.
+    def self.unknown_pseudo?(selector)
+      return false if selector.match?(/["'\[\\]/)
+
+      selector.scan(/(?<![:\\]):([a-zA-Z][a-zA-Z0-9-]*)/).any? do |(name)|
+        !KNOWN_PSEUDOS.include?(name.downcase)
+      end
+    end
   end
 end

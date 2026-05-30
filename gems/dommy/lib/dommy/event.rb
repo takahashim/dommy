@@ -294,6 +294,14 @@ module Dommy
       # in ms (browser uses performance.now). We use monotonic time
       # for determinism across spec runs.
       @time_stamp = (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0)
+      @trusted = false
+    end
+
+    # Mark this event as UA-generated (`isTrusted === true`). Used by the host
+    # for events it fires itself (e.g. AbortSignal's "abort").
+    def __internal_mark_trusted__
+      @trusted = true
+      self
     end
 
     attr_reader :type
@@ -353,8 +361,9 @@ module Dommy
         # Legacy alias: false once the default has been prevented, else true.
         !@default_prevented
       when "isTrusted"
-        # Script-created/dispatched events are never trusted.
-        false
+        # Script-created events are untrusted; a UA-fired event (e.g. an
+        # AbortSignal's "abort") is marked trusted via __internal_mark_trusted__.
+        @trusted == true
       when "target", "srcElement"
         # srcElement is a legacy alias of target — null (not undefined) when unset.
         @target
@@ -457,10 +466,6 @@ module Dommy
     def event_phase
       @event_phase
     end
-
-    public
-
-    private
 
     def read_init(init, key)
       case init
@@ -967,9 +972,9 @@ module Dommy
 
     # Spec: `AbortSignal.abort(reason?)` returns a fresh, pre-aborted
     # signal. Convenient for APIs that need an already-cancelled token.
-    def self.abort(reason = nil)
+    def self.abort(*reason)
       signal = new
-      signal.__internal_mark_aborted__(reason)
+      signal.__internal_mark_aborted__(*reason)
       signal
     end
 
@@ -1039,8 +1044,12 @@ module Dommy
     # consumer code that polls before doing async work.
     def throw_if_aborted
       return unless @aborted
+      # An Exception reason (the default AbortError, or an explicit DOMException)
+      # is raised so the bridge tags it as a real JS error; any other reason — a
+      # string, number, or opaque JSValue — is thrown verbatim, identity kept.
+      raise @reason if @reason.is_a?(Exception)
 
-      raise @reason.is_a?(Exception) ? @reason : RuntimeError.new(@reason.to_s)
+      raise Bridge::ThrowValue.new(@reason)
     end
 
     alias throwIfAborted throw_if_aborted
@@ -1050,12 +1059,25 @@ module Dommy
       when "aborted"
         @aborted
       when "reason"
-        @reason
+        # A non-aborted signal's reason is `undefined` (not null); once aborted
+        # it is the abort reason (an explicit value or the default AbortError).
+        @aborted ? @reason : Bridge::UNDEFINED
+      when "onabort"
+        @onabort_handler
       end
     end
 
-    def __js_set__(_key, _value)
-      Bridge::UNHANDLED
+    # `signal.onabort = fn` is an event-handler IDL attribute: it registers a
+    # single "abort" listener (replacing any previous one); null/undefined clears
+    # it. (Setting it after the signal is already aborted never fires.)
+    def __js_set__(key, value)
+      return Bridge::UNHANDLED unless key == "onabort"
+
+      remove_event_listener("abort", @onabort_handler) if @onabort_handler
+      cleared = value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+      @onabort_handler = cleared ? nil : value
+      add_event_listener("abort", @onabort_handler) if @onabort_handler
+      nil
     end
 
     include Bridge::Methods
@@ -1073,12 +1095,18 @@ module Dommy
       end
     end
 
-    def __internal_mark_aborted__(reason = nil)
+    # Sentinel meaning "no reason argument was supplied" — distinct from an
+    # explicit `null` reason (`abort(null)` keeps reason null, but `abort()` /
+    # `abort(undefined)` default to a fresh AbortError).
+    NO_REASON = Object.new
+
+    def __internal_mark_aborted__(reason = NO_REASON)
       return if @aborted
 
       @aborted = true
-      @reason = reason
-      dispatch_event(Event.new("abort", "bubbles" => false, "cancelable" => false))
+      no_reason = reason.equal?(NO_REASON) || (defined?(Bridge::UNDEFINED) && reason.equal?(Bridge::UNDEFINED))
+      @reason = no_reason ? DOMException::AbortError.new("signal is aborted without reason") : reason
+      dispatch_event(Event.new("abort", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
     end
   end
 
@@ -1102,7 +1130,9 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "abort"
-        @signal.__internal_mark_aborted__(args[0])
+        # `abort()` (no arg) defaults the reason; `abort(reason)` — even
+        # `abort(null)` — keeps the explicit reason.
+        args.empty? ? @signal.__internal_mark_aborted__ : @signal.__internal_mark_aborted__(args[0])
       end
     end
   end

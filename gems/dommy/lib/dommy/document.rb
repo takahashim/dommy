@@ -42,9 +42,11 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[isEqualNode]
+    js_methods %w[isEqualNode hasChildNodes]
     def __js_call__(method, args)
       case method
+      when "hasChildNodes"
+        false
       when "isEqualNode"
         is_equal_node(args[0])
       end
@@ -79,9 +81,11 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[isEqualNode]
+    js_methods %w[isEqualNode hasChildNodes]
     def __js_call__(method, args)
       case method
+      when "hasChildNodes"
+        false
       when "isEqualNode"
         is_equal_node(args[0])
       end
@@ -160,6 +164,7 @@ module Dommy
       @cookie_jar = Internal::CookieJar.new
       @template_content_registry = Internal::TemplateContentRegistry.new(self)
       @mutation_coordinator = Internal::MutationCoordinator.new(self, @observer_manager)
+      @node_iterators = []
       @nokogiri_doc = nokogiri_doc || Backend.parse("<!doctype html><html><head></head><body></body></html>")
       body_node = @nokogiri_doc.at_css("body")
       @body = wrap_node(body_node) if body_node
@@ -359,6 +364,25 @@ module Dommy
       TreeWalker.new(root, what_to_show, filter)
     end
 
+    # WebIDL `unsigned long whatToShow = 0xFFFFFFFF`: an omitted or `undefined`
+    # argument uses the default; `null` coerces to 0; otherwise ToUint32.
+    def coerce_what_to_show(args, index)
+      return NodeFilter::SHOW_ALL if args.length <= index
+      value = args[index]
+      return NodeFilter::SHOW_ALL if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
+      return 0 if value.nil?
+
+      value.to_i % (2**32)
+    end
+
+    # A `null`/`undefined` filter argument means "no filter".
+    def normalize_filter(value)
+      return nil if value.nil?
+      return nil if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
+
+      value
+    end
+
     # Copy a node from another document into this one. The returned
     # wrapper is owned by `this`. Per spec, the source node is left
     # in place. `deep: true` copies the entire subtree.
@@ -473,7 +497,11 @@ module Dommy
     # `document.createNodeIterator(root, whatToShow?, filter?)` —
     # flat depth-first iteration.
     def create_node_iterator(root, what_to_show = NodeFilter::SHOW_ALL, filter = nil)
-      NodeIterator.new(root, what_to_show, filter)
+      iterator = NodeIterator.new(root, what_to_show, filter)
+      # Track live iterators so node removal can run the "NodeIterator
+      # pre-removing steps" (adjusting referenceNode) before a node detaches.
+      @node_iterators << iterator
+      iterator
     end
 
     # Minimal DocumentType — represents the `<!doctype html>` line.
@@ -524,6 +552,10 @@ module Dommy
       @node_wrapper_cache.get_elements_by_name(name)
     end
 
+    def get_elements_by_tag_name_ns(namespace, local_name)
+      HTMLCollection.elements_by_tag_name_ns(@nokogiri_doc, self, namespace, local_name)
+    end
+
     # `document.write(html)` — legacy API. Appends parsed nodes to the
     # body. Real browsers only re-stream the DOM during initial parse;
     # this stub is enough for tests that fire write() during teardown.
@@ -559,6 +591,10 @@ module Dommy
     # through the same wrap_node identity machinery as Element / TextNode.
     def create_comment(text)
       @node_wrapper_cache.create_comment(text)
+    end
+
+    def create_cdata_section(text)
+      @node_wrapper_cache.create_cdata_section(text)
     end
 
     def create_document_fragment
@@ -653,14 +689,17 @@ module Dommy
     include Bridge::Methods
     js_methods %w[
       exitFullscreen startViewTransition createElement createElementNS createTextNode
-      createComment createProcessingInstruction createDocumentFragment querySelector querySelectorAll getElementById
-      getElementsByClassName getElementsByTagName getElementsByName createAttribute
+      createComment createCDATASection createProcessingInstruction createDocumentFragment querySelector querySelectorAll getElementById
+      getElementsByClassName getElementsByTagName getElementsByTagNameNS getElementsByName createAttribute
       createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
       removeEventListener dispatchEvent write open close isEqualNode appendChild
+      hasChildNodes
     ]
     def __js_call__(method, args)
       case method
+      when "hasChildNodes"
+        @nokogiri_doc.children.any?
       when "isEqualNode"
         is_equal_node(args[0])
       when "appendChild"
@@ -687,18 +726,26 @@ module Dommy
         create_text_node(args[0])
       when "createComment"
         create_comment(args[0])
+      when "createCDATASection"
+        create_cdata_section(args[0])
       when "createProcessingInstruction"
         create_processing_instruction(args[0], args[1])
       when "createDocumentFragment"
         create_document_fragment
       when "querySelector"
+        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
+
         query_selector(args[0])
       when "querySelectorAll"
+        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
+
         query_selector_all(args[0])
       when "getElementById"
         get_element_by_id(args[0])
       when "getElementsByClassName"
         get_elements_by_class_name(args[0])
+      when "getElementsByTagNameNS"
+        get_elements_by_tag_name_ns(args[0], args[1])
       when "getElementsByTagName"
         get_elements_by_tag_name(args[0])
       when "getElementsByName"
@@ -708,9 +755,9 @@ module Dommy
       when "createAttributeNS"
         create_attribute_ns(args[0], args[1])
       when "createTreeWalker"
-        create_tree_walker(args[0], args[1] || NodeFilter::SHOW_ALL, args[2])
+        create_tree_walker(args[0], coerce_what_to_show(args, 1), normalize_filter(args[2]))
       when "createNodeIterator"
-        create_node_iterator(args[0], args[1] || NodeFilter::SHOW_ALL, args[2])
+        create_node_iterator(args[0], coerce_what_to_show(args, 1), normalize_filter(args[2]))
       when "createRange"
         create_range
       when "createEvent"
@@ -827,11 +874,43 @@ module Dommy
       )
     end
 
-    def notify_attribute_mutation(target_node:, attribute_name:, old_value:)
+    # Unlink a backend node from its parent and queue a childList removal record
+    # capturing the node's position (previous/next sibling) BEFORE the unlink, so
+    # the record's previousSibling/nextSibling are correct (the coordinator can't
+    # recover them once the node is detached). Used by every remove path.
+    def remove_node_with_notify(node)
+      parent = node.parent
+      return unless parent
+
+      prev_w = node.previous_sibling && wrap_node(node.previous_sibling)
+      next_w = node.next_sibling && wrap_node(node.next_sibling)
+      run_node_iterator_pre_remove(node)
+      node.unlink
+      notify_child_list_mutation(
+        target_node: parent,
+        added_nodes: [],
+        removed_nodes: [node],
+        previous_sibling: prev_w,
+        next_sibling: next_w
+      )
+    end
+
+    # Run the "NodeIterator pre-removing steps" for every live iterator before
+    # `backend_node` is detached, so referenceNode/pointerBeforeReferenceNode
+    # stay valid. `backend_node` must still be attached (tree intact) here.
+    def run_node_iterator_pre_remove(backend_node)
+      return if @node_iterators.empty?
+
+      removed = wrap_node(backend_node)
+      @node_iterators.each { |iter| iter.pre_remove(removed) }
+    end
+
+    def notify_attribute_mutation(target_node:, attribute_name:, old_value:, namespace: nil)
       @mutation_coordinator.notify_attribute_mutation(
         target_node: target_node,
         attribute_name: attribute_name,
-        old_value: old_value
+        old_value: old_value,
+        namespace: namespace
       )
     end
 

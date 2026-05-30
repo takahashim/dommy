@@ -79,9 +79,7 @@ module Dommy
       def detach_dom_nodes(value)
         case value
         when Element, TextNode, CommentNode
-          node = value.__dommy_backend_node__
-          node.unlink if node.parent
-          [node]
+          [detach_with_notify(value.__dommy_backend_node__)]
         when Fragment
           value.extract_children
         when String
@@ -90,9 +88,31 @@ module Dommy
           node = value.respond_to?(:__dommy_backend_node__) ? value.__dommy_backend_node__ : nil
           return [] unless node
 
-          node.unlink if node.parent
-          [node]
+          [detach_with_notify(node)]
         end
+      end
+
+      # Detach a node from its current parent, queuing a childList removal
+      # record on that old parent first (WHATWG "remove" runs before the
+      # subsequent insert, so moving a node yields a removal record + an addition
+      # record). Returns the raw node, ready to be re-linked.
+      def detach_with_notify(node)
+        old_parent = node.parent
+        return node unless old_parent
+
+        # Capture the position (as wrapped nodes — the coordinator records
+        # explicit siblings verbatim) before unlinking.
+        prev_sib = node.previous_sibling && @document.wrap_node(node.previous_sibling)
+        next_sib = node.next_sibling && @document.wrap_node(node.next_sibling)
+        node.unlink
+        @document.notify_child_list_mutation(
+          target_node: old_parent,
+          added_nodes: [],
+          removed_nodes: [node],
+          previous_sibling: prev_sib,
+          next_sibling: next_sib
+        )
+        node
       end
 
       # Hierarchy guard hook. Default no-op (Fragment / ShadowRoot stay

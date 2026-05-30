@@ -71,6 +71,16 @@ module Dommy
         current.create_comment(content, doc)
       end
 
+      # CDATA section node (XML documents). Backends without CDATA fall back to a
+      # text node.
+      def create_cdata(content, doc)
+        current.respond_to?(:create_cdata) ? current.create_cdata(content, doc) : current.create_text(content, doc)
+      end
+
+      def cdata_class
+        current.respond_to?(:cdata_class) ? current.cdata_class : nil
+      end
+
       def namespace_of(node)
         current.namespace_of(node)
       end

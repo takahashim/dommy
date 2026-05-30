@@ -21,23 +21,17 @@ module Dommy
 
     # Map a wrapped Dommy node to its NodeFilter bitmask. Returns 0
     # for unknown node types (effectively "doesn't pass any filter").
+    # whatToShow bit for a node: WHATWG defines it as `1 << (nodeType - 1)`,
+    # which covers every node type (Element, Text, CDATASection, PI, Comment,
+    # Document, DocumentType, DocumentFragment, Attribute) uniformly.
     def self.bitmask_for(node)
-      case node
-      when Element
-        SHOW_ELEMENT
-      when TextNode
-        SHOW_TEXT
-      when CommentNode
-        SHOW_COMMENT
-      when Fragment
-        SHOW_DOCUMENT_FRAGMENT
-      when Document
-        SHOW_DOCUMENT
-      when DocumentType
-        SHOW_DOCUMENT_TYPE
-      else
-        0
-      end
+      nt =
+        if node.respond_to?(:node_type) then node.node_type
+        elsif node.respond_to?(:__js_get__) then node.__js_get__("nodeType")
+        end
+      return 0 unless nt.is_a?(Integer) && nt >= 1
+
+      1 << (nt - 1)
     end
   end
 
@@ -58,15 +52,40 @@ module Dommy
     end
 
     def invoke_filter(node)
-      return NodeFilter::FILTER_ACCEPT if @filter.nil?
+      return NodeFilter::FILTER_ACCEPT if @filter.nil? || (defined?(Bridge::UNDEFINED) && @filter.equal?(Bridge::UNDEFINED))
 
-      if @filter.respond_to?(:accept_node)
-        @filter.accept_node(node)
-      elsif @filter.respond_to?(:call)
-        @filter.call(node)
+      cb = filter_callback
+      # A non-null filter with no callable acceptNode is a TypeError when invoked.
+      raise Bridge::TypeError, "NodeFilter is not callable" unless cb
+
+      result = if cb.respond_to?(:__js_call__)
+        cb.__js_call__("call", [node])
       else
-        NodeFilter::FILTER_ACCEPT
+        cb.call(node)
       end
+      # WebIDL coerces the filter return (an `unsigned short`): booleans and
+      # null become 0/1, everything else ToInteger.
+      return 1 if result == true
+      return 0 if result == false || result.nil?
+
+      result.to_i
+    end
+
+    # The actual filter callback: a function filter is called directly; an object
+    # filter's `acceptNode` is used (WebIDL callback interface).
+    def filter_callback
+      return @filter if callable?(@filter)
+
+      accept_node =
+        if @filter.respond_to?(:accept_node) then @filter.method(:accept_node)
+        elsif @filter.is_a?(Hash) then (@filter["acceptNode"] || @filter[:acceptNode])
+        elsif @filter.respond_to?(:__js_get__) then @filter.__js_get__("acceptNode")
+        end
+      callable?(accept_node) ? accept_node : nil
+    end
+
+    def callable?(value)
+      value && (value.respond_to?(:__js_call__) || value.respond_to?(:call))
     end
   end
 
@@ -90,32 +109,55 @@ module Dommy
     end
 
     def next_node
-      node = first_descendant_or_following(@current_node)
-      while node
-        verdict = accept(node)
-        if verdict == NodeFilter::FILTER_ACCEPT
-          @current_node = node
-          return node
+      node = @current_node
+      result = NodeFilter::FILTER_ACCEPT
+      loop do
+        while result != NodeFilter::FILTER_REJECT && (child = first_wrapped_child(node))
+          node = child
+          result = accept(node)
+          return @current_node = node if result == NodeFilter::FILTER_ACCEPT
         end
 
-        node = (verdict == NodeFilter::FILTER_REJECT) ? following_skip_subtree(node) : first_descendant_or_following(
-          node
-        )
-      end
+        sibling = nil
+        temp = node
+        while temp
+          return nil if temp == @root
 
-      nil
+          sibling = next_sibling_wrapped(temp)
+          if sibling
+            node = sibling
+            break
+          end
+          temp = wrapped_parent(temp)
+        end
+        return nil unless sibling
+
+        result = accept(node)
+        return @current_node = node if result == NodeFilter::FILTER_ACCEPT
+      end
     end
 
     def previous_node
-      node = preceding(@current_node)
-      while node && node != @root
-        verdict = accept(node)
-        if verdict == NodeFilter::FILTER_ACCEPT
-          @current_node = node
-          return node
+      node = @current_node
+      while node != @root
+        sibling = previous_sibling_wrapped(node)
+        while sibling
+          node = sibling
+          result = accept(node)
+          while result != NodeFilter::FILTER_REJECT && (child = last_wrapped_child(node))
+            node = child
+            result = accept(node)
+          end
+          return @current_node = node if result == NodeFilter::FILTER_ACCEPT
+
+          sibling = previous_sibling_wrapped(node)
         end
 
-        node = preceding(node)
+        parent = wrapped_parent(node)
+        return nil if node == @root || parent.nil?
+
+        node = parent
+        return @current_node = node if accept(node) == NodeFilter::FILTER_ACCEPT
       end
 
       nil
@@ -133,21 +175,19 @@ module Dommy
     end
 
     def first_child
-      first = first_wrapped_child(@current_node)
-      walk_siblings(first, :next_sibling_wrapped)
+      traverse_children(:first_wrapped_child, :next_sibling_wrapped)
     end
 
     def last_child
-      last = last_wrapped_child(@current_node)
-      walk_siblings(last, :previous_sibling_wrapped)
+      traverse_children(:last_wrapped_child, :previous_sibling_wrapped)
     end
 
     def next_sibling
-      walk_siblings(next_sibling_wrapped(@current_node), :next_sibling_wrapped)
+      traverse_siblings(:next_sibling_wrapped, :first_wrapped_child)
     end
 
     def previous_sibling
-      walk_siblings(previous_sibling_wrapped(@current_node), :previous_sibling_wrapped)
+      traverse_siblings(:previous_sibling_wrapped, :last_wrapped_child)
     end
 
     def __js_get__(key)
@@ -165,6 +205,9 @@ module Dommy
 
     def __js_set__(key, value)
       return Bridge::UNHANDLED unless key == "currentNode"
+
+      # currentNode is a non-null `Node`; non-Node values are a TypeError.
+      raise Bridge::TypeError, "currentNode must be a Node" unless value.is_a?(Dommy::Node)
 
       @current_node = value
       nil
@@ -193,16 +236,60 @@ module Dommy
 
     private
 
-    def walk_siblings(start, direction)
-      node = start
+    # WHATWG "traverse children": a SKIP node is transparent (descend into its
+    # children); a REJECT node is opaque (skip it and its subtree, advance to the
+    # next sibling, climbing toward currentNode as needed).
+    def traverse_children(descend, sibling_dir)
+      node = send(descend, @current_node)
       while node
         v = accept(node)
         return @current_node = node if v == NodeFilter::FILTER_ACCEPT
 
-        node = (v == NodeFilter::FILTER_REJECT) ? nil : send(direction, node)
+        if v == NodeFilter::FILTER_SKIP
+          child = send(descend, node)
+          if child
+            node = child
+            next
+          end
+        end
+
+        loop do
+          sib = send(sibling_dir, node)
+          if sib
+            node = sib
+            break
+          end
+          parent = wrapped_parent(node)
+          return nil if parent.nil? || parent == @root || parent == @current_node
+
+          node = parent
+        end
       end
 
       nil
+    end
+
+    # WHATWG "traverse siblings": walk siblings of currentNode; a SKIP sibling's
+    # children are searched (descend), a REJECT sibling's subtree is skipped.
+    def traverse_siblings(sibling_dir, child_dir)
+      node = @current_node
+      return nil if node == @root
+
+      loop do
+        sib = send(sibling_dir, node)
+        while sib
+          node = sib
+          v = accept(node)
+          return @current_node = node if v == NodeFilter::FILTER_ACCEPT
+
+          sib = send(child_dir, node)
+          sib = send(sibling_dir, node) if v == NodeFilter::FILTER_REJECT || sib.nil?
+        end
+
+        node = wrapped_parent(node)
+        return nil if node.nil? || node == @root
+        return nil if accept(node) == NodeFilter::FILTER_ACCEPT
+      end
     end
 
     def first_descendant_or_following(node)
@@ -298,40 +385,74 @@ module Dommy
       @pointer_before_reference = true
     end
 
+    # WHATWG "traverse" (direction=next). referenceNode / pointerBeforeReferenceNode
+    # are committed only when a node is accepted; if no node matches we return null
+    # and leave the iterator's position untouched.
     def next_node
+      node = @reference_node
+      before = @pointer_before_reference
       loop do
-        node = if @pointer_before_reference
-          @reference_node
+        if before
+          before = false
         else
-          next_in_document_order(@reference_node)
+          node = next_in_document_order(node)
+          return nil unless node
         end
 
-        return nil unless node
+        next unless accept(node) == NodeFilter::FILTER_ACCEPT
 
         @reference_node = node
-        @pointer_before_reference = false
-        return node if accept(node) == NodeFilter::FILTER_ACCEPT
+        @pointer_before_reference = before
+        return node
       end
     end
 
+    # WHATWG "traverse" (direction=previous).
     def previous_node
+      node = @reference_node
+      before = @pointer_before_reference
       loop do
-        node = if @pointer_before_reference
-          previous_in_document_order(@reference_node)
+        if before
+          node = previous_in_document_order(node)
+          return nil unless node
         else
-          @reference_node
+          before = true
         end
 
-        return nil unless node
+        next unless accept(node) == NodeFilter::FILTER_ACCEPT
 
         @reference_node = node
-        @pointer_before_reference = true
-        return node if accept(node) == NodeFilter::FILTER_ACCEPT
+        @pointer_before_reference = before
+        return node
       end
     end
 
     def detach
       nil
+    end
+
+    # WHATWG "NodeIterator pre-removing steps". `removed` is the wrapped node
+    # about to be detached (still attached when this runs).
+    def pre_remove(removed)
+      # Terminate unless `removed` is in this iterator's collection and an
+      # inclusive ancestor of the reference node: skip if it is an inclusive
+      # ancestor of root (never in the collection) or not one of referenceNode.
+      return if inclusive_ancestor?(removed, @root)
+      return unless inclusive_ancestor?(removed, @reference_node)
+
+      unless @pointer_before_reference
+        @reference_node = tree_preceding(removed)
+        return
+      end
+
+      following = tree_next_descendants(removed)
+      if following
+        @reference_node = following
+        return
+      end
+
+      @reference_node = tree_preceding(removed)
+      @pointer_before_reference = false
     end
 
     def __js_get__(key)
@@ -426,6 +547,45 @@ module Dommy
 
     def document_for(node)
       node.instance_variable_get(:@document) || @root.instance_variable_get(:@document) || @root
+    end
+
+    def same_node?(node_a, node_b)
+      return false unless node_a && node_b
+      return true if node_a.equal?(node_b)
+
+      node_a.respond_to?(:__dommy_backend_node__) && node_b.respond_to?(:__dommy_backend_node__) &&
+        node_a.__dommy_backend_node__.equal?(node_b.__dommy_backend_node__)
+    end
+
+    def inclusive_ancestor?(ancestor, descendant)
+      current = descendant
+      while current
+        return true if same_node?(current, ancestor)
+
+        current = parent_node_of(current)
+      end
+      false
+    end
+
+    # The last node preceding `node` in tree order (common.js `previousNode`).
+    def tree_preceding(node)
+      sib = previous_sibling_node(node)
+      if sib
+        node = sib
+        while (last = last_child_node(node))
+          node = last
+        end
+        return node
+      end
+
+      parent_node_of(node)
+    end
+
+    # The first node following `node` and all its descendants in tree order
+    # (common.js `nextNodeDescendants`).
+    def tree_next_descendants(node)
+      node = parent_node_of(node) while node && next_sibling_node(node).nil?
+      node && next_sibling_node(node)
     end
   end
 end

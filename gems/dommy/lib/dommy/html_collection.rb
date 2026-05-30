@@ -22,6 +22,25 @@ module Dommy
       @compute = compute
     end
 
+    # Shared `getElementsByTagNameNS(namespace, localName)` — a live collection
+    # of descendants of `root` matching the (namespace, localName) filter, where
+    # "*" matches any. An empty-string namespace means the null namespace.
+    def self.elements_by_tag_name_ns(root, document, namespace, local_name)
+      ns = namespace.to_s
+      ns_filter = ns == "*" ? :any : (ns.empty? ? nil : ns)
+      local = local_name.to_s
+      new do
+        nodes = local == "*" ? root.css("*") : root.css(local)
+        nodes.filter_map do |node|
+          el = document.wrap_node(node)
+          next nil unless el
+
+          el_ns = el.respond_to?(:namespace_uri) ? el.namespace_uri : nil
+          (ns_filter == :any || el_ns == ns_filter) ? el : nil
+        end
+      end
+    end
+
     def length
       to_a.length
     end
@@ -42,7 +61,10 @@ module Dommy
     # `namedItem(name)` returns the first element whose `id` or
     # `name` attribute equals `name`. Returns nil if no match.
     def named_item(name)
-      key = name.to_s
+      # A numeric argument (`namedItem(2147483648)`) crosses from JS as a Float
+      # for values past int32; format it as an integer string so it matches an
+      # `id`/`name` attribute like "2147483648" (not "2147483648.0").
+      key = (name.is_a?(Float) && name.finite? && name == name.to_i) ? name.to_i.to_s : name.to_s
       return nil if key.empty?
 
       to_a.find do |el|
@@ -91,12 +113,37 @@ module Dommy
         item(key)
       else
         s = key.to_s
-        if s.match?(/\A\d+\z/)
+        if s.match?(/\A\d+\z/) && s.to_i < 4_294_967_295
+          # A valid array index (0 ≤ n < 2^32-1) is a pure indexed lookup — out
+          # of range yields nil (→ undefined), never a named fallback.
           item(s.to_i)
         else
+          # Non-array-index strings (negative, ≥ 2^32-1, or names) use the named
+          # getter.
           named_item(s) || (s == "length" ? length : nil)
         end
       end
+    end
+
+    # WebIDL "supported property names" for HTMLCollection: in tree order, each
+    # element contributes its non-empty `id`, then (if it is in the HTML
+    # namespace) its non-empty `name` — ignoring duplicates.
+    def __js_named_props__
+      names = []
+      to_a.each do |el|
+        next unless el.respond_to?(:__dommy_backend_node__)
+
+        node = el.__dommy_backend_node__
+        id = node["id"].to_s
+        names << id if !id.empty? && !names.include?(id)
+
+        name = node["name"].to_s
+        next if name.empty? || names.include?(name)
+
+        html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == "http://www.w3.org/1999/xhtml"
+        names << name if html_ns
+      end
+      names
     end
 
     include Bridge::Methods

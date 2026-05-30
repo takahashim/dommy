@@ -44,6 +44,12 @@ module Dommy
         ::Nokogiri::XML::Comment.new(doc, content)
       end
 
+      def create_cdata(content, doc)
+        ::Nokogiri::XML::CDATA.new(doc, content.to_s)
+      end
+
+      def cdata_class = ::Nokogiri::XML::CDATA
+
       def namespace_of(node)
         node.namespace
       end

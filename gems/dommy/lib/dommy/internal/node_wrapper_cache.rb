@@ -53,6 +53,10 @@ module Dommy
         wrap_node(Backend.create_text(text.to_s, @document.nokogiri_doc))
       end
 
+      def create_cdata_section(text)
+        wrap_node(Backend.create_cdata(text.to_s, @document.nokogiri_doc))
+      end
+
       def create_comment(text)
         wrap_node(Backend.create_comment(text.to_s, @document.nokogiri_doc))
       end
@@ -97,13 +101,15 @@ module Dommy
       # Query methods
 
       def query_selector(selector)
-        return nil if selector.nil? || selector.to_s.empty?
+        return nil if selector.nil?
+        Internal.validate_selector!(selector)
 
         wrap(@document.nokogiri_doc.at_css(selector.to_s, CSS_PSEUDO_HANDLERS))
       end
 
       def query_selector_all(selector)
-        return NodeList.new if selector.nil? || selector.to_s.empty?
+        return NodeList.new if selector.nil?
+        Internal.validate_selector!(selector)
 
         NodeList.new(@document.nokogiri_doc.css(selector.to_s, CSS_PSEUDO_HANDLERS).map { |node| wrap(node) }.compact)
       end
@@ -178,6 +184,9 @@ module Dommy
         case node
         when Backend.element_class
           build_element_wrapper(node)
+        when ->(n) { Backend.cdata_class && n.is_a?(Backend.cdata_class) }
+          # CDATA is a Text subtype in the backend, so match it before text_class.
+          CDATASectionNode.new(@document, node)
         when Backend.text_class
           TextNode.new(@document, node)
         when Backend.comment_class

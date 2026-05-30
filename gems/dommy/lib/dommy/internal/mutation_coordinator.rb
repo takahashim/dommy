@@ -109,7 +109,13 @@ module Dommy
           previous_sibling: prev_w,
           next_sibling: next_w
         )
+        # Only observers whose matching registration requested childList get the
+        # record (an `attributes`/`characterData`-only observer must not — e.g.
+        # `observe(t, {childList: false, attributes: true})`).
         @observer_manager.observers_matching(target).each do |observer|
+          entry = observer.find_matching_entry(target)
+          next unless entry && entry[:child_list]
+
           observer.enqueue(record)
         end
 
@@ -117,11 +123,13 @@ module Dommy
       end
 
       # Fire MutationObserver attribute records
-      def notify_attribute_mutation(target_node:, attribute_name:, old_value:)
+      def notify_attribute_mutation(target_node:, attribute_name:, old_value:, namespace: nil)
         target = @document.wrap_node(target_node)
         return nil unless target
 
-        attr = attribute_name.to_s.downcase
+        # A namespaced attribute keeps its local name as-is; a plain HTML
+        # attribute is lower-cased.
+        attr = namespace ? attribute_name.to_s : attribute_name.to_s.downcase
         new_value = target_node[attr]
 
         # Custom Element attributeChangedCallback (synchronous)
@@ -139,6 +147,7 @@ module Dommy
               type: "attributes",
               target: target,
               attribute_name: attr,
+              attribute_namespace: namespace,
               old_value: entry[:attribute_old_value] ? old_value : nil
             )
           )

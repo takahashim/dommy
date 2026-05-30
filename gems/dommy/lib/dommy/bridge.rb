@@ -37,6 +37,39 @@ module Dommy
     def UNDEFINED.inspect = "#<Dommy::Bridge::UNDEFINED>"
     UNDEFINED.freeze
 
+    # An opaque handle to a JS-side value that Ruby only stores and hands back
+    # (an AbortSignal's reason, a CustomEvent's detail). A non-plain JS object
+    # (Error, class instance, …) crosses as one of these instead of being
+    # flattened to a Hash, so it round-trips with IDENTITY preserved. `to_s`
+    # exposes the captured JS string form for the rare Ruby consumer that needs
+    # text (e.g. building a message).
+    class JSValue
+      attr_reader :ref
+
+      def initialize(ref, label = nil)
+        @ref = ref
+        @label = label
+      end
+
+      def to_s = (@label || "[object]").to_s
+      def inspect = "#<Dommy::Bridge::JSValue #{to_s}>"
+    end
+
+    # Raised by a host method that must throw an ARBITRARY value back to JS —
+    # not a DOMException/Error, but e.g. `signal.throwIfAborted()` throwing the
+    # exact abort reason (a string, number, or opaque JSValue). The bridge
+    # re-throws the wrapped value verbatim (identity preserved). Subclasses
+    # RuntimeError (with the value's string form as the message) so standalone
+    # CRuby callers still see a normal `raise`-able error.
+    class ThrowValue < RuntimeError
+      attr_reader :value
+
+      def initialize(value)
+        @value = value
+        super(value.to_s)
+      end
+    end
+
     # A byte buffer that crosses the JS boundary as a `Uint8Array` (rather than a
     # plain Array). Wrap a host method's byte-array result in this so JS sees a
     # real typed array — e.g. `TextEncoder#encode`, `Blob#arrayBuffer`. The

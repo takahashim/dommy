@@ -135,11 +135,11 @@ module Dommy
       when "dispatchEvent"
         dispatch_event(args[0])
       when "setTimeout"
-        @scheduler.set_timeout(args[0], args[1] || 0)
+        @scheduler.set_timeout(args[0], timer_delay(args[1]))
       when "clearTimeout"
         @scheduler.clear_timeout(args[0])
       when "setInterval"
-        @scheduler.set_interval(args[0], args[1] || 0)
+        @scheduler.set_interval(args[0], timer_delay(args[1]))
       when "clearInterval"
         @scheduler.clear_interval(args[0])
       when "requestAnimationFrame"
@@ -188,6 +188,15 @@ module Dommy
 
     private
 
+    # The timer delay (WebIDL `long`, default 0). A missing/undefined argument
+    # or any non-numeric value coerces to 0 rather than raising.
+    def timer_delay(value)
+      return value if value.is_a?(Numeric)
+      return value.to_i if value.is_a?(String) && value =~ /\A\s*-?\d+/
+
+      0
+    end
+
     # Build the JS-global constructor map. Blocks are lazy (run at `new X()`
     # time), so they may reference `win` / `@document` freely.
     def build_constructors
@@ -201,6 +210,13 @@ module Dommy
       url.define_class_method("revokeObjectURL") { |args| URL.revoke_object_url(args[0]) }
       url.define_class_method("parse") { |args| URL.parse(args[0], args[1]) }
       url.define_class_method("canParse") { |args| URL.can_parse(args[0], args[1]) }
+
+      # AbortSignal is not constructible (`new AbortSignal()` → TypeError); it is
+      # exposed only for its static factories abort()/any()/timeout().
+      abort_signal = Bridge::Constructor.new { |_args| raise Bridge::TypeError, "Illegal constructor" }
+      abort_signal.define_class_method("abort") { |args| args.empty? ? AbortSignal.abort : AbortSignal.abort(args[0]) }
+      abort_signal.define_class_method("any") { |args| AbortSignal.any(args[0]) }
+      abort_signal.define_class_method("timeout") { |args| AbortSignal.timeout(args[0], scheduler: win.scheduler) }
 
       {
         # `new Document()` — a fresh empty document (content type application/xml
@@ -217,6 +233,7 @@ module Dommy
         "Promise" => Bridge::PromiseConstructor.new(win),
         "MutationObserver" => Bridge::Constructor.new { |args| MutationObserver.new(win, args[0]) },
         "AbortController" => Bridge::Constructor.new { |_args| AbortController.new },
+        "AbortSignal" => abort_signal,
         "Blob" => Bridge::Constructor.new { |args| Blob.new(args[0] || [], args[1] || {}) },
         "File" => Bridge::Constructor.new { |args| File.new(args[0] || [], args[1].to_s, args[2] || {}) },
         "FileList" => Bridge::Constructor.new { |args| FileList.new(args[0] || []) },

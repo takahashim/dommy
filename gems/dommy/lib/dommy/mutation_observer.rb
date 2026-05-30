@@ -75,6 +75,7 @@ module Dommy
       @observed = []
       @records = []
       @scheduled = false
+      @registered_docs = []
     end
 
     include Bridge::Methods
@@ -184,7 +185,14 @@ module Dommy
         @observed << entry
       end
 
-      @document.register_observer(self)
+      # Register on the TARGET's node-document — not just the observer's own
+      # document — so an observer watching a node in another document (e.g. a
+      # DOMParser-created XML document) is reached by that document's mutations.
+      doc = document_for_target(target)
+      unless @registered_docs.include?(doc)
+        doc.register_observer(self)
+        @registered_docs << doc
+      end
       nil
     end
 
@@ -192,8 +200,17 @@ module Dommy
       @records.clear
       @scheduled = false
       @observed.clear
-      @document.unregister_observer(self)
+      @registered_docs.each { |doc| doc.unregister_observer(self) }
+      @registered_docs.clear
       nil
+    end
+
+    # The node-document a target belongs to (the target itself when it is a
+    # Document).
+    def document_for_target(target)
+      return target if target.is_a?(Dommy::Document)
+
+      target.instance_variable_get(:@document) || @document
     end
 
     def take_records
@@ -209,17 +226,27 @@ module Dommy
 
       records = @records.dup
       @records.clear
-      # Per spec the callback receives (mutationRecords, observer).
-      if @callback.respond_to?(:__js_call__)
+      # Per spec the callback receives (mutationRecords, observer) and is invoked
+      # with `this` set to the observer.
+      if @callback.respond_to?(:__js_call_with_this__)
+        @callback.__js_call_with_this__([records, self], self)
+      elsif @callback.respond_to?(:__js_call__)
         @callback.__js_call__("call", [records, self])
       elsif @callback.respond_to?(:call)
         @callback.call(records, self)
       end
     end
 
+    # A MutationObserverInit member is a WebIDL `boolean`, so its value is
+    # converted with JS ToBoolean — any object (e.g. `attributes: ["abc"]`) is
+    # truthy; only false / 0 / "" / null / undefined / NaN are falsy.
     def truthy_option(hash, key)
-      value = hash[key] || hash[key.to_sym]
-      value == true || value.to_s == "true"
+      value = hash.key?(key) ? hash[key] : hash[key.to_sym]
+      return false if value.nil? || value == false || value == 0 || value == ""
+      return false if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
+      return false if value.is_a?(Float) && value.nan?
+
+      true
     end
   end
 end

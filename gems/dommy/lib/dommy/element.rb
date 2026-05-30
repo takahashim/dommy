@@ -58,13 +58,15 @@ module Dommy
     end
 
     def query_selector(selector)
-      return nil if selector.nil? || selector.to_s.empty?
+      return nil if selector.nil?
+      Internal.validate_selector!(selector)
 
       @document.wrap_node(@__node__.at_css(selector.to_s))
     end
 
     def query_selector_all(selector)
-      return NodeList.new if selector.nil? || selector.to_s.empty?
+      return NodeList.new if selector.nil?
+      Internal.validate_selector!(selector)
 
       NodeList.new(@__node__.css(selector.to_s).map { |n| @document.wrap_node(n) }.compact)
     end
@@ -103,16 +105,22 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild isEqualNode]
+    js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild isEqualNode hasChildNodes]
     def __js_call__(method, args)
       case method
+      when "hasChildNodes"
+        @__node__.children.any?
       when "cloneNode"
         deep = args.empty? ? false : !!args[0]
         deep ? @document.wrap_node(Parser.fragment(@__node__.to_html, owner_doc: @document.nokogiri_doc)) : @document
           .wrap_node(Parser.fragment("", owner_doc: @document.nokogiri_doc))
       when "querySelector"
+        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
+
         query_selector(args[0])
       when "querySelectorAll"
+        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
+
         query_selector_all(args[0])
       when "getElementById"
         get_element_by_id(args[0])
@@ -186,19 +194,7 @@ module Dommy
     end
 
     def remove
-      parent = @__node__.parent
-      removed = @__node__
-      @__node__.unlink
-      # Mirror Element#remove_child: notify with the Nokogiri::Node
-      # (not the Dommy wrapper) so MutationCoordinator's wrap_node
-      # cache keys consistently.
-      if parent
-        @document.notify_child_list_mutation(
-          target_node: parent,
-          added_nodes: [],
-          removed_nodes: [removed]
-        )
-      end
+      @document.remove_node_with_notify(@__node__)
       nil
     end
 
@@ -285,6 +281,8 @@ module Dommy
         length
       when "parentNode"
         parent_node
+      when "ownerDocument"
+        @document
       when "nextSibling"
         next_sibling
       when "previousSibling"
@@ -302,10 +300,12 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[remove before after replaceWith isEqualNode
+    js_methods %w[remove before after replaceWith isEqualNode hasChildNodes
       appendData insertData deleteData replaceData substringData]
     def __js_call__(method, args)
       case method
+      when "hasChildNodes"
+        false
       when "appendData"
         append_data(args[0])
       when "insertData"
@@ -433,6 +433,14 @@ module Dommy
     end
   end
 
+  # CDATASection — a Text subtype (nodeType 4). CharacterData methods and the
+  # "#cdata-section" nodeName come from CharacterDataNode via node_type.
+  class CDATASectionNode < TextNode
+    def node_type
+      4
+    end
+  end
+
   class CommentNode < CharacterDataNode
     def node_type
       8
@@ -456,8 +464,11 @@ module Dommy
   class ClassList
     include Enumerable
 
-    def initialize(element)
+    # `attribute` is the content attribute this token list reflects ("class" for
+    # `classList`, "rel" for `relList`, "sandbox", "sizes", "for", …).
+    def initialize(element, attribute = "class")
       @element = element
+      @attribute = attribute
     end
 
     def length
@@ -474,11 +485,11 @@ module Dommy
     end
 
     def value
-      @element.__dommy_backend_node__["class"].to_s
+      @element.__dommy_backend_node__[@attribute].to_s
     end
 
     def value=(new_value)
-      @element.set_attribute("class", new_value.to_s)
+      @element.set_attribute(@attribute, new_value.to_s)
     end
 
     # Spec: contains() does NOT validate (no SyntaxError on empty).
@@ -512,7 +523,7 @@ module Dommy
       return false unless idx
 
       tokens[idx] = new_s
-      @element.set_attribute("class", tokens.uniq.join(" "))
+      @element.set_attribute(@attribute, tokens.uniq.join(" "))
       true
     end
 
@@ -638,7 +649,7 @@ module Dommy
     # item, iteration, and contains all operate on this set; `value`/`toString`
     # return the raw attribute. ASCII whitespace per the spec is space/tab/LF/FF/CR.
     def class_tokens
-      raw = @element.__dommy_backend_node__["class"].to_s
+      raw = @element.__dommy_backend_node__[@attribute].to_s
       raw.split(/[ \t\n\f\r]+/).reject(&:empty?).uniq
     end
 
@@ -648,9 +659,9 @@ module Dommy
     # (per spec) is an empty set with no existing attribute — don't create one.
     def update_tokens
       tokens = yield(class_tokens)
-      return if tokens.empty? && !@element.__dommy_backend_node__.key?("class")
+      return if tokens.empty? && !@element.__dommy_backend_node__.key?(@attribute)
 
-      @element.set_attribute("class", tokens.join(" "))
+      @element.set_attribute(@attribute, tokens.join(" "))
     end
   end
 
@@ -671,8 +682,26 @@ module Dommy
       nil
     end
 
+    # Named deleter (`delete el.dataset.foo`): removes the data-* attribute.
+    def __js_delete__(key)
+      @element.remove_attribute(attr_name(key))
+      true
+    end
+
     def __js_call__(_method, _args)
       nil
+    end
+
+    # WebIDL "supported property names" for DOMStringMap: each `data-*`
+    # attribute's name with the `data-` prefix stripped and `-x` sequences
+    # camel-cased (`data-date-of-birth` → `dateOfBirth`, `data-` → ``).
+    def __js_named_props__
+      Backend.attribute_nodes(@element.__dommy_backend_node__).filter_map do |a|
+        name = Backend.attribute_ns_info(a)[:qualified_name]
+        next unless name.start_with?("data-")
+
+        name.sub(/\Adata-/, "").gsub(/-([a-z])/) { ::Regexp.last_match(1).upcase }
+      end
     end
 
     private
@@ -1009,6 +1038,33 @@ module Dommy
       @class_list
     end
 
+    # Element + namespace combinations for which a reflected DOMTokenList IDL
+    # attribute is defined; elsewhere the attribute does not exist (→ undefined).
+    REFLECTED_TOKEN_LIST_HOSTS = {
+      "relList" => {html: %w[a area link], svg: %w[a]},
+      "htmlFor" => {html: %w[output]},
+      "sandbox" => {html: %w[iframe]},
+      "sizes" => {html: %w[link]}
+    }.freeze
+
+    SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+
+    # A reflected DOMTokenList for `prop` backed by content attribute
+    # `attribute`, cached for identity (`el.relList === el.relList`). Returns the
+    # UNDEFINED sentinel (→ JS `undefined`) when the attribute is not defined on
+    # this element in its namespace.
+    def reflected_token_list(prop, attribute)
+      hosts = REFLECTED_TOKEN_LIST_HOSTS[prop]
+      ns = namespace_uri
+      ln = local_name
+      applicable =
+        (ns == HTML_NAMESPACE && hosts[:html].include?(ln)) ||
+        (ns == SVG_NAMESPACE && Array(hosts[:svg]).include?(ln))
+      return Bridge::UNDEFINED unless applicable
+
+      (@reflected_token_lists ||= {})[prop] ||= ClassList.new(self, attribute)
+    end
+
     def style
       @style
     end
@@ -1201,7 +1257,8 @@ module Dommy
     end
 
     def matches?(selector)
-      return false if selector.nil? || selector.to_s.empty?
+      return false if selector.nil?
+      Internal.validate_selector!(selector)
 
       # `:scope` pseudo — match against this element itself.
       sel = selector.to_s.gsub(":scope", "*:nth-last-child(n)")
@@ -1229,6 +1286,10 @@ module Dommy
       else
         HTMLCollection.new { root.css(n).map { |x| doc.wrap_node(x) }.compact }
       end
+    end
+
+    def get_elements_by_tag_name_ns(namespace, local_name)
+      HTMLCollection.elements_by_tag_name_ns(@__node__, @document, namespace, local_name)
     end
 
     # NamedNodeMap of attributes. Lazily allocated and re-used so
@@ -1595,9 +1656,7 @@ module Dommy
     end
 
     def remove
-      parent = @__node__.parent
-      @__node__.unlink
-      notify_child_list(removed: [@__node__], target: parent) if parent
+      @document.remove_node_with_notify(@__node__)
       nil
     end
 
@@ -1750,6 +1809,14 @@ module Dommy
         element_prefix
       when "classList"
         @class_list
+      when "relList"
+        reflected_token_list("relList", "rel")
+      when "htmlFor"
+        reflected_token_list("htmlFor", "for")
+      when "sandbox"
+        reflected_token_list("sandbox", "sandbox")
+      when "sizes"
+        reflected_token_list("sizes", "sizes")
       when "style"
         @style
       when "dataset"
@@ -1785,7 +1852,9 @@ module Dommy
       when "slot"
         slot
       when "role"
-        role
+        aria_get("role")
+      when "accessKeyLabel"
+        access_key_label
       when "baseURI"
         base_uri
       when "shadowRoot"
@@ -1793,9 +1862,20 @@ module Dommy
       when "ownerDocument"
         @document
       else
-        # `el.onXxx` event handler property — returns the registered
-        # callback (if any), or nil.
-        if key.start_with?("on") && key.length > 2
+        if (elements_attr = aria_elements_attr(key))
+          # Plural ARIA element references (`ariaDescribedByElements` ↔
+          # `aria-describedby`) — a list of Elements.
+          aria_elements_get(elements_attr, key)
+        elsif (element_attr = aria_element_attr(key))
+          # ARIA element-reference IDL attribute (`ariaActiveDescendantElement`
+          # ↔ `aria-activedescendant`) — resolves to an Element or null.
+          aria_element_get(element_attr, key)
+        elsif (content_attr = aria_content_attr(key))
+          # ARIA / role reflected IDL attribute (`ariaLabel` ↔ `aria-label`,
+          # `role` ↔ `role`) — a nullable DOMString (null when absent).
+          aria_get(content_attr)
+        elsif key.start_with?("on") && key.length > 2
+          # `el.onXxx` event handler property — the registered callback or nil.
           @on_handlers&.[](event_name_from_on(key))
         end
       end
@@ -1813,6 +1893,143 @@ module Dommy
       URI.join(base, raw.to_s).to_s
     rescue URI::InvalidURIError, ArgumentError
       raw.to_s
+    end
+
+    # `accessKeyLabel` — the assigned access key's platform label. The
+    # `accesskey` content attribute is a set of one-code-point candidates; a
+    # single valid candidate yields a (modifier-prefixed) label, anything else
+    # (empty, or multiple/multi-char tokens) yields the empty string. The exact
+    # modifier varies by platform — tests only assert non-empty vs empty.
+    def access_key_label
+      keys = @__node__["accesskey"].to_s.split(/[ \t\n\f\r]+/).reject(&:empty?)
+      return "" unless keys.length == 1 && keys.first.length == 1
+
+      "Alt+#{keys.first.upcase}"
+    end
+
+    # The content attribute an ARIA element-reference IDL attribute reflects
+    # (`ariaActiveDescendantElement` → "aria-activedescendant",
+    # `ariaErrorMessageElement` → "aria-errormessage"), or nil. The IDL name is
+    # `aria<Xxx>Element`; the content attribute is "aria-" + <Xxx> lowercased.
+    def aria_element_attr(key)
+      return nil unless key.is_a?(String) && key.start_with?("aria") && key.end_with?("Element")
+      return nil unless key.length > 11 && key[4] =~ /[A-Z]/
+
+      "aria-#{key[4...-7].downcase}"
+    end
+
+    # Read an ARIA element reference: an explicitly-set Element wins; otherwise
+    # the content attribute is resolved as an IDREF (the element with that id in
+    # this element's tree), or null.
+    def aria_element_get(content_attr, key)
+      explicit = (@aria_element_refs ||= {})[key]
+      return explicit if explicit
+
+      idref = @__node__[content_attr].to_s
+      return nil if idref.empty?
+
+      aria_find_in_root(idref)
+    end
+
+    # Set an ARIA element reference: null/undefined clears it and removes the
+    # content attribute; an Element stores the explicit reference and sets the
+    # content attribute to the empty string (per the reflection spec).
+    def aria_element_set(content_attr, key, value)
+      refs = (@aria_element_refs ||= {})
+      if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+        refs.delete(key)
+        remove_attribute(content_attr) if @__node__.key?(content_attr)
+      else
+        # set_attribute clears explicit refs via its aria-* hook, so store the
+        # new reference afterward.
+        set_attribute(content_attr, "")
+        refs[key] = value
+      end
+      nil
+    end
+
+    # The content attribute a plural ARIA element-references IDL attribute
+    # reflects (`ariaDescribedByElements` → "aria-describedby",
+    # `ariaLabelledByElements` → "aria-labelledby"), or nil. The IDL name is
+    # `aria<Xxx>Elements`; the content attribute is "aria-" + <Xxx> lowercased.
+    def aria_elements_attr(key)
+      return nil unless key.is_a?(String) && key.start_with?("aria") && key.end_with?("Elements")
+      return nil unless key.length > 12 && key[4] =~ /[A-Z]/
+
+      "aria-#{key[4...-8].downcase}"
+    end
+
+    # Read a plural ARIA element references value (a list of Elements): the
+    # explicitly-set array wins; otherwise the content attribute is split as a
+    # space-separated IDREF list and each resolved (missing ids dropped).
+    def aria_elements_get(content_attr, key)
+      explicit = (@aria_elements_refs ||= {})[key]
+      return explicit.dup if explicit
+
+      @__node__[content_attr].to_s.split(/[ \t\n\f\r]+/).reject(&:empty?).filter_map do |id|
+        aria_find_in_root(id)
+      end
+    end
+
+    # Resolve an ARIA IDREF within this element's tree ROOT (its topmost
+    # ancestor) rather than the document — so references keep working when the
+    # subtree is disconnected from the document.
+    def aria_find_in_root(id)
+      root = @__node__
+      root = root.parent while root.parent && !root.parent.is_a?(Backend.document_class)
+      node = ([root] + root.css("*").to_a).find { |n| n["id"].to_s == id }
+      node && @document.wrap_node(node)
+    end
+
+    # Set a plural ARIA element references value: null/undefined clears it and
+    # removes the content attribute; an array of Elements is stored and the
+    # content attribute is set to the empty string.
+    def aria_elements_set(content_attr, key, value)
+      refs = (@aria_elements_refs ||= {})
+      if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+        refs.delete(key)
+        remove_attribute(content_attr) if @__node__.key?(content_attr)
+      else
+        set_attribute(content_attr, "")
+        refs[key] = Array(value)
+      end
+      nil
+    end
+
+    # Drop any explicit ARIA element reference (singular or plural) whose content
+    # attribute was just set directly (so the IDL getter re-resolves the IDREF).
+    def clear_aria_element_ref_for(content_attr)
+      @aria_element_refs&.delete_if { |key, _| aria_element_attr(key) == content_attr }
+      @aria_elements_refs&.delete_if { |key, _| aria_elements_attr(key) == content_attr }
+    end
+
+    # The content attribute a role/ARIA IDL attribute reflects, or nil for a
+    # non-ARIA key. `role` → "role"; `ariaXxx` → "aria-" + the rest, lowercased
+    # with humps removed (`ariaAutoComplete` → "aria-autocomplete",
+    # `ariaColIndexText` → "aria-colindextext").
+    def aria_content_attr(key)
+      return "role" if key == "role"
+      return nil unless key.is_a?(String) && key.length > 4 && key.start_with?("aria")
+      return nil unless key[4] =~ /[A-Z]/
+
+      "aria-#{key[4..].downcase}"
+    end
+
+    # Read a reflected nullable DOMString: the content attribute value, or nil
+    # (→ JS null) when the attribute is absent.
+    def aria_get(content_attr)
+      @__node__.key?(content_attr) ? @__node__[content_attr].to_s : nil
+    end
+
+    # Write a reflected nullable DOMString: null / undefined removes the content
+    # attribute; any other value is ToString-coerced and set.
+    def aria_set(content_attr, value)
+      if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+        remove_attribute(content_attr) if @__node__.key?(content_attr)
+      else
+        set_attribute(content_attr, value.to_s)
+      end
+      nil
     end
 
     # Map a JS boolean property name to its underlying HTML attribute.
@@ -1857,11 +2074,19 @@ module Dommy
       when "slot"
         set_attribute("slot", value.to_s)
       when "role"
-        set_attribute("role", value.to_s)
+        aria_set("role", value)
       else
-        # `el.onXxx = fn` registers fn as a single named handler.
-        # Setting to nil removes it. Mirrors HTMLElement IDL.
-        if key.start_with?("on") && key.length > 2
+        if (elements_attr = aria_elements_attr(key))
+          # Plural ARIA element references setter (list of Elements).
+          aria_elements_set(elements_attr, key, value)
+        elsif (element_attr = aria_element_attr(key))
+          # ARIA element-reference IDL attribute setter.
+          aria_element_set(element_attr, key, value)
+        elsif (content_attr = aria_content_attr(key))
+          # ARIA / role reflected nullable DOMString (null/undefined → remove).
+          aria_set(content_attr, value)
+        elsif key.start_with?("on") && key.length > 2
+          # `el.onXxx = fn` registers fn as a single named handler; nil removes.
           set_on_handler(event_name_from_on(key), value)
         else
           # Not a known DOM property — tell the JS host to keep it as a
@@ -1875,16 +2100,21 @@ module Dommy
     js_methods %w[
       getAttribute setAttribute hasAttribute removeAttribute getAttributeNames closest
       getAttributeNS setAttributeNS hasAttributeNS removeAttributeNS getAttributeNodeNS setAttributeNodeNS
-      querySelector querySelectorAll getElementsByClassName getElementsByTagName
+      querySelector querySelectorAll getElementsByClassName getElementsByTagName getElementsByTagNameNS
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches
       toString getAttributeNode setAttributeNode removeAttributeNode focus blur attachShadow
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
       replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
+      hasChildNodes hasAttributes
     ]
     def __js_call__(method, args)
       case method
+      when "hasChildNodes"
+        has_child_nodes?
+      when "hasAttributes"
+        has_attributes?
       when "getAttribute"
         get_attribute(args[0])
       when "setAttribute"
@@ -1908,13 +2138,21 @@ module Dommy
       when "getAttributeNames"
         get_attribute_names
       when "closest"
+        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
+
         closest(args[0])
       when "querySelector"
+        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
+
         query_selector(args[0])
       when "querySelectorAll"
+        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
+
         query_selector_all(args[0])
       when "getElementsByClassName"
         get_elements_by_class_name(args[0])
+      when "getElementsByTagNameNS"
+        get_elements_by_tag_name_ns(args[0], args[1])
       when "getElementsByTagName"
         get_elements_by_tag_name(args[0])
       when "insertAdjacentElement"
@@ -1926,6 +2164,8 @@ module Dommy
       when "toggleAttribute"
         toggle_attribute(args[0], args[1])
       when "matches"
+        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
+
         matches?(args[0])
       when "isEqualNode"
         is_equal_node(args[0])
@@ -2013,6 +2253,9 @@ module Dommy
       key = normalize_attr_key(name)
       old = @__node__[key]
       @__node__[key] = value.to_s
+      # A direct write to an `aria-*` IDREF attribute drops any explicitly-set
+      # element reference, so the IDL getter re-resolves the new IDREF.
+      clear_aria_element_ref_for(key) if key.start_with?("aria-")
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
       nil
     end
@@ -2034,6 +2277,9 @@ module Dommy
       # so a held reference keeps the value it had when removed.
       @attributes&.__internal_evict__(nil, key)
       @__node__.remove_attribute(key)
+      # Removing an `aria-*` IDREF attribute also clears any explicitly-set
+      # element reference (the IDL getter then returns null).
+      clear_aria_element_ref_for(key) if key.start_with?("aria-")
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
       nil
     end
@@ -2058,7 +2304,7 @@ module Dommy
       ns, prefix, local = Internal::Namespaces.validate_and_extract(namespace, qualified_name)
       old = Backend.get_attribute_ns(@__node__, ns, local)
       Backend.set_attribute_ns(@__node__, ns, prefix, local, qualified_name.to_s, value.to_s)
-      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old)
+      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
       nil
     end
 
@@ -2072,7 +2318,7 @@ module Dommy
       @attributes&.__internal_evict__(ns, local)
       Backend.remove_attribute_ns(@__node__, ns, local)
       if old
-        @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old)
+        @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
       end
       nil
     end
@@ -2082,7 +2328,8 @@ module Dommy
     end
 
     def closest(selector)
-      return nil if selector.nil? || selector.to_s.empty?
+      return nil if selector.nil?
+      Internal.validate_selector!(selector)
 
       # Elements matching the selector (scoped to this element, so `:scope`
       # resolves here), then return the nearest inclusive ancestor among them.
@@ -2139,13 +2386,17 @@ module Dommy
     alias getAnimations get_animations
 
     def query_selector(selector)
-      return nil if selector.nil? || selector.to_s.empty?
+      return nil if selector.nil?
+      # The empty string is not a valid selector (an explicit DOMString "" is a
+      # SyntaxError; `null` coerces to "null" and is handled above as nil).
+      Internal.validate_selector!(selector)
 
       @document.wrap_node(scoped_query(selector.to_s).first)
     end
 
     def query_selector_all(selector)
-      return NodeList.new if selector.nil? || selector.to_s.empty?
+      return NodeList.new if selector.nil?
+      Internal.validate_selector!(selector)
 
       NodeList.new(scoped_query(selector.to_s).map { |node| @document.wrap_node(node) }.compact)
     end
@@ -2211,8 +2462,7 @@ module Dommy
         raise DOMException::NotFoundError, "node is not a child of this element"
       end
 
-      node.unlink
-      notify_child_list(removed: [node])
+      @document.remove_node_with_notify(node)
       child
     end
 

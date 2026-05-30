@@ -140,10 +140,12 @@ module Dommy
 
     def delete_contents
       collect_nodes_in_range.each do |node|
-        if node.respond_to?(:remove)
+        if node.respond_to?(:__dommy_backend_node__)
+          # Fire a childList removal record (with correct sibling context) on the
+          # node's parent, like any other tree removal.
+          @document.remove_node_with_notify(node.__dommy_backend_node__)
+        elsif node.respond_to?(:remove)
           node.remove
-        elsif node.respond_to?(:__dommy_backend_node__)
-          node.__dommy_backend_node__.unlink
         end
       end
 
@@ -183,6 +185,15 @@ module Dommy
     # --- Ordering / containment ------------------------------------
 
     def compare_boundary_points(how, other)
+      # `how` must be one of the four named constants, else NotSupportedError.
+      unless [START_TO_START, START_TO_END, END_TO_END, END_TO_START].include?(how)
+        raise DOMException::NotSupportedError, "invalid comparison type: #{how}"
+      end
+      # The two ranges must share a root.
+      unless same_root?(other.start_container)
+        raise DOMException::WrongDocumentError, "the two Ranges are in different trees"
+      end
+
       case how
       when START_TO_START
         compare_points(@start_container, @start_offset, other.start_container, other.start_offset)
@@ -192,8 +203,6 @@ module Dommy
         compare_points(@end_container, @end_offset, other.end_container, other.end_offset)
       when END_TO_START
         compare_points(@start_container, @start_offset, other.end_container, other.end_offset)
-      else
-        0
       end
     end
 
@@ -204,6 +213,34 @@ module Dommy
       return false if after?(node)
 
       true
+    end
+
+    # WHATWG Range.comparePoint(node, offset): -1 if (node, offset) is before the
+    # range, 0 if inside, 1 if after. offset is a WebIDL unsigned long (so -1
+    # wraps to a huge value > length → IndexSizeError).
+    def compare_point(node, offset)
+      off = unsigned_long(offset)
+      raise DOMException::WrongDocumentError, "node is in a different tree" unless same_root?(node)
+      raise DOMException::InvalidNodeTypeError, "node is a doctype" if doctype?(node)
+      raise DOMException::IndexSizeError, "offset is greater than node length" if off > length_of(node)
+
+      return -1 if compare_points(node, off, @start_container, @start_offset) < 0
+      return 1 if compare_points(node, off, @end_container, @end_offset) > 0
+
+      0
+    end
+
+    # WHATWG Range.isPointInRange(node, offset): true iff the point lies within
+    # the range (inclusive). A different root returns false (no throw).
+    def is_point_in_range(node, offset)
+      return false unless same_root?(node)
+
+      off = unsigned_long(offset)
+      raise DOMException::InvalidNodeTypeError, "node is a doctype" if doctype?(node)
+      raise DOMException::IndexSizeError, "offset is greater than node length" if off > length_of(node)
+
+      compare_points(node, off, @start_container, @start_offset) >= 0 &&
+        compare_points(node, off, @end_container, @end_offset) <= 0
     end
 
     def contains_node(node, partial = false)
@@ -259,7 +296,7 @@ module Dommy
       setStart setEnd setStartBefore setStartAfter setEndBefore setEndAfter collapse selectNode
       selectNodeContents toString cloneContents extractContents deleteContents surroundContents
       insertNode compareBoundaryPoints intersectsNode containsNode cloneRange detach
-      getBoundingClientRect getClientRects
+      comparePoint isPointInRange getBoundingClientRect getClientRects
     ]
     def __js_call__(method, args)
       case method
@@ -297,6 +334,10 @@ module Dommy
         compare_boundary_points(args[0], args[1])
       when "intersectsNode"
         intersects_node(args[0])
+      when "comparePoint"
+        compare_point(args[0], args[1])
+      when "isPointInRange"
+        is_point_in_range(args[0], args[1])
       when "containsNode"
         contains_node(args[0], args[1])
       when "cloneRange"
@@ -334,6 +375,23 @@ module Dommy
       else
         0
       end
+    end
+
+    # WebIDL unsigned long: wrap modulo 2^32 (so -1 → 4294967295).
+    def unsigned_long(value)
+      value.to_i % (2**32)
+    end
+
+    # Two nodes share a root iff their topmost ancestors are the same node.
+    def same_root?(node)
+      ancestor_chain(node).last.equal?(ancestor_chain(@start_container).last)
+    end
+
+    def doctype?(node)
+      nt = if node.respond_to?(:node_type) then node.node_type
+           elsif node.respond_to?(:__js_get__) then node.__js_get__("nodeType")
+           end
+      nt == 10
     end
 
     def insert_into_parent_at(parent, idx, node)
