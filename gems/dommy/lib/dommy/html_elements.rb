@@ -3687,12 +3687,19 @@ module Dommy
       set_reflected_string("height", v.to_s)
     end
 
+    # Dommy doesn't navigate iframes itself, but an integration/test layer can
+    # populate the nested browsing context's document (e.g. parsing the `src`
+    # resource) via `__internal_set_content_document__`.
     def content_document
-      nil
+      @content_document
+    end
+
+    def __internal_set_content_document__(doc)
+      @content_document = doc
     end
 
     def content_window
-      nil
+      @content_document&.default_view
     end
 
     def __js_get__(key)
