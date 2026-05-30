@@ -6,8 +6,6 @@ module Dommy
     # Ensures that wrap_node(nokogiri_node) always returns the same Ruby object.
     # Separates identity/caching management from Document's public DOM API.
     class NodeWrapperCache
-      NAME_RE = /\A[a-z][\w.\-]*\z/i
-
       def initialize(document)
         @document = document
         @wrappers = {}
@@ -31,7 +29,7 @@ module Dommy
       def create_element(name)
         str = name.to_s
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
-        raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless str.match?(NAME_RE)
+        raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless str.match?(Namespaces::NAME)
 
         wrap_node(Backend.create_element(str.downcase, @document.nokogiri_doc))
       end
@@ -51,7 +49,7 @@ module Dommy
       def create_attribute(name)
         str = name.to_s
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
-        raise DOMException::InvalidCharacterError, "invalid attribute name: #{str.inspect}" unless str.match?(NAME_RE)
+        raise DOMException::InvalidCharacterError, "invalid attribute name: #{str.inspect}" unless str.match?(Namespaces::NAME)
 
         Attr.new(str)
       end
@@ -62,14 +60,13 @@ module Dommy
       end
 
       def create_element_ns(namespace_uri, qualified_name)
-        str = qualified_name.to_s
-        raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
-        raise DOMException::InvalidCharacterError, "invalid qualified name: #{str.inspect}" unless str.match?(NAME_RE)
+        # WHATWG "validate and extract": QName-validate the qualifiedName
+        # (InvalidCharacterError) and apply the prefix/namespace rules
+        # (NamespaceError), then build the element with its prefix bound.
+        ns, prefix, _local = Namespaces.validate_and_extract(namespace_uri, qualified_name)
 
-        el = Backend.create_element(str, @document.nokogiri_doc)
-        if namespace_uri && !namespace_uri.to_s.empty?
-          Backend.add_namespace_definition(el, nil, namespace_uri.to_s)
-        end
+        el = Backend.create_element(qualified_name.to_s, @document.nokogiri_doc)
+        Backend.add_namespace_definition(el, prefix, ns) if ns
 
         wrap(el)
       end
