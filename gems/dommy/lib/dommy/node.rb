@@ -218,5 +218,14 @@ module Dommy
     DOCUMENT_POSITION_CONTAINS = 0x08
     DOCUMENT_POSITION_CONTAINED_BY = 0x10
     DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 0x20
+
+    # WHATWG Node.isEqualNode — deep structural equality (type-specific data
+    # plus equal, in-order, recursively-equal children). Available on every node
+    # class that includes Node; the bridge routes "isEqualNode" here.
+    def is_equal_node(other)
+      Internal::NodeEquality.equal?(self, other)
+    end
   end
 end
+
+require_relative "internal/node_equality"

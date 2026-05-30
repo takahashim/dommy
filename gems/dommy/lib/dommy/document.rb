@@ -11,16 +11,18 @@ require_relative "internal/observer_manager"
 require_relative "internal/template_content_registry"
 
 module Dommy
-  # Stub DocumentType (`<!doctype html>`) — exposes `name` and `nodeType=10`.
-  # Real browsers also expose `publicId` / `systemId` which we leave empty
-  # since HTML5 doctypes don't carry those.
+  # DocumentType (`<!doctype html>`) — exposes name / publicId / systemId and
+  # nodeType=10. HTML5 doctypes carry empty public/system IDs, but
+  # `implementation.createDocumentType` can set them.
   class DocumentType
     include Node
 
     attr_reader :name
 
-    def initialize(name)
+    def initialize(name, public_id = "", system_id = "")
       @name = name.to_s
+      @public_id = public_id.to_s
+      @system_id = system_id.to_s
     end
 
     def __js_get__(key)
@@ -33,9 +35,79 @@ module Dommy
       when "nodeType"
         10
       when "publicId"
-        ""
+        @public_id
       when "systemId"
-        ""
+        @system_id
+      end
+    end
+
+    include Bridge::Methods
+    js_methods %w[isEqualNode]
+    def __js_call__(method, args)
+      case method
+      when "isEqualNode"
+        is_equal_node(args[0])
+      end
+    end
+  end
+
+  # ProcessingInstruction (`<?target data?>`) — a CharacterData-like node with a
+  # `target`; created via `document.createProcessingInstruction`.
+  class ProcessingInstruction
+    include Node
+
+    attr_reader :target
+
+    def initialize(target, data)
+      @target = target.to_s
+      @data = data.to_s
+    end
+
+    def data = @data
+
+    def __js_get__(key)
+      case key
+      when "target"
+        @target
+      when "data", "nodeValue", "textContent"
+        @data
+      when "nodeName"
+        @target
+      when "nodeType"
+        7
+      end
+    end
+
+    include Bridge::Methods
+    js_methods %w[isEqualNode]
+    def __js_call__(method, args)
+      case method
+      when "isEqualNode"
+        is_equal_node(args[0])
+      end
+    end
+  end
+
+  # `document.implementation` — the DOMImplementation. Only the node factories
+  # WPT exercises are provided; createDocument/createHTMLDocument are not yet
+  # implemented (foreign documents).
+  class DOMImplementation
+    def initialize(document)
+      @document = document
+    end
+
+    def create_document_type(qualified_name, public_id, system_id)
+      DocumentType.new(qualified_name, public_id, system_id)
+    end
+
+    def __js_get__(_key) = nil
+
+    include Bridge::Methods
+    js_methods %w[createDocumentType]
+    def __js_call__(method, args)
+      case method
+      when "createDocumentType"
+        create_document_type(args[0], args[1], args[2])
       end
     end
   end
@@ -360,6 +432,14 @@ module Dommy
       @doctype ||= DocumentType.new("html")
     end
 
+    def implementation
+      @implementation ||= DOMImplementation.new(self)
+    end
+
+    def create_processing_instruction(target, data)
+      ProcessingInstruction.new(target, data)
+    end
+
     # Delegate to CookieJar
 
     def cookie
@@ -436,6 +516,8 @@ module Dommy
         head
       when "doctype"
         doctype
+      when "implementation"
+        implementation
       when "defaultView"
         @default_view
       when "fullscreenElement"
@@ -507,14 +589,16 @@ module Dommy
     include Bridge::Methods
     js_methods %w[
       exitFullscreen startViewTransition createElement createElementNS createTextNode
-      createComment createDocumentFragment querySelector querySelectorAll getElementById
+      createComment createProcessingInstruction createDocumentFragment querySelector querySelectorAll getElementById
       getElementsByClassName getElementsByTagName getElementsByName createAttribute
       createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
-      removeEventListener dispatchEvent write open close
+      removeEventListener dispatchEvent write open close isEqualNode
     ]
     def __js_call__(method, args)
       case method
+      when "isEqualNode"
+        is_equal_node(args[0])
       when "exitFullscreen"
         exit_fullscreen
       when "startViewTransition"
@@ -537,6 +621,8 @@ module Dommy
         create_text_node(args[0])
       when "createComment"
         create_comment(args[0])
+      when "createProcessingInstruction"
+        create_processing_instruction(args[0], args[1])
       when "createDocumentFragment"
         create_document_fragment
       when "querySelector"

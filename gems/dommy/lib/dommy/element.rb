@@ -97,7 +97,7 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild]
+    js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild isEqualNode]
     def __js_call__(method, args)
       case method
       when "cloneNode"
@@ -112,6 +112,8 @@ module Dommy
         get_element_by_id(args[0])
       when "appendChild"
         append_child(args[0])
+      when "isEqualNode"
+        is_equal_node(args[0])
       else
         nil
       end
@@ -255,7 +257,7 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[remove before after replaceWith]
+    js_methods %w[remove before after replaceWith isEqualNode]
     def __js_call__(method, args)
       case method
       when "remove"
@@ -266,6 +268,8 @@ module Dommy
         after(*args)
       when "replaceWith"
         replace_with(*args)
+      when "isEqualNode"
+        is_equal_node(args[0])
       end
     end
 
@@ -1781,7 +1785,7 @@ module Dommy
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
       replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
-      scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover
+      scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
     ]
     def __js_call__(method, args)
       case method
@@ -1827,6 +1831,8 @@ module Dommy
         toggle_attribute(args[0], args[1])
       when "matches"
         matches?(args[0])
+      when "isEqualNode"
+        is_equal_node(args[0])
       when "toString"
         to_s
       when "getAttributeNode"
