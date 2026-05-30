@@ -61,8 +61,9 @@ module Dommy
     private
 
     def push(state, url)
+      resolved = resolve_url!(url)
       @stack = @stack[0..@cursor]
-      @location.__internal_set_url__(url.to_s) if url
+      @location.__internal_set_url__(resolved) if resolved
       # WHATWG: pushState serializes the state via structured-clone
       # so subsequent caller-side mutation of the original cannot
       # affect history.state.
@@ -71,8 +72,32 @@ module Dommy
     end
 
     def replace(state, url)
-      @location.__internal_set_url__(url.to_s) if url
+      resolved = resolve_url!(url)
+      @location.__internal_set_url__(resolved) if resolved
       @stack[@cursor] = {state: Dommy.structured_clone(state), url: nil}
+    end
+
+    # WHATWG "URL and history update steps": resolve the given URL against the
+    # document URL; a parse failure or a cross-origin result is a SecurityError
+    # (same-document history entries must stay same-origin).
+    def resolve_url!(url)
+      return nil if url.nil? || url.equal?(Bridge::UNDEFINED)
+
+      current = @location.href.to_s
+      resolved =
+        begin
+          current.empty? ? URL.new(url.to_s) : URL.new(url.to_s, current)
+        rescue StandardError
+          raise DOMException::SecurityError, "A history state object with URL '#{url}' cannot be created in a document with URL '#{current}'."
+        end
+
+      unless current.empty?
+        if resolved.origin != URL.new(current).origin
+          raise DOMException::SecurityError, "A history state object with URL '#{resolved.href}' cannot be created in a document with origin '#{URL.new(current).origin}'."
+        end
+      end
+
+      resolved.href
     end
 
     def go(delta)
