@@ -44,7 +44,7 @@ module Dommy
           follow_meta_refresh: follow_meta_refresh
         ).freeze
         @cookie_jar = CookieJar.new
-        @navigation = Navigation.new(self)
+        @navigation = Navigation.new(self, @config)
         @history = History.new
         @current_url = nil
         @current_window = nil
@@ -322,58 +322,15 @@ module Dommy
 
       # --- Form field setting ---
 
-      def fill_in(locator, with:)
-        field = finder.find_field(locator)
-        field.value = with.to_s
-        field
-      end
-
-      def choose(locator)
-        radio = finder.find_field(locator)
-        clear_radio_group(radio)
-        radio.checked = true
-        radio
-      end
-
-      def check(locator)
-        box = finder.find_field(locator)
-        box.checked = true
-        box
-      end
-
-      def uncheck(locator)
-        box = finder.find_field(locator)
-        box.checked = false
-        box
-      end
-
-      def attach_file(locator, path)
-        input = finder.find_field(locator)
-        raise FileNotFoundError, "no such file: #{path}" unless ::File.exist?(path)
-
-        file = Dommy::File.new(
-          [::File.binread(path)], ::File.basename(path), "type" => FileUpload.mime_type_for(path)
-        )
-        input.__driver_set_files__([file])
-        input
-      end
-
-      def select(value, from:)
-        select_el = finder.find_field(from)
-        option = finder.find_option(select_el, value)
-        raise ElementNotFoundError, "no option #{value.inspect} in #{from.inspect}" unless option
-
-        select_el.options.each { |o| o.remove_attribute("selected") } unless select_el.multiple
-        option.set_attribute("selected", "")
-        select_el
-      end
-
-      def unselect(value, from:)
-        select_el = finder.find_field(from)
-        option = finder.find_option(select_el, value)
-        option&.remove_attribute("selected")
-        select_el
-      end
+      # Form field setting delegates to FieldInteractor (DOM mutation only;
+      # a subsequent submit is what turns into a navigation).
+      def fill_in(locator, with:) = field_interactor.fill_in(locator, with: with)
+      def choose(locator) = field_interactor.choose(locator)
+      def check(locator) = field_interactor.check(locator)
+      def uncheck(locator) = field_interactor.uncheck(locator)
+      def attach_file(locator, path) = field_interactor.attach_file(locator, path)
+      def select(value, from:) = field_interactor.select(value, from: from)
+      def unselect(value, from:) = field_interactor.unselect(value, from: from)
 
       # --- Form submission ---
 
@@ -497,6 +454,12 @@ module Dommy
         Locator.new(scope_root)
       end
 
+      # A FieldInteractor bound to the current scope's finder and the document
+      # (the document is the fallback scope when clearing a radio group).
+      def field_interactor
+        FieldInteractor.new(finder, document)
+      end
+
       # The node element finds and matchers query against: the innermost active
       # scope, or the document when none is open.
       def scope_root
@@ -569,15 +532,6 @@ module Dommy
         end
       end
 
-      def clear_radio_group(radio)
-        name = radio.get_attribute("name")
-        return unless name
-
-        scope = radio.closest("form") || document
-        scope.query_selector_all("input[type='radio']").each do |r|
-          r.checked = false if r.get_attribute("name") == name
-        end
-      end
     end
   end
 end

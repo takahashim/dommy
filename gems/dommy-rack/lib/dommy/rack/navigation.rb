@@ -5,26 +5,28 @@ require "uri"
 module Dommy
   module Rack
     # URL resolution, redirect following, same-origin enforcement, and
-    # browser-tab-style history. Holds a back-reference to the Session, which
-    # owns the request machinery and the history state.
+    # browser-tab-style history. Reads policy from the frozen Config and drives
+    # the Session only through its request seam (raw_request /
+    # apply_navigation_response / current_url).
     class Navigation
       KEEP_METHOD_STATUSES = [307, 308].freeze
 
-      def initialize(session)
+      def initialize(session, config)
         @session = session
+        @config = config
       end
 
       # Resolve a possibly-relative URL against a base (current URL or host).
       def resolve_url(url_or_path, base_url)
-        base = base_url || @session.default_host
+        base = base_url || @config.default_host
         URI.join(base, url_or_path.to_s).to_s
       rescue URI::InvalidURIError
         url_or_path.to_s
       end
 
       def check_same_origin!(url)
-        return unless @session.enforce_same_origin?
-        return if same_origin?(url, @session.default_host)
+        return unless @config.enforce_same_origin
+        return if same_origin?(url, @config.default_host)
 
         raise CrossOriginError, "cross-origin request to #{url} is not allowed"
       end
@@ -95,8 +97,8 @@ module Dommy
 
           chain << {status: response.status, url: target, location: response.location_header}
           redirect_count += 1
-          if redirect_count > @session.max_redirects
-            raise TooManyRedirectsError, "exceeded #{@session.max_redirects} redirects"
+          if redirect_count > @config.max_redirects
+            raise TooManyRedirectsError, "exceeded #{@config.max_redirects} redirects"
           end
 
           target = resolve_url(response.location_header, target)
@@ -119,13 +121,13 @@ module Dommy
       # chain of refreshes, or nil if none applied. Detecting the refresh is
       # the Response's job; this only performs the navigation.
       def maybe_follow_meta_refresh(response, depth = 0)
-        return nil unless @session.follow_meta_refresh?
+        return nil unless @config.follow_meta_refresh
 
         url = response.meta_refresh_url
         return nil unless url
 
-        if depth >= @session.max_redirects
-          raise TooManyRedirectsError, "exceeded #{@session.max_redirects} meta refreshes"
+        if depth >= @config.max_redirects
+          raise TooManyRedirectsError, "exceeded #{@config.max_redirects} meta refreshes"
         end
 
         target = resolve_url(url, @session.current_url)
@@ -150,7 +152,7 @@ module Dommy
 
       def redirect_to_follow?(response)
         response.redirect? &&
-          @session.follow_redirects? &&
+          @config.follow_redirects &&
           !response.location_header.to_s.empty?
       end
 
