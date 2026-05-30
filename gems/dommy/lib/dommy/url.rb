@@ -19,10 +19,10 @@ module Dommy
   #   Dommy::URL.new("/a", "https://x.test").href
   #     # => "https://x.test/a"
   #
-  # Internally backed by Ruby's URI library — good enough for the
-  # common test cases. Edge cases that URI rejects raise
-  # `DOMException::SyntaxError` (called `TypeError` in JS but Dommy
-  # uses the closest WHATWG name).
+  # Internally backed by a WHATWG basic URL parser
+  # (`Internal::UrlParser`). A parse failure in the constructor or the
+  # `href` setter raises `Bridge::TypeError` — matching the URL
+  # Standard, which throws a JS `TypeError` (not a DOMException) there.
   class URL
     # Registry of Blob URLs created via `URL.createObjectURL(blob)`.
     # Process-wide because the spec scopes them to the document/window
@@ -66,10 +66,10 @@ module Dommy
       # WHATWG URL Standard — `URL.parse(input, base)` is the
       # non-throwing static factory. Returns a URL on success, `nil`
       # on parse failure. The constructor (`new URL(...)`) raises
-      # `SyntaxError` for the same failure case.
+      # `TypeError` for the same failure case.
       def parse(input, base = nil)
         new(input, base)
-      rescue DOMException::SyntaxError
+      rescue Bridge::TypeError
         nil
       end
 
@@ -91,7 +91,8 @@ module Dommy
     @record = Internal::UrlParser.parse(input.to_s, base_str)
     @search_params = URLSearchParams.new(@record.query.to_s, owner: self)
   rescue Internal::UrlParser::Failure => e
-    raise DOMException::SyntaxError, "Invalid URL: #{e.message}"
+    # WHATWG: the URL constructor throws TypeError on a parse failure.
+    raise Bridge::TypeError, "Invalid URL: #{e.message}"
   end
 
   def href
@@ -103,7 +104,8 @@ module Dommy
     @search_params.__internal_replace__(@record.query.to_s)
     href
   rescue Internal::UrlParser::Failure => e
-    raise DOMException::SyntaxError, "Invalid URL: #{e.message}"
+    # WHATWG: the href setter throws TypeError on a parse failure.
+    raise Bridge::TypeError, "Invalid URL: #{e.message}"
   end
 
   def protocol
@@ -305,14 +307,20 @@ module Dommy
     @record.host.nil? || @record.host == "" || @record.scheme == "file"
   end
 
+  # HTML Standard "origin" for a blob: URL — parse the opaque path as a URL and
+  # return its origin only when that inner URL's scheme is http/https/file;
+  # any other scheme (ftp, ws, a nested blob, …) yields an opaque origin.
   def blob_inner_origin
     return "null" unless @record.opaque_path?
 
     body = @record.path
     return "null" if body.nil? || body.empty?
 
-    URL.new(body).origin
-  rescue DOMException::SyntaxError
+    inner = URL.new(body)
+    return "null" unless %w[http https file].include?(inner.protocol.delete_suffix(":"))
+
+    inner.origin
+  rescue Bridge::TypeError
     "null"
   end
   end
@@ -513,7 +521,12 @@ module Dommy
       when Hash
         input.map { |k, v| [k.to_s, v.to_s] }
       else
-        s = input.to_s.sub(/^\?/, "")
+        # The public `new URLSearchParams(str)` strips a single leading "?".
+        # But when we're owner-backed (initialized from a URL's already-extracted
+        # query), a leading "?" is literal query data — e.g. `??a=b` stores query
+        # "?a=b", whose first name is "?a" — so it must be kept.
+        s = input.to_s
+        s = s.sub(/^\?/, "") if @owner.nil?
         return [] if s.empty?
 
         # WHATWG urlencoded parser: split on "&" and skip empty sequences (so

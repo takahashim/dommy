@@ -37,6 +37,16 @@ module Dommy
     def UNDEFINED.inspect = "#<Dommy::Bridge::UNDEFINED>"
     UNDEFINED.freeze
 
+    # A Ruby-side signal that the JS boundary should surface a JS `TypeError`
+    # (not a `DOMException`). Some WebIDL operations — notably the `URL`
+    # constructor and its `href` setter — throw `TypeError` on failure rather
+    # than a DOMException; raising this lets a host bridge rethrow the correct
+    # JS error type, while Ruby callers can still rescue it like any other
+    # error. Kept distinct from Ruby's built-in `::TypeError` so a host can map
+    # only deliberate, spec-mandated TypeErrors (and not mask genuine Ruby type
+    # bugs) across the boundary.
+    class TypeError < ::StandardError; end
+
     # Wraps an external callback handle (registered in a host-side
     # callback table) so the JS bridge can resolve / invoke it. The
     # external host that creates these is responsible for honoring

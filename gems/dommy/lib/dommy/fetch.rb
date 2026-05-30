@@ -225,7 +225,7 @@ module Dommy
         immediate(@body)
       when "json"
         begin
-          immediate(JSON.parse(@body))
+          immediate(JSON.parse(scrub_lone_surrogates(@body)))
         rescue JSON::ParserError => e
           err = ErrorValue.new("JSON parse: #{e.message}")
           rejected(err)
@@ -248,6 +248,39 @@ module Dommy
     end
 
     private
+
+    # A run of one or more adjacent `\uXXXX` JSON escapes.
+    SURROGATE_ESCAPE_RUN = /(?:\\u[0-9a-fA-F]{4})+/.freeze
+
+    # Ruby's `JSON.parse` rejects unpaired surrogate escapes (`\uD800` with no
+    # trailing low surrogate), and Ruby UTF-8 strings can't hold lone surrogates
+    # anyway. The Fetch/URL data corpus uses lone surrogates deliberately; the
+    # only meaningful thing to do with them is what the URL parser would do —
+    # replace each lone surrogate with U+FFFD. We do that at the escape level
+    # (rewriting lone `\uXXXX` surrogate escapes to `�`) so valid pairs are
+    # preserved exactly and the parse succeeds.
+    def scrub_lone_surrogates(text)
+      text.gsub(SURROGATE_ESCAPE_RUN) do |run|
+        units = run.scan(/\\u([0-9a-fA-F]{4})/).flatten.map { |h| h.to_i(16) }
+        out = +""
+        i = 0
+        while i < units.length
+          u = units[i]
+          nxt = units[i + 1]
+          if u.between?(0xD800, 0xDBFF) && nxt&.between?(0xDC00, 0xDFFF)
+            out << format("\\u%04x\\u%04x", u, nxt)
+            i += 2
+          elsif u.between?(0xD800, 0xDFFF)
+            out << "\\ufffd"
+            i += 1
+          else
+            out << format("\\u%04x", u)
+            i += 1
+          end
+        end
+        out
+      end
+    end
 
     def immediate(value)
       PromiseValue.resolve(@window, value)

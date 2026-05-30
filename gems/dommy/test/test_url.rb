@@ -24,8 +24,11 @@ class TestURLBasics < Minitest::Test
     assert_equal("https://example.test", u.origin)
   end
 
-  def test_invalid_url_raises_syntax_error
-    assert_raises(Dommy::DOMException::SyntaxError) { Dommy::URL.new("not a url") }
+  def test_invalid_url_raises_type_error
+    # WHATWG URL Standard: the constructor throws TypeError (not a DOMException)
+    # on a parse failure. Dommy signals it via Bridge::TypeError so a JS host
+    # can rethrow a real `TypeError`.
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::URL.new("not a url") }
   end
 
   def test_relative_with_base
@@ -135,7 +138,8 @@ class TestURLIDN < Minitest::Test
   end
 
   def test_invalid_url_still_raises
-    assert_raises(Dommy::DOMException::SyntaxError) { Dommy::URL.new("not a url") }
+    # WHATWG: the URL constructor throws TypeError on a parse failure.
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::URL.new("not a url") }
   end
 end
 
