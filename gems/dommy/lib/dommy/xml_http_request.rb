@@ -242,7 +242,7 @@ module Dommy
       when "addEventListener"
         add_event_listener(args[0], args[1], args[2])
       when "removeEventListener"
-        remove_event_listener(args[0], args[1])
+        remove_event_listener(args[0], args[1], args[2])
       when "dispatchEvent"
         dispatch_event(args[0])
       end
@@ -434,7 +434,7 @@ module Dommy
       when "addEventListener"
         add_event_listener(args[0], args[1], args[2])
       when "removeEventListener"
-        remove_event_listener(args[0], args[1])
+        remove_event_listener(args[0], args[1], args[2])
       when "dispatchEvent"
         dispatch_event(args[0])
       end

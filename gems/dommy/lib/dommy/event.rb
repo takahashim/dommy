@@ -25,7 +25,7 @@ module Dommy
       signal = options.is_a?(Hash) ? (options["signal"] || options[:signal]) : nil
       if signal.respond_to?(:__js_get__)
         if signal.__js_get__("aborted")
-          remove_event_listener(type, cb)
+          remove_event_listener(type, cb, options)
         else
           target = self
           signal.__js_call__(
@@ -33,7 +33,7 @@ module Dommy
             [
               "abort",
               proc {
-                target.remove_event_listener(type, cb)
+                target.remove_event_listener(type, cb, options)
               }
             ]
           )
@@ -43,10 +43,16 @@ module Dommy
       nil
     end
 
-    def remove_event_listener(type, listener)
+    def remove_event_listener(type, listener, options = nil)
       return nil if type.nil? || listener.nil?
 
-      listeners_for(type.to_s).reject! { |entry| entry.listener.equal?(listener) }
+      # Per spec, a listener is identified by (type, callback, capture) — so
+      # removing must match the capture flag, not just the callback (a function
+      # registered as both a capture and a bubble listener is two listeners).
+      capture = EventTarget.capture_flag(options)
+      listeners_for(type.to_s).reject! do |entry|
+        entry.listener.equal?(listener) && entry.capture? == capture
+      end
       nil
     end
 
@@ -85,9 +91,11 @@ module Dommy
         end
       end
 
-      # After dispatch, currentTarget reverts to null and eventPhase to NONE.
+      # After dispatch, currentTarget reverts to null and eventPhase to NONE, and
+      # the propagation flags are unset so the event can be dispatched again.
       event.__internal_set_current_target__(nil)
       event.__internal_set_event_phase__(Event::NONE)
+      event.__internal_clear_propagation_flags__
 
       !event.default_prevented?
     end
@@ -95,6 +103,11 @@ module Dommy
     # Deliver `event` to one node's listeners for the current phase, then honor
     # stopPropagation (throws to end the whole walk after this node finishes).
     def deliver_at(node, event, phase)
+      # Honor a stop-propagation flag set before reaching this node (including
+      # one set before dispatch began) — the spec checks it before invoking a
+      # node's listeners, not only after.
+      throw :stop_propagation if event.propagation_stopped?
+
       event.__internal_set_current_target__(node)
       node.__internal_deliver_event__(event, phase)
       throw :stop_propagation if event.propagation_stopped?
@@ -143,13 +156,32 @@ module Dommy
       # dictionary. A capture listener fires in the capturing phase; a non-capture
       # listener in the bubbling phase (both at the target).
       def capture?
-        case options
-        when Hash
-          !!(options["capture"] || options[:capture])
-        else
-          !!options
-        end
+        EventTarget.capture_flag(options)
       end
+    end
+
+    # The capture flag for an addEventListener/removeEventListener options
+    # argument, using JS — not Ruby — truthiness: a boolean useCapture, or the
+    # `capture` member of an options dictionary, where 0 / "" / NaN / null /
+    # undefined are falsy (in Ruby 0 and "" are truthy, so a naive `!!` is wrong).
+    def self.capture_flag(options)
+      raw =
+        if options.is_a?(Hash)
+          options.key?("capture") ? options["capture"] : options[:capture]
+        else
+          options
+        end
+      js_truthy?(raw)
+    end
+
+    # JS ToBoolean: false for false/null/undefined, +0/-0, NaN, and "".
+    def self.js_truthy?(value)
+      return false if value.nil? || value == false
+      return false if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
+      return false if value.is_a?(Numeric) && (value.zero? || (value.respond_to?(:nan?) && value.nan?))
+      return false if value == ""
+
+      true
     end
 
     def listeners_for(type)
@@ -222,7 +254,7 @@ module Dommy
       when "addEventListener"
         add_event_listener(args[0], args[1], args[2])
       when "removeEventListener"
-        remove_event_listener(args[0], args[1])
+        remove_event_listener(args[0], args[1], args[2])
       when "dispatchEvent"
         dispatch_event(args[0])
       else
@@ -279,6 +311,17 @@ module Dommy
 
     def __internal_prepare_for_dispatch__(target)
       @target ||= target
+    end
+
+    # End-of-dispatch cleanup: the dispatch algorithm unsets the stop-propagation
+    # and stop-immediate-propagation flags (but NOT the canceled flag), so the
+    # same event object can be dispatched again. A stopPropagation() issued
+    # before the next dispatch is still honored — only the post-dispatch state is
+    # cleared here.
+    def __internal_clear_propagation_flags__
+      @propagation_stopped = false
+      @immediate_propagation_stopped = false
+      nil
     end
 
     def __internal_set_current_target__(target)
@@ -979,7 +1022,7 @@ module Dommy
       when "addEventListener"
         add_event_listener(args[0], args[1], args[2])
       when "removeEventListener"
-        remove_event_listener(args[0], args[1])
+        remove_event_listener(args[0], args[1], args[2])
       when "dispatchEvent"
         dispatch_event(args[0])
       when "throwIfAborted"

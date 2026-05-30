@@ -136,10 +136,14 @@ class TestWPTClassListMutations < Minitest::Test
     assert_equal("", @el.class_name)
   end
 
-  def test_remove_last_token_clears_attribute
+  def test_remove_last_token_empties_attribute
+    # WHATWG: removing the last token runs the update steps, which serialize the
+    # (now empty) token set back to the attribute — it stays present as "", it is
+    # not removed (cf. Element-classlist.html: remove "a" from " a a a " => "").
     @el.set_attribute("class", "only")
     @el.class_list.remove("only")
-    refute(@el.has_attribute?("class"))
+    assert(@el.has_attribute?("class"))
+    assert_equal("", @el.get_attribute("class"))
   end
 
   # ---- toggle ----

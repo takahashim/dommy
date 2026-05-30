@@ -166,6 +166,16 @@ module Dommy
       @content_type = "text/html"
     end
 
+    # Whether this is an "HTML document" in the DOM sense (created by the HTML
+    # parser / `text/html`), as opposed to an XML document. It drives the
+    # case-folding rules: `createElement` lowercases names and `Element#tagName`
+    # uppercases HTML-namespace names only in an HTML document. An XML or XHTML
+    # document (e.g. an `application/xhtml+xml` / `text/xml` resource) preserves
+    # case.
+    def html_document?
+      @content_type == "text/html"
+    end
+
     # ----- Public Ruby API (snake_case) -----
 
     def title
@@ -701,7 +711,7 @@ module Dommy
       when "addEventListener"
         add_event_listener(args[0], args[1], args[2])
       when "removeEventListener"
-        remove_event_listener(args[0], args[1])
+        remove_event_listener(args[0], args[1], args[2])
       when "dispatchEvent"
         dispatch_event(args[0])
       when "write"

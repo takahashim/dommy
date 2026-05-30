@@ -31,7 +31,22 @@ module Dommy
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
         raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless str.match?(Namespaces::NAME)
 
-        wrap_node(Backend.create_element(str.downcase, @document.nokogiri_doc))
+        # WHATWG createElement: lowercase (ASCII) the name only in an HTML
+        # document; the namespace is the HTML namespace for HTML/XHTML documents
+        # and null for a non-XHTML XML document. Record the metadata so the
+        # element's localName/tagName/namespaceURI getters report it faithfully
+        # (in particular case preservation for XML/XHTML).
+        if @document.html_document?
+          local = str.downcase(:ascii)
+          namespace = Element::HTML_NAMESPACE
+        else
+          local = str
+          namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
+        end
+
+        wrapper = wrap_node(Backend.create_element(local, @document.nokogiri_doc))
+        wrapper.__internal_set_namespace__(namespace, nil, local, local)
+        wrapper
       end
 
       def create_text_node(text)

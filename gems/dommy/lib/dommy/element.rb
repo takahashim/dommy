@@ -441,8 +441,16 @@ module Dommy
     end
 
     def replace(old_token, new_token)
-      old_s = validate_token(old_token)
-      new_s = validate_token(new_token)
+      # Spec order: both tokens' empty checks (SyntaxError) precede both
+      # whitespace checks (InvalidCharacterError) — so replace(" ", "") is a
+      # SyntaxError (the empty newToken), not an InvalidCharacterError.
+      old_s = stringify_token(old_token)
+      new_s = stringify_token(new_token)
+      raise DOMException::SyntaxError, "token is empty" if old_s.empty? || new_s.empty?
+      if old_s.match?(/[ \t\n\f\r]/) || new_s.match?(/[ \t\n\f\r]/)
+        raise DOMException::InvalidCharacterError, "token contains whitespace"
+      end
+
       tokens = class_tokens
       idx = tokens.index(old_s)
       return false unless idx
@@ -475,8 +483,14 @@ module Dommy
       when "value"
         value
       else
-        if key.is_a?(Integer) || key.to_s.match?(/\A\d+\z/)
-          item(key.to_i)
+        # Indexed getter: `classList[i]` is an undefined-returning indexed
+        # property — out-of-range or negative indices yield JS `undefined`
+        # (unlike `item(i)`, which returns null). Returning Ruby nil here would
+        # marshal as JS null, so use the UNDEFINED sentinel.
+        if key.is_a?(Integer) || key.to_s.match?(/\A-?\d+\z/)
+          i = key.to_i
+          token = i.negative? ? nil : class_tokens[i]
+          token.nil? ? Bridge::UNDEFINED : token
         end
       end
     end
@@ -524,16 +538,21 @@ module Dommy
     def toggle(token, force)
       name = validate_token(token)
       present = class_tokens.include?(name)
-      if force.nil?
-        desired = !present
-      else
-        desired = !!force
+      force_given = !(force.nil? || force.equal?(Bridge::UNDEFINED))
+
+      # Spec: toggle runs the update steps only when it actually adds or removes.
+      # With an explicit force that already matches the current state it's a
+      # no-op — the attribute is left byte-for-byte untouched (no re-serialize).
+      if force_given
+        want = !!force
+        return want if want == present
+
+        update_tokens { |tokens| want ? tokens | [name] : tokens - [name] }
+        return want
       end
 
-      update_tokens do |tokens|
-        desired ? (tokens | [name]) : (tokens - [name])
-      end
-
+      desired = !present
+      update_tokens { |tokens| desired ? tokens | [name] : tokens - [name] }
       desired
     end
 
@@ -558,18 +577,24 @@ module Dommy
       s
     end
 
+    # The DOMTokenList token set: the class attribute parsed as an *ordered set*
+    # (whitespace-split, duplicates removed preserving first-seen order). length,
+    # item, iteration, and contains all operate on this set; `value`/`toString`
+    # return the raw attribute. ASCII whitespace per the spec is space/tab/LF/FF/CR.
     def class_tokens
       raw = @element.__dommy_backend_node__["class"].to_s
-      raw.split(/\s+/).reject(&:empty?)
+      raw.split(/[ \t\n\f\r]+/).reject(&:empty?).uniq
     end
 
+    # DOMTokenList "update steps": serialize the (deduplicated) token set back to
+    # the class attribute. add/remove/replace always run this, so duplicates
+    # collapse and whitespace normalizes even on a no-op token. The one carve-out
+    # (per spec) is an empty set with no existing attribute — don't create one.
     def update_tokens
       tokens = yield(class_tokens)
-      if tokens.empty?
-        @element.remove_attribute("class") if @element.__dommy_backend_node__.key?("class")
-      else
-        @element.set_attribute("class", tokens.join(" "))
-      end
+      return if tokens.empty? && !@element.__dommy_backend_node__.key?("class")
+
+      @element.set_attribute("class", tokens.join(" "))
     end
   end
 
@@ -894,12 +919,14 @@ module Dommy
       nil
     end
 
-    # tagName is the qualified name, upper-cased only for an HTML-namespace
-    # element in an HTML document (here: created with the HTML namespace).
+    # tagName is the qualified name, ASCII-upper-cased only for an HTML-namespace
+    # element whose node document is an HTML document. An XHTML element (HTML
+    # namespace, but in an XML document) and any non-HTML-namespace element keep
+    # their case.
     def tag_name
-      return @__node__.name.upcase unless @__ns_qname
-
-      @__ns_uri == HTML_NAMESPACE ? @__ns_qname.upcase : @__ns_qname
+      qname = @__ns_qname || @__node__.name
+      html_ns = @__ns_qname ? @__ns_uri == HTML_NAMESPACE : true
+      html_ns && @document.html_document? ? qname.upcase(:ascii) : qname
     end
 
     def element_prefix
@@ -1840,7 +1867,7 @@ module Dommy
       when "addEventListener"
         add_event_listener(args[0], args[1], args[2])
       when "removeEventListener"
-        remove_event_listener(args[0], args[1])
+        remove_event_listener(args[0], args[1], args[2])
       when "dispatchEvent"
         dispatch_event(args[0])
       when "appendChild"
