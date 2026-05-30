@@ -88,6 +88,12 @@ module Dommy
         handler = @class_methods[method.to_s]
         handler&.call(args)
       end
+
+      # Names of the registered class-level (static) methods, so a JS host can
+      # expose them on the constructor function (e.g. `URL.createObjectURL`).
+      def __js_class_method_names__
+        @class_methods.keys
+      end
     end
 
     # `JS.global[:Promise]` view. Implements the `resolve` / `reject`

@@ -133,6 +133,11 @@ module Dommy
       case key
       when "document"
         @document
+      when "window", "self", "parent", "top", "frames"
+        # A top-level browsing context refers to itself for these. Returning the
+        # window (not nil) lets `window === window.parent` and frame-walking
+        # loops (e.g. testharness.js's `while (w != w.parent)`) terminate.
+        self
       when "Event"
         @event_ctor
       when "CustomEvent"
