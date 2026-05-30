@@ -85,6 +85,20 @@ class TestAttributeNS < Minitest::Test
     assert_equal "b", @el.get_attribute_ns(XLINK, "href")
   end
 
+  # WHATWG "set an attribute value": re-setting an existing (namespace,
+  # localName) attribute with a different prefix changes only the value —
+  # the original prefix / qualified name is preserved.
+  def test_set_attribute_ns_preserves_existing_prefix
+    @el.set_attribute_ns(EX, "foo:bar", "X")
+    @el.set_attribute_ns(EX, "quux:bar", "Y")
+
+    assert_equal 1, @el.attributes.length
+    assert_equal "Y", @el.get_attribute_ns(EX, "bar")
+    attr = @el.get_attribute_node_ns(EX, "bar")
+    assert_equal "foo", attr.prefix
+    assert_equal "foo:bar", attr.name
+  end
+
   def test_prefix_with_null_namespace_raises
     assert_raises(Dommy::DOMException::NamespaceError) do
       @el.set_attribute_ns(nil, "p:x", "v")

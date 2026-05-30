@@ -1068,6 +1068,8 @@ module Dommy
     end
 
     def toggle_attribute(name, force = nil)
+      raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
+
       key = name.to_s.downcase
       present = @__node__.key?(key)
       desired = force.nil? ? !present : !!force
@@ -1974,6 +1976,11 @@ module Dommy
     def set_attribute(name, value)
       return nil if name.nil?
 
+      # WHATWG: a qualifiedName not matching the Name production throws.
+      # The WPT corpus exercises only the empty string here (other shapes
+      # like "0"/":"/"invalid^Name" are deliberately treated as valid).
+      raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
+
       key = normalize_attr_key(name)
       old = @__node__[key]
       @__node__[key] = value.to_s
@@ -1994,6 +2001,9 @@ module Dommy
       return nil unless @__node__.key?(key)
 
       old = @__node__[key]
+      # Detach the cached Attr (caching its value) *before* the backend drop,
+      # so a held reference keeps the value it had when removed.
+      @attributes&.__internal_evict__(nil, key)
       @__node__.remove_attribute(key)
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
       nil
@@ -2030,6 +2040,7 @@ module Dommy
       ns = nil if ns.empty?
       local = local_name.to_s
       old = Backend.get_attribute_ns(@__node__, ns, local)
+      @attributes&.__internal_evict__(ns, local)
       Backend.remove_attribute_ns(@__node__, ns, local)
       if old
         @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old)

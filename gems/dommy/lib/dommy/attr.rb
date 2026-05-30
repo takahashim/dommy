@@ -73,6 +73,9 @@ module Dommy
         @name
       when "nodeValue"
         value
+      when "textContent"
+        # Node.textContent for an Attr returns its value (WHATWG DOM).
+        value
       when "ownerElement"
         @owner
       when "localName"
@@ -83,12 +86,15 @@ module Dommy
         @prefix
       when "nodeType"
         2
+      when "specified"
+        # Legacy/useless attribute — always true (WHATWG DOM).
+        true
       end
     end
 
     def __js_set__(key, val)
       case key
-      when "value", "nodeValue"
+      when "value", "nodeValue", "textContent"
         self.value = val
       else
         return Bridge::UNHANDLED
@@ -134,6 +140,10 @@ module Dommy
 
     def initialize(element)
       @element = element
+      # Attr-node identity cache, keyed by [namespace_or_nil, localName].
+      # Every accessor (item / index / getNamedItem(NS)) returns the SAME
+      # Attr object for a given underlying attribute, per the DOM.
+      @attrs = {}
     end
 
     def length
@@ -147,45 +157,93 @@ module Dommy
       node && attr_for(node)
     end
 
-    # Build a namespace-aware Attr wrapper from a backend attribute node.
+    # Return the cached Attr for a backend attribute node, creating (and
+    # caching) one on first access so DOM node identity holds.
     def attr_for(attr_node)
       info = Backend.attribute_ns_info(attr_node)
-      Attr.new(info[:qualified_name], owner: @element,
-                                      namespace_uri: info[:namespace_uri],
-                                      prefix: info[:prefix],
-                                      local_name: info[:local_name])
+      key = [info[:namespace_uri], info[:local_name]]
+      cached = @attrs[key]
+      return cached if cached && cached.owner_element.equal?(@element)
+
+      attr = Attr.new(info[:qualified_name], owner: @element,
+                                             namespace_uri: info[:namespace_uri],
+                                             prefix: info[:prefix],
+                                             local_name: info[:local_name])
+      @attrs[key] = attr
+      attr
     end
 
     def get_named_item(name)
       key = name.to_s.downcase
-      return nil unless @element.__dommy_backend_node__.key?(key)
-
-      Attr.new(key, owner: @element)
+      node = @element.__dommy_backend_node__.attribute_nodes.find do |a|
+        Backend.attribute_ns_info(a)[:qualified_name] == key
+      end
+      node && attr_for(node)
     end
 
     def set_named_item(attr)
-      return nil unless attr.is_a?(Attr)
-
-      key = attr.name
-      val = attr.value
-      attr.__internal_attach__(@element)
-      @element.set_attribute(key, val)
-      attr
+      set_attribute_node(attr)
     end
 
     def remove_named_item(name)
       key = name.to_s.downcase
-      return nil unless @element.__dommy_backend_node__.key?(key)
+      node = @element.__dommy_backend_node__.attribute_nodes.find do |a|
+        Backend.attribute_ns_info(a)[:qualified_name] == key
+      end
+      return nil unless node
 
-      attr = Attr.new(key, owner: nil, value: @element.__dommy_backend_node__[key].to_s)
+      removed = attr_for(node)
       @element.remove_attribute(key)
-      attr
+      removed
     end
 
     def each
       @element.__dommy_backend_node__.attribute_nodes.each do |a|
         yield attr_for(a)
       end
+    end
+
+    # WHATWG "set an attribute" / "set attribute node". Adopts `attr` (the
+    # exact object — identity is preserved), replacing any attribute with the
+    # same (namespace, localName) and returning the previous Attr (detached),
+    # or nil. Throws InUseAttributeError if `attr` is bound to another element.
+    def set_attribute_node(attr)
+      return nil unless attr.is_a?(Attr)
+
+      owner = attr.owner_element
+      if owner && !owner.equal?(@element)
+        raise DOMException::InUseAttributeError, "attribute is in use by another element"
+      end
+
+      ns = attr.namespace_uri
+      local = attr.local_name
+      old = get_named_item_ns(ns, local)
+      return attr if old && old.equal?(attr)
+
+      value = attr.value
+      key = [ns, local]
+      if old
+        old.__internal_detach__
+        @attrs.delete(key)
+      end
+      attr.__internal_attach__(@element)
+      if ns
+        @element.set_attribute_ns(ns, attr.name, value)
+      else
+        @element.set_attribute(attr.name, value)
+      end
+      @attrs[key] = attr
+      old
+    end
+
+    # Detach and evict the cached Attr for (namespace, localName), if any —
+    # called by Element after the underlying attribute is removed so a held
+    # reference reports `ownerElement === null`.
+    def __internal_evict__(namespace, local_name)
+      key = [namespace.to_s.empty? ? nil : namespace.to_s, local_name.to_s]
+      attr = @attrs.delete(key)
+      attr&.__internal_detach__
+      nil
     end
 
     # ----- Namespaced named-item access (getNamedItemNS etc.) -----
@@ -199,29 +257,17 @@ module Dommy
       node && attr_for(node)
     end
 
+    # setNamedItemNS shares the "set an attribute" algorithm with setNamedItem.
     def set_named_item_ns(attr)
-      return nil unless attr.is_a?(Attr)
-
-      previous = attr.namespace_uri ? get_named_item_ns(attr.namespace_uri, attr.local_name) : nil
-      val = attr.value
-      attr.__internal_attach__(@element)
-      if attr.namespace_uri
-        @element.set_attribute_ns(attr.namespace_uri, attr.name, val)
-      else
-        @element.set_attribute(attr.name, val)
-      end
-      previous
+      set_attribute_node(attr)
     end
 
     def remove_named_item_ns(namespace, local_name)
       existing = get_named_item_ns(namespace, local_name)
       return nil unless existing
 
-      detached = Attr.new(existing.name, owner: nil, value: existing.value,
-                                         namespace_uri: existing.namespace_uri,
-                                         prefix: existing.prefix, local_name: existing.local_name)
       @element.remove_attribute_ns(namespace, local_name)
-      detached
+      existing
     end
 
     # Property-style access — `el.attributes.id`, `el.attributes["class"]`.

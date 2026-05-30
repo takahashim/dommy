@@ -58,6 +58,16 @@ module Dommy
       end
 
       def set_attribute_ns(node, namespace, prefix, local_name, qualified_name, value)
+        # WHATWG "set an attribute value": when an attribute with this
+        # (namespace, localName) already exists, only its value changes —
+        # the existing prefix/qualified name is preserved, not replaced by
+        # the one in this call.
+        existing = find_attr_ns(node, namespace, local_name)
+        if existing
+          existing.value = value.to_s
+          return value.to_s
+        end
+
         if namespace.nil? || namespace.to_s.empty?
           node[qualified_name] = value.to_s
           return value.to_s
