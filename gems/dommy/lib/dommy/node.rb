@@ -54,26 +54,24 @@ module Dommy
       when "length"
         length
       else
-        if key.is_a?(Integer) || key.to_s.match?(/\A\d+\z/)
-          item(key.to_i)
+        # Indexed getter: out-of-range yields JS `undefined` (item() returns null).
+        if key.is_a?(Integer) || key.to_s.match?(/\A-?\d+\z/)
+          token = item(key.to_i)
+          token.nil? ? Bridge::UNDEFINED : token
         end
       end
     end
 
     include Bridge::Methods
-    js_methods %w[item forEach entries keys values]
+    # keys/values/entries/Symbol.iterator are provided JS-side (the array-like
+    # prototype) so they return real iterators, not arrays — see host_runtime.js.
+    js_methods %w[item forEach]
     def __js_call__(method, args)
       case method
       when "item"
         item(args[0])
       when "forEach"
         for_each(&args[0])
-      when "entries"
-        entries
-      when "keys"
-        keys
-      when "values"
-        values
       end
     end
   end
@@ -165,26 +163,24 @@ module Dommy
       when "length"
         length
       else
-        if key.is_a?(Integer) || key.to_s.match?(/\A\d+\z/)
-          item(key.to_i)
+        # Indexed getter: out-of-range yields JS `undefined` (item() returns null).
+        if key.is_a?(Integer) || key.to_s.match?(/\A-?\d+\z/)
+          token = item(key.to_i)
+          token.nil? ? Bridge::UNDEFINED : token
         end
       end
     end
 
     include Bridge::Methods
-    js_methods %w[item forEach entries keys values]
+    # keys/values/entries/Symbol.iterator are provided JS-side (the array-like
+    # prototype) so they return real iterators, not arrays — see host_runtime.js.
+    js_methods %w[item forEach]
     def __js_call__(method, args)
       case method
       when "item"
         item(args[0])
       when "forEach"
         for_each(&args[0])
-      when "entries"
-        entries
-      when "keys"
-        keys
-      when "values"
-        values
       end
     end
   end

@@ -296,10 +296,13 @@ module Dommy
       end
     end
 
-    # All child nodes of the document (doctype + document element, …), as a
-    # NodeList — unlike `children`, which is element-only.
+    # All child nodes of the document (doctype + document element, …), as a live,
+    # cached NodeList — unlike `children`, which is element-only. Cached so
+    # `document.childNodes === document.childNodes` and mutations are reflected.
     def child_nodes
-      NodeList.new(@nokogiri_doc.children.map { |n| wrap_node(n) }.compact)
+      @live_child_nodes ||= LiveNodeList.new do
+        @nokogiri_doc.children.map { |n| wrap_node(n) }.compact
+      end
     end
 
     def child_element_count

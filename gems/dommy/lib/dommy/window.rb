@@ -203,6 +203,11 @@ module Dommy
       url.define_class_method("canParse") { |args| URL.can_parse(args[0], args[1]) }
 
       {
+        # `new Document()` — a fresh empty document (content type application/xml
+        # per the DOM Standard, so it behaves as a non-HTML document).
+        "Document" => Bridge::Constructor.new do
+          Document.new(nil, nokogiri_doc: Backend.document_class.new).tap { |d| d.content_type = "application/xml" }
+        end,
         "Event" => Bridge::Constructor.new { |args| Event.new(args[0], args[1]) },
         "CustomEvent" => Bridge::Constructor.new { |args| CustomEvent.new(args[0], args[1]) },
         "MouseEvent" => Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) },

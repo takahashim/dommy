@@ -63,6 +63,7 @@ module Dommy
       raise TypeError, "dispatchEvent requires an Event, got #{event.class}" unless event.is_a?(Event)
 
       event.__internal_prepare_for_dispatch__(self)
+      event.__internal_set_dispatch_flag__(true)
 
       # The full propagation path: the target plus its ancestors (root last).
       # Capturing always traverses the ancestors regardless of `bubbles`.
@@ -96,6 +97,7 @@ module Dommy
       event.__internal_set_current_target__(nil)
       event.__internal_set_event_phase__(Event::NONE)
       event.__internal_clear_propagation_flags__
+      event.__internal_set_dispatch_flag__(false)
 
       !event.default_prevented?
     end
@@ -120,12 +122,15 @@ module Dommy
       listeners.each do |entry|
         next unless phase == :both || (phase == :capture ? entry.capture? : !entry.capture?)
 
-        CallableInvoker.invoke_listener(entry.listener, event)
+        # Spec: a `once` listener is removed BEFORE its callback runs, so a nested
+        # dispatch from within the callback can't invoke it a second time.
         if entry.once?
           listeners_for(event.type).reject! do |candidate|
             candidate.listener.equal?(entry.listener) && candidate.capture? == entry.capture?
           end
         end
+
+        CallableInvoker.invoke_listener(entry.listener, event)
 
         break if event.immediate_propagation_stopped?
       end
@@ -350,7 +355,8 @@ module Dommy
       when "isTrusted"
         # Script-created/dispatched events are never trusted.
         false
-      when "target"
+      when "target", "srcElement"
+        # srcElement is a legacy alias of target — null (not undefined) when unset.
         @target
       when "currentTarget"
         @current_target
@@ -360,6 +366,12 @@ module Dommy
         @propagation_stopped
       when "eventPhase"
         event_phase
+      else
+        # An unknown property reads back as JS `undefined`, not `null` — e.g. a
+        # non-dictionary member passed to the constructor (`new Event("x", {sweet:
+        # 1}).sweet`) is not reflected on the event. Genuinely-null DOM attributes
+        # (target/currentTarget/…) are explicit cases above and still return nil.
+        Bridge::UNDEFINED
       end
     end
 
@@ -397,14 +409,26 @@ module Dommy
       when "composedPath"
         @composed_path.dup
       when "initEvent"
+        # WebIDL: the `type` argument is mandatory.
+        raise Bridge::TypeError, "initEvent requires a type argument" if args.empty?
+
         init_event(args[0], args[1], args[2])
       end
+    end
+
+    # Set while the event is being dispatched, so initEvent() can short-circuit.
+    def __internal_set_dispatch_flag__(flag)
+      @dispatch_flag = flag
+      nil
     end
 
     # Deprecated `Event#initEvent(type, bubbles, cancelable)` — older
     # browsers used `document.createEvent("Event").initEvent(...)`.
     # Resets internal flags as a side effect.
     def init_event(type, bubbles = false, cancelable = false)
+      # Spec: initEvent is a no-op while the event is being dispatched.
+      return nil if @dispatch_flag
+
       @type = type.to_s
       @bubbles = !!bubbles
       @cancelable = !!cancelable
@@ -460,6 +484,25 @@ module Dommy
       return @detail if key == "detail"
 
       super
+    end
+
+    js_methods %w[initCustomEvent]
+    def __js_call__(method, args)
+      case method
+      when "initCustomEvent"
+        # Deprecated initCustomEvent(type, bubbles=false, cancelable=false,
+        # detail=null). Like initEvent, the type is mandatory and the whole call
+        # is a no-op while the event is being dispatched.
+        raise Bridge::TypeError, "initCustomEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @detail = args[3]
+        end
+        nil
+      else
+        super
+      end
     end
   end
 

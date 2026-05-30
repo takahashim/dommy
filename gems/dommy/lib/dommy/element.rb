@@ -29,8 +29,12 @@ module Dommy
       @__node__.element_children.size
     end
 
+    # Live, cached childNodes so `fragment.childNodes === fragment.childNodes` and
+    # later mutations are reflected (WHATWG live NodeList).
     def child_nodes
-      NodeList.new(@__node__.children.map { |n| @document.wrap_node(n) }.compact)
+      @live_child_nodes ||= LiveNodeList.new do
+        @__node__.children.map { |n| @document.wrap_node(n) }.compact
+      end
     end
 
     def first_child
