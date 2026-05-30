@@ -280,4 +280,49 @@ module Dommy
       nil
     end
   end
+
+  # `window.CSS` namespace object — `escape()` for safe selector building
+  # (used by Turbo and friends) and a `supports()` stub (no CSS engine).
+  class CSSNamespace
+    JS_METHOD_NAMES = %w[escape supports].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
+    def __js_get__(_key) = nil
+    def __js_set__(_key, _value) = Bridge::UNHANDLED
+
+    def __js_call__(method, args)
+      case method
+      when "escape"
+        self.class.escape(args[0])
+      when "supports"
+        false
+      end
+    end
+
+    # CSSOM `CSS.escape` — escape a string for use as an identifier in a
+    # selector. Follows the spec's char rules closely enough for selectors.
+    def self.escape(value)
+      str = value.to_s
+      out = +""
+      str.each_char.with_index do |ch, i|
+        code = ch.ord
+        if code.zero?
+          out << "\uFFFD"
+        elsif (code >= 0x01 && code <= 0x1F) || code == 0x7F ||
+              (i.zero? && code >= 0x30 && code <= 0x39) ||
+              (i == 1 && code >= 0x30 && code <= 0x39 && str[0] == "-")
+          out << "\\#{code.to_s(16)} "
+        elsif code >= 0x80 || code == 0x2D || code == 0x5F ||
+              (code >= 0x30 && code <= 0x39) ||
+              (code >= 0x41 && code <= 0x5A) || (code >= 0x61 && code <= 0x7A)
+          out << ch
+        else
+          out << "\\#{ch}"
+        end
+      end
+      out
+    end
+  end
 end

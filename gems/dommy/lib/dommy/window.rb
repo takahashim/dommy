@@ -39,6 +39,11 @@ module Dommy
       @file_ctor = Bridge::Constructor.new { |args| File.new(args[0] || [], args[1].to_s, args[2] || {}) }
       @file_list_ctor = Bridge::Constructor.new { |args| FileList.new(args[0] || []) }
       @form_data_ctor = Bridge::Constructor.new { |args| FormData.new(args[0]) }
+      @dom_parser_ctor = Bridge::Constructor.new { |_args| DOMParser.new }
+      @xml_serializer_ctor = Bridge::Constructor.new { |_args| XMLSerializer.new }
+      @url_search_params_ctor = Bridge::Constructor.new { |args| URLSearchParams.new(args[0] || "") }
+      @headers_ctor = Bridge::Constructor.new { |args| Headers.new(args[0] || {}) }
+      @css_namespace = CSSNamespace.new
       @data_transfer_ctor = Bridge::Constructor.new { |args|
         opts = args[0] || {}
         DataTransfer.new(
@@ -150,6 +155,10 @@ module Dommy
         @blob_ctor
       when "FormData"
         @form_data_ctor
+      when "DOMParser"
+        @dom_parser_ctor
+      when "XMLSerializer"
+        @xml_serializer_ctor
       when "File"
         @file_ctor
       when "FileList"
@@ -254,6 +263,12 @@ module Dommy
         @history
       when "URL"
         @url_ctor
+      when "URLSearchParams"
+        @url_search_params_ctor
+      when "Headers"
+        @headers_ctor
+      when "CSS"
+        @css_namespace
       when "fetch"
         FetchFn.new(self)
       when "customElements"

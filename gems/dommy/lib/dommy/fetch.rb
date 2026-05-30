@@ -163,6 +163,12 @@ module Dommy
       end
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[clone].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, _args)
       case method
       when "clone"
@@ -213,6 +219,12 @@ module Dommy
 
     def __js_set__(_key, _value)
       Bridge::UNHANDLED
+    end
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[text json arrayBuffer blob clone].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
     end
 
     def __js_call__(method, _args)
@@ -274,8 +286,32 @@ module Dommy
       Bridge::UNHANDLED
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[get set append delete has keys values entries forEach].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
+      when "set"
+        @hash[Headers.canonical(args[0].to_s)] = args[1].to_s
+        nil
+      when "append"
+        # WHATWG: append combines existing values with ", ".
+        key = Headers.canonical(args[0].to_s)
+        existing = @hash[args[0].to_s] || @hash[key]
+        @hash.delete(args[0].to_s)
+        @hash[key] = existing ? "#{existing}, #{args[1]}" : args[1].to_s
+        nil
+      when "delete"
+        @hash.delete(args[0].to_s)
+        @hash.delete(Headers.canonical(args[0].to_s))
+        nil
+      when "keys"
+        @hash.keys
+      when "values"
+        @hash.values
       when "get"
         name = args[0].to_s
         @hash[name] || @hash[Headers.canonical(name)]

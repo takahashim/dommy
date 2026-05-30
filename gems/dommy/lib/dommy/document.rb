@@ -498,7 +498,7 @@ module Dommy
       exitFullscreen startViewTransition createElement createElementNS createTextNode
       createComment createDocumentFragment querySelector querySelectorAll getElementById
       getElementsByClassName getElementsByTagName getElementsByName createAttribute
-      createAttributeNS createTreeWalker createNodeIterator createEvent importNode adoptNode
+      createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode adoptNode
       hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
       removeEventListener dispatchEvent write open close
     ].freeze
@@ -552,6 +552,8 @@ module Dommy
         create_tree_walker(args[0], args[1] || NodeFilter::SHOW_ALL, args[2])
       when "createNodeIterator"
         create_node_iterator(args[0], args[1] || NodeFilter::SHOW_ALL, args[2])
+      when "createRange"
+        create_range
       when "createEvent"
         create_event(args[0])
       when "importNode"

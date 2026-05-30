@@ -254,6 +254,17 @@ module Dommy
       end
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[
+      setStart setEnd setStartBefore setStartAfter setEndBefore setEndAfter collapse
+      selectNode selectNodeContents toString cloneContents extractContents deleteContents
+      surroundContents insertNode compareBoundaryPoints intersectsNode containsNode
+      cloneRange detach getBoundingClientRect getClientRects
+    ].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, args)
       case method
       when "setStart"

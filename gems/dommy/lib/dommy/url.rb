@@ -298,6 +298,12 @@ module Dommy
       nil
     end
 
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[toString toJSON].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
+    end
+
     def __js_call__(method, _args)
       case method
       when "toString", "toJSON"
@@ -665,6 +671,12 @@ module Dommy
       when "size", "length"
         size
       end
+    end
+
+    # Methods routed through __js_call__ (keep in sync with its when-arms).
+    JS_METHOD_NAMES = %w[get getAll has set append delete sort toString forEach keys values entries].freeze
+    def __js_method_names__
+      JS_METHOD_NAMES
     end
 
     def __js_call__(method, args)
