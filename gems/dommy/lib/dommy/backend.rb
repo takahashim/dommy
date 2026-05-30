@@ -73,6 +73,30 @@ module Dommy
         current.add_namespace_definition(node, prefix, href)
       end
 
+      # Namespaced attribute access (DOM *AttributeNS). `namespace` is an href
+      # String or nil. Nokolexbor degrades to qualified-name (null-namespace).
+      def get_attribute_ns(node, namespace, local_name)
+        current.get_attribute_ns(node, namespace, local_name)
+      end
+
+      def set_attribute_ns(node, namespace, prefix, local_name, qualified_name, value)
+        current.set_attribute_ns(node, namespace, prefix, local_name, qualified_name, value)
+      end
+
+      def remove_attribute_ns(node, namespace, local_name)
+        current.remove_attribute_ns(node, namespace, local_name)
+      end
+
+      def has_attribute_ns?(node, namespace, local_name)
+        current.has_attribute_ns?(node, namespace, local_name)
+      end
+
+      # Reads a backend attribute node into {namespace_uri:, prefix:,
+      # local_name:, qualified_name:, value:} (namespace-aware).
+      def attribute_ns_info(attr_node)
+        current.attribute_ns_info(attr_node)
+      end
+
       # Type constants — proxy through to the current backend so
       # `node.is_a?(Backend::Element)` resolves dynamically.
       def element_class

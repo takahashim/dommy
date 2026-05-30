@@ -13,12 +13,25 @@ module Dommy
   #     not yet attached. Value is stored locally; `setAttributeNode`
   #     transfers it to an element.
   class Attr
-    attr_reader :name
+    attr_reader :name, :namespace_uri, :prefix, :local_name
 
-    def initialize(name, owner: nil, value: "")
-      @name = name.to_s.downcase
+    def initialize(name, owner: nil, value: "", namespace_uri: nil, prefix: nil, local_name: nil)
+      qname = name.to_s
       @owner = owner
       @detached_value = value.to_s
+      if namespace_uri && !namespace_uri.to_s.empty?
+        # Namespaced attributes preserve case and carry prefix / localName.
+        @name = qname
+        @namespace_uri = namespace_uri.to_s
+        @prefix = prefix
+        @local_name = (local_name || qname.split(":", 2).last).to_s
+      else
+        # Null-namespace (HTML) attributes are lower-cased, as before.
+        @name = qname.downcase
+        @namespace_uri = nil
+        @prefix = nil
+        @local_name = @name
+      end
     end
 
     # The Element this attr is on, or nil if detached.
@@ -28,7 +41,11 @@ module Dommy
 
     def value
       if @owner
-        @owner.__dommy_backend_node__[@name].to_s
+        if @namespace_uri
+          Backend.get_attribute_ns(@owner.__dommy_backend_node__, @namespace_uri, @local_name).to_s
+        else
+          @owner.__dommy_backend_node__[@name].to_s
+        end
       else
         @detached_value
       end
@@ -36,7 +53,11 @@ module Dommy
 
     def value=(new_value)
       if @owner
-        @owner.set_attribute(@name, new_value.to_s)
+        if @namespace_uri
+          @owner.set_attribute_ns(@namespace_uri, @name, new_value.to_s)
+        else
+          @owner.set_attribute(@name, new_value.to_s)
+        end
       else
         @detached_value = new_value.to_s
       end
@@ -55,9 +76,11 @@ module Dommy
       when "ownerElement"
         @owner
       when "localName"
-        @name
+        @local_name
       when "namespaceURI"
-        nil
+        @namespace_uri
+      when "prefix"
+        @prefix
       when "nodeType"
         2
       end
@@ -79,7 +102,8 @@ module Dommy
     def __js_call__(method, _args)
       case method
       when "cloneNode"
-        Attr.new(@name, owner: nil, value: value)
+        Attr.new(@name, owner: nil, value: value,
+                        namespace_uri: @namespace_uri, prefix: @prefix, local_name: @local_name)
       end
     end
 
@@ -119,8 +143,17 @@ module Dommy
     alias size length
 
     def item(index)
-      name = @element.__dommy_backend_node__.attribute_nodes[index.to_i]&.name
-      name && Attr.new(name, owner: @element)
+      node = @element.__dommy_backend_node__.attribute_nodes[index.to_i]
+      node && attr_for(node)
+    end
+
+    # Build a namespace-aware Attr wrapper from a backend attribute node.
+    def attr_for(attr_node)
+      info = Backend.attribute_ns_info(attr_node)
+      Attr.new(info[:qualified_name], owner: @element,
+                                      namespace_uri: info[:namespace_uri],
+                                      prefix: info[:prefix],
+                                      local_name: info[:local_name])
     end
 
     def get_named_item(name)
@@ -149,10 +182,46 @@ module Dommy
       attr
     end
 
-    def each(&blk)
+    def each
       @element.__dommy_backend_node__.attribute_nodes.each do |a|
-        yield Attr.new(a.name, owner: @element)
+        yield attr_for(a)
       end
+    end
+
+    # ----- Namespaced named-item access (getNamedItemNS etc.) -----
+
+    def get_named_item_ns(namespace, local_name)
+      node = @element.__dommy_backend_node__.attribute_nodes.find do |a|
+        info = Backend.attribute_ns_info(a)
+        info[:local_name] == local_name.to_s &&
+          (info[:namespace_uri] || nil) == (namespace.to_s.empty? ? nil : namespace.to_s)
+      end
+      node && attr_for(node)
+    end
+
+    def set_named_item_ns(attr)
+      return nil unless attr.is_a?(Attr)
+
+      previous = attr.namespace_uri ? get_named_item_ns(attr.namespace_uri, attr.local_name) : nil
+      val = attr.value
+      attr.__internal_attach__(@element)
+      if attr.namespace_uri
+        @element.set_attribute_ns(attr.namespace_uri, attr.name, val)
+      else
+        @element.set_attribute(attr.name, val)
+      end
+      previous
+    end
+
+    def remove_named_item_ns(namespace, local_name)
+      existing = get_named_item_ns(namespace, local_name)
+      return nil unless existing
+
+      detached = Attr.new(existing.name, owner: nil, value: existing.value,
+                                         namespace_uri: existing.namespace_uri,
+                                         prefix: existing.prefix, local_name: existing.local_name)
+      @element.remove_attribute_ns(namespace, local_name)
+      detached
     end
 
     # Property-style access — `el.attributes.id`, `el.attributes["class"]`.
@@ -180,7 +249,8 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[item getNamedItem setNamedItem removeNamedItem]
+    js_methods %w[item getNamedItem setNamedItem removeNamedItem
+                  getNamedItemNS setNamedItemNS removeNamedItemNS]
     def __js_call__(method, args)
       case method
       when "item"
@@ -191,6 +261,12 @@ module Dommy
         set_named_item(args[0])
       when "removeNamedItem"
         remove_named_item(args[0])
+      when "getNamedItemNS"
+        get_named_item_ns(args[0], args[1])
+      when "setNamedItemNS"
+        set_named_item_ns(args[0])
+      when "removeNamedItemNS"
+        remove_named_item_ns(args[0], args[1])
       end
     end
 

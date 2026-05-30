@@ -1784,6 +1784,7 @@ module Dommy
     include Bridge::Methods
     js_methods %w[
       getAttribute setAttribute hasAttribute removeAttribute getAttributeNames closest
+      getAttributeNS setAttributeNS hasAttributeNS removeAttributeNS getAttributeNodeNS setAttributeNodeNS
       querySelector querySelectorAll getElementsByClassName getElementsByTagName
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches
       toString getAttributeNode setAttributeNode removeAttributeNode focus blur attachShadow
@@ -1802,6 +1803,18 @@ module Dommy
         has_attribute?(args[0])
       when "removeAttribute"
         remove_attribute(args[0])
+      when "getAttributeNS"
+        get_attribute_ns(args[0], args[1])
+      when "setAttributeNS"
+        set_attribute_ns(args[0], args[1], args[2])
+      when "hasAttributeNS"
+        has_attribute_ns?(args[0], args[1])
+      when "removeAttributeNS"
+        remove_attribute_ns(args[0], args[1])
+      when "getAttributeNodeNS"
+        get_attribute_node_ns(args[0], args[1])
+      when "setAttributeNodeNS"
+        set_attribute_node(args[0])
       when "getAttributeNames"
         @__node__.attribute_nodes.map(&:name)
       when "closest"
@@ -1984,6 +1997,48 @@ module Dommy
       @__node__.remove_attribute(key)
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
       nil
+    end
+
+    # ----- Namespaced attributes (DOM *AttributeNS) -----
+
+    def get_attribute_ns(namespace, local_name)
+      return nil if local_name.nil?
+
+      ns = namespace.to_s
+      Backend.get_attribute_ns(@__node__, ns.empty? ? nil : ns, local_name.to_s)
+    end
+
+    def has_attribute_ns?(namespace, local_name)
+      return false if local_name.nil?
+
+      ns = namespace.to_s
+      Backend.has_attribute_ns?(@__node__, ns.empty? ? nil : ns, local_name.to_s)
+    end
+
+    def set_attribute_ns(namespace, qualified_name, value)
+      ns, prefix, local = Internal::Namespaces.validate_and_extract(namespace, qualified_name)
+      old = Backend.get_attribute_ns(@__node__, ns, local)
+      Backend.set_attribute_ns(@__node__, ns, prefix, local, qualified_name.to_s, value.to_s)
+      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old)
+      nil
+    end
+
+    def remove_attribute_ns(namespace, local_name)
+      return nil if local_name.nil?
+
+      ns = namespace.to_s
+      ns = nil if ns.empty?
+      local = local_name.to_s
+      old = Backend.get_attribute_ns(@__node__, ns, local)
+      Backend.remove_attribute_ns(@__node__, ns, local)
+      if old
+        @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old)
+      end
+      nil
+    end
+
+    def get_attribute_node_ns(namespace, local_name)
+      attributes.get_named_item_ns(namespace, local_name)
     end
 
     def closest(selector)
@@ -2277,6 +2332,11 @@ module Dommy
       :set_attribute,
       :has_attribute?,
       :remove_attribute,
+      :get_attribute_ns,
+      :set_attribute_ns,
+      :has_attribute_ns?,
+      :remove_attribute_ns,
+      :get_attribute_node_ns,
       :append_child,
       :insert_before,
       :remove_child,

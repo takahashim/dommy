@@ -56,12 +56,9 @@ module Dommy
         Attr.new(str)
       end
 
-      def create_attribute_ns(_namespace_uri, qualified_name)
-        str = qualified_name.to_s
-        raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
-        raise DOMException::InvalidCharacterError, "invalid qualified name: #{str.inspect}" unless str.match?(NAME_RE)
-
-        Attr.new(str)
+      def create_attribute_ns(namespace_uri, qualified_name)
+        ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name)
+        Attr.new(qualified_name.to_s, namespace_uri: ns, prefix: prefix, local_name: local)
       end
 
       def create_element_ns(namespace_uri, qualified_name)

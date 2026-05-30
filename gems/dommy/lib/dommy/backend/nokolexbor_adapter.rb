@@ -63,6 +63,39 @@ module Dommy
         # No-op: Nokolexbor doesn't support XML namespaces.
       end
 
+      # ----- Namespaced attributes (degraded) -----
+      # Nokolexbor has no namespace model, so *AttributeNS collapses to the
+      # qualified name in the null namespace. Fine for HTML (all attributes are
+      # null-namespace); foreign-content (SVG/MathML) fidelity is lost.
+
+      def get_attribute_ns(node, _namespace, local_name)
+        node[local_name.to_s]
+      end
+
+      def has_attribute_ns?(node, _namespace, local_name)
+        node.key?(local_name.to_s)
+      end
+
+      def set_attribute_ns(node, _namespace, _prefix, _local_name, qualified_name, value)
+        node[qualified_name] = value.to_s
+        value.to_s
+      end
+
+      def remove_attribute_ns(node, _namespace, local_name)
+        node.remove_attribute(local_name.to_s) if node.key?(local_name.to_s)
+        nil
+      end
+
+      def attribute_ns_info(attr_node)
+        {
+          namespace_uri: nil,
+          prefix: nil,
+          local_name: attr_node.name,
+          qualified_name: attr_node.name,
+          value: attr_node.value,
+        }
+      end
+
       # Internal helper — visible to allow testing.
       def in_svg_subtree?(node)
         return true if node.name.to_s.downcase == "svg"
