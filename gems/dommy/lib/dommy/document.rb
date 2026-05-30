@@ -690,11 +690,6 @@ module Dommy
       )
     end
 
-    # Spec-permitted name pattern (XML "Name" production restricted to
-    # ASCII for practicality). Used by `createElement` and
-    # `createAttribute` to validate the argument.
-    NAME_RE = /\A[A-Za-z_][\w\-.:]*\z/.freeze
-
     # Delegate factory methods to NodeWrapperCache
 
     def create_element(name)
