@@ -8,6 +8,10 @@ module Dommy
 
     FRAME_MS = 16
 
+    # requestIdleCallback has no real idle period here; the callback always
+    # sees a fixed budget and didTimeout: false.
+    IDLE_DEADLINE = {"timeRemaining" => 50.0, "didTimeout" => false}.freeze
+
     def initialize
       @now_ms = 0
       @next_id = 1
@@ -42,6 +46,16 @@ module Dommy
     end
 
     def cancel_animation_frame(id)
+      cancel_timer(id)
+    end
+
+    # WHATWG requestIdleCallback — modeled as a deferred timer that hands the
+    # callback an IdleDeadline-shaped Hash. No real idle period in dommy.
+    def request_idle_callback(callback, timeout = 0)
+      register_timer(:idle, callback, timeout.to_i, nil)
+    end
+
+    def cancel_idle_callback(id)
       cancel_timer(id)
     end
 
@@ -117,6 +131,9 @@ module Dommy
         when :interval
           CallableInvoker.invoke(timer.callback)
           timer.due_at = @now_ms + timer.interval_ms if timer.active
+        when :idle
+          @timers.delete(timer.id)
+          CallableInvoker.invoke(timer.callback, IDLE_DEADLINE.dup)
         else
           @timers.delete(timer.id)
           CallableInvoker.invoke(timer.callback)

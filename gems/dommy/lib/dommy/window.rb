@@ -155,20 +155,9 @@ module Dommy
       when "queueMicrotask"
         @scheduler.queue_microtask(args[0])
       when "requestIdleCallback"
-        # WHATWG `requestIdleCallback` — no real idle period in
-        # dommy, so we model it as a deferred setTimeout. The
-        # callback receives an `IdleDeadline`-shaped Hash.
-        @scheduler.set_timeout(
-          proc {
-            args[0].respond_to?(:__js_call__) ? args[0].__js_call__(
-              "call",
-              [{"timeRemaining" => 50.0, "didTimeout" => false}]
-            ) : args[0].call({"timeRemaining" => 50.0, "didTimeout" => false})
-          },
-          (args[1].is_a?(Hash) && args[1]["timeout"]) || 0
-        )
+        @scheduler.request_idle_callback(args[0], (args[1].is_a?(Hash) && args[1]["timeout"]) || 0)
       when "cancelIdleCallback"
-        @scheduler.clear_timeout(args[0])
+        @scheduler.cancel_idle_callback(args[0])
       when "structuredClone"
         Dommy.structured_clone(args[0])
       when "matchMedia"
