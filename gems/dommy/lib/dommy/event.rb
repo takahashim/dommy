@@ -11,11 +11,13 @@ module Dommy
       return nil if type.nil? || cb.nil?
 
       list = listeners_for(type.to_s)
-      # Per spec, the same listener (by identity) registered on the
-      # same type is silently deduplicated.
-      return nil if list.any? { |entry| entry.listener.equal?(cb) }
+      entry = Listener.new(cb, options)
+      # Per spec, a listener is deduplicated by (type, callback, capture) — so
+      # the same function may be registered once as a capture and once as a
+      # bubble listener.
+      return nil if list.any? { |e| e.listener.equal?(cb) && e.capture? == entry.capture? }
 
-      list << Listener.new(cb, options)
+      list << entry
 
       # `{ signal: AbortSignal }` — when the signal aborts, auto-
       # remove the listener. Per spec, if the signal is already aborted
@@ -55,39 +57,73 @@ module Dommy
       raise TypeError, "dispatchEvent requires an Event, got #{event.class}" unless event.is_a?(Event)
 
       event.__internal_prepare_for_dispatch__(self)
-      path = if event.bubbles?
-        event.__js_get__("composed") ? composed_bubble_path(event) : event_bubble_path
-      else
-        [self]
-      end
 
+      # The full propagation path: the target plus its ancestors (root last).
+      # Capturing always traverses the ancestors regardless of `bubbles`.
+      path = event.__js_get__("composed") ? composed_bubble_path(event) : event_bubble_path
       event.__internal_record_path__(path) if event.respond_to?(:__internal_record_path__)
-      path.each do |target|
-        event.__internal_set_current_target__(target)
-        target.__internal_deliver_event__(event)
-        break if event.propagation_stopped?
+      ancestors = path[1..] || []
+
+      catch(:stop_propagation) do
+        # Capturing phase: root → … → parent, capture listeners only.
+        event.__internal_set_event_phase__(Event::CAPTURING_PHASE)
+        ancestors.reverse_each do |node|
+          deliver_at(node, event, :capture)
+        end
+
+        # At the target: both capture and bubble listeners.
+        event.__internal_set_event_phase__(Event::AT_TARGET)
+        deliver_at(self, event, :both)
+
+        # Bubbling phase: parent → … → root, bubble listeners only (only when
+        # the event bubbles).
+        if event.bubbles?
+          event.__internal_set_event_phase__(Event::BUBBLING_PHASE)
+          ancestors.each do |node|
+            deliver_at(node, event, :bubble)
+          end
+        end
       end
 
-      # WHATWG: after dispatch completes, currentTarget reverts to
-      # null and eventPhase reverts to NONE. Dommy derives
-      # eventPhase from currentTarget, so clearing it here covers
-      # both spec requirements.
+      # After dispatch, currentTarget reverts to null and eventPhase to NONE.
       event.__internal_set_current_target__(nil)
+      event.__internal_set_event_phase__(Event::NONE)
 
       !event.default_prevented?
     end
 
-    def __internal_deliver_event__(event)
+    # Deliver `event` to one node's listeners for the current phase, then honor
+    # stopPropagation (throws to end the whole walk after this node finishes).
+    def deliver_at(node, event, phase)
+      event.__internal_set_current_target__(node)
+      node.__internal_deliver_event__(event, phase)
+      throw :stop_propagation if event.propagation_stopped?
+    end
+
+    # `phase` is :capture (capture listeners), :bubble (non-capture), or :both
+    # (at the target). stopImmediatePropagation ends delivery within this node.
+    def __internal_deliver_event__(event, phase = :both)
       listeners = listeners_for(event.type).dup
       listeners.each do |entry|
+        next unless phase == :both || (phase == :capture ? entry.capture? : !entry.capture?)
+
         CallableInvoker.invoke_listener(entry.listener, event)
         if entry.once?
-          listeners_for(event.type).reject! { |candidate| candidate.listener.equal?(entry.listener) }
+          listeners_for(event.type).reject! do |candidate|
+            candidate.listener.equal?(entry.listener) && candidate.capture? == entry.capture?
+          end
         end
 
         break if event.immediate_propagation_stopped?
       end
 
+      nil
+    end
+
+    # The next target up the propagation path. The default (no parent) suits
+    # EventTargets that aren't tree nodes (AbortSignal, XHR, …); Element /
+    # Document / ShadowRoot override it to walk the node tree.
+    def __internal_event_parent__
       nil
     end
 
@@ -102,6 +138,18 @@ module Dommy
           false
         end
       end
+
+      # useCapture: a boolean third argument, or `{capture: …}` in the options
+      # dictionary. A capture listener fires in the capturing phase; a non-capture
+      # listener in the bubbling phase (both at the target).
+      def capture?
+        case options
+        when Hash
+          !!(options["capture"] || options[:capture])
+        else
+          !!options
+        end
+      end
     end
 
     def listeners_for(type)
@@ -112,7 +160,7 @@ module Dommy
     def event_bubble_path
       path = [self]
       current = self
-      while (current = current.send(:__internal_event_parent__))
+      while (current = current.__send__(:__internal_event_parent__))
         path << current
       end
 
@@ -127,7 +175,7 @@ module Dommy
       path = [self]
       current = self
       loop do
-        nxt = current.send(:__internal_event_parent__)
+        nxt = current.__send__(:__internal_event_parent__)
         if nxt.nil? && event.respond_to?(:__js_get__) && event.__js_get__("composed")
           # Try to cross a shadow boundary
           if current.is_a?(ShadowRoot)
@@ -188,6 +236,11 @@ module Dommy
   end
 
   class Event
+    NONE = 0
+    CAPTURING_PHASE = 1
+    AT_TARGET = 2
+    BUBBLING_PHASE = 3
+
     def initialize(type, init = nil)
       @type = type.to_s
       @bubbles = !!read_init(init, "bubbles")
@@ -198,6 +251,7 @@ module Dommy
       @immediate_propagation_stopped = false
       @target = nil
       @current_target = nil
+      @event_phase = NONE
       @composed_path = []
       # `timeStamp` is the high-resolution timestamp at construction
       # in ms (browser uses performance.now). We use monotonic time
@@ -231,6 +285,10 @@ module Dommy
       @current_target = target
     end
 
+    def __internal_set_event_phase__(phase)
+      @event_phase = phase
+    end
+
     def __js_get__(key)
       case key
       when "type"
@@ -243,6 +301,12 @@ module Dommy
         @composed
       when "defaultPrevented"
         @default_prevented
+      when "returnValue"
+        # Legacy alias: false once the default has been prevented, else true.
+        !@default_prevented
+      when "isTrusted"
+        # Script-created/dispatched events are never trusted.
+        false
       when "target"
         @target
       when "currentTarget"
@@ -262,6 +326,10 @@ module Dommy
         # Setting to truthy stops propagation; spec quirk that
         # `cancelBubble = false` does NOT un-stop (browser observation).
         @propagation_stopped = true if value
+      when "returnValue"
+        # Legacy alias: returnValue = false cancels the event (like
+        # preventDefault); a truthy value does not un-cancel.
+        @default_prevented = true if !value && @cancelable
       else
         return Bridge::UNHANDLED
       end
@@ -320,12 +388,7 @@ module Dommy
     private
 
     def event_phase
-      # 0 = NONE (default), 2 = AT_TARGET, 3 = BUBBLING_PHASE. We don't
-      # implement capturing (phase 1) by design.
-      return 0 if @current_target.nil?
-      return 2 if @current_target.equal?(@target)
-
-      3
+      @event_phase
     end
 
     public

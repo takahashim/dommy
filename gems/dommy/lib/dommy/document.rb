@@ -100,14 +100,40 @@ module Dommy
       DocumentType.new(qualified_name, public_id, system_id)
     end
 
+    # createDocument(namespace, qualifiedName, doctype?) — a fresh XML document,
+    # with a document element (namespace, qualifiedName) when qualifiedName is
+    # non-empty. (The doctype argument is accepted but not stored, as document
+    # equality compares only structure that survives wrap_node.)
+    def create_document(namespace, qualified_name, _doctype = nil)
+      doc = Document.new(nil, nokogiri_doc: Backend.document_class.new)
+      qn = qualified_name.to_s
+      unless qn.empty?
+        el = doc.send(:create_element_ns, namespace, qualified_name)
+        doc.nokogiri_doc.root = el.__dommy_backend_node__
+      end
+      doc
+    end
+
+    # createHTMLDocument(title?) — a fresh HTML document (doctype + html > head,
+    # body), with an optional <title>.
+    def create_html_document(title = nil)
+      doc = Document.new(nil, nokogiri_doc: Backend.parse("<!DOCTYPE html><html><head></head><body></body></html>"))
+      doc.title = title.to_s unless title.nil? || title.equal?(Bridge::UNDEFINED)
+      doc
+    end
+
     def __js_get__(_key) = nil
 
     include Bridge::Methods
-    js_methods %w[createDocumentType]
+    js_methods %w[createDocumentType createDocument createHTMLDocument]
     def __js_call__(method, args)
       case method
       when "createDocumentType"
         create_document_type(args[0], args[1], args[2])
+      when "createDocument"
+        create_document(args[0], args[1], args[2])
+      when "createHTMLDocument"
+        create_html_document(args[0])
       end
     end
   end
@@ -440,6 +466,15 @@ module Dommy
       ProcessingInstruction.new(target, data)
     end
 
+    # Append a node as a child of the document itself (e.g. a comment alongside
+    # the document element). Adopts the node into this document.
+    def append_child(node)
+      return node unless node.respond_to?(:__dommy_backend_node__)
+
+      @nokogiri_doc.add_child(node.__dommy_backend_node__)
+      node
+    end
+
     # Delegate to CookieJar
 
     def cookie
@@ -593,12 +628,14 @@ module Dommy
       getElementsByClassName getElementsByTagName getElementsByName createAttribute
       createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
-      removeEventListener dispatchEvent write open close isEqualNode
+      removeEventListener dispatchEvent write open close isEqualNode appendChild
     ]
     def __js_call__(method, args)
       case method
       when "isEqualNode"
         is_equal_node(args[0])
+      when "appendChild"
+        append_child(args[0])
       when "exitFullscreen"
         exit_fullscreen
       when "startViewTransition"
