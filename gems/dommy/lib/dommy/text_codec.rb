@@ -10,11 +10,12 @@ module Dommy
       "utf-8"
     end
 
-    # encode(string) → Array<Integer> (bytes).
-    # Browsers return a Uint8Array; Dommy returns the equivalent Ruby
-    # byte array since there is no typed-array layer.
+    # encode(string) → Uint8Array (UTF-8 bytes). Lone surrogates in the input
+    # have already been replaced with U+FFFD when the JS string crossed into Ruby
+    # (Ruby strings can't hold them), matching the spec's USVString conversion.
     def encode(input = "")
-      input.to_s.encode(Encoding::UTF_8).bytes
+      str = input.equal?(Bridge::UNDEFINED) ? "" : input.to_s
+      Bridge::Bytes.new(str.encode(Encoding::UTF_8, invalid: :replace, undef: :replace).bytes)
     end
 
     def __js_get__(key)
@@ -36,33 +37,46 @@ module Dommy
   #
   # Spec: https://encoding.spec.whatwg.org/#textdecoder
   class TextDecoder
-    def initialize(label = "utf-8", _options = nil)
+    def initialize(label = "utf-8", options = nil)
+      label = "utf-8" if label.nil? || label.equal?(Bridge::UNDEFINED)
       @encoding = normalize_encoding(label.to_s)
+      opts = options.is_a?(Hash) ? options : {}
+      @fatal = truthy?(opts["fatal"] || opts[:fatal])
+      @ignore_bom = truthy?(opts["ignoreBOM"] || opts[:ignoreBOM])
     end
 
-    def encoding
-      @encoding
-    end
+    attr_reader :encoding
 
-    # decode(bytes) → String. Accepts Array<Integer> (byte values),
-    # a binary String, or anything responding to to_a/bytes.
-    def decode(input = nil, _options = nil)
-      return "" if input.nil?
+    def fatal? = @fatal
+    def ignore_bom? = @ignore_bom
 
-      bytes = case input
-      when String
-        input.b
-      when Array
-        input.pack("C*")
+    # decode(bytes, {stream}) → String. Accepts a Bytes buffer (JS ArrayBuffer /
+    # TypedArray), an Array<Integer>, or a binary String. With `fatal: true` an
+    # invalid sequence throws a TypeError; otherwise it is replaced with U+FFFD.
+    # A leading BOM is stripped unless `ignoreBOM` was set.
+    def decode(input = nil, options = nil)
+      stream = options.is_a?(Hash) && truthy?(options["stream"] || options[:stream])
+      bytes = extract_bytes(input)
+
+      if @encoding == "utf-8"
+        decode_utf8(bytes, stream)
       else
-        input.respond_to?(:to_a) ? input.to_a.pack("C*") : input.to_s
-      end
+        # Non-UTF-8 (utf-16le/be, iso-8859-1): no streaming/exact-FFFD semantics,
+        # best-effort via Ruby's transcoder.
+        bytes = strip_bom(bytes) unless @ignore_bom
+        raw = bytes.force_encoding(ruby_encoding)
+        raise Bridge::TypeError, "decode failed" if @fatal && !raw.valid_encoding?
 
-      bytes.force_encoding(ruby_encoding).encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
+        raw.encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
+      end
     end
 
     def __js_get__(key)
-      key == "encoding" ? encoding : nil
+      case key
+      when "encoding" then @encoding
+      when "fatal" then @fatal
+      when "ignoreBOM" then @ignore_bom
+      end
     end
 
     include Bridge::Methods
@@ -75,6 +89,124 @@ module Dommy
     end
 
     private
+
+    def extract_bytes(input)
+      return "".b if input.nil? || input.equal?(Bridge::UNDEFINED)
+
+      case input
+      when Bridge::Bytes then input.pack_bytes
+      when String then input.b
+      when Array then input.pack("C*")
+      else input.respond_to?(:to_a) ? input.to_a.pack("C*") : input.to_s.b
+      end
+    end
+
+    # WHATWG "UTF-8 decoder" — a stateful machine so streaming chunks, exact
+    # U+FFFD placement, and end-of-queue flushing match the spec (Ruby's
+    # transcoder replaces per-byte, which is wrong at sequence boundaries).
+    # State persists on the decoder across `{stream: true}` calls.
+    def decode_utf8(bytes, stream)
+      @u8_needed ||= 0
+      @u8_seen ||= 0
+      @u8_cp ||= 0
+      @u8_lower ||= 0x80
+      @u8_upper ||= 0xBF
+
+      out = []
+      queue = bytes.bytes
+      queue.shift(3) if !@u8_started && !@ignore_bom && queue[0, 3] == [0xEF, 0xBB, 0xBF]
+      @u8_started = true
+
+      until queue.empty?
+        byte = queue.shift
+        if @u8_needed.zero?
+          if byte <= 0x7F
+            out << byte
+          elsif byte.between?(0xC2, 0xDF)
+            @u8_needed = 1
+            @u8_cp = byte & 0x1F
+          elsif byte.between?(0xE0, 0xEF)
+            @u8_lower = 0xA0 if byte == 0xE0
+            @u8_upper = 0x9F if byte == 0xED
+            @u8_needed = 2
+            @u8_cp = byte & 0x0F
+          elsif byte.between?(0xF0, 0xF4)
+            @u8_lower = 0x90 if byte == 0xF0
+            @u8_upper = 0x8F if byte == 0xF4
+            @u8_needed = 3
+            @u8_cp = byte & 0x07
+          else
+            out << utf8_error
+          end
+          next
+        end
+
+        unless byte.between?(@u8_lower, @u8_upper)
+          # Invalid continuation: emit an error and REPROCESS this byte.
+          reset_utf8_state
+          out << utf8_error
+          queue.unshift(byte)
+          next
+        end
+
+        @u8_lower = 0x80
+        @u8_upper = 0xBF
+        @u8_cp = (@u8_cp << 6) | (byte & 0x3F)
+        @u8_seen += 1
+        next unless @u8_seen == @u8_needed
+
+        out << @u8_cp
+        reset_utf8_state
+      end
+
+      unless stream
+        if @u8_needed != 0
+          reset_utf8_state
+          out << utf8_error
+        end
+        @u8_started = false
+      end
+
+      out.pack("U*")
+    end
+
+    # In fatal mode an error throws a TypeError; otherwise it is the U+FFFD
+    # replacement code point.
+    def utf8_error
+      raise Bridge::TypeError, "The encoded data was not valid for encoding utf-8" if @fatal
+
+      0xFFFD
+    end
+
+    def reset_utf8_state
+      @u8_needed = 0
+      @u8_seen = 0
+      @u8_cp = 0
+      @u8_lower = 0x80
+      @u8_upper = 0xBF
+    end
+
+    # JS ToBoolean for an option-bag value (false/nil/undefined/0/"" are falsy).
+    def truthy?(value)
+      return false if value.nil? || value == false || value == 0 || value == ""
+      return false if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
+
+      true
+    end
+
+    # Remove a leading byte-order mark matching this decoder's encoding.
+    def strip_bom(bytes)
+      case @encoding
+      when "utf-8"
+        bytes.start_with?("\xEF\xBB\xBF".b) ? bytes.byteslice(3..) : bytes
+      when "utf-16le"
+        bytes.start_with?("\xFF\xFE".b) ? bytes.byteslice(2..) : bytes
+      when "utf-16be"
+        bytes.start_with?("\xFE\xFF".b) ? bytes.byteslice(2..) : bytes
+      else
+        bytes
+      end
+    end
 
     def normalize_encoding(label)
       l = label.downcase.strip

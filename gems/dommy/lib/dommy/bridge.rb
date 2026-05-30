@@ -37,6 +37,22 @@ module Dommy
     def UNDEFINED.inspect = "#<Dommy::Bridge::UNDEFINED>"
     UNDEFINED.freeze
 
+    # A byte buffer that crosses the JS boundary as a `Uint8Array` (rather than a
+    # plain Array). Wrap a host method's byte-array result in this so JS sees a
+    # real typed array — e.g. `TextEncoder#encode`, `Blob#arrayBuffer`. The
+    # reverse direction (a JS ArrayBuffer/TypedArray argument) arrives as a
+    # `Bytes` too. It subclasses Array so plain-Array callers (and `== [..]`
+    # comparisons) keep working; only the bridge treats it specially.
+    class Bytes < ::Array
+      def initialize(bytes = [])
+        super()
+        concat(Array(bytes).map { |b| b.to_i & 0xFF })
+      end
+
+      alias bytes to_a
+      def pack_bytes = pack("C*")
+    end
+
     # A Ruby-side signal that the JS boundary should surface a JS `TypeError`
     # (not a `DOMException`). Some WebIDL operations — notably the `URL`
     # constructor and its `href` setter — throw `TypeError` on failure rather
