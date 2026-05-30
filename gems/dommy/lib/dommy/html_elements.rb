@@ -1535,43 +1535,8 @@ module Dommy
 
   # `<optgroup>` — label + disabled, container for options.
   class HTMLOptGroupElement < HTMLElement
-    def label
-      reflected_string("label")
-    end
-
-    def label=(v)
-      set_reflected_string("label", v)
-    end
-
-    def disabled
-      reflected_boolean("disabled")
-    end
-
-    def disabled=(v)
-      set_reflected_boolean("disabled", v)
-    end
-
-    def __js_get__(key)
-      case key
-      when "label"
-        label
-      when "disabled"
-        disabled
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, v)
-      case key
-      when "label"
-        self.label = v
-      when "disabled"
-        self.disabled = v
-      else
-        super
-      end
-    end
+    reflect_string :label
+    reflect_boolean :disabled
   end
 
   # `<textarea>` — multi-line text input.
@@ -3828,117 +3793,15 @@ module Dommy
   end
 
   class HTMLTimeElement < HTMLElement
-    def date_time
-      reflected_string("datetime")
-    end
-
-    def date_time=(v)
-      set_reflected_string("datetime", v)
-    end
-
-    def __js_get__(key)
-      key == "dateTime" ? date_time : super
-    end
-
-    def __js_set__(key, value)
-      key == "dateTime" ? (self.date_time = value) : super
-    end
+    reflect_string date_time: "datetime"
   end
 
   class HTMLDataElement < HTMLElement
-    def value
-      reflected_string("value")
-    end
-
-    def value=(v)
-      set_reflected_string("value", v)
-    end
-
-    def __js_get__(key)
-      key == "value" ? value : super
-    end
-
-    def __js_set__(key, value)
-      key == "value" ? (self.value = value) : super
-    end
+    reflect_string :value
   end
 
   class HTMLAreaElement < HTMLElement
-    def alt
-      reflected_string("alt")
-    end
-
-    def alt=(v)
-      set_reflected_string("alt", v)
-    end
-
-    def coords
-      reflected_string("coords")
-    end
-
-    def coords=(v)
-      set_reflected_string("coords", v)
-    end
-
-    def shape
-      reflected_string("shape")
-    end
-
-    def shape=(v)
-      set_reflected_string("shape", v)
-    end
-
-    def href
-      reflected_string("href")
-    end
-
-    def href=(v)
-      set_reflected_string("href", v)
-    end
-
-    def target
-      reflected_string("target")
-    end
-
-    def target=(v)
-      set_reflected_string("target", v)
-    end
-
-    def rel
-      reflected_string("rel")
-    end
-
-    def rel=(v)
-      set_reflected_string("rel", v)
-    end
-
-    def __js_get__(key)
-      case key
-      when "alt"
-        alt
-      when "coords"
-        coords
-      when "shape"
-        shape
-      when "href"
-        href
-      when "target"
-        target
-      when "rel"
-        rel
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "alt", "coords", "shape", "href", "target", "rel"
-        set_reflected_string(key, value)
-      else
-        super
-      end
-    end
+    reflect_string :alt, :coords, :shape, :href, :target, :rel
   end
 
   class HTMLMapElement < HTMLElement
@@ -4131,101 +3994,11 @@ module Dommy
   end
 
   class HTMLBaseElement < HTMLElement
-    def href
-      reflected_string("href")
-    end
-
-    def href=(v)
-      set_reflected_string("href", v)
-    end
-
-    def target
-      reflected_string("target")
-    end
-
-    def target=(v)
-      set_reflected_string("target", v)
-    end
-
-    def __js_get__(key)
-      case key
-      when "href"
-        href
-      when "target"
-        target
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "href", "target"
-        set_reflected_string(key, value)
-      else
-        super
-      end
-    end
+    reflect_string :href, :target
   end
 
   class HTMLMetaElement < HTMLElement
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def content
-      reflected_string("content")
-    end
-
-    def content=(v)
-      set_reflected_string("content", v)
-    end
-
-    def charset
-      reflected_string("charset")
-    end
-
-    def charset=(v)
-      set_reflected_string("charset", v)
-    end
-
-    def http_equiv
-      reflected_string("http-equiv")
-    end
-
-    def http_equiv=(v)
-      set_reflected_string("http-equiv", v)
-    end
-
-    def __js_get__(key)
-      case key
-      when "name"
-        name
-      when "content"
-        content
-      when "charset"
-        charset
-      when "httpEquiv"
-        http_equiv
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "name", "content", "charset"
-        set_reflected_string(key, value)
-      when "httpEquiv"
-        set_reflected_string("http-equiv", value)
-      else
-        super
-      end
-    end
+    reflect_string :name, :content, :charset, http_equiv: "http-equiv"
   end
 
   class HTMLStyleElement < HTMLElement
@@ -4311,61 +4084,11 @@ module Dommy
   end
 
   class HTMLQuoteElement < HTMLElement
-    def cite
-      reflected_string("cite")
-    end
-
-    def cite=(v)
-      set_reflected_string("cite", v)
-    end
-
-    def __js_get__(key)
-      key == "cite" ? cite : super
-    end
-
-    def __js_set__(key, value)
-      key == "cite" ? (self.cite = value) : super
-    end
+    reflect_string :cite
   end
 
   class HTMLModElement < HTMLElement
-    def cite
-      reflected_string("cite")
-    end
-
-    def cite=(v)
-      set_reflected_string("cite", v)
-    end
-
-    def date_time
-      reflected_string("datetime")
-    end
-
-    def date_time=(v)
-      set_reflected_string("datetime", v)
-    end
-
-    def __js_get__(key)
-      case key
-      when "cite"
-        cite
-      when "dateTime"
-        date_time
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "cite"
-        self.cite = value
-      when "dateTime"
-        self.date_time = value
-      else
-        super
-      end
-    end
+    reflect_string :cite, date_time: "datetime"
   end
 
   # Identity-only subclasses — useful for `instanceof` / `is_a?` checks
