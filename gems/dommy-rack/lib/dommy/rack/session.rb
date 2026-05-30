@@ -7,8 +7,8 @@ require "tmpdir"
 module Dommy
   module Rack
     # A single browser-like session over a Rack application. Owns the current
-    # URL, document, cookie jar, and history; delegates URL/redirect logic to
-    # Navigation and form data collection to FormSubmission.
+    # URL, document, cookie jar, persistent header store, and history; delegates
+    # URL/redirect logic to Navigation and form data collection to FormSubmission.
     class Session
       DEFAULT_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
@@ -44,13 +44,13 @@ module Dommy
           follow_meta_refresh: follow_meta_refresh
         ).freeze
         @cookie_jar = CookieJar.new
+        @headers = HeaderStore.new
         @navigation = Navigation.new(self, @config)
         @history = History.new
         @current_url = nil
         @current_window = nil
         @last_request = nil
         @last_response = nil
-        @default_headers = {}
         @scope_stack = []
         @request_listeners = []
         @response_listeners = []
@@ -141,27 +141,28 @@ module Dommy
 
       # A copy of the headers currently sent on every request. Mutate via
       # #set_header / #delete_header rather than this hash.
-      def default_headers = @default_headers.dup
+      def default_headers = @headers.to_h
 
       def set_header(name, value)
-        @default_headers[name.to_s] = value.to_s
+        @headers.set(name, value)
         self
       end
 
       def delete_header(name)
-        target = name.to_s.downcase
-        @default_headers.delete_if { |key, _| key.downcase == target }
+        @headers.delete(name)
         self
       end
 
       # HTTP Basic auth: sets a persistent Authorization header.
       def basic_auth(user, password)
-        set_header("Authorization", "Basic #{["#{user}:#{password}"].pack("m0")}")
+        @headers.basic_auth(user, password)
+        self
       end
 
       # Bearer-token auth: sets a persistent Authorization header.
       def authorization_bearer(token)
-        set_header("Authorization", "Bearer #{token}")
+        @headers.bearer(token)
+        self
       end
 
       # --- Fetch API (returns Response; does NOT change document or history) ---
@@ -381,7 +382,7 @@ module Dommy
           url: absolute_url,
           params: params,
           body: body,
-          headers: merge_headers(@default_headers, headers),
+          headers: @headers.merge(headers),
           cookie_string: @cookie_jar.cookies_for(absolute_url)
         )
         @last_request = env
@@ -507,19 +508,6 @@ module Dommy
         scope_root&.get_element_by_id(locator) ||
           scope_root&.query_selector("iframe[name='#{locator}'], frame[name='#{locator}']") ||
           scope_root&.query_selector(locator)
-      end
-
-      # Merge request headers case-insensitively; per-request values override
-      # persistent defaults even when the names differ only in case.
-      def merge_headers(base, override)
-        return base.dup if override.nil? || override.empty?
-
-        merged = base.dup
-        override.each do |name, value|
-          merged.delete_if { |existing, _| existing.to_s.downcase == name.to_s.downcase }
-          merged[name] = value
-        end
-        merged
       end
 
       # A <button> defaults to type=submit; an <input> submits only for
