@@ -62,6 +62,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[randomUUID getRandomValues]
     def __js_call__(method, args)
       case method
       when "randomUUID"
@@ -230,6 +232,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[digest generateKey importKey sign verify encrypt decrypt]
     def __js_call__(method, args)
       case method
       when "digest"

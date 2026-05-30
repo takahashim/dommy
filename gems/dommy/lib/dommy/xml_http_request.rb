@@ -218,6 +218,11 @@ module Dommy
       nil
     end
 
+    include Bridge::Methods
+    js_methods %w[
+      open send setRequestHeader abort getResponseHeader getAllResponseHeaders overrideMimeType
+      addEventListener removeEventListener dispatchEvent
+    ]
     def __js_call__(method, args)
       case method
       when "open"
@@ -422,6 +427,8 @@ module Dommy
   class XMLHttpRequestUpload
     include EventTarget
 
+    include Bridge::Methods
+    js_methods %w[addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "addEventListener"

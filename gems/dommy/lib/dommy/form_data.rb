@@ -108,12 +108,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[append set get getAll has delete keys values entries forEach].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[append set get getAll has delete keys values entries forEach]
     def __js_call__(method, args)
       case method
       when "append"

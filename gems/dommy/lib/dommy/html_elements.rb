@@ -155,11 +155,6 @@ module Dommy
   # validation surface.
   class HTMLFormElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[submit reset requestSubmit checkValidity reportValidity].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def name
       reflected_string("name")
     end
@@ -332,6 +327,7 @@ module Dommy
       end
     end
 
+    js_methods %w[submit reset requestSubmit checkValidity reportValidity]
     def __js_call__(method, args)
       case method
       when "submit"
@@ -353,14 +349,6 @@ module Dommy
   # `<input>` — covers the most-used form control surface.
   class HTMLInputElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[
-      select setSelectionRange setRangeText stepUp stepDown
-      checkValidity reportValidity setCustomValidity
-    ].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def type
       raw = @__node__["type"].to_s
       raw.empty? ? "text" : raw.downcase
@@ -672,6 +660,10 @@ module Dommy
       end
     end
 
+    js_methods %w[
+      select setSelectionRange setRangeText stepUp stepDown checkValidity reportValidity
+      setCustomValidity
+    ]
     def __js_call__(method, args)
       case method
       when "select"
@@ -1585,13 +1577,6 @@ module Dommy
   # `<textarea>` — multi-line text input.
   class HTMLTextAreaElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[
-      select setSelectionRange setRangeText checkValidity reportValidity setCustomValidity
-    ].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def value
       @__node__["value"] || text_content
     end
@@ -1787,6 +1772,9 @@ module Dommy
       end
     end
 
+    js_methods %w[
+      select setSelectionRange setRangeText checkValidity reportValidity setCustomValidity
+    ]
     def __js_call__(method, args)
       case method
       when "select"
@@ -2055,11 +2043,6 @@ module Dommy
   # assigned, the slot's own children render as fallback content.
   class HTMLSlotElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[assignedNodes assignedElements assign].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def name
       reflected_string("name")
     end
@@ -2118,6 +2101,7 @@ module Dommy
       end
     end
 
+    js_methods %w[assignedNodes assignedElements assign]
     def __js_call__(method, args)
       case method
       when "assignedNodes"
@@ -2169,11 +2153,6 @@ module Dommy
   # happy-dom's full HTMLSelectElement, but covers common test cases.
   class HTMLSelectElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[item add checkValidity reportValidity setCustomValidity].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def name
       reflected_string("name")
     end
@@ -2380,6 +2359,7 @@ module Dommy
       end
     end
 
+    js_methods %w[item add checkValidity reportValidity setCustomValidity]
     def __js_call__(method, args)
       case method
       when "item"
@@ -2403,11 +2383,6 @@ module Dommy
   # functionally identical to show (no backdrop, no escape-to-close).
   class HTMLDialogElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[show showModal close].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def open
       reflected_boolean("open")
     end
@@ -2463,6 +2438,7 @@ module Dommy
       end
     end
 
+    js_methods %w[show showModal close]
     def __js_call__(method, args)
       case method
       when "show"
@@ -2780,11 +2756,6 @@ module Dommy
   # the enclosing thead/tbody/tfoot.
   class HTMLTableRowElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[insertCell deleteCell].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def cells
       el = self
       HTMLCollection.new do
@@ -2844,6 +2815,7 @@ module Dommy
       end
     end
 
+    js_methods %w[insertCell deleteCell]
     def __js_call__(method, args)
       case method
       when "insertCell"
@@ -2860,11 +2832,6 @@ module Dommy
   # collection + insertRow / deleteRow.
   class HTMLTableSectionElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[insertRow deleteRow].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def rows
       el = self
       HTMLCollection.new do
@@ -2898,6 +2865,7 @@ module Dommy
       key == "rows" ? rows : super
     end
 
+    js_methods %w[insertRow deleteRow]
     def __js_call__(method, args)
       case method
       when "insertRow"
@@ -2920,14 +2888,6 @@ module Dommy
   # creates one); `deleteRow` works against the merged `rows` list.
   class HTMLTableElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[
-      insertRow deleteRow createCaption deleteCaption createTHead deleteTHead
-      createTFoot deleteTFoot createTBody
-    ].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     def caption
       @__node__.element_children.find { |n| n.name == "caption" }&.then { |n| @document.wrap_node(n) }
     end
@@ -3098,6 +3058,10 @@ module Dommy
       end
     end
 
+    js_methods %w[
+      insertRow deleteRow createCaption deleteCaption createTHead deleteTHead createTFoot
+      deleteTFoot createTBody
+    ]
     def __js_call__(method, args)
       case method
       when "insertRow"
@@ -3129,11 +3093,6 @@ module Dommy
   # a resolved Promise, and `pause()` flips `paused` back to true.
   class HTMLMediaElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    JS_METHOD_NAMES = %w[play pause load canPlayType].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
     NETWORK_EMPTY = 0
     NETWORK_IDLE = 1
     NETWORK_LOADING = 2
@@ -3378,6 +3337,7 @@ module Dommy
       end
     end
 
+    js_methods %w[play pause load canPlayType]
     def __js_call__(method, args)
       case method
       when "play"

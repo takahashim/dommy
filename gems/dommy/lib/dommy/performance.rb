@@ -93,6 +93,10 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[
+      now mark measure clearMarks clearMeasures getEntries getEntriesByName getEntriesByType
+    ]
     def __js_call__(method, args)
       case method
       when "now"

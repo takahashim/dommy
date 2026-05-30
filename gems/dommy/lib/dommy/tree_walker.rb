@@ -170,12 +170,8 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[nextNode previousNode parentNode firstChild lastChild nextSibling previousSibling].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[nextNode previousNode parentNode firstChild lastChild nextSibling previousSibling]
     def __js_call__(method, _args)
       case method
       when "nextNode"
@@ -353,12 +349,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[nextNode previousNode detach].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[nextNode previousNode detach]
     def __js_call__(method, _args)
       case method
       when "nextNode"

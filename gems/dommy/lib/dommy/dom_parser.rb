@@ -34,12 +34,8 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[parseFromString].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[parseFromString]
     def __js_call__(method, args)
       case method
       when "parseFromString"
@@ -85,12 +81,8 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[serializeToString].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[serializeToString]
     def __js_call__(method, args)
       case method
       when "serializeToString"

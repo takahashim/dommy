@@ -298,12 +298,8 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[toString toJSON].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[toString toJSON]
     def __js_call__(method, _args)
       case method
       when "toString", "toJSON"
@@ -673,12 +669,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[get getAll has set append delete sort toString forEach keys values entries].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[get getAll has set append delete sort toString forEach keys values entries]
     def __js_call__(method, args)
       case method
       when "get"

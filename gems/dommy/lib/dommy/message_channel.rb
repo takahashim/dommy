@@ -107,6 +107,8 @@ module Dommy
       nil
     end
 
+    include Bridge::Methods
+    js_methods %w[postMessage start close addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "postMessage"
@@ -231,6 +233,8 @@ module Dommy
       nil
     end
 
+    include Bridge::Methods
+    js_methods %w[postMessage close addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "postMessage"

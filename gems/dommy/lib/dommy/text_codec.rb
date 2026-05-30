@@ -21,6 +21,8 @@ module Dommy
       key == "encoding" ? encoding : nil
     end
 
+    include Bridge::Methods
+    js_methods %w[encode]
     def __js_call__(method, args)
       case method
       when "encode"
@@ -63,6 +65,8 @@ module Dommy
       key == "encoding" ? encoding : nil
     end
 
+    include Bridge::Methods
+    js_methods %w[decode]
     def __js_call__(method, args)
       case method
       when "decode"

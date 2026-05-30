@@ -106,6 +106,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[share canShare vibrate getBattery]
     def __js_call__(method, args)
       case method
       when "share"
@@ -174,6 +176,8 @@ module Dommy
       Bridge::UNHANDLED
     end
 
+    include Bridge::Methods
+    js_methods %w[readText writeText read write addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "readText"
@@ -262,6 +266,8 @@ module Dommy
       Bridge::UNHANDLED
     end
 
+    include Bridge::Methods
+    js_methods %w[query]
     def __js_call__(method, args)
       case method
       when "query"
@@ -318,6 +324,8 @@ module Dommy
       nil
     end
 
+    include Bridge::Methods
+    js_methods %w[addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "addEventListener"
@@ -395,6 +403,8 @@ module Dommy
 
     alias clearWatch clear_watch
 
+    include Bridge::Methods
+    js_methods %w[getCurrentPosition watchPosition clearWatch]
     def __js_call__(method, args)
       case method
       when "getCurrentPosition"
@@ -441,6 +451,8 @@ module Dommy
       PromiseValue.resolve(@window, WakeLockSentinel.new(@window, type.to_s))
     end
 
+    include Bridge::Methods
+    js_methods %w[request]
     def __js_call__(method, args)
       case method
       when "request"
@@ -481,6 +493,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[release]
     def __js_call__(method, _args)
       case method
       when "release"
@@ -563,6 +577,8 @@ module Dommy
       PromiseValue.resolve(@window, {"held" => held, "pending" => []})
     end
 
+    include Bridge::Methods
+    js_methods %w[request query]
     def __js_call__(method, args)
       case method
       when "request"
@@ -619,6 +635,8 @@ module Dommy
       PromiseValue.resolve(@window, @persisted)
     end
 
+    include Bridge::Methods
+    js_methods %w[estimate persist persisted]
     def __js_call__(method, _args)
       case method
       when "estimate"

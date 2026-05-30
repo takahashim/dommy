@@ -125,6 +125,8 @@ module Dommy
       nil
     end
 
+    include Bridge::Methods
+    js_methods %w[insertRule deleteRule replaceSync replace]
     def __js_call__(method, args)
       case method
       when "insertRule"
@@ -196,6 +198,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[item]
     def __js_call__(method, args)
       case method
       when "item"
@@ -284,14 +288,11 @@ module Dommy
   # `window.CSS` namespace object — `escape()` for safe selector building
   # (used by Turbo and friends) and a `supports()` stub (no CSS engine).
   class CSSNamespace
-    JS_METHOD_NAMES = %w[escape supports].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
     def __js_get__(_key) = nil
     def __js_set__(_key, _value) = Bridge::UNHANDLED
 
+    include Bridge::Methods
+    js_methods %w[escape supports]
     def __js_call__(method, args)
       case method
       when "escape"

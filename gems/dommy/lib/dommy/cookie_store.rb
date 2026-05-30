@@ -60,6 +60,8 @@ module Dommy
       PromiseValue.resolve(@window, nil)
     end
 
+    include Bridge::Methods
+    js_methods %w[get getAll set delete addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "get"

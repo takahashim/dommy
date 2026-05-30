@@ -99,12 +99,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[item namedItem].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[item namedItem]
     def __js_call__(method, args)
       case method
       when "item"
@@ -202,11 +198,7 @@ module Dommy
     end
 
     # Adds add/remove on top of the inherited item/namedItem (else -> super).
-    JS_METHOD_NAMES = (HTMLCollection::JS_METHOD_NAMES + %w[add remove]).freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    js_methods %w[add remove]
     def __js_call__(method, args)
       case method
       when "add"

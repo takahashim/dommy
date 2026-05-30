@@ -163,12 +163,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[clone].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[clone]
     def __js_call__(method, _args)
       case method
       when "clone"
@@ -221,12 +217,8 @@ module Dommy
       Bridge::UNHANDLED
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[text json arrayBuffer blob clone].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[text json arrayBuffer blob clone]
     def __js_call__(method, _args)
       case method
       when "text"
@@ -286,12 +278,8 @@ module Dommy
       Bridge::UNHANDLED
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[get set append delete has keys values entries forEach].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[set append delete keys values get entries has forEach]
     def __js_call__(method, args)
       case method
       when "set"

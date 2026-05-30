@@ -69,6 +69,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[close addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "close"

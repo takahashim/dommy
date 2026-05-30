@@ -100,12 +100,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[cloneNode querySelector querySelectorAll getElementById appendChild].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild]
     def __js_call__(method, args)
       case method
       when "cloneNode"
@@ -263,12 +259,8 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[remove before after replaceWith].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[remove before after replaceWith]
     def __js_call__(method, args)
       case method
       when "remove"
@@ -375,11 +367,7 @@ module Dommy
     end
 
     # Own __js_call__ methods, on top of CharacterDataNode's.
-    JS_METHOD_NAMES = %w[cloneNode].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
+    js_methods %w[cloneNode]
     def __js_call__(method, args)
       case method
       when "cloneNode"
@@ -396,11 +384,7 @@ module Dommy
     end
 
     # Own __js_call__ methods, on top of CharacterDataNode's.
-    JS_METHOD_NAMES = %w[cloneNode].freeze
-    def __js_method_names__
-      super + JS_METHOD_NAMES
-    end
-
+    js_methods %w[cloneNode]
     def __js_call__(method, args)
       case method
       when "cloneNode"
@@ -504,12 +488,8 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[add remove contains toggle replace item].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[add remove contains toggle replace item]
     def __js_call__(method, args)
       case method
       when "add"
@@ -756,12 +736,8 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[setProperty removeProperty getPropertyValue item].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[setProperty removeProperty getPropertyValue item]
     def __js_call__(method, args)
       case method
       when "setProperty"
@@ -1784,8 +1760,8 @@ module Dommy
 
     public
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[
+    include Bridge::Methods
+    js_methods %w[
       getAttribute setAttribute hasAttribute removeAttribute getAttributeNames closest
       querySelector querySelectorAll getElementsByClassName getElementsByTagName
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches
@@ -1794,11 +1770,7 @@ module Dommy
       replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover
-    ].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    ]
     def __js_call__(method, args)
       case method
       when "getAttribute"

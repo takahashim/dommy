@@ -95,6 +95,11 @@ module Dommy
       nil
     end
 
+    include Bridge::Methods
+    js_methods %w[
+      readAsText readAsDataURL readAsArrayBuffer readAsBinaryString abort addEventListener
+      removeEventListener dispatchEvent
+    ]
     def __js_call__(method, args)
       case method
       when "readAsText"

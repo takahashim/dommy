@@ -102,6 +102,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[getReader cancel]
     def __js_call__(method, args)
       case method
       when "getReader"
@@ -158,6 +160,8 @@ module Dommy
       @stream.__internal_error__(reason)
     end
 
+    include Bridge::Methods
+    js_methods %w[enqueue close error]
     def __js_call__(method, args)
       case method
       when "enqueue"
@@ -192,6 +196,8 @@ module Dommy
       @stream.cancel(reason)
     end
 
+    include Bridge::Methods
+    js_methods %w[read releaseLock cancel]
     def __js_call__(method, args)
       case method
       when "read"
@@ -251,6 +257,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[getWriter close abort]
     def __js_call__(method, args)
       case method
       when "getWriter"
@@ -295,6 +303,8 @@ module Dommy
       @stream.__internal_abort__(reason)
     end
 
+    include Bridge::Methods
+    js_methods %w[write close abort]
     def __js_call__(method, args)
       case method
       when "write"
@@ -372,6 +382,8 @@ module Dommy
       @readable.__internal_error__(reason)
     end
 
+    include Bridge::Methods
+    js_methods %w[enqueue terminate error]
     def __js_call__(method, args)
       case method
       when "enqueue"

@@ -63,11 +63,8 @@ module Dommy
 
     # Methods routed through __js_call__ (keep in sync with its when-arms).
     # File < Blob inherits these (it adds only properties).
-    JS_METHOD_NAMES = %w[slice text arrayBuffer].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[slice text arrayBuffer]
     def __js_call__(method, args)
       case method
       when "slice"
@@ -179,12 +176,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[item].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[item]
     def __js_call__(method, args)
       case method
       when "item"

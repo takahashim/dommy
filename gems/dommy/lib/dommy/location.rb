@@ -65,6 +65,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[assign replace reload toString]
     def __js_call__(method, args)
       case method
       when "assign", "replace"

@@ -205,6 +205,11 @@ module Dommy
       nil
     end
 
+    include Bridge::Methods
+    js_methods %w[
+      querySelector querySelectorAll getElementById append prepend replaceChildren appendChild
+      getRootNode contains addEventListener removeEventListener dispatchEvent
+    ]
     def __js_call__(method, args)
       case method
       when "querySelector"

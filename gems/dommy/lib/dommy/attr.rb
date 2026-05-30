@@ -74,12 +74,8 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[cloneNode].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[cloneNode]
     def __js_call__(method, _args)
       case method
       when "cloneNode"
@@ -183,12 +179,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[item getNamedItem setNamedItem removeNamedItem].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[item getNamedItem setNamedItem removeNamedItem]
     def __js_call__(method, args)
       case method
       when "item"

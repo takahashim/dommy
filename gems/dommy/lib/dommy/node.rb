@@ -10,12 +10,6 @@ module Dommy
   # snapshots tree state at the time of the query, matching what
   # most happy-dom test patterns expect.
   class NodeList < Array
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[item forEach entries keys values].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
     # Spec-compliant: out-of-range returns nil, not raise (Array#[] is
     # close but we make negative indices fail too — DOM `item(-1)` is
     # nil, not Array#[-1]'s last element).
@@ -66,6 +60,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[item forEach entries keys values]
     def __js_call__(method, args)
       case method
       when "item"
@@ -93,12 +89,6 @@ module Dommy
   # (`length`, `item`, `for_each`) re-query on every call.
   class LiveNodeList
     include Enumerable
-
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[item forEach entries keys values].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
 
     def initialize(&block)
       @compute = block
@@ -181,6 +171,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[item forEach entries keys values]
     def __js_call__(method, args)
       case method
       when "item"

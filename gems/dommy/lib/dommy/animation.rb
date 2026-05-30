@@ -48,6 +48,8 @@ module Dommy
       end
     end
 
+    include Bridge::Methods
+    js_methods %w[getTiming updateTiming]
     def __js_call__(method, args)
       case method
       when "getTiming"
@@ -224,6 +226,10 @@ module Dommy
       nil
     end
 
+    include Bridge::Methods
+    js_methods %w[
+      play pause cancel finish reverse addEventListener removeEventListener dispatchEvent
+    ]
     def __js_call__(method, args)
       case method
       when "play"

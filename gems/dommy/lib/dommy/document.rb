@@ -493,19 +493,15 @@ module Dommy
       nil
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[
+    include Bridge::Methods
+    js_methods %w[
       exitFullscreen startViewTransition createElement createElementNS createTextNode
       createComment createDocumentFragment querySelector querySelectorAll getElementById
       getElementsByClassName getElementsByTagName getElementsByName createAttribute
-      createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode adoptNode
-      hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
+      createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode
+      adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
       removeEventListener dispatchEvent write open close
-    ].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    ]
     def __js_call__(method, args)
       case method
       when "exitFullscreen"
@@ -820,12 +816,8 @@ module Dommy
       end
     end
 
-    # Methods routed through __js_call__ (keep in sync with its when-arms).
-    JS_METHOD_NAMES = %w[skipTransition].freeze
-    def __js_method_names__
-      JS_METHOD_NAMES
-    end
-
+    include Bridge::Methods
+    js_methods %w[skipTransition]
     def __js_call__(method, _args)
       case method
       when "skipTransition"
