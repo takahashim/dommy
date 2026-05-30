@@ -176,6 +176,18 @@ module Dommy
       @content_type == "text/html"
     end
 
+    # `document.compatMode` — "CSS1Compat" in no-quirks mode, "BackCompat" in
+    # quirks mode. A missing doctype is quirks; a bare `<!DOCTYPE html>` (no
+    # public/system identifier) is no-quirks. (The full quirks algorithm keys off
+    # specific legacy public ids; this covers the common cases.)
+    def compat_mode
+      dt = @nokogiri_doc.internal_subset
+      return "BackCompat" unless dt
+      return "CSS1Compat" if dt.name.to_s.downcase == "html" && dt.external_id.nil?
+
+      "BackCompat"
+    end
+
     # ----- Public Ruby API (snake_case) -----
 
     def title
@@ -187,7 +199,8 @@ module Dommy
     end
 
     def document_element
-      wrap_node(@nokogiri_doc.at_css("html"))
+      # The document's root element — `<html>` for HTML, the actual root for XML.
+      wrap_node(@nokogiri_doc.root)
     end
 
     def head
@@ -575,7 +588,8 @@ module Dommy
       when "scrollingElement"
         wrap_node(@nokogiri_doc.at_css("html"))
       when "documentElement"
-        wrap_node(@nokogiri_doc.at_css("html"))
+        # The document's root element — `<html>` for HTML, the actual root for XML.
+        wrap_node(@nokogiri_doc.root)
       when "title"
         read_title
       when "cookie"
@@ -594,6 +608,8 @@ module Dommy
         origin
       when "contentType"
         content_type
+      when "compatMode"
+        compat_mode
       when "referrer"
         referrer
       when "links"

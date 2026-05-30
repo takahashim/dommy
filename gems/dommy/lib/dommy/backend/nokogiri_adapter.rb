@@ -21,6 +21,11 @@ module Dommy
         ::Nokogiri::HTML5(html.to_s, max_errors: 0)
       end
 
+      # Parse an XML string into an XML document (DOMParser "text/xml" etc.).
+      def parse_xml(xml)
+        ::Nokogiri::XML(xml.to_s)
+      end
+
       def fragment(html, owner_doc:)
         # owner_doc is unused by Nokogiri — the fragment carries its
         # own document. The Parser layer copies nodes into the target.

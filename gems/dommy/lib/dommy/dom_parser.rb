@@ -22,9 +22,11 @@ module Dommy
       when "text/html", ""
         parse_html(str)
       when "application/xhtml+xml", "application/xml", "text/xml", "image/svg+xml"
-        parse_xml(str)
+        parse_xml(str, mime_type.to_s.downcase)
       else
-        raise DOMException::TypeMismatchError, "Unsupported mime type: #{mime_type}"
+        # `type` is a WebIDL enum (DOMParserSupportedType); an out-of-enum value
+        # is a TypeError, not a DOMException.
+        raise Bridge::TypeError, "The provided value '#{mime_type}' is not a valid enum value of type DOMParserSupportedType."
       end
     end
 
@@ -50,10 +52,11 @@ module Dommy
       Document.new(nil, nokogiri_doc: nokogiri_doc)
     end
 
-    def parse_xml(str)
-      # Backends are HTML-only; parse XML input as HTML for now.
-      nokogiri_doc = Backend.parse(str.empty? ? "<html><body></body></html>" : str)
-      Document.new(nil, nokogiri_doc: nokogiri_doc)
+    def parse_xml(str, mime_type = "application/xml")
+      nokogiri_doc = Backend.parse_xml(str.empty? ? "<root/>" : str)
+      doc = Document.new(nil, nokogiri_doc: nokogiri_doc)
+      doc.content_type = mime_type
+      doc
     end
   end
 
@@ -61,18 +64,24 @@ module Dommy
   # XML output, SVG inlining, and "serialize this Element" patterns.
   # For HTML, prefer `Element#outer_html` directly.
   class XMLSerializer
+    # WHATWG "XML serialization" — produce XML (self-closing empty tags, real XML
+    # escaping) rather than the HTML serialization `outer_html` gives. Delegates
+    # to the backend's XML serializer (Nokogiri); namespace handling is whatever
+    # the backend produces. A Document serializes its root element.
     def serialize_to_string(node)
       return "" unless node
 
-      if node.respond_to?(:outer_html)
-        node.outer_html
-      elsif node.respond_to?(:__dommy_backend_node__)
-        node.__dommy_backend_node__.to_xml
-      elsif node.respond_to?(:to_xml)
-        node.to_xml
-      else
-        node.to_s
-      end
+      backend =
+        if node.respond_to?(:nokogiri_doc) && !node.respond_to?(:__dommy_backend_node__)
+          node.nokogiri_doc # a Document
+        elsif node.respond_to?(:__dommy_backend_node__)
+          node.__dommy_backend_node__
+        end
+      return node.to_s unless backend.respond_to?(:to_xml)
+
+      opts = ::Nokogiri::XML::Node::SaveOptions::AS_XML | ::Nokogiri::XML::Node::SaveOptions::NO_DECLARATION
+      target = backend.respond_to?(:root) && backend.respond_to?(:document?) && backend.document? ? backend.root : backend
+      target ? target.to_xml(save_with: opts) : ""
     end
 
     alias serializeToString serialize_to_string

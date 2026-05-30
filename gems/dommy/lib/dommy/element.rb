@@ -1391,18 +1391,26 @@ module Dommy
     end
 
     def insert_adjacent_html(position, html)
+      # Position is ASCII case-insensitive ("beforeBegin" == "beforebegin").
+      pos = position.to_s.downcase
+      unless %w[beforebegin afterbegin beforeend afterend].include?(pos)
+        raise DOMException::SyntaxError, "The value provided ('#{position}') is not one of 'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'."
+      end
+
       fragment = Parser.fragment(html.to_s, owner_doc: @__node__.document)
       nodes = fragment.children.to_a
-      case position.to_s
+      # `add_previous_sibling` inserts immediately before the anchor, so a forward
+      # walk preserves document order; `add_next_sibling` inserts immediately
+      # after, so afterend walks in reverse to keep order.
+      case pos
       when "beforebegin"
-        return nil unless @__node__.parent
-
-        nodes.reverse_each { |n| @__node__.add_previous_sibling(n) }
-        notify_child_list(added: nodes, target: @__node__.parent)
+        parent = insertion_parent!
+        nodes.each { |n| @__node__.add_previous_sibling(n) }
+        notify_child_list(added: nodes, target: parent)
       when "afterbegin"
         first = @__node__.children.first
         if first
-          nodes.reverse_each { |n| first.add_previous_sibling(n) }
+          nodes.each { |n| first.add_previous_sibling(n) }
         else
           nodes.each { |n| @__node__.add_child(n) }
         end
@@ -1412,13 +1420,25 @@ module Dommy
         nodes.each { |n| @__node__.add_child(n) }
         notify_child_list(added: nodes)
       when "afterend"
-        return nil unless @__node__.parent
-
+        parent = insertion_parent!
         nodes.reverse_each { |n| @__node__.add_next_sibling(n) }
-        notify_child_list(added: nodes, target: @__node__.parent)
+        notify_child_list(added: nodes, target: parent)
       end
 
       nil
+    end
+
+    # The parent that a beforebegin/afterend insertion targets. Per the spec, if
+    # the element has no parent, or its parent is the Document, there is nowhere
+    # to insert a sibling — throw NoModificationAllowedError.
+    def insertion_parent!
+      parent = @__node__.parent
+      is_document = parent && ((parent.respond_to?(:document?) && parent.document?) || parent.name == "document")
+      if parent.nil? || is_document
+        raise DOMException::NoModificationAllowedError, "The element has no parent."
+      end
+
+      parent
     end
 
     def insert_adjacent_text(position, text)
@@ -1756,6 +1776,9 @@ module Dommy
         self.text_content = value
       when "innerHTML"
         self.inner_html = value
+      when "outerHTML"
+        # [CEReactions, LegacyNullToEmptyString] DOMString — null becomes "".
+        self.outer_html = value.nil? ? "" : value.to_s
       when "hidden", "disabled", "checked", "readOnly", "multiple", "required"
         # Boolean reflected property — funnel through set_attribute /
         # remove_attribute so MutationObserver attribute records fire.

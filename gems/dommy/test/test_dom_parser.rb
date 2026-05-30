@@ -23,7 +23,9 @@ class TestDOMParser < Minitest::Test
   end
 
   def test_parseFromString_unsupported_mime_raises
-    assert_raises(Dommy::DOMException::TypeMismatchError) do
+    # `type` is a WebIDL enum (DOMParserSupportedType), so an out-of-enum value
+    # is a TypeError, not a DOMException.
+    assert_raises(Dommy::Bridge::TypeError) do
       @parser.parse_from_string("x", "text/json")
     end
   end

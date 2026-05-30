@@ -187,14 +187,19 @@ class TestWPTInsertAdjacentHTML < Minitest::Test
     assert_equal("x", @inner.next_element_sibling.id)
   end
 
-  def test_beforebegin_without_parent_is_noop
+  def test_beforebegin_without_parent_raises
+    # WHATWG: beforebegin/afterend with no parent throws NoModificationAllowedError.
     detached = @doc.create_element("div")
-    assert_nil(detached.insert_adjacent_html("beforebegin", "<p></p>"))
+    assert_raises(Dommy::DOMException::NoModificationAllowedError) do
+      detached.insert_adjacent_html("beforebegin", "<p></p>")
+    end
   end
 
-  def test_afterend_without_parent_is_noop
+  def test_afterend_without_parent_raises
     detached = @doc.create_element("div")
-    assert_nil(detached.insert_adjacent_html("afterend", "<p></p>"))
+    assert_raises(Dommy::DOMException::NoModificationAllowedError) do
+      detached.insert_adjacent_html("afterend", "<p></p>")
+    end
   end
 
   def test_insertAdjacentHTML_parses_multiple_top_level_nodes

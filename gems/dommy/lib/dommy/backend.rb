@@ -49,6 +49,12 @@ module Dommy
         current.parse(html)
       end
 
+      # Parse XML input into an XML document. Backends without a real XML parser
+      # (HTML-only, e.g. Nokolexbor) fall back to the HTML parser.
+      def parse_xml(xml)
+        current.respond_to?(:parse_xml) ? current.parse_xml(xml) : current.parse(xml)
+      end
+
       def fragment(html, owner_doc:)
         current.fragment(html, owner_doc: owner_doc)
       end
