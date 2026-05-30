@@ -23,6 +23,12 @@ module Dommy
     # rather than silently dropping it.
     UNHANDLED = :__js_unhandled__
 
+    # Sentinel a `__js_call__` returns for a void (undefined-returning) operation
+    # so the JS host marshals it to `undefined` rather than `null`. Ruby `nil`
+    # otherwise maps to JS `null`, which is wrong for spec methods that "return
+    # nothing" (e.g. DOMTokenList add/remove return undefined).
+    UNDEFINED = :__js_undefined__
+
     # Wraps an external callback handle (registered in a host-side
     # callback table) so the JS bridge can resolve / invoke it. The
     # external host that creates these is responsible for honoring

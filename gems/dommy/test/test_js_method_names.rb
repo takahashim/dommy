@@ -51,7 +51,7 @@ class TestJsMethodNames < Minitest::Test
   end
 
   def test_class_list
-    assert_equal %w[add remove contains toggle replace item], @el.class_list.__js_method_names__
+    assert_equal %w[add remove contains toggle replace item toString], @el.class_list.__js_method_names__
   end
 
   def test_style_declaration

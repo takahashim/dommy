@@ -426,7 +426,10 @@ module Dommy
     alias size length
 
     def item(index)
-      class_tokens[index.to_i]
+      i = index.to_i
+      return nil if i.negative?
+
+      class_tokens[i]
     end
 
     def value
@@ -503,23 +506,29 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[add remove contains toggle replace item]
+    # NOTE: `supports` is intentionally absent — for the class attribute's token
+    # list it must throw a TypeError, which `list.supports(...)` (not a function)
+    # already does.
+    js_methods %w[add remove contains toggle replace item toString]
     def __js_call__(method, args)
       case method
       when "add"
         update_tokens { |tokens| tokens | normalize_tokens(args) }
-        nil
+        Bridge::UNDEFINED
       when "remove"
         update_tokens { |tokens| tokens - normalize_tokens(args) }
-        nil
+        Bridge::UNDEFINED
       when "contains"
-        class_tokens.include?(args[0].to_s)
+        # contains() does not validate; null coerces to the string "null".
+        class_tokens.include?(stringify_token(args[0]))
       when "toggle"
         toggle(args[0], args[1])
       when "replace"
         replace(args[0], args[1])
       when "item"
         item(args[0])
+      when "toString"
+        value
       else
         nil
       end
@@ -543,21 +552,21 @@ module Dommy
       desired
     end
 
+    # USVString coercion of a token argument: JS `null` becomes the string
+    # "null" (so `add(null)` adds the token "null"), not the empty string.
+    def stringify_token(token)
+      token.nil? ? "null" : token.to_s
+    end
+
     # Spec: any empty-string argument throws SyntaxError; any token
     # containing ASCII whitespace throws InvalidCharacterError. Applies
     # to add / remove / replace / toggle.
     def normalize_tokens(args)
-      args.map do |t|
-        s = t.to_s
-        raise DOMException::SyntaxError, "token is empty" if s.empty?
-        raise DOMException::InvalidCharacterError, "token contains whitespace: #{s.inspect}" if s.match?(/\s/)
-
-        s
-      end
+      args.map { |t| validate_token(t) }
     end
 
     def validate_token(token)
-      s = token.to_s
+      s = stringify_token(token)
       raise DOMException::SyntaxError, "token is empty" if s.empty?
       raise DOMException::InvalidCharacterError, "token contains whitespace: #{s.inspect}" if s.match?(/\s/)
 
