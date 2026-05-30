@@ -1,8 +1,5 @@
 # frozen_string_literal: true
 
-require "cgi"
-require "erb"
-
 # Dommy — a happy-dom-style DOM polyfill in pure Ruby. Backbone is
 # Nokogiri::HTML5 plus a small scheduler/event-loop layer.
 #
@@ -128,12 +125,9 @@ module Dommy
       when "fetch"
         FetchFn.new(self).__js_call__("call", args)
       when "encodeURIComponent"
-        # JS spec encoding: percent-encode anything except
-        # `A-Za-z0-9 - _ . ! ~ * ' ( )`. Ruby's `CGI.escape` uses
-        # `+` for space; ERB::Util.url_encode matches JS behavior.
-        ERB::Util.url_encode(args[0].to_s)
+        Internal::GlobalFunctions.encode_uri_component(args[0])
       when "decodeURIComponent"
-        CGI.unescape(args[0].to_s)
+        Internal::GlobalFunctions.decode_uri_component(args[0])
       when "addEventListener"
         add_event_listener(args[0], args[1], args[2])
       when "removeEventListener"
