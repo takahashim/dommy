@@ -24,5 +24,24 @@ module Dommy
     end
 
     CSS_PSEUDO_HANDLERS = CSSPseudoHandlers.new
+
+    # Adds `:scope` support. Nokogiri compiles `:scope` into a custom XPath
+    # function `nokogiri:scope(.)`, calling it as `scope(node_set)`; a scoped
+    # query (`el.querySelector(":scope > p")`) resolves it to the context
+    # element, so only that element matches. One instance per query — it carries
+    # the context node.
+    class ScopedCSSPseudoHandlers < CSSPseudoHandlers
+      def initialize(scope_node)
+        @scope_node = scope_node
+      end
+
+      def scope(list)
+        list.find_all { |node| node.pointer_id == @scope_node.pointer_id }
+      end
+    end
+
+    def self.scoped_pseudo_handlers(scope_node)
+      ScopedCSSPseudoHandlers.new(scope_node)
+    end
   end
 end

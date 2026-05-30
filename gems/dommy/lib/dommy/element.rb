@@ -97,6 +97,8 @@ module Dommy
         last_element_child
       when "textContent"
         @__node__.text
+      when "ownerDocument"
+        @document
       end
     end
 
@@ -2032,14 +2034,38 @@ module Dommy
     def closest(selector)
       return nil if selector.nil? || selector.to_s.empty?
 
+      # Elements matching the selector (scoped to this element, so `:scope`
+      # resolves here), then return the nearest inclusive ancestor among them.
+      handler = Internal.scoped_pseudo_handlers(@__node__)
+      matched = with_selector_errors(selector) do
+        @document.nokogiri_doc.css(selector.to_s, handler).map(&:pointer_id)
+      end
+
       node = @__node__
       while node&.element?
-        return @document.wrap_node(node) if matches_selector?(node, selector.to_s)
+        return @document.wrap_node(node) if matched.include?(node.pointer_id)
 
         node = node.parent
       end
 
       nil
+    end
+
+    # Map Nokogiri's selector errors to spec behavior:
+    # - a CSS *parse* error ("unexpected … after …") means the selector is
+    #   syntactically invalid → SyntaxError (querySelector/closest must throw);
+    # - an "Unregistered function" means a valid pseudo Nokogiri compiled but
+    #   can't evaluate (`:hover`, `:invalid`, …) → degrade to matching nothing.
+    def with_selector_errors(selector)
+      yield
+    rescue ::StandardError => e
+      return [] if e.message.include?("Unregistered function")
+
+      if (defined?(::Nokogiri::CSS::SyntaxError) && e.is_a?(::Nokogiri::CSS::SyntaxError)) || e.message.include?("unexpected")
+        raise DOMException::SyntaxError, "'#{selector}' is not a valid selector."
+      end
+
+      raise
     end
 
     # Web Animations: start an animation on this element.
@@ -2065,13 +2091,32 @@ module Dommy
     def query_selector(selector)
       return nil if selector.nil? || selector.to_s.empty?
 
-      @document.wrap_node(@__node__.at_css(selector.to_s, Internal::CSS_PSEUDO_HANDLERS))
+      @document.wrap_node(scoped_query(selector.to_s).first)
     end
 
     def query_selector_all(selector)
       return NodeList.new if selector.nil? || selector.to_s.empty?
 
-      NodeList.new(@__node__.css(selector.to_s, Internal::CSS_PSEUDO_HANDLERS).map { |node| @document.wrap_node(node) }.compact)
+      NodeList.new(scoped_query(selector.to_s).map { |node| @document.wrap_node(node) }.compact)
+    end
+
+    # Run a CSS query rooted at this element. A `:scope` selector must resolve to
+    # this element, but Nokogiri scopes `el.css` to descendants (`.//`), which
+    # excludes the element itself — so for `:scope` queries we evaluate against
+    # the whole document (where this element IS reachable) and restrict the
+    # results to this element's own subtree.
+    def scoped_query(sel)
+      handler = Internal.scoped_pseudo_handlers(@__node__)
+      with_selector_errors(sel) do
+        if sel.include?(":scope")
+          self_id = @__node__.pointer_id
+          @document.nokogiri_doc.css(sel, handler).select do |n|
+            n.ancestors.any? { |a| a.pointer_id == self_id }
+          end
+        else
+          @__node__.css(sel, handler)
+        end
+      end
     end
 
     # XPath queries scoped to this element, returning wrapped nodes.
