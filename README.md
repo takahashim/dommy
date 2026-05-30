@@ -13,6 +13,7 @@ This repository is a monorepo containing the core library and its integration ge
 
 Each gem keeps its own `gemspec`, `README`, and test suite, and is released to RubyGems independently.
 
+> [!NOTE]
 > [`dommy-js-quickjs`](https://github.com/takahashim/dommy-js-quickjs) (a QuickJS
 > JavaScript backend) lives in its own repository because it depends on the
 > native `quickjs` gem with a separate build/release cadence.
