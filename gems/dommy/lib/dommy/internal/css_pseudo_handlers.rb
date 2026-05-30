@@ -83,5 +83,51 @@ module Dommy
         !KNOWN_PSEUDOS.include?(name.downcase)
       end
     end
+
+    # Nokogiri's CSS→XPath compiler chokes on an escaped colon INSIDE an
+    # attribute selector (`[xlink\:href]`, a namespaced/SVG attribute → "Invalid
+    # predicate"), though it handles escaped colons in class/id selectors fine
+    # (`.md\:flex`, `#a\:b` — Tailwind). Those attribute selectors target
+    # XML-namespaced attributes the HTML backend doesn't model, so drop just the
+    # comma-clauses that use them; the rest of the selector list is preserved.
+    # (Real frameworks hit this constantly — Turbo's click handler matches
+    # `a[href], a[xlink\:href]` on every click.) Returns a backend-safe selector;
+    # if every clause was unsupported, returns one that compiles but never
+    # matches.
+    ATTR_ESCAPED_COLON = /\[[^\]]*\\:[^\]]*\]/
+    def self.backend_safe_selector(selector)
+      s = selector.to_s
+      return s unless s.include?('\\') && s.match?(ATTR_ESCAPED_COLON)
+
+      kept = split_selector_list(s).reject { |clause| clause.match?(ATTR_ESCAPED_COLON) }
+      kept.empty? ? ":not(*)" : kept.join(", ")
+    end
+
+    # Split a selector list on top-level commas only (commas inside [...], (...),
+    # or quotes are part of a single complex selector and must not split it).
+    def self.split_selector_list(selector)
+      clauses = []
+      depth = 0
+      quote = nil
+      current = +""
+      selector.each_char do |ch|
+        if quote
+          quote = nil if ch == quote
+        elsif ch == '"' || ch == "'"
+          quote = ch
+        elsif ch == "[" || ch == "("
+          depth += 1
+        elsif ch == "]" || ch == ")"
+          depth -= 1 if depth.positive?
+        elsif ch == "," && depth.zero?
+          clauses << current.strip
+          current = +""
+          next
+        end
+        current << ch
+      end
+      clauses << current.strip
+      clauses.reject(&:empty?)
+    end
   end
 end

@@ -61,14 +61,14 @@ module Dommy
       return nil if selector.nil?
       Internal.validate_selector!(selector)
 
-      @document.wrap_node(@__node__.at_css(selector.to_s))
+      @document.wrap_node(@__node__.at_css(Internal.backend_safe_selector(selector.to_s)))
     end
 
     def query_selector_all(selector)
       return NodeList.new if selector.nil?
       Internal.validate_selector!(selector)
 
-      NodeList.new(@__node__.css(selector.to_s).map { |n| @document.wrap_node(n) }.compact)
+      NodeList.new(@__node__.css(Internal.backend_safe_selector(selector.to_s)).map { |n| @document.wrap_node(n) }.compact)
     end
 
     def get_element_by_id(id)
@@ -287,6 +287,14 @@ module Dommy
         next_sibling
       when "previousSibling"
         previous_sibling
+      when "childNodes"
+        # CharacterData is a leaf node: childNodes is always an empty (but
+        # present and iterable) NodeList, and firstChild/lastChild are null.
+        # DOM-walking code (e.g. idiomorph's morphChildren) iterates
+        # `node.childNodes` on every node, so a missing one crashes it.
+        NodeList.new
+      when "firstChild", "lastChild"
+        nil
       end
     end
 
@@ -1261,7 +1269,7 @@ module Dommy
       Internal.validate_selector!(selector)
 
       # `:scope` pseudo — match against this element itself.
-      sel = selector.to_s.gsub(":scope", "*:nth-last-child(n)")
+      sel = Internal.backend_safe_selector(selector.to_s).gsub(":scope", "*:nth-last-child(n)")
       matches_selector?(@__node__, sel)
     end
 
@@ -1803,6 +1811,8 @@ module Dommy
         @__node__.text
       when "innerHTML"
         inner_html
+      when "outerHTML"
+        outer_html
       when "tagName"
         tag_name
       when "prefix"
@@ -2107,7 +2117,7 @@ module Dommy
       replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
-      hasChildNodes hasAttributes
+      hasChildNodes hasAttributes getRootNode normalize
     ]
     def __js_call__(method, args)
       case method
@@ -2155,6 +2165,10 @@ module Dommy
         get_elements_by_tag_name_ns(args[0], args[1])
       when "getElementsByTagName"
         get_elements_by_tag_name(args[0])
+      when "getRootNode"
+        get_root_node
+      when "normalize"
+        normalize
       when "insertAdjacentElement"
         insert_adjacent_element(args[0], args[1])
       when "insertAdjacentHTML"
@@ -2334,8 +2348,9 @@ module Dommy
       # Elements matching the selector (scoped to this element, so `:scope`
       # resolves here), then return the nearest inclusive ancestor among them.
       handler = Internal.scoped_pseudo_handlers(@__node__)
+      safe = Internal.backend_safe_selector(selector.to_s)
       matched = with_selector_errors(selector) do
-        @document.nokogiri_doc.css(selector.to_s, handler).map(&:pointer_id)
+        @document.nokogiri_doc.css(safe, handler).map(&:pointer_id)
       end
 
       node = @__node__
@@ -2407,6 +2422,7 @@ module Dommy
     # the whole document (where this element IS reachable) and restrict the
     # results to this element's own subtree.
     def scoped_query(sel)
+      sel = Internal.backend_safe_selector(sel)
       handler = Internal.scoped_pseudo_handlers(@__node__)
       with_selector_errors(sel) do
         if sel.include?(":scope")

@@ -104,14 +104,14 @@ module Dommy
         return nil if selector.nil?
         Internal.validate_selector!(selector)
 
-        wrap(@document.nokogiri_doc.at_css(selector.to_s, CSS_PSEUDO_HANDLERS))
+        wrap(@document.nokogiri_doc.at_css(Internal.backend_safe_selector(selector.to_s), CSS_PSEUDO_HANDLERS))
       end
 
       def query_selector_all(selector)
         return NodeList.new if selector.nil?
         Internal.validate_selector!(selector)
 
-        NodeList.new(@document.nokogiri_doc.css(selector.to_s, CSS_PSEUDO_HANDLERS).map { |node| wrap(node) }.compact)
+        NodeList.new(@document.nokogiri_doc.css(Internal.backend_safe_selector(selector.to_s), CSS_PSEUDO_HANDLERS).map { |node| wrap(node) }.compact)
       end
 
       def get_element_by_id(id)

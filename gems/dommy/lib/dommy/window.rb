@@ -95,6 +95,9 @@ module Dommy
         @custom_elements
       when "navigator"
         @navigator
+      when "scrollX", "scrollY", "pageXOffset", "pageYOffset", "scrollMaxX", "scrollMaxY"
+        # No layout/viewport — the page never scrolls, so the offset is always 0.
+        0
       else
         @globals[key]
       end
@@ -118,7 +121,7 @@ module Dommy
       fetch encodeURIComponent decodeURIComponent addEventListener removeEventListener
       dispatchEvent setTimeout clearTimeout setInterval clearInterval requestAnimationFrame
       cancelAnimationFrame queueMicrotask requestIdleCallback cancelIdleCallback structuredClone
-      matchMedia getComputedStyle
+      matchMedia getComputedStyle scroll scrollTo scrollBy
     ]
     def __js_call__(method, args)
       case method
@@ -162,6 +165,10 @@ module Dommy
         # values the test set inline via `el.style.color = "..."`.
         target = args[0]
         target.respond_to?(:style) ? target.style : nil
+      when "scroll", "scrollTo", "scrollBy"
+        # No layout/viewport — scrolling the window is a no-op. Turbo Drive
+        # calls window.scrollTo(0, 0) during scroll restoration after a visit.
+        nil
       else
         # Additional window-level methods (fetch, location, history,
         # Promise, MutationObserver, etc.) arrive in later sessions.
