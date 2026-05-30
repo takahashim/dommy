@@ -1491,30 +1491,6 @@ module Dommy
       end
     end
 
-    private
-
-    def ancestor_chain(node)
-      chain = [node]
-      Internal::NodeTraversal.each_ancestor(node) { |n| chain << n }
-      chain
-    end
-
-    def branch_under(common, chain)
-      # Walk back along `chain` to find the entry whose parent is `common`.
-      chain.each_with_index do |node, i|
-        return node if i.zero? && node == common
-        return node if node.respond_to?(:parent) && node.parent == common
-      end
-
-      nil
-    end
-
-    def attribute_signature
-      Backend.attribute_nodes(@__node__).map { |a| [a.name, a.value] }.sort
-    end
-
-    public
-
     def remove
       parent = @__node__.parent
       @__node__.unlink
@@ -1789,26 +1765,6 @@ module Dommy
       end
     end
 
-    private
-
-    def event_name_from_on(key)
-      key.to_s.sub(/\Aon/, "").downcase
-    end
-
-    def set_on_handler(event_name, value)
-      @on_handlers ||= {}
-      previous = @on_handlers[event_name]
-      remove_event_listener(event_name, previous) if previous
-      if value
-        add_event_listener(event_name, value)
-        @on_handlers[event_name] = value
-      else
-        @on_handlers.delete(event_name)
-      end
-    end
-
-    public
-
     include Bridge::Methods
     js_methods %w[
       getAttribute setAttribute hasAttribute removeAttribute getAttributeNames closest
@@ -1933,65 +1889,6 @@ module Dommy
         nil
       end
     end
-
-    private
-
-    def normalize_attr_key(name)
-      s = name.to_s
-      case_sensitive_attribute_names? ? s : s.downcase
-    end
-
-    def element_children
-      @__node__.element_children.each_with_object([]) do |node, out|
-        wrapped = @document.wrap_node(node)
-        out << wrapped if wrapped
-      end
-    end
-
-    def wrap_parent(node)
-      @document.wrap_node(node)
-    end
-
-    def __internal_event_parent__
-      parent_node = @__node__.parent
-      # If our Nokogiri parent is a shadow tree's backing fragment,
-      # the bubble path's next stop is the ShadowRoot itself — not
-      # the bare Fragment wrapper. The ShadowRoot's __internal_event_parent__
-      # will return nil (composed events route to host explicitly).
-      if parent_node.is_a?(Backend.document_fragment_class)
-        sr = @document.__internal_shadow_root_for_fragment__(parent_node)
-        return sr if sr
-      end
-
-      parent = wrap_parent(parent_node)
-      parent || @document
-    end
-
-    def template_content
-      return nil unless @__node__.name == "template"
-
-      @document.template_content_fragment(self)
-    end
-
-    # Attribute name handling depends on the element's namespace:
-    # - HTML: case-insensitive (browser DOM stores everything lowercase).
-    # - SVG / other XML: case-sensitive (`viewBox` ≠ `viewbox`).
-    # Subclasses with a known namespace override `case_sensitive_attribute_names?`
-    # to flip the behavior. Generic Element nodes inspect the namespace
-    # URI directly.
-    def case_sensitive_attribute_names?
-      ns = namespace_uri
-      !ns.nil? && ns != "http://www.w3.org/1999/xhtml"
-    end
-
-    # ---- Public Ruby API ----
-    # These snake_case methods are both the public CRuby API (called with an
-    # explicit receiver: `el.get_attribute(...)`) and the targets the JS bridge
-    # dispatch routes to. They live in their own `public` section so the
-    # visibility is decided at the definition site; the internal helpers above
-    # (element_children, detach_dom_nodes, etc.) stay private, and the helpers
-    # below `insert_adjacent` revert to private.
-    public
 
     def get_attribute(name)
       return nil if name.nil?
@@ -2202,9 +2099,102 @@ module Dommy
       end
     end
 
-    # ---- Internal helpers (private again) ----
+    # Test inspector for scroll calls (no real layout to scroll).
+    def __test_scroll_log__
+      @scroll_log ||= []
+    end
+
+    # ---- Internal helpers (single private section) ----
     private
 
+    # compareDocumentPosition / isEqualNode helpers.
+    def ancestor_chain(node)
+      chain = [node]
+      Internal::NodeTraversal.each_ancestor(node) { |n| chain << n }
+      chain
+    end
+
+    def branch_under(common, chain)
+      # Walk back along `chain` to find the entry whose parent is `common`.
+      chain.each_with_index do |node, i|
+        return node if i.zero? && node == common
+        return node if node.respond_to?(:parent) && node.parent == common
+      end
+
+      nil
+    end
+
+    def attribute_signature
+      Backend.attribute_nodes(@__node__).map { |a| [a.name, a.value] }.sort
+    end
+
+    # on* event-handler property helpers.
+    def event_name_from_on(key)
+      key.to_s.sub(/\Aon/, "").downcase
+    end
+
+    def set_on_handler(event_name, value)
+      @on_handlers ||= {}
+      previous = @on_handlers[event_name]
+      remove_event_listener(event_name, previous) if previous
+      if value
+        add_event_listener(event_name, value)
+        @on_handlers[event_name] = value
+      else
+        @on_handlers.delete(event_name)
+      end
+    end
+
+    # Attribute-key / child-wrapping / event-parent helpers.
+    def normalize_attr_key(name)
+      s = name.to_s
+      case_sensitive_attribute_names? ? s : s.downcase
+    end
+
+    def element_children
+      @__node__.element_children.each_with_object([]) do |node, out|
+        wrapped = @document.wrap_node(node)
+        out << wrapped if wrapped
+      end
+    end
+
+    def wrap_parent(node)
+      @document.wrap_node(node)
+    end
+
+    def __internal_event_parent__
+      parent_node = @__node__.parent
+      # If our Nokogiri parent is a shadow tree's backing fragment,
+      # the bubble path's next stop is the ShadowRoot itself — not
+      # the bare Fragment wrapper. The ShadowRoot's __internal_event_parent__
+      # will return nil (composed events route to host explicitly).
+      if parent_node.is_a?(Backend.document_fragment_class)
+        sr = @document.__internal_shadow_root_for_fragment__(parent_node)
+        return sr if sr
+      end
+
+      parent = wrap_parent(parent_node)
+      parent || @document
+    end
+
+    def template_content
+      return nil unless @__node__.name == "template"
+
+      @document.template_content_fragment(self)
+    end
+
+    # Attribute name handling depends on the element's namespace:
+    # - HTML: case-insensitive (browser DOM stores everything lowercase).
+    # - SVG / other XML: case-sensitive (`viewBox` ≠ `viewbox`).
+    # Subclasses with a known namespace override `case_sensitive_attribute_names?`
+    # to flip the behavior. Generic Element nodes inspect the namespace
+    # URI directly.
+    def case_sensitive_attribute_names?
+      ns = namespace_uri
+      !ns.nil? && ns != "http://www.w3.org/1999/xhtml"
+    end
+
+    # Insertion / scroll / popover helpers.
     def insert_adjacent(side, args)
       parent = @__node__.parent
       return nil unless parent
@@ -2316,11 +2306,6 @@ module Dommy
           "detail" => {"oldState" => old_state, "newState" => new_state}
         )
       )
-    end
-
-    # Test inspector for scroll calls (no real layout to scroll).
-    public def __test_scroll_log__
-      @scroll_log ||= []
     end
   end
 end
