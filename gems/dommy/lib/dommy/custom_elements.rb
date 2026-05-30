@@ -12,6 +12,13 @@ module Dommy
   class CustomElementRegistry
     NAME_RE = /\A[a-z][a-z0-9-]*-[a-z0-9-]*\z/
 
+    # Hyphenated names that the HTML spec reserves (SVG / MathML elements), so
+    # they are NOT valid custom element names even though they match NAME_RE.
+    RESERVED_NAMES = %w[
+      annotation-xml color-profile font-face font-face-src font-face-uri
+      font-face-format font-face-name missing-glyph
+    ].to_set.freeze
+
     def initialize(window)
       @window = window
       # name → klass
@@ -24,6 +31,9 @@ module Dommy
       key = name.to_s
       unless key.match?(NAME_RE)
         raise DOMException::SyntaxError, "name must be a hyphenated string, got #{name.inspect}"
+      end
+      if RESERVED_NAMES.include?(key)
+        raise DOMException::SyntaxError, "#{name.inspect} is a reserved element name"
       end
 
       raise DOMException::NotSupportedError, "#{key} already defined" if @definitions.key?(key)

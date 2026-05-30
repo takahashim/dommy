@@ -19,6 +19,22 @@ class TestCustomElementsRegistry < Minitest::Test
     assert_raises(Dommy::DOMException::SyntaxError) { @registry.define("nodash", Dommy::HTMLElement) }
   end
 
+  # HTML reserves these hyphenated names (SVG/MathML), so they are not valid
+  # custom element names even though they pass the hyphen check.
+  def test_define_rejects_reserved_names
+    %w[annotation-xml color-profile font-face font-face-src font-face-uri
+       font-face-format font-face-name missing-glyph].each do |name|
+      assert_raises(Dommy::DOMException::SyntaxError, "expected #{name} to be rejected") do
+        @registry.define(name, Dommy::HTMLElement)
+      end
+    end
+  end
+
+  def test_define_allows_normal_hyphenated_name
+    @registry.define("font-faces", Dommy::HTMLElement) # not reserved (plural)
+    assert_equal Dommy::HTMLElement, @registry.get("font-faces")
+  end
+
   def test_define_rejects_double_registration
     klass = Class.new(Dommy::HTMLElement)
     @registry.define("my-thing", klass)
