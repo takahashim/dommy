@@ -104,54 +104,9 @@ module Dommy
   # `<form>` — element collection, submit/reset, and a stubbed
   # validation surface.
   class HTMLFormElement < HTMLElement
+    reflect_string :name, :action, :enctype, :target, :autocomplete, method_attr: { attr: "method", js: "method" }, accept_charset: "accept-charset"
+    reflect_boolean no_validate: "novalidate"
     # Own __js_call__ methods, on top of Element's.
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def action
-      reflected_string("action")
-    end
-
-    def action=(v)
-      set_reflected_string("action", v)
-    end
-
-    def method_attr
-      reflected_string("method")
-    end
-
-    def method_attr=(v)
-      set_reflected_string("method", v)
-    end
-
-    def enctype
-      reflected_string("enctype")
-    end
-
-    def target
-      reflected_string("target")
-    end
-
-    def autocomplete
-      reflected_string("autocomplete")
-    end
-
-    def accept_charset
-      reflected_string("accept-charset")
-    end
-
-    def no_validate
-      reflected_boolean("novalidate")
-    end
-
-    def no_validate=(v)
-      set_reflected_boolean("novalidate", v)
-    end
 
     # `form.elements` — listed elements inside the form (excludes
     # nested forms per spec; we approximate by walking
@@ -237,41 +192,6 @@ module Dommy
         elements
       when "length"
         length
-      when "name"
-        name
-      when "action"
-        action
-      when "method"
-        method_attr
-      when "enctype"
-        enctype
-      when "target"
-        target
-      when "autocomplete"
-        autocomplete
-      when "acceptCharset"
-        accept_charset
-      when "noValidate"
-        no_validate
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "name"
-        set_reflected_string("name", value)
-      when "action"
-        set_reflected_string("action", value)
-      when "method"
-        set_reflected_string("method", value)
-      when "enctype"
-        set_reflected_string("enctype", value)
-      when "target"
-        set_reflected_string("target", value)
-      when "noValidate"
-        set_reflected_boolean("novalidate", value)
       else
         super
       end
@@ -298,6 +218,8 @@ module Dommy
 
   # `<input>` — covers the most-used form control surface.
   class HTMLInputElement < HTMLElement
+    reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value"
+    reflect_boolean :autofocus, :disabled, :required, :readonly, default_checked: "checked"
     # Own __js_call__ methods, on top of Element's.
     def type
       raw = @__node__["type"].to_s
@@ -306,58 +228,6 @@ module Dommy
 
     def type=(v)
       set_reflected_string("type", v)
-    end
-
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def placeholder
-      reflected_string("placeholder")
-    end
-
-    def placeholder=(v)
-      set_reflected_string("placeholder", v)
-    end
-
-    def min
-      reflected_string("min")
-    end
-
-    def max
-      reflected_string("max")
-    end
-
-    def step
-      reflected_string("step")
-    end
-
-    def pattern
-      reflected_string("pattern")
-    end
-
-    def autocomplete
-      reflected_string("autocomplete")
-    end
-
-    def autofocus
-      reflected_boolean("autofocus")
-    end
-
-    def autofocus=(v)
-      set_reflected_boolean("autofocus", v)
-    end
-
-    def default_value
-      reflected_string("value")
-    end
-
-    def default_checked
-      reflected_boolean("checked")
     end
 
     # Runtime value/checked. Dommy has no UI, so the runtime state is
@@ -432,30 +302,6 @@ module Dommy
 
     def checked=(v)
       @__checked = !!v
-    end
-
-    def disabled
-      reflected_boolean("disabled")
-    end
-
-    def disabled=(v)
-      set_reflected_boolean("disabled", v)
-    end
-
-    def required
-      reflected_boolean("required")
-    end
-
-    def required=(v)
-      set_reflected_boolean("required", v)
-    end
-
-    def readonly
-      reflected_boolean("readonly")
-    end
-
-    def readonly=(v)
-      set_reflected_boolean("readonly", v)
     end
 
     def labels
@@ -536,34 +382,10 @@ module Dommy
       case key
       when "type"
         type
-      when "name"
-        name
-      when "placeholder"
-        placeholder
-      when "min"
-        min
-      when "max"
-        max
-      when "step"
-        step
-      when "pattern"
-        pattern
-      when "autocomplete"
-        autocomplete
-      when "autofocus"
-        autofocus
-      when "defaultValue"
-        default_value
-      when "defaultChecked"
-        default_checked
       when "value"
         value
       when "checked"
         checked
-      when "disabled"
-        disabled
-      when "required"
-        required
       when "readonly", "readOnly"
         readonly
       when "labels"
@@ -587,22 +409,10 @@ module Dommy
       case key
       when "type"
         set_reflected_string("type", value)
-      when "name"
-        set_reflected_string("name", value)
-      when "placeholder"
-        set_reflected_string("placeholder", value)
-      when "min", "max", "step", "pattern", "autocomplete"
-        set_reflected_string(key, value)
-      when "autofocus"
-        set_reflected_boolean("autofocus", value)
       when "value"
         self.value = value
       when "checked"
         self.checked = value
-      when "disabled"
-        self.disabled = value
-      when "required"
-        self.required = value
       when "readonly", "readOnly"
         self.readonly = value
       else
@@ -640,6 +450,8 @@ module Dommy
 
   # `<button>` — type defaults to "submit" per spec.
   class HTMLButtonElement < HTMLElement
+    reflect_string :name, form_action: "formaction", form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+    reflect_boolean form_no_validate: "formnovalidate"
     def type
       raw = @__node__["type"].to_s.downcase
       %w[submit reset button].include?(raw) ? raw : "submit"
@@ -647,38 +459,6 @@ module Dommy
 
     def type=(v)
       set_reflected_string("type", v)
-    end
-
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def form_action
-      reflected_string("formaction")
-    end
-
-    def form_enctype
-      reflected_string("formenctype")
-    end
-
-    def form_method
-      reflected_string("formmethod")
-    end
-
-    def form_target
-      reflected_string("formtarget")
-    end
-
-    def form_no_validate
-      reflected_boolean("formnovalidate")
-    end
-
-    def form_no_validate=(v)
-      set_reflected_boolean("formnovalidate", v)
     end
 
     def form
@@ -721,18 +501,6 @@ module Dommy
       case key
       when "type"
         type
-      when "name"
-        name
-      when "formAction"
-        form_action
-      when "formEnctype"
-        form_enctype
-      when "formMethod"
-        form_method
-      when "formTarget"
-        form_target
-      when "formNoValidate"
-        form_no_validate
       when "form"
         form
       when "labels"
@@ -752,18 +520,6 @@ module Dommy
       case key
       when "type"
         set_reflected_string("type", value)
-      when "name"
-        set_reflected_string("name", value)
-      when "formAction"
-        set_reflected_string("formaction", value)
-      when "formEnctype"
-        set_reflected_string("formenctype", value)
-      when "formMethod"
-        set_reflected_string("formmethod", value)
-      when "formTarget"
-        set_reflected_string("formtarget", value)
-      when "formNoValidate"
-        set_reflected_boolean("formnovalidate", value)
       else
         super
       end
@@ -774,22 +530,7 @@ module Dommy
   # image loading, so `complete`/`naturalWidth`/`naturalHeight` are
   # static (complete=true, dimensions=0).
   class HTMLImageElement < HTMLElement
-    def src
-      reflected_string("src")
-    end
-
-    def src=(v)
-      set_reflected_string("src", v)
-    end
-
-    def alt
-      reflected_string("alt")
-    end
-
-    def alt=(v)
-      set_reflected_string("alt", v)
-    end
-
+    reflect_string :src, :alt, :decoding, :loading, :sizes, :srcset, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
     def width
       @__node__["width"].to_s.to_i
     end
@@ -804,30 +545,6 @@ module Dommy
 
     def height=(v)
       set_reflected_string("height", v.to_s)
-    end
-
-    def crossorigin
-      reflected_string("crossorigin")
-    end
-
-    def decoding
-      reflected_string("decoding")
-    end
-
-    def loading
-      reflected_string("loading")
-    end
-
-    def referrer_policy
-      reflected_string("referrerpolicy")
-    end
-
-    def sizes
-      reflected_string("sizes")
-    end
-
-    def srcset
-      reflected_string("srcset")
     end
 
     # No real loader → these are constants.
@@ -849,10 +566,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "src"
-        src
-      when "alt"
-        alt
       when "width"
         width
       when "height"
@@ -865,18 +578,6 @@ module Dommy
         complete
       when "currentSrc"
         current_src
-      when "crossOrigin"
-        crossorigin
-      when "decoding"
-        decoding
-      when "loading"
-        loading
-      when "referrerPolicy"
-        referrer_policy
-      when "sizes"
-        sizes
-      when "srcset"
-        srcset
       else
         super
       end
@@ -884,14 +585,8 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "src", "alt", "decoding", "loading", "sizes", "srcset"
-        set_reflected_string(key, value)
       when "width", "height"
         set_reflected_string(key, value.to_s)
-      when "crossOrigin"
-        set_reflected_string("crossorigin", value)
-      when "referrerPolicy"
-        set_reflected_string("referrerpolicy", value)
       else
         super
       end
@@ -1220,6 +915,7 @@ module Dommy
 
   # `<option>` — value, label, selected, disabled, text, index, form.
   class HTMLOptionElement < HTMLElement
+    reflect_boolean :selected, :disabled
     def value
       # Per spec, value defaults to text content if the `value`
       # attribute is absent.
@@ -1238,28 +934,12 @@ module Dommy
       set_reflected_string("label", v)
     end
 
-    def selected
-      reflected_boolean("selected")
-    end
-
-    def selected=(v)
-      set_reflected_boolean("selected", v)
-    end
-
     def default_selected
       selected
     end
 
     def default_selected=(v)
       self.selected = v
-    end
-
-    def disabled
-      reflected_boolean("disabled")
-    end
-
-    def disabled=(v)
-      set_reflected_boolean("disabled", v)
     end
 
     def text
@@ -1288,12 +968,8 @@ module Dommy
         value
       when "label"
         label
-      when "selected"
-        selected
       when "defaultSelected"
         default_selected
-      when "disabled"
-        disabled
       when "text"
         text
       when "form"
@@ -1313,8 +989,6 @@ module Dommy
         self.label = v
       when "selected", "defaultSelected"
         self.selected = v
-      when "disabled"
-        self.disabled = v
       when "text"
         self.text = v
       else
@@ -1331,6 +1005,7 @@ module Dommy
 
   # `<textarea>` — multi-line text input.
   class HTMLTextAreaElement < HTMLElement
+    reflect_string :name, :placeholder, :wrap, :autocomplete
     # Own __js_call__ methods, on top of Element's.
     def value
       @__node__["value"] || text_content
@@ -1349,22 +1024,6 @@ module Dommy
       self.text_content = v
     end
 
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def placeholder
-      reflected_string("placeholder")
-    end
-
-    def placeholder=(v)
-      set_reflected_string("placeholder", v)
-    end
-
     def rows
       (@__node__["rows"] || "2").to_i
     end
@@ -1381,10 +1040,6 @@ module Dommy
       set_reflected_string("cols", v.to_s)
     end
 
-    def wrap
-      reflected_string("wrap")
-    end
-
     def max_length
       (@__node__["maxlength"] || "-1").to_i
     end
@@ -1395,10 +1050,6 @@ module Dommy
 
     def text_length
       value.length
-    end
-
-    def autocomplete
-      reflected_string("autocomplete")
     end
 
     def type
@@ -1467,24 +1118,16 @@ module Dommy
         value
       when "defaultValue"
         default_value
-      when "name"
-        name
-      when "placeholder"
-        placeholder
       when "rows"
         rows
       when "cols"
         cols
-      when "wrap"
-        wrap
       when "maxLength"
         max_length
       when "minLength"
         min_length
       when "textLength"
         text_length
-      when "autocomplete"
-        autocomplete
       when "type"
         type
       when "form"
@@ -1508,16 +1151,10 @@ module Dommy
         self.value = v
       when "defaultValue"
         self.default_value = v
-      when "name"
-        set_reflected_string("name", v)
-      when "placeholder"
-        set_reflected_string("placeholder", v)
       when "rows"
         self.rows = v
       when "cols"
         self.cols = v
-      when "wrap"
-        set_reflected_string("wrap", v)
       when "maxLength"
         set_reflected_string("maxlength", v.to_s)
       when "minLength"
@@ -1638,6 +1275,7 @@ module Dommy
 
   # `<output>` — calculation result element.
   class HTMLOutputElement < HTMLElement
+    reflect_string :name
     def value
       text_content
     end
@@ -1652,14 +1290,6 @@ module Dommy
 
     def default_value=(v)
       self.text_content = v
-    end
-
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
     end
 
     # `for` attribute is a space-separated list of IDs.
@@ -1699,8 +1329,6 @@ module Dommy
         value
       when "defaultValue"
         default_value
-      when "name"
-        name
       when "type"
         type
       when "form"
@@ -1722,8 +1350,6 @@ module Dommy
         self.value = v
       when "defaultValue"
         self.default_value = v
-      when "name"
-        self.name = v
       when "htmlFor"
         set_reflected_string("for", v)
       else
@@ -1750,14 +1376,8 @@ module Dommy
   # `slot` attribute go to the unnamed default slot. If nothing is
   # assigned, the slot's own children render as fallback content.
   class HTMLSlotElement < HTMLElement
+    reflect_string :name
     # Own __js_call__ methods, on top of Element's.
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
 
     # `slot.assignedNodes({ flatten: true|false })` — returns the
     # light DOM children currently composed into this slot. With
@@ -1789,21 +1409,10 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "name"
-        name
       when "assignedNodes"
         assigned_nodes
       when "assignedElements"
         assigned_elements
-      else
-        super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "name"
-        self.name = value
       else
         super
       end
@@ -1860,22 +1469,9 @@ module Dommy
   # `selectedIndex`, and dispatches change events. Minimal compared to
   # happy-dom's full HTMLSelectElement, but covers common test cases.
   class HTMLSelectElement < HTMLElement
+    reflect_string :name
+    reflect_boolean :multiple
     # Own __js_call__ methods, on top of Element's.
-    def name
-      reflected_string("name")
-    end
-
-    def name=(v)
-      set_reflected_string("name", v)
-    end
-
-    def multiple
-      reflected_boolean("multiple")
-    end
-
-    def multiple=(v)
-      set_reflected_boolean("multiple", v)
-    end
 
     def size
       @__node__["size"].to_s.to_i
@@ -2027,10 +1623,6 @@ module Dommy
         length
       when "value"
         value
-      when "name"
-        name
-      when "multiple"
-        multiple
       when "size"
         size
       when "selectedIndex"
@@ -2056,10 +1648,6 @@ module Dommy
       case key
       when "value"
         self.value = val
-      when "name"
-        set_reflected_string("name", val)
-      when "multiple"
-        set_reflected_boolean("multiple", val)
       when "selectedIndex"
         self.selected_index = val
       else
@@ -2090,14 +1678,8 @@ module Dommy
   # `close(returnValue?)`. Dommy has no modal stack, so showModal is
   # functionally identical to show (no backdrop, no escape-to-close).
   class HTMLDialogElement < HTMLElement
+    reflect_boolean :open
     # Own __js_call__ methods, on top of Element's.
-    def open
-      reflected_boolean("open")
-    end
-
-    def open=(v)
-      set_reflected_boolean("open", v)
-    end
 
     def return_value
       @return_value ||= ""
@@ -2126,8 +1708,6 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "open"
-        open
       when "returnValue"
         return_value
       else
@@ -2137,8 +1717,6 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "open"
-        self.open = value
       when "returnValue"
         self.return_value = value
       else
@@ -2373,6 +1951,7 @@ module Dommy
   # `<td>` / `<th>` — single table cell. `cellIndex` is the
   # position within the parent row's cells collection.
   class HTMLTableCellElement < HTMLElement
+    reflect_string :headers, :scope, :abbr
     def cell_index
       row = closest("tr")
       return -1 unless row
@@ -2396,31 +1975,8 @@ module Dommy
       set_reflected_string("rowspan", v.to_s)
     end
 
-    def headers
-      reflected_string("headers")
-    end
-
-    def headers=(v)
-      set_reflected_string("headers", v)
-    end
-
     # `scope` / `abbr` are only meaningful on `<th>`, but the IDL
     # exposes them on the cell element either way.
-    def scope
-      reflected_string("scope")
-    end
-
-    def scope=(v)
-      set_reflected_string("scope", v)
-    end
-
-    def abbr
-      reflected_string("abbr")
-    end
-
-    def abbr=(v)
-      set_reflected_string("abbr", v)
-    end
 
     def __js_get__(key)
       case key
@@ -2430,12 +1986,6 @@ module Dommy
         col_span
       when "rowSpan"
         row_span
-      when "headers"
-        headers
-      when "scope"
-        scope
-      when "abbr"
-        abbr
       else
         super
       end
@@ -2447,12 +1997,6 @@ module Dommy
         self.col_span = value
       when "rowSpan"
         self.row_span = value
-      when "headers"
-        self.headers = value
-      when "scope"
-        self.scope = value
-      when "abbr"
-        self.abbr = value
       else
         super
       end
@@ -2800,6 +2344,8 @@ module Dommy
   # absent in Dommy — getters return inert values, `play()` returns
   # a resolved Promise, and `pause()` flips `paused` back to true.
   class HTMLMediaElement < HTMLElement
+    reflect_string :src, :preload, crossorigin: { js: "crossOrigin" }
+    reflect_boolean :autoplay, :controls, loop_: { attr: "loop", js: "loop" }, default_muted: "muted"
     # Own __js_call__ methods, on top of Element's.
     NETWORK_EMPTY = 0
     NETWORK_IDLE = 1
@@ -2812,52 +2358,8 @@ module Dommy
     HAVE_FUTURE_DATA = 3
     HAVE_ENOUGH_DATA = 4
 
-    def src
-      reflected_string("src")
-    end
-
-    def src=(v)
-      set_reflected_string("src", v)
-    end
-
     def current_src
       src
-    end
-
-    def preload
-      reflected_string("preload")
-    end
-
-    def preload=(v)
-      set_reflected_string("preload", v)
-    end
-
-    def crossorigin
-      reflected_string("crossorigin")
-    end
-
-    def autoplay
-      reflected_boolean("autoplay")
-    end
-
-    def autoplay=(v)
-      set_reflected_boolean("autoplay", v)
-    end
-
-    def loop_
-      reflected_boolean("loop")
-    end
-
-    def loop_=(v)
-      set_reflected_boolean("loop", v)
-    end
-
-    def controls
-      reflected_boolean("controls")
-    end
-
-    def controls=(v)
-      set_reflected_boolean("controls", v)
     end
 
     def muted
@@ -2866,14 +2368,6 @@ module Dommy
 
     def muted=(v)
       @__muted = !!v
-    end
-
-    def default_muted
-      reflected_boolean("muted")
-    end
-
-    def default_muted=(v)
-      set_reflected_boolean("muted", v)
     end
 
     def paused
@@ -2955,24 +2449,10 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "src"
-        src
       when "currentSrc"
         current_src
-      when "preload"
-        preload
-      when "crossOrigin"
-        crossorigin
-      when "autoplay"
-        autoplay
-      when "loop"
-        loop_
-      when "controls"
-        controls
       when "muted"
         muted
-      when "defaultMuted"
-        default_muted
       when "paused"
         paused
       when "ended"
@@ -3018,20 +2498,8 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "src"
-        self.src = value
-      when "preload"
-        self.preload = value
-      when "autoplay"
-        self.autoplay = value
-      when "loop"
-        self.loop_ = value
-      when "controls"
-        self.controls = value
       when "muted"
         self.muted = value
-      when "defaultMuted"
-        self.default_muted = value
       when "volume"
         self.volume = value
       when "playbackRate"
@@ -3066,14 +2534,8 @@ module Dommy
   end
 
   class HTMLVideoElement < HTMLMediaElement
-    def poster
-      reflected_string("poster")
-    end
-
-    def poster=(v)
-      set_reflected_string("poster", v)
-    end
-
+    reflect_string :poster
+    reflect_boolean plays_inline: "playsinline"
     def width
       @__node__["width"].to_s.to_i
     end
@@ -3098,18 +2560,8 @@ module Dommy
       height
     end
 
-    def plays_inline
-      reflected_boolean("playsinline")
-    end
-
-    def plays_inline=(v)
-      set_reflected_boolean("playsinline", v)
-    end
-
     def __js_get__(key)
       case key
-      when "poster"
-        poster
       when "width"
         width
       when "height"
@@ -3118,8 +2570,6 @@ module Dommy
         video_width
       when "videoHeight"
         video_height
-      when "playsInline"
-        plays_inline
       else
         super
       end
@@ -3127,14 +2577,10 @@ module Dommy
 
     def __js_set__(key, value)
       case key
-      when "poster"
-        self.poster = value
       when "width"
         self.width = value
       when "height"
         self.height = value
-      when "playsInline"
-        self.plays_inline = value
       else
         super
       end
@@ -3269,6 +2715,8 @@ module Dommy
   end
 
   class HTMLOListElement < HTMLElement
+    reflect_string :type
+    reflect_boolean :reversed
     def start
       (@__node__["start"] || "1").to_i
     end
@@ -3277,30 +2725,10 @@ module Dommy
       set_reflected_string("start", v.to_s)
     end
 
-    def reversed
-      reflected_boolean("reversed")
-    end
-
-    def reversed=(v)
-      set_reflected_boolean("reversed", v)
-    end
-
-    def type
-      reflected_string("type")
-    end
-
-    def type=(v)
-      set_reflected_string("type", v)
-    end
-
     def __js_get__(key)
       case key
       when "start"
         start
-      when "reversed"
-        reversed
-      when "type"
-        type
       else
         super
       end
@@ -3310,10 +2738,6 @@ module Dommy
       case key
       when "start"
         self.start = value
-      when "reversed"
-        self.reversed = value
-      when "type"
-        self.type = value
       else
         super
       end
