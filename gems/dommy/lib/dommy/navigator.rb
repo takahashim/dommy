@@ -103,6 +103,11 @@ module Dommy
         @locks
       when "storage"
         @storage
+      else
+        # An unknown navigator property is absent, not null — so feature
+        # detection like `navigator.scheduling !== undefined` (React's scheduler)
+        # takes the not-supported path instead of dereferencing null.
+        Bridge::UNDEFINED
       end
     end
 

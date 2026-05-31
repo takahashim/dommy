@@ -102,6 +102,13 @@ module Dommy
       when "scrollMaxX", "scrollMaxY"
         # No real content box to scroll past, so the max offset is 0.
         0
+      when "event"
+        # The legacy global current-event is *absent* (undefined, not null) when
+        # no event is being dispatched, so feature detection like
+        # `window.event === undefined` (React's getCurrentEventPriority) takes the
+        # not-supported path instead of dereferencing null. An explicitly-set
+        # value still wins.
+        @globals.key?("event") ? @globals["event"] : Bridge::UNDEFINED
       else
         @globals[key]
       end

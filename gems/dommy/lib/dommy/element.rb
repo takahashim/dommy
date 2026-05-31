@@ -1978,6 +1978,13 @@ module Dommy
         elsif key.start_with?("on") && key.length > 2
           # `el.onXxx` event handler property — the registered callback or nil.
           @on_handlers&.[](event_name_from_on(key))
+        elsif key.start_with?("_") || key.include?("$")
+          # A framework-private expando key (React stores per-node state under
+          # keys like `__reactListeners$<id>` and feature-detects it with
+          # `node[key] === undefined`). Real DOM property names never use `_`/`$`,
+          # so reporting these *absent* (undefined, not null) is correct JS and
+          # doesn't touch real DOM reflection (which WPT pins to null).
+          Bridge::UNDEFINED
         end
       end
     end
