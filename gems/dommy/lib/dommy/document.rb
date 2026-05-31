@@ -309,6 +309,10 @@ module Dommy
     # content_type defaults to "text/html"; settable so an integration layer
     # can reflect the response Content-Type. Read-only over the JS bridge.
     attr_accessor :content_type
+    # A `->(source_text) {}` set by the JS layer to execute a classic <script>'s
+    # body when it's connected (Dommy has no JS engine of its own). nil = inert
+    # scripts (the default for a standalone DOM).
+    attr_accessor :script_runner
 
     def initialize(host = nil, nokogiri_doc: nil, default_view: nil)
       @host = host
@@ -322,6 +326,12 @@ module Dommy
       @node_iterators = []
       @nokogiri_doc = nokogiri_doc || Backend.parse("<!doctype html><html><head></head><body></body></html>")
       @content_type = "text/html"
+      # The document is fully parsed before scripts run (no incremental network
+      # parse), so it defaults to "complete" — ready-gated code takes the
+      # already-loaded path. An embedder can replay the real lifecycle
+      # ("loading" → "interactive" → "complete") via #__internal_set_ready_state__
+      # to drive code that waits on DOMContentLoaded / load.
+      @ready_state = "complete"
     end
 
     # Whether this is an "HTML document" in the DOM sense (created by the HTML
@@ -921,11 +931,10 @@ module Dommy
       when "lastModified"
         @last_modified || "01/01/1970 00:00:00"
       when "readyState"
-        # The document is fully parsed by the time scripts run against it (there
-        # is no incremental network parse), so it is always "complete". Code that
-        # gates on `document.readyState === "loading"` (e.g. Turbo's preloader)
-        # therefore takes the already-loaded path.
-        "complete"
+        # "complete" by default (the document is fully parsed before scripts
+        # run); an embedder can replay "loading" → "interactive" → "complete"
+        # via #__internal_set_ready_state__.
+        @ready_state
       when "visibilityState"
         # There's no real viewport/tab; the document is treated as the visible,
         # foreground page (so `nextRepaint`-style code uses requestAnimationFrame,
@@ -1127,6 +1136,27 @@ module Dommy
 
     def __internal_event_parent__
       @default_view
+    end
+
+    # Replay a document-lifecycle transition: set readyState, fire
+    # `readystatechange`, then the milestone event for the new state —
+    # `DOMContentLoaded` (bubbles, dispatched on the document) when it becomes
+    # "interactive", and `load` (on the window) when it becomes "complete". Lets
+    # an embedder drive code that waits on the document lifecycle (Stimulus /
+    # Turbo startup, jQuery `ready`, …). No-op when already in `state`.
+    def __internal_set_ready_state__(state)
+      state = state.to_s
+      return if @ready_state == state
+
+      @ready_state = state
+      dispatch_event(Event.new("readystatechange"))
+      case state
+      when "interactive"
+        dispatch_event(Event.new("DOMContentLoaded", "bubbles" => true))
+      when "complete"
+        @default_view&.dispatch_event(Event.new("load"))
+      end
+      nil
     end
 
     # Delegate node wrapping to NodeWrapperCache

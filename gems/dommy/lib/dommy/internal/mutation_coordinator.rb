@@ -43,10 +43,29 @@ module Dommy
 
         if nk.element?
           wrapped = @document.wrap_node(nk)
-          notify_connected(wrapped) if wrapped
+          if wrapped
+            notify_connected(wrapped)
+            run_connected_script(wrapped)
+          end
         end
 
         nk.children.each { |c| notify_connected_subtree(c) } if nk.respond_to?(:children)
+      end
+
+      # A classic <script> that's now genuinely connected to this document runs
+      # its body through the document's script_runner (wired by the JS bridge).
+      # Gated on is_connected? because this walk also fires for additions to a
+      # still-detached subtree.
+      def run_connected_script(element)
+        runner = @document.script_runner
+        return unless runner
+        return unless element.respond_to?(:__internal_take_pending_script__)
+        return unless element.respond_to?(:is_connected?) && element.is_connected?
+
+        source = element.__internal_take_pending_script__
+        runner.call(source) if source
+      rescue StandardError
+        nil
       end
 
       def notify_disconnected_subtree(nk)
@@ -111,12 +130,16 @@ module Dommy
         )
         # Only observers whose matching registration requested childList get the
         # record (an `attributes`/`characterData`-only observer must not — e.g.
-        # `observe(t, {childList: false, attributes: true})`).
+        # `observe(t, {childList: false, attributes: true})`). A subtree
+        # registration that matched ALSO gains a transient registered observer
+        # for each removed node, so mutations within the just-removed subtree
+        # (before the next microtask checkpoint) are still observed.
         @observer_manager.observers_matching(target).each do |observer|
           entry = observer.find_matching_entry(target)
-          next unless entry && entry[:child_list]
+          next unless entry
 
-          observer.enqueue(record)
+          observer.enqueue(record) if entry[:child_list]
+          wrapped_removed.each { |removed| observer.add_transient(removed, entry) } if entry[:subtree]
         end
 
         nil

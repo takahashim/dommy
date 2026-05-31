@@ -76,6 +76,12 @@ module Dommy
       @records = []
       @scheduled = false
       @registered_docs = []
+      # Transient registered observers (WHATWG DOM): when a node is removed from
+      # an observed subtree, its subtree keeps being observed until the next
+      # microtask checkpoint, so mutations inside the just-removed subtree (e.g.
+      # removing its children in the same task) are still recorded. Each entry is
+      # { root: wrapped removed node, source: the registration that matched }.
+      @transients = []
     end
 
     include Bridge::Methods
@@ -102,16 +108,37 @@ module Dommy
     # or nil if target doesn't match any observed scope.
     def find_matching_entry(target_wrapped)
       matcher = Internal::ObserverMatcher.new
-      @observed.find do |entry|
-        observed_wrapped = entry[:target]
+      entry = @observed.find do |e|
+        observed_wrapped = e[:target]
         next false unless observed_wrapped
 
         if observed_wrapped.is_a?(Document)
-          matcher.matches_document?(target_wrapped, subtree: entry[:subtree])
+          matcher.matches_document?(target_wrapped, subtree: e[:subtree])
         else
-          matcher.matches?(observed_wrapped, target_wrapped, subtree: entry[:subtree])
+          matcher.matches?(observed_wrapped, target_wrapped, subtree: e[:subtree])
         end
       end
+      return entry if entry
+
+      # A transient registered observer matches the removed node itself and its
+      # (now-detached) descendants, with the source registration's options.
+      transient = @transients.find do |t|
+        root = t[:root]
+        root && (root.equal?(target_wrapped) || matcher.matches?(root, target_wrapped, subtree: true))
+      end
+      transient && transient[:source]
+    end
+
+    # Register a transient registered observer for a node just removed from an
+    # observed subtree (see @transients). Carries the matched registration's
+    # options so subsequent mutations inside the removed subtree record the same
+    # types. Deduped by node identity.
+    def add_transient(root_wrapped, source_entry)
+      return unless root_wrapped && source_entry && source_entry[:subtree]
+      return if @transients.any? { |t| t[:root].equal?(root_wrapped) }
+
+      @transients << {root: root_wrapped, source: source_entry}
+      nil
     end
 
     def enqueue(record)
@@ -217,11 +244,14 @@ module Dommy
       out = @records.dup
       @records.clear
       @scheduled = false
+      # A microtask checkpoint ends the transient registrations' lifetime.
+      @transients.clear
       out
     end
 
     def flush
       @scheduled = false
+      @transients.clear
       return if @records.empty?
 
       records = @records.dup

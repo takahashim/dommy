@@ -2767,11 +2767,31 @@ module Dommy
     end
 
     def matches_selector?(node, selector)
-      if node.respond_to?(:matches?)
-        node.matches?(selector)
-      else
-        node.document.css(selector).any? { |candidate| candidate == node }
+      return false if node.nil?
+      return node.document.css(selector).any? { |candidate| candidate == node } unless node.respond_to?(:matches?)
+
+      # A detached node (no parent) breaks Nokogiri's `matches?`, which evaluates
+      # `ancestors.last.search(selector)` — `ancestors.last` is nil with no
+      # ancestors. matches() ignores connectivity (a disconnected element still
+      # matches a selector it satisfies — e.g. Stimulus checks a just-removed
+      # outlet element), so give a parentless node a transient fragment root,
+      # then restore its detached state.
+      if node.respond_to?(:parent) && node.parent.nil? &&
+         node.respond_to?(:document) && node.document.respond_to?(:fragment)
+        return matches_detached_node?(node, selector)
       end
+
+      node.matches?(selector)
+    end
+
+    # Match a parentless node by wrapping it in a throwaway fragment so
+    # Nokogiri's `matches?` has an ancestor root, then unlinking to leave the
+    # node detached (and its parentNode unchanged) as it was.
+    def matches_detached_node?(node, selector)
+      node.document.fragment.add_child(node)
+      node.matches?(selector)
+    ensure
+      node.unlink
     end
 
     # No real layout — record the scroll request so tests can assert it.

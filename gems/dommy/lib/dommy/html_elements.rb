@@ -623,6 +623,29 @@ module Dommy
         super
       end
     end
+
+    # The classic-script source to execute now that this element is connected,
+    # or nil if it must not run: a `src` script (no network here), a non-classic
+    # type (module/JSON/etc.), an empty body, or one that already ran. The
+    # "already started" flag (set on first call) makes execution happen at most
+    # once, even if the node is re-inserted. The host eval is wired by the JS
+    # bridge via Document#script_runner.
+    # Module scripts are excluded — they need module scope / import resolution
+    # the classic eval path can't provide (left to a future module loader).
+    CLASSIC_SCRIPT_TYPES = ["", "text/javascript", "application/javascript",
+                            "application/ecmascript", "text/ecmascript"].freeze
+
+    def __internal_take_pending_script__
+      return nil if @__script_started
+      return nil unless src.to_s.empty?
+      return nil unless CLASSIC_SCRIPT_TYPES.include?(type.to_s.strip.downcase)
+
+      body = text_content.to_s
+      return nil if body.strip.empty?
+
+      @__script_started = true
+      body
+    end
   end
 
   # `<link>` — primarily for stylesheets, icons, preload, manifests.
@@ -1743,20 +1766,27 @@ module Dommy
     end
   end
 
-  # `<details>` — `open` reflected boolean. Toggling it fires a
-  # `toggle` event (non-bubbling per spec).
+  # `<details>` — `open` reflected boolean. Whenever the open state changes —
+  # via the `open` property, setAttribute/removeAttribute, or toggleAttribute —
+  # a non-bubbling `toggle` event fires (per spec). Routing the dispatch through
+  # the attribute mutators (not just the property setter) is what makes
+  # `details.toggleAttribute("open")` fire toggle, which Stimulus's `:open`
+  # action option relies on.
   class HTMLDetailsElement < HTMLElement
     def open
       reflected_boolean("open")
     end
 
     def open=(v)
-      was = open
       set_reflected_boolean("open", v)
-      now = open
-      return if was == now
+    end
 
-      dispatch_event(Event.new("toggle", "bubbles" => false, "cancelable" => false))
+    def set_attribute(name, value)
+      with_toggle_on_open_change { super }
+    end
+
+    def remove_attribute(name)
+      with_toggle_on_open_change { super }
     end
 
     def __js_get__(key)
@@ -1769,6 +1799,15 @@ module Dommy
       else
         super
       end
+    end
+
+    private
+
+    def with_toggle_on_open_change
+      was = open
+      result = yield
+      dispatch_event(Event.new("toggle", "bubbles" => false, "cancelable" => false)) if open != was
+      result
     end
   end
 

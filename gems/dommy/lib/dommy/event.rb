@@ -130,7 +130,11 @@ module Dommy
           end
         end
 
-        CallableInvoker.invoke_listener(entry.listener, event)
+        if entry.passive?
+          event.__internal_run_passive__ { CallableInvoker.invoke_listener(entry.listener, event) }
+        else
+          CallableInvoker.invoke_listener(entry.listener, event)
+        end
 
         break if event.immediate_propagation_stopped?
       end
@@ -162,6 +166,17 @@ module Dommy
       # listener in the bubbling phase (both at the target).
       def capture?
         EventTarget.capture_flag(options)
+      end
+
+      # `{ passive: true }` — the listener promises not to call preventDefault,
+      # so the event's preventDefault() is neutralized while it runs.
+      def passive?
+        case options
+        when Hash
+          EventTarget.js_truthy?(options.key?("passive") ? options["passive"] : options[:passive])
+        else
+          false
+        end
       end
     end
 
@@ -286,6 +301,9 @@ module Dommy
       @default_prevented = false
       @propagation_stopped = false
       @immediate_propagation_stopped = false
+      # Set while a passive listener runs, so preventDefault() is a no-op (per
+      # the passive listener flag in the DOM spec).
+      @in_passive_listener = false
       @target = nil
       @current_target = nil
       @event_phase = NONE
@@ -320,6 +338,16 @@ module Dommy
 
     def immediate_propagation_stopped?
       @immediate_propagation_stopped
+    end
+
+    # Run a block with the passive-listener flag set, so any preventDefault()
+    # inside it is neutralized. Restores the prior flag afterward.
+    def __internal_run_passive__
+      previous = @in_passive_listener
+      @in_passive_listener = true
+      yield
+    ensure
+      @in_passive_listener = previous
     end
 
     def __internal_prepare_for_dispatch__(target)
@@ -406,7 +434,10 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "preventDefault"
-        @default_prevented = true if @cancelable
+        # A passive listener's preventDefault() is a no-op (DOM "passive listener
+        # flag"), so the default action proceeds — what Stimulus's :passive
+        # action option relies on.
+        @default_prevented = true if @cancelable && !@in_passive_listener
         nil
       when "stopPropagation"
         @propagation_stopped = true
