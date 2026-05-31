@@ -27,7 +27,7 @@ module Dommy
     INLINE_HANDLERS = %w[open message close error].freeze
 
     attr_reader :url, :protocol, :ready_state, :buffered_amount, :extensions
-    attr_accessor :binary_type
+    attr_reader :binary_type
 
     def initialize(window, url, protocols = nil)
       @window = window
@@ -36,7 +36,10 @@ module Dommy
       @buffered_amount = 0
       @extensions = ""
       @binary_type = "blob"
-      @protocol = Array(protocols).first.to_s
+      # The subprotocol stays "" until the server selects one at the handshake;
+      # remember what was requested and adopt the first on open.
+      @requested_protocols = Array(protocols).flatten.map(&:to_s)
+      @protocol = ""
       @sent_messages = []
       @inline_handlers = {}
 
@@ -45,18 +48,41 @@ module Dommy
       @window.scheduler.queue_microtask(proc { __test_simulate_open__ }) unless auto_open == false
     end
 
+    # binaryType is an enumerated attribute: only "blob"/"arraybuffer" are
+    # accepted, any other assignment is ignored (per WebIDL enum reflection).
+    def binary_type=(value)
+      v = value.to_s
+      @binary_type = v if %w[blob arraybuffer].include?(v)
+    end
+
     def send(data)
-      raise Error, "WebSocket not OPEN" if @ready_state != OPEN
+      # send() before the connection opens is an InvalidStateError (a
+      # DOMException), not a bare Ruby error.
+      raise DOMException::InvalidStateError, "WebSocket is not open" if @ready_state == CONNECTING
+      return if @ready_state != OPEN # CLOSING/CLOSED silently discard (buffered)
 
       @sent_messages << data
       nil
     end
 
-    def close(code = 1000, reason = "")
+    # close([code[, reason]]): code must be 1000 or in 3000–4999, and the UTF-8
+    # reason must be ≤ 123 bytes, else throw — matching the WebSocket spec.
+    def close(code = nil, reason = nil)
+      unless code.nil?
+        c = code.to_i
+        unless c == 1000 || c.between?(3000, 4999)
+          raise DOMException::InvalidAccessError, "The close code must be 1000 or in 3000-4999, got #{c}."
+        end
+      end
+      if reason && reason.to_s.bytesize > 123
+        raise DOMException::SyntaxError, "The close reason must not exceed 123 UTF-8 bytes."
+      end
       return if @ready_state == CLOSED || @ready_state == CLOSING
 
       @ready_state = CLOSING
-      @window.scheduler.queue_microtask(proc { __test_simulate_close__(code, reason) })
+      final_code = code.nil? ? 1005 : code.to_i
+      final_reason = reason.to_s
+      @window.scheduler.queue_microtask(proc { __test_simulate_close__(final_code, final_reason) })
       nil
     end
 
@@ -70,6 +96,8 @@ module Dommy
       return if @ready_state != CONNECTING
 
       @ready_state = OPEN
+      # The handshake "selects" the first requested subprotocol.
+      @protocol = @requested_protocols.first || ""
       dispatch_event(Event.new("open"))
     end
 
@@ -127,7 +155,7 @@ module Dommy
     def __js_set__(key, value)
       case key
       when "binaryType"
-        @binary_type = value.to_s
+        self.binary_type = value
       else
         event = inline_event_for(key)
         set_inline_handler(event, value) if event

@@ -161,6 +161,28 @@ module Dommy
         super
       end
     end
+
+    js_methods %w[initMessageEvent]
+    def __js_call__(method, args)
+      case method
+      when "initMessageEvent"
+        # Deprecated initMessageEvent(type, bubbles, cancelable, data, origin,
+        # lastEventId, source, ports); a no-op while the event is dispatching.
+        raise Bridge::TypeError, "initMessageEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @data = args[3]
+          @origin = (args[4] || "").to_s
+          @last_event_id = (args[5] || "").to_s
+          @source = args[6]
+          @ports = args[7] || []
+        end
+        nil
+      else
+        super
+      end
+    end
   end
 
   # `BroadcastChannel` — same-origin pub/sub. Dommy keeps a per-window

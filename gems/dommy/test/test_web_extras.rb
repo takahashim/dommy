@@ -342,7 +342,8 @@ class TestWebSocket < Minitest::Test
 
   def test_send_before_open_raises
     ws = Dommy::WebSocket.new(@win, "wss://x.test/")
-    assert_raises(Dommy::WebSocket::Error) { ws.send("too early") }
+    # send() before the connection opens is a spec InvalidStateError DOMException.
+    assert_raises(Dommy::DOMException::InvalidStateError) { ws.send("too early") }
   end
 
   def test_window_exposes_constructor
