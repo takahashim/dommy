@@ -238,13 +238,21 @@ module Dommy
 
       new(window, body: has_body ? body : "",
                   status: status,
-                  status_text: (opts["statusText"] || opts[:statusText] || "").to_s,
+                  status_text: validate_status_text!(opts["statusText"] || opts[:statusText] || ""),
                   headers: headers)
     end
 
     # Static `Response.json(data, init)` — serialize `data` to JSON, defaulting
     # Content-Type to application/json. (WHATWG Fetch §Response.json)
     def self.__json__(window, data, init = nil)
+      # WHATWG: serialize `data` as JSON; if that yields `undefined` (the value
+      # is JS `undefined` — or absent — or otherwise non-serializable), throw a
+      # TypeError. JS `null` serializes to "null" and is allowed.
+      if defined?(Bridge::UNDEFINED) && data.equal?(Bridge::UNDEFINED)
+        raise Bridge::TypeError,
+          "Failed to execute 'json' on 'Response': The data is not JSON-serializable."
+      end
+
       opts = init.is_a?(Hash) ? init : {}
       status = coerce_status(opts["status"] || opts[:status] || 200)
       unless status.between?(200, 599)
@@ -263,31 +271,53 @@ module Dommy
 
       new(window, body: JSON.generate(data),
                   status: status,
-                  status_text: (opts["statusText"] || opts[:statusText] || "").to_s,
+                  status_text: validate_status_text!(opts["statusText"] || opts[:statusText] || ""),
                   headers: headers)
     end
 
     # Static `Response.redirect(url, status = 302)` — a redirect response whose
-    # `Location` header is `url`; `status` must be a redirect status, else a
-    # RangeError. (WHATWG Fetch §Response.redirect)
+    # `Location` header is the parsed-and-serialized `url`. Parsing failure is a
+    # TypeError; a non-redirect status is a RangeError. The url is resolved
+    # against the window's base URL so a relative target works. (WHATWG Fetch
+    # §Response.redirect)
     def self.__redirect__(window, url, status = nil)
+      base = window.respond_to?(:location) && window.location.respond_to?(:href) ? window.location.href : nil
+      parsed = Dommy::URL.new(url.to_s, base) # raises Bridge::TypeError on failure
+
       status = coerce_status(status.nil? || (defined?(Bridge::UNDEFINED) && status.equal?(Bridge::UNDEFINED)) ? 302 : status)
       unless REDIRECT_STATUSES.include?(status)
         raise Bridge::RangeError,
           "Failed to execute 'redirect' on 'Response': Invalid status code #{status}."
       end
 
-      new(window, body: "", status: status, headers: {"Location" => url.to_s})
+      resp = new(window, body: "", status: status, headers: {"Location" => parsed.href})
+      # WHATWG: a redirect response's header guard is "immutable".
+      resp.__js_get__("headers").make_immutable!
+      resp
     end
 
     # Static `Response.error()` — a network-error response (status 0, not ok).
     # (WHATWG Fetch §Response.error)
     def self.__error__(window)
-      new(window, body: "", status: 0)
+      resp = new(window, body: "", status: 0)
+      # WHATWG: a network-error response's header guard is "immutable".
+      resp.__js_get__("headers").make_immutable!
+      resp
     end
 
     def self.coerce_status(value)
       value.is_a?(Numeric) ? value.to_i : value.to_s.to_i
+    end
+
+    # WHATWG reason-phrase: HTAB / SP / VCHAR (0x21–0x7E) / obs-text (0x80–0xFF).
+    # Any other byte (NUL, CR, LF, other controls, DEL) makes statusText invalid
+    # → TypeError.
+    def self.validate_status_text!(text)
+      str = text.to_s
+      if str.each_byte.any? { |b| (b < 0x20 && b != 0x09) || b == 0x7f }
+        raise Bridge::TypeError, "Failed to construct 'Response': Invalid statusText."
+      end
+      str
     end
 
     def self.coerce_headers(raw)
@@ -407,27 +437,60 @@ module Dommy
   # per key), a sequence (Array of `[name, value]` pairs → append), or another
   # Headers instance.
   class Headers
+    # RFC 7230 token — a valid header name (one or more of these bytes).
+    HEADER_NAME = /\A[!#$%&'*+\-.^_`|~0-9A-Za-z]+\z/.freeze
+    # Leading/trailing HTTP whitespace (tab or space) trimmed from a value.
+    HTTP_WHITESPACE = /\A[\t ]+|[\t ]+\z/.freeze
+
     def initialize(init = nil)
-      @hash = {} # lowercased name => combined value
+      @list = [] # ordered [lowercased name, value] pairs (duplicates allowed)
+      @guard = :none # :none (mutable) or :immutable (Response.error/redirect)
       fill(init)
     end
 
-    # WHATWG "fill" — a sequence appends each pair; a record sets each key.
+    # WHATWG: mark these headers immutable — the guard `Response.error()` /
+    # `Response.redirect()` give their headers. Any later set/append/delete then
+    # raises a TypeError. (Other guards — request/request-no-cors/response
+    # forbidden-name filtering — are out of scope: fetch here is stubbed.)
+    def make_immutable!
+      @guard = :immutable
+      self
+    end
+
+    # WHATWG "fill": a record (Hash) sets each key; a sequence (Array) appends
+    # each [name, value] pair (a non-2-element member is a TypeError); another
+    # Headers is copied pair-for-pair.
     def fill(init)
       case init
       when Headers
-        init.to_h.each { |name, value| append_value(name, value) }
+        init.__raw_pairs__.each { |name, value| append_value(name, value) }
       when Array
-        init.each { |pair| append_value(pair[0], pair[1]) if pair.is_a?(Array) }
+        init.each do |pair|
+          unless pair.is_a?(Array) && pair.length == 2
+            raise Bridge::TypeError,
+              "Failed to construct 'Headers': The provided value cannot be converted to a sequence of [name, value] pairs."
+          end
+          append_value(pair[0], pair[1])
+        end
       when Hash
         init.each { |name, value| set_value(name, value) }
       end
       nil
     end
 
-    # A plain Hash of the (already lowercased) stored headers.
+    # Internal: a copy of the raw [name, value] pairs — lets one Headers be
+    # filled from another without losing duplicates or split Set-Cookie values.
+    def __raw_pairs__
+      @list.map(&:dup)
+    end
+
+    # A plain Hash of name => combined value (duplicate names combined by ", ";
+    # Set-Cookie collapses to its combined value — use getSetCookie for the
+    # split list). For callers that want a simple record.
     def to_h
-      @hash.dup
+      sort_and_combine.each_with_object({}) do |(name, value), out|
+        out[name] = out.key?(name) ? "#{out[name]}, #{value}" : value
+      end
     end
 
     def __js_get__(_key)
@@ -449,29 +512,31 @@ module Dommy
         append_value(args[0], args[1])
         nil
       when "delete"
-        @hash.delete(args[0].to_s.downcase)
+        ensure_mutable!
+        name = validate_name!(args[0])
+        @list.reject! { |n, _| n == name }
         nil
       when "get"
-        @hash[args[0].to_s.downcase]
+        get_combined(validate_name!(args[0]))
       when "has"
-        @hash.key?(args[0].to_s.downcase)
+        name = validate_name!(args[0])
+        @list.any? { |n, _| n == name }
       when "keys"
-        sorted_keys
+        sort_and_combine.map(&:first)
       when "values"
-        sorted_keys.map { |k| @hash[k] }
+        sort_and_combine.map(&:last)
       when "entries"
-        sorted_keys.map { |k| [k, @hash[k]] }
+        sort_and_combine
       when "getSetCookie"
-        # WHATWG: the Set-Cookie values as a list (uncombined). We store a
-        # single combined value, so return it as a one-element list when set.
-        @hash.key?("set-cookie") ? [@hash["set-cookie"]] : []
+        # WHATWG: Set-Cookie's individual values, in insertion order (never
+        # combined, unlike every other header).
+        @list.select { |n, _| n == "set-cookie" }.map(&:last)
       when "forEach"
-        # WHATWG: forEach(callback) — callback(value, key, headers), in sorted
-        # order. Pass `self` as the third argument so `(_, _, h) => h.get(...)`
-        # works the same as in a browser.
+        # WHATWG: forEach(callback) — callback(value, key, headers), in the
+        # sort-and-combine order. `self` is the third argument so
+        # `(_, _, h) => h.get(...)` works the same as in a browser.
         cb = args[0]
-        sorted_keys.each do |k|
-          v = @hash[k]
+        sort_and_combine.each do |k, v|
           if cb.respond_to?(:__js_call__)
             cb.__js_call__("call", [v, k, self])
           elsif cb.respond_to?(:call)
@@ -491,16 +556,59 @@ module Dommy
     private
 
     def set_value(name, value)
-      @hash[name.to_s.downcase] = value.to_s
+      ensure_mutable!
+      key = validate_name!(name)
+      val = validate_value!(value)
+      @list.reject! { |n, _| n == key }
+      @list << [key, val]
     end
 
     def append_value(name, value)
-      key = name.to_s.downcase
-      @hash[key] = @hash.key?(key) ? "#{@hash[key]}, #{value}" : value.to_s
+      ensure_mutable!
+      @list << [validate_name!(name), validate_value!(value)]
     end
 
-    def sorted_keys
-      @hash.keys.sort
+    def ensure_mutable!
+      return unless @guard == :immutable
+
+      raise Bridge::TypeError, "Failed to execute on 'Headers': These headers are immutable."
+    end
+
+    # WHATWG: a header name must be a token, else a TypeError. Returns it
+    # lowercased (the form names are stored and compared in).
+    def validate_name!(name)
+      str = name.to_s
+      unless str.match?(HEADER_NAME)
+        raise Bridge::TypeError, "Failed to execute on 'Headers': '#{str}' is an invalid header name."
+      end
+      str.downcase
+    end
+
+    # WHATWG: trim leading/trailing HTTP whitespace, then reject a value
+    # containing NUL/CR/LF with a TypeError.
+    def validate_value!(value)
+      val = value.to_s.gsub(HTTP_WHITESPACE, "")
+      if val.match?(/[\x00\r\n]/)
+        raise Bridge::TypeError, "Failed to execute on 'Headers': '#{val}' is an invalid header value."
+      end
+      val
+    end
+
+    def get_combined(name)
+      values = @list.select { |n, _| n == name }.map(&:last)
+      values.empty? ? nil : values.join(", ")
+    end
+
+    # WHATWG "sort and combine": unique names sorted ascending; each name's
+    # values combined by ", ", except Set-Cookie whose values stay separate.
+    def sort_and_combine
+      @list.map(&:first).uniq.sort.flat_map do |name|
+        if name == "set-cookie"
+          @list.select { |n, _| n == "set-cookie" }.map { |n, v| [n, v] }
+        else
+          [[name, get_combined(name)]]
+        end
+      end
     end
   end
 end

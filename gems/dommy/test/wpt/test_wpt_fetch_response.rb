@@ -216,10 +216,91 @@ class TestWPTResponseStatics < Minitest::Test
     assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__redirect__(@win, "/y", 200) }
   end
 
+  # WHATWG: the url is parsed (resolved against the base) and the Location
+  # header is the *serialized* parsed URL.
+  def test_redirect_resolves_relative_url_against_base
+    r = Dommy::Response.__redirect__(@win, "/path", 302)
+    assert_equal("http://localhost/path", r.__js_get__("headers").__js_call__("get", ["Location"]))
+  end
+
+  def test_redirect_invalid_url_raises_type_error
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__redirect__(@win, "http://", 302) }
+  end
+
   def test_error_is_status_zero_not_ok
     r = Dommy::Response.__error__(@win)
     assert_equal(0, r.__js_get__("status"))
     refute(r.__js_get__("ok"))
+  end
+
+  # WHATWG: Response.json serializes the value; JS `undefined` is not
+  # JSON-serializable and is a TypeError, while `null` becomes "null".
+  def test_json_undefined_raises_type_error
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__json__(@win, Dommy::Bridge::UNDEFINED) }
+  end
+
+  def test_json_null_serializes_to_null
+    r = Dommy::Response.__json__(@win, nil)
+    assert_equal("null", r.__js_call__("text", []).await)
+  end
+
+  def test_json_false_serializes
+    r = Dommy::Response.__json__(@win, false)
+    assert_equal("false", r.__js_call__("text", []).await)
+  end
+end
+
+class TestWPTResponseImmutableHeaders < Minitest::Test
+  # WHATWG: the headers of Response.error()/redirect() have an "immutable"
+  # guard — any mutation raises a TypeError. A normal Response is mutable.
+
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def test_error_headers_are_immutable
+    headers = Dommy::Response.__error__(@win).__js_get__("headers")
+    assert_raises(Dommy::Bridge::TypeError) { headers.__js_call__("set", ["X-A", "1"]) }
+    assert_raises(Dommy::Bridge::TypeError) { headers.__js_call__("append", ["X-A", "1"]) }
+    assert_raises(Dommy::Bridge::TypeError) { headers.__js_call__("delete", ["location"]) }
+  end
+
+  def test_redirect_headers_are_immutable
+    headers = Dommy::Response.__redirect__(@win, "/x", 302).__js_get__("headers")
+    assert_raises(Dommy::Bridge::TypeError) { headers.__js_call__("set", ["X-A", "1"]) }
+  end
+
+  def test_constructed_response_headers_are_mutable
+    headers = Dommy::Response.__construct__(@win, "hi", {}).__js_get__("headers")
+    headers.__js_call__("set", ["X-A", "1"]) # no raise
+    assert_equal("1", headers.__js_call__("get", ["x-a"]))
+  end
+end
+
+class TestWPTResponseStatusText < Minitest::Test
+  # WHATWG: statusText must match the reason-phrase production (HTAB/SP/VCHAR/
+  # obs-text); other control characters are a TypeError.
+
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def test_valid_status_text_is_accepted
+    r = Dommy::Response.__construct__(@win, "x", {"statusText" => "I'm a teapot"})
+    assert_equal("I'm a teapot", r.__js_get__("statusText"))
+  end
+
+  def test_invalid_status_text_raises_type_error
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__construct__(@win, "x", {"statusText" => "bad\r\n"}) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__construct__(@win, "x", {"statusText" => "bad\x01ctl"}) }
+  end
+
+  def test_json_validates_status_text
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__json__(@win, {}, {"statusText" => "x\n"}) }
   end
 end
 

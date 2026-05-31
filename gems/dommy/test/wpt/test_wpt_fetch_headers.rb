@@ -189,3 +189,69 @@ class TestWPTHeadersAppend < Minitest::Test
     assert_equal([], Dommy::Headers.new({}).__js_call__("getSetCookie", []))
   end
 end
+
+class TestWPTHeadersSetCookie < Minitest::Test
+  # WPT: fetch/api/headers/header-setcookie.any.js
+  # WHATWG: Set-Cookie is never combined — each value is its own entry, and
+  # getSetCookie() returns them split (while every other header combines).
+
+  def test_multiple_set_cookie_are_not_combined
+    h = Dommy::Headers.new([["Set-Cookie", "a=1"], ["Set-Cookie", "b=2"]])
+    assert_equal(["a=1", "b=2"], h.__js_call__("getSetCookie", []))
+  end
+
+  def test_set_cookie_appears_as_separate_entries
+    h = Dommy::Headers.new([["Set-Cookie", "a=1"], ["Set-Cookie", "b=2"], ["X-Z", "z"]])
+    assert_equal([["set-cookie", "a=1"], ["set-cookie", "b=2"], ["x-z", "z"]],
+                 h.__js_call__("entries", []))
+  end
+
+  # get() still combines Set-Cookie with ", " like any header.
+  def test_get_combines_set_cookie
+    h = Dommy::Headers.new([["Set-Cookie", "a=1"], ["Set-Cookie", "b=2"]])
+    assert_equal("a=1, b=2", h.__js_call__("get", ["set-cookie"]))
+  end
+end
+
+class TestWPTHeadersValidation < Minitest::Test
+  # WPT: fetch/api/headers/headers-errors.any.js
+  # WHATWG: an invalid header name (non-token) or a value containing NUL/CR/LF
+  # raises a TypeError; values are trimmed of leading/trailing HTTP whitespace.
+
+  def test_invalid_name_raises_type_error
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Headers.new("Inv@lid" => "x") }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Headers.new("" => "x") }
+    h = Dommy::Headers.new({})
+    assert_raises(Dommy::Bridge::TypeError) { h.__js_call__("append", ["a b", "x"]) }
+  end
+
+  def test_invalid_value_raises_type_error
+    h = Dommy::Headers.new({})
+    assert_raises(Dommy::Bridge::TypeError) { h.__js_call__("set", ["X", "a\r\nb"]) }
+    assert_raises(Dommy::Bridge::TypeError) { h.__js_call__("set", ["X", "a\x00b"]) }
+  end
+
+  def test_value_is_trimmed
+    h = Dommy::Headers.new("X-Foo" => "  bar \t")
+    assert_equal("bar", h.__js_call__("get", ["x-foo"]))
+  end
+
+  def test_get_with_invalid_name_raises_type_error
+    h = Dommy::Headers.new("X-Foo" => "1")
+    assert_raises(Dommy::Bridge::TypeError) { h.__js_call__("get", ["bad name"]) }
+  end
+end
+
+class TestWPTHeadersSequenceArity < Minitest::Test
+  # WHATWG: a sequence init member that is not a 2-element pair is a TypeError.
+  def test_wrong_arity_pair_raises_type_error
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Headers.new([["only-one"]]) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Headers.new([["a", "b", "c"]]) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Headers.new(["not-a-pair"]) }
+  end
+
+  def test_valid_pairs_are_accepted
+    h = Dommy::Headers.new([["X-A", "1"], ["X-B", "2"]])
+    assert_equal("1", h.__js_call__("get", ["x-a"]))
+  end
+end
