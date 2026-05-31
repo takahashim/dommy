@@ -56,13 +56,20 @@ module Dommy
       status_text = entry["statusText"] || ""
       content_type = entry["contentType"] || "text/plain"
       headers = entry["headers"] || {"Content-Type" => content_type}
+      # Simulate a followed redirect: `[:url]` overrides the response URL (the
+      # final location) and `[:redirected]` flags it, so consumers that branch
+      # on `response.redirected` / `response.url` (e.g. Turbo updating history to
+      # the redirected location) see a realistic response.
+      response_url = entry["url"] || url
+      redirected = entry["redirected"] ? true : false
 
       delay = entry["delay"]
       if delay
         install_delayed_resolve(promise, body, status, status_text, headers, init, delay)
       else
         promise.fulfill(
-          Response.new(@window, body: body, status: status, status_text: status_text, headers: headers, url: url)
+          Response.new(@window, body: body, status: status, status_text: status_text,
+            headers: headers, url: response_url, redirected: redirected)
         )
       end
 
@@ -187,13 +194,14 @@ module Dommy
   # `.entries()` / `.get(name)`) and `.text()` / `.json()` / `.body`
   # / `.arrayBuffer()` which all return Promise-like values.
   class Response
-    def initialize(window, body:, status: 200, status_text: "", headers: nil, url: "")
+    def initialize(window, body:, status: 200, status_text: "", headers: nil, url: "", redirected: false)
       @window = window
       @body = body.to_s
       @status = status
       @status_text = status_text.to_s
       @headers = Headers.new(headers || {})
       @url = url.to_s
+      @redirected = redirected ? true : false
     end
 
     def __js_get__(key)
@@ -206,6 +214,10 @@ module Dommy
         @status_text
       when "url"
         @url
+      when "redirected"
+        # Fetch API: true when the response is the result of a followed
+        # redirect (so `response.url` is the final, not requested, URL).
+        @redirected
       when "headers"
         @headers
       when "body"
@@ -242,7 +254,8 @@ module Dommy
           status: @status,
           status_text: @status_text,
           headers: @headers.to_h,
-          url: @url
+          url: @url,
+          redirected: @redirected
         )
       end
     end

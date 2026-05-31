@@ -61,27 +61,28 @@ module Dommy
     ].to_set.freeze
 
     # Validate a non-null CSS selector for `querySelector`/`matches`/`closest`,
-    # raising SyntaxError for cases Nokogiri silently accepts: the empty string,
-    # a selector list beginning with a combinator (a relative selector these
-    # methods don't accept), and an unknown pseudo-class.
+    # raising SyntaxError for syntactically invalid selectors. Delegates to the
+    # full grammar parser (SelectorParser), which catches everything the old
+    # heuristic did (empty string, leading combinator, unknown pseudo-class) plus
+    # the rest of the Selectors grammar (`[*=v]`, `..x`, `div % p`, unknown
+    # pseudo-elements, undeclared namespaces, …) that Nokogiri silently accepts.
     def self.validate_selector!(selector)
-      s = selector.to_s
-      invalid = s.empty? || s.match?(/\A\s*[>+~]/) || unknown_pseudo?(s)
-      raise ::Dommy::DOMException::SyntaxError, "'#{s}' is not a valid selector" if invalid
-
-      s
+      SelectorParser.validate!(selector.to_s)
     end
 
-    # True when the selector names a pseudo-class outside KNOWN_PSEUDOS. Only
-    # checked for selectors without attribute selectors / strings / escapes,
-    # where a bare `:ident` (single colon, not a `::` pseudo-element) is
-    # unambiguous; otherwise we defer to the backend.
-    def self.unknown_pseudo?(selector)
-      return false if selector.match?(/["'\[\\]/)
+    # Coerce the JS argument of a query method (querySelector/All) per WebIDL: the
+    # selector is a *non-nullable* DOMString, so JS `null` → "null" and
+    # `undefined` → "undefined" (which then match `<null>` / `<undefined>` typed
+    # elements rather than returning nothing), while a missing argument is a
+    # TypeError. Used at every JS dispatch site so the behaviour is uniform.
+    def self.css_query_arg!(args)
+      raise ::Dommy::Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
 
-      selector.scan(/(?<![:\\]):([a-zA-Z][a-zA-Z0-9-]*)/).any? do |(name)|
-        !KNOWN_PSEUDOS.include?(name.downcase)
-      end
+      value = args[0]
+      return "null" if value.nil?
+      return "undefined" if defined?(::Dommy::Bridge::UNDEFINED) && value.equal?(::Dommy::Bridge::UNDEFINED)
+
+      value
     end
 
     # Nokogiri's CSS→XPath compiler chokes on an escaped colon INSIDE an
@@ -96,7 +97,10 @@ module Dommy
     # matches.
     ATTR_ESCAPED_COLON = /\[[^\]]*\\:[^\]]*\]/
     def self.backend_safe_selector(selector)
-      s = selector.to_s
+      # First drop clauses whose subject is a pseudo-element (`::before`,
+      # `:first-line`) — they match no element, and the backend can't compile
+      # `::`. Then drop the escaped-colon attribute clauses below.
+      s = SelectorParser.matchable_selector(selector.to_s)
       return s unless s.include?('\\') && s.match?(ATTR_ESCAPED_COLON)
 
       kept = split_selector_list(s).reject { |clause| clause.match?(ATTR_ESCAPED_COLON) }

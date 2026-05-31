@@ -178,9 +178,9 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "querySelector"
-        query_selector(args[0])
+        query_selector(Internal.css_query_arg!(args))
       when "querySelectorAll"
-        query_selector_all(args[0])
+        query_selector_all(Internal.css_query_arg!(args))
       when "getElementById"
         get_element_by_id(args[0])
       when "append"

@@ -115,13 +115,9 @@ module Dommy
         deep ? @document.wrap_node(Parser.fragment(@__node__.to_html, owner_doc: @document.nokogiri_doc)) : @document
           .wrap_node(Parser.fragment("", owner_doc: @document.nokogiri_doc))
       when "querySelector"
-        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
-
-        query_selector(args[0])
+        query_selector(Internal.css_query_arg!(args))
       when "querySelectorAll"
-        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
-
-        query_selector_all(args[0])
+        query_selector_all(Internal.css_query_arg!(args))
       when "getElementById"
         get_element_by_id(args[0])
       when "appendChild"
@@ -2152,13 +2148,9 @@ module Dommy
 
         closest(args[0])
       when "querySelector"
-        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
-
-        query_selector(args[0])
+        query_selector(Internal.css_query_arg!(args))
       when "querySelectorAll"
-        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
-
-        query_selector_all(args[0])
+        query_selector_all(Internal.css_query_arg!(args))
       when "getElementsByClassName"
         get_elements_by_class_name(args[0])
       when "getElementsByTagNameNS"

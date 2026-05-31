@@ -733,13 +733,9 @@ module Dommy
       when "createDocumentFragment"
         create_document_fragment
       when "querySelector"
-        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
-
-        query_selector(args[0])
+        query_selector(Internal.css_query_arg!(args))
       when "querySelectorAll"
-        raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
-
-        query_selector_all(args[0])
+        query_selector_all(Internal.css_query_arg!(args))
       when "getElementById"
         get_element_by_id(args[0])
       when "getElementsByClassName"
