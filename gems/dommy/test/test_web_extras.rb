@@ -160,6 +160,8 @@ class TestFileReader < Minitest::Test
     fr = Dommy::FileReader.new(@win)
     fr.read_as_array_buffer(@blob)
     @win.scheduler.drain_microtasks
+    # readAsArrayBuffer's result is an ArrayBuffer (crosses as a bare one).
+    assert_kind_of(Dommy::Bridge::ArrayBuffer, fr.result)
     assert_equal([104, 101, 108, 108, 111], fr.result)
   end
 
@@ -448,6 +450,8 @@ class TestSubtleCrypto < Minitest::Test
 
   def test_sha256_known_vector
     bytes = @subtle.digest("SHA-256", "hello").await
+    # digest() resolves to an ArrayBuffer (crosses as a bare ArrayBuffer).
+    assert_kind_of(Dommy::Bridge::ArrayBuffer, bytes)
     hex = bytes.map { |b| format("%02x", b) }.join
     assert_equal("2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824", hex)
   end

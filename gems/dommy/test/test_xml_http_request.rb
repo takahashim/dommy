@@ -155,6 +155,8 @@ class TestXMLHttpRequest < Minitest::Test
     xhr.response_type = "arraybuffer"
     xhr.open("GET", "/api/foo", false)
     xhr.send
+    # responseType "arraybuffer" yields an ArrayBuffer (crosses as a bare one).
+    assert_kind_of(Dommy::Bridge::ArrayBuffer, xhr.response)
     assert_equal("hello world".bytes, xhr.response)
   end
 

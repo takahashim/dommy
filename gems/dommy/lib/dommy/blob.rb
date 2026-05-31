@@ -17,12 +17,16 @@ module Dommy
     #   - anything else: coerced via to_s
     #
     # `options["type"]` sets the MIME type (lowercased per spec).
-    def initialize(parts = [], options = {})
+    # `window` (optional) lets the JS-facing `text()`/`arrayBuffer()` return real
+    # Promises (they need a scheduler). A window-less Blob falls back to a
+    # synchronous result, which `await` still handles.
+    def initialize(parts = [], options = {}, window = nil)
       parts = [parts] unless parts.is_a?(Array)
       @data = collect_bytes(parts)
       @size = @data.bytesize
       raw_type = options["type"] || options[:type] || ""
       @type = raw_type.to_s.downcase
+      @window = window
     end
 
     # Return a new Blob over a byte range of this one.
@@ -31,7 +35,7 @@ module Dommy
       s = clamp_index(start.to_i, @size)
       e = clamp_index(last.to_i, @size)
       e = s if e < s
-      Blob.new([@data.byteslice(s, e - s) || ""], "type" => content_type.to_s)
+      Blob.new([@data.byteslice(s, e - s) || ""], {"type" => content_type.to_s}, @window)
     end
 
     # Read the bytes as UTF-8 text. The DOM spec returns a Promise,
@@ -71,13 +75,21 @@ module Dommy
       when "slice"
         slice(args[0] || 0, args[1] || @size, args[2] || "")
       when "text"
-        text
+        # WHATWG: Blob.text() returns a Promise<string>.
+        promise_or_value(text)
       when "arrayBuffer"
-        array_buffer
+        # WHATWG: Blob.arrayBuffer() returns a Promise<ArrayBuffer>.
+        promise_or_value(array_buffer)
       end
     end
 
     private
+
+    # Wrap a consumed value in a resolved Promise when a window is available;
+    # otherwise return it directly (a window-less Blob — `await` copes either way).
+    def promise_or_value(value)
+      @window ? PromiseValue.resolve(@window, value) : value
+    end
 
     def collect_bytes(parts)
       buf = String.new(encoding: Encoding::ASCII_8BIT)
@@ -111,8 +123,8 @@ module Dommy
   class File < Blob
     attr_reader :name, :last_modified
 
-    def initialize(parts, name, options = {})
-      super(parts, options)
+    def initialize(parts, name, options = {}, window = nil)
+      super(parts, options, window)
       @name = name.to_s
       raw_lm = options["lastModified"] || options[:lastModified]
       @last_modified = (raw_lm || (Time.now.to_f * 1000)).to_i

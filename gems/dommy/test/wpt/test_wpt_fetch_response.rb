@@ -475,3 +475,46 @@ class TestWPTResponseBodyExtraction < Minitest::Test
     assert_equal("text/plain", ct(r))
   end
 end
+
+class TestWPTResponseFormData < Minitest::Test
+  # WPT: fetch/api/response/response-consume.any.js (formData)
+  # WHATWG: response.formData() parses an urlencoded or multipart body into a
+  # FormData; any other Content-Type rejects with a TypeError.
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def test_form_data_from_urlencoded
+    usp = Dommy::URLSearchParams.new("a=1&b=hello+world")
+    fd = Dommy::Response.__construct__(@win, usp, {}).__js_call__("formData", []).await
+    assert_equal("1", fd.__js_call__("get", ["a"]))
+    assert_equal("hello world", fd.__js_call__("get", ["b"]))
+  end
+
+  def test_form_data_round_trips_multipart_with_file
+    src = Dommy::FormData.new
+    src.append("name", "alice")
+    src.append("upload", Dommy::File.new(["FILE"], "f.txt", "type" => "text/plain"))
+    fd = Dommy::Response.__construct__(@win, src, {}).__js_call__("formData", []).await
+
+    assert_equal("alice", fd.__js_call__("get", ["name"]))
+    file = fd.__js_call__("get", ["upload"])
+    assert_kind_of(Dommy::File, file)
+    assert_equal("f.txt", file.name)
+    assert_equal("FILE", file.text)
+    assert_equal("text/plain", file.type)
+  end
+
+  def test_form_data_unsupported_content_type_rejects
+    r = Dommy::Response.new(@win, body: "x", headers: {"Content-Type" => "text/plain"})
+    assert_raises(RuntimeError) { r.__js_call__("formData", []).await }
+  end
+
+  def test_form_data_marks_body_used
+    r = Dommy::Response.__construct__(@win, Dommy::URLSearchParams.new("a=1"), {})
+    r.__js_call__("formData", []).await
+    assert(r.__js_get__("bodyUsed"))
+  end
+end

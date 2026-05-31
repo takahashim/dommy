@@ -101,7 +101,9 @@ module Dommy
         hasher = ALGORITHMS[name]
         raise ArgumentError, "unsupported algorithm: #{name}" unless hasher
 
-        hasher.call(coerce_bytes(data)).bytes
+        # WHATWG: digest() resolves to an ArrayBuffer — wrap so it crosses the
+        # JS boundary as a bare ArrayBuffer (not a plain Array).
+        Bridge::ArrayBuffer.new(hasher.call(coerce_bytes(data)).bytes)
       end
     end
 

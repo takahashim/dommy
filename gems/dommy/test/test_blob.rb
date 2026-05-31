@@ -70,7 +70,35 @@ class TestBlob < Minitest::Test
 
   def test_array_buffer_returns_bytes
     blob = Dommy::Blob.new(["Hi"])
+    # Blob.arrayBuffer()'s result is an ArrayBuffer (crosses as a bare one).
+    assert_kind_of(Dommy::Bridge::ArrayBuffer, blob.array_buffer)
     assert_equal([72, 105], blob.array_buffer)
+  end
+
+  # WHATWG: Blob.text()/arrayBuffer() return Promises. A window-bearing Blob
+  # (the JS-constructed case) resolves them via the scheduler.
+  def test_js_text_and_array_buffer_are_promises
+    win = make_window
+    blob = Dommy::Blob.new(["Hi"], {"type" => "text/plain"}, win)
+
+    text_promise = blob.__js_call__("text", [])
+    assert_kind_of(Dommy::PromiseValue, text_promise)
+    assert_equal("Hi", text_promise.await)
+
+    ab_promise = blob.__js_call__("arrayBuffer", [])
+    assert_kind_of(Dommy::PromiseValue, ab_promise)
+    assert_kind_of(Dommy::Bridge::ArrayBuffer, ab_promise.await)
+  end
+
+  def test_js_text_falls_back_to_value_without_window
+    # A window-less Blob returns the value directly (await still copes).
+    assert_equal("Hi", Dommy::Blob.new(["Hi"]).__js_call__("text", []))
+  end
+
+  def test_slice_preserves_window
+    win = make_window
+    blob = Dommy::Blob.new(["Hello"], {}, win)
+    assert_kind_of(Dommy::PromiseValue, blob.slice(0, 2).__js_call__("text", []))
   end
 
   # --- File --------------------------------------------------------

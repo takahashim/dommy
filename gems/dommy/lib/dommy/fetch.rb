@@ -422,7 +422,7 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[text json arrayBuffer blob clone]
+    js_methods %w[text json arrayBuffer blob formData clone]
     def __js_call__(method, _args)
       case method
       when "text"
@@ -439,8 +439,10 @@ module Dommy
         consume_body { immediate(Bridge::ArrayBuffer.new(@body.bytes)) }
       when "blob"
         consume_body do
-          immediate(Blob.new([@body], "type" => @headers.__js_call__("get", ["content-type"]) || ""))
+          immediate(Blob.new([@body], {"type" => @headers.__js_call__("get", ["content-type"]) || ""}, @window))
         end
+      when "formData"
+        consume_body { consume_form_data }
       when "clone"
         clone_response
       end
@@ -476,6 +478,53 @@ module Dommy
         stream.__internal_close__
         stream
       end
+    end
+
+    # WHATWG: parse the body as a FormData based on Content-Type —
+    # application/x-www-form-urlencoded or multipart/form-data. Any other type
+    # rejects with a TypeError.
+    def consume_form_data
+      content_type = (@headers.__js_call__("get", ["content-type"]) || "").to_s
+      if content_type.start_with?("application/x-www-form-urlencoded")
+        immediate(parse_urlencoded_form(@body))
+      elsif (match = content_type.match(/\bmultipart\/form-data\b.*?boundary=("?)([^";]+)\1/i))
+        immediate(parse_multipart_form(@body, match[2]))
+      else
+        rejected(ErrorValue.new("Failed to read body as FormData: unsupported Content-Type", name: "TypeError"))
+      end
+    end
+
+    def parse_urlencoded_form(body)
+      form = FormData.new
+      URLSearchParams.new(body).__js_call__("entries", []).each { |name, value| form.append(name, value) }
+      form
+    end
+
+    # Parse a multipart/form-data body (the inverse of Response.multipart_body):
+    # a part with a `filename` becomes a File entry, otherwise a string entry.
+    def parse_multipart_form(body, boundary)
+      form = FormData.new
+      body.split("--#{boundary}").each do |section|
+        next if section.empty? || section.start_with?("--") # preamble / closing
+
+        section = section.sub(/\A\r\n/, "")
+        head, content = section.split("\r\n\r\n", 2)
+        next unless content
+
+        content = content.sub(/\r\n\z/, "")
+        disposition = head[/Content-Disposition:\s*form-data;([^\r\n]*)/i, 1].to_s
+        name = disposition[/name="([^"]*)"/i, 1]
+        next unless name
+
+        filename = disposition[/filename="([^"]*)"/i, 1]
+        if filename
+          type = head[/Content-Type:\s*([^\r\n]+)/i, 1].to_s.strip
+          form.append(name, File.new([content], filename, {"type" => type}, @window))
+        else
+          form.append(name, content)
+        end
+      end
+      form
     end
 
     # WHATWG: clone throws if the body is already disturbed/locked; otherwise the
