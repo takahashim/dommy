@@ -978,7 +978,10 @@ module Dommy
         if key.is_a?(Integer) || key.to_s.match?(/\A-?\d+\z/)
           self[key.to_i]
         else
-          properties[method_to_css_name(key)]
+          # An unset CSS property reads as "" (per CSSStyleDeclaration), not nil —
+          # `el.style.display` is "" until assigned, which `v-show` and other
+          # display-toggling code compares against.
+          properties[method_to_css_name(key)] || ""
         end
       end
     end
