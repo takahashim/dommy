@@ -166,8 +166,6 @@ module Dommy
       @mutation_coordinator = Internal::MutationCoordinator.new(self, @observer_manager)
       @node_iterators = []
       @nokogiri_doc = nokogiri_doc || Backend.parse("<!doctype html><html><head></head><body></body></html>")
-      body_node = @nokogiri_doc.at_css("body")
-      @body = wrap_node(body_node) if body_node
       @content_type = "text/html"
     end
 
@@ -210,6 +208,15 @@ module Dommy
 
     def head
       wrap_node(@nokogiri_doc.at_css("head"))
+    end
+
+    # Resolve `body` fresh from the tree (not memoized) so it tracks a swapped
+    # `<body>` — e.g. Turbo's page render does
+    # `documentElement.replaceChild(newBody, body)`, after which a stale cached
+    # wrapper would keep returning the detached old body. wrap_node caches by
+    # node, so identity (`document.body === document.body`) still holds.
+    def body
+      wrap_node(@nokogiri_doc.at_css("body"))
     end
 
     # Serialize the whole document to HTML (including the doctype).
@@ -338,7 +345,7 @@ module Dommy
     # Currently-focused element (or body if none). Updated via
     # `el.focus()` / `el.blur()`.
     def active_element
-      @active_element || @body
+      @active_element || body
     end
 
     def __internal_set_active_element__(el)
@@ -564,8 +571,9 @@ module Dommy
       fragment = Parser.fragment(html, owner_doc: @nokogiri_doc)
       removed = []
       added = fragment.children.to_a
-      added.each { |node| @body.__dommy_backend_node__.add_child(node) }
-      notify_child_list_mutation(target_node: @body.__dommy_backend_node__, added_nodes: added, removed_nodes: removed)
+      body_node = body.__dommy_backend_node__
+      added.each { |node| body_node.add_child(node) }
+      notify_child_list_mutation(target_node: body_node, added_nodes: added, removed_nodes: removed)
       nil
     end
 
@@ -608,7 +616,7 @@ module Dommy
     def __js_get__(key)
       case key
       when "body"
-        @body
+        body
       when "head"
         head
       when "doctype"

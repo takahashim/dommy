@@ -9,9 +9,10 @@ module Dommy
     def initialize(window, location)
       @window = window
       @location = location
-      # Initial entry mirrors the live Location. Bookmark URL is
-      # resynthesized lazily from Location each time we read it.
-      @stack = [{state: nil, url: nil}]
+      # Each entry records the full href it navigated to, so back/forward can
+      # restore Location to it (and fire popstate) — a restoration that
+      # framework routers like Turbo's depend on to swap the cached snapshot.
+      @stack = [{state: nil, url: @location.href}]
       @cursor = 0
       @scroll_restoration = "auto"
     end
@@ -67,14 +68,14 @@ module Dommy
       # WHATWG: pushState serializes the state via structured-clone
       # so subsequent caller-side mutation of the original cannot
       # affect history.state.
-      @stack << {state: Dommy.structured_clone(state), url: nil}
+      @stack << {state: Dommy.structured_clone(state), url: @location.href}
       @cursor = @stack.size - 1
     end
 
     def replace(state, url)
       resolved = resolve_url!(url)
       @location.__internal_set_url__(resolved) if resolved
-      @stack[@cursor] = {state: Dommy.structured_clone(state), url: nil}
+      @stack[@cursor] = {state: Dommy.structured_clone(state), url: @location.href}
     end
 
     # WHATWG "URL and history update steps": resolve the given URL against the
@@ -105,7 +106,12 @@ module Dommy
       return if target < 0 || target >= @stack.size
 
       @cursor = target
-      @window.fire_popstate(@stack[@cursor][:state])
+      entry = @stack[@cursor]
+      # Restore Location to the target entry's URL BEFORE firing popstate, so a
+      # listener that reads `location` (Turbo's restoration visit, the WHATWG
+      # traversal steps) sees the destination, not the page we came from.
+      @location.__internal_set_url__(entry[:url]) if entry[:url]
+      @window.fire_popstate(entry[:state])
     end
   end
 end

@@ -2491,19 +2491,16 @@ module Dommy
     end
 
     def clone_node(deep_arg)
-      deep = !!deep_arg
-      if deep
-        @document.wrap_node(
-          Parser.fragment(@__node__.to_html, owner_doc: @document.nokogiri_doc).children.find(&:element?)
-        )
-      else
-        clone = @document.create_element(@__node__.name)
-        Backend.attribute_nodes(@__node__).each do |attr|
-          clone.set_attribute(attr.name, attr.value)
-        end
-
-        clone
-      end
+      # Copy the node in place via libxml's deep dup, NOT by re-parsing to_html as
+      # a fragment: the HTML fragment parser unwraps `<body>` / `<head>` /
+      # `<html>`, so cloning a body produced its children, not a body element
+      # (which broke Turbo's snapshot cache — it clones the body and restores it
+      # via documentElement.replaceChild on back/forward). dup(1) preserves the
+      # element's namespace and attributes (createElement would lose the
+      # namespace); for a shallow clone we keep that node but drop its subtree.
+      copy = @__node__.dup(1)
+      copy.children.each(&:unlink) unless deep_arg
+      @document.wrap_node(copy)
     end
 
     # Test inspector for scroll calls (no real layout to scroll).

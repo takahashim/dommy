@@ -184,7 +184,9 @@ module Dommy
     # hashchange events. Listeners registered on the Window via
     # `addEventListener("popstate"|"hashchange", cb)` receive them.
     def fire_popstate(state)
-      event = CustomEvent.new("popstate", "detail" => state)
+      # PopStateEvent exposes the entry's state as `event.state` (the spec
+      # property). Routers (Turbo) branch on `event.state`.
+      event = PopStateEvent.new("popstate", "state" => state)
       dispatch_event(event)
     end
 

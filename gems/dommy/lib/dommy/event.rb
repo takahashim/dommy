@@ -511,6 +511,26 @@ module Dommy
     end
   end
 
+  # PopStateEvent — fired on history back/forward. Exposes the history entry's
+  # serialized state via `event.state` (the spec property; framework routers like
+  # Turbo read `event.state.turbo` to recognise their own navigations and restore
+  # the cached page). A plain `Event` subclass per spec — NOT a CustomEvent, so it
+  # has no `detail` and `instanceof CustomEvent` is false.
+  class PopStateEvent < Event
+    attr_reader :state
+
+    def initialize(type, init = nil)
+      super
+      @state = read_init(init, "state")
+    end
+
+    def __js_get__(key)
+      return @state if key == "state"
+
+      super
+    end
+  end
+
   class MouseEvent < Event
     def initialize(type, init = nil)
       super

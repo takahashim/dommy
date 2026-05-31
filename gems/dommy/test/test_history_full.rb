@@ -79,7 +79,7 @@ class TestHistoryFull < Minitest::Test
 
   def test_back_fires_popstate_with_state
     seen = nil
-    @win.add_event_listener("popstate") { |e| seen = e.__js_get__("detail") }
+    @win.add_event_listener("popstate") { |e| seen = e.__js_get__("state") }
     @hist.__js_call__("pushState", [{"n" => 1}, "", "/a"])
     @hist.__js_call__("pushState", [{"n" => 2}, "", "/b"])
     @hist.__js_call__("back", [])

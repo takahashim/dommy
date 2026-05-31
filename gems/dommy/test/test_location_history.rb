@@ -44,7 +44,7 @@ class TestLocationHistory < Minitest::Test
     @hist.__js_call__("pushState", [{"n" => 2}, "", "/page2"])
 
     fired = []
-    @win.add_event_listener("popstate") { |e| fired << e.__js_get__("detail") }
+    @win.add_event_listener("popstate") { |e| fired << e.__js_get__("state") }
     @hist.__js_call__("back", [])
 
     assert_equal(1, fired.size)
