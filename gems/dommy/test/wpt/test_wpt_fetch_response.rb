@@ -134,6 +134,95 @@ class TestWPTResponseBodyConsumption < Minitest::Test
   end
 end
 
+class TestWPTResponseConstructor < Minitest::Test
+  # WPT: fetch/api/response/response-init-001/002.any.js
+  # Spec: https://fetch.spec.whatwg.org/#dom-response
+
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def test_status_out_of_range_raises_range_error
+    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__construct__(@win, "x", {"status" => 0}) }
+    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__construct__(@win, "x", {"status" => 600}) }
+  end
+
+  def test_null_body_status_with_body_raises_type_error
+    [204, 205, 304].each do |status|
+      assert_raises(Dommy::Bridge::TypeError, "status #{status} with body") do
+        Dommy::Response.__construct__(@win, "body", {"status" => status})
+      end
+    end
+  end
+
+  def test_null_body_status_without_body_is_allowed
+    r = Dommy::Response.__construct__(@win, nil, {"status" => 204})
+    assert_equal(204, r.__js_get__("status"))
+  end
+
+  def test_default_content_type_for_non_null_body
+    r = Dommy::Response.__construct__(@win, "hi", {})
+    assert_equal("text/plain;charset=UTF-8", r.__js_get__("headers").__js_call__("get", ["Content-Type"]))
+  end
+
+  def test_array_buffer_is_byte_array
+    r = Dommy::Response.new(@win, body: "AB")
+    assert_equal([65, 66], r.__js_call__("arrayBuffer", []).await)
+  end
+end
+
+class TestWPTResponseStatics < Minitest::Test
+  # WPT: fetch/api/response/response-static-json.any.js,
+  #      fetch/api/response/response-static-redirect.any.js,
+  #      fetch/api/response/response-static-error.any.js
+  # Spec: https://fetch.spec.whatwg.org/#response-class (static methods)
+
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def test_json_serializes_data_and_sets_content_type
+    r = Dommy::Response.__json__(@win, {"a" => 1})
+    assert_equal('{"a":1}', r.__js_call__("text", []).await)
+    assert_equal("application/json", r.__js_get__("headers").__js_call__("get", ["Content-Type"]))
+    assert_equal(200, r.__js_get__("status"))
+  end
+
+  def test_json_honors_init_status_and_keeps_explicit_content_type
+    r = Dommy::Response.__json__(@win, [1, 2], {"status" => 201, "headers" => {"Content-Type" => "application/problem+json"}})
+    assert_equal(201, r.__js_get__("status"))
+    assert_equal("application/problem+json", r.__js_get__("headers").__js_call__("get", ["content-type"]))
+  end
+
+  def test_json_null_body_status_raises_type_error
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__json__(@win, {}, {"status" => 204}) }
+  end
+
+  def test_redirect_sets_location_and_status
+    r = Dommy::Response.__redirect__(@win, "https://example.test/x", 301)
+    assert_equal(301, r.__js_get__("status"))
+    assert_equal("https://example.test/x", r.__js_get__("headers").__js_call__("get", ["Location"]))
+  end
+
+  def test_redirect_defaults_to_302
+    assert_equal(302, Dommy::Response.__redirect__(@win, "/y").__js_get__("status"))
+  end
+
+  def test_redirect_invalid_status_raises_range_error
+    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__redirect__(@win, "/y", 200) }
+  end
+
+  def test_error_is_status_zero_not_ok
+    r = Dommy::Response.__error__(@win)
+    assert_equal(0, r.__js_get__("status"))
+    refute(r.__js_get__("ok"))
+  end
+end
+
 class TestWPTResponseClone < Minitest::Test
   include DommyTestHelper
 

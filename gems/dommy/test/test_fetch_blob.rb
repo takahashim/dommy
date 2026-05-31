@@ -77,3 +77,69 @@ class TestFetchBlob < Minitest::Test
     assert_equal("1", init["headers"]["X-Test"])
   end
 end
+
+# `new Response(body, init)` per the WHATWG Fetch spec — needed by code (e.g.
+# Lilac's fetch stub) that synthesizes responses.
+class TestResponseConstructor < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def build(body = nil, init = nil)
+    Dommy::Response.__construct__(@win, body, init)
+  end
+
+  def test_defaults
+    r = build
+    assert_equal(200, r.__js_get__("status"))
+    assert_equal("", r.__js_get__("statusText"))
+    assert_equal(true, r.__js_get__("ok"))
+    assert_equal("", r.__js_get__("url")) # constructed responses have empty url
+    assert_equal(false, r.__js_get__("redirected"))
+  end
+
+  def test_status_and_status_text
+    r = build("hi", {"status" => 201, "statusText" => "Created"})
+    assert_equal(201, r.__js_get__("status"))
+    assert_equal("Created", r.__js_get__("statusText"))
+    assert_equal(true, r.__js_get__("ok"))
+  end
+
+  def test_not_ok_status
+    assert_equal(false, build("x", {"status" => 404}).__js_get__("ok"))
+  end
+
+  def test_status_out_of_range_raises_range_error
+    assert_raises(Dommy::Bridge::RangeError) { build("x", {"status" => 42}) }
+    assert_raises(Dommy::Bridge::RangeError) { build("x", {"status" => 600}) }
+  end
+
+  def test_body_text
+    r = build("hello")
+    text = r.__js_call__("text", [])
+    assert_equal("hello", text.await) # PromiseValue resolved with the body
+  end
+
+  def test_headers_from_plain_object
+    r = build("hi", {"headers" => {"X-A" => "1"}})
+    headers = r.__js_get__("headers")
+    assert_equal("1", headers.__js_call__("get", ["X-A"]))
+  end
+
+  def test_default_content_type_for_non_null_body
+    r = build("hi", {})
+    assert_equal("text/plain;charset=UTF-8", r.__js_get__("headers").__js_call__("get", ["Content-Type"]))
+  end
+
+  def test_explicit_content_type_is_kept
+    r = build("hi", {"headers" => {"Content-Type" => "application/json"}})
+    assert_equal("application/json", r.__js_get__("headers").__js_call__("get", ["Content-Type"]))
+  end
+
+  def test_window_exposes_response_constructor
+    # The window registers `Response` so `new Response(...)` resolves from JS.
+    assert_kind_of(Dommy::Bridge::Constructor, @win.__js_get__("Response"))
+  end
+end

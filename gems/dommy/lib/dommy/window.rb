@@ -304,6 +304,10 @@ module Dommy
         "XMLSerializer" => Bridge::Constructor.new { |_args| XMLSerializer.new },
         "URLSearchParams" => Bridge::Constructor.new { |args| URLSearchParams.new(args[0] || "") },
         "Headers" => Bridge::Constructor.new { |args| Headers.new(args[0] || {}) },
+        "Response" => Bridge::Constructor.new { |args| Response.__construct__(win, args[0], args[1]) }
+          .define_class_method("json") { |args| Response.__json__(win, args[0], args[1]) }
+          .define_class_method("redirect") { |args| Response.__redirect__(win, args[0], args[1]) }
+          .define_class_method("error") { |_args| Response.__error__(win) },
         "DataTransfer" => Bridge::Constructor.new { |args|
           opts = args[0] || {}
           DataTransfer.new(

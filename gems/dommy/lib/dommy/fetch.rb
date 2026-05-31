@@ -194,6 +194,13 @@ module Dommy
   # `.entries()` / `.get(name)`) and `.text()` / `.json()` / `.body`
   # / `.arrayBuffer()` which all return Promise-like values.
   class Response
+    # WHATWG null-body statuses: a Response with one of these may not carry a
+    # body (constructing one with a body is a TypeError). 101/103 are also
+    # null-body but fall outside the 200–599 range the constructor accepts.
+    NULL_BODY_STATUSES = [204, 205, 304].freeze
+    # Redirect statuses accepted by `Response.redirect(url, status)`.
+    REDIRECT_STATUSES = [301, 302, 303, 307, 308].freeze
+
     def initialize(window, body:, status: 200, status_text: "", headers: nil, url: "", redirected: false)
       @window = window
       @body = body.to_s
@@ -202,6 +209,93 @@ module Dommy
       @headers = Headers.new(headers || {})
       @url = url.to_s
       @redirected = redirected ? true : false
+    end
+
+    # WHATWG `new Response(body, init)`. Validates the status (200–599, else a
+    # RangeError; a null-body status 204/205/304 with a body is a TypeError),
+    # defaults statusText to "" and status to 200, accepts `init.headers` as a
+    # plain object or a Headers instance, and — per the body-extraction step —
+    # defaults Content-Type to text/plain for a non-null body when none was
+    # supplied. A constructed response's url is "".
+    def self.__construct__(window, body, init)
+      opts = init.is_a?(Hash) ? init : {}
+      status = coerce_status(opts["status"] || opts[:status] || 200)
+      unless status.between?(200, 599)
+        raise Bridge::RangeError,
+          "Failed to construct 'Response': The status provided (#{status}) is outside the range [200, 599]."
+      end
+
+      has_body = !(body.nil? || (defined?(Bridge::UNDEFINED) && body.equal?(Bridge::UNDEFINED)))
+      if has_body && NULL_BODY_STATUSES.include?(status)
+        raise Bridge::TypeError,
+          "Failed to construct 'Response': Response with null body status (#{status}) cannot have body."
+      end
+
+      headers = coerce_headers(opts["headers"] || opts[:headers])
+      if has_body && headers.keys.none? { |k| k.to_s.downcase == "content-type" }
+        headers = headers.merge("Content-Type" => "text/plain;charset=UTF-8")
+      end
+
+      new(window, body: has_body ? body : "",
+                  status: status,
+                  status_text: (opts["statusText"] || opts[:statusText] || "").to_s,
+                  headers: headers)
+    end
+
+    # Static `Response.json(data, init)` — serialize `data` to JSON, defaulting
+    # Content-Type to application/json. (WHATWG Fetch §Response.json)
+    def self.__json__(window, data, init = nil)
+      opts = init.is_a?(Hash) ? init : {}
+      status = coerce_status(opts["status"] || opts[:status] || 200)
+      unless status.between?(200, 599)
+        raise Bridge::RangeError,
+          "Failed to execute 'json' on 'Response': The status provided (#{status}) is outside the range [200, 599]."
+      end
+      if NULL_BODY_STATUSES.include?(status)
+        raise Bridge::TypeError,
+          "Failed to execute 'json' on 'Response': Response with null body status (#{status}) cannot have body."
+      end
+
+      headers = coerce_headers(opts["headers"] || opts[:headers])
+      unless headers.keys.any? { |k| k.to_s.downcase == "content-type" }
+        headers = headers.merge("Content-Type" => "application/json")
+      end
+
+      new(window, body: JSON.generate(data),
+                  status: status,
+                  status_text: (opts["statusText"] || opts[:statusText] || "").to_s,
+                  headers: headers)
+    end
+
+    # Static `Response.redirect(url, status = 302)` — a redirect response whose
+    # `Location` header is `url`; `status` must be a redirect status, else a
+    # RangeError. (WHATWG Fetch §Response.redirect)
+    def self.__redirect__(window, url, status = nil)
+      status = coerce_status(status.nil? || (defined?(Bridge::UNDEFINED) && status.equal?(Bridge::UNDEFINED)) ? 302 : status)
+      unless REDIRECT_STATUSES.include?(status)
+        raise Bridge::RangeError,
+          "Failed to execute 'redirect' on 'Response': Invalid status code #{status}."
+      end
+
+      new(window, body: "", status: status, headers: {"Location" => url.to_s})
+    end
+
+    # Static `Response.error()` — a network-error response (status 0, not ok).
+    # (WHATWG Fetch §Response.error)
+    def self.__error__(window)
+      new(window, body: "", status: 0)
+    end
+
+    def self.coerce_status(value)
+      value.is_a?(Numeric) ? value.to_i : value.to_s.to_i
+    end
+
+    def self.coerce_headers(raw)
+      case raw
+      when Headers then raw.to_h
+      when Hash then raw
+      else {}
+      end
     end
 
     def __js_get__(key)
@@ -244,7 +338,9 @@ module Dommy
         end
 
       when "arrayBuffer"
-        immediate(@body.bytes)
+        # Wrap in Bridge::Bytes so the host bridge decodes it to a real JS
+        # ArrayBuffer/typed array (a plain Array would cross as a JS array).
+        immediate(Bridge::Bytes.new(@body.bytes))
       when "blob"
         immediate(Blob.new([@body], "type" => @headers.__js_call__("get", ["content-type"]) || ""))
       when "clone"
@@ -304,14 +400,32 @@ module Dommy
     end
   end
 
-  # Minimal `Headers` proxy. Consumer code typically calls
-  # `headers.call(:entries)` and iterates via `Array.from(...)`, so
-  # we just need `entries` and `get`.
+  # WHATWG `Headers`. Names are stored lowercased and compared
+  # case-insensitively; iteration (`keys`/`values`/`entries`/`forEach`) is
+  # sorted by name with duplicate values combined by ", " (the spec's "sort
+  # and combine" output). `new Headers(init)` fills from a record (Hash → set
+  # per key), a sequence (Array of `[name, value]` pairs → append), or another
+  # Headers instance.
   class Headers
-    def initialize(hash)
-      @hash = hash.is_a?(Hash) ? hash.transform_keys(&:to_s) : {}
+    def initialize(init = nil)
+      @hash = {} # lowercased name => combined value
+      fill(init)
     end
 
+    # WHATWG "fill" — a sequence appends each pair; a record sets each key.
+    def fill(init)
+      case init
+      when Headers
+        init.to_h.each { |name, value| append_value(name, value) }
+      when Array
+        init.each { |pair| append_value(pair[0], pair[1]) if pair.is_a?(Array) }
+      when Hash
+        init.each { |name, value| set_value(name, value) }
+      end
+      nil
+    end
+
+    # A plain Hash of the (already lowercased) stored headers.
     def to_h
       @hash.dup
     end
@@ -325,57 +439,68 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[set append delete keys values get entries has forEach]
+    js_methods %w[set append delete keys values get entries has forEach getSetCookie]
     def __js_call__(method, args)
       case method
       when "set"
-        @hash[Headers.canonical(args[0].to_s)] = args[1].to_s
+        set_value(args[0], args[1])
         nil
       when "append"
-        # WHATWG: append combines existing values with ", ".
-        key = Headers.canonical(args[0].to_s)
-        existing = @hash[args[0].to_s] || @hash[key]
-        @hash.delete(args[0].to_s)
-        @hash[key] = existing ? "#{existing}, #{args[1]}" : args[1].to_s
+        append_value(args[0], args[1])
         nil
       when "delete"
-        @hash.delete(args[0].to_s)
-        @hash.delete(Headers.canonical(args[0].to_s))
+        @hash.delete(args[0].to_s.downcase)
         nil
-      when "keys"
-        @hash.keys
-      when "values"
-        @hash.values
       when "get"
-        name = args[0].to_s
-        @hash[name] || @hash[Headers.canonical(name)]
-      when "entries"
-        @hash.to_a
+        @hash[args[0].to_s.downcase]
       when "has"
-        # Match `get`'s case-insensitive lookup: try the raw name
-        # first, then the Title-Case canonical form. WHATWG defines
-        # header names as case-insensitive throughout the Headers API.
-        name = args[0].to_s
-        @hash.key?(name) || @hash.key?(Headers.canonical(name))
+        @hash.key?(args[0].to_s.downcase)
+      when "keys"
+        sorted_keys
+      when "values"
+        sorted_keys.map { |k| @hash[k] }
+      when "entries"
+        sorted_keys.map { |k| [k, @hash[k]] }
+      when "getSetCookie"
+        # WHATWG: the Set-Cookie values as a list (uncombined). We store a
+        # single combined value, so return it as a one-element list when set.
+        @hash.key?("set-cookie") ? [@hash["set-cookie"]] : []
       when "forEach"
-        # WHATWG: forEach(callback) — callback(value, key, headers).
-        # Pass `self` as the third argument so consumers that read
-        # `(_, _, h) => h.get("Foo")` work the same as in a browser.
+        # WHATWG: forEach(callback) — callback(value, key, headers), in sorted
+        # order. Pass `self` as the third argument so `(_, _, h) => h.get(...)`
+        # works the same as in a browser.
         cb = args[0]
-        @hash.each do |k, v|
+        sorted_keys.each do |k|
+          v = @hash[k]
           if cb.respond_to?(:__js_call__)
             cb.__js_call__("call", [v, k, self])
           elsif cb.respond_to?(:call)
             cb.call(v, k, self)
           end
         end
-
         nil
       end
     end
 
+    # RFC 7230 Title-Case form of a header name. Retained as a public helper;
+    # the Headers store itself is lowercased per the WHATWG spec.
     def self.canonical(name)
       name.split("-").map(&:capitalize).join("-")
+    end
+
+    private
+
+    def set_value(name, value)
+      @hash[name.to_s.downcase] = value.to_s
+    end
+
+    def append_value(name, value)
+      key = name.to_s.downcase
+      @hash[key] = @hash.key?(key) ? "#{@hash[key]}, #{value}" : value.to_s
+    end
+
+    def sorted_keys
+      @hash.keys.sort
     end
   end
 end

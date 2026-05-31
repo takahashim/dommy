@@ -167,10 +167,6 @@ module Dommy
       end
     end
 
-    def __internal_event_parent__
-      nil
-    end
-
     def extract_children
       nodes = @__node__.children.to_a
       nodes.each(&:unlink)

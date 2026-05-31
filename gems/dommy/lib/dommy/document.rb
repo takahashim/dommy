@@ -304,7 +304,7 @@ module Dommy
     include EventTarget
     include Node
 
-    attr_reader :body, :nokogiri_doc
+    attr_reader :nokogiri_doc
     attr_accessor :default_view
     # content_type defaults to "text/html"; settable so an integration layer
     # can reflect the response Content-Type. Read-only over the JS bridge.

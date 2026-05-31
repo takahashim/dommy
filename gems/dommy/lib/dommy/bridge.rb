@@ -96,6 +96,11 @@ module Dommy
     # bugs) across the boundary.
     class TypeError < ::StandardError; end
 
+    # Like `Bridge::TypeError`, but for spec-mandated `RangeError`s (e.g. the
+    # `Response` constructor rejecting a status outside 200–599). A host bridge
+    # rethrows a real JS `RangeError`; kept distinct from Ruby's `::RangeError`.
+    class RangeError < ::StandardError; end
+
     # Wraps an external callback handle (registered in a host-side
     # callback table) so the JS bridge can resolve / invoke it. The
     # external host that creates these is responsible for honoring

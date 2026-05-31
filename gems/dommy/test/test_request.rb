@@ -34,7 +34,8 @@ class TestRequest < Minitest::Test
     assert_equal("no-cors", req.mode)
     assert_equal("no-store", req.cache)
     assert_equal("manual", req.redirect)
-    assert_equal("text/plain", req.headers.to_h["Content-Type"])
+    # WHATWG Headers store names lowercased; look up via the case-insensitive get.
+    assert_equal("text/plain", req.headers.__js_call__("get", ["Content-Type"]))
   end
 
   def test_js_bridge_get

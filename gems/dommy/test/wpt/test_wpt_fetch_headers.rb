@@ -8,20 +8,18 @@ require_relative "../test_helper"
 # Spec: https://fetch.spec.whatwg.org/#headers-class
 #
 # No existing test file targets Headers directly; this fills the gap.
-# Some Dommy-specific deviations from the WHATWG spec are documented
-# inline (notably `has` is *not* case-insensitive in this implementation).
+# Names are stored lowercased and compared case-insensitively; iteration
+# is sorted by name (the WHATWG "sort and combine" output).
 class TestWPTHeadersGet < Minitest::Test
-  # Dommy's Headers#get implements case-insensitivity by canonicalizing
-  # the lookup name to Title-Case (`content-type` -> `Content-Type`) and
-  # retrying. This covers the common case of stub fixtures storing
-  # canonical names.
+  # WHATWG: header names are case-insensitive. Dommy stores them lowercased,
+  # so a lookup of any casing resolves the same value.
 
   def test_get_returns_value_for_exact_match
     h = Dommy::Headers.new("Content-Type" => "text/plain")
     assert_equal("text/plain", h.__js_call__("get", ["Content-Type"]))
   end
 
-  def test_get_is_case_insensitive_via_canonical_fallback
+  def test_get_is_case_insensitive
     h = Dommy::Headers.new("Content-Type" => "text/plain")
     assert_equal("text/plain", h.__js_call__("get", ["content-type"]))
     assert_equal("text/plain", h.__js_call__("get", ["CONTENT-TYPE"]))
@@ -34,8 +32,7 @@ class TestWPTHeadersGet < Minitest::Test
 end
 
 class TestWPTHeadersHas < Minitest::Test
-  # Per WHATWG, `has` is case-insensitive. Dommy mirrors `get`'s
-  # canonical fallback: try the raw name, then the Title-Case form.
+  # Per WHATWG, `has` is case-insensitive (lowercased lookup).
 
   def test_has_returns_true_for_exact_match
     h = Dommy::Headers.new("Content-Type" => "text/plain")
@@ -47,7 +44,7 @@ class TestWPTHeadersHas < Minitest::Test
     assert_equal(false, h.__js_call__("has", ["X-Missing"]))
   end
 
-  def test_has_is_case_insensitive_via_canonical_fallback
+  def test_has_is_case_insensitive
     h = Dommy::Headers.new("Content-Type" => "text/plain")
     assert_equal(true, h.__js_call__("has", ["content-type"]))
     assert_equal(true, h.__js_call__("has", ["CONTENT-TYPE"]))
@@ -55,9 +52,12 @@ class TestWPTHeadersHas < Minitest::Test
 end
 
 class TestWPTHeadersEntries < Minitest::Test
-  def test_entries_returns_array_of_pairs
+  # WHATWG "sort and combine": names are lowercased and iterated in sorted
+  # order. (WPT: headers-basic.any.js — "Check sorted output").
+
+  def test_entries_returns_lowercased_sorted_pairs
     h = Dommy::Headers.new("Content-Type" => "text/plain", "X-Foo" => "bar")
-    assert_equal([["Content-Type", "text/plain"], ["X-Foo", "bar"]],
+    assert_equal([["content-type", "text/plain"], ["x-foo", "bar"]],
                  h.__js_call__("entries", []))
   end
 
@@ -66,23 +66,23 @@ class TestWPTHeadersEntries < Minitest::Test
     assert_equal([], h.__js_call__("entries", []))
   end
 
-  def test_entries_preserves_insertion_order
+  def test_entries_are_sorted_by_name
     h = Dommy::Headers.new("Z-Last" => "1", "A-First" => "2")
     keys = h.__js_call__("entries", []).map(&:first)
-    assert_equal(["Z-Last", "A-First"], keys)
+    assert_equal(["a-first", "z-last"], keys)
   end
 end
 
 class TestWPTHeadersForEach < Minitest::Test
   # WHATWG spec: forEach(callback) invokes the callback with
-  # (value, key, headers) for each pair.
+  # (value, key, headers) for each pair, in sorted (lowercased) order.
 
   def test_for_each_invokes_callback_for_each_pair
     h = Dommy::Headers.new("Content-Type" => "text/plain", "X-Foo" => "bar")
     seen = []
     cb = proc { |value, key, _h| seen << [key, value] }
     h.__js_call__("forEach", [cb])
-    assert_equal([["Content-Type", "text/plain"], ["X-Foo", "bar"]], seen)
+    assert_equal([["content-type", "text/plain"], ["x-foo", "bar"]], seen)
   end
 
   def test_for_each_passes_headers_as_third_argument
@@ -124,9 +124,10 @@ class TestWPTHeadersCanonical < Minitest::Test
 end
 
 class TestWPTHeadersConstruction < Minitest::Test
-  def test_string_keyed_hash_is_stored_directly
+  # WHATWG "fill": a record (Hash) sets each key; names are lowercased.
+  def test_record_hash_is_lowercased
     h = Dommy::Headers.new("Content-Type" => "text/plain")
-    assert_equal({"Content-Type" => "text/plain"}, h.to_h)
+    assert_equal({"content-type" => "text/plain"}, h.to_h)
   end
 
   def test_symbol_keyed_hash_is_normalized_to_strings
@@ -142,7 +143,49 @@ class TestWPTHeadersConstruction < Minitest::Test
   def test_to_h_returns_a_copy
     h = Dommy::Headers.new("X-Foo" => "bar")
     copy = h.to_h
-    copy["X-Foo"] = "modified"
+    copy["x-foo"] = "modified"
     assert_equal("bar", h.__js_call__("get", ["X-Foo"]))
+  end
+
+  # WHATWG "fill": a sequence (array of pairs) appends each pair, so a
+  # repeated name combines its values with ", ".
+  def test_sequence_of_pairs_appends
+    h = Dommy::Headers.new([["X-A", "1"], ["x-a", "2"], ["X-B", "3"]])
+    assert_equal("1, 2", h.__js_call__("get", ["x-a"]))
+    assert_equal("3", h.__js_call__("get", ["x-b"]))
+  end
+
+  # `new Headers(otherHeaders)` copies an existing Headers instance.
+  def test_headers_instance_is_copied
+    src = Dommy::Headers.new("X-Foo" => "bar")
+    h = Dommy::Headers.new(src)
+    assert_equal("bar", h.__js_call__("get", ["x-foo"]))
+  end
+end
+
+class TestWPTHeadersAppend < Minitest::Test
+  # WHATWG: append combines values for an existing (case-insensitive) name.
+  def test_append_combines_existing_value
+    h = Dommy::Headers.new("Accept" => "text/html")
+    h.__js_call__("append", ["accept", "application/json"])
+    assert_equal("text/html, application/json", h.__js_call__("get", ["Accept"]))
+  end
+
+  def test_append_creates_when_absent
+    h = Dommy::Headers.new({})
+    h.__js_call__("append", ["X-New", "1"])
+    assert_equal("1", h.__js_call__("get", ["x-new"]))
+  end
+
+  def test_set_overwrites
+    h = Dommy::Headers.new("X-A" => "1")
+    h.__js_call__("set", ["x-a", "2"])
+    assert_equal("2", h.__js_call__("get", ["X-A"]))
+  end
+
+  def test_get_set_cookie_returns_list
+    h = Dommy::Headers.new("Set-Cookie" => "a=1")
+    assert_equal(["a=1"], h.__js_call__("getSetCookie", []))
+    assert_equal([], Dommy::Headers.new({}).__js_call__("getSetCookie", []))
   end
 end
