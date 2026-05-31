@@ -348,6 +348,17 @@ module Dommy
       @active_element || body
     end
 
+    # `document.contains(node)` — true if `node` is the document itself or any
+    # node attached to its tree (per Node.contains, which all nodes including the
+    # document expose). Per spec, false for null / a non-Node.
+    def contains?(other)
+      return true if other.equal?(self)
+      return false unless other.respond_to?(:__dommy_backend_node__)
+
+      node = other.__dommy_backend_node__
+      node.document == @nokogiri_doc && node.ancestors.include?(@nokogiri_doc)
+    end
+
     def __internal_set_active_element__(el)
       @active_element = el
     end
@@ -652,6 +663,19 @@ module Dommy
         origin
       when "contentType"
         content_type
+      when "readyState"
+        # The document is fully parsed by the time scripts run against it (there
+        # is no incremental network parse), so it is always "complete". Code that
+        # gates on `document.readyState === "loading"` (e.g. Turbo's preloader)
+        # therefore takes the already-loaded path.
+        "complete"
+      when "visibilityState"
+        # There's no real viewport/tab; the document is treated as the visible,
+        # foreground page (so `nextRepaint`-style code uses requestAnimationFrame,
+        # and `=== "visible"` checks pass).
+        "visible"
+      when "hidden"
+        false
       when "compatMode"
         compat_mode
       when "referrer"
@@ -702,12 +726,14 @@ module Dommy
       createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
       removeEventListener dispatchEvent write open close isEqualNode appendChild
-      hasChildNodes
+      hasChildNodes contains
     ]
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
         @nokogiri_doc.children.any?
+      when "contains"
+        contains?(args[0])
       when "isEqualNode"
         is_equal_node(args[0])
       when "appendChild"

@@ -15,6 +15,14 @@ class TestDocument < Minitest::Test
     assert_equal("BODY", @doc.body.tag_name)
   end
 
+  # A fully-parsed, foreground document: ready and visible. Libraries gate work
+  # on these (Turbo's preloader on readyState, nextRepaint on visibilityState).
+  def test_ready_and_visibility_state
+    assert_equal("complete", @doc.__js_get__("readyState"))
+    assert_equal("visible", @doc.__js_get__("visibilityState"))
+    assert_equal(false, @doc.__js_get__("hidden"))
+  end
+
   def test_document_element_is_html
     el = @doc.document_element
     refute_nil(el)

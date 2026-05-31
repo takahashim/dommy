@@ -61,6 +61,52 @@ class TestStructuredCloneGlobal < Minitest::Test
   end
 end
 
+# A virtual window scroll position (no real layout): scrollTo/scroll/scrollBy
+# update it and a scroll event fires on change, so observers can record/replay
+# the position (Turbo's scroll restoration).
+class TestWindowScroll < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def test_initial_scroll_is_zero
+    assert_equal(0, @win.__js_get__("scrollX"))
+    assert_equal(0, @win.__js_get__("scrollY"))
+    assert_equal(0, @win.__js_get__("pageYOffset"))
+  end
+
+  def test_scroll_to_sets_absolute_position
+    @win.__js_call__("scrollTo", [0, 300])
+    assert_equal(300, @win.__js_get__("scrollY"))
+    assert_equal(300, @win.__js_get__("pageYOffset"))
+    assert_equal(0, @win.__js_get__("scrollX"))
+  end
+
+  def test_scroll_by_is_relative
+    @win.__js_call__("scrollTo", [0, 300])
+    @win.__js_call__("scrollBy", [10, 50])
+    assert_equal(10, @win.__js_get__("scrollX"))
+    assert_equal(350, @win.__js_get__("scrollY"))
+  end
+
+  def test_scroll_to_options_dict
+    @win.__js_call__("scrollTo", [{"left" => 5, "top" => 25}])
+    assert_equal(5, @win.__js_get__("scrollX"))
+    assert_equal(25, @win.__js_get__("scrollY"))
+  end
+
+  def test_scroll_event_fires_on_change_only
+    count = 0
+    @win.add_event_listener("scroll", proc { count += 1 })
+    @win.__js_call__("scrollTo", [0, 100])
+    @win.__js_call__("scrollTo", [0, 100]) # same position, no event
+    @win.__js_call__("scrollTo", [0, 200])
+    assert_equal(2, count)
+  end
+end
+
 # --- requestIdleCallback --------------------------------------------
 
 class TestRequestIdleCallback < Minitest::Test

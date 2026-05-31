@@ -95,8 +95,12 @@ module Dommy
         @custom_elements
       when "navigator"
         @navigator
-      when "scrollX", "scrollY", "pageXOffset", "pageYOffset", "scrollMaxX", "scrollMaxY"
-        # No layout/viewport — the page never scrolls, so the offset is always 0.
+      when "scrollX", "pageXOffset"
+        @scroll_x || 0
+      when "scrollY", "pageYOffset"
+        @scroll_y || 0
+      when "scrollMaxX", "scrollMaxY"
+        # No real content box to scroll past, so the max offset is 0.
         0
       else
         @globals[key]
@@ -165,10 +169,10 @@ module Dommy
         # values the test set inline via `el.style.color = "..."`.
         target = args[0]
         target.respond_to?(:style) ? target.style : nil
-      when "scroll", "scrollTo", "scrollBy"
-        # No layout/viewport — scrolling the window is a no-op. Turbo Drive
-        # calls window.scrollTo(0, 0) during scroll restoration after a visit.
-        nil
+      when "scroll", "scrollTo"
+        scroll_to(*args)
+      when "scrollBy"
+        scroll_by(*args)
       else
         # Additional window-level methods (fetch, location, history,
         # Promise, MutationObserver, etc.) arrive in later sessions.
@@ -196,6 +200,52 @@ module Dommy
     end
 
     private
+
+    # Virtual scroll position. There's no real layout, but tracking a logical
+    # `(scrollX, scrollY)` makes scroll-dependent behaviour observable: scrollTo/
+    # scroll set it absolutely, scrollBy relatively, and a `scroll` event fires on
+    # change so observers (e.g. Turbo's ScrollObserver, which records the position
+    # into history restoration data and replays it on back/forward) work.
+    def scroll_to(*args)
+      x, y = parse_scroll_args(args, @scroll_x || 0, @scroll_y || 0, relative: false)
+      update_scroll(x, y)
+    end
+
+    def scroll_by(*args)
+      x, y = parse_scroll_args(args, @scroll_x || 0, @scroll_y || 0, relative: true)
+      update_scroll(x, y)
+    end
+
+    # Accept either positional `(x, y)` or a `{ left:, top: }` options dict.
+    def parse_scroll_args(args, cur_x, cur_y, relative:)
+      if args[0].is_a?(Hash)
+        dx = scroll_coord(args[0]["left"] || args[0][:left])
+        dy = scroll_coord(args[0]["top"] || args[0][:top])
+      else
+        dx = scroll_coord(args[0])
+        dy = scroll_coord(args[1])
+      end
+      if relative
+        [cur_x + (dx || 0), cur_y + (dy || 0)]
+      else
+        [dx.nil? ? cur_x : dx, dy.nil? ? cur_y : dy]
+      end
+    end
+
+    def scroll_coord(value)
+      return nil if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+
+      value.is_a?(Numeric) ? value.to_i : value.to_s.to_i
+    end
+
+    def update_scroll(x, y)
+      return nil if x == (@scroll_x || 0) && y == (@scroll_y || 0)
+
+      @scroll_x = x
+      @scroll_y = y
+      dispatch_event(Event.new("scroll"))
+      nil
+    end
 
     # The timer delay (WebIDL `long`, default 0). A missing/undefined argument
     # or any non-numeric value coerces to 0 rather than raising.

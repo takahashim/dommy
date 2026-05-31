@@ -305,11 +305,15 @@ module Dommy
 
     include Bridge::Methods
     js_methods %w[remove before after replaceWith isEqualNode hasChildNodes
-      appendData insertData deleteData replaceData substringData]
+      appendData insertData deleteData replaceData substringData contains]
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
         false
+      when "contains"
+        # A leaf node contains only itself (no descendants).
+        args[0].respond_to?(:__dommy_backend_node__) &&
+          args[0].__dommy_backend_node__ == @__node__
       when "appendData"
         append_data(args[0])
       when "insertData"
@@ -2113,7 +2117,7 @@ module Dommy
       replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
-      hasChildNodes hasAttributes getRootNode normalize
+      hasChildNodes hasAttributes getRootNode normalize contains
     ]
     def __js_call__(method, args)
       case method
@@ -2175,6 +2179,8 @@ module Dommy
         matches?(args[0])
       when "isEqualNode"
         is_equal_node(args[0])
+      when "contains"
+        contains?(args[0])
       when "toString"
         to_s
       when "getAttributeNode"
