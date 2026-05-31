@@ -68,6 +68,7 @@ class TestPromiseAwait < Minitest::Test
     fetch = Dommy::FetchFn.new(@win)
     response = fetch.__js_call__("fetch", ["/api"]).await
     assert_equal(200, response.__js_get__("status"))
-    assert_equal("ok", response.__js_get__("body"))
+    # `.body` is a ReadableStream now; read the body text via the spec method.
+    assert_equal("ok", response.__js_call__("text", []).await)
   end
 end

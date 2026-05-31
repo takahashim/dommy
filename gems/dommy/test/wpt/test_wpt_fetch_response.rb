@@ -37,8 +37,9 @@ class TestWPTResponseProperties < Minitest::Test
   end
 
   def test_body_reflects_initializer
+    # `.body` is a ReadableStream; the body content is read via text().
     r = Dommy::Response.new(@win, body: "hello")
-    assert_equal("hello", r.__js_get__("body"))
+    assert_equal("hello", r.__js_call__("text", []).await)
   end
 end
 
@@ -320,7 +321,7 @@ class TestWPTResponseClone < Minitest::Test
   def test_clone_preserves_body
     original = Dommy::Response.new(@win, body: "hi")
     clone = original.__js_call__("clone", [])
-    assert_equal("hi", clone.__js_get__("body"))
+    assert_equal("hi", clone.__js_call__("text", []).await)
   end
 
   def test_clone_preserves_status_and_status_text
@@ -344,5 +345,133 @@ class TestWPTResponseClone < Minitest::Test
     clone_headers = clone.__js_get__("headers")
     assert_equal("application/json", clone_headers.__js_call__("get", ["Content-Type"]))
     assert_equal("bar", clone_headers.__js_call__("get", ["X-Foo"]))
+  end
+end
+
+class TestWPTResponseType < Minitest::Test
+  # WHATWG: response.type — "default" (constructed), "error" (Response.error).
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def test_constructed_response_is_default
+    assert_equal("default", Dommy::Response.__construct__(@win, "x", {}).__js_get__("type"))
+    assert_equal("default", Dommy::Response.__json__(@win, {}).__js_get__("type"))
+    assert_equal("default", Dommy::Response.__redirect__(@win, "/x", 302).__js_get__("type"))
+  end
+
+  def test_error_response_is_error_type
+    assert_equal("error", Dommy::Response.__error__(@win).__js_get__("type"))
+  end
+
+  def test_clone_preserves_type
+    assert_equal("error", Dommy::Response.__error__(@win).__js_call__("clone", []).__js_get__("type"))
+  end
+end
+
+class TestWPTResponseBody < Minitest::Test
+  # WHATWG: response.body is a ReadableStream (or null); bodyUsed tracks single
+  # consumption; a second consume rejects; clone after consume throws.
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def test_body_is_a_readable_stream
+    r = Dommy::Response.new(@win, body: "hi")
+    assert_kind_of(Dommy::ReadableStream, r.__js_get__("body"))
+  end
+
+  def test_body_is_memoized_for_identity
+    r = Dommy::Response.new(@win, body: "hi")
+    assert_same(r.__js_get__("body"), r.__js_get__("body"))
+  end
+
+  def test_null_body_status_has_null_body
+    r = Dommy::Response.__construct__(@win, nil, {"status" => 204})
+    assert_nil(r.__js_get__("body"))
+  end
+
+  def test_no_arg_response_has_null_body
+    assert_nil(Dommy::Response.__construct__(@win, nil, {}).__js_get__("body"))
+  end
+
+  def test_body_used_transitions_on_consume
+    r = Dommy::Response.new(@win, body: "hi")
+    refute(r.__js_get__("bodyUsed"))
+    r.__js_call__("text", []).await
+    assert(r.__js_get__("bodyUsed"))
+  end
+
+  def test_second_consume_rejects
+    r = Dommy::Response.new(@win, body: "hi")
+    r.__js_call__("text", []).await
+    # A used body's consume returns a rejected promise (await raises).
+    assert_raises(RuntimeError) { r.__js_call__("json", []).await }
+  end
+
+  def test_clone_after_consume_raises
+    r = Dommy::Response.new(@win, body: "hi")
+    r.__js_call__("text", []).await
+    assert_raises(Dommy::Bridge::TypeError) { r.__js_call__("clone", []) }
+  end
+end
+
+class TestWPTResponseBodyExtraction < Minitest::Test
+  # WHATWG "extract a body": Blob/URLSearchParams/FormData/ArrayBuffer bodies
+  # yield the right bytes and default Content-Type.
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+  end
+
+  def ct(response)
+    response.__js_get__("headers").__js_call__("get", ["Content-Type"])
+  end
+
+  def test_blob_body_uses_its_bytes_and_type
+    blob = Dommy::Blob.new(["hi there"], "type" => "text/markdown")
+    r = Dommy::Response.__construct__(@win, blob, {})
+    assert_equal("hi there", r.__js_call__("text", []).await)
+    assert_equal("text/markdown", ct(r))
+  end
+
+  def test_typeless_blob_body_has_no_content_type
+    r = Dommy::Response.__construct__(@win, Dommy::Blob.new(["x"]), {})
+    assert_nil(ct(r))
+  end
+
+  def test_url_search_params_body
+    usp = Dommy::URLSearchParams.new("a=1&b=2")
+    r = Dommy::Response.__construct__(@win, usp, {})
+    assert_equal("a=1&b=2", r.__js_call__("text", []).await)
+    assert_equal("application/x-www-form-urlencoded;charset=UTF-8", ct(r))
+  end
+
+  def test_array_buffer_body_has_no_default_content_type
+    bytes = Dommy::Bridge::Bytes.new("Hi".bytes)
+    r = Dommy::Response.__construct__(@win, bytes, {})
+    assert_equal("Hi", r.__js_call__("text", []).await)
+    assert_nil(ct(r))
+  end
+
+  def test_form_data_body_is_multipart
+    fd = Dommy::FormData.new
+    fd.append("name", "alice")
+    r = Dommy::Response.__construct__(@win, fd, {})
+    assert(ct(r).start_with?("multipart/form-data; boundary="))
+    body = r.__js_call__("text", []).await
+    assert_includes(body, 'Content-Disposition: form-data; name="name"')
+    assert_includes(body, "alice")
+  end
+
+  def test_explicit_content_type_overrides_extracted_default
+    usp = Dommy::URLSearchParams.new("a=1")
+    r = Dommy::Response.__construct__(@win, usp, {"headers" => {"Content-Type" => "text/plain"}})
+    assert_equal("text/plain", ct(r))
   end
 end

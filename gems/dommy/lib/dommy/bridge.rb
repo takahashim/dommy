@@ -86,6 +86,14 @@ module Dommy
       def pack_bytes = pack("C*")
     end
 
+    # Like `Bytes`, but crosses the JS boundary as a bare `ArrayBuffer` rather
+    # than a `Uint8Array` view. Use this for the spec methods whose return type
+    # is `ArrayBuffer` — `Response`/`Blob`/`FileReader`/`XMLHttpRequest`'s
+    # `arrayBuffer`. Subclasses `Bytes` so Ruby-level `== [..]` comparisons still
+    # hold; only the bridge distinguishes it (and must check it before `Bytes`).
+    class ArrayBuffer < Bytes
+    end
+
     # A Ruby-side signal that the JS boundary should surface a JS `TypeError`
     # (not a `DOMException`). Some WebIDL operations — notably the `URL`
     # constructor and its `href` setter — throw `TypeError` on failure rather

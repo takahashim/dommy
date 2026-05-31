@@ -40,10 +40,11 @@ module Dommy
       @data.dup.force_encoding(Encoding::UTF_8)
     end
 
-    # Read the bytes as an Array<Integer>. The DOM spec returns a
-    # Promise<ArrayBuffer>; Dommy is synchronous.
+    # Read the bytes as a real ArrayBuffer (the spec return type, wrapped so it
+    # crosses the JS boundary as a bare ArrayBuffer rather than an Array/typed
+    # array). The DOM spec returns a Promise<ArrayBuffer>; Dommy is synchronous.
     def array_buffer
-      @data.bytes
+      Bridge::ArrayBuffer.new(@data.bytes)
     end
 
     # Raw binary bytes (Ruby ASCII-8BIT string). Used by FormData /

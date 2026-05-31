@@ -45,7 +45,8 @@ module Dommy
     alias readAsDataURL read_as_data_url
 
     def read_as_array_buffer(blob)
-      schedule_read(blob) { |raw| raw.bytes }
+      # readAsArrayBuffer's result is an ArrayBuffer — cross it as a bare one.
+      schedule_read(blob) { |raw| Bridge::ArrayBuffer.new(raw.bytes) }
     end
 
     alias readAsArrayBuffer read_as_array_buffer

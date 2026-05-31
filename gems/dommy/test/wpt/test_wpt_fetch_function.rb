@@ -37,7 +37,7 @@ class TestWPTFetchPromise < Minitest::Test
 
   def test_response_body_matches_stub
     response = @win.__js_call__("fetch", ["/ok"]).await
-    assert_equal("ok body", response.__js_get__("body"))
+    assert_equal("ok body", response.__js_call__("text", []).await)
   end
 end
 
@@ -103,7 +103,7 @@ class TestWPTFetchUnknownURL < Minitest::Test
 
   def test_unknown_url_body_is_not_found_marker
     response = @win.__js_call__("fetch", ["/never-registered"]).await
-    assert_equal("not found", response.__js_get__("body"))
+    assert_equal("not found", response.__js_call__("text", []).await)
   end
 end
 
@@ -173,6 +173,6 @@ class TestWPTFetchDelay < Minitest::Test
     promise = @win.__js_call__("fetch", ["/slow"])
     @win.scheduler.advance_time(600)
     response = promise.await
-    assert_equal("later", response.__js_get__("body"))
+    assert_equal("later", response.__js_call__("text", []).await)
   end
 end

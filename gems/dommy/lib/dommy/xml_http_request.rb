@@ -373,7 +373,8 @@ module Dommy
         end
 
       when "arraybuffer"
-        body.bytes
+        # responseType "arraybuffer" yields a real ArrayBuffer.
+        Bridge::ArrayBuffer.new(body.bytes)
       when "blob"
         Blob.new([body], "type" => response_content_type)
       when "document"

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require "securerandom"
 
 module Dommy
   # `fetch` polyfill. No real network — instead consults
@@ -46,7 +47,7 @@ module Dommy
       promise = PromiseValue.new(@window)
 
       if entry.nil?
-        response = Response.new(@window, body: "not found", status: 404, status_text: "Not Found")
+        response = Response.new(@window, body: "not found", status: 404, status_text: "Not Found", type: "basic")
         promise.fulfill(response)
         return promise
       end
@@ -69,7 +70,7 @@ module Dommy
       else
         promise.fulfill(
           Response.new(@window, body: body, status: status, status_text: status_text,
-            headers: headers, url: response_url, redirected: redirected)
+            headers: headers, url: response_url, redirected: redirected, type: "basic")
         )
       end
 
@@ -106,7 +107,7 @@ module Dommy
         lambda do |*_args|
           next if cancelled[0]
 
-          promise.fulfill(Response.new(@window, body: body, status: status, status_text: status_text, headers: headers))
+          promise.fulfill(Response.new(@window, body: body, status: status, status_text: status_text, headers: headers, type: "basic"))
         end,
         delay_ms.to_i
       )
@@ -201,7 +202,8 @@ module Dommy
     # Redirect statuses accepted by `Response.redirect(url, status)`.
     REDIRECT_STATUSES = [301, 302, 303, 307, 308].freeze
 
-    def initialize(window, body:, status: 200, status_text: "", headers: nil, url: "", redirected: false)
+    def initialize(window, body:, status: 200, status_text: "", headers: nil, url: "",
+                   redirected: false, type: "default", has_body: true)
       @window = window
       @body = body.to_s
       @status = status
@@ -209,6 +211,10 @@ module Dommy
       @headers = Headers.new(headers || {})
       @url = url.to_s
       @redirected = redirected ? true : false
+      @type = type
+      @has_body = has_body ? true : false
+      @body_used = false
+      @body_stream = nil
     end
 
     # WHATWG `new Response(body, init)`. Validates the status (200–599, else a
@@ -231,15 +237,22 @@ module Dommy
           "Failed to construct 'Response': Response with null body status (#{status}) cannot have body."
       end
 
+      # Extract a body: derive its bytes and the Content-Type it implies (Blob →
+      # its MIME type, URLSearchParams → urlencoded, FormData → multipart, a
+      # string → text/plain). The implied type is only the *default* — an
+      # explicit init.headers Content-Type still wins.
+      body_bytes, default_ct = has_body ? extract_body(body) : ["", nil]
+
       headers = coerce_headers(opts["headers"] || opts[:headers])
-      if has_body && headers.keys.none? { |k| k.to_s.downcase == "content-type" }
-        headers = headers.merge("Content-Type" => "text/plain;charset=UTF-8")
+      if default_ct && headers.keys.none? { |k| k.to_s.downcase == "content-type" }
+        headers = headers.merge("Content-Type" => default_ct)
       end
 
-      new(window, body: has_body ? body : "",
+      new(window, body: body_bytes,
                   status: status,
                   status_text: validate_status_text!(opts["statusText"] || opts[:statusText] || ""),
-                  headers: headers)
+                  headers: headers,
+                  has_body: has_body)
     end
 
     # Static `Response.json(data, init)` — serialize `data` to JSON, defaulting
@@ -290,16 +303,16 @@ module Dommy
           "Failed to execute 'redirect' on 'Response': Invalid status code #{status}."
       end
 
-      resp = new(window, body: "", status: status, headers: {"Location" => parsed.href})
+      resp = new(window, body: "", status: status, headers: {"Location" => parsed.href}, has_body: false)
       # WHATWG: a redirect response's header guard is "immutable".
       resp.__js_get__("headers").make_immutable!
       resp
     end
 
-    # Static `Response.error()` — a network-error response (status 0, not ok).
-    # (WHATWG Fetch §Response.error)
+    # Static `Response.error()` — a network-error response (status 0, not ok,
+    # type "error"). (WHATWG Fetch §Response.error)
     def self.__error__(window)
-      resp = new(window, body: "", status: 0)
+      resp = new(window, body: "", status: 0, type: "error", has_body: false)
       # WHATWG: a network-error response's header guard is "immutable".
       resp.__js_get__("headers").make_immutable!
       resp
@@ -328,6 +341,53 @@ module Dommy
       end
     end
 
+    # WHATWG "extract a body": map a body source to `[byte_string,
+    # default_content_type_or_nil]`. The default Content-Type is applied only
+    # when the caller supplied none.
+    def self.extract_body(body)
+      case body
+      when Blob # File < Blob
+        [body.__dommy_bytes__, (body.type.to_s.empty? ? nil : body.type)]
+      when URLSearchParams
+        [body.to_s, "application/x-www-form-urlencoded;charset=UTF-8"]
+      when FormData
+        multipart_body(body)
+      when Bridge::Bytes # an ArrayBuffer / TypedArray body
+        [body.pack_bytes, nil]
+      when String
+        [body, "text/plain;charset=UTF-8"]
+      else
+        if defined?(Bridge::UNDEFINED) && body.equal?(Bridge::UNDEFINED)
+          ["", nil]
+        else
+          [body.to_s, "text/plain;charset=UTF-8"]
+        end
+      end
+    end
+
+    # Serialize a FormData as a multipart/form-data body. Returns `[bytes,
+    # content_type]` where content_type carries the generated boundary.
+    def self.multipart_body(form_data)
+      boundary = "----DommyFormBoundary#{SecureRandom.hex(12)}"
+      crlf = "\r\n"
+      out = +""
+      form_data.entries.each do |name, value|
+        out << "--#{boundary}#{crlf}"
+        if value.is_a?(Blob)
+          filename = value.respond_to?(:name) ? value.name : "blob"
+          out << %(Content-Disposition: form-data; name="#{name}"; filename="#{filename}"#{crlf})
+          content_type = value.type.to_s.empty? ? "application/octet-stream" : value.type
+          out << "Content-Type: #{content_type}#{crlf}#{crlf}"
+          out << value.__dommy_bytes__ << crlf
+        else
+          out << %(Content-Disposition: form-data; name="#{name}"#{crlf}#{crlf})
+          out << value.to_s << crlf
+        end
+      end
+      out << "--#{boundary}--#{crlf}"
+      [out, "multipart/form-data; boundary=#{boundary}"]
+    end
+
     def __js_get__(key)
       case key
       when "status"
@@ -342,10 +402,18 @@ module Dommy
         # Fetch API: true when the response is the result of a followed
         # redirect (so `response.url` is the final, not requested, URL).
         @redirected
+      when "type"
+        # WHATWG response type: "default" (constructed), "error" (Response.error),
+        # "basic" (a same-origin fetch), …
+        @type
       when "headers"
         @headers
       when "body"
-        @body
+        # WHATWG: a ReadableStream of the body bytes, or null when there is no
+        # body. Merely reading `.body` does not consume it (identity preserved).
+        body_stream
+      when "bodyUsed"
+        body_used?
       end
     end
 
@@ -358,35 +426,77 @@ module Dommy
     def __js_call__(method, _args)
       case method
       when "text"
-        immediate(@body)
+        consume_body { immediate(@body) }
       when "json"
-        begin
+        consume_body do
           immediate(JSON.parse(scrub_lone_surrogates(@body)))
         rescue JSON::ParserError => e
-          err = ErrorValue.new("JSON parse: #{e.message}")
-          rejected(err)
+          rejected(ErrorValue.new("JSON parse: #{e.message}"))
         end
-
       when "arrayBuffer"
-        # Wrap in Bridge::Bytes so the host bridge decodes it to a real JS
-        # ArrayBuffer/typed array (a plain Array would cross as a JS array).
-        immediate(Bridge::Bytes.new(@body.bytes))
+        # arrayBuffer()'s spec return type is ArrayBuffer — wrap so the host
+        # bridge decodes it to a bare JS ArrayBuffer (not a Uint8Array view).
+        consume_body { immediate(Bridge::ArrayBuffer.new(@body.bytes)) }
       when "blob"
-        immediate(Blob.new([@body], "type" => @headers.__js_call__("get", ["content-type"]) || ""))
+        consume_body do
+          immediate(Blob.new([@body], "type" => @headers.__js_call__("get", ["content-type"]) || ""))
+        end
       when "clone"
-        Response.new(
-          @window,
-          body: @body,
-          status: @status,
-          status_text: @status_text,
-          headers: @headers.to_h,
-          url: @url,
-          redirected: @redirected
-        )
+        clone_response
       end
     end
 
     private
+
+    # WHATWG: the body can be consumed once. `bodyUsed` is true once a consume
+    # method ran or the body stream got locked by a reader.
+    def body_used?
+      @body_used || !!@body_stream&.locked
+    end
+
+    # Run a body-consume (text/json/arrayBuffer/blob), rejecting if the body was
+    # already used (spec returns a rejected promise, not a synchronous throw).
+    def consume_body
+      if body_used?
+        return rejected(ErrorValue.new("Failed to read body: body stream already read", name: "TypeError"))
+      end
+
+      @body_used = true
+      yield
+    end
+
+    # Lazily build + memoize the body ReadableStream (a single Uint8Array chunk
+    # then close), or nil when there is no body.
+    def body_stream
+      return nil unless @has_body
+
+      @body_stream ||= begin
+        stream = ReadableStream.new(@window)
+        stream.__internal_enqueue__(Bridge::Bytes.new(@body.bytes)) unless @body.empty?
+        stream.__internal_close__
+        stream
+      end
+    end
+
+    # WHATWG: clone throws if the body is already disturbed/locked; otherwise the
+    # clone is an independent Response over the same bytes.
+    def clone_response
+      if body_used?
+        raise Bridge::TypeError, "Failed to execute 'clone' on 'Response': Response body is already used."
+      end
+
+      Response.new(
+        @window,
+        body: @body,
+        status: @status,
+        status_text: @status_text,
+        headers: @headers.to_h,
+        url: @url,
+        redirected: @redirected,
+        type: @type,
+        has_body: @has_body
+      )
+    end
 
     # A run of one or more adjacent `\uXXXX` JSON escapes.
     SURROGATE_ESCAPE_RUN = /(?:\\u[0-9a-fA-F]{4})+/.freeze
