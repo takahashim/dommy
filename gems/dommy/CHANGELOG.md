@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.1 — 2026-05-31
+
+### Changed
+
+- Declare `nokogiri` (`~> 1.19`) as a runtime dependency so the default backend is installed automatically; the `1.19` floor pulls in recent security fixes. Nokolexbor remains an opt-in alternative via `Dommy::Backend.use(:nokolexbor)`.
+
 ## 0.8.0 — 2026-05-31
 
 A large WHATWG-conformance pass, focused on the Fetch surface, DOM traversal /
