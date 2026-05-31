@@ -1,5 +1,63 @@
 # Changelog
 
+## 0.8.0 — 2026-05-31
+
+A large WHATWG-conformance pass, focused on the Fetch surface, DOM traversal /
+collections, selectors, encoding, and events.
+
+### Added
+
+#### Fetch — Response
+- `new Response(body, init)` constructor, plus static `Response.json(data, init)`, `Response.redirect(url, status)`, and `Response.error()`
+- `Response.type` (`"default"` / `"error"` / `"basic"`)
+- `Response.body` is now a `ReadableStream` (or `null`); `Response.bodyUsed` tracks single consumption, and `text()` / `json()` / `arrayBuffer()` / `blob()` reject once the body has been read
+- `Response.formData()` — parses an `application/x-www-form-urlencoded` or `multipart/form-data` body into a `FormData`
+- Body extraction: a `Blob` / `File`, `URLSearchParams`, `FormData`, or `ArrayBuffer` / typed-array body is serialized to bytes with the matching default `Content-Type`
+
+#### Fetch — Headers (WHATWG rewrite)
+- Header names are stored lowercased; `keys()` / `values()` / `entries()` / `forEach()` iterate sorted, combining duplicate values with `", "`
+- `Set-Cookie` is kept separate (never combined) and exposed via `getSetCookie()`
+- Header name (token) and value (no NUL/CR/LF, whitespace-trimmed) validation, raising `TypeError`
+- `new Headers(init)` accepts a record, a sequence of `[name, value]` pairs, or another `Headers`
+- An immutable guard on the headers of `Response.error()` / `Response.redirect()`
+
+#### Blob
+- `Blob.text()` and `Blob.arrayBuffer()` now return `Promise`s (their spec return types)
+
+#### DOM — Node & Document
+- `Node#contains`, `isEqualNode`, `isSameNode`, `getRootNode`, `compareDocumentPosition`, and `lookupNamespaceURI` / `lookupPrefix` / `isDefaultNamespace`
+- `DocumentType`, `ProcessingInstruction`, `CDATASection`, and `DOMImplementation` document factories
+- `document.readyState` / `visibilityState` / `hidden` / `hasFocus()` and other document state getters; virtual `window` scroll properties
+
+#### DOM — Traversal & collections
+- `TreeWalker` and `NodeIterator` (`whatToShow`, `NodeFilter`, live-removal handling)
+- `HTMLCollection`, `DOMStringMap`, and `NamedNodeMap` as WebIDL legacy platform objects (indexed + named properties); generalized `DOMTokenList`
+- WICG `Observable` API (`Observable`, `Subscriber`, operators, `EventTarget.when`)
+
+#### DOM — Selectors, parsing, encoding
+- A CSS Selectors Level 4 grammar validator (invalid selectors raise a `SyntaxError`); `:scope`, `closest`
+- `insertAdjacentHTML`, `outerHTML`, and XML parse/serialize via `DOMParser` / `XMLSerializer`
+- `TextEncoder` / `TextDecoder` with typed-array marshalling, a WHATWG UTF-8 decoder, and `encodeInto`
+
+#### Events, history, abort, ARIA
+- WHATWG event propagation; a spec-compliant `WebSocket` with `MessageEvent` / `CloseEvent`; `PopStateEvent`
+- `History` back/forward state restoration; a `SecurityError` for cross-origin `pushState` / `replaceState`
+- `AbortController` / `AbortSignal` (`reason`, `timeout`, `throwIfAborted`)
+- ARIA attribute reflection (`ariaXxx` ↔ `aria-xxx`) and element reflection
+
+### Changed
+
+- **Breaking:** `Response#arrayBuffer`, `Blob#arrayBuffer`, `FileReader#readAsArrayBuffer`, `XHR` `responseType: "arraybuffer"`, and `SubtleCrypto.digest` now resolve to a real `ArrayBuffer` — 0.7.0 had changed these to a byte `Array`.
+- **Breaking:** `Headers` iteration is now lowercased and sorted (was Title-Case in insertion order).
+- A `Response` `statusText` is validated against the reason-phrase grammar, and a null-body status (204/205/304) constructed with a body raises a `TypeError`.
+- Requires Ruby >= 3.2.
+
+### Fixed
+
+- `MutationObserver` delivers records on the microtask queue and handles CharacterData / move records; `observe()` validates its options
+- The URL parser throws a `TypeError` on parse failure and tolerates lone surrogates in JSON bodies
+- `TextDecoder` strips a streaming BOM at the code-point level
+
 ## 0.7.0 — 2026-05-29
 
 ### Added
