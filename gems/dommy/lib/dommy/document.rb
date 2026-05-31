@@ -19,10 +19,43 @@ module Dommy
 
     attr_reader :name
 
-    def initialize(name, public_id = "", system_id = "")
+    # `owner_document:` links a live doctype (document.doctype) to its document so
+    # the ChildNode methods (remove/before/after/replaceWith) act on the tree; a
+    # standalone doctype (DOMImplementation.createDocumentType) has none, so those
+    # methods are no-ops per spec.
+    def initialize(name, public_id = "", system_id = "", owner_document: nil)
       @name = name.to_s
       @public_id = public_id.to_s
       @system_id = system_id.to_s
+      @owner_document = owner_document
+    end
+
+    # ChildNode mixin — the doctype's parent is the document.
+    def remove
+      @owner_document&.__internal_remove_doctype__(self)
+      nil
+    end
+
+    def before(*nodes)
+      return nil unless @owner_document
+
+      @owner_document.__internal_insert_at_doctype__(nodes, after: false)
+      nil
+    end
+
+    def after(*nodes)
+      return nil unless @owner_document
+
+      @owner_document.__internal_insert_at_doctype__(nodes, after: true)
+      nil
+    end
+
+    def replace_with(*nodes)
+      return nil unless @owner_document
+
+      @owner_document.__internal_insert_at_doctype__(nodes, after: false)
+      remove
+      nil
     end
 
     def __js_get__(key)
@@ -41,14 +74,48 @@ module Dommy
       end
     end
 
+    include EventTarget
+
+    def __internal_event_parent__
+      nil
+    end
+
     include Bridge::Methods
-    js_methods %w[isEqualNode hasChildNodes]
+    js_methods %w[isEqualNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition
+      appendChild insertBefore removeChild replaceChild before after replaceWith remove
+      addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
         false
       when "isEqualNode"
         is_equal_node(args[0])
+      when "isSameNode"
+        is_same_node(args[0])
+      when "getRootNode"
+        get_root_node(args[0])
+      when "compareDocumentPosition"
+        compare_document_position(args[0])
+      when "appendChild", "insertBefore"
+        raise DOMException::HierarchyRequestError, "a DocumentType may not have children"
+      when "removeChild", "replaceChild"
+        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
+      when "before"
+        before(*args)
+      when "after"
+        after(*args)
+      when "replaceWith"
+        replace_with(*args)
+      when "remove"
+        remove
+      when "normalize"
+        nil
+      when "addEventListener"
+        add_event_listener(args[0], args[1], args[2])
+      when "removeEventListener"
+        remove_event_listener(args[0], args[1], args[2])
+      when "dispatchEvent"
+        dispatch_event(args[0])
       end
     end
   end
@@ -65,6 +132,8 @@ module Dommy
       @data = data.to_s
     end
 
+    include EventTarget
+
     def data = @data
 
     def __js_get__(key)
@@ -77,17 +146,103 @@ module Dommy
         @target
       when "nodeType"
         7
+      when "length"
+        @data.length
       end
     end
 
+    def __js_set__(key, value)
+      case key
+      when "data", "nodeValue", "textContent"
+        @data = value.to_s
+      else
+        return Bridge::UNHANDLED
+      end
+      nil
+    end
+
+    # A PI is CharacterData: its data methods are string operations on @data.
+    def substring_data(offset, count)
+      o = offset.to_i
+      raise DOMException::IndexSizeError, "offset out of bounds" if o.negative? || o > @data.length
+
+      @data[o, count.to_i] || ""
+    end
+
+    def append_data(value)
+      @data += value.to_s
+      nil
+    end
+
+    def insert_data(offset, value)
+      o = offset.to_i
+      raise DOMException::IndexSizeError, "offset out of bounds" if o.negative? || o > @data.length
+
+      @data = @data[0, o].to_s + value.to_s + (@data[o..] || "")
+      nil
+    end
+
+    def delete_data(offset, count)
+      o = offset.to_i
+      raise DOMException::IndexSizeError, "offset out of bounds" if o.negative? || o > @data.length
+
+      @data = @data[0, o].to_s + (@data[(o + count.to_i)..] || "")
+      nil
+    end
+
+    def replace_data(offset, count, value)
+      delete_data(offset, count)
+      insert_data(offset, value)
+      nil
+    end
+
+    def __internal_event_parent__
+      nil
+    end
+
     include Bridge::Methods
-    js_methods %w[isEqualNode hasChildNodes]
+    js_methods %w[isEqualNode isSameNode getRootNode normalize hasChildNodes
+      appendData insertData deleteData replaceData substringData compareDocumentPosition
+      appendChild insertBefore removeChild replaceChild before after replaceWith remove
+      addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
         false
       when "isEqualNode"
         is_equal_node(args[0])
+      when "isSameNode"
+        is_same_node(args[0])
+      when "getRootNode"
+        get_root_node(args[0])
+      when "compareDocumentPosition"
+        compare_document_position(args[0])
+      when "appendChild", "insertBefore"
+        raise DOMException::HierarchyRequestError, "a ProcessingInstruction may not have children"
+      when "removeChild", "replaceChild"
+        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
+      when "before", "after", "replaceWith", "remove"
+        # ChildNode mixin: a created PI has no parent, so these are no-ops per
+        # spec (they act only when the node is inserted in a tree).
+        nil
+      when "normalize"
+        nil
+      when "substringData"
+        substring_data(args[0], args[1])
+      when "appendData"
+        append_data(args[0])
+      when "insertData"
+        insert_data(args[0], args[1])
+      when "deleteData"
+        delete_data(args[0], args[1])
+      when "replaceData"
+        replace_data(args[0], args[1], args[2])
+      when "addEventListener"
+        add_event_listener(args[0], args[1], args[2])
+      when "removeEventListener"
+        remove_event_listener(args[0], args[1], args[2])
+      when "dispatchEvent"
+        dispatch_event(args[0])
       end
     end
   end
@@ -527,7 +682,9 @@ module Dommy
     # stub object whose only useful field is `name`. Tests just need
     # `nodeType == 10`.
     def doctype
-      @doctype ||= DocumentType.new("html")
+      return nil if @doctype_removed
+
+      @doctype ||= DocumentType.new("html", owner_document: self)
     end
 
     def implementation
@@ -545,6 +702,94 @@ module Dommy
 
       @nokogiri_doc.add_child(node.__dommy_backend_node__)
       node
+    end
+
+    # ParentNode / Node mutation on the document's direct children (the doctype
+    # and the document element). Operate on the Nokogiri document node; string
+    # arguments (which would need a text child the document can't hold) are
+    # ignored rather than raising.
+    def document_insert(args, prepend:)
+      nodes = args.filter_map { |a| backend_node(a) }
+      if prepend && (first = @nokogiri_doc.children.first)
+        nodes.reverse_each { |n| first.add_previous_sibling(n) }
+      else
+        nodes.each { |n| @nokogiri_doc.add_child(n) }
+      end
+      nil
+    end
+
+    def document_replace_children(args)
+      @nokogiri_doc.children.each(&:unlink)
+      args.filter_map { |a| backend_node(a) }.each { |n| @nokogiri_doc.add_child(n) }
+      nil
+    end
+
+    def document_remove_child(node)
+      # The doctype is synthesized from the Nokogiri DTD rather than wrapped as a
+      # tree node, so remove the internal subset directly.
+      return __internal_remove_doctype__(node) if node.is_a?(DocumentType)
+
+      bn = backend_node(node)
+      raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @nokogiri_doc
+
+      bn.unlink
+      node
+    end
+
+    def document_insert_before(node, ref)
+      bn = backend_node(node)
+      return node unless bn
+
+      ref_node = ref && backend_node(ref)
+      if ref_node && ref_node.parent == @nokogiri_doc
+        ref_node.add_previous_sibling(bn)
+      else
+        @nokogiri_doc.add_child(bn)
+      end
+      node
+    end
+
+    def document_replace_child(new_child, old_child)
+      old_bn = backend_node(old_child)
+      raise DOMException::NotFoundError, "node is not a child of this document" unless old_bn && old_bn.parent == @nokogiri_doc
+
+      new_bn = backend_node(new_child)
+      old_bn.add_previous_sibling(new_bn) if new_bn
+      old_bn.unlink
+      old_child
+    end
+
+    # Called by DocumentType#remove — the doctype is synthesized from the DTD, so
+    # remove the internal subset and mark it gone.
+    def __internal_remove_doctype__(_doctype)
+      @doctype_removed = true
+      @nokogiri_doc.internal_subset&.unlink
+      nil
+    end
+
+    # Called by DocumentType#before/#after — insert `nodes` before the doctype
+    # (at the document start) or after it (just before the document element).
+    def __internal_insert_at_doctype__(nodes, after:)
+      bns = nodes.filter_map { |n| backend_node(n) }
+      if after
+        root = @nokogiri_doc.root
+        root ? bns.each { |n| root.add_previous_sibling(n) } : bns.each { |n| @nokogiri_doc.add_child(n) }
+      else
+        first = @nokogiri_doc.children.first
+        first ? bns.reverse_each { |n| first.add_previous_sibling(n) } : bns.each { |n| @nokogiri_doc.add_child(n) }
+      end
+      nil
+    end
+
+    # `document.cloneNode(deep)` → a fresh Document over a (deep) copy of the
+    # Nokogiri tree, preserving the content type.
+    def clone_node(deep)
+      copy = deep ? @nokogiri_doc.dup : Backend.document_class.new
+      Document.new(nil, nokogiri_doc: copy).tap { |d| d.content_type = @content_type }
+    end
+
+    def backend_node(node)
+      node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
     end
 
     # Delegate to CookieJar
@@ -663,6 +908,18 @@ module Dommy
         origin
       when "contentType"
         content_type
+      when "location"
+        # document.location is the same Location object as window.location.
+        @default_view&.__js_get__("location")
+      when "characterSet", "charset", "inputEncoding"
+        # The DOM is held as Ruby strings (UTF-8); we don't model other encodings.
+        "UTF-8"
+      when "dir"
+        document_element&.get_attribute("dir") || ""
+      when "designMode"
+        @design_mode || "off"
+      when "lastModified"
+        @last_modified || "01/01/1970 00:00:00"
       when "readyState"
         # The document is fully parsed by the time scripts run against it (there
         # is no incremental network parse), so it is always "complete". Code that
@@ -688,10 +945,28 @@ module Dommy
         scripts
       when "images"
         images
+      when "embeds", "plugins"
+        # Both reflect the same list of <embed> elements.
+        HTMLCollection.new { @nokogiri_doc.css("embed").map { |n| wrap_node(n) }.compact }
+      when "anchors"
+        # Historically `<a name>` (with a name attribute), not every link.
+        HTMLCollection.new { @nokogiri_doc.css("a[name]").map { |n| wrap_node(n) }.compact }
+      when "styleSheets"
+        # No CSS engine; expose an empty (but present + iterable) StyleSheetList
+        # so `document.styleSheets.length` / iteration don't blow up.
+        NodeList.new
       when "children"
         children
       when "childNodes"
         child_nodes
+      when "firstChild"
+        child_nodes.to_a.first
+      when "lastChild"
+        child_nodes.to_a.last
+      when "parentNode", "parentElement", "nextSibling", "previousSibling", "ownerDocument"
+        # A document is the tree root: no parent or siblings, and its
+        # ownerDocument is null per spec.
+        nil
       when "childElementCount"
         child_element_count
       when "firstElementChild"
@@ -711,6 +986,16 @@ module Dommy
         write_title(value.to_s)
       when "cookie"
         self.cookie = value.to_s
+      when "dir"
+        document_element&.set_attribute("dir", value.to_s)
+      when "designMode"
+        # Enumerated: only "on"/"off" (case-insensitive), else ignored.
+        v = value.to_s.downcase
+        @design_mode = v if %w[on off].include?(v)
+      when "location"
+        # `document.location = url` navigates, same as `location.href = url`.
+        loc = @default_view&.__js_get__("location")
+        loc&.__js_set__("href", value)
       else
         return Bridge::UNHANDLED
       end
@@ -725,8 +1010,9 @@ module Dommy
       getElementsByClassName getElementsByTagName getElementsByTagNameNS getElementsByName createAttribute
       createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
-      removeEventListener dispatchEvent write open close isEqualNode appendChild
-      hasChildNodes contains
+      removeEventListener dispatchEvent write writeln open close isEqualNode appendChild
+      hasChildNodes contains append prepend replaceChildren removeChild insertBefore replaceChild
+      cloneNode normalize
     ]
     def __js_call__(method, args)
       case method
@@ -738,6 +1024,24 @@ module Dommy
         is_equal_node(args[0])
       when "appendChild"
         append_child(args[0])
+      when "append"
+        document_insert(args, prepend: false)
+      when "prepend"
+        document_insert(args, prepend: true)
+      when "replaceChildren"
+        document_replace_children(args)
+      when "removeChild"
+        document_remove_child(args[0])
+      when "insertBefore"
+        document_insert_before(args[0], args[1])
+      when "replaceChild"
+        document_replace_child(args[0], args[1])
+      when "cloneNode"
+        clone_node(args[0])
+      when "normalize"
+        nil # the document has no text children to merge
+      when "writeln"
+        write(*(args + ["\n"]))
       when "exitFullscreen"
         exit_fullscreen
       when "startViewTransition"

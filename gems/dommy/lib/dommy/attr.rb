@@ -13,7 +13,14 @@ module Dommy
   #     not yet attached. Value is stored locally; `setAttributeNode`
   #     transfers it to an element.
   class Attr
+    include Node
+    include EventTarget
+
     attr_reader :name, :namespace_uri, :prefix, :local_name
+
+    def __internal_event_parent__
+      nil
+    end
 
     def initialize(name, owner: nil, value: "", namespace_uri: nil, prefix: nil, local_name: nil)
       qname = name.to_s
@@ -104,12 +111,34 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[cloneNode]
-    def __js_call__(method, _args)
+    js_methods %w[cloneNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition
+      appendChild insertBefore removeChild replaceChild
+      addEventListener removeEventListener dispatchEvent]
+    def __js_call__(method, args)
       case method
       when "cloneNode"
         Attr.new(@name, owner: nil, value: value,
                         namespace_uri: @namespace_uri, prefix: @prefix, local_name: @local_name)
+      when "isSameNode"
+        is_same_node(args[0])
+      when "getRootNode"
+        get_root_node(args[0])
+      when "compareDocumentPosition"
+        compare_document_position(args[0])
+      when "appendChild", "insertBefore"
+        raise DOMException::HierarchyRequestError, "an Attr may not have children"
+      when "removeChild", "replaceChild"
+        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
+      when "hasChildNodes"
+        false
+      when "normalize"
+        nil
+      when "addEventListener"
+        add_event_listener(args[0], args[1], args[2])
+      when "removeEventListener"
+        remove_event_listener(args[0], args[1], args[2])
+      when "dispatchEvent"
+        dispatch_event(args[0])
       end
     end
 

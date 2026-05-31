@@ -174,6 +174,7 @@ module Dommy
     js_methods %w[
       querySelector querySelectorAll getElementById append prepend replaceChildren appendChild
       getRootNode contains addEventListener removeEventListener dispatchEvent
+      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition
     ]
     def __js_call__(method, args)
       case method
@@ -183,6 +184,16 @@ module Dommy
         query_selector_all(Internal.css_query_arg!(args))
       when "getElementById"
         get_element_by_id(args[0])
+      when "isEqualNode"
+        is_equal_node(args[0])
+      when "isSameNode"
+        is_same_node(args[0])
+      when "compareDocumentPosition"
+        compare_document_position(args[0])
+      when "hasChildNodes"
+        @__node__.children.any?
+      when "normalize"
+        nil
       when "append"
         append(*args)
       when "prepend"

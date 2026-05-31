@@ -221,6 +221,139 @@ module Dommy
     def is_equal_node(other)
       Internal::NodeEquality.equal?(self, other)
     end
+
+    # Node.isSameNode — strict reference identity (deprecated alias for `===`).
+    def is_same_node(other)
+      equal?(other)
+    end
+
+    # Node.compareDocumentPosition(other) — a bitmask describing where `other`
+    # sits relative to this node: 0 for the same node, CONTAINS/CONTAINED_BY for
+    # ancestor/descendant, PRECEDING/FOLLOWING for tree order, or DISCONNECTED
+    # (with a stable IMPLEMENTATION_SPECIFIC|PRECEDING) for unrelated nodes.
+    # Generic over any node with a backing Nokogiri node.
+    def compare_document_position(other)
+      return 0 if equal?(other)
+      unless respond_to?(:__dommy_backend_node__) && other.respond_to?(:__dommy_backend_node__)
+        return DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | DOCUMENT_POSITION_PRECEDING
+      end
+
+      self_node = __dommy_backend_node__
+      other_node = other.__dommy_backend_node__
+      self_ancestors = node_ancestor_chain(self_node)
+      other_ancestors = node_ancestor_chain(other_node)
+
+      common = self_ancestors.find { |a| other_ancestors.include?(a) }
+      unless common
+        return DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | DOCUMENT_POSITION_PRECEDING
+      end
+      return DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING if common == self_node
+      return DOCUMENT_POSITION_CONTAINS | DOCUMENT_POSITION_PRECEDING if common == other_node
+
+      self_branch = node_branch_under(common, self_ancestors)
+      other_branch = node_branch_under(common, other_ancestors)
+      common.children.each do |child|
+        return DOCUMENT_POSITION_FOLLOWING if child == self_branch
+        return DOCUMENT_POSITION_PRECEDING if child == other_branch
+      end
+      DOCUMENT_POSITION_DISCONNECTED
+    end
+
+    # Node.getRootNode — the topmost ancestor of this node (the document, a
+    # ShadowRoot, a detached subtree root, or the node itself). Generic default
+    # for any node backed by a Nokogiri node; classes with special roots
+    # (Element's shadow handling) override it.
+    def get_root_node(_options = nil)
+      return self unless respond_to?(:__dommy_backend_node__) && instance_variable_defined?(:@document)
+
+      node = __dommy_backend_node__
+      node = node.parent while node.respond_to?(:parent) && node.parent
+      # The topmost node of an attached subtree is the Nokogiri document, which
+      # has no element wrapper — map it to the Document. A detached node's root is
+      # itself.
+      return @document if @document && node.equal?(@document.nokogiri_doc)
+
+      (@document && @document.wrap_node(node)) || self
+    end
+
+    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+
+    # Node.lookupNamespaceURI(prefix) — the namespace bound to `prefix` (or the
+    # default namespace for a null/empty prefix) in this node's scope, walking up
+    # the element ancestors' namespace declarations. HTML elements default to the
+    # XHTML namespace.
+    def lookup_namespace_uri(prefix)
+      wanted = namespace_prefix_arg(prefix)
+      nk = nearest_namespaceable_node
+      while nk.respond_to?(:element?) && nk.element?
+        nk.namespace_definitions.each do |d|
+          return d.href if normalize_ns_prefix(d.prefix) == wanted
+        end
+        return nk.namespace ? nk.namespace.href : HTML_NAMESPACE if wanted.nil?
+
+        nk = nk.parent
+      end
+      nil
+    end
+
+    # Node.lookupPrefix(namespace) — a prefix bound to `namespace`, or null for
+    # the default namespace.
+    def lookup_prefix(namespace)
+      ns = namespace.to_s
+      return nil if ns.empty?
+
+      nk = nearest_namespaceable_node
+      while nk.respond_to?(:element?) && nk.element?
+        nk.namespace_definitions.each do |d|
+          return d.prefix if d.href == ns && d.prefix
+        end
+        nk = nk.parent
+      end
+      nil
+    end
+
+    # Node.isDefaultNamespace(namespace) — true if `namespace` (null/"" → null) is
+    # the default namespace in this node's scope.
+    def is_default_namespace(namespace)
+      ns = namespace.nil? ? nil : namespace.to_s
+      ns = nil if ns == ""
+      lookup_namespace_uri(nil) == ns
+    end
+
+    private
+
+    def node_ancestor_chain(node)
+      chain = [node]
+      Internal::NodeTraversal.each_ancestor(node) { |n| chain << n }
+      chain
+    end
+
+    def node_branch_under(common, chain)
+      chain.each_with_index do |node, i|
+        return node if i.zero? && node == common
+        return node if node.respond_to?(:parent) && node.parent == common
+      end
+      nil
+    end
+
+    def namespace_prefix_arg(prefix)
+      return nil if prefix.nil? || prefix.to_s.empty?
+      return nil if defined?(Bridge::UNDEFINED) && prefix.equal?(Bridge::UNDEFINED)
+
+      prefix.to_s
+    end
+
+    def normalize_ns_prefix(prefix)
+      prefix.nil? || prefix.to_s.empty? ? nil : prefix.to_s
+    end
+
+    def nearest_namespaceable_node
+      return nil unless respond_to?(:__dommy_backend_node__)
+
+      nk = __dommy_backend_node__
+      nk = nk.parent while nk.respond_to?(:element?) && !nk.element? && nk.respond_to?(:parent) && nk.parent
+      nk
+    end
   end
 end
 

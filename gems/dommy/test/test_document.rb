@@ -23,6 +23,79 @@ class TestDocument < Minitest::Test
     assert_equal(false, @doc.__js_get__("hidden"))
   end
 
+  def test_location_is_window_location
+    assert_same(@win.__js_get__("location"), @doc.__js_get__("location"))
+  end
+
+  def test_character_set
+    assert_equal("UTF-8", @doc.__js_get__("characterSet"))
+    assert_equal("UTF-8", @doc.__js_get__("charset"))
+    assert_equal("UTF-8", @doc.__js_get__("inputEncoding"))
+  end
+
+  def test_dir_reflects_html_attribute
+    assert_equal("", @doc.__js_get__("dir"))
+    @doc.__js_set__("dir", "rtl")
+    assert_equal("rtl", @doc.__js_get__("dir"))
+    assert_equal("rtl", @doc.document_element.get_attribute("dir"))
+  end
+
+  def test_design_mode_enum
+    assert_equal("off", @doc.__js_get__("designMode"))
+    @doc.__js_set__("designMode", "on")
+    assert_equal("on", @doc.__js_get__("designMode"))
+    @doc.__js_set__("designMode", "garbage")
+    assert_equal("on", @doc.__js_get__("designMode")) # invalid ignored
+  end
+
+  def test_extra_collections_present
+    %w[embeds plugins anchors styleSheets].each do |name|
+      coll = @doc.__js_get__(name)
+      refute_nil(coll, name)
+      assert_equal(0, coll.length, name)
+    end
+  end
+
+  def test_first_last_child_and_root_node_links
+    assert_kind_of(Dommy::Element, @doc.__js_get__("firstChild"))
+    assert_kind_of(Dommy::Element, @doc.__js_get__("lastChild"))
+    assert_nil(@doc.__js_get__("parentNode"))
+    assert_nil(@doc.__js_get__("ownerDocument"))
+  end
+
+  def test_parent_node_mutation_methods
+    comment = @doc.__js_call__("createComment", ["x"])
+    @doc.__js_call__("append", [comment])
+    assert_equal(8, @doc.__js_get__("lastChild").__js_get__("nodeType"))
+
+    @doc.__js_call__("removeChild", [comment])
+    assert_equal("HTML", @doc.__js_get__("lastChild").tag_name)
+  end
+
+  def test_insert_before_and_replace_child
+    c1 = @doc.__js_call__("createComment", ["a"])
+    @doc.__js_call__("insertBefore", [c1, @doc.document_element])
+    assert_same(c1, @doc.__js_get__("firstChild"))
+
+    c2 = @doc.__js_call__("createComment", ["b"])
+    @doc.__js_call__("replaceChild", [c2, c1])
+    assert_same(c2, @doc.__js_get__("firstChild"))
+  end
+
+  def test_remove_child_doctype
+    refute_nil(@doc.__js_get__("doctype"))
+    @doc.__js_call__("removeChild", [@doc.__js_get__("doctype")])
+    assert_nil(@doc.__js_get__("doctype"))
+  end
+
+  def test_clone_node_deep
+    @doc.body.inner_html = "<p id='x'>hello</p>"
+    copy = @doc.__js_call__("cloneNode", [true])
+    assert_kind_of(Dommy::Document, copy)
+    refute_same(@doc, copy)
+    assert_equal("hello", copy.query_selector("#x").text_content)
+  end
+
   def test_document_element_is_html
     el = @doc.document_element
     refute_nil(el)

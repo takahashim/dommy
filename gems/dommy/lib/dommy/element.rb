@@ -105,11 +105,23 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild isEqualNode hasChildNodes]
+    js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild isEqualNode hasChildNodes
+      append prepend replaceChildren removeChild insertBefore replaceChild
+      isSameNode getRootNode contains normalize compareDocumentPosition
+      lookupNamespaceURI lookupPrefix isDefaultNamespace
+      addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
         @__node__.children.any?
+      when "compareDocumentPosition"
+        compare_document_position(args[0])
+      when "lookupNamespaceURI"
+        lookup_namespace_uri(args[0])
+      when "lookupPrefix"
+        lookup_prefix(args[0])
+      when "isDefaultNamespace"
+        is_default_namespace(args[0])
       when "cloneNode"
         deep = args.empty? ? false : !!args[0]
         deep ? @document.wrap_node(Parser.fragment(@__node__.to_html, owner_doc: @document.nokogiri_doc)) : @document
@@ -122,17 +134,89 @@ module Dommy
         get_element_by_id(args[0])
       when "appendChild"
         append_child(args[0])
+      when "append"
+        append(*args)
+      when "prepend"
+        prepend(*args)
+      when "replaceChildren"
+        replace_children(*args)
+      when "removeChild"
+        remove_child(args[0])
+      when "insertBefore"
+        insert_before(args[0], args[1])
+      when "replaceChild"
+        replace_child(args[0], args[1])
       when "isEqualNode"
         is_equal_node(args[0])
+      when "isSameNode"
+        is_same_node(args[0])
+      when "getRootNode"
+        get_root_node(args[0])
+      when "contains"
+        contains?(args[0])
+      when "normalize"
+        normalize
+      when "addEventListener"
+        add_event_listener(args[0], args[1], args[2])
+      when "removeEventListener"
+        remove_event_listener(args[0], args[1], args[2])
+      when "dispatchEvent"
+        dispatch_event(args[0])
       else
         nil
       end
+    end
+
+    def __internal_event_parent__
+      nil
     end
 
     def extract_children
       nodes = @__node__.children.to_a
       nodes.each(&:unlink)
       nodes
+    end
+
+    # Node mutation on the fragment's children (ParentNode covers append/prepend/
+    # replaceChildren; these are the remaining Node methods).
+    def remove_child(node)
+      bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
+      raise DOMException::NotFoundError, "node is not a child of this fragment" unless bn && bn.parent == @__node__
+
+      bn.unlink
+      node
+    end
+
+    def insert_before(node, ref)
+      nodes = detach_dom_nodes(node)
+      ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
+      if ref_bn && ref_bn.parent == @__node__
+        nodes.each { |n| ref_bn.add_previous_sibling(n) }
+      else
+        nodes.each { |n| @__node__.add_child(n) }
+      end
+      node
+    end
+
+    def replace_child(new_child, old_child)
+      old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
+      raise DOMException::NotFoundError, "node is not a child of this fragment" unless old_bn && old_bn.parent == @__node__
+
+      detach_dom_nodes(new_child).each { |n| old_bn.add_previous_sibling(n) }
+      old_bn.unlink
+      old_child
+    end
+
+    def contains?(other)
+      return false unless other.respond_to?(:__dommy_backend_node__)
+
+      on = other.__dommy_backend_node__
+      on == @__node__ || on.ancestors.include?(@__node__)
+    end
+
+    def normalize
+      @__node__.children.each { |n| n.unlink if n.text? && n.content.empty? }
+      nil
     end
 
     private
@@ -155,8 +239,29 @@ module Dommy
   # nodeValue / textContent API and `remove` / `cloneNode` semantics.
   class CharacterDataNode
     include Node
+    include EventTarget
 
     def __dommy_backend_node__ = @__node__
+
+    # EventTarget needs a parent for event propagation; a character-data node
+    # bubbles to its parent element.
+    def __internal_event_parent__
+      @__node__.parent && @document.wrap_node(@__node__.parent)
+    end
+
+    # Text.splitText / CharacterData split: break the node at `offset`, keeping
+    # [0, offset) here and returning a new sibling node with the remainder.
+    def split_text(offset)
+      off = offset.to_i
+      full = @__node__.content
+      raise DOMException::IndexSizeError, "offset #{off} is out of bounds" if off.negative? || off > full.length
+
+      rest = full[off..] || ""
+      write_data(full[0, off])
+      new_node = @document.create_text_node(rest)
+      @__node__.add_next_sibling(new_node.__dommy_backend_node__) if @__node__.parent
+      new_node
+    end
 
     def initialize(document, nokogiri_node)
       @document = document
@@ -305,7 +410,11 @@ module Dommy
 
     include Bridge::Methods
     js_methods %w[remove before after replaceWith isEqualNode hasChildNodes
-      appendData insertData deleteData replaceData substringData contains]
+      appendData insertData deleteData replaceData substringData contains
+      isSameNode getRootNode normalize splitText compareDocumentPosition
+      lookupNamespaceURI lookupPrefix isDefaultNamespace
+      appendChild insertBefore removeChild replaceChild
+      addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
@@ -314,6 +423,33 @@ module Dommy
         # A leaf node contains only itself (no descendants).
         args[0].respond_to?(:__dommy_backend_node__) &&
           args[0].__dommy_backend_node__ == @__node__
+      when "appendChild", "insertBefore"
+        # CharacterData is a leaf — it cannot be a parent.
+        raise DOMException::HierarchyRequestError, "this node type does not support children"
+      when "removeChild", "replaceChild"
+        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
+      when "compareDocumentPosition"
+        compare_document_position(args[0])
+      when "isSameNode"
+        is_same_node(args[0])
+      when "getRootNode"
+        get_root_node(args[0])
+      when "lookupNamespaceURI"
+        lookup_namespace_uri(args[0])
+      when "lookupPrefix"
+        lookup_prefix(args[0])
+      when "isDefaultNamespace"
+        is_default_namespace(args[0])
+      when "normalize"
+        nil # a leaf has no child text runs to merge
+      when "splitText"
+        split_text(args[0])
+      when "addEventListener"
+        add_event_listener(args[0], args[1], args[2])
+      when "removeEventListener"
+        remove_event_listener(args[0], args[1], args[2])
+      when "dispatchEvent"
+        dispatch_event(args[0])
       when "appendData"
         append_data(args[0])
       when "insertData"
@@ -1597,48 +1733,7 @@ module Dommy
     # CONTAINS/CONTAINED_BY bitmask for ancestor/descendant pairs, or
     # PRECEDING/FOLLOWING for siblings (and DISCONNECTED for unrelated
     # nodes).
-    def compare_document_position(other)
-      return 0 if equal?(other)
-      return DOCUMENT_POSITION_DISCONNECTED unless other.respond_to?(:__dommy_backend_node__)
-
-      self_node = @__node__
-      other_node = other.__dommy_backend_node__
-
-      self_ancestors = ancestor_chain(self_node)
-      other_ancestors = ancestor_chain(other_node)
-
-      common = nil
-      self_ancestors.each do |a|
-        if other_ancestors.include?(a)
-          common = a
-          break
-        end
-      end
-
-      unless common
-        return DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | DOCUMENT_POSITION_PRECEDING
-      end
-
-      if common == self_node
-        return DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING
-      elsif common == other_node
-        return DOCUMENT_POSITION_CONTAINS | DOCUMENT_POSITION_PRECEDING
-      end
-
-      # Sibling-of-some-level case: compare the two branch points
-      # under the common ancestor.
-      self_branch = branch_under(common, self_ancestors)
-      other_branch = branch_under(common, other_ancestors)
-      common.children.each do |child|
-        if child == self_branch
-          return DOCUMENT_POSITION_FOLLOWING
-        elsif child == other_branch
-          return DOCUMENT_POSITION_PRECEDING
-        end
-      end
-
-      DOCUMENT_POSITION_DISCONNECTED
-    end
+    # compareDocumentPosition is provided generically by the Node module.
 
     # `Node.isSameNode(other)` — strict reference identity. The DOM
     # spec deprecates this in favor of `===`, but linkedom-style
@@ -2118,6 +2213,7 @@ module Dommy
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
       hasChildNodes hasAttributes getRootNode normalize contains
+      compareDocumentPosition isSameNode lookupNamespaceURI lookupPrefix isDefaultNamespace
     ]
     def __js_call__(method, args)
       case method
@@ -2179,6 +2275,16 @@ module Dommy
         matches?(args[0])
       when "isEqualNode"
         is_equal_node(args[0])
+      when "isSameNode"
+        is_same_node(args[0])
+      when "compareDocumentPosition"
+        compare_document_position(args[0])
+      when "lookupNamespaceURI"
+        lookup_namespace_uri(args[0])
+      when "lookupPrefix"
+        lookup_prefix(args[0])
+      when "isDefaultNamespace"
+        is_default_namespace(args[0])
       when "contains"
         contains?(args[0])
       when "toString"
@@ -2516,23 +2622,6 @@ module Dommy
 
     # ---- Internal helpers (single private section) ----
     private
-
-    # compareDocumentPosition / isEqualNode helpers.
-    def ancestor_chain(node)
-      chain = [node]
-      Internal::NodeTraversal.each_ancestor(node) { |n| chain << n }
-      chain
-    end
-
-    def branch_under(common, chain)
-      # Walk back along `chain` to find the entry whose parent is `common`.
-      chain.each_with_index do |node, i|
-        return node if i.zero? && node == common
-        return node if node.respond_to?(:parent) && node.parent == common
-      end
-
-      nil
-    end
 
     def attribute_signature
       Backend.attribute_nodes(@__node__).map { |a| [a.name, a.value] }.sort

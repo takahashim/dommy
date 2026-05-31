@@ -344,23 +344,46 @@ module Dommy
       doc.wrap_node(parent_nk)
     end
 
+    # The Nokogiri node backing a wrapper — an element's `__dommy_backend_node__`
+    # or, for a Document (which isn't a wrapped node), its `nokogiri_doc`. Lets a
+    # walker rooted at the document descend into its children.
+    def backend_node_of(node)
+      if node.respond_to?(:__dommy_backend_node__)
+        node.__dommy_backend_node__
+      elsif node.respond_to?(:nokogiri_doc)
+        node.nokogiri_doc
+      end
+    end
+
+    # Wrap the first Nokogiri node in `list` that has a wrapper, skipping ones
+    # that don't (e.g. the DTD, which Dommy doesn't model as a child node).
+    def first_wrappable(list, ctx)
+      list.each do |nk|
+        w = document_for(ctx).wrap_node(nk)
+        return w if w
+      end
+      nil
+    end
+
     def first_wrapped_child(node)
-      child_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.children.first : nil
-      child_nk && document_for(node).wrap_node(child_nk)
+      bn = backend_node_of(node)
+      bn ? first_wrappable(bn.children, node) : nil
     end
 
     def last_wrapped_child(node)
-      child_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.children.last : nil
-      child_nk && document_for(node).wrap_node(child_nk)
+      bn = backend_node_of(node)
+      bn ? first_wrappable(bn.children.reverse, node) : nil
     end
 
     def next_sibling_wrapped(node)
       n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.next : nil
+      n = n.next while n && document_for(node).wrap_node(n).nil?
       n && document_for(node).wrap_node(n)
     end
 
     def previous_sibling_wrapped(node)
       n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.previous : nil
+      n = n.previous while n && document_for(node).wrap_node(n).nil?
       n && document_for(node).wrap_node(n)
     end
 
