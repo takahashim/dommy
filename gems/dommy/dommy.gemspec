@@ -25,6 +25,7 @@ Gem::Specification.new do |spec|
   # raised to 1.19 to pull in recent security fixes.
   spec.add_dependency "nokogiri", "~> 1.19"
 
-  # Dommy also supports nokolexbor (3-7× faster CSS selectors, Lexbor-based) via
-  # Dommy::Backend.use(:nokolexbor); install that gem separately to opt in.
+  # Dommy also supports makiri (Lexbor-based parsing + a native XPath engine,
+  # no libxml2) via Dommy::Backend.use(:makiri); install that gem separately to
+  # opt in.
 end

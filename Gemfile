@@ -11,7 +11,7 @@ gem "capybara-dommy", path: "gems/capybara-dommy"
 # HTML parser backends. At least one is required; both are listed so the
 # dommy test suite can verify each adapter.
 gem "nokogiri"
-gem "nokolexbor"
+gem "makiri", path: "../makiri"
 
 # Shared dev tooling.
 gem "rake", "~> 13.0"

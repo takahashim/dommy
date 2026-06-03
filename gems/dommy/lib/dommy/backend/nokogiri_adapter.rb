@@ -15,7 +15,91 @@ module Dommy
       DocumentFragment = ::Nokogiri::XML::DocumentFragment
       Node = ::Nokogiri::XML::Node
 
+      # Custom CSS pseudo-class handlers — a Nokogiri-specific mechanism for
+      # selectors its CSS→XPath compiler can't evaluate on its own
+      # (`:disabled`/`:enabled`/`:checked`). Nokogiri calls the method named
+      # after the pseudo-class with the current node list and expects the
+      # filtered list back; it receives raw backend nodes, not Dommy wrappers.
+      class PseudoHandlers < BasicObject
+        include ::Kernel
+
+        def disabled(list)
+          list.find_all { |node| node.has_attribute?("disabled") }
+        end
+
+        def enabled(list)
+          list.find_all { |node| !node.has_attribute?("disabled") }
+        end
+
+        def checked(list)
+          list.find_all { |node| node.has_attribute?("checked") }
+        end
+      end
+
+      # Adds `:scope` support. Nokogiri compiles `:scope` into a custom XPath
+      # function `nokogiri:scope(.)`, calling it as `scope(node_set)`; a scoped
+      # query (`el.querySelector(":scope > p")`) resolves it to the context
+      # element, so only that element matches. One instance per query — it
+      # carries the context node.
+      class ScopedPseudoHandlers < PseudoHandlers
+        def initialize(scope_node)
+          @scope_node = scope_node
+        end
+
+        def scope(list)
+          list.find_all { |node| node.pointer_id == @scope_node.pointer_id }
+        end
+      end
+
+      DEFAULT_PSEUDO_HANDLERS = PseudoHandlers.new
+
       module_function
+
+      # libxml2 caches one Ruby wrapper per C node, so object_id is a stable
+      # identity; a removed node may be freed and its pointer recycled, which
+      # would make a pointer-based key collide, so object_id is the safe choice.
+      def identity_key(node)
+        node.object_id
+      end
+
+      # Deep dup preserves namespace and attributes (createElement would drop the
+      # namespace); for a shallow clone we keep that node but drop its subtree.
+      def clone_node(node, deep:)
+        copy = node.dup(1)
+        copy.children.each(&:unlink) unless deep
+        copy
+      end
+
+      def clone_document(doc)
+        doc.dup
+      end
+
+      def empty_document
+        Document.new
+      end
+
+      # Adding `node` under another document's tree makes libxml2 reassign its
+      # `document`; we attach transiently then unlink so it ends up free-floating
+      # but owned by `target_doc`, with Ruby identity preserved.
+      def adopt(node, target_doc)
+        target_doc.root.add_child(node)
+        node.unlink
+        node
+      end
+
+      # CSS query honoring Dommy's custom pseudo-classes. `scope_node`, when
+      # given, binds `:scope` to that element (for `closest`/scoped queries).
+      def select_all(node, selector, scope_node: nil)
+        node.css(selector, pseudo_handlers(scope_node))
+      end
+
+      def select_first(node, selector, scope_node: nil)
+        node.at_css(selector, pseudo_handlers(scope_node))
+      end
+
+      def pseudo_handlers(scope_node)
+        scope_node ? ScopedPseudoHandlers.new(scope_node) : DEFAULT_PSEUDO_HANDLERS
+      end
 
       def parse(html)
         ::Nokogiri::HTML5(html.to_s, max_errors: 0)
@@ -52,6 +136,15 @@ module Dommy
 
       def namespace_of(node)
         node.namespace
+      end
+
+      def namespace_definitions(node)
+        node.namespace_definitions
+      end
+
+      # Nokogiri's HTML5 parser keeps <template> contents as normal children.
+      def template_content_nodes(node)
+        node.children.to_a
       end
 
       def add_namespace_definition(node, prefix, href)

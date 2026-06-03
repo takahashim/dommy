@@ -8,7 +8,7 @@ module Dommy
   # Known quirks (vary by backend):
   # - Nokogiri (libxml2): `<table>`-only fragments wrap children in
   #   an implicit `<tbody>`; `<select>` reparents non-option children.
-  # - Nokolexbor (Lexbor): similar behavior, slightly different edge
+  # - Makiri (Lexbor): similar behavior, slightly different edge
   #   cases for malformed input.
   #
   # `owner_doc` is critical: when a node parsed via a detached

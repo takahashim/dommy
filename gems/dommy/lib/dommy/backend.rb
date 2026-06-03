@@ -3,20 +3,20 @@
 module Dommy
   # `Dommy::Backend` — pluggable HTML parser abstraction. Lets Dommy
   # work with either Nokogiri (mature, full namespace support) or
-  # Nokolexbor (faster, HTML5-only). Internally, all DOM library
+  # Makiri (Lexbor-based, HTML5-only). Internally, all DOM library
   # code goes through this facade rather than referencing the parser
   # directly.
   #
-  # Defaults to Nokogiri if available, else Nokolexbor.
+  # Defaults to Nokogiri if available, else Makiri.
   #
   # Switching backends:
   #
   #   require "dommy"
-  #   Dommy::Backend.use(:nokolexbor)
+  #   Dommy::Backend.use(:makiri)
   #
   # Or set directly:
   #
-  #   Dommy::Backend.current = Dommy::Backend::Nokolexbor
+  #   Dommy::Backend.current = Dommy::Backend::Makiri
   #
   # All adapters must implement the same interface — see
   # `Backend::Nokogiri` for the canonical reference.
@@ -36,12 +36,58 @@ module Dommy
         when :nokogiri
           require_relative "backend/nokogiri_adapter"
           Nokogiri
-        when :nokolexbor
-          require_relative "backend/nokolexbor_adapter"
-          Nokolexbor
+        when :makiri
+          require_relative "backend/makiri_adapter"
+          Makiri
         else
-          raise ArgumentError, "Unknown backend: #{name.inspect}. Use :nokogiri or :nokolexbor."
+          raise ArgumentError, "Unknown backend: #{name.inspect}. Use :nokogiri or :makiri."
         end
+      end
+
+      # Stable per-document identity key for a backend node, used to cache DOM
+      # wrappers and key per-node side tables. Nokogiri reuses one Ruby wrapper
+      # per C node (object_id is stable) and may recycle a freed node's pointer,
+      # so it keys on object_id; Makiri mints a fresh wrapper per traversal but
+      # never frees nodes (arena-owned), so it keys on the stable node pointer.
+      def identity_key(node)
+        current.identity_key(node)
+      end
+
+      # Deep (or shallow) copy of an element/node, detached and owned by the
+      # same document — the backing for DOM cloneNode.
+      def clone_node(node, deep:)
+        current.clone_node(node, deep: deep)
+      end
+
+      # Deep copy of a whole document (DOM cloneNode on the document).
+      def clone_document(doc)
+        current.clone_document(doc)
+      end
+
+      # A fresh, empty backing document (shallow document clone / new Document).
+      def empty_document
+        current.empty_document
+      end
+
+      # Bring `node` (already detached from its old tree) into `target_doc`,
+      # returning the backend node now owned by `target_doc`. Nokogiri reassigns
+      # ownership in place and returns the same node; Makiri can't move a node
+      # between arenas, so it imports a copy — callers must reseat any wrapper
+      # onto the returned node.
+      def adopt(node, target_doc)
+        current.adopt(node, target_doc)
+      end
+
+      # CSS query that honors Dommy's custom pseudo-classes
+      # (`:disabled`/`:enabled`/`:checked`/`:scope`). Each backend applies its
+      # own mechanism (Nokogiri pseudo-handlers; Lexbor native pseudos plus a
+      # `:scope` rewrite). `scope_node` binds `:scope` to that element.
+      def select_all(node, selector, scope_node: nil)
+        current.select_all(node, selector, scope_node: scope_node)
+      end
+
+      def select_first(node, selector, scope_node: nil)
+        current.select_first(node, selector, scope_node: scope_node)
       end
 
       # Delegate calls so internal code can use `Backend.parse(...)`.
@@ -83,6 +129,20 @@ module Dommy
 
       def namespace_of(node)
         current.namespace_of(node)
+      end
+
+      # The element's in-scope namespace declarations (each responds to
+      # `prefix`/`href`). Empty on backends without an XML namespace model.
+      def namespace_definitions(node)
+        current.namespace_definitions(node)
+      end
+
+      # The content child nodes of a `<template>` element. HTML5 parsers model
+      # template contents differently — Nokogiri keeps them as normal children,
+      # Lexbor/Makiri in a separate content fragment — so reading them goes
+      # through the backend. Used by the template-content registry's migration.
+      def template_content_nodes(node)
+        current.template_content_nodes(node)
       end
 
       def add_namespace_definition(node, prefix, href)
@@ -149,8 +209,8 @@ module Dommy
 
       def detect_default
         try_nokogiri ||
-          try_nokolexbor ||
-          raise(BackendNotAvailable, "Dommy requires either 'nokogiri' or 'nokolexbor' gem to be installed.")
+          try_makiri ||
+          raise(BackendNotAvailable, "Dommy requires either 'nokogiri' or 'makiri' gem to be installed.")
       end
 
       def try_nokogiri
@@ -162,11 +222,11 @@ module Dommy
         nil
       end
 
-      def try_nokolexbor
-        require "nokolexbor"
+      def try_makiri
+        require "makiri"
 
-        require_relative "backend/nokolexbor_adapter"
-        Nokolexbor
+        require_relative "backend/makiri_adapter"
+        Makiri
       rescue LoadError
         nil
       end

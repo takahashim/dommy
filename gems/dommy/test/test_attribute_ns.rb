@@ -4,7 +4,7 @@ require_relative "test_helper"
 
 # Namespaced attribute support: Element *AttributeNS, Attr namespace metadata,
 # NamedNodeMap NS access, createAttributeNS, and validate-and-extract errors.
-# Nokogiri-only behavior (Nokolexbor degrades to the null namespace).
+# Nokogiri-only behavior (Makiri degrades to the null namespace).
 class TestAttributeNS < Minitest::Test
   include DommyTestHelper
 
@@ -12,6 +12,12 @@ class TestAttributeNS < Minitest::Test
   EX = "http://example.com/ns"
 
   def setup
+    # Namespaced attributes need a real XML namespace model; only the Nokogiri
+    # backend has one (Makiri collapses *AttributeNS to the null namespace).
+    unless defined?(Dommy::Backend::Nokogiri) && Dommy::Backend.current == Dommy::Backend::Nokogiri
+      skip "namespaced attributes require the Nokogiri backend"
+    end
+
     @win = make_window("<svg></svg>")
     @el = @win.document.query_selector("svg")
   end

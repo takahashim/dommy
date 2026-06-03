@@ -24,11 +24,11 @@ class TestNodeTraversal < Minitest::Test
   def test_each_ancestor_stops_before_document
     ancestors = []
     Dommy::Internal::NodeTraversal.each_ancestor(@inner) { |n| ancestors << n }
-    refute(ancestors.any? { |n| n.is_a?(Nokogiri::XML::Document) })
+    refute(ancestors.any? { |n| n.is_a?(Dommy::Backend.document_class) })
   end
 
   def test_each_ancestor_on_orphan_yields_nothing
-    orphan = Nokogiri::XML::Node.new("p", @doc.nokogiri_doc)
+    orphan = Dommy::Backend.create_element("p", @doc.nokogiri_doc)
     ancestors = []
     Dommy::Internal::NodeTraversal.each_ancestor(orphan) { |n| ancestors << n }
     assert_empty(ancestors)

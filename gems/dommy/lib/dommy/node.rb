@@ -286,10 +286,13 @@ module Dommy
       wanted = namespace_prefix_arg(prefix)
       nk = nearest_namespaceable_node
       while nk.respond_to?(:element?) && nk.element?
-        nk.namespace_definitions.each do |d|
+        Backend.namespace_definitions(nk).each do |d|
           return d.href if normalize_ns_prefix(d.prefix) == wanted
         end
-        return nk.namespace ? nk.namespace.href : HTML_NAMESPACE if wanted.nil?
+        if wanted.nil?
+          ns = Backend.namespace_of(nk)
+          return ns ? ns.href : HTML_NAMESPACE
+        end
 
         nk = nk.parent
       end
@@ -304,7 +307,7 @@ module Dommy
 
       nk = nearest_namespaceable_node
       while nk.respond_to?(:element?) && nk.element?
-        nk.namespace_definitions.each do |d|
+        Backend.namespace_definitions(nk).each do |d|
           return d.prefix if d.href == ns && d.prefix
         end
         nk = nk.parent

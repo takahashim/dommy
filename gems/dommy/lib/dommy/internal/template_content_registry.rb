@@ -12,23 +12,23 @@ module Dommy
     class TemplateContentRegistry
       def initialize(document)
         @document = document
-        # template_node.object_id → Nokogiri fragment
+        # Backend.identity_key(template_node) → backend fragment
         @fragments = {}
       end
 
       # Parse HTML into a fragment and attach it as the template's content.
       # Drops any pre-existing direct children of the template element.
       def attach(template_element, html)
-        template_element.__dommy_backend_node__.children.each(&:unlink)
+        Backend.template_content_nodes(template_element.__dommy_backend_node__).each(&:unlink)
         fragment = @document.nokogiri_doc.fragment(html.to_s)
-        @fragments[template_element.__dommy_backend_node__.object_id] = fragment
+        @fragments[Backend.identity_key(template_element.__dommy_backend_node__)] = fragment
         fragment
       end
 
       # Get the wrapped Fragment for a template element, seeding from
       # the template's current children if not previously migrated.
       def fragment_for(template_element)
-        fragment = @fragments[template_element.__dommy_backend_node__.object_id]
+        fragment = @fragments[Backend.identity_key(template_element.__dommy_backend_node__)]
         fragment ||= seed(template_element)
         @document.wrap_node(fragment)
       end
@@ -36,24 +36,24 @@ module Dommy
       # Raw (Nokogiri) fragment lookup by Nokogiri node — used by
       # internal traversal to skip template-content sub-trees.
       def raw_fragment_for(nokogiri_node)
-        @fragments[nokogiri_node.object_id]
+        @fragments[Backend.identity_key(nokogiri_node)]
       end
 
       def inner_html_of(template_element)
-        fragment = @fragments[template_element.__dommy_backend_node__.object_id]
+        fragment = @fragments[Backend.identity_key(template_element.__dommy_backend_node__)]
         return "" unless fragment
 
         fragment.children.map(&:to_html).join
       end
 
       def has_content?(nokogiri_node)
-        @fragments.key?(nokogiri_node.object_id)
+        @fragments.key?(Backend.identity_key(nokogiri_node))
       end
 
       # Direct register — called after manual fragment construction
       # (e.g., when seeding from existing template children).
       def store(template_node, fragment)
-        @fragments[template_node.object_id] = fragment
+        @fragments[Backend.identity_key(template_node)] = fragment
       end
 
       # Walk a Nokogiri subtree, finding <template> elements whose
@@ -88,17 +88,17 @@ module Dommy
 
       def seed(template_element)
         migrate_one(template_element.__dommy_backend_node__)
-        @fragments[template_element.__dommy_backend_node__.object_id]
+        @fragments[Backend.identity_key(template_element.__dommy_backend_node__)]
       end
 
       def migrate_one(template_node)
         fragment = @document.nokogiri_doc.fragment("")
-        template_node.children.to_a.each do |child|
+        Backend.template_content_nodes(template_node).each do |child|
           child.unlink
           fragment.add_child(child)
         end
 
-        @fragments[template_node.object_id] = fragment
+        @fragments[Backend.identity_key(template_node)] = fragment
       end
     end
   end

@@ -207,7 +207,10 @@ module Dommy
       return false unless other.respond_to?(:__dommy_backend_node__)
 
       on = other.__dommy_backend_node__
-      on == @__node__ || on.ancestors.include?(@__node__)
+      # Walk parents rather than the backend's `ancestors`: Makiri omits a
+      # DocumentFragment parent from `ancestors`, so a fragment never appears
+      # to contain its own children. `parent` is consistent across backends.
+      on == @__node__ || Internal::NodeTraversal.ancestor_of?(@__node__, on)
     end
 
     def normalize
@@ -1104,11 +1107,18 @@ module Dommy
     end
 
     def text_content=(value)
-      # `node.content =` removes all existing children and (if value is
-      # non-empty) appends a single text node. Capture before/after to feed
-      # MutationObserver.
+      # Setting textContent removes all existing children and, only for a
+      # non-empty value, appends a single text node. Capture before/after to
+      # feed MutationObserver. The empty case clears children directly: the
+      # backend's `content=` is the parser's, and Makiri leaves an empty text
+      # node behind for "" (Nokogiri and the DOM produce no node at all).
       removed = @__node__.children.to_a
-      @__node__.content = value.to_s
+      str = value.to_s
+      if str.empty?
+        removed.each(&:unlink)
+      else
+        @__node__.content = str
+      end
       added = @__node__.children.to_a
       notify_child_list(added: added, removed: removed)
     end
@@ -1535,9 +1545,9 @@ module Dommy
       seen = {}
       loop do
         # Guard against unexpected cycles in malformed trees.
-        return false if seen[current.object_id]
+        return false if seen[Backend.identity_key(current)]
 
-        seen[current.object_id] = true
+        seen[Backend.identity_key(current)] = true
 
         parent = current.respond_to?(:parent) ? current.parent : nil
         return false unless parent
@@ -2488,10 +2498,9 @@ module Dommy
 
       # Elements matching the selector (scoped to this element, so `:scope`
       # resolves here), then return the nearest inclusive ancestor among them.
-      handler = Internal.scoped_pseudo_handlers(@__node__)
       safe = Internal.backend_safe_selector(selector.to_s)
       matched = with_selector_errors(selector) do
-        @document.nokogiri_doc.css(safe, handler).map(&:pointer_id)
+        Backend.select_all(@document.nokogiri_doc, safe, scope_node: @__node__).map(&:pointer_id)
       end
 
       node = @__node__
@@ -2564,15 +2573,14 @@ module Dommy
     # results to this element's own subtree.
     def scoped_query(sel)
       sel = Internal.backend_safe_selector(sel)
-      handler = Internal.scoped_pseudo_handlers(@__node__)
       with_selector_errors(sel) do
         if sel.include?(":scope")
           self_id = @__node__.pointer_id
-          @document.nokogiri_doc.css(sel, handler).select do |n|
+          Backend.select_all(@document.nokogiri_doc, sel, scope_node: @__node__).select do |n|
             n.ancestors.any? { |a| a.pointer_id == self_id }
           end
         else
-          @__node__.css(sel, handler)
+          Backend.select_all(@__node__, sel)
         end
       end
     end
@@ -2640,15 +2648,14 @@ module Dommy
     end
 
     def clone_node(deep_arg)
-      # Copy the node in place via libxml's deep dup, NOT by re-parsing to_html as
-      # a fragment: the HTML fragment parser unwraps `<body>` / `<head>` /
-      # `<html>`, so cloning a body produced its children, not a body element
-      # (which broke Turbo's snapshot cache — it clones the body and restores it
-      # via documentElement.replaceChild on back/forward). dup(1) preserves the
-      # element's namespace and attributes (createElement would lose the
-      # namespace); for a shallow clone we keep that node but drop its subtree.
-      copy = @__node__.dup(1)
-      copy.children.each(&:unlink) unless deep_arg
+      # Copy the node in place via the backend's deep clone, NOT by re-parsing
+      # to_html as a fragment: the HTML fragment parser unwraps `<body>` /
+      # `<head>` / `<html>`, so cloning a body would produce its children, not a
+      # body element (which broke Turbo's snapshot cache — it clones the body and
+      # restores it via documentElement.replaceChild on back/forward). The clone
+      # preserves the element's namespace and attributes (createElement would
+      # lose the namespace).
+      copy = Backend.clone_node(@__node__, deep: deep_arg)
       @document.wrap_node(copy)
     end
 

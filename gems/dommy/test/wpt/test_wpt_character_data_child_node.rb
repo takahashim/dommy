@@ -79,13 +79,13 @@ class TestWPTCharacterDataAfter < Minitest::Test
   end
 
   def test_after_with_string_inserts_text_node
-    # Note: Nokogiri auto-merges adjacent text nodes, so the inserted
-    # "suffix" coalesces with the preceding "middle" into a single
-    # text node "middlesuffix". Verify the combined content rather
-    # than expecting two separate children.
+    # `after("suffix")` inserts a Text node after @text. Backends differ on
+    # adjacent-text coalescing: Nokogiri auto-merges "middle" + "suffix" into a
+    # single text node, while Makiri keeps them separate (spec-correct — only
+    # normalize() merges). Assert the combined content, which holds either way.
     @text.after("suffix")
-    assert_equal(1, @parent.child_nodes.length)
-    assert_equal("middlesuffix", @parent.first_child.text_content)
+    assert_equal("middlesuffix", @parent.text_content)
+    assert(@parent.child_nodes.all? { |n| n.is_a?(Dommy::TextNode) })
   end
 
   def test_after_is_noop_when_detached

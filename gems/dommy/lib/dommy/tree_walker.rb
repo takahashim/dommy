@@ -372,7 +372,8 @@ module Dommy
 
     def last_wrapped_child(node)
       bn = backend_node_of(node)
-      bn ? first_wrappable(bn.children.reverse, node) : nil
+      # `.to_a` first: Nokogiri's NodeSet has `#reverse`, Makiri's does not.
+      bn ? first_wrappable(bn.children.to_a.reverse, node) : nil
     end
 
     def next_sibling_wrapped(node)

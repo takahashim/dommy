@@ -13,13 +13,13 @@ module Dommy
 
       # Register a shadow root by its backing fragment node
       def register(fragment_node, shadow_root)
-        @shadow_roots[fragment_node.object_id] = shadow_root
+        @shadow_roots[Backend.identity_key(fragment_node)] = shadow_root
       end
 
       # Find the ShadowRoot for a given fragment (if any)
       def find_for_fragment(fragment_node)
         return nil unless fragment_node
-        @shadow_roots[fragment_node.object_id]
+        @shadow_roots[Backend.identity_key(fragment_node)]
       end
 
       # Find the enclosing ShadowRoot for a given node.

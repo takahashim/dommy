@@ -588,23 +588,21 @@ module Dommy
       # Same document: just return the wrapper after the detach above.
       return wrap_node(src) if src.document == @nokogiri_doc
 
-      # Cross-document: Nokogiri reassigns `src.document` when src is
-      # added under a node owned by another document. We transiently
-      # attach to our root, then unlink so src ends up free-floating
-      # but now belongs to @nokogiri_doc. The underlying Ruby object
-      # identity is preserved.
+      # Cross-document: hand the detached source to the backend, which
+      # returns the node now owned by this document — the same node for
+      # Nokogiri (it reassigns ownership in place), or an imported copy for
+      # Makiri (a node can't move between arenas). Drop the stale source
+      # wrapper, then reseat the caller's Dommy wrapper onto the adopted
+      # node so `adopt_node(x).equal?(x)` stays true across documents.
       src_doc_wrapper = node.instance_variable_get(:@document)
-      @nokogiri_doc.root.add_child(src)
-      src.unlink
+      adopted = Backend.adopt(src, @nokogiri_doc)
 
-      # Move the caller's Dommy wrapper from the source document's
-      # wrapper cache into ours, and re-point its @document. This
-      # keeps `adopt_node(x).equal?(x)` true across documents.
-      node.instance_variable_set(:@document, self)
       if src_doc_wrapper.respond_to?(:__internal_reset_wrapper__)
         src_doc_wrapper.__internal_reset_wrapper__(src)
       end
-      @node_wrapper_cache.register(src, node)
+      node.instance_variable_set(:@document, self)
+      node.instance_variable_set(:@__node__, adopted)
+      @node_wrapper_cache.register(adopted, node)
       node
     end
 
@@ -794,7 +792,7 @@ module Dommy
     # `document.cloneNode(deep)` → a fresh Document over a (deep) copy of the
     # Nokogiri tree, preserving the content type.
     def clone_node(deep)
-      copy = deep ? @nokogiri_doc.dup : Backend.document_class.new
+      copy = deep ? Backend.clone_document(@nokogiri_doc) : Backend.empty_document
       Document.new(nil, nokogiri_doc: copy).tap { |d| d.content_type = @content_type }
     end
 

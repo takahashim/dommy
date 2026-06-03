@@ -16,11 +16,11 @@ module Dommy
       def wrap(node)
         return nil unless node
 
-        cached = @wrappers[node.object_id]
+        cached = @wrappers[identity_key(node)]
         return cached if cached
 
         wrapper = build_wrapper_for(node)
-        @wrappers[node.object_id] = wrapper if wrapper
+        @wrappers[identity_key(node)] = wrapper if wrapper
         wrapper
       end
 
@@ -93,7 +93,9 @@ module Dommy
         el = Backend.create_element(qualified_name, @document.nokogiri_doc)
         Backend.add_namespace_definition(el, prefix, ns) if ns
 
-        wrapper = wrap(el)
+        # Route the wrapper class from the requested namespace (the backend may
+        # not be able to report it for a detached foreign element).
+        wrapper = build_element_wrapper(el, namespace: ns)
         wrapper.__internal_set_namespace__(ns, prefix, local, qualified_name)
         wrapper
       end
@@ -104,14 +106,14 @@ module Dommy
         return nil if selector.nil?
         Internal.validate_selector!(selector)
 
-        wrap(@document.nokogiri_doc.at_css(Internal.backend_safe_selector(selector.to_s), CSS_PSEUDO_HANDLERS))
+        wrap(Backend.select_first(@document.nokogiri_doc, Internal.backend_safe_selector(selector.to_s)))
       end
 
       def query_selector_all(selector)
         return NodeList.new if selector.nil?
         Internal.validate_selector!(selector)
 
-        NodeList.new(@document.nokogiri_doc.css(Internal.backend_safe_selector(selector.to_s), CSS_PSEUDO_HANDLERS).map { |node| wrap(node) }.compact)
+        NodeList.new(Backend.select_all(@document.nokogiri_doc, Internal.backend_safe_selector(selector.to_s)).map { |node| wrap(node) }.compact)
       end
 
       def get_element_by_id(id)
@@ -154,7 +156,7 @@ module Dommy
 
       # Clear cached wrapper (used by customElements.define for upgrades)
       def reset_wrapper(nokogiri_node)
-        @wrappers.delete(nokogiri_node.object_id)
+        @wrappers.delete(identity_key(nokogiri_node))
       end
 
       # Register an externally-built wrapper. Used by
@@ -162,10 +164,19 @@ module Dommy
       # document so the existing Ruby object survives the move
       # rather than being replaced by a freshly-built one.
       def register(nokogiri_node, wrapper)
-        @wrappers[nokogiri_node.object_id] = wrapper
+        @wrappers[identity_key(nokogiri_node)] = wrapper
       end
 
       private
+
+      # DOM identity key for a backend node, delegated to the backend since
+      # the right key differs: Nokogiri reuses one Ruby wrapper per C node
+      # (object_id stable) and may recycle a freed node's pointer, so it keys
+      # on object_id; Makiri mints fresh wrappers but never frees nodes, so it
+      # keys on the stable node pointer (pointer_id).
+      def identity_key(node)
+        Backend.identity_key(node)
+      end
 
       # WebIDL DOMString coercion for a name/qualifiedName argument: JS
       # `undefined` → "undefined", JS `null` (Ruby nil) → "null", else #to_s.
@@ -196,12 +207,16 @@ module Dommy
         end
       end
 
-      def build_element_wrapper(node)
+      # `namespace` lets a caller that already knows the element's namespace
+      # (e.g. createElementNS) route the wrapper class directly, rather than
+      # re-deriving it from the backend — which a namespace-less backend can't
+      # do for a freshly created, still-detached foreign element.
+      def build_element_wrapper(node, namespace: Backend.namespace_of(node)&.href)
         custom_klass = custom_element_class_for(node.name)
-        klass = custom_klass || Dommy.element_class_for(node.name, Backend.namespace_of(node)&.href)
+        klass = custom_klass || Dommy.element_class_for(node.name, namespace)
         instance = klass.new(@document, node)
 
-        @wrappers[node.object_id] = instance
+        @wrappers[identity_key(node)] = instance
 
         if custom_klass && instance.respond_to?(:construct)
           begin
