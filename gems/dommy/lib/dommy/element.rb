@@ -2832,11 +2832,12 @@ module Dommy
       node.matches?(selector)
     end
 
-    # Match a parentless node by wrapping it in a throwaway fragment so
-    # Nokogiri's `matches?` has an ancestor root, then unlinking to leave the
-    # node detached (and its parentNode unchanged) as it was.
+    # Match a parentless node by wrapping it in a throwaway fragment so the
+    # backend's `matches?` has an ancestor root, then unlinking to leave the
+    # node detached (and its parentNode unchanged) as it was. `fragment("")`
+    # (not the no-arg form) is backend-agnostic — Makiri's takes a source string.
     def matches_detached_node?(node, selector)
-      node.document.fragment.add_child(node)
+      node.document.fragment("").add_child(node)
       node.matches?(selector)
     ensure
       node.unlink

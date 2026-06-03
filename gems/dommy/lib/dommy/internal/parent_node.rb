@@ -78,18 +78,35 @@ module Dommy
       # be defined before the including class bodies run.
       def detach_dom_nodes(value)
         case value
-        when Element, TextNode, CommentNode
-          [detach_with_notify(value.__dommy_backend_node__)]
         when Fragment
-          value.extract_children
+          value.extract_children.map { |n| adopt_into_document(n) }
         when String
           [@document.create_text_node(value).__dommy_backend_node__]
         else
           node = value.respond_to?(:__dommy_backend_node__) ? value.__dommy_backend_node__ : nil
           return [] unless node
 
-          [detach_with_notify(node)]
+          # WHATWG pre-insert adopts the node into this node's document before
+          # linking it. libxml2 reassigns ownership in place during add_child, so
+          # the explicit adopt is a no-op move there; Makiri can't move a node
+          # between document arenas, so a cross-document insert must adopt (an
+          # imported copy) first. adopt_node reseats the Dommy wrapper onto the
+          # adopted node, so JS identity (`parent.appendChild(x); x` ===
+          # `parent.lastChild`) survives. Same-document: the wrapper's backend
+          # node is unchanged, so this is identical to the previous behavior.
+          detach_with_notify(node)
+          [@document.adopt_node(value).__dommy_backend_node__]
         end
+      end
+
+      # Bring a raw backend node into this node's document (WHATWG adopt). A
+      # no-op when already same-document; otherwise Backend.adopt — in place for
+      # Nokogiri, an imported copy for Makiri (which can't move nodes between
+      # arenas). Used for fragment children, which have no standalone wrapper to
+      # reseat.
+      def adopt_into_document(node)
+        target = @document.nokogiri_doc
+        node.document == target ? node : Backend.adopt(node, target)
       end
 
       # Detach a node from its current parent, queuing a childList removal

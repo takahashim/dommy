@@ -264,7 +264,7 @@ module Dommy
     # non-empty. (The doctype argument is accepted but not stored, as document
     # equality compares only structure that survives wrap_node.)
     def create_document(namespace, qualified_name, _doctype = nil)
-      doc = Document.new(nil, nokogiri_doc: Backend.document_class.new)
+      doc = Document.new(nil, nokogiri_doc: Backend.empty_document)
       qn = qualified_name.to_s
       unless qn.empty?
         el = doc.send(:create_element_ns, namespace, qualified_name)
@@ -1345,21 +1345,43 @@ module Dommy
         # A DocumentFragment clones to a fragment (its children are appended by
         # the deep pass below), NOT to its first child — `importNode(<template>
         # .content, true)` must return a fragment so `.firstElementChild` works
-        # (Vue/Alpine x-for clone template content this way).
-        Backend.document_fragment_class.new(@nokogiri_doc)
+        # (Vue/Alpine x-for clone template content this way). Built via the
+        # document's own `fragment` (as TemplateContentRegistry does) rather than
+        # `document_fragment_class.new`, so it works on backends whose fragment
+        # class isn't directly instantiable (Makiri).
+        @nokogiri_doc.fragment("")
       else
         # Fallback: serialize + reparse via fragment for unusual types.
         fragment = Parser.fragment(source.to_html, owner_doc: @nokogiri_doc)
         fragment.children.first || Backend.create_text("", @nokogiri_doc)
       end
 
-      if deep && source.respond_to?(:children)
+      if source.element? && source.name == "template"
+        # A <template>'s contents live in a separate content fragment, not its
+        # child list, so the generic deep pass over `children` misses them.
+        clone_template_content(source, copy) if deep
+      elsif deep && source.respond_to?(:children)
         source.children.each do |child|
           copy.add_child(clone_into_doc(child, true))
         end
       end
 
       copy
+    end
+
+    # Clone a <template>'s content into a fragment registered as `copy`'s
+    # template content. The source content lives backend-dependently — Makiri
+    # keeps it in a native content fragment, Nokogiri keeps it as direct children
+    # before migration and in the registry after — so source it from the registry
+    # fragment when migrated, else from Backend.template_content_nodes.
+    def clone_template_content(source, copy)
+      src_frag = @template_content_registry.raw_fragment_for(source)
+      content_nodes = src_frag ? src_frag.children.to_a : Backend.template_content_nodes(source)
+      return if content_nodes.empty?
+
+      frag = @nokogiri_doc.fragment("")
+      content_nodes.each { |n| frag.add_child(clone_into_doc(n, true)) }
+      @template_content_registry.store(copy, frag)
     end
 
     def read_title
