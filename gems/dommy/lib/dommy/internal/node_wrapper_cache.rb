@@ -105,15 +105,24 @@ module Dommy
       def query_selector(selector)
         return nil if selector.nil?
         Internal.validate_selector!(selector)
+        safe = Internal.backend_safe_selector(selector.to_s)
 
-        wrap(Backend.select_first(@document.nokogiri_doc, Internal.backend_safe_selector(selector.to_s)))
+        if (lang = Internal.lang_pseudo_value(selector.to_s))
+          node = Backend.select_all(@document.nokogiri_doc, safe).find { |n| Internal.lang_match?(n, lang) }
+          return wrap(node)
+        end
+        wrap(Backend.select_first(@document.nokogiri_doc, safe))
       end
 
       def query_selector_all(selector)
         return NodeList.new if selector.nil?
         Internal.validate_selector!(selector)
+        safe = Internal.backend_safe_selector(selector.to_s)
 
-        NodeList.new(Backend.select_all(@document.nokogiri_doc, Internal.backend_safe_selector(selector.to_s)).map { |node| wrap(node) }.compact)
+        nodes = Backend.select_all(@document.nokogiri_doc, safe)
+        lang = Internal.lang_pseudo_value(selector.to_s)
+        nodes = nodes.select { |n| Internal.lang_match?(n, lang) } if lang
+        NodeList.new(nodes.map { |node| wrap(node) }.compact)
       end
 
       def get_element_by_id(id)

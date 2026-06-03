@@ -63,12 +63,128 @@ module Dommy
     def self.backend_safe_selector(selector)
       # First drop clauses whose subject is a pseudo-element (`::before`,
       # `:first-line`) — they match no element, and the backend can't compile
-      # `::`. Then drop the escaped-colon attribute clauses below.
+      # `::`. Then normalise two valid-but-backend-unfriendly forms before the
+      # escaped-colon handling: a trailing unclosed `[`/`(` (CSS closes these at
+      # EOF) and namespace prefixes (`*|attr`, `|el` — in an HTML document every
+      # node/attribute is in the null namespace, so the prefix is matched away).
       s = SelectorParser.matchable_selector(selector.to_s)
+      s = strip_namespace_prefixes(close_open_brackets(s))
+      # `:visited` never matches without browsing history (which Dommy doesn't
+      # model), so reduce it to a never-match — and, as a bonus, drop the
+      # dependency on a backend that can't compile `:visited` (lexbor) while
+      # `:link` (an unvisited link) is matched normally.
+      s = s.gsub(/:visited(?![\w-])/, ":not(*)") if s.include?(":visited")
+      # Neither backend's selector engine implements `:lang()` (lexbor registers
+      # it but its parse handler is a deliberate fail-stub). Strip it for the
+      # backend; the caller post-filters matches with #lang_match? — see the
+      # query methods.
+      s = s.gsub(LANG_PSEUDO, "") if s =~ /:lang\(/i
       return s unless s.include?('\\') && s.match?(ATTR_ESCAPED_COLON)
 
       kept = split_selector_list(s).reject { |clause| clause.match?(ATTR_ESCAPED_COLON) }
       kept.empty? ? ":not(*)" : kept.join(", ")
+    end
+
+    # The argument of a `:lang(X)` pseudo-class, when the selector has exactly
+    # one distinct one (the common `#x:lang(en)` shape); nil when there is none.
+    # Multiple distinct languages can't be recovered from the result set alone,
+    # so those fall back to the stripped backend selector (which over-matches).
+    LANG_PSEUDO = /:lang\(\s*("?)([^)"']*)\1\s*\)/i
+    def self.lang_pseudo_value(selector)
+      langs = selector.to_s.scan(LANG_PSEUDO).map { |m| m[1].strip.downcase }.reject(&:empty?).uniq
+      langs.size == 1 ? langs.first : nil
+    end
+
+    # `:lang(x)` matching (BCP47 extended filtering): an element's content
+    # language is the value of the nearest `lang` attribute on it or an
+    # ancestor, and `:lang(x)` matches when that language equals `x` or begins
+    # with `x` + "-" (case-insensitively). No `lang` in the chain → no match.
+    def self.lang_match?(backend_node, lang)
+      actual = nearest_lang(backend_node)
+      return false unless actual
+
+      a = actual.downcase
+      a == lang || a.start_with?("#{lang}-")
+    end
+
+    def self.nearest_lang(backend_node)
+      node = backend_node
+      while node
+        if node.respond_to?(:element?) && node.element?
+          v = node["lang"]
+          return v if v && !v.to_s.empty?
+        end
+        node = node.respond_to?(:parent) ? node.parent : nil
+      end
+      nil
+    end
+
+    # Append the closers for any `[`/`(` left open outside a string — CSS
+    # tokenizing implicitly closes them at EOF, so `[align="center"` is the valid
+    # `[align="center"]`, but the backend selector engines reject the unclosed
+    # form. String contents and escapes are skipped.
+    def self.close_open_brackets(selector)
+      sq = 0
+      pr = 0
+      quote = nil
+      esc = false
+      selector.each_char do |ch|
+        if esc
+          esc = false
+        elsif ch == "\\"
+          esc = true
+        elsif quote
+          quote = nil if ch == quote
+        elsif ch == '"' || ch == "'"
+          quote = ch
+        elsif ch == "["
+          sq += 1
+        elsif ch == "]"
+          sq -= 1 if sq.positive?
+        elsif ch == "("
+          pr += 1
+        elsif ch == ")"
+          pr -= 1 if pr.positive?
+        end
+      end
+      selector + ("]" * sq) + (")" * pr)
+    end
+
+    # Drop CSS namespace prefixes (`*|`, `|`) that precede a type or attribute
+    # name. An HTML document has only the HTML / null namespaces, so `*|x`
+    # (any namespace) and `|x` (no namespace) both reduce to `x`. Leaves the
+    # `|=` attribute matcher and the `||` column combinator intact, and never
+    # touches a `|` inside a string.
+    def self.strip_namespace_prefixes(selector)
+      out = +""
+      quote = nil
+      esc = false
+      chars = selector.chars
+      i = 0
+      while i < chars.length
+        ch = chars[i]
+        if esc
+          out << ch
+          esc = false
+        elsif ch == "\\"
+          out << ch
+          esc = true
+        elsif quote
+          out << ch
+          quote = nil if ch == quote
+        elsif ch == '"' || ch == "'"
+          quote = ch
+          out << ch
+        elsif ch == "*" && chars[i + 1] == "|" && chars[i + 2] != "=" && chars[i + 2] != "|"
+          i += 1 # skip the `*`; the `|` is handled next iteration
+        elsif ch == "|" && chars[i + 1] != "=" && chars[i + 1] != "|" && out[-1] != "|"
+          # bare namespace separator — drop it (not `|=`, not `||`)
+        else
+          out << ch
+        end
+        i += 1
+      end
+      out
     end
 
     # Split a selector list on top-level commas only (commas inside [...], (...),

@@ -60,15 +60,24 @@ module Dommy
     def query_selector(selector)
       return nil if selector.nil?
       Internal.validate_selector!(selector)
+      safe = Internal.backend_safe_selector(selector.to_s)
 
-      @document.wrap_node(@__node__.at_css(Internal.backend_safe_selector(selector.to_s)))
+      if (lang = Internal.lang_pseudo_value(selector.to_s))
+        node = @__node__.css(safe).find { |n| Internal.lang_match?(n, lang) }
+        return @document.wrap_node(node)
+      end
+      @document.wrap_node(@__node__.at_css(safe))
     end
 
     def query_selector_all(selector)
       return NodeList.new if selector.nil?
       Internal.validate_selector!(selector)
+      safe = Internal.backend_safe_selector(selector.to_s)
 
-      NodeList.new(@__node__.css(Internal.backend_safe_selector(selector.to_s)).map { |n| @document.wrap_node(n) }.compact)
+      nodes = @__node__.css(safe)
+      lang = Internal.lang_pseudo_value(selector.to_s)
+      nodes = nodes.select { |n| Internal.lang_match?(n, lang) } if lang
+      NodeList.new(nodes.map { |n| @document.wrap_node(n) }.compact)
     end
 
     def get_element_by_id(id)
@@ -1424,7 +1433,13 @@ module Dommy
 
       # `:scope` pseudo — match against this element itself.
       sel = Internal.backend_safe_selector(selector.to_s).gsub(":scope", "*:nth-last-child(n)")
-      matches_selector?(@__node__, sel)
+      return false unless matches_selector?(@__node__, sel)
+      # `:lang(x)` is stripped for the backend; enforce it here.
+      if (lang = Internal.lang_pseudo_value(selector.to_s))
+        return Internal.lang_match?(@__node__, lang)
+      end
+
+      true
     end
 
     def get_elements_by_class_name(name)
