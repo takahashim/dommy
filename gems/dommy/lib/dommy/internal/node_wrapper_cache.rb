@@ -29,7 +29,7 @@ module Dommy
       def create_element(name)
         str = domstring(name)
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
-        raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless str.match?(Namespaces::NAME)
+        raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless str.match?(Namespaces::HTML_NAME)
 
         # WHATWG createElement: lowercase (ASCII) the name only in an HTML
         # document; the namespace is the HTML namespace for HTML/XHTML documents

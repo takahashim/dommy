@@ -25,6 +25,13 @@ module Dommy
 
       # The full Name production (NameStartChar additionally includes ":").
       NAME  = Regexp.new("\\A[:#{NC_START}][:#{NC_START}#{NC_EXTRA}]*\\z")
+      # `createElement` / `setAttribute` name validation. Browsers (and the WPT
+      # tests that pin web reality) are far more lenient than the XML Name
+      # production: any non-empty string with no ASCII whitespace or ">", whose
+      # first character is not a digit, ".", "-", "<", ">", or "}". (Names like
+      # "f}oo", "f<oo" or a leading combining mark are valid here but not under
+      # the strict QName production `createElementNS` still uses.)
+      HTML_NAME = /\A(?![\s0-9.\-<>}])[^\s>]+\z/
       # PrefixedName | UnprefixedName.
       QNAME = Regexp.new(
         "(?:\\A#{NCSTART}#{NCCHAR}*:#{NCSTART}#{NCCHAR}*\\z)|(?:\\A#{NCSTART}#{NCCHAR}*\\z)"

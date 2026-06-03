@@ -28,16 +28,26 @@ class TestWPTCreateElementValidation < Minitest::Test
     assert_raises(Dommy::DOMException::InvalidCharacterError) { @doc.create_element("1abc") }
   end
 
-  def test_name_with_lt_throws
-    assert_raises(Dommy::DOMException::InvalidCharacterError) { @doc.create_element("a<b") }
+  # `<` is invalid only as the first character; mid-name it is accepted, matching
+  # browsers and the WPT Document-createElement test (where e.g. "f<oo" is valid;
+  # createElement uses a lenient HTML name, not the strict XML Name production).
+  def test_name_starting_with_lt_throws
+    assert_raises(Dommy::DOMException::InvalidCharacterError) { @doc.create_element("<b") }
   end
 
+  def test_name_with_lt_mid_accepted
+    assert_equal("A<B", @doc.create_element("a<b").tag_name)
+  end
+
+  # `>` is invalid anywhere in the name.
   def test_name_with_gt_throws
     assert_raises(Dommy::DOMException::InvalidCharacterError) { @doc.create_element("a>b") }
   end
 
-  def test_name_with_slash_throws
-    assert_raises(Dommy::DOMException::InvalidCharacterError) { @doc.create_element("a/b") }
+  # `/` mid-name is accepted by the lenient HTML name rule (not WPT-pinned, but
+  # consistent with browsers' permissive createElement).
+  def test_name_with_slash_mid_accepted
+    assert_equal("A/B", @doc.create_element("a/b").tag_name)
   end
 
   def test_valid_hyphenated_name_accepted
