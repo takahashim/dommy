@@ -143,12 +143,17 @@ module Dommy
       # qualified name in the null namespace. Fine for HTML (all attributes are
       # null-namespace); foreign-content (SVG/MathML) fidelity is lost.
 
+      # `*AttributeNS` is case-sensitive (exact qualified-name match), unlike the
+      # HTML `*Attribute` family. Lexbor's `node[name]` / `key?` are
+      # case-insensitive for HTML, so match against the attribute nodes by exact
+      # name instead — otherwise `getAttributeNS(null, "ALIGN")` wrongly finds a
+      # lowercased "align".
       def get_attribute_ns(node, _namespace, local_name)
-        node[local_name.to_s]
+        named_attribute(node, local_name.to_s)&.value
       end
 
       def has_attribute_ns?(node, _namespace, local_name)
-        node.key?(local_name.to_s)
+        !named_attribute(node, local_name.to_s).nil?
       end
 
       def set_attribute_ns(node, _namespace, _prefix, _local_name, qualified_name, value)
@@ -157,7 +162,7 @@ module Dommy
       end
 
       def remove_attribute_ns(node, _namespace, local_name)
-        node.remove_attribute(local_name.to_s) if node.key?(local_name.to_s)
+        node.remove_attribute(local_name.to_s) if named_attribute(node, local_name.to_s)
         nil
       end
 
@@ -173,6 +178,12 @@ module Dommy
 
       def attribute_nodes(node)
         node.attribute_nodes
+      end
+
+      # Exact (case-sensitive) attribute-node lookup by qualified name, for the
+      # namespace-aware accessors. nil when absent.
+      def named_attribute(node, name)
+        node.attribute_nodes.find { |a| a.name == name }
       end
 
       # Internal helper — visible to allow testing.
