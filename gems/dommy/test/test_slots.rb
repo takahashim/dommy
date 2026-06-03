@@ -59,6 +59,39 @@ class TestSlotBasics < Minitest::Test
     els.each { |e| assert_kind_of(Dommy::Element, e) }
   end
 
+  # `assignedSlot` is the slottable's view of the composition `assignedNodes`
+  # describes from the slot's side: a light-DOM child reports which slot it
+  # composes into.
+  def test_assigned_slot_default
+    p = @host.query_selector("p")
+    assert_same(@default_slot, p.assigned_slot)
+  end
+
+  def test_assigned_slot_named
+    span = @host.query_selector("span")
+    assert_same(@named_slot, span.assigned_slot)
+  end
+
+  def test_assigned_slot_nil_without_matching_slot
+    # A light child targeting a slot name that the shadow tree doesn't expose.
+    @host.inner_html = "<i slot='missing'>x</i>"
+    assert_nil(@host.query_selector("i").assigned_slot)
+  end
+
+  def test_assigned_slot_nil_for_non_slotted_element
+    # An element that isn't a direct child of a shadow host has no assigned slot.
+    assert_nil(@default_slot.assigned_slot)
+  end
+
+  def test_assigned_slot_nil_for_closed_shadow
+    # The "open flag": a closed shadow tree hides the assignment.
+    win = make_window("<div id='h'><p>x</p></div>")
+    host = win.document.get_element_by_id("h")
+    sr = host.attach_shadow({"mode" => "closed"})
+    sr.inner_html = "<slot></slot>"
+    assert_nil(host.query_selector("p").assigned_slot)
+  end
+
   def test_assigned_nodes_flatten_false_no_fallback
     # no light children
     @host.inner_html = ""

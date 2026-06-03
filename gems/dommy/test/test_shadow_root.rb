@@ -167,6 +167,22 @@ class TestShadowRootTreeOps < Minitest::Test
     refute_nil(p.root_node)
   end
 
+  def test_get_root_node_composed_crosses_boundary
+    @sr.append_child(@doc.create_element("p"))
+    p = @sr.children[0]
+    # A node inside the shadow tree reports the shadow root by default, but the
+    # document under {composed: true} (crossing the boundary via the host).
+    assert_same(@sr, p.root_node)
+    assert_same(@doc, p.root_node({"composed" => true}))
+    # The shadow root itself resolves to the document under composed, too.
+    assert_same(@sr, @sr.get_root_node)
+    assert_same(@doc, @sr.get_root_node({"composed" => true}))
+  end
+
+  def test_node_name_is_document_fragment
+    assert_equal("#document-fragment", @sr.__js_get__("nodeName"))
+  end
+
   def test_shadow_contains_its_descendants
     el = @doc.create_element("p")
     @sr.append_child(el)

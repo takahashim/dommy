@@ -1343,6 +1343,12 @@ module Dommy
         Backend.create_text(source.content, @nokogiri_doc)
       elsif source.is_a?(Backend.comment_class)
         Backend.create_comment(source.content, @nokogiri_doc)
+      elsif source.is_a?(Backend.document_fragment_class)
+        # A DocumentFragment clones to a fragment (its children are appended by
+        # the deep pass below), NOT to its first child — `importNode(<template>
+        # .content, true)` must return a fragment so `.firstElementChild` works
+        # (Vue/Alpine x-for clone template content this way).
+        Backend.document_fragment_class.new(@nokogiri_doc)
       else
         # Fallback: serialize + reparse via fragment for unusual types.
         fragment = Parser.fragment(source.to_html, owner_doc: @nokogiri_doc)

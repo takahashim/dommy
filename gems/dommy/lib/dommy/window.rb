@@ -37,6 +37,13 @@ module Dommy
       @globals = {}
       @document = Document.new(host, nokogiri_doc: nokogiri_doc)
       @document.default_view = self
+      # Per the HTML parsing algorithm, a <template>'s contents are parsed into a
+      # separate "template contents" DocumentFragment, not as children of the
+      # element. Backends (libxml2) leave them as direct children, so migrate
+      # eagerly at page-load time — before any framework walks the tree. Without
+      # this, a tree-walk (Alpine's x-for/x-if scan, etc.) descends into the
+      # template's inert content and evaluates directives there out of scope.
+      @document.migrate_template_descendants(@document.nokogiri_doc)
       @custom_elements = CustomElementRegistry.new(self)
       @navigator = Navigator.new(self)
       # All JS global constructors (`new Event()`, `new URL()`, ...) live in a

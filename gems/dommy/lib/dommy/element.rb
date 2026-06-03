@@ -1343,9 +1343,18 @@ module Dommy
     # ShadowRoot, fragment, or self if detached). If the element lives
     # inside a shadow tree, returns that ShadowRoot. Otherwise walks
     # until we hit the Nokogiri Document (then returns the Document).
-    def root_node
+    def root_node(options = nil)
+      composed = options.is_a?(Hash) && EventTarget.js_truthy?(options.key?("composed") ? options["composed"] : options[:composed])
       sr = @document.__internal_shadow_root_containing__(@__node__)
-      return sr if sr
+      if sr
+        # Default: the shadow root is the root. `composed: true` is
+        # shadow-including — cross the boundary and continue from the host, so
+        # the topmost document is returned.
+        return sr unless composed
+        return sr.host.root_node({"composed" => true}) if sr.host.respond_to?(:root_node)
+
+        return sr
+      end
 
       current = @__node__
       attached = false
@@ -1477,6 +1486,26 @@ module Dommy
 
     def slot=(value)
       set_attribute("slot", value.to_s)
+    end
+
+    # `assignedSlot` — for a slottable (a direct light-DOM child of a shadow
+    # host), the `<slot>` in the host's *open* shadow tree it composes into,
+    # else null. Per the spec's "open flag", a closed shadow tree always
+    # returns null (mirrors `Element#shadowRoot` being null when closed).
+    def assigned_slot
+      parent = @__node__.parent
+      return nil unless parent.respond_to?(:element?) && parent.element?
+
+      host = @document.wrap_node(parent)
+      return nil unless host.respond_to?(:shadow_root)
+
+      sr = host.shadow_root
+      return nil unless sr
+
+      slot_name = @__node__.element? ? @__node__["slot"].to_s : ""
+      sr.query_selector_all("slot").find do |slot|
+        (slot.respond_to?(:name) ? slot.name.to_s : "") == slot_name
+      end
     end
 
     def role
@@ -1963,6 +1992,8 @@ module Dommy
         base_uri
       when "shadowRoot"
         shadow_root
+      when "assignedSlot"
+        assigned_slot
       when "ownerDocument"
         @document
       else
@@ -2264,7 +2295,7 @@ module Dommy
       when "getElementsByTagName"
         get_elements_by_tag_name(args[0])
       when "getRootNode"
-        get_root_node
+        get_root_node(args[0])
       when "normalize"
         normalize
       when "insertAdjacentElement"

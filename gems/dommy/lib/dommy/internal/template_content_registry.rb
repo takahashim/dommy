@@ -58,14 +58,22 @@ module Dommy
 
       # Walk a Nokogiri subtree, finding <template> elements whose
       # children are still direct (not yet migrated to a fragment), and
-      # migrate each one. Called after innerHTML / fragment-parsing to
-      # keep template content out of the main tree.
+      # migrate each one. Called after the initial page parse / innerHTML /
+      # fragment-parsing to keep template content out of the main tree.
+      #
+      # Uses a C-accelerated `css` query for descendants (rather than a
+      # Ruby-level full traverse) so eager migration on every page parse is
+      # cheap — a no-op fast path when the document has no <template>.
       def migrate_descendants(root)
         targets = []
         targets << root if template_needing_migration?(root)
-        root.traverse do |node|
-          targets << node if template_needing_migration?(node)
-        end
+        descendants =
+          if root.respond_to?(:css)
+            root.css("template")
+          else
+            [].tap { |acc| root.traverse { |node| acc << node } }
+          end
+        descendants.each { |node| targets << node if template_needing_migration?(node) }
 
         targets.uniq.each { |t| migrate_one(t) }
       end

@@ -100,9 +100,51 @@ module Dommy
       @document.wrap_node(@__node__.at_css("##{id}"))
     end
 
-    # `getRootNode()` returns the ShadowRoot itself (closed-shadow
-    # semantics; `composed: true` callers go through the Event path).
-    def get_root_node(_options = nil)
+    # Node-level child mutations the spec exposes on a DocumentFragment (and so
+    # on a ShadowRoot). lit-html drives rendering through `insertBefore` /
+    # `removeChild` / `replaceChild` against the render root, so a shadow root
+    # must support them — not just appendChild.
+    def insert_before(node, ref)
+      nodes = detach_dom_nodes(node)
+      ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
+      if ref_bn && ref_bn.parent == @__node__
+        nodes.each { |n| ref_bn.add_previous_sibling(n) }
+      else
+        nodes.each { |n| @__node__.add_child(n) }
+      end
+      notify_child_list(added: nodes)
+      node
+    end
+
+    def remove_child(node)
+      bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
+      raise DOMException::NotFoundError, "node is not a child of this shadow root" unless bn && bn.parent == @__node__
+
+      bn.unlink
+      notify_child_list(removed: [bn])
+      node
+    end
+
+    def replace_child(new_child, old_child)
+      old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
+      raise DOMException::NotFoundError, "node is not a child of this shadow root" unless old_bn && old_bn.parent == @__node__
+
+      added = detach_dom_nodes(new_child)
+      added.each { |n| old_bn.add_previous_sibling(n) }
+      old_bn.unlink
+      notify_child_list(added: added, removed: [old_bn])
+      old_child
+    end
+
+    # `getRootNode()` returns the ShadowRoot itself; `getRootNode({composed:
+    # true})` crosses the shadow boundary and returns the root of the host's
+    # tree (the document, or an outer shadow root for nested shadows).
+    def get_root_node(options = nil)
+      composed = options.is_a?(Hash) &&
+        EventTarget.js_truthy?(options.key?("composed") ? options["composed"] : options[:composed])
+      return self unless composed
+      return @host.root_node({"composed" => true}) if @host.respond_to?(:root_node)
+
       self
     end
 
@@ -154,6 +196,14 @@ module Dommy
         last_element_child
       when "nodeType"
         11
+      when "nodeName"
+        "#document-fragment"
+      else
+        # A framework-private expando key (`_`/`$`) reports *absent* as undefined,
+        # not null — matching Element#__js_get__. lit-html renders into the shadow
+        # root and stores its part under `_$litPart$`, first probing it with
+        # `=== undefined`; returning null there made it deref a null part.
+        Bridge::UNDEFINED if key.start_with?("_") || key.include?("$")
       end
     end
 
@@ -173,6 +223,7 @@ module Dommy
     include Bridge::Methods
     js_methods %w[
       querySelector querySelectorAll getElementById append prepend replaceChildren appendChild
+      insertBefore removeChild replaceChild
       getRootNode contains addEventListener removeEventListener dispatchEvent
       isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition
     ]
@@ -202,6 +253,12 @@ module Dommy
         replace_children(*args)
       when "appendChild"
         append_child(args[0])
+      when "insertBefore"
+        insert_before(args[0], args[1])
+      when "removeChild"
+        remove_child(args[0])
+      when "replaceChild"
+        replace_child(args[0], args[1])
       when "getRootNode"
         get_root_node(args[0])
       when "contains"
