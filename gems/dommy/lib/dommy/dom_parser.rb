@@ -71,17 +71,7 @@ module Dommy
     def serialize_to_string(node)
       return "" unless node
 
-      backend =
-        if node.respond_to?(:nokogiri_doc) && !node.respond_to?(:__dommy_backend_node__)
-          node.nokogiri_doc # a Document
-        elsif node.respond_to?(:__dommy_backend_node__)
-          node.__dommy_backend_node__
-        end
-      return node.to_s unless backend.respond_to?(:to_xml)
-
-      opts = ::Nokogiri::XML::Node::SaveOptions::AS_XML | ::Nokogiri::XML::Node::SaveOptions::NO_DECLARATION
-      target = backend.respond_to?(:root) && backend.respond_to?(:document?) && backend.document? ? backend.root : backend
-      target ? target.to_xml(save_with: opts) : ""
+      Internal::XmlSerialization.serialize(node)
     end
 
     alias serializeToString serialize_to_string
