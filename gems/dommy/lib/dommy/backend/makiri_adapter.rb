@@ -18,16 +18,11 @@ module Dommy
       DocumentFragment = ::Makiri::DocumentFragment
       Node = ::Makiri::Node
 
-      # Fake "namespace" wrapper returned for nodes inside <svg> subtrees.
-      # Provides the same `href` API that Nokogiri's Namespace object has,
-      # so calling code can treat them uniformly.
-      SvgNamespace = Struct.new(:href) do
-        def initialize
-          super("http://www.w3.org/2000/svg")
-        end
-      end
+      # A minimal namespace wrapper exposing the same `href` API that Nokogiri's
+      # Namespace object has, so calling code treats both backends uniformly.
+      Namespace = Struct.new(:href)
 
-      SVG_NAMESPACE = SvgNamespace.new.freeze
+      HTML_NAMESPACE_URI = "http://www.w3.org/1999/xhtml"
 
       # Throwaway attribute used to bind `:scope` to a context element — Lexbor
       # has no `:scope`, so a scoped query temporarily marks the element and
@@ -116,10 +111,17 @@ module Dommy
       # Makiri doesn't track XML namespaces. We synthesize one for SVG by
       # walking ancestors — necessary so `element_class_for` routes SVG
       # tags to their specialized classes.
+      # The element's namespace, from Lexbor's own namespace tracking (HTML /
+      # SVG / MathML). nil for the HTML namespace, so Element#namespace_uri
+      # falls back to its HTML default (and the wrapper is allocated only for
+      # genuine foreign content).
       def namespace_of(node)
-        return nil unless node.respond_to?(:name)
+        return nil unless node.respond_to?(:namespace_uri)
 
-        in_svg_subtree?(node) ? SVG_NAMESPACE : nil
+        uri = node.namespace_uri
+        return nil if uri.nil? || uri.empty? || uri == HTML_NAMESPACE_URI
+
+        Namespace.new(uri)
       end
 
       def add_namespace_definition(_node, _prefix, _href)
