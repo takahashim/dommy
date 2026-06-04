@@ -1089,6 +1089,10 @@ module Dommy
       @dependent = false
       @source_signals = []
       @dependent_signals = []
+      # WHATWG "abort algorithms": callbacks run synchronously during abort,
+      # BEFORE the "abort" event — so a consumer (e.g. an Observable subscription)
+      # can tear down ahead of any externally-registered abort listener.
+      @abort_algorithms = []
     end
 
     # Background-thread timeout used by `AbortSignal.timeout` when no
@@ -1152,7 +1156,7 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[addEventListener removeEventListener dispatchEvent throwIfAborted]
+    js_methods %w[addEventListener removeEventListener dispatchEvent throwIfAborted __internalAddAbortAlgorithm]
     def __js_call__(method, args)
       case method
       when "addEventListener"
@@ -1163,7 +1167,19 @@ module Dommy
         dispatch_event(args[0])
       when "throwIfAborted"
         throw_if_aborted
+      when "__internalAddAbortAlgorithm"
+        __internal_add_abort_algorithm__(args[0])
       end
+    end
+
+    # Register an abort algorithm (WHATWG "add an algorithm to a signal"): it runs
+    # synchronously when the signal aborts, before the "abort" event. A no-op once
+    # already aborted — the caller handles that case itself. Exposed to the JS
+    # Observable polyfill so a subscription's consumer-abort fires ahead of any
+    # external abort listener (the spec's downstream-before-upstream ordering).
+    def __internal_add_abort_algorithm__(callback)
+      @abort_algorithms << callback unless @aborted
+      nil
     end
 
     # Sentinel meaning "no reason argument was supplied" — distinct from an
@@ -1223,9 +1239,25 @@ module Dommy
       @reason = reason
     end
 
-    # Fire the trusted "abort" event at this signal (the spec's "abort steps").
+    # The spec's "abort steps": run the registered abort algorithms first
+    # (synchronously, ahead of any listener), then fire the trusted "abort" event.
     def __internal_run_abort_steps__
+      algorithms = @abort_algorithms
+      @abort_algorithms = []
+      algorithms.each { |algo| invoke_abort_algorithm(algo) }
       dispatch_event(Event.new("abort", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
+    end
+
+    # Run one abort algorithm (a JS callback over the bridge, or a Ruby proc),
+    # isolating a throw so it can't break sibling algorithms or the abort event.
+    def invoke_abort_algorithm(algo)
+      if algo.respond_to?(:__js_call__)
+        algo.__js_call__("call", [])
+      elsif algo.respond_to?(:call)
+        algo.call
+      end
+    rescue StandardError
+      nil
     end
   end
 
