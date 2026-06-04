@@ -74,6 +74,9 @@ module Dommy
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
         raise DOMException::InvalidCharacterError, "invalid attribute name: #{str.inspect}" unless str.match?(Namespaces::NAME)
 
+        # WHATWG createAttribute: an HTML document lower-cases the name (an XML
+        # document preserves it). Attr.new no longer folds case, so do it here.
+        str = str.downcase if @document.html_document?
         Attr.new(str)
       end
 

@@ -33,11 +33,15 @@ module Dommy
         @prefix = prefix
         @local_name = (local_name || qname.split(":", 2).last).to_s
       else
-        # Null-namespace (HTML) attributes are lower-cased, as before.
-        @name = qname.downcase
+        # Null-namespace attribute: use the qualified name verbatim. The casing is
+        # already decided by the caller — the backend stores `setAttribute` names
+        # lower-cased (HTML) but preserves `setAttributeNS("", "FOO")` as "FOO",
+        # and `createAttribute` lower-cases up front — so re-downcasing here would
+        # wrongly fold a case-preserved null-namespace attribute.
+        @name = qname
         @namespace_uri = nil
         @prefix = nil
-        @local_name = @name
+        @local_name = local_name ? local_name.to_s : @name
       end
     end
 
