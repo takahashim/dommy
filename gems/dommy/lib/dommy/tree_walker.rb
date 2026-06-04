@@ -58,7 +58,12 @@ module Dommy
       # A non-null filter with no callable acceptNode is a TypeError when invoked.
       raise Bridge::TypeError, "NodeFilter is not callable" unless cb
 
-      result = if cb.respond_to?(:__js_call__)
+      # A NodeFilter's exception must propagate out of the traversal method, so
+      # use the raising invocation when the callback supports it (a JS function);
+      # a Ruby callable propagates naturally.
+      result = if cb.respond_to?(:__js_call_with_raise__)
+        cb.__js_call_with_raise__([node])
+      elsif cb.respond_to?(:__js_call__)
         cb.__js_call__("call", [node])
       else
         cb.call(node)
