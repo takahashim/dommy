@@ -517,7 +517,15 @@ module Dommy
     def parse(input)
       case input
       when Array
-        input.map { |k, v| [k.to_s, v.to_s] }
+        # A sequence init is a sequence of [name, value] pairs: each inner element
+        # must itself be a 2-element sequence, else the constructor throws.
+        input.map do |pair|
+          unless pair.is_a?(Array) && pair.length == 2
+            raise Bridge::TypeError, "Failed to construct 'URLSearchParams': each pair must have exactly two elements"
+          end
+
+          [pair[0].to_s, pair[1].to_s]
+        end
       when Hash
         input.map { |k, v| [k.to_s, v.to_s] }
       else
