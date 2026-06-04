@@ -79,6 +79,13 @@ module Dommy
       # backend; the caller post-filters matches with #lang_match? — see the
       # query methods.
       s = s.gsub(LANG_PSEUDO, "") if s =~ /:lang\(/i
+      # `:target` (the element referenced by the document's URL fragment) is also
+      # unsupported by the backends; strip it and post-filter by id. A bare
+      # `:target` collapses to the universal selector.
+      if s =~ /:target(?![\w-])/
+        s = s.gsub(/:target(?![\w-])/, "")
+        s = "*" if s.strip.empty?
+      end
       return s unless s.include?('\\') && s.match?(ATTR_ESCAPED_COLON)
 
       kept = split_selector_list(s).reject { |clause| clause.match?(ATTR_ESCAPED_COLON) }
@@ -105,6 +112,36 @@ module Dommy
 
       a = actual.downcase
       a == lang || a.start_with?("#{lang}-")
+    end
+
+    # Whether `selector` uses a pseudo-class the backend can't match and we
+    # post-filter (`:lang()`, `:target`).
+    def self.pseudo_post_filtered?(selector)
+      s = selector.to_s
+      !lang_pseudo_value(s).nil? || s =~ /:target(?![\w-])/ ? true : false
+    end
+
+    # Filter backend `nodes` (already matched against the stripped selector) by
+    # the post-filtered pseudo-classes the selector carries.
+    def self.pseudo_post_filter(nodes, selector, document)
+      s = selector.to_s
+      if (lang = lang_pseudo_value(s))
+        nodes = nodes.select { |n| lang_match?(n, lang) }
+      end
+      if s =~ /:target(?![\w-])/
+        tid = target_id(document)
+        nodes = tid ? nodes.select { |n| n["id"].to_s == tid } : []
+      end
+      nodes
+    end
+
+    # The id referenced by the document's URL fragment (`:target`), or nil when
+    # there is no fragment.
+    def self.target_id(document)
+      view = document.respond_to?(:default_view) ? document.default_view : nil
+      loc = view.respond_to?(:location) ? view.location : nil if view
+      hash = loc&.__js_get__("hash").to_s
+      hash.start_with?("#") && hash.length > 1 ? hash[1..] : nil
     end
 
     def self.nearest_lang(backend_node)

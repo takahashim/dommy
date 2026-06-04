@@ -62,8 +62,8 @@ module Dommy
       Internal.validate_selector!(selector)
       safe = Internal.backend_safe_selector(selector.to_s)
 
-      if (lang = Internal.lang_pseudo_value(selector.to_s))
-        node = @__node__.css(safe).find { |n| Internal.lang_match?(n, lang) }
+      if Internal.pseudo_post_filtered?(selector.to_s)
+        node = Internal.pseudo_post_filter(@__node__.css(safe).to_a, selector.to_s, @document).first
         return @document.wrap_node(node)
       end
       @document.wrap_node(@__node__.at_css(safe))
@@ -74,9 +74,8 @@ module Dommy
       Internal.validate_selector!(selector)
       safe = Internal.backend_safe_selector(selector.to_s)
 
-      nodes = @__node__.css(safe)
-      lang = Internal.lang_pseudo_value(selector.to_s)
-      nodes = nodes.select { |n| Internal.lang_match?(n, lang) } if lang
+      nodes = @__node__.css(safe).to_a
+      nodes = Internal.pseudo_post_filter(nodes, selector.to_s, @document)
       NodeList.new(nodes.map { |n| @document.wrap_node(n) }.compact)
     end
 
@@ -1434,9 +1433,9 @@ module Dommy
       # `:scope` pseudo — match against this element itself.
       sel = Internal.backend_safe_selector(selector.to_s).gsub(":scope", "*:nth-last-child(n)")
       return false unless matches_selector?(@__node__, sel)
-      # `:lang(x)` is stripped for the backend; enforce it here.
-      if (lang = Internal.lang_pseudo_value(selector.to_s))
-        return Internal.lang_match?(@__node__, lang)
+      # `:lang(x)` / `:target` are stripped for the backend; enforce them here.
+      if Internal.pseudo_post_filtered?(selector.to_s)
+        return Internal.pseudo_post_filter([@__node__], selector.to_s, @document).any?
       end
 
       true

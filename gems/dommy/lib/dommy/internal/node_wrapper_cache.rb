@@ -107,8 +107,8 @@ module Dommy
         Internal.validate_selector!(selector)
         safe = Internal.backend_safe_selector(selector.to_s)
 
-        if (lang = Internal.lang_pseudo_value(selector.to_s))
-          node = Backend.select_all(@document.nokogiri_doc, safe).find { |n| Internal.lang_match?(n, lang) }
+        if Internal.pseudo_post_filtered?(selector.to_s)
+          node = Internal.pseudo_post_filter(Backend.select_all(@document.nokogiri_doc, safe).to_a, selector.to_s, @document).first
           return wrap(node)
         end
         wrap(Backend.select_first(@document.nokogiri_doc, safe))
@@ -119,9 +119,8 @@ module Dommy
         Internal.validate_selector!(selector)
         safe = Internal.backend_safe_selector(selector.to_s)
 
-        nodes = Backend.select_all(@document.nokogiri_doc, safe)
-        lang = Internal.lang_pseudo_value(selector.to_s)
-        nodes = nodes.select { |n| Internal.lang_match?(n, lang) } if lang
+        nodes = Backend.select_all(@document.nokogiri_doc, safe).to_a
+        nodes = Internal.pseudo_post_filter(nodes, selector.to_s, @document)
         NodeList.new(nodes.map { |node| wrap(node) }.compact)
       end
 
