@@ -48,6 +48,13 @@ module Dommy
         ::Makiri::Document.parse("")
       end
 
+      # Lexbor seeds even an empty parse with an <html> shell and has no `root=`,
+      # so clear the existing children before adopting `node` as the root.
+      def set_document_root(doc, node)
+        doc.children.to_a.each(&:unlink)
+        doc.add_child(node)
+      end
+
       # Makiri can't move a node between document arenas, so adoption imports a
       # detached copy owned by `target_doc`. The caller reseats the wrapper onto
       # this returned node, preserving Dommy-level identity.

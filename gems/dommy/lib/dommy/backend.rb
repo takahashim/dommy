@@ -105,6 +105,14 @@ module Dommy
         current.fragment(html, owner_doc: owner_doc)
       end
 
+      # Make `node` the sole document element of `doc` (used by
+      # DOMImplementation.createDocument). Backends differ: Nokogiri exposes
+      # `root=`, while Lexbor-backed documents are seeded with an <html> shell
+      # that must be cleared first.
+      def set_document_root(doc, node)
+        current.set_document_root(doc, node)
+      end
+
       def create_element(name, doc)
         current.create_element(name, doc)
       end

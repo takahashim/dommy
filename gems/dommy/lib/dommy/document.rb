@@ -281,7 +281,7 @@ module Dommy
       qn = qualified_name.to_s
       unless qn.empty?
         el = doc.send(:create_element_ns, namespace, qualified_name)
-        doc.nokogiri_doc.root = el.__dommy_backend_node__
+        Backend.set_document_root(doc.nokogiri_doc, el.__dommy_backend_node__)
       end
       doc
     end

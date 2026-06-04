@@ -110,6 +110,10 @@ module Dommy
         ::Nokogiri::XML(xml.to_s)
       end
 
+      def set_document_root(doc, node)
+        doc.root = node
+      end
+
       def fragment(html, owner_doc:)
         # owner_doc is unused by Nokogiri — the fragment carries its
         # own document. The Parser layer copies nodes into the target.
