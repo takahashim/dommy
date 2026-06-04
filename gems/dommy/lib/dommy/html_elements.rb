@@ -3129,12 +3129,27 @@ module Dommy
   }.freeze
 
   SVG_NAMESPACE_URI = "http://www.w3.org/2000/svg"
+  HTML_NAMESPACE_URI = "http://www.w3.org/1999/xhtml"
 
+  # The interface for an HTML-namespace element whose local name maps to no
+  # specialized interface (e.g. createElementNS with an upper-case or otherwise
+  # unrecognized name). Still an HTMLElement, so `instanceof HTMLElement` holds.
+  class HTMLUnknownElement < HTMLElement
+  end
+
+  # Map a (local name, namespace) pair to its DOM interface class. HTML-namespace
+  # names match case-SENSITIVELY (createElement lower-cases first, but
+  # createElementNS preserves case, so "SPAN" is unknown); any namespace other
+  # than HTML/SVG — including the null namespace — gets the generic Element.
   def self.element_class_for(tag_name, namespace_uri = nil)
-    if namespace_uri == SVG_NAMESPACE_URI
-      SVG_ELEMENT_CLASSES[tag_name.to_s.downcase] || SVGElement
+    name = tag_name.to_s
+    case namespace_uri
+    when SVG_NAMESPACE_URI
+      SVG_ELEMENT_CLASSES[name.downcase] || SVGElement
+    when HTML_NAMESPACE_URI
+      HTML_ELEMENT_CLASSES[name] || HTMLUnknownElement
     else
-      HTML_ELEMENT_CLASSES[tag_name.to_s.downcase] || Element
+      Element
     end
   end
 end

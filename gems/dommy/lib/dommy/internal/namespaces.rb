@@ -30,31 +30,68 @@ module Dommy
       # production: any non-empty string with no ASCII whitespace or ">", whose
       # first character is not a digit, ".", "-", "<", ">", or "}". (Names like
       # "f}oo", "f<oo" or a leading combining mark are valid here but not under
-      # the strict QName production `createElementNS` still uses.)
+      # the strict QName production the *AttributeNS family still uses.)
       HTML_NAME = /\A(?![\s0-9.\-<>}])[^\s>]+\z/
       # PrefixedName | UnprefixedName.
       QNAME = Regexp.new(
         "(?:\\A#{NCSTART}#{NCCHAR}*:#{NCSTART}#{NCCHAR}*\\z)|(?:\\A#{NCSTART}#{NCCHAR}*\\z)"
       )
 
+      # Code points forbidden anywhere in a "valid local name" / "valid namespace
+      # prefix" per the modern WHATWG algorithm: ASCII whitespace (TAB, LF, FF,
+      # CR, SPACE), NULL, U+002F (/), U+003E (>).
+      LOCAL_FORBIDDEN = Regexp.new("[\\u0000\\u0009\\u000A\\u000C\\u000D\\u0020/>]")
+      # Valid first code point of an element local name: ASCII alpha, U+003A (:),
+      # U+005F (_), or any code point U+0080 and above.
+      ELEMENT_LOCAL_START = Regexp.new("\\A[A-Za-z:_\\u0080-\\u{10FFFF}]")
+
       module_function
+
+      def valid_namespace_prefix?(str)
+        !str.empty? && !str.match?(LOCAL_FORBIDDEN)
+      end
+
+      def valid_element_local_name?(str)
+        return false if str.empty?
+        return false unless str.match?(ELEMENT_LOCAL_START)
+
+        rest = str[1..]
+        rest.nil? || rest.empty? || !rest.match?(LOCAL_FORBIDDEN)
+      end
 
       # https://dom.spec.whatwg.org/#validate-and-extract
       # Returns [namespace_or_nil, prefix_or_nil, local_name]. Raises
       # DOMException (InvalidCharacterError / NamespaceError) on bad input.
-      def validate_and_extract(namespace, qualified_name)
+      #
+      # `context: :element` applies the modern WHATWG "validate" character rules
+      # (lenient: a restricted first code point then any non-forbidden code
+      # points, multiple colons allowed when namespaced). `context: :attribute`
+      # (the default) keeps the strict XML QName production used historically by
+      # the *AttributeNS family.
+      def validate_and_extract(namespace, qualified_name, context: :attribute)
         ns = namespace.to_s
         ns = nil if ns.empty?
         qname = qualified_name.to_s
 
-        unless qname.match?(QNAME)
-          raise DOMException::InvalidCharacterError, "invalid qualified name: #{qname.inspect}"
-        end
-
         prefix = nil
         local = qname
         if qname.include?(":")
+          # Split on the FIRST colon: any further colons stay in the local part
+          # (e.g. "f:o:o" → prefix "f", local "o:o").
           prefix, local = qname.split(":", 2)
+        end
+
+        if context == :element
+          if prefix && !valid_namespace_prefix?(prefix)
+            raise DOMException::InvalidCharacterError, "invalid namespace prefix: #{prefix.inspect}"
+          end
+          unless valid_element_local_name?(local)
+            raise DOMException::InvalidCharacterError, "invalid local name: #{local.inspect}"
+          end
+        else
+          unless qname.match?(QNAME)
+            raise DOMException::InvalidCharacterError, "invalid qualified name: #{qname.inspect}"
+          end
         end
 
         if prefix && ns.nil?

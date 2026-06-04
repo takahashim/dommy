@@ -6,6 +6,10 @@ module Dommy
     # Ensures that wrap_node(nokogiri_node) always returns the same Ruby object.
     # Separates identity/caching management from Document's public DOM API.
     class NodeWrapperCache
+      # Distinguishes "no namespace argument given" (derive from the backend /
+      # document) from an explicit nil namespace passed by createElementNS.
+      NAMESPACE_UNSET = Object.new.freeze
+
       def initialize(document)
         @document = document
         @wrappers = {}
@@ -88,14 +92,12 @@ module Dommy
         # DOMString (undefined → "undefined", null → "null").
         namespace_uri = nil if namespace_uri.equal?(Bridge::UNDEFINED)
         qualified_name = domstring(qualified_name)
-        ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name)
+        ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
         el = Backend.create_element(qualified_name, @document.nokogiri_doc)
         Backend.add_namespace_definition(el, prefix, ns) if ns
 
-        # Route the wrapper class from the requested namespace (the backend may
-        # not be able to report it for a detached foreign element).
-        wrapper = build_element_wrapper(el, namespace: ns)
+        wrapper = build_element_wrapper(el, namespace: ns, local_name: local)
         wrapper.__internal_set_namespace__(ns, prefix, local, qualified_name)
         wrapper
       end
@@ -215,13 +217,26 @@ module Dommy
         end
       end
 
-      # `namespace` lets a caller that already knows the element's namespace
-      # (e.g. createElementNS) route the wrapper class directly, rather than
-      # re-deriving it from the backend — which a namespace-less backend can't
-      # do for a freshly created, still-detached foreign element.
-      def build_element_wrapper(node, namespace: Backend.namespace_of(node)&.href)
+      # `namespace`/`local_name` let a caller that already knows the element's
+      # namespace and local name (e.g. createElementNS, which preserves case and
+      # carries a prefix the backend node name would otherwise fold in) route the
+      # wrapper class directly, rather than re-deriving it from the backend.
+      #
+      # When `namespace` is not supplied we derive it: the backend reports the
+      # null namespace for ordinary HTML elements, so in an HTML document an
+      # otherwise-namespaceless element is treated as HTML-namespaced (preserving
+      # HTML* interface routing); a non-HTML document leaves it null (generic
+      # Element). An explicit `namespace:` (including nil from createElementNS)
+      # is honored verbatim.
+      def build_element_wrapper(node, namespace: NAMESPACE_UNSET, local_name: nil)
+        ns =
+          if namespace.equal?(NAMESPACE_UNSET)
+            Backend.namespace_of(node)&.href || (@document.html_document? ? Element::HTML_NAMESPACE : nil)
+          else
+            namespace
+          end
         custom_klass = custom_element_class_for(node.name)
-        klass = custom_klass || Dommy.element_class_for(node.name, namespace)
+        klass = custom_klass || Dommy.element_class_for(local_name || node.name, ns)
         instance = klass.new(@document, node)
 
         @wrappers[identity_key(node)] = instance
