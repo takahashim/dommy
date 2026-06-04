@@ -45,7 +45,12 @@ module Dommy
       end
 
       def empty_document
-        ::Makiri::Document.parse("")
+        # Lexbor can seed an <html> shell when parsing the empty string, but a
+        # `new Document()` must start truly empty (no documentElement) — so drop
+        # any seeded children. appendChild then installs the real root.
+        doc = ::Makiri::Document.parse("")
+        doc.children.to_a.each(&:unlink)
+        doc
       end
 
       # Lexbor seeds even an empty parse with an <html> shell and has no `root=`,
