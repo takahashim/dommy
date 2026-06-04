@@ -2275,6 +2275,12 @@ module Dommy
           remove_attribute(name)
         end
 
+      when "style"
+        # WHATWG [PutForwards=cssText]: `el.style = "..."` forwards to
+        # `el.style.cssText`, reparsing and rewriting the `style` attribute.
+        # Handling it here stops the bridge from stashing a string expando that
+        # would shadow the CSSStyleDeclaration getter.
+        @style.css_text = value.nil? ? "" : value.to_s
       when "className"
         set_attribute("class", value.to_s)
       when "classList"
