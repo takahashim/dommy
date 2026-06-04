@@ -52,10 +52,9 @@ module Dommy
     end
 
     def item(index)
-      i = index.to_i
-      return nil if i < 0
-
-      to_a[i]
+      # `index` is a WebIDL unsigned long, so it wraps modulo 2^32 (e.g. item(2^32)
+      # is item(0)); Ruby's modulo also normalizes negatives to that range.
+      to_a[index.to_i % 4_294_967_296]
     end
 
     # `namedItem(name)` returns the first element whose `id` or
