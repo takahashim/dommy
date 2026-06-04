@@ -268,6 +268,16 @@ module Dommy
     # equality compares only structure that survives wrap_node.)
     def create_document(namespace, qualified_name, _doctype = nil)
       doc = Document.new(nil, nokogiri_doc: Backend.empty_document)
+      # createDocument's content type is keyed off the namespace. None is
+      # "text/html", so tagName keeps its case; xhtml+xml still routes
+      # createElement to the HTML namespace (so an XHTML document isEqualNode
+      # an HTML one).
+      doc.content_type =
+        case namespace.to_s
+        when Internal::Namespaces::HTML then "application/xhtml+xml"
+        when Internal::Namespaces::SVG then "image/svg+xml"
+        else "application/xml"
+        end
       qn = qualified_name.to_s
       unless qn.empty?
         el = doc.send(:create_element_ns, namespace, qualified_name)
