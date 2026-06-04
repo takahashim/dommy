@@ -153,39 +153,36 @@ module Dommy
         cf ? cf.children.to_a : []
       end
 
-      # ----- Namespaced attributes (degraded) -----
-      # Makiri has no namespace model, so *AttributeNS collapses to the
-      # qualified name in the null namespace. Fine for HTML (all attributes are
-      # null-namespace); foreign-content (SVG/MathML) fidelity is lost.
+      # ----- Namespaced attributes -----
+      # Lexbor (Makiri >= 0.2) tracks the attribute's own namespace: set_attribute_ns
+      # records it (splitting prefix/local), and the attr node reports
+      # namespace_uri/prefix/local_name. So *AttributeNS matches on (namespace,
+      # local name) faithfully.
 
-      # `*AttributeNS` is case-sensitive (exact qualified-name match), unlike the
-      # HTML `*Attribute` family. Lexbor's `node[name]` / `key?` are
-      # case-insensitive for HTML, so match against the attribute nodes by exact
-      # name instead — otherwise `getAttributeNS(null, "ALIGN")` wrongly finds a
-      # lowercased "align".
-      def get_attribute_ns(node, _namespace, local_name)
-        named_attribute(node, local_name.to_s)&.value
+      def get_attribute_ns(node, namespace, local_name)
+        attr_by_ns(node, namespace, local_name)&.value
       end
 
-      def has_attribute_ns?(node, _namespace, local_name)
-        !named_attribute(node, local_name.to_s).nil?
+      def has_attribute_ns?(node, namespace, local_name)
+        !attr_by_ns(node, namespace, local_name).nil?
       end
 
-      def set_attribute_ns(node, _namespace, _prefix, _local_name, qualified_name, value)
-        node[qualified_name] = value.to_s
+      def set_attribute_ns(node, namespace, _prefix, _local_name, qualified_name, value)
+        node.set_attribute_ns(presence(namespace), qualified_name.to_s, value.to_s)
         value.to_s
       end
 
-      def remove_attribute_ns(node, _namespace, local_name)
-        node.remove_attribute(local_name.to_s) if named_attribute(node, local_name.to_s)
+      def remove_attribute_ns(node, namespace, local_name)
+        attr = attr_by_ns(node, namespace, local_name)
+        node.remove_attribute(attr.name) if attr
         nil
       end
 
       def attribute_ns_info(attr_node)
         {
-          namespace_uri: nil,
-          prefix: nil,
-          local_name: attr_node.name,
+          namespace_uri: presence(attr_node.namespace_uri),
+          prefix: presence(attr_node.prefix),
+          local_name: attr_node.local_name,
           qualified_name: attr_node.name,
           value: attr_node.value,
         }
@@ -195,10 +192,21 @@ module Dommy
         node.attribute_nodes
       end
 
-      # Exact (case-sensitive) attribute-node lookup by qualified name, for the
-      # namespace-aware accessors. nil when absent.
-      def named_attribute(node, name)
-        node.attribute_nodes.find { |a| a.name == name }
+      # Attribute node matching (namespace, local name) case-sensitively; a
+      # null/empty namespace matches a null-namespace attribute.
+      def attr_by_ns(node, namespace, local_name)
+        want_ns = presence(namespace)
+        want_local = local_name.to_s
+        node.attribute_nodes.find do |a|
+          a.local_name == want_local && presence(a.namespace_uri) == want_ns
+        end
+      end
+
+      def presence(value)
+        return nil if value.nil?
+
+        s = value.to_s
+        s.empty? ? nil : s
       end
 
       # Internal helper — visible to allow testing.
