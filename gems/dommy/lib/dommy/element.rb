@@ -2637,17 +2637,22 @@ module Dommy
     # the whole document (where this element IS reachable) and restrict the
     # results to this element's own subtree.
     def scoped_query(sel)
-      sel = Internal.backend_safe_selector(sel)
-      with_selector_errors(sel) do
-        if sel.include?(":scope")
+      safe = Internal.backend_safe_selector(sel)
+      nodes = with_selector_errors(sel) do
+        if safe.include?(":scope")
           self_id = @__node__.pointer_id
-          Backend.select_all(@document.nokogiri_doc, sel, scope_node: @__node__).select do |n|
+          Backend.select_all(@document.nokogiri_doc, safe, scope_node: @__node__).select do |n|
             n.ancestors.any? { |a| a.pointer_id == self_id }
           end
         else
-          Backend.select_all(@__node__, sel)
+          Backend.select_all(@__node__, safe)
         end
       end
+      return nodes unless Internal.pseudo_post_filtered?(sel)
+
+      # `safe` dropped backend-unsupported pseudos (`:enabled`, `:lang()`, …);
+      # re-apply their real semantics to the backend's broader result.
+      Internal.pseudo_post_filter(nodes.to_a, sel, @document)
     end
 
     # XPath queries scoped to this element, returning wrapped nodes.

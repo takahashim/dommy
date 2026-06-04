@@ -86,6 +86,16 @@ module Dommy
         s = s.gsub(/:target(?![\w-])/, "")
         s = "*" if s.strip.empty?
       end
+      # Both backends treat `:enabled` / `:disabled` as always-true (matching
+      # every element, not just disableable form controls), so strip them and
+      # post-filter with #enableable?/#form_control_disabled? — see the query
+      # methods. A standalone occurrence (`#x :enabled`) becomes the universal
+      # selector so the combinator keeps a subject.
+      if s =~ ENABLED_DISABLED_PSEUDO
+        s = s.gsub(/(^|[\s>+~,(])\s*:(?:enabled|disabled)(?![\w-])/) { "#{Regexp.last_match(1)}*" }
+        s = s.gsub(ENABLED_DISABLED_PSEUDO, "")
+        s = "*" if s.strip.empty?
+      end
       return s unless s.include?('\\') && s.match?(ATTR_ESCAPED_COLON)
 
       kept = split_selector_list(s).reject { |clause| clause.match?(ATTR_ESCAPED_COLON) }
@@ -114,11 +124,17 @@ module Dommy
       a == lang || a.start_with?("#{lang}-")
     end
 
+    # The disableable form-control elements `:enabled` / `:disabled` apply to.
+    ENABLEABLE_ELEMENTS = %w[button input select textarea optgroup option fieldset].freeze
+    ENABLED_DISABLED_PSEUDO = /:(?:enabled|disabled)(?![\w-])/
+
     # Whether `selector` uses a pseudo-class the backend can't match and we
-    # post-filter (`:lang()`, `:target`).
+    # post-filter (`:lang()`, `:target`, `:enabled` / `:disabled`).
     def self.pseudo_post_filtered?(selector)
       s = selector.to_s
-      !lang_pseudo_value(s).nil? || s =~ /:target(?![\w-])/ ? true : false
+      return true unless lang_pseudo_value(s).nil?
+
+      (s =~ /:target(?![\w-])/ || s =~ ENABLED_DISABLED_PSEUDO) ? true : false
     end
 
     # Filter backend `nodes` (already matched against the stripped selector) by
@@ -132,7 +148,33 @@ module Dommy
         tid = target_id(document)
         nodes = tid ? nodes.select { |n| n["id"].to_s == tid } : []
       end
+      if s =~ /:enabled(?![\w-])/
+        nodes = nodes.select { |n| enableable?(n) && !form_control_disabled?(n) }
+      end
+      if s =~ /:disabled(?![\w-])/
+        nodes = nodes.select { |n| enableable?(n) && form_control_disabled?(n) }
+      end
       nodes
+    end
+
+    # `:enabled` / `:disabled` apply only to disableable form controls — not to
+    # links or any other element, which the backends wrongly match.
+    def self.enableable?(backend_node)
+      ENABLEABLE_ELEMENTS.include?(backend_node.name.to_s.downcase)
+    end
+
+    # A form control is disabled when it carries the `disabled` attribute, or — for
+    # an <option> — its containing <optgroup> is disabled. (The disabled-<fieldset>
+    # descendant propagation is not modeled.)
+    def self.form_control_disabled?(backend_node)
+      return true unless backend_node["disabled"].nil?
+
+      if backend_node.name.to_s.downcase == "option"
+        parent = backend_node.respond_to?(:parent) ? backend_node.parent : nil
+        return true if parent.respond_to?(:name) &&
+                       parent.name.to_s.downcase == "optgroup" && !parent["disabled"].nil?
+      end
+      false
     end
 
     # The id referenced by the document's URL fragment (`:target`), or nil when
