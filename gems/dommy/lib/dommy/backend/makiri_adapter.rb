@@ -173,8 +173,9 @@ module Dommy
       end
 
       def remove_attribute_ns(node, namespace, local_name)
-        attr = attr_by_ns(node, namespace, local_name)
-        node.remove_attribute(attr.name) if attr
+        # Remove by (namespace, local name) — removing by qualified name is
+        # ambiguous once same-name/different-namespace attributes coexist.
+        node.remove_attribute_ns(presence(namespace), local_name.to_s)
         nil
       end
 
