@@ -138,19 +138,85 @@ module Dommy
       fragment
     end
 
+    # WHATWG Range.deleteContents. Removes the fully-contained nodes (childList
+    # records) and trims the partially-contained boundary CharacterData nodes
+    # (characterData records via `data=`), rather than removing boundary text
+    # nodes whole — so a deletion like `"abc"[1]…"def"[1]` leaves `"a"…"ef"`.
     def delete_contents
-      collect_nodes_in_range.each do |node|
+      return nil if collapsed?
+
+      sc = @start_container
+      so = @start_offset
+      ec = @end_container
+      eo = @end_offset
+
+      # Both boundaries in the same text node: just delete the substring.
+      if sc.equal?(ec) && text_node?(sc)
+        d = sc.data.to_s
+        sc.data = d[0, so].to_s + (d[eo..] || "")
+        return nil
+      end
+
+      to_remove = nodes_to_remove
+      new_node, new_offset = deletion_collapse_point(sc, so, ec, eo)
+
+      # Trim the start boundary text node's tail, remove the contained nodes,
+      # then trim the end boundary text node's head (order matters for records).
+      sc.data = sc.data.to_s[0, so].to_s if text_node?(sc)
+      to_remove.each do |node|
         if node.respond_to?(:__dommy_backend_node__)
-          # Fire a childList removal record (with correct sibling context) on the
-          # node's parent, like any other tree removal.
           @document.remove_node_with_notify(node.__dommy_backend_node__)
         elsif node.respond_to?(:remove)
           node.remove
         end
       end
+      ec.data = (ec.data.to_s[eo..] || "") if text_node?(ec)
 
-      collapse(true)
+      @start_container = @end_container = new_node
+      @start_offset = @end_offset = new_offset
       nil
+    end
+
+    # Top-level nodes fully contained in the range (their parent isn't), removed
+    # whole. Deeper contained nodes go with their removed ancestor.
+    def nodes_to_remove
+      ancestor = common_ancestor_container
+      return [] unless ancestor.respond_to?(:child_nodes)
+
+      ancestor.child_nodes.to_a.select { |child| node_fully_contained?(child) }
+    end
+
+    # A node is contained in the range when its start position is at or after the
+    # range start and its end position is at or before the range end.
+    def node_fully_contained?(node)
+      parent = parent_of(node)
+      return false unless parent
+
+      idx = child_index_of(parent, node)
+      compare_points(parent, idx, @start_container, @start_offset) >= 0 &&
+        compare_points(parent, idx + 1, @end_container, @end_offset) <= 0
+    end
+
+    # The (node, offset) the range collapses to after deletion (WHATWG step 5):
+    # the start boundary if it contains the end, else the start's highest
+    # ancestor that doesn't contain the end, positioned just after it.
+    def deletion_collapse_point(sc, so, ec, eo)
+      return [sc, so] if inclusive_ancestor?(sc, ec)
+
+      ref = sc
+      ref = parent_of(ref) while (p = parent_of(ref)) && !inclusive_ancestor?(p, ec)
+      parent = parent_of(ref)
+      [parent, child_index_of(parent, ref) + 1]
+    end
+
+    def inclusive_ancestor?(maybe_ancestor, node)
+      current = node
+      while current
+        return true if current.equal?(maybe_ancestor)
+
+        current = parent_of(current)
+      end
+      false
     end
 
     # surroundContents(newParent) — wraps the range contents in
@@ -506,14 +572,13 @@ module Dommy
       chain.find { |n| parent_of(n)&.equal?(container) }
     end
 
-    # Case 2a: a_container is an ancestor of b_container. a sits at
-    # offset a_offset; b's branch sits at child index b_idx. If
-    # a_offset > b_idx, a comes after; otherwise a precedes b.
+    # Case 2a: a_container is an ancestor of b_container. b sits *inside* the
+    # child of a_container at index b_idx (so its exact offset is irrelevant):
+    # if that index is before a_offset, a comes after b; otherwise a precedes b
+    # (WHATWG boundary-point position, ancestor case).
     def compare_offset_to_branch(a_offset, a_container, b_branch, ahead:)
       b_idx = child_index_of(a_container, b_branch)
-      return a_offset <=> (b_idx + 1) if a_offset > b_idx
-
-      ahead
+      b_idx < a_offset ? 1 : ahead
     end
 
     # Case 2b: b_container is an ancestor of a_container.
