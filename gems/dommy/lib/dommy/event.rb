@@ -1248,8 +1248,11 @@ module Dommy
       dispatch_event(Event.new("abort", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
     end
 
-    # Run one abort algorithm (a JS callback over the bridge, or a Ruby proc),
-    # isolating a throw so it can't break sibling algorithms or the abort event.
+    # Run one abort algorithm (a JS callback over the bridge, or a Ruby proc).
+    # A throw is swallowed deliberately: WHATWG runs every abort algorithm and
+    # then fires the "abort" event regardless, so one algorithm's failure must
+    # not abort the run. (The sole caller — the Observable polyfill — already
+    # catches inside its own teardown, so this is a defensive backstop.)
     def invoke_abort_algorithm(algo)
       if algo.respond_to?(:__js_call__)
         algo.__js_call__("call", [])
