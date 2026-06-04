@@ -231,16 +231,21 @@ module Dommy
     end
 
     def insert_node(node)
-      # Insert at the range start. For text-node containers we split;
-      # for element containers we insert at child index.
+      # Insert at the range start. For a text container, split it at the offset
+      # (when interior) and insert before the split-off tail — matching the spec,
+      # which produces a childList record for the split plus one for the insert.
       sc = @start_container
       if text_node?(sc)
-        # Splitting is out of spec-perfect scope; insert before/after
-        # the text node based on offset.
         parent = parent_of(sc)
         idx = child_index_of(parent, sc)
-        idx += 1 if @start_offset >= length_of(sc)
-        insert_into_parent_at(parent, idx, node)
+        if @start_offset.zero?
+          insert_into_parent_at(parent, idx, node)
+        elsif @start_offset >= length_of(sc)
+          insert_into_parent_at(parent, idx + 1, node)
+        else
+          tail = sc.split_text(@start_offset)
+          parent.insert_before(node, tail)
+        end
       else
         insert_into_parent_at(sc, @start_offset, node)
       end
@@ -464,15 +469,15 @@ module Dommy
       children = parent.respond_to?(:child_nodes) ? parent.child_nodes.to_a : []
       if idx >= children.length
         parent.append_child(node) if parent.respond_to?(:append_child)
+      elsif parent.respond_to?(:insert_before)
+        # insert_before extracts a DocumentFragment's children in order and fires
+        # the fragment-removal + target-addition records; `anchor.before` coerces
+        # the fragment to a single node and reverses multi-node order.
+        parent.insert_before(node, children[idx])
+      elsif children[idx].respond_to?(:before)
+        children[idx].before(node)
       else
-        anchor = children[idx]
-        if anchor.respond_to?(:before)
-          anchor.before(node)
-        elsif parent.respond_to?(:insert_before)
-          parent.insert_before(node, anchor)
-        else
-          parent.append_child(node) if parent.respond_to?(:append_child)
-        end
+        parent.append_child(node) if parent.respond_to?(:append_child)
       end
     end
 

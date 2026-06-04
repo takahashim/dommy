@@ -177,7 +177,12 @@ module Dommy
 
     def extract_children
       nodes = @__node__.children.to_a
+      return nodes if nodes.empty?
+
       nodes.each(&:unlink)
+      # Inserting a DocumentFragment removes all its children first; the spec
+      # queues a single childList record on the fragment for that removal.
+      @document.notify_child_list_mutation(target_node: @__node__, added_nodes: [], removed_nodes: nodes)
       nodes
     end
 
@@ -266,7 +271,12 @@ module Dommy
       rest = full[off..] || ""
       write_data(full[0, off])
       new_node = @document.create_text_node(rest)
-      @__node__.add_next_sibling(new_node.__dommy_backend_node__) if @__node__.parent
+      if @__node__.parent
+        new_bn = new_node.__dommy_backend_node__
+        @__node__.add_next_sibling(new_bn)
+        # The new node is inserted right after self — a childList addition record.
+        @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: [new_bn], removed_nodes: [])
+      end
       new_node
     end
 
@@ -1395,17 +1405,33 @@ module Dommy
     alias get_root_node root_node
 
     # Merge adjacent text node siblings and drop empty text nodes.
+    # WHATWG Node.normalize: drop empty Text nodes and merge each run of
+    # contiguous Text nodes into the first, firing the matching mutation records
+    # (childList for every removed node, characterData for the merged data).
     def normalize
-      @__node__.traverse do |node|
-        next unless node.text?
-        next if node.parent.nil?
+      text_nodes = []
+      @__node__.traverse { |node| text_nodes << node if node.respond_to?(:text?) && node.text? }
 
-        if node.content == "" && node.parent
-          node.unlink
-        elsif node.next && node.next.text?
-          node.content = node.content + node.next.content
-          node.next.unlink
+      text_nodes.each do |node|
+        next unless node.parent # already removed as part of an earlier run
+
+        if node.content.to_s.empty?
+          @document.remove_node_with_notify(node)
+          next
         end
+
+        merged = []
+        sib = node.next
+        while sib.respond_to?(:text?) && sib.text?
+          merged << sib
+          sib = sib.next
+        end
+        next if merged.empty?
+
+        old = node.content.to_s
+        node.content = old + merged.map { |m| m.content.to_s }.join
+        @document.notify_character_data_mutation(target_node: node, old_value: old)
+        merged.each { |m| @document.remove_node_with_notify(m) }
       end
 
       nil
@@ -2627,7 +2653,10 @@ module Dommy
           # silent append. Preserve that for compatibility.
           append_dom_nodes(nodes)
         else
-          nodes.reverse_each { |node| ref_node.add_previous_sibling(node) }
+          # Insert in order before the fixed reference: each new node becomes the
+          # reference's immediate previous sibling, so forward iteration yields
+          # the original order (reverse would flip a multi-node fragment).
+          nodes.each { |node| ref_node.add_previous_sibling(node) }
         end
       end
 
@@ -2654,10 +2683,26 @@ module Dommy
       old_node = unwrap_dom_node(old_child)
       return nil unless old_node&.parent == @__node__
 
+      # Capture the insertion point (old's next sibling) before detaching the new
+      # child, which may itself be old (replaceChild(x, x)) or old's sibling.
+      anchor = old_node.next_sibling
       new_nodes = detach_dom_nodes(new_child)
-      new_nodes.reverse_each { |node| old_node.add_previous_sibling(node) }
-      old_node.unlink
-      notify_child_list(added: new_nodes, removed: [old_node])
+      anchor = nil if anchor && anchor.parent != @__node__
+
+      # detach_dom_nodes already removed old when new_child === old_child; only
+      # unlink (and record the removal) when old is still attached.
+      removed = []
+      if old_node.parent == @__node__
+        old_node.unlink
+        removed = [old_node]
+      end
+
+      if anchor
+        new_nodes.each { |node| anchor.add_previous_sibling(node) }
+      else
+        new_nodes.each { |node| @__node__.add_child(node) }
+      end
+      notify_child_list(added: new_nodes, removed: removed)
       old_child
     end
 
