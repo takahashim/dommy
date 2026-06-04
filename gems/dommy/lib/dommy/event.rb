@@ -1062,8 +1062,18 @@ module Dommy
         return composite
       end
 
+      composite.__internal_make_dependent__
       list.each do |sig|
-        sig.add_event_listener("abort", proc { composite.__internal_mark_aborted__(sig.reason) })
+        # A plain source signal links directly; a composite is flattened to its
+        # own (already-flat) source signals, so the dependency graph stays one
+        # level deep and abort order is well-defined.
+        sources = sig.__internal_dependent__? ? sig.__internal_source_signals__ : [sig]
+        sources.each do |source|
+          next if composite.__internal_source_signals__.include?(source)
+
+          composite.__internal_add_source__(source)
+          source.__internal_add_dependent__(composite)
+        end
       end
 
       composite
@@ -1072,6 +1082,13 @@ module Dommy
     def initialize
       @aborted = false
       @reason = nil
+      # The WHATWG "dependent signal" model backing AbortSignal.any: a composite
+      # signal flattens to its original (non-dependent) source signals, and each
+      # source holds an ordered list of the composites depending on it — so abort
+      # propagation fires in source-then-dependents order, not via event chaining.
+      @dependent = false
+      @source_signals = []
+      @dependent_signals = []
     end
 
     # Background-thread timeout used by `AbortSignal.timeout` when no
@@ -1154,12 +1171,60 @@ module Dommy
     # `abort(undefined)` default to a fresh AbortError).
     NO_REASON = Object.new
 
+    # WHATWG "signal abort": set the reason, then propagate to dependent signals
+    # — firing "abort" at this signal FIRST and then at each dependent in the
+    # order it was registered (the reasons are all stamped before any event
+    # fires, so a handler observing a sibling sees it already aborted).
     def __internal_mark_aborted__(reason = NO_REASON)
       return if @aborted
 
       @aborted = true
       no_reason = reason.equal?(NO_REASON) || (defined?(Bridge::UNDEFINED) && reason.equal?(Bridge::UNDEFINED))
       @reason = no_reason ? DOMException::AbortError.new("signal is aborted without reason") : reason
+
+      dependents_to_abort = []
+      @dependent_signals.each do |dependent|
+        next if dependent.aborted?
+
+        dependent.__internal_set_reason__(@reason)
+        dependents_to_abort << dependent
+      end
+
+      __internal_run_abort_steps__
+      dependents_to_abort.each(&:__internal_run_abort_steps__)
+    end
+
+    # ----- dependent-signal plumbing (package-private, used by .any) -----
+
+    def __internal_make_dependent__
+      @dependent = true
+    end
+
+    def __internal_dependent__?
+      @dependent
+    end
+
+    def __internal_source_signals__
+      @source_signals
+    end
+
+    def __internal_add_source__(source)
+      @source_signals << source
+    end
+
+    def __internal_add_dependent__(dependent)
+      @dependent_signals << dependent
+    end
+
+    # Mark aborted with a reason WITHOUT firing — the orchestrating source stamps
+    # every dependent's reason up front, then fires the events in order.
+    def __internal_set_reason__(reason)
+      @aborted = true
+      @reason = reason
+    end
+
+    # Fire the trusted "abort" event at this signal (the spec's "abort steps").
+    def __internal_run_abort_steps__
       dispatch_event(Event.new("abort", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
     end
   end
