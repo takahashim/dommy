@@ -73,10 +73,12 @@ class TestNodeListSpec < Minitest::Test
     assert_equal("a", @list.__js_call__("item", [0]).id)
   end
 
-  def test_js_bridge_forEach_call
-    seen = []
-    @list.__js_call__("forEach", [proc { |v, i, _| seen << [v.id, i] }])
-    assert_equal([["a", 0], ["b", 1], ["c", 2]], seen)
+  def test_js_bridge_exposes_only_item
+    # forEach/keys/values/entries/@@iterator come from the JS array-like
+    # prototype (the actual %Array.prototype% functions, so
+    # `list.forEach === Array.prototype.forEach`), not host dispatch — `item` is
+    # the only host-callable method.
+    assert_equal(["item"], @list.__js_method_names__)
   end
 end
 

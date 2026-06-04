@@ -63,15 +63,16 @@ module Dommy
     end
 
     include Bridge::Methods
-    # keys/values/entries/Symbol.iterator are provided JS-side (the array-like
-    # prototype) so they return real iterators, not arrays — see host_runtime.js.
-    js_methods %w[item forEach]
+    # forEach/keys/values/entries/Symbol.iterator come from the array-like
+    # prototype JS-side (the actual %Array.prototype% functions) — see NodeList
+    # and host_runtime.js. A host `forEach` would shadow that and break the call
+    # (a JS callback arrives as a HostCallback, not a block). Only `item` needs a
+    # host method.
+    js_methods %w[item]
     def __js_call__(method, args)
       case method
       when "item"
         item(args[0])
-      when "forEach"
-        for_each(&args[0])
       end
     end
   end
@@ -172,15 +173,17 @@ module Dommy
     end
 
     include Bridge::Methods
-    # keys/values/entries/Symbol.iterator are provided JS-side (the array-like
-    # prototype) so they return real iterators, not arrays — see host_runtime.js.
-    js_methods %w[item forEach]
+    # forEach/keys/values/entries/Symbol.iterator are provided JS-side (the
+    # array-like prototype is seeded with the actual %Array.prototype% functions)
+    # so `list.forEach === Array.prototype.forEach` and they return real
+    # iterators, not arrays — see host_runtime.js. Exposing a host `forEach` here
+    # would shadow that prototype copy (and a JS callback reaches Ruby as a
+    # HostCallback, not a block). Only `item` needs a host method.
+    js_methods %w[item]
     def __js_call__(method, args)
       case method
       when "item"
         item(args[0])
-      when "forEach"
-        for_each(&args[0])
       end
     end
   end
