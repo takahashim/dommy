@@ -721,6 +721,12 @@ module Dommy
     def append_child(node)
       return node unless node.respond_to?(:__dommy_backend_node__)
 
+      # appendChild adopts a node from another document (per spec). Only needed on
+      # a backend that can't move a node across documents (Makiri); Nokogiri moves
+      # it on add_child, and adopting an empty target document would have no root.
+      if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
+        node = adopt_node(node)
+      end
       @nokogiri_doc.add_child(node.__dommy_backend_node__)
       node
     end

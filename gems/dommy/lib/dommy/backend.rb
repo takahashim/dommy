@@ -78,6 +78,15 @@ module Dommy
         current.adopt(node, target_doc)
       end
 
+      # Whether the backend can move a node between documents in place (Nokogiri
+      # reassigns ownership on add_child) or must adopt a copy first (Lexbor's
+      # arenas can't move a node, so inserting a foreign node requires importing
+      # it). Lets callers skip a needless — and on an empty target, root-less and
+      # therefore crashing — adoption on backends that don't need it.
+      def moves_nodes_across_documents?
+        current.respond_to?(:moves_nodes_across_documents?) ? current.moves_nodes_across_documents? : true
+      end
+
       # CSS query that honors Dommy's custom pseudo-classes
       # (`:disabled`/`:enabled`/`:checked`/`:scope`). Each backend applies its
       # own mechanism (Nokogiri pseudo-handlers; Lexbor native pseudos plus a

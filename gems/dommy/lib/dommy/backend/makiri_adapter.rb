@@ -62,6 +62,12 @@ module Dommy
         target_doc.import_node(node, true)
       end
 
+      # Lexbor arenas can't move a node between documents — a foreign node must be
+      # imported (see #adopt) before insertion.
+      def moves_nodes_across_documents?
+        false
+      end
+
       # CSS query honoring Dommy's custom pseudo-classes. Lexbor handles
       # `:disabled`/`:enabled`/`:checked` natively, so only `:scope` needs help:
       # when `scope_node` is given and the selector uses `:scope`, bind it to

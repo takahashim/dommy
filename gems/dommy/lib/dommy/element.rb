@@ -253,6 +253,10 @@ module Dommy
     include Node
     include EventTarget
 
+    # The owning Dommy document (as Element exposes), so cross-document adoption
+    # checks work for text/comment nodes too.
+    attr_reader :document
+
     def __dommy_backend_node__ = @__node__
 
     # EventTarget needs a parent for event propagation; a character-data node
