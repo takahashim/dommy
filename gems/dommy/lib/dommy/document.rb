@@ -127,9 +127,10 @@ module Dommy
 
     attr_reader :target
 
-    def initialize(target, data)
+    def initialize(target, data, document = nil)
       @target = target.to_s
       @data = data.to_s
+      @document = document
     end
 
     include EventTarget
@@ -148,6 +149,8 @@ module Dommy
         7
       when "length"
         @data.length
+      when "ownerDocument"
+        @document
       end
     end
 
@@ -700,7 +703,7 @@ module Dommy
     end
 
     def create_processing_instruction(target, data)
-      ProcessingInstruction.new(target, data)
+      ProcessingInstruction.new(target, data, self)
     end
 
     # Append a node as a child of the document itself (e.g. a comment alongside
@@ -955,6 +958,9 @@ module Dommy
       when "embeds", "plugins"
         # Both reflect the same list of <embed> elements.
         HTMLCollection.new { @nokogiri_doc.css("embed").map { |n| wrap_node(n) }.compact }
+      when "applets"
+        # `<applet>` was removed from HTML, so this collection is always empty.
+        HTMLCollection.new { [] }
       when "anchors"
         # Historically `<a name>` (with a name attribute), not every link.
         HTMLCollection.new { @nokogiri_doc.css("a[name]").map { |n| wrap_node(n) }.compact }

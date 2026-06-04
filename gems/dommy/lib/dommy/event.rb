@@ -199,6 +199,9 @@ module Dommy
       return false if value.nil? || value == false
       return false if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
       return false if value.is_a?(Numeric) && (value.zero? || (value.respond_to?(:nan?) && value.nan?))
+      # The bridge marshals JS NaN as the symbol :NaN (it has no Ruby Float
+      # equivalent that survives the round-trip), which ToBoolean treats as false.
+      return false if value == :NaN
       return false if value == ""
 
       true

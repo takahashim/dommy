@@ -23,7 +23,7 @@ class TestStyle < Minitest::Test
 
   def test_camel_case_setter_writes_kebab_property
     @el.style.background_color = "green"
-    assert_equal("background-color:green", @el.get_attribute("style"))
+    assert_equal("background-color: green;", @el.get_attribute("style"))
   end
 
   def test_camel_case_getter_reads_kebab_property
@@ -50,7 +50,7 @@ class TestStyle < Minitest::Test
 
   def test_set_property_via_js_call
     @el.style.__js_call__("setProperty", ["color", "red"])
-    assert_equal("color:red", @el.get_attribute("style"))
+    assert_equal("color: red;", @el.get_attribute("style"))
   end
 
   def test_remove_property_via_js_call

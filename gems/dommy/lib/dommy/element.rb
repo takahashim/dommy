@@ -931,22 +931,15 @@ module Dommy
       @element = element
     end
 
-    # CSSStyleDeclaration interface: cssText round-trips the full
-    # `style` attribute. Setter parses semicolon-separated entries.
+    # CSSStyleDeclaration interface: cssText serializes the parsed declaration
+    # block (`prop: value;` joined by spaces), dropping invalid declarations.
+    # The setter reparses and rewrites the `style` attribute in that form.
     def css_text
-      properties.map { |k, v| "#{k}:#{v}" }.join(";")
+      serialize_properties(properties)
     end
 
     def css_text=(value)
-      props = {}
-      value.to_s.split(";").each do |entry|
-        key, val = entry.split(":", 2)
-        next unless key && val
-
-        props[key.strip] = val.strip
-      end
-
-      write_properties(props)
+      write_properties(parse_declarations(value))
     end
 
     def length
@@ -1065,20 +1058,48 @@ module Dommy
     end
 
     def properties
-      raw = @element.__dommy_backend_node__["style"].to_s
-      raw.split(";").each_with_object({}) do |entry, out|
+      parse_declarations(@element.__dommy_backend_node__["style"].to_s)
+    end
+
+    # Parse a declaration block into an ordered { property => value } hash,
+    # dropping declarations whose value is invalid (empty, or — like the second
+    # colon in "color:: invalid" — containing a bare colon outside parentheses).
+    def parse_declarations(str)
+      str.to_s.split(";").each_with_object({}) do |entry, out|
         key, value = entry.split(":", 2)
         next unless key && value
 
-        out[key.strip] = value.strip
+        name = key.strip
+        val = value.strip
+        next if name.empty? || !valid_declaration_value?(val)
+
+        out[name] = val
       end
+    end
+
+    def valid_declaration_value?(value)
+      return false if value.empty?
+
+      depth = 0
+      value.each_char do |c|
+        case c
+        when "(" then depth += 1
+        when ")" then depth -= 1 if depth.positive?
+        when ":" then return false if depth.zero?
+        end
+      end
+      true
+    end
+
+    def serialize_properties(props)
+      props.map { |k, v| "#{k}: #{v};" }.join(" ")
     end
 
     def write_properties(props)
       if props.empty?
         @element.remove_attribute("style") if @element.__dommy_backend_node__.key?("style")
       else
-        @element.set_attribute("style", props.map { |k, v| "#{k}:#{v}" }.join(";"))
+        @element.set_attribute("style", serialize_properties(props))
       end
     end
   end
