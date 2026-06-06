@@ -149,11 +149,22 @@ module Dommy
         doc.create_comment(content)
       end
 
-      # CDATASection — an XML-document node (nodeType 4). XML::Document mints a
-      # real CDATA node; an HTML document has no CDATA concept, so fall back to a
-      # text node (the higher layer gates createCDATASection on HTML docs).
+      # CDATASection (nodeType 4). An XML document mints a real CDATA node and the
+      # XML serializer emits `<![CDATA[…]]>`. An HTML document, however, can also
+      # mint a native CDATA (Makiri >= …), but Lexbor's HTML serializer *raises*
+      # on a CDATA node (its node-type switch errors on anything but
+      # element/text/comment — and lexbor is vendored unmodified). Since Dommy's
+      # innerHTML/outerHTML/clone route through that serializer, a CDATA in an HTML
+      # tree would make serialization throw. So for HTML documents we fall back to
+      # a text node: cross-document inserts still work (it is an HTML-family node)
+      # and serialization is safe. Real CDATA on `new Document()` waits on a
+      # CDATA-capable HTML serializer (tracked in Makiri docs/xml_node_dommy_parity).
       def create_cdata(content, doc)
-        doc.respond_to?(:create_cdata) ? doc.create_cdata(content) : doc.create_text_node(content)
+        if doc.is_a?(::Makiri::XML::Document)
+          doc.create_cdata(content)
+        else
+          doc.create_text_node(content)
+        end
       end
 
       # The backend class for a CDATA node, so the wrapper routes it to
