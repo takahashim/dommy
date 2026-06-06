@@ -6,15 +6,19 @@ module Dommy
   module Backend
     # Makiri (Lexbor-based) backend. HTML5 parsing and CSS selectors via
     # Lexbor, plus a native XPath 1.0 engine, with no libxml2 dependency.
-    # HTML-only — XML namespaces are not tracked, so SVG detection falls
-    # back to ancestor walking and *AttributeNS collapses to the qualified
-    # name in the null namespace.
+    # Makiri splits its document model into `Makiri::HTML::Document` (case-folding,
+    # html/head/body) and `Makiri::XML::Document` (case-preserving, namespaces,
+    # CDATA); both share the `Makiri::Document` / `Makiri::Node` bases used here
+    # for `is_a?` checks. HTML parses go through HTML::Document; `new Document()` /
+    # createDocument go through XML::Document.
     module Makiri
-      # Class references for `is_a?` / type-checking.
+      # Class references for `is_a?` / type-checking (the shared bases, so both
+      # HTML and XML node subclasses match).
       Element = ::Makiri::Element
       Document = ::Makiri::Document
       Text = ::Makiri::Text
       Comment = ::Makiri::Comment
+      CDATASection = ::Makiri::CDATASection
       DocumentFragment = ::Makiri::DocumentFragment
       Node = ::Makiri::Node
 
@@ -38,17 +42,28 @@ module Dommy
       end
 
       # Makiri documents have no node-level clone; re-parsing the serialized
-      # document reproduces the full tree (no fragment-parser unwrapping, since
-      # this is a complete document).
+      # document reproduces the full tree. Dispatch on the document kind so an XML
+      # document round-trips through the XML parser (case/namespaces/CDATA) and an
+      # HTML document through the HTML parser.
       def clone_document(doc)
-        ::Makiri::Document.parse(doc.to_html)
+        if doc.is_a?(::Makiri::XML::Document)
+          ::Makiri::XML::Document.parse(doc.to_xml)
+        else
+          ::Makiri::HTML::Document.parse(doc.to_html)
+        end
       end
 
+      # `new Document()` / createDocument want an empty document. We back it with
+      # an HTML document (children dropped so it starts with no documentElement)
+      # rather than XML::Document, because Makiri keeps HTML and XML nodes as
+      # distinct C types that can't share a tree: WPT routinely appends an
+      # XML-document-created node (e.g. createCDATASection) into the main HTML
+      # tree, which a real XML-backed document here would reject. Until Makiri
+      # supports cross-kind adoption, an HTML-backed empty document keeps those
+      # cross-tree inserts working (at the cost of XML niceties like a real
+      # CDATA node type on `new Document()`).
       def empty_document
-        # Lexbor can seed an <html> shell when parsing the empty string, but a
-        # `new Document()` must start truly empty (no documentElement) — so drop
-        # any seeded children. appendChild then installs the real root.
-        doc = ::Makiri::Document.parse("")
+        doc = ::Makiri::HTML::Document.parse("")
         doc.children.to_a.each(&:unlink)
         doc
       end
@@ -105,7 +120,15 @@ module Dommy
       end
 
       def parse(html)
-        ::Makiri::Document.parse(html.to_s)
+        ::Makiri::HTML::Document.parse(html.to_s)
+      end
+
+      # XML parse (DOMParser `text/xml` / `application/xml`): a real XML document,
+      # so element/attribute case is preserved, namespaces are tracked, and CDATA
+      # round-trips. The parsed tree is self-contained (not mixed into the HTML
+      # tree), so the HTML/XML node-kind split doesn't bite here.
+      def parse_xml(xml)
+        ::Makiri::XML::Document.parse(xml.to_s)
       end
 
       def fragment(html, owner_doc:)
@@ -113,17 +136,30 @@ module Dommy
       end
 
       def create_element(name, doc)
-        # Makiri's Element.new(name, document) delegates to create_element.
-        ::Makiri::Element.new(name, doc)
+        # Mint from the owning document so HTML docs lower-case the name and XML
+        # docs preserve its case.
+        doc.create_element(name)
       end
 
       def create_text(content, doc)
-        ::Makiri::Text.new(content, doc)
+        doc.create_text_node(content)
       end
 
       def create_comment(content, doc)
-        # Makiri has no Comment.new; comments are minted from the document.
         doc.create_comment(content)
+      end
+
+      # CDATASection — an XML-document node (nodeType 4). XML::Document mints a
+      # real CDATA node; an HTML document has no CDATA concept, so fall back to a
+      # text node (the higher layer gates createCDATASection on HTML docs).
+      def create_cdata(content, doc)
+        doc.respond_to?(:create_cdata) ? doc.create_cdata(content) : doc.create_text_node(content)
+      end
+
+      # The backend class for a CDATA node, so the wrapper routes it to
+      # CDATASectionNode (it is a Text subtype, matched before Text).
+      def cdata_class
+        ::Makiri::CDATASection
       end
 
       # Makiri doesn't track XML namespaces. We synthesize one for SVG by
