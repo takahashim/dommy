@@ -167,6 +167,15 @@ module Capybara
         native.selected = false
       end
 
+      # Move the (virtual) pointer over this element: :hover rules and
+      # `matches(":hover")` then apply to it and its ancestors. No
+      # mouseover/mouseout events are dispatched (nothing observes them
+      # without JavaScript).
+      def hover
+        native.owner_document.__set_hovered_element__(native)
+        nil
+      end
+
       # --- Scoped queries (for `within`) ---
 
       def find_css(locator, **_options)

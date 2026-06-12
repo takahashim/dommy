@@ -552,7 +552,31 @@ module Dommy
     end
 
     def __internal_set_active_element__(el)
+      # Focus is selector-observable state (:focus / :focus-within rules), so
+      # a change invalidates computed styles.
+      __bump_style_generation__ unless @active_element.equal?(el)
       @active_element = el
+    end
+
+    # The explicitly focused element (nil when nothing holds focus) — what
+    # :focus matches. Distinct from #active_element, which falls back to
+    # <body> per spec.
+    def __focused_element__
+      @active_element
+    end
+
+    # The element the (virtual) pointer hovers — :hover matches it and its
+    # ancestors. Set from tests or capybara-dommy's Node#hover; nil clears.
+    def __hovered_element__
+      @hovered_element
+    end
+
+    def __set_hovered_element__(el)
+      return if @hovered_element.equal?(el)
+
+      @hovered_element = el
+      __bump_style_generation__
+      nil
     end
 
     # Create a detached Attr. `setAttributeNode` attaches it to an

@@ -2589,16 +2589,8 @@ module Dommy
     #   syntactically invalid → SyntaxError (querySelector/closest must throw);
     # - an "Unregistered function" means a valid pseudo Nokogiri compiled but
     #   can't evaluate (`:hover`, `:invalid`, …) → degrade to matching nothing.
-    def with_selector_errors(selector)
-      yield
-    rescue ::StandardError => e
-      return [] if e.message.include?("Unregistered function")
-
-      if (defined?(::Nokogiri::CSS::SyntaxError) && e.is_a?(::Nokogiri::CSS::SyntaxError)) || e.message.include?("unexpected")
-        raise DOMException::SyntaxError, "'#{selector}' is not a valid selector."
-      end
-
-      raise
+    def with_selector_errors(selector, &block)
+      Internal.with_selector_errors(selector, &block)
     end
 
     # Web Animations: start an animation on this element.
@@ -2911,6 +2903,15 @@ module Dommy
 
     def matches_selector?(node, selector)
       return false if node.nil?
+
+      # A valid pseudo the backend can't evaluate (`:active`, `:invalid`, …)
+      # degrades to not-matching ([] from the rescue) — the same policy as
+      # the query methods.
+      result = with_selector_errors(selector) { matches_selector_uncaught?(node, selector) }
+      result == [] ? false : result
+    end
+
+    def matches_selector_uncaught?(node, selector)
       return node.document.css(selector).any? { |candidate| candidate == node } unless node.respond_to?(:matches?)
 
       # A detached node (no parent) breaks Nokogiri's `matches?`, which evaluates

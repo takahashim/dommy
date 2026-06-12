@@ -113,10 +113,12 @@ module Dommy
         safe = Internal.backend_safe_selector(selector.to_s)
 
         if Internal.pseudo_post_filtered?(selector.to_s)
-          node = Internal.pseudo_post_filter(Backend.select_all(@document.nokogiri_doc, safe).to_a, selector.to_s, @document).first
+          matched = Internal.with_selector_errors(selector) { Backend.select_all(@document.nokogiri_doc, safe).to_a }
+          node = Internal.pseudo_post_filter(matched, selector.to_s, @document).first
           return wrap(node)
         end
-        wrap(Backend.select_first(@document.nokogiri_doc, safe))
+        node = Internal.with_selector_errors(selector) { Backend.select_first(@document.nokogiri_doc, safe) }
+        wrap(node == [] ? nil : node)
       end
 
       def query_selector_all(selector)
@@ -124,7 +126,7 @@ module Dommy
         Internal.validate_selector!(selector)
         safe = Internal.backend_safe_selector(selector.to_s)
 
-        nodes = Backend.select_all(@document.nokogiri_doc, safe).to_a
+        nodes = Internal.with_selector_errors(selector) { Backend.select_all(@document.nokogiri_doc, safe).to_a }
         nodes = Internal.pseudo_post_filter(nodes, selector.to_s, @document)
         NodeList.new(nodes.map { |node| wrap(node) }.compact)
       end

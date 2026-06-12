@@ -96,6 +96,17 @@ module Dommy
         s = s.gsub(ENABLED_DISABLED_PSEUDO, "")
         s = "*" if s.strip.empty?
       end
+      # State pseudo-classes (`:hover` / `:focus` / `:focus-within` /
+      # `:focus-visible` / `:checked`) depend on DOM state the backends don't
+      # track, so strip them and post-filter against the document's
+      # hovered/focused element and the controls' checkedness. The same
+      # filter serves querySelector*, Element#matches, and the CSS cascade.
+      # (Like :enabled above, an occurrence inside :not() over-simplifies.)
+      if s =~ STATE_PSEUDO
+        s = s.gsub(/(^|[\s>+~,(])\s*:(?:hover|focus-within|focus-visible|focus|checked)(?![\w-])/) { "#{Regexp.last_match(1)}*" }
+        s = s.gsub(STATE_PSEUDO, "")
+        s = "*" if s.strip.empty?
+      end
       return s unless s.include?('\\') && s.match?(ATTR_ESCAPED_COLON)
 
       kept = split_selector_list(s).reject { |clause| clause.match?(ATTR_ESCAPED_COLON) }
@@ -128,13 +139,36 @@ module Dommy
     ENABLEABLE_ELEMENTS = %w[button input select textarea optgroup option fieldset].freeze
     ENABLED_DISABLED_PSEUDO = /:(?:enabled|disabled)(?![\w-])/
 
+    # State pseudo-classes evaluated by post-filter against DOM state
+    # (longest alternatives first so :focus doesn't shadow :focus-within).
+    STATE_PSEUDO = /:(?:hover|focus-within|focus-visible|focus|checked)(?![\w-])/
+
+    # Run a backend selector evaluation with the shared error policy:
+    # - an "Unregistered function" means a valid pseudo the backend compiled
+    #   but can't evaluate (`:active`, `:invalid`, …) → degrade to no match
+    #   (returns []),
+    # - a backend syntax complaint becomes a DOMException::SyntaxError,
+    # - anything else propagates.
+    def self.with_selector_errors(selector)
+      yield
+    rescue ::StandardError => e
+      return [] if e.message.include?("Unregistered function")
+
+      if (defined?(::Nokogiri::CSS::SyntaxError) && e.is_a?(::Nokogiri::CSS::SyntaxError)) || e.message.include?("unexpected")
+        raise DOMException::SyntaxError, "'#{selector}' is not a valid selector."
+      end
+
+      raise
+    end
+
     # Whether `selector` uses a pseudo-class the backend can't match and we
-    # post-filter (`:lang()`, `:target`, `:enabled` / `:disabled`).
+    # post-filter (`:lang()`, `:target`, `:enabled` / `:disabled`, and the
+    # state pseudo-classes `:hover` / `:focus*` / `:checked`).
     def self.pseudo_post_filtered?(selector)
       s = selector.to_s
       return true unless lang_pseudo_value(s).nil?
 
-      (s =~ /:target(?![\w-])/ || s =~ ENABLED_DISABLED_PSEUDO) ? true : false
+      (s =~ /:target(?![\w-])/ || s =~ ENABLED_DISABLED_PSEUDO || s =~ STATE_PSEUDO) ? true : false
     end
 
     # Filter backend `nodes` (already matched against the stripped selector) by
@@ -154,7 +188,48 @@ module Dommy
       if s =~ /:disabled(?![\w-])/
         nodes = nodes.select { |n| enableable?(n) && form_control_disabled?(n) }
       end
+      if s =~ /:hover(?![\w-])/
+        hovered = document&.__hovered_element__
+        nodes = hovered ? nodes.select { |n| self_or_ancestor_of?(n, hovered, document) } : []
+      end
+      if s =~ /:focus(?![\w-])/ || s =~ /:focus-visible(?![\w-])/
+        focused = document&.__focused_element__
+        nodes = focused ? nodes.select { |n| document.wrap_node(n) == focused } : []
+      end
+      if s =~ /:focus-within(?![\w-])/
+        focused = document&.__focused_element__
+        nodes = focused ? nodes.select { |n| self_or_ancestor_of?(n, focused, document) } : []
+      end
+      if s =~ /:checked(?![\w-])/
+        nodes = nodes.select { |n| checked_state?(document&.wrap_node(n)) }
+      end
       nodes
+    end
+
+    # `:hover` matches the hovered element and all its ancestors; same shape
+    # for `:focus-within` against the focused element.
+    def self.self_or_ancestor_of?(backend_node, target, document)
+      element = document.wrap_node(backend_node)
+      return false unless element
+
+      element == target || (element.respond_to?(:contains?) && element.contains?(target))
+    end
+
+    # `:checked`'s checkedness/selectedness is live state, not the attribute:
+    # checkbox/radio inputs match on the checked property (which defaults to
+    # the attribute), <option> on selectedness.
+    def self.checked_state?(element)
+      return false unless element
+
+      case element.tag_name
+      when "INPUT"
+        %w[checkbox radio].include?(element.respond_to?(:type) ? element.type.to_s : "") &&
+          element.respond_to?(:checked) && !!element.checked
+      when "OPTION"
+        element.respond_to?(:selected) && !!element.selected
+      else
+        false
+      end
     end
 
     # `:enabled` / `:disabled` apply only to disableable form controls — not to

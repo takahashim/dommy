@@ -302,6 +302,9 @@ module Dommy
 
     def checked=(v)
       @__checked = !!v
+      # Checkedness is property state (no attribute mutation fires), yet it
+      # is selector-observable via :checked — invalidate computed styles.
+      @document&.__bump_style_generation__
     end
 
     def labels
