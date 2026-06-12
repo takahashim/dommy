@@ -59,24 +59,14 @@ module Dommy
 
     def query_selector(selector)
       return nil if selector.nil?
-      Internal.validate_selector!(selector)
-      safe = Internal.backend_safe_selector(selector.to_s)
-
-      if Internal.pseudo_post_filtered?(selector.to_s)
-        node = Internal.pseudo_post_filter(@__node__.css(safe).to_a, selector.to_s, @document).first
-        return @document.wrap_node(node)
-      end
-      @document.wrap_node(@__node__.at_css(safe))
+      ast = Internal::SelectorParser.parse!(selector)
+      Internal::SelectorMatcher.query(self, ast, scope: self).first
     end
 
     def query_selector_all(selector)
       return NodeList.new if selector.nil?
-      Internal.validate_selector!(selector)
-      safe = Internal.backend_safe_selector(selector.to_s)
-
-      nodes = @__node__.css(safe).to_a
-      nodes = Internal.pseudo_post_filter(nodes, selector.to_s, @document)
-      NodeList.new(nodes.map { |n| @document.wrap_node(n) }.compact)
+      ast = Internal::SelectorParser.parse!(selector)
+      NodeList.new(Internal::SelectorMatcher.query(self, ast, scope: self))
     end
 
     def get_element_by_id(id)
@@ -1479,17 +1469,8 @@ module Dommy
 
     def matches?(selector)
       return false if selector.nil?
-      Internal.validate_selector!(selector)
-
-      # `:scope` pseudo — match against this element itself.
-      sel = Internal.backend_safe_selector(selector.to_s).gsub(":scope", "*:nth-last-child(n)")
-      return false unless matches_selector?(@__node__, sel)
-      # `:lang(x)` / `:target` are stripped for the backend; enforce them here.
-      if Internal.pseudo_post_filtered?(selector.to_s)
-        return Internal.pseudo_post_filter([@__node__], selector.to_s, @document).any?
-      end
-
-      true
+      ast = Internal::SelectorParser.parse!(selector)
+      Internal::SelectorMatcher.matches?(self, ast, scope: self)
     end
 
     def get_elements_by_class_name(name)
@@ -2565,23 +2546,8 @@ module Dommy
 
     def closest(selector)
       return nil if selector.nil?
-      Internal.validate_selector!(selector)
-
-      # Elements matching the selector (scoped to this element, so `:scope`
-      # resolves here), then return the nearest inclusive ancestor among them.
-      safe = Internal.backend_safe_selector(selector.to_s)
-      matched = with_selector_errors(selector) do
-        Backend.select_all(@document.nokogiri_doc, safe, scope_node: @__node__).map(&:pointer_id)
-      end
-
-      node = @__node__
-      while node&.element?
-        return @document.wrap_node(node) if matched.include?(node.pointer_id)
-
-        node = node.parent
-      end
-
-      nil
+      ast = Internal::SelectorParser.parse!(selector)
+      Internal::SelectorMatcher.closest(self, ast)
     end
 
     # Map Nokogiri's selector errors to spec behavior:
@@ -2617,40 +2583,14 @@ module Dommy
       return nil if selector.nil?
       # The empty string is not a valid selector (an explicit DOMString "" is a
       # SyntaxError; `null` coerces to "null" and is handled above as nil).
-      Internal.validate_selector!(selector)
-
-      @document.wrap_node(scoped_query(selector.to_s).first)
+      ast = Internal::SelectorParser.parse!(selector)
+      Internal::SelectorMatcher.query(self, ast, scope: self).first
     end
 
     def query_selector_all(selector)
       return NodeList.new if selector.nil?
-      Internal.validate_selector!(selector)
-
-      NodeList.new(scoped_query(selector.to_s).map { |node| @document.wrap_node(node) }.compact)
-    end
-
-    # Run a CSS query rooted at this element. A `:scope` selector must resolve to
-    # this element, but Nokogiri scopes `el.css` to descendants (`.//`), which
-    # excludes the element itself — so for `:scope` queries we evaluate against
-    # the whole document (where this element IS reachable) and restrict the
-    # results to this element's own subtree.
-    def scoped_query(sel)
-      safe = Internal.backend_safe_selector(sel)
-      nodes = with_selector_errors(sel) do
-        if safe.include?(":scope")
-          self_id = @__node__.pointer_id
-          Backend.select_all(@document.nokogiri_doc, safe, scope_node: @__node__).select do |n|
-            n.ancestors.any? { |a| a.pointer_id == self_id }
-          end
-        else
-          Backend.select_all(@__node__, safe)
-        end
-      end
-      return nodes unless Internal.pseudo_post_filtered?(sel)
-
-      # `safe` dropped backend-unsupported pseudos (`:enabled`, `:lang()`, …);
-      # re-apply their real semantics to the backend's broader result.
-      Internal.pseudo_post_filter(nodes.to_a, sel, @document)
+      ast = Internal::SelectorParser.parse!(selector)
+      NodeList.new(Internal::SelectorMatcher.query(self, ast, scope: self))
     end
 
     # XPath queries scoped to this element, returning wrapped nodes.

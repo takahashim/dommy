@@ -3,6 +3,8 @@
 require_relative "parser"
 require_relative "media_query"
 require_relative "ua_stylesheet"
+require_relative "../selector_ast"
+require_relative "../selector_matcher"
 
 module Dommy
   module Internal
@@ -22,6 +24,7 @@ module Dommy
         def initialize(document)
           @document = document
           @index = {}.compare_by_identity
+          @pseudo_index = Hash.new { |h, k| h[k] = {}.compare_by_identity }
           @order = 0
           add_rules(UAStylesheet.rules, :ua)
           author_sheets.each { |rules| add_rules(rules, :author) }
@@ -29,8 +32,12 @@ module Dommy
 
         EMPTY = [].freeze
 
-        def matches_for(element)
-          @index[element] || EMPTY
+        def matches_for(element, pseudo_element = nil)
+          if pseudo_element
+            (@pseudo_index[pseudo_name(pseudo_element)] || EMPTY)[element] || EMPTY
+          else
+            @index[element] || EMPTY
+          end
         end
 
         # True when the document carries any author CSS at all — lets
@@ -70,8 +77,10 @@ module Dommy
             @order += 1
             @author_rules ||= origin == :author
             rule.selectors.each do |selector|
-              query(selector.text).each do |element|
-                (@index[element] ||= []) << Match.new(origin, selector.specificity, @order, rule.declarations)
+              pseudo = selector.ast.selectors.find(&:pseudo_element?)&.pseudo_element&.name
+              target_index = pseudo ? @pseudo_index[pseudo] : @index
+              query(selector.ast).each do |element|
+                (target_index[element] ||= []) << Match.new(origin, selector.specificity, @order, rule.declarations)
               end
             end
           end
@@ -86,12 +95,20 @@ module Dommy
           end
         end
 
-        # Selector matching is the backend's job; selectors it can't evaluate
-        # (e.g. state pseudo-classes, Phase 4) degrade to matching nothing.
-        def query(selector_text)
-          @document.query_selector_all(selector_text).to_a
-        rescue StandardError
-          EMPTY
+        def query(selector_ast)
+          ast = strip_pseudo_elements(selector_ast)
+          Internal::SelectorMatcher.query(@document, ast)
+        end
+
+        def strip_pseudo_elements(selector_ast)
+          selectors = selector_ast.selectors.map do |complex|
+            complex.pseudo_element? ? complex.without_pseudo_element : complex
+          end
+          Internal::SelectorAST::SelectorList.new(selectors)
+        end
+
+        def pseudo_name(pseudo_element)
+          pseudo_element.to_s.delete_prefix("::").delete_prefix(":")
         end
       end
     end

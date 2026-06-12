@@ -32,12 +32,18 @@ module Dommy
         # The computed style of `element` as a frozen Hash of
         # "property" => "value" strings. Raises Parser::Unavailable when the
         # makiri-backed CSS parser is missing.
-        def computed_style(element)
+        def computed_style(element, pseudo_element: nil)
           document = element.owner_document
           return {}.freeze unless document
 
           cache = style_cache(document)
-          cache[:computed][element] ||= compute(element, document).freeze
+          if pseudo_element
+            cache[:pseudo_computed] ||= {}
+            pseudo_cache = (cache[:pseudo_computed][pseudo_name(pseudo_element)] ||= {}.compare_by_identity)
+            pseudo_cache[element] ||= compute(element, document, pseudo_element: pseudo_element).freeze
+          else
+            cache[:computed][element] ||= compute(element, document).freeze
+          end
         end
 
         # Cheap per-generation gate used by visibility checks: does the
@@ -58,6 +64,7 @@ module Dommy
             cache = {
               generation: document.style_generation,
               computed: {}.compare_by_identity,
+              pseudo_computed: {},
             }
             document.__css_style_cache__ = cache
           end
@@ -70,11 +77,15 @@ module Dommy
           style_cache(document)[:index] ||= RuleIndex.build(document)
         end
 
-        def compute(element, document)
-          winners, ua_winners = collect_winners(element, index_for(document))
+        def compute(element, document, pseudo_element: nil)
+          winners, ua_winners = collect_winners(element, index_for(document), pseudo_element: pseudo_element)
 
-          parent = element.parent_element
-          parent_styles = parent ? computed_style(parent) : nil
+          parent = pseudo_element ? nil : element.parent_element
+          parent_styles = if pseudo_element
+            computed_style(element)
+          else
+            parent ? computed_style(parent) : nil
+          end
 
           custom = resolve_custom_properties(winners, ua_winners, parent_styles)
 
@@ -150,7 +161,7 @@ module Dommy
 
         # Gather the winning declaration per property — and separately the
         # winning UA declaration, which is what `revert` rolls back to.
-        def collect_winners(element, index)
+        def collect_winners(element, index, pseudo_element: nil)
           winners = {}
           ua_winners = {}
 
@@ -164,7 +175,7 @@ module Dommy
             end
           end
 
-          index.matches_for(element).each do |match|
+          index.matches_for(element, pseudo_element).each do |match|
             match.declarations.each_with_index do |decl, position|
               rank = precedence(match.origin, decl.important, match.specificity, match.order, position)
               PropertyRegistry.expand(decl.name, decl.value).each do |(name, value)|
@@ -173,10 +184,12 @@ module Dommy
             end
           end
 
-          inline_declarations(element).each_with_index do |(name, value, important), position|
-            rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position)
-            PropertyRegistry.expand(name, value).each do |(n, v)|
-              consider.call(n, v, rank, :inline)
+          unless pseudo_element
+            inline_declarations(element).each_with_index do |(name, value, important), position|
+              rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position)
+              PropertyRegistry.expand(name, value).each do |(n, v)|
+                consider.call(n, v, rank, :inline)
+              end
             end
           end
 
@@ -275,6 +288,10 @@ module Dommy
         def px_of(value)
           match = value.to_s.match(/\A(-?\d+(?:\.\d+)?)px\z/i)
           match && match[1].to_f
+        end
+
+        def pseudo_name(pseudo_element)
+          pseudo_element.to_s.delete_prefix("::").delete_prefix(":")
         end
       end
     end

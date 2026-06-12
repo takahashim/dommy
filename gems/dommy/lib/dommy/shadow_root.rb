@@ -83,15 +83,17 @@ module Dommy
     end
 
     def query_selector(selector)
-      return nil if selector.nil? || selector.to_s.empty?
+      return nil if selector.nil?
 
-      @document.wrap_node(@__node__.at_css(selector.to_s))
+      ast = Internal::SelectorParser.parse!(selector)
+      Internal::SelectorMatcher.query(self, ast, scope: self).first
     end
 
     def query_selector_all(selector)
-      return NodeList.new if selector.nil? || selector.to_s.empty?
+      return NodeList.new if selector.nil?
 
-      NodeList.new(@__node__.css(selector.to_s).map { |n| @document.wrap_node(n) }.compact)
+      ast = Internal::SelectorParser.parse!(selector)
+      NodeList.new(Internal::SelectorMatcher.query(self, ast, scope: self))
     end
 
     def get_element_by_id(id)

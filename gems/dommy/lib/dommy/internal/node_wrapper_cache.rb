@@ -109,26 +109,14 @@ module Dommy
 
       def query_selector(selector)
         return nil if selector.nil?
-        Internal.validate_selector!(selector)
-        safe = Internal.backend_safe_selector(selector.to_s)
-
-        if Internal.pseudo_post_filtered?(selector.to_s)
-          matched = Internal.with_selector_errors(selector) { Backend.select_all(@document.nokogiri_doc, safe).to_a }
-          node = Internal.pseudo_post_filter(matched, selector.to_s, @document).first
-          return wrap(node)
-        end
-        node = Internal.with_selector_errors(selector) { Backend.select_first(@document.nokogiri_doc, safe) }
-        wrap(node == [] ? nil : node)
+        ast = Internal::SelectorParser.parse!(selector)
+        Internal::SelectorMatcher.query(@document, ast).first
       end
 
       def query_selector_all(selector)
         return NodeList.new if selector.nil?
-        Internal.validate_selector!(selector)
-        safe = Internal.backend_safe_selector(selector.to_s)
-
-        nodes = Internal.with_selector_errors(selector) { Backend.select_all(@document.nokogiri_doc, safe).to_a }
-        nodes = Internal.pseudo_post_filter(nodes, selector.to_s, @document)
-        NodeList.new(nodes.map { |node| wrap(node) }.compact)
+        ast = Internal::SelectorParser.parse!(selector)
+        NodeList.new(Internal::SelectorMatcher.query(@document, ast))
       end
 
       def get_element_by_id(id)

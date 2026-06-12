@@ -73,4 +73,30 @@ class TestSelectorParser < Minitest::Test
       assert_equal sel, SP.matchable_selector(sel), sel
     end
   end
+
+  def test_parse_returns_ast_and_specificity
+    ast = SP.parse!("input:checked + label")
+    assert_equal [0, 1, 2], ast.specificity.to_a
+
+    ast = SP.parse!(":is(:checked, .x)")
+    assert_equal [0, 1, 0], ast.specificity.to_a
+
+    ast = SP.parse!("section:not(:has(h1, h2))")
+    assert_equal [0, 0, 2], ast.specificity.to_a
+
+    ast = SP.parse!(":nth-child(2n+1 of .x)")
+    assert_equal [0, 2, 0], ast.specificity.to_a
+  end
+
+  def test_is_and_where_are_forgiving
+    assert SP.valid?(":is(.x, :unknown)")
+    assert SP.valid?(":where(.x, :unknown)")
+  end
+
+  def test_not_and_has_are_not_forgiving
+    refute SP.valid?(":not(.x, :unknown)")
+    refute SP.valid?(":has(.x, :unknown)")
+    refute SP.valid?(":has(:has(.x))")
+    refute SP.valid?(":has(::before)")
+  end
 end

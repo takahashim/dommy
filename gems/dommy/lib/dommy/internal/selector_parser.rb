@@ -2,6 +2,8 @@
 
 require "set"
 
+require_relative "selector_ast"
+
 module Dommy
   module Internal
     # A CSS Selectors (Level 4) *validator*: parses a selector string against the
@@ -39,13 +41,17 @@ module Dommy
 
       module_function
 
+      def parse!(selector)
+        new_parser(selector.to_s).parse_selector_list!
+      rescue InvalidSelector => e
+        raise ::Dommy::DOMException::SyntaxError, "'#{selector}' is not a valid selector: #{e.message}"
+      end
+
       # Validate `selector`; raise DOMException::SyntaxError if it is not a valid
       # selector list, else return the original string.
       def validate!(selector)
-        new_parser(selector.to_s).parse_selector_list!
+        parse!(selector)
         selector
-      rescue InvalidSelector => e
-        raise ::Dommy::DOMException::SyntaxError, "'#{selector}' is not a valid selector: #{e.message}"
       end
 
       # True when `selector` parses cleanly (no raise).
@@ -104,29 +110,32 @@ module Dommy
         def parse_selector_list!
           skip_ws
           fail!("empty selector") if eof?
-          record_clause { parse_complex_selector! }
+          selectors = []
+          selectors << record_clause { parse_complex_selector! }
           while peek == ","
             advance
             skip_ws
             fail!("empty selector in list") if eof? || peek == ","
-            record_clause { parse_complex_selector! }
+            selectors << record_clause { parse_complex_selector! }
           end
           skip_ws
           fail!("unexpected #{peek.inspect}") unless eof?
+          SelectorAST::SelectorList.new(selectors)
         end
 
         # Capture a clause's source text + whether its subject is a pseudo-element.
         def record_clause
           start = @i
-          pseudo_subject = yield
-          @clauses << {text: @s[start...@i].strip, pseudo_subject: pseudo_subject}
+          complex = yield
+          @clauses << {text: @s[start...@i].strip, pseudo_subject: complex.pseudo_element?}
+          complex
         end
 
         # complex := <compound> ( <combinator> <compound> )*
         # combinator is one of > + ~ >> || or descendant (whitespace). Returns
         # whether the SUBJECT (last) compound is a pseudo-element.
         def parse_complex_selector!
-          pseudo_subject = parse_compound_selector!
+          parts = [SelectorAST::Part.new(nil, parse_compound_selector!)]
           loop do
             had_ws = skip_ws
             # `)` ends a complex selector nested in a functional pseudo
@@ -134,18 +143,18 @@ module Dommy
             break if eof? || peek == "," || peek == ")"
 
             if combinator_char?(peek)
-              consume_combinator!
+              combinator = consume_combinator!
               skip_ws
               fail!("dangling combinator") if eof? || peek == "," || combinator_char?(peek)
-              pseudo_subject = parse_compound_selector!
+              parts << SelectorAST::Part.new(combinator, parse_compound_selector!)
             elsif had_ws
               # Descendant combinator (whitespace) — next must be a compound.
-              pseudo_subject = parse_compound_selector!
+              parts << SelectorAST::Part.new(:descendant, parse_compound_selector!)
             else
               fail!("unexpected #{peek.inspect}")
             end
           end
-          pseudo_subject
+          SelectorAST::ComplexSelector.new(parts)
         end
 
         # One explicit combinator token: > , + , ~ , >> , || .
@@ -154,14 +163,21 @@ module Dommy
           case c
           when ">"
             advance
-            advance if peek == ">" # legacy descendant `>>`
+            if peek == ">" # legacy descendant `>>`
+              advance
+              :descendant
+            else
+              :child
+            end
           when "+", "~"
             advance
             fail!("invalid combinator") if peek == c # `++`, `~~`
+            c == "+" ? :next_sibling : :subsequent_sibling
           when "|"
             fail!("invalid combinator") unless peek(1) == "|"
             advance
             advance
+            :column
           else
             fail!("invalid combinator #{c.inspect}")
           end
@@ -176,22 +192,29 @@ module Dommy
         # whether the compound includes a pseudo-element (always the last token).
         def parse_compound_selector!
           saw_any = false
-          pseudo_element = false
+          type = nil
+          subclasses = []
+          pseudo_element = nil
           # Optional leading type/universal (may carry a namespace prefix).
           if type_start?
-            parse_type_or_universal!
+            type = parse_type_or_universal!
             saw_any = true
           end
           loop do
             case peek
             when "#"
-              parse_id!
+              subclasses << parse_id!
             when "."
-              parse_class!
+              subclasses << parse_class!
             when "["
-              parse_attribute!
+              subclasses << parse_attribute!
             when ":"
-              pseudo_element = parse_pseudo!
+              parsed = parse_pseudo!
+              if parsed.is_a?(SelectorAST::PseudoElement)
+                pseudo_element = parsed
+              else
+                subclasses << parsed
+              end
             else
               break
             end
@@ -199,7 +222,7 @@ module Dommy
           end
           fail!("empty compound selector") unless saw_any
 
-          pseudo_element
+          SelectorAST::CompoundSelector.new(type, subclasses, pseudo_element)
         end
 
         # A compound may start with a type/universal selector when the next token
@@ -215,11 +238,12 @@ module Dommy
 
         # type := [<ns-prefix>]? (<ident> | '*')
         def parse_type_or_universal!
-          parse_namespace_prefix! if namespace_prefix_ahead?
+          ns = namespace_prefix_ahead? ? parse_namespace_prefix! : nil
           if peek == "*"
             advance
+            SelectorAST::UniversalSelector.new(ns)
           elsif ident_start?
-            consume_ident!
+            SelectorAST::TypeSelector.new(ns, consume_ident!)
           else
             fail!("expected type selector")
           end
@@ -244,18 +268,22 @@ module Dommy
 
         # ns-prefix := (<ident> | '*')? '|'  — any *named* prefix is undeclared.
         def parse_namespace_prefix!
+          ns = nil
           if peek == "*"
             advance
+            ns = :any
           elsif peek == "|"
             # empty (no-namespace) prefix
+            ns = :none
           elsif ident_start?
-            consume_ident!
+            ns = consume_ident!
             fail_undeclared_namespace!
           else
             fail!("invalid namespace prefix")
           end
           fail!("expected '|' in namespace prefix") unless peek == "|"
           advance
+          ns
         end
 
         def fail_undeclared_namespace!
@@ -266,14 +294,14 @@ module Dommy
         def parse_id!
           advance # consume '#'
           fail!("invalid id") unless name_char_start?(allow_leading_digit: true)
-          consume_name!
+          SelectorAST::IdSelector.new(consume_name!)
         end
 
         # class := '.' <ident>
         def parse_class!
           advance # consume '.'
           fail!("invalid class") unless ident_start?
-          consume_ident!
+          SelectorAST::ClassSelector.new(consume_ident!)
         end
 
         # attribute := '[' WS? [<ns-prefix>]? <ident> WS?
@@ -281,24 +309,28 @@ module Dommy
         def parse_attribute!
           advance # consume '['
           skip_ws
-          parse_namespace_prefix! if attribute_namespace_prefix_ahead?
+          ns = attribute_namespace_prefix_ahead? ? parse_namespace_prefix! : nil
           fail!("invalid attribute name") unless ident_start?
-          consume_ident!
+          name = consume_ident!
           skip_ws
+          matcher = nil
+          value = nil
+          flag = nil
           unless peek == "]"
-            consume_attr_matcher!
+            matcher = consume_attr_matcher!
             skip_ws
-            consume_attr_value!
+            value = consume_attr_value!
             skip_ws
-            consume_attr_flag! if ident_start?
+            flag = consume_attr_flag! if ident_start?
             skip_ws
           end
           # Per CSS tokenizing, EOF implicitly closes an open `[` — so a trailing
           # unclosed attribute selector (`[align="center"`) is still valid.
-          return if eof?
+          return SelectorAST::AttributeSelector.new(ns, name, matcher, value, flag) if eof?
 
           fail!("unclosed attribute selector") unless peek == "]"
           advance
+          SelectorAST::AttributeSelector.new(ns, name, matcher, value, flag)
         end
 
         # Inside `[...]`, a namespace prefix precedes the attribute name. `*|` is
@@ -323,8 +355,10 @@ module Dommy
             advance
             fail!("invalid attribute matcher") unless peek == "="
             advance
+            "#{c}="
           elsif c == "="
             advance
+            "="
           else
             fail!("invalid attribute selector")
           end
@@ -346,6 +380,7 @@ module Dommy
           fail!("invalid attribute flag") unless %w[i I s S].include?(flag)
           advance
           fail!("invalid attribute flag") unless eof? || WS.include?(peek) || peek == "]"
+          flag.downcase
         end
 
         # The four pseudo-elements that also accept the legacy one-colon syntax;
@@ -360,7 +395,6 @@ module Dommy
           if peek == ":"
             advance # pseudo-element '::'
             parse_pseudo_element!
-            true
           else
             parse_pseudo_class!
           end
@@ -369,11 +403,13 @@ module Dommy
         def parse_pseudo_element!
           fail!("invalid pseudo-element") unless ident_start?
           name = consume_ident!.downcase
+          argument = nil
           if peek == "("
-            consume_function_args!(name, pseudo_element: true)
+            argument = consume_function_args!(name, pseudo_element: true)
           else
             fail!("unknown pseudo-element '#{name}'") unless KNOWN_PSEUDO_ELEMENTS.include?(name)
           end
+          SelectorAST::PseudoElement.new(name, argument)
         end
 
         # Returns true when the `:name` is actually a legacy pseudo-element.
@@ -381,118 +417,62 @@ module Dommy
           fail!("invalid pseudo-class") unless ident_start?
           name = consume_ident!.downcase
           if peek == "("
-            consume_function_args!(name, pseudo_element: false)
-            false
+            SelectorAST::PseudoClass.new(name, consume_function_args!(name, pseudo_element: false))
           else
             fail!("unknown pseudo-class '#{name}'") unless KNOWN_PSEUDOS.include?(name)
-            LEGACY_PSEUDO_ELEMENTS.include?(name)
+            if LEGACY_PSEUDO_ELEMENTS.include?(name)
+              SelectorAST::PseudoElement.new(name, nil)
+            else
+              SelectorAST::PseudoClass.new(name, nil)
+            end
           end
         end
 
         # Validate `name(...)` per the function's argument grammar.
         def consume_function_args!(name, pseudo_element:)
           advance # consume '('
-          skip_ws
+          arg = consume_function_argument_source
+          arg_parser = Parser.new(arg)
           if pseudo_element
             # ::slotted(<compound>), ::part(<ident>+), ::cue(<selector>), …
             case name
-            when "slotted" then parse_complex_selector!
-            when "part" then consume_ident_sequence!
-            else parse_complex_selector!
+            when "slotted" then arg_parser.parse_complex_selector!
+            when "part" then arg.split(/\s+/).reject(&:empty?)
+            else arg_parser.parse_complex_selector!
             end
-          elsif SELECTOR_LIST_FUNCTIONS.include?(name)
-            parse_inner_selector_list!
+          elsif %w[is where matches].include?(name)
+            parse_selector_argument_list(arg, forgiving: true)
+          elsif name == "not"
+            parse_selector_argument_list(arg, forgiving: false)
+          elsif name == "has"
+            rels = parse_relative_selector_argument_list(arg)
+            fail!("nested :has() is invalid") if arg.match?(/:has\(/i)
+            fail!("pseudo-element in :has() is invalid") if rels.any? { |r| r.complex.pseudo_element? }
+            rels
           elsif NTH_FUNCTIONS.include?(name)
-            consume_nth!
+            parse_nth_argument(arg, allow_of: %w[nth-child nth-last-child].include?(name))
           elsif IDENT_FUNCTIONS.include?(name)
-            consume_ident_sequence!
+            parse_ident_argument(arg)
           elsif NESTED_SELECTOR_FUNCTIONS.include?(name)
-            parse_inner_selector_list!
+            parse_selector_argument_list(arg, forgiving: false)
           elsif KNOWN_PSEUDOS.include?(name)
             # A known pseudo used functionally we don't model the args of — accept
             # a balanced, non-empty argument run.
-            consume_balanced_until_close!
+            fail!("empty function arguments") if arg.strip.empty?
+            arg.strip
           else
             fail!("unknown functional pseudo-class '#{name}'")
           end
+        end
+
+        def consume_function_argument_source
           skip_ws
-          # EOF implicitly closes an open `(` (`::slotted(foo`), like the `[`
-          # case above.
-          return if eof?
-
-          fail!("unclosed pseudo-class function") unless peek == ")"
-          advance
-        end
-
-        # A selector list inside :not()/:is()/:where()/:has() — `:has` allows a
-        # leading combinator (relative selector), the others do not.
-        def parse_inner_selector_list!
-          skip_ws
-          consume_combinator! if combinator_char?(peek) # tolerate relative selectors
-          skip_ws
-          parse_complex_selector!
-          while peek == ","
-            advance
-            skip_ws
-            consume_combinator! if combinator_char?(peek)
-            skip_ws
-            parse_complex_selector!
-          end
-        end
-
-        # An+B microsyntax (`2n`, `-3n+1`, `odd`, `even`, `5`, `n`).
-        def consume_nth!
-          word = peek_word.downcase
-          if word == "odd" || word == "even"
-            consume_ident!
-            return
-          end
-          consumed = false
-          if peek == "+" || peek == "-"
-            advance
-            consumed = true
-          end
-          while digit?(peek)
-            advance
-            consumed = true
-          end
-          if peek == "n" || peek == "N"
-            advance
-            consumed = true
-            skip_ws
-            if peek == "+" || peek == "-"
-              advance
-              skip_ws
-              fail!("invalid An+B") unless digit?(peek)
-              advance while digit?(peek)
-            end
-          end
-          fail!("invalid An+B expression") unless consumed
-        end
-
-        def consume_ident_sequence!
-          fail!("expected identifier") unless ident_start?
-          consume_ident!
-          loop do
-            skip_ws
-            break unless ident_start? || peek == ","
-
-            advance if peek == ","
-            skip_ws
-            consume_ident! if ident_start?
-          end
-        end
-
-        # Consume a balanced run up to the matching ')' (for pseudo functions we
-        # don't model). Nested ()/[] are balanced; the run must be non-empty.
-        def consume_balanced_until_close!
+          start = @i
           depth = 0
-          started = false
           until eof?
             c = peek
             break if c == ")" && depth.zero?
 
-            started = true
             if c == "(" || c == "["
               depth += 1
             elsif c == ")" || c == "]"
@@ -503,31 +483,133 @@ module Dommy
             end
             advance
           end
-          fail!("empty function arguments") unless started
+          arg = @s[start...@i].to_s.strip
+          fail!("empty function arguments") if arg.empty?
+          advance if peek == ")"
+          arg
+        end
+
+        def parse_selector_argument_list(source, forgiving:)
+          clauses = split_selector_source(source)
+          selectors = []
+          clauses.each do |clause|
+            begin
+              selectors.concat(Parser.new(clause).parse_selector_list!.selectors)
+            rescue InvalidSelector
+              raise unless forgiving
+            end
+          end
+          fail!("empty selector list") if selectors.empty?
+          SelectorAST::SelectorList.new(selectors)
+        end
+
+        def parse_relative_selector_argument_list(source)
+          split_selector_source(source).map do |clause|
+            Parser.new(clause).parse_relative_selector!
+          end
+        end
+
+        def parse_relative_selector!
+          skip_ws
+          leading = combinator_char?(peek) ? consume_combinator! : :descendant
+          skip_ws
+          complex = parse_complex_selector!
+          skip_ws
+          fail!("unexpected #{peek.inspect}") unless eof?
+          SelectorAST::RelativeSelector.new(leading, complex)
+        end
+
+        def split_selector_source(source)
+          out = []
+          current = +""
+          depth = 0
+          quote = nil
+          source.each_char do |ch|
+            if quote
+              quote = nil if ch == quote
+            elsif ch == '"' || ch == "'"
+              quote = ch
+            elsif ch == "(" || ch == "["
+              depth += 1
+            elsif ch == ")" || ch == "]"
+              depth -= 1 if depth.positive?
+            elsif ch == "," && depth.zero?
+              out << current.strip
+              current = +""
+              next
+            end
+            current << ch
+          end
+          out << current.strip
+          out.reject(&:empty?)
+        end
+
+        def parse_nth_argument(source, allow_of:)
+          expr = source.strip
+          of_list = nil
+          if allow_of && (match = expr.match(/\s+of\s+/i))
+            anb = expr[0...match.begin(0)].strip
+            selectors = expr[match.end(0)..].strip
+            of_list = parse_selector_argument_list(selectors, forgiving: false)
+          else
+            anb = expr
+          end
+          a, b = parse_an_plus_b(anb)
+          SelectorAST::NthExpression.new(a, b, of_list)
+        end
+
+        def parse_an_plus_b(source)
+          s = source.downcase.gsub(/\s+/, "")
+          return [2, 1] if s == "odd"
+          return [2, 0] if s == "even"
+          return [0, Integer(s)] if s.match?(/\A[+-]?\d+\z/)
+          return [1, 0] if s == "n" || s == "+n"
+          return [-1, 0] if s == "-n"
+          if (m = s.match(/\A([+-]?\d*)n([+-]\d+)?\z/))
+            raw_a = m[1]
+            a = case raw_a
+            when "", "+" then 1
+            when "-" then -1
+            else raw_a.to_i
+            end
+            b = m[2].to_i
+            return [a, b]
+          end
+          fail!("invalid An+B expression")
+        end
+
+        def parse_ident_argument(source)
+          parts = source.split(/\s*,\s*|\s+/).reject(&:empty?)
+          fail!("expected identifier") if parts.empty?
+          parts.length == 1 ? parts.first : parts
         end
 
         # ---- token helpers -------------------------------------------------
 
         def consume_string!
           quote = peek
+          value = +""
           advance
           until eof?
             c = peek
             if c == "\\"
-              advance
-              advance unless eof?
+              start = @i
+              consume_escape!
+              escaped = @s[start...@i]
+              value << decode_css_identifier(escaped)
               next
             elsif c == quote
               advance
-              return
+              return value
             elsif c == "\n"
               fail!("newline in string")
             end
+            value << c
             advance
           end
           # EOF implicitly closes an open string (CSS tokenizing); only a raw
           # newline inside a string is a parse error.
-          nil
+          value
         end
 
         # Consume an identifier (assumes ident_start?). Returns the text.
@@ -543,7 +625,7 @@ module Dommy
             fail!("invalid identifier")
           end
           consume_name_rest!
-          @s[start...@i]
+          decode_css_identifier(@s[start...@i])
         end
 
         # Consume a name (id token body): like an ident but may start with a
@@ -551,7 +633,7 @@ module Dommy
         def consume_name!
           start = @i
           consume_name_rest!(require_one: true)
-          @s[start...@i]
+          decode_css_identifier(@s[start...@i])
         end
 
         def consume_name_rest!(require_one: false)
@@ -574,7 +656,44 @@ module Dommy
         def consume_escape!
           advance # backslash
           fail!("trailing backslash") if eof?
-          advance # at least one char follows
+          if hex_digit?(peek)
+            count = 0
+            while count < 6 && hex_digit?(peek)
+              advance
+              count += 1
+            end
+            advance if !eof? && WS.include?(peek)
+          else
+            advance # at least one char follows
+          end
+        end
+
+        def decode_css_identifier(value)
+          out = +""
+          i = 0
+          while i < value.length
+            c = value[i]
+            unless c == "\\"
+              out << c
+              i += 1
+              next
+            end
+
+            i += 1
+            break if i >= value.length
+
+            hex = value[i, 6].to_s[/\A[0-9A-Fa-f]{1,6}/]
+            if hex
+              codepoint = hex.to_i(16)
+              out << (codepoint.zero? ? "\uFFFD" : codepoint.chr(Encoding::UTF_8))
+              i += hex.length
+              i += 1 if i < value.length && WS.include?(value[i])
+            else
+              out << value[i]
+              i += 1
+            end
+          end
+          out
         end
 
         # ---- character classification --------------------------------------
@@ -616,13 +735,25 @@ module Dommy
 
         def digit?(c) = !c.nil? && c >= "0" && c <= "9"
 
+        def hex_digit?(c) = !c.nil? && c.match?(/[0-9A-Fa-f]/)
+
         # Index just past the identifier starting at `from` (no validation).
         def scan_ident_end(from)
           j = from
           j += 1 if @s[j] == "-"
           while (ch = @s[j])
             if ch == "\\"
-              j += 2
+              j += 1
+              if @s[j]&.match?(/[0-9A-Fa-f]/)
+                count = 0
+                while count < 6 && @s[j]&.match?(/[0-9A-Fa-f]/)
+                  j += 1
+                  count += 1
+                end
+                j += 1 if @s[j] && WS.include?(@s[j])
+              else
+                j += 1 if @s[j]
+              end
             elsif ch.match?(/[A-Za-z0-9_\-]/) || ch.ord >= 0x80
               j += 1
             else

@@ -96,13 +96,11 @@ module Dommy
         s = s.gsub(ENABLED_DISABLED_PSEUDO, "")
         s = "*" if s.strip.empty?
       end
-      # State pseudo-classes (`:hover` / `:focus` / `:focus-within` /
-      # `:focus-visible` / `:checked`) depend on DOM state the backends don't
-      # track, so strip them and post-filter against the document's
-      # hovered/focused element and the controls' checkedness. The same
-      # filter serves querySelector*, Element#matches, and the CSS cascade.
-      # (Like :enabled above, an occurrence inside :not() over-simplifies.)
+      # Legacy backend-safe rewriting for callers that still delegate to a
+      # backend selector engine. The primary DOM query and cascade paths use
+      # SelectorMatcher and do not strip state pseudo-classes.
       if s =~ STATE_PSEUDO
+        s = broaden_state_pseudo_functions(s)
         s = s.gsub(/(^|[\s>+~,(])\s*:(?:hover|focus-within|focus-visible|focus|checked)(?![\w-])/) { "#{Regexp.last_match(1)}*" }
         s = s.gsub(STATE_PSEUDO, "")
         s = "*" if s.strip.empty?
@@ -159,51 +157,6 @@ module Dommy
       end
 
       raise
-    end
-
-    # Whether `selector` uses a pseudo-class the backend can't match and we
-    # post-filter (`:lang()`, `:target`, `:enabled` / `:disabled`, and the
-    # state pseudo-classes `:hover` / `:focus*` / `:checked`).
-    def self.pseudo_post_filtered?(selector)
-      s = selector.to_s
-      return true unless lang_pseudo_value(s).nil?
-
-      (s =~ /:target(?![\w-])/ || s =~ ENABLED_DISABLED_PSEUDO || s =~ STATE_PSEUDO) ? true : false
-    end
-
-    # Filter backend `nodes` (already matched against the stripped selector) by
-    # the post-filtered pseudo-classes the selector carries.
-    def self.pseudo_post_filter(nodes, selector, document)
-      s = selector.to_s
-      if (lang = lang_pseudo_value(s))
-        nodes = nodes.select { |n| lang_match?(n, lang) }
-      end
-      if s =~ /:target(?![\w-])/
-        tid = target_id(document)
-        nodes = tid ? nodes.select { |n| n["id"].to_s == tid } : []
-      end
-      if s =~ /:enabled(?![\w-])/
-        nodes = nodes.select { |n| enableable?(n) && !form_control_disabled?(n) }
-      end
-      if s =~ /:disabled(?![\w-])/
-        nodes = nodes.select { |n| enableable?(n) && form_control_disabled?(n) }
-      end
-      if s =~ /:hover(?![\w-])/
-        hovered = document&.__hovered_element__
-        nodes = hovered ? nodes.select { |n| self_or_ancestor_of?(n, hovered, document) } : []
-      end
-      if s =~ /:focus(?![\w-])/ || s =~ /:focus-visible(?![\w-])/
-        focused = document&.__focused_element__
-        nodes = focused ? nodes.select { |n| document.wrap_node(n) == focused } : []
-      end
-      if s =~ /:focus-within(?![\w-])/
-        focused = document&.__focused_element__
-        nodes = focused ? nodes.select { |n| self_or_ancestor_of?(n, focused, document) } : []
-      end
-      if s =~ /:checked(?![\w-])/
-        nodes = nodes.select { |n| checked_state?(document&.wrap_node(n)) }
-      end
-      nodes
     end
 
     # `:hover` matches the hovered element and all its ancestors; same shape
@@ -269,6 +222,60 @@ module Dommy
           return v if v && !v.to_s.empty?
         end
         node = node.respond_to?(:parent) ? node.parent : nil
+      end
+      nil
+    end
+
+    STATE_FUNCTIONS = %w[not is where has].freeze
+
+    # If a functional pseudo-class contains a state pseudo, dropping only the
+    # state token changes logic (`:not(:hover)` -> `:not(*)`). Drop the whole
+    # function for candidate collection instead; the structural filter above
+    # restores exact semantics.
+    def self.broaden_state_pseudo_functions(selector)
+      s = selector.to_s
+      out = +""
+      i = 0
+      while i < s.length
+        fn = STATE_FUNCTIONS.find do |name|
+          token = s[i, name.length + 2]
+          token && token.casecmp?(":#{name}(")
+        end
+        if fn
+          close = matching_paren_index(s, i + fn.length + 1)
+          if close && s[i..close] =~ STATE_PSEUDO
+            i = close + 1
+            next
+          end
+        end
+        out << s[i]
+        i += 1
+      end
+      out
+    end
+
+    def self.matching_paren_index(string, open_index)
+      depth = 0
+      quote = nil
+      esc = false
+      i = open_index
+      while i < string.length
+        ch = string[i]
+        if esc
+          esc = false
+        elsif ch == "\\"
+          esc = true
+        elsif quote
+          quote = nil if ch == quote
+        elsif ch == '"' || ch == "'"
+          quote = ch
+        elsif ch == "("
+          depth += 1
+        elsif ch == ")"
+          depth -= 1
+          return i if depth.zero?
+        end
+        i += 1
       end
       nil
     end

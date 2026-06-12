@@ -339,11 +339,11 @@ class TestCssCascade < Minitest::Test
     assert_equal "none", declaration["display"]
   end
 
-  def test_get_computed_style_with_pseudo_element_is_empty
-    doc = doc_for('<style>#x::before { content: "!" }</style><p id="x">x</p>')
+  def test_get_computed_style_with_pseudo_element_reflects_cascade
+    doc = doc_for('<style>#x { color: blue } #x::before { color: red; content: "!" }</style><p id="x">x</p>')
     declaration = doc.default_view.get_computed_style(doc.get_element_by_id("x"), "::before")
-    assert_equal "", declaration.get_property_value("content")
-    assert_equal 0, declaration.length
+    assert_equal "rgb(255, 0, 0)", declaration.get_property_value("color")
+    assert_equal "\"!\"", declaration.get_property_value("content")
   end
 
   def test_js_bridge_get_computed_style

@@ -7,8 +7,8 @@ module Dommy
       # CSSOM's "live object" behavior is approximated by recomputing lazily:
       # every read goes through Cascade.computed_style, whose per-generation
       # memo makes repeated reads cheap while DOM mutations show up on the
-      # next read. A pseudo-element argument yields an empty declaration
-      # (Dommy renders no ::before/::after boxes).
+      # next read. ::before/::after expose cascaded computed declarations even
+      # though Dommy renders no generated boxes.
       class ComputedStyleDeclaration
         EMPTY = {}.freeze
 
@@ -100,9 +100,9 @@ module Dommy
         private
 
         def styles
-          return EMPTY if @pseudo_element
+          return EMPTY if @pseudo_element && !%w[::before :before before ::after :after after].include?(@pseudo_element)
 
-          Cascade.computed_style(@element)
+          Cascade.computed_style(@element, pseudo_element: @pseudo_element)
         end
 
         def camel_to_kebab(name)
