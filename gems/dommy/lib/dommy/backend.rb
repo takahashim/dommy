@@ -7,7 +7,7 @@ module Dommy
   # code goes through this facade rather than referencing the parser
   # directly.
   #
-  # Defaults to Nokogiri if available, else Makiri.
+  # Defaults to Makiri if available, else Nokogiri.
   #
   # Switching backends:
   #
@@ -225,9 +225,9 @@ module Dommy
       private
 
       def detect_default
-        try_nokogiri ||
-          try_makiri ||
-          raise(BackendNotAvailable, "Dommy requires either 'nokogiri' or 'makiri' gem to be installed.")
+        try_makiri ||
+          try_nokogiri ||
+          raise(BackendNotAvailable, "Dommy requires either 'makiri' or 'nokogiri' gem to be installed.")
       end
 
       def try_nokogiri

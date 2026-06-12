@@ -9,6 +9,12 @@ end
 # Capabilities capybara-dommy genuinely does not provide (no JavaScript,
 # no layout/rendering, no real browser server). Behavioral differences are
 # fixed across dommy / dommy-rack / capybara-dommy rather than skipped.
+#
+# Verified against the makiri backend (2026-06-12): with every group enabled
+# the suite has 370 failures, all attributable to these capabilities. The
+# closest-to-passing groups still fail on real gaps: shadow_dom (Node#path
+# inside a shadow tree), html_validation (constraint-validation
+# validationMessage), about_scheme (visiting non-http URLs).
 skipped_tests = %i[
   js
   modals
@@ -28,9 +34,4 @@ skipped_tests = %i[
   server
 ]
 
-Capybara::SpecHelper.run_specs(TestSessions::Dommy, "Dommy", capybara_skip: skipped_tests) do |example|
-  case example.metadata[:full_description]
-  when /has_css\? should support case insensitive :class and :id options/
-    skip "Nokogiri doesn't support case insensitive CSS attribute matchers (same as RackTest)"
-  end
-end
+Capybara::SpecHelper.run_specs(TestSessions::Dommy, "Dommy", capybara_skip: skipped_tests)

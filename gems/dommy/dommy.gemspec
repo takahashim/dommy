@@ -21,11 +21,9 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb", "README.md"]
   spec.require_paths = ["lib"]
 
-  # Default HTML parser backend. Nokogiri::HTML5 needs >= 1.12; the floor is
-  # raised to 1.19 to pull in recent security fixes.
-  spec.add_dependency "nokogiri", "~> 1.19"
+  # Default HTML parser backend.
+  spec.add_dependency "makiri", "~> 0.4"
 
-  # Dommy also supports makiri (Lexbor-based parsing + a native XPath engine,
-  # no libxml2) via Dommy::Backend.use(:makiri); install that gem separately to
-  # opt in.
+  # Dommy also supports Nokogiri via Dommy::Backend.use(:nokogiri); install
+  # that gem separately to opt in.
 end
