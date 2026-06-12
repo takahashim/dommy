@@ -23,7 +23,7 @@ module Dommy
 
     attr_reader :document, :scheduler, :location, :globals, :custom_elements, :navigator
 
-    def initialize(host = nil, nokogiri_doc: nil)
+    def initialize(host = nil, backend_doc: nil)
       @host = host
       @scheduler = Scheduler.new
       @crypto = Crypto.new(self)
@@ -38,7 +38,7 @@ module Dommy
       # production code stays on the typed accessors. Kept last in the read
       # fallback so it can't shadow intentional getters.
       @globals = {}
-      @document = Document.new(host, nokogiri_doc: nokogiri_doc)
+      @document = Document.new(host, backend_doc: backend_doc)
       @document.default_view = self
       # Per the HTML parsing algorithm, a <template>'s contents are parsed into a
       # separate "template contents" DocumentFragment, not as children of the
@@ -46,7 +46,7 @@ module Dommy
       # eagerly at page-load time — before any framework walks the tree. Without
       # this, a tree-walk (Alpine's x-for/x-if scan, etc.) descends into the
       # template's inert content and evaluates directives there out of scope.
-      @document.migrate_template_descendants(@document.nokogiri_doc)
+      @document.migrate_template_descendants(@document.backend_doc)
       @custom_elements = CustomElementRegistry.new(self)
       @navigator = Navigator.new(self)
       # All JS global constructors (`new Event()`, `new URL()`, ...) live in a
@@ -355,7 +355,7 @@ module Dommy
         # `new Document()` — a fresh empty document (content type application/xml
         # per the DOM Standard, so it behaves as a non-HTML document).
         "Document" => Bridge::Constructor.new do
-          Document.new(nil, nokogiri_doc: Backend.empty_document).tap { |d| d.content_type = "application/xml" }
+          Document.new(nil, backend_doc: Backend.empty_document).tap { |d| d.content_type = "application/xml" }
         end,
         "Event" => Bridge::Constructor.new { |args| Event.new(args[0], args[1]) },
         "CustomEvent" => Bridge::Constructor.new { |args| CustomEvent.new(args[0], args[1]) },

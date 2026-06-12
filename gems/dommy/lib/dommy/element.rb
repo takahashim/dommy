@@ -122,8 +122,8 @@ module Dommy
         is_default_namespace(args[0])
       when "cloneNode"
         deep = args.empty? ? false : !!args[0]
-        deep ? @document.wrap_node(Parser.fragment(@__node__.to_html, owner_doc: @document.nokogiri_doc)) : @document
-          .wrap_node(Parser.fragment("", owner_doc: @document.nokogiri_doc))
+        deep ? @document.wrap_node(Parser.fragment(@__node__.to_html, owner_doc: @document.backend_doc)) : @document
+          .wrap_node(Parser.fragment("", owner_doc: @document.backend_doc))
       when "querySelector"
         query_selector(Internal.css_query_arg!(args))
       when "querySelectorAll"

@@ -48,13 +48,13 @@ module Dommy
     private
 
     def parse_html(str)
-      nokogiri_doc = Backend.parse(str.empty? ? "<html><body></body></html>" : str)
-      Document.new(nil, nokogiri_doc: nokogiri_doc)
+      backend_doc = Backend.parse(str.empty? ? "<html><body></body></html>" : str)
+      Document.new(nil, backend_doc: backend_doc)
     end
 
     def parse_xml(str, mime_type = "application/xml")
-      nokogiri_doc = Backend.parse_xml(str.empty? ? "<root/>" : str)
-      doc = Document.new(nil, nokogiri_doc: nokogiri_doc)
+      backend_doc = Backend.parse_xml(str.empty? ? "<root/>" : str)
+      doc = Document.new(nil, backend_doc: backend_doc)
       doc.content_type = mime_type
       doc
     end

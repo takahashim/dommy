@@ -48,25 +48,25 @@ module Dommy
           namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
         end
 
-        wrapper = wrap_node(Backend.create_element(local, @document.nokogiri_doc))
+        wrapper = wrap_node(Backend.create_element(local, @document.backend_doc))
         wrapper.__internal_set_namespace__(namespace, nil, local, local)
         wrapper
       end
 
       def create_text_node(text)
-        wrap_node(Backend.create_text(text.to_s, @document.nokogiri_doc))
+        wrap_node(Backend.create_text(text.to_s, @document.backend_doc))
       end
 
       def create_cdata_section(text)
-        wrap_node(Backend.create_cdata(text.to_s, @document.nokogiri_doc))
+        wrap_node(Backend.create_cdata(text.to_s, @document.backend_doc))
       end
 
       def create_comment(text)
-        wrap_node(Backend.create_comment(text.to_s, @document.nokogiri_doc))
+        wrap_node(Backend.create_comment(text.to_s, @document.backend_doc))
       end
 
       def create_document_fragment
-        wrap_node(@document.nokogiri_doc.fragment(""))
+        wrap_node(@document.backend_doc.fragment(""))
       end
 
       def create_attribute(name)
@@ -97,7 +97,7 @@ module Dommy
         qualified_name = domstring(qualified_name)
         ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
-        el = Backend.create_element(qualified_name, @document.nokogiri_doc)
+        el = Backend.create_element(qualified_name, @document.backend_doc)
         Backend.add_namespace_definition(el, prefix, ns) if ns
 
         wrapper = build_element_wrapper(el, namespace: ns, local_name: local)
@@ -122,12 +122,12 @@ module Dommy
       def get_element_by_id(id)
         return nil if id.nil? || id.to_s.empty?
 
-        wrap(@document.nokogiri_doc.at_css("##{id}"))
+        wrap(@document.backend_doc.at_css("##{id}"))
       end
 
       def get_elements_by_tag_name(name)
         n = name.to_s.downcase
-        doc = @document.nokogiri_doc
+        doc = @document.backend_doc
         cache = self
         if n == "*"
           HTMLCollection.new { doc.css("*").map { |x| cache.wrap(x) }.compact }
@@ -137,7 +137,7 @@ module Dommy
       end
 
       def get_elements_by_name(name)
-        doc = @document.nokogiri_doc
+        doc = @document.backend_doc
         cache = self
         key = name.to_s
         HTMLCollection.new do
@@ -147,7 +147,7 @@ module Dommy
 
       def get_elements_by_class_name(name)
         tokens = name.to_s.split(/\s+/).reject(&:empty?)
-        doc = @document.nokogiri_doc
+        doc = @document.backend_doc
         cache = self
         HTMLCollection.new do
           next [] if tokens.empty?

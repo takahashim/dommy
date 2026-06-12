@@ -24,7 +24,7 @@ class TestShadowRootRegistry < Minitest::Test
 
   def test_find_for_fragment_returns_nil_for_unknown_fragment
     registry = Dommy::Internal::ShadowRootRegistry.new
-    other = @doc.nokogiri_doc.fragment("")
+    other = @doc.backend_doc.fragment("")
     assert_nil(registry.find_for_fragment(other))
   end
 

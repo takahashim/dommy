@@ -105,8 +105,8 @@ class TestWPTDocumentAdoptCrossDoc < Minitest::Test
     @target_doc.adopt_node(external)
     # After adoption, the wrapper's internal @document points at
     # the target document, and the underlying Nokogiri node is
-    # registered with the target document's nokogiri_doc.
+    # registered with the target document's backend_doc.
     assert_same(@target_doc, external.instance_variable_get(:@document))
-    assert_same(@target_doc.nokogiri_doc, external.__dommy_backend_node__.document)
+    assert_same(@target_doc.backend_doc, external.__dommy_backend_node__.document)
   end
 end

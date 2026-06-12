@@ -274,7 +274,7 @@ module Dommy
       # The topmost node of an attached subtree is the Nokogiri document, which
       # has no element wrapper — map it to the Document. A detached node's root is
       # itself.
-      return @document if @document && node.equal?(@document.nokogiri_doc)
+      return @document if @document && node.equal?(@document.backend_doc)
 
       (@document && @document.wrap_node(node)) || self
     end

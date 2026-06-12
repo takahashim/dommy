@@ -105,7 +105,7 @@ module Dommy
       # arenas). Used for fragment children, which have no standalone wrapper to
       # reseat.
       def adopt_into_document(node)
-        target = @document.nokogiri_doc
+        target = @document.backend_doc
         node.document == target ? node : Backend.adopt(node, target)
       end
 

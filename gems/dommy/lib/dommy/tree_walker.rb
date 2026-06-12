@@ -350,13 +350,13 @@ module Dommy
     end
 
     # The Nokogiri node backing a wrapper — an element's `__dommy_backend_node__`
-    # or, for a Document (which isn't a wrapped node), its `nokogiri_doc`. Lets a
+    # or, for a Document (which isn't a wrapped node), its `backend_doc`. Lets a
     # walker rooted at the document descend into its children.
     def backend_node_of(node)
       if node.respond_to?(:__dommy_backend_node__)
         node.__dommy_backend_node__
-      elsif node.respond_to?(:nokogiri_doc)
-        node.nokogiri_doc
+      elsif node.respond_to?(:backend_doc)
+        node.backend_doc
       end
     end
 

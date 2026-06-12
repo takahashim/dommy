@@ -20,7 +20,7 @@ module Dommy
       # Drops any pre-existing direct children of the template element.
       def attach(template_element, html)
         Backend.template_content_nodes(template_element.__dommy_backend_node__).each(&:unlink)
-        fragment = @document.nokogiri_doc.fragment(html.to_s)
+        fragment = @document.backend_doc.fragment(html.to_s)
         @fragments[Backend.identity_key(template_element.__dommy_backend_node__)] = fragment
         fragment
       end
@@ -92,7 +92,7 @@ module Dommy
       end
 
       def migrate_one(template_node)
-        fragment = @document.nokogiri_doc.fragment("")
+        fragment = @document.backend_doc.fragment("")
         Backend.template_content_nodes(template_node).each do |child|
           child.unlink
           fragment.add_child(child)

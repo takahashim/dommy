@@ -130,7 +130,7 @@ module Dommy
       # Match by tag name rather than interpolating `name` into a CSS selector:
       # a spec-valid custom element name may contain "." (a CSS class selector
       # char) or other metacharacters, which would corrupt the query.
-      doc.nokogiri_doc.css("*").each do |nk|
+      doc.backend_doc.css("*").each do |nk|
         next unless nk.name == name
 
         doc.__internal_reset_wrapper__(nk)

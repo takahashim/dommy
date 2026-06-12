@@ -84,7 +84,7 @@ module Dommy
   def self.parse(html)
     s = html.to_s
     if s.match?(/\A\s*(<!doctype|<html\b)/i)
-      Window.new(nil, nokogiri_doc: Backend.parse(s))
+      Window.new(nil, backend_doc: Backend.parse(s))
     else
       window = Window.new
       window.document.body.inner_html = s

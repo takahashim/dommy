@@ -267,7 +267,7 @@ module Dommy
     # non-empty. (The doctype argument is accepted but not stored, as document
     # equality compares only structure that survives wrap_node.)
     def create_document(namespace, qualified_name, _doctype = nil)
-      doc = Document.new(nil, nokogiri_doc: Backend.empty_document)
+      doc = Document.new(nil, backend_doc: Backend.empty_document)
       # createDocument's content type is keyed off the namespace. None is
       # "text/html", so tagName keeps its case; xhtml+xml still routes
       # createElement to the HTML namespace (so an XHTML document isEqualNode
@@ -281,7 +281,7 @@ module Dommy
       qn = qualified_name.to_s
       unless qn.empty?
         el = doc.send(:create_element_ns, namespace, qualified_name)
-        Backend.set_document_root(doc.nokogiri_doc, el.__dommy_backend_node__)
+        Backend.set_document_root(doc.backend_doc, el.__dommy_backend_node__)
       end
       doc
     end
@@ -289,7 +289,7 @@ module Dommy
     # createHTMLDocument(title?) — a fresh HTML document (doctype + html > head,
     # body), with an optional <title>.
     def create_html_document(title = nil)
-      doc = Document.new(nil, nokogiri_doc: Backend.parse("<!DOCTYPE html><html><head></head><body></body></html>"))
+      doc = Document.new(nil, backend_doc: Backend.parse("<!DOCTYPE html><html><head></head><body></body></html>"))
       doc.title = title.to_s unless title.nil? || title.equal?(Bridge::UNDEFINED)
       doc
     end
@@ -317,7 +317,7 @@ module Dommy
     include EventTarget
     include Node
 
-    attr_reader :nokogiri_doc
+    attr_reader :backend_doc
     attr_accessor :default_view
     # --- CSS cascade support (Internal::CSS) ---
     # Monotonic counter bumped on every DOM mutation; the CSS layer
@@ -341,7 +341,7 @@ module Dommy
     # scripts (the default for a standalone DOM).
     attr_accessor :script_runner
 
-    def initialize(host = nil, nokogiri_doc: nil, default_view: nil)
+    def initialize(host = nil, backend_doc: nil, default_view: nil)
       @host = host
       @default_view = default_view
       @node_wrapper_cache = Internal::NodeWrapperCache.new(self)
@@ -351,7 +351,7 @@ module Dommy
       @template_content_registry = Internal::TemplateContentRegistry.new(self)
       @mutation_coordinator = Internal::MutationCoordinator.new(self, @observer_manager)
       @node_iterators = []
-      @nokogiri_doc = nokogiri_doc || Backend.parse("<!doctype html><html><head></head><body></body></html>")
+      @backend_doc = backend_doc || Backend.parse("<!doctype html><html><head></head><body></body></html>")
       @content_type = "text/html"
       # The document is fully parsed before scripts run (no incremental network
       # parse), so it defaults to "complete" — ready-gated code takes the
@@ -376,7 +376,7 @@ module Dommy
     # public/system identifier) is no-quirks. (The full quirks algorithm keys off
     # specific legacy public ids; this covers the common cases.)
     def compat_mode
-      dt = @nokogiri_doc.internal_subset
+      dt = @backend_doc.internal_subset
       return "BackCompat" unless dt
       return "CSS1Compat" if dt.name.to_s.downcase == "html" && dt.external_id.nil?
 
@@ -395,11 +395,11 @@ module Dommy
 
     def document_element
       # The document's root element — `<html>` for HTML, the actual root for XML.
-      wrap_node(@nokogiri_doc.root)
+      wrap_node(@backend_doc.root)
     end
 
     def head
-      wrap_node(@nokogiri_doc.at_css("head"))
+      wrap_node(@backend_doc.at_css("head"))
     end
 
     # Resolve `body` fresh from the tree (not memoized) so it tracks a swapped
@@ -408,22 +408,22 @@ module Dommy
     # wrapper would keep returning the detached old body. wrap_node caches by
     # node, so identity (`document.body === document.body`) still holds.
     def body
-      wrap_node(@nokogiri_doc.at_css("body"))
+      wrap_node(@backend_doc.at_css("body"))
     end
 
     # Serialize the whole document to HTML (including the doctype).
     def to_html
-      @nokogiri_doc.to_html
+      @backend_doc.to_html
     end
 
     # XPath queries returning wrapped nodes (Element / TextNode / etc).
     def at_xpath(expression)
-      node = @nokogiri_doc.at_xpath(expression)
+      node = @backend_doc.at_xpath(expression)
       node && wrap_node(node)
     end
 
     def xpath(expression)
-      @nokogiri_doc.xpath(expression).map { |node| wrap_node(node) }
+      @backend_doc.xpath(expression).map { |node| wrap_node(node) }
     end
 
     # `document.URL` / `documentURI` — both return location.href in
@@ -441,7 +441,7 @@ module Dommy
     # ignore subsequent <base> elements; we mirror that.
     def base_uri
       doc_url = url
-      base_el = @nokogiri_doc.at_css("base[href]")
+      base_el = @backend_doc.at_css("base[href]")
       return doc_url unless base_el
 
       href = base_el["href"].to_s
@@ -482,25 +482,25 @@ module Dommy
     # document so post-mutation reads reflect the current state.
     def links
       HTMLCollection.new do
-        @nokogiri_doc.css("a[href], area[href]").map { |n| wrap_node(n) }.compact
+        @backend_doc.css("a[href], area[href]").map { |n| wrap_node(n) }.compact
       end
     end
 
     def forms
       HTMLCollection.new do
-        @nokogiri_doc.css("form").map { |n| wrap_node(n) }.compact
+        @backend_doc.css("form").map { |n| wrap_node(n) }.compact
       end
     end
 
     def scripts
       HTMLCollection.new do
-        @nokogiri_doc.css("script").map { |n| wrap_node(n) }.compact
+        @backend_doc.css("script").map { |n| wrap_node(n) }.compact
       end
     end
 
     def images
       HTMLCollection.new do
-        @nokogiri_doc.css("img").map { |n| wrap_node(n) }.compact
+        @backend_doc.css("img").map { |n| wrap_node(n) }.compact
       end
     end
 
@@ -508,7 +508,7 @@ module Dommy
     # in practice the `<html>` root).
     def children
       HTMLCollection.new do
-        root = @nokogiri_doc.root
+        root = @backend_doc.root
         root ? [wrap_node(root)].compact : []
       end
     end
@@ -518,7 +518,7 @@ module Dommy
     # `document.childNodes === document.childNodes` and mutations are reflected.
     def child_nodes
       @live_child_nodes ||= LiveNodeList.new do
-        @nokogiri_doc.children.map { |n| wrap_node(n) }.compact
+        @backend_doc.children.map { |n| wrap_node(n) }.compact
       end
     end
 
@@ -527,11 +527,11 @@ module Dommy
     end
 
     def first_element_child
-      wrap_node(@nokogiri_doc.root)
+      wrap_node(@backend_doc.root)
     end
 
     def last_element_child
-      wrap_node(@nokogiri_doc.root)
+      wrap_node(@backend_doc.root)
     end
 
     # Currently-focused element (or body if none). Updated via
@@ -548,7 +548,7 @@ module Dommy
       return false unless other.respond_to?(:__dommy_backend_node__)
 
       node = other.__dommy_backend_node__
-      node.document == @nokogiri_doc && node.ancestors.include?(@nokogiri_doc)
+      node.document == @backend_doc && node.ancestors.include?(@backend_doc)
     end
 
     def __internal_set_active_element__(el)
@@ -637,7 +637,7 @@ module Dommy
       src.unlink if src.parent
 
       # Same document: just return the wrapper after the detach above.
-      return wrap_node(src) if src.document == @nokogiri_doc
+      return wrap_node(src) if src.document == @backend_doc
 
       # Cross-document: hand the detached source to the backend, which
       # returns the node now owned by this document — the same node for
@@ -646,7 +646,7 @@ module Dommy
       # wrapper, then reseat the caller's Dommy wrapper onto the adopted
       # node so `adopt_node(x).equal?(x)` stays true across documents.
       src_doc_wrapper = node.instance_variable_get(:@document)
-      adopted = Backend.adopt(src, @nokogiri_doc)
+      adopted = Backend.adopt(src, @backend_doc)
 
       if src_doc_wrapper.respond_to?(:__internal_reset_wrapper__)
         src_doc_wrapper.__internal_reset_wrapper__(src)
@@ -765,7 +765,7 @@ module Dommy
       if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
         node = adopt_node(node)
       end
-      @nokogiri_doc.add_child(node.__dommy_backend_node__)
+      @backend_doc.add_child(node.__dommy_backend_node__)
       node
     end
 
@@ -775,17 +775,17 @@ module Dommy
     # ignored rather than raising.
     def document_insert(args, prepend:)
       nodes = args.filter_map { |a| backend_node(a) }
-      if prepend && (first = @nokogiri_doc.children.first)
+      if prepend && (first = @backend_doc.children.first)
         nodes.reverse_each { |n| first.add_previous_sibling(n) }
       else
-        nodes.each { |n| @nokogiri_doc.add_child(n) }
+        nodes.each { |n| @backend_doc.add_child(n) }
       end
       nil
     end
 
     def document_replace_children(args)
-      @nokogiri_doc.children.each(&:unlink)
-      args.filter_map { |a| backend_node(a) }.each { |n| @nokogiri_doc.add_child(n) }
+      @backend_doc.children.each(&:unlink)
+      args.filter_map { |a| backend_node(a) }.each { |n| @backend_doc.add_child(n) }
       nil
     end
 
@@ -795,7 +795,7 @@ module Dommy
       return __internal_remove_doctype__(node) if node.is_a?(DocumentType)
 
       bn = backend_node(node)
-      raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @nokogiri_doc
+      raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @backend_doc
 
       bn.unlink
       node
@@ -806,17 +806,17 @@ module Dommy
       return node unless bn
 
       ref_node = ref && backend_node(ref)
-      if ref_node && ref_node.parent == @nokogiri_doc
+      if ref_node && ref_node.parent == @backend_doc
         ref_node.add_previous_sibling(bn)
       else
-        @nokogiri_doc.add_child(bn)
+        @backend_doc.add_child(bn)
       end
       node
     end
 
     def document_replace_child(new_child, old_child)
       old_bn = backend_node(old_child)
-      raise DOMException::NotFoundError, "node is not a child of this document" unless old_bn && old_bn.parent == @nokogiri_doc
+      raise DOMException::NotFoundError, "node is not a child of this document" unless old_bn && old_bn.parent == @backend_doc
 
       new_bn = backend_node(new_child)
       old_bn.add_previous_sibling(new_bn) if new_bn
@@ -828,7 +828,7 @@ module Dommy
     # remove the internal subset and mark it gone.
     def __internal_remove_doctype__(_doctype)
       @doctype_removed = true
-      @nokogiri_doc.internal_subset&.unlink
+      @backend_doc.internal_subset&.unlink
       nil
     end
 
@@ -837,11 +837,11 @@ module Dommy
     def __internal_insert_at_doctype__(nodes, after:)
       bns = nodes.filter_map { |n| backend_node(n) }
       if after
-        root = @nokogiri_doc.root
-        root ? bns.each { |n| root.add_previous_sibling(n) } : bns.each { |n| @nokogiri_doc.add_child(n) }
+        root = @backend_doc.root
+        root ? bns.each { |n| root.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
       else
-        first = @nokogiri_doc.children.first
-        first ? bns.reverse_each { |n| first.add_previous_sibling(n) } : bns.each { |n| @nokogiri_doc.add_child(n) }
+        first = @backend_doc.children.first
+        first ? bns.reverse_each { |n| first.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
       end
       nil
     end
@@ -849,8 +849,8 @@ module Dommy
     # `document.cloneNode(deep)` → a fresh Document over a (deep) copy of the
     # Nokogiri tree, preserving the content type.
     def clone_node(deep)
-      copy = deep ? Backend.clone_document(@nokogiri_doc) : Backend.empty_document
-      Document.new(nil, nokogiri_doc: copy).tap { |d| d.content_type = @content_type }
+      copy = deep ? Backend.clone_document(@backend_doc) : Backend.empty_document
+      Document.new(nil, backend_doc: copy).tap { |d| d.content_type = @content_type }
     end
 
     def backend_node(node)
@@ -881,7 +881,7 @@ module Dommy
     end
 
     def get_elements_by_tag_name_ns(namespace, local_name)
-      HTMLCollection.elements_by_tag_name_ns(@nokogiri_doc, self, namespace, local_name)
+      HTMLCollection.elements_by_tag_name_ns(@backend_doc, self, namespace, local_name)
     end
 
     # `document.write(html)` — legacy API. Appends parsed nodes to the
@@ -889,7 +889,7 @@ module Dommy
     # this stub is enough for tests that fire write() during teardown.
     def write(*args)
       html = args.join
-      fragment = Parser.fragment(html, owner_doc: @nokogiri_doc)
+      fragment = Parser.fragment(html, owner_doc: @backend_doc)
       removed = []
       added = fragment.children.to_a
       body_node = body.__dommy_backend_node__
@@ -951,10 +951,10 @@ module Dommy
       when "fullscreenEnabled"
         true
       when "scrollingElement"
-        wrap_node(@nokogiri_doc.at_css("html"))
+        wrap_node(@backend_doc.at_css("html"))
       when "documentElement"
         # The document's root element — `<html>` for HTML, the actual root for XML.
-        wrap_node(@nokogiri_doc.root)
+        wrap_node(@backend_doc.root)
       when "title"
         read_title
       when "cookie"
@@ -1011,13 +1011,13 @@ module Dommy
         images
       when "embeds", "plugins"
         # Both reflect the same list of <embed> elements.
-        HTMLCollection.new { @nokogiri_doc.css("embed").map { |n| wrap_node(n) }.compact }
+        HTMLCollection.new { @backend_doc.css("embed").map { |n| wrap_node(n) }.compact }
       when "applets"
         # `<applet>` was removed from HTML, so this collection is always empty.
         HTMLCollection.new { [] }
       when "anchors"
         # Historically `<a name>` (with a name attribute), not every link.
-        HTMLCollection.new { @nokogiri_doc.css("a[name]").map { |n| wrap_node(n) }.compact }
+        HTMLCollection.new { @backend_doc.css("a[name]").map { |n| wrap_node(n) }.compact }
       when "styleSheets"
         # No CSS engine; expose an empty (but present + iterable) StyleSheetList
         # so `document.styleSheets.length` / iteration don't blow up.
@@ -1084,7 +1084,7 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
-        @nokogiri_doc.children.any?
+        @backend_doc.children.any?
       when "contains"
         contains?(args[0])
       when "isEqualNode"
@@ -1389,18 +1389,18 @@ module Dommy
 
     private
 
-    # Build a Nokogiri copy of the given node inside our @nokogiri_doc.
+    # Build a Nokogiri copy of the given node inside our @backend_doc.
     # `deep: true` recurses into children. Used by importNode and
     # adoptNode for cross-document transfer.
     def clone_into_doc(source, deep)
       copy = if source.element?
-        new_el = Backend.create_element(source.name, @nokogiri_doc)
+        new_el = Backend.create_element(source.name, @backend_doc)
         Backend.attribute_nodes(source).each { |a| new_el[a.name] = a.value }
         new_el
       elsif source.text?
-        Backend.create_text(source.content, @nokogiri_doc)
+        Backend.create_text(source.content, @backend_doc)
       elsif source.is_a?(Backend.comment_class)
-        Backend.create_comment(source.content, @nokogiri_doc)
+        Backend.create_comment(source.content, @backend_doc)
       elsif source.is_a?(Backend.document_fragment_class)
         # A DocumentFragment clones to a fragment (its children are appended by
         # the deep pass below), NOT to its first child — `importNode(<template>
@@ -1409,11 +1409,11 @@ module Dommy
         # document's own `fragment` (as TemplateContentRegistry does) rather than
         # `document_fragment_class.new`, so it works on backends whose fragment
         # class isn't directly instantiable (Makiri).
-        @nokogiri_doc.fragment("")
+        @backend_doc.fragment("")
       else
         # Fallback: serialize + reparse via fragment for unusual types.
-        fragment = Parser.fragment(source.to_html, owner_doc: @nokogiri_doc)
-        fragment.children.first || Backend.create_text("", @nokogiri_doc)
+        fragment = Parser.fragment(source.to_html, owner_doc: @backend_doc)
+        fragment.children.first || Backend.create_text("", @backend_doc)
       end
 
       if source.element? && source.name == "template"
@@ -1439,29 +1439,29 @@ module Dommy
       content_nodes = src_frag ? src_frag.children.to_a : Backend.template_content_nodes(source)
       return if content_nodes.empty?
 
-      frag = @nokogiri_doc.fragment("")
+      frag = @backend_doc.fragment("")
       content_nodes.each { |n| frag.add_child(clone_into_doc(n, true)) }
       @template_content_registry.store(copy, frag)
     end
 
     def read_title
-      head = @nokogiri_doc.at_css("head")
+      head = @backend_doc.at_css("head")
       title = head&.at_css("title")
       title ? title.text : ""
     end
 
     def write_title(value)
-      head = @nokogiri_doc.at_css("head")
+      head = @backend_doc.at_css("head")
       return unless head
 
       title = head.at_css("title")
       unless title
-        title = Backend.create_element("title", @nokogiri_doc)
+        title = Backend.create_element("title", @backend_doc)
         head.add_child(title)
       end
 
       title.children.each(&:unlink)
-      title.add_child(Backend.create_text(value, @nokogiri_doc))
+      title.add_child(Backend.create_text(value, @backend_doc))
     end
 
   end

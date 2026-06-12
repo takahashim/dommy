@@ -25,7 +25,7 @@ module Dommy
       @delegates_focus = !!delegates_focus
       @slot_assignment = slot_assignment.to_s
       @document = host.document
-      @__node__ = @document.nokogiri_doc.fragment("")
+      @__node__ = @document.backend_doc.fragment("")
       @document.__internal_register_shadow_fragment__(@__node__, self)
     end
 
@@ -38,7 +38,7 @@ module Dommy
     def inner_html=(html)
       removed = @__node__.children.to_a
       removed.each(&:unlink)
-      fragment = Parser.fragment(html.to_s, owner_doc: @document.nokogiri_doc)
+      fragment = Parser.fragment(html.to_s, owner_doc: @document.backend_doc)
       added = fragment.children.to_a
       added.each { |n| @__node__.add_child(n) }
       notify_child_list(added: added, removed: removed)
@@ -51,7 +51,7 @@ module Dommy
 
     def text_content=(value)
       @__node__.children.each(&:unlink)
-      @__node__.add_child(Backend.create_text(value.to_s, @document.nokogiri_doc))
+      @__node__.add_child(Backend.create_text(value.to_s, @document.backend_doc))
     end
 
     def children
