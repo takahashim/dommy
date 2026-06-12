@@ -2,12 +2,11 @@
 
 module Dommy
   # `Dommy::Backend` — pluggable HTML parser abstraction. Lets Dommy
-  # work with either Nokogiri (mature, full namespace support) or
-  # Makiri (Lexbor-based, HTML5-only). Internally, all DOM library
+  # work with Makiri (Lexbor-based, HTML5-only). Internally, all DOM library
   # code goes through this facade rather than referencing the parser
   # directly.
   #
-  # Defaults to Makiri if available, else Nokogiri.
+  # Defaults to Makiri.
   #
   # Switching backends:
   #
@@ -19,7 +18,7 @@ module Dommy
   #   Dommy::Backend.current = Dommy::Backend::Makiri
   #
   # All adapters must implement the same interface — see
-  # `Backend::Nokogiri` for the canonical reference.
+  # `Backend::Makiri` for the canonical reference.
   module Backend
     class BackendNotAvailable < StandardError
     end
@@ -33,22 +32,17 @@ module Dommy
 
       def use(name)
         @current = case name.to_sym
-        when :nokogiri
-          require_relative "backend/nokogiri_adapter"
-          Nokogiri
         when :makiri
           require_relative "backend/makiri_adapter"
           Makiri
         else
-          raise ArgumentError, "Unknown backend: #{name.inspect}. Use :nokogiri or :makiri."
+          raise ArgumentError, "Unknown backend: #{name.inspect}. Use :makiri."
         end
       end
 
       # Stable per-document identity key for a backend node, used to cache DOM
-      # wrappers and key per-node side tables. Nokogiri reuses one Ruby wrapper
-      # per C node (object_id is stable) and may recycle a freed node's pointer,
-      # so it keys on object_id; Makiri mints a fresh wrapper per traversal but
-      # never frees nodes (arena-owned), so it keys on the stable node pointer.
+      # wrappers and key per-node side tables. Makiri mints a fresh wrapper per traversal
+      # but never frees nodes (arena-owned), so it keys on the stable node pointer.
       def identity_key(node)
         current.identity_key(node)
       end
@@ -70,17 +64,15 @@ module Dommy
       end
 
       # Bring `node` (already detached from its old tree) into `target_doc`,
-      # returning the backend node now owned by `target_doc`. Nokogiri reassigns
-      # ownership in place and returns the same node; Makiri can't move a node
+      # returning the backend node now owned by `target_doc`. Makiri can't move a node
       # between arenas, so it imports a copy — callers must reseat any wrapper
       # onto the returned node.
       def adopt(node, target_doc)
         current.adopt(node, target_doc)
       end
 
-      # Whether the backend can move a node between documents in place (Nokogiri
-      # reassigns ownership on add_child) or must adopt a copy first (Lexbor's
-      # arenas can't move a node, so inserting a foreign node requires importing
+      # Whether the backend can move a node between documents in place or must adopt a copy first
+      # (Lexbor's arenas can't move a node, so inserting a foreign node requires importing
       # it). Lets callers skip a needless — and on an empty target, root-less and
       # therefore crashing — adoption on backends that don't need it.
       def moves_nodes_across_documents?
@@ -89,7 +81,7 @@ module Dommy
 
       # CSS query that honors Dommy's custom pseudo-classes
       # (`:disabled`/`:enabled`/`:checked`/`:scope`). Each backend applies its
-      # own mechanism (Nokogiri pseudo-handlers; Lexbor native pseudos plus a
+      # own mechanism (Lexbor native pseudos plus a
       # `:scope` rewrite). `scope_node` binds `:scope` to that element.
       def select_all(node, selector, scope_node: nil)
         current.select_all(node, selector, scope_node: scope_node)
@@ -104,10 +96,10 @@ module Dommy
         current.parse(html)
       end
 
-      # Parse XML input into an XML document. Backends without a real XML parser
-      # (HTML-only, e.g. Nokolexbor) fall back to the HTML parser.
+      # Parse XML input into an XML document.
+      # fall back to the HTML parser.
       def parse_xml(xml)
-        current.respond_to?(:parse_xml) ? current.parse_xml(xml) : current.parse(xml)
+        current.parse_xml(xml)
       end
 
       def fragment(html, owner_doc:)
@@ -115,8 +107,7 @@ module Dommy
       end
 
       # Make `node` the sole document element of `doc` (used by
-      # DOMImplementation.createDocument). Backends differ: Nokogiri exposes
-      # `root=`, while Lexbor-backed documents are seeded with an <html> shell
+      # DOMImplementation.createDocument). Lexbor-backed documents are seeded with an <html> shell
       # that must be cleared first.
       def set_document_root(doc, node)
         current.set_document_root(doc, node)
@@ -155,8 +146,7 @@ module Dommy
       end
 
       # The content child nodes of a `<template>` element. HTML5 parsers model
-      # template contents differently — Nokogiri keeps them as normal children,
-      # Lexbor/Makiri in a separate content fragment — so reading them goes
+      # template contents differently — Lexbor/Makiri in a separate content fragment — so reading them goes
       # through the backend. Used by the template-content registry's migration.
       def template_content_nodes(node)
         current.template_content_nodes(node)
@@ -167,7 +157,7 @@ module Dommy
       end
 
       # Namespaced attribute access (DOM *AttributeNS). `namespace` is an href
-      # String or nil. Nokolexbor degrades to qualified-name (null-namespace).
+      # String or nil.
       def get_attribute_ns(node, namespace, local_name)
         current.get_attribute_ns(node, namespace, local_name)
       end
@@ -226,17 +216,7 @@ module Dommy
 
       def detect_default
         try_makiri ||
-          try_nokogiri ||
-          raise(BackendNotAvailable, "Dommy requires either 'makiri' or 'nokogiri' gem to be installed.")
-      end
-
-      def try_nokogiri
-        require "nokogiri"
-
-        require_relative "backend/nokogiri_adapter"
-        Nokogiri
-      rescue LoadError
-        nil
+          raise(BackendNotAvailable, "Dommy requires either 'makiri' gem to be installed.")
       end
 
       def try_makiri

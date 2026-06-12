@@ -18,13 +18,8 @@ class TestBackend < Minitest::Test
 
   def test_default_backend_loaded
     refute_nil(Dommy::Backend.current)
-    # Either Nokogiri or Makiri adapter is acceptable
+    # Makiri adapter is acceptable
     assert(Dommy::Backend.current.respond_to?(:parse))
-  end
-
-  def test_use_nokogiri_explicitly
-    Dommy::Backend.use(:nokogiri)
-    assert_equal(Dommy::Backend::Nokogiri, Dommy::Backend.current)
   end
 
   def test_use_makiri_explicitly
@@ -36,13 +31,6 @@ class TestBackend < Minitest::Test
     assert_raises(ArgumentError) { Dommy::Backend.use(:webkit) }
   end
 
-  def test_parse_works_with_nokogiri
-    Dommy::Backend.use(:nokogiri)
-    doc = Dommy::Backend.parse("<div>hello</div>")
-    refute_nil(doc)
-    assert(doc.at_css("div"))
-  end
-
   def test_parse_works_with_makiri
     Dommy::Backend.use(:makiri)
     doc = Dommy::Backend.parse("<div>hello</div>")
@@ -51,7 +39,7 @@ class TestBackend < Minitest::Test
   end
 
   def test_dommy_accessor_aliases_backend
-    Dommy::Backend.use(:nokogiri)
-    assert_equal(Dommy::Backend::Nokogiri, Dommy.backend)
+    Dommy::Backend.use(:makiri)
+    assert_equal(Dommy::Backend::Makiri, Dommy.backend)
   end
 end

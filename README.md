@@ -7,7 +7,7 @@ This repository is a monorepo containing the core library and its integration ge
 
 | Gem | Path | Description |
 | --- | --- | --- |
-| [`dommy`](gems/dommy) | `gems/dommy` | happy-dom-style DOM polyfill in pure Ruby (Nokogiri/Nokolexbor backend). |
+| [`dommy`](gems/dommy) | `gems/dommy` | happy-dom-style DOM polyfill in pure Ruby (Makiri backend). |
 | [`dommy-rack`](gems/dommy-rack) | `gems/dommy-rack` | Rack-backed, browser-like session layer over a `Dommy::Document`. |
 | [`capybara-dommy`](gems/capybara-dommy) | `gems/capybara-dommy` | A Capybara driver backed by `dommy` and `dommy-rack`. |
 | [`dommy-rails`](gems/dommy-rails) | `gems/dommy-rails` | Rails-specific DOM matchers and assertions for request/view/component/mailer specs. |
