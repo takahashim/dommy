@@ -34,6 +34,8 @@ module Dommy
       # Perform a navigation, following redirects per session policy, then
       # apply the final response to the session (updating document + history).
       def navigate(method:, url:, params: nil, body: nil, headers: {})
+        return navigate_about(url.to_s) if url.to_s.start_with?("about:")
+
         verb = method.to_s.upcase
         target = resolve_url(url, @session.current_url)
         check_same_origin!(target)
@@ -115,6 +117,17 @@ module Dommy
       end
 
       private
+
+      # `about:` URLs never hit the app: install a blank document (a browser's
+      # about:blank) and record the URL as-is in current_url and history.
+      def navigate_about(url)
+        response = Response.new(
+          200, {"Content-Type" => "text/html"},
+          ["<html><head></head><body></body></html>"], url: url
+        )
+        @session.apply_navigation_response(response, url)
+        response
+      end
 
       # If the just-applied response asks for an immediate meta refresh,
       # navigate there (browser behavior). Returns the final response after any

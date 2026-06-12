@@ -5,6 +5,14 @@ require "test_helper"
 class Dommy::Rack::TestNavigation < Minitest::Test
   include RackTestHelper
 
+  def test_visit_about_blank_installs_a_blank_document_without_hitting_the_app
+    app = ->(_env) { raise "the app must not be called for about: URLs" }
+    session = Dommy::Rack::Session.new(app)
+    session.visit("about:blank")
+    assert_equal "about:blank", session.current_url
+    assert_nil session.at_css("body *")
+  end
+
   def test_visit_resolves_relative_url_against_default_host
     session = Dommy::Rack::Session.new(app_for("GET /posts" => html_response("<h1>Posts</h1>")))
     session.visit("/posts")

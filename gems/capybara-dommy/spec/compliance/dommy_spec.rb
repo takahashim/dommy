@@ -10,28 +10,26 @@ end
 # no layout/rendering, no real browser server). Behavioral differences are
 # fixed across dommy / dommy-rack / capybara-dommy rather than skipped.
 #
-# Verified against the makiri backend (2026-06-12): with every group enabled
-# the suite has 370 failures, all attributable to these capabilities. The
-# closest-to-passing groups still fail on real gaps: shadow_dom (Node#path
-# inside a shadow tree), html_validation (constraint-validation
-# validationMessage), about_scheme (visiting non-http URLs).
+# shadow_dom stays skipped not for the capability itself but because its
+# only spec (Node#path inside a shadow tree) obtains the element via
+# evaluate_script, which needs a JS engine.
 skipped_tests = %i[
   js
   modals
   windows
-  frames
   screenshot
-  send_keys
   css
   scroll
   spatial
   shadow_dom
-  active_element
   hover
-  html_validation
   download
-  about_scheme
   server
 ]
 
-Capybara::SpecHelper.run_specs(TestSessions::Dommy, "Dommy", capybara_skip: skipped_tests)
+Capybara::SpecHelper.run_specs(TestSessions::Dommy, "Dommy", capybara_skip: skipped_tests) do |example|
+  case example.metadata[:full_description]
+  when /#active_element should support reloading/
+    skip "Drives focus from a script via execute_script (needs a JS engine)"
+  end
+end

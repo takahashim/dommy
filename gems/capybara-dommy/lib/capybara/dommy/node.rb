@@ -17,7 +17,14 @@ module Capybara
       end
 
       def [](name)
-        native.get_attribute(name.to_s)
+        key = name.to_s
+        # Capybara's validation_message filter reads the constraint-validation
+        # DOM property, which never appears as a markup attribute.
+        if key == "validationMessage" && native.respond_to?(:validation_message)
+          return native.validation_message
+        end
+
+        native.get_attribute(key)
       end
 
       def value
@@ -77,7 +84,35 @@ module Capybara
       end
 
       def path
+        # Capybara's documented placeholder: a shadow tree has no XPath.
+        if native.respond_to?(:get_root_node) && native.get_root_node.is_a?(::Dommy::ShadowRoot)
+          return "(: Shadow DOM element - no XPath :)"
+        end
+
         native.path
+      end
+
+      # Keyboard input without a JS engine: maintains a caret over the field's
+      # value and applies printable keys plus the position/modifier keys
+      # Capybara's non-JS send_keys specs use. Key *events* are not dispatched
+      # (nothing here can observe them without JavaScript).
+      def send_keys(*args)
+        return unless native.respond_to?(:value=)
+
+        state = {chars: native.value.to_s.chars, caret: native.value.to_s.length, shift: false}
+        args.each do |arg|
+          if arg.is_a?(Array)
+            # A chord like [:shift, 'o'] holds its modifiers only for the
+            # duration of the array.
+            held = state[:shift]
+            arg.each { |key| apply_key(state, key) }
+            state[:shift] = held
+          else
+            apply_key(state, arg)
+          end
+        end
+        native.focus if native.respond_to?(:focus)
+        native.value = state[:chars].join
       end
 
       def style(_styles)
@@ -157,7 +192,33 @@ module Capybara
         RUBY
       end
 
+      # Identity matters to Capybara (e.g. the focused: filter compares a
+      # candidate against session.active_element). Dommy's wrapper cache hands
+      # out one wrapper per DOM node, so native equality is node identity.
+      def ==(other)
+        other.is_a?(Node) && native == other.native
+      end
+
       private
+
+      def apply_key(state, key)
+        case key
+        when String
+          key.each_char do |ch|
+            state[:chars].insert(state[:caret], state[:shift] ? ch.upcase : ch)
+            state[:caret] += 1
+          end
+        when :space
+          state[:chars].insert(state[:caret], " ")
+          state[:caret] += 1
+        when :left
+          state[:caret] = [state[:caret] - 1, 0].max
+        when :right
+          state[:caret] = [state[:caret] + 1, state[:chars].length].min
+        when :shift
+          state[:shift] = true
+        end
+      end
 
       def stale_check
         return if native.document.equal?(driver.document)
