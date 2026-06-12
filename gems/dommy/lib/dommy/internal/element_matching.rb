@@ -65,24 +65,35 @@ module Dommy
         end
       end
 
-      # A field's label is either a <label for=...> pointing at its id,
-      # or the nearest <label> ancestor wrapping it.
-      def field_label_matches?(field, expected_label)
-        id = field.get_attribute("id")
-        if id && !id.empty?
-          label = field.owner_document.query_selector("label[for='#{id}']")
-          return true if label && DomMatching.text_matches?(label.text_content, expected_label)
+      # Labels associated with a field: a <label for=...> pointing at
+      # its id, and/or the nearest <label> ancestor wrapping it.
+      # Scans label elements instead of interpolating the id into a
+      # selector, so ids containing quotes cannot break the query.
+      def field_labels(field)
+        labels = []
+
+        id = field.get_attribute("id").to_s
+        unless id.empty?
+          for_label = field.owner_document.query_selector_all("label").to_a.find do |label|
+            label.get_attribute("for") == id
+          end
+          labels << for_label if for_label
         end
 
         parent = field.parent_node
         while parent
           if parent.respond_to?(:tag_name) && parent.tag_name == "LABEL"
-            return DomMatching.text_matches?(parent.text_content, expected_label)
+            labels << parent
+            break
           end
           parent = parent.respond_to?(:parent_node) ? parent.parent_node : nil
         end
 
-        false
+        labels
+      end
+
+      def field_label_matches?(field, expected_label)
+        field_labels(field).any? { |label| DomMatching.text_matches?(label.text_content, expected_label) }
       end
 
       def form_method_matches?(form, expected_method)
