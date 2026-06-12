@@ -12,6 +12,18 @@ module Capybara
 
       attr_reader :app, :visibility
 
+      # --- Deterministic-time seam (used by JS runtimes) ---
+      #
+      # A JS runtime assigns a callable here; the driver invokes it before
+      # each DOM read Capybara polls in its synchronize loop (find_css /
+      # find_xpath / html / title). The pump is expected to advance Dommy's
+      # virtual scheduler a small slice and drain microtasks, so "content
+      # appears after a timeout" specs converge without wall-clock sleeps.
+      # Installing a pump also flips `wait?` to true, making Capybara retry
+      # failed expectations instead of raising immediately. Survives
+      # `reset!` (it belongs to the runtime, not to one page session).
+      attr_accessor :time_pump
+
       def initialize(app,
                      default_host: nil,
                      follow_redirects: nil,
@@ -78,10 +90,12 @@ module Capybara
       # --- Page state ---
 
       def html
+        pump!
         rack_session.html
       end
 
       def title
+        pump!
         document&.title
       end
 
@@ -96,10 +110,12 @@ module Capybara
       # --- Query (returns Capybara::Dommy::Node arrays) ---
 
       def find_css(query, **_options)
+        pump!
         wrap(document&.query_selector_all(query))
       end
 
       def find_xpath(query, **_options)
+        pump!
         wrap(document&.xpath(query))
       end
 
@@ -124,7 +140,7 @@ module Capybara
       end
 
       def wait?
-        false
+        !@time_pump.nil?
       end
 
       def needs_server?
@@ -161,6 +177,10 @@ module Capybara
       end
 
       private
+
+      def pump!
+        @time_pump&.call
+      end
 
       # Capybara's app_host (set per-example) wins over default_host; falls
       # back to the host this driver was configured with. Guarded so a

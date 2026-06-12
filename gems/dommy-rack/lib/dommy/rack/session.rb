@@ -54,6 +54,7 @@ module Dommy
         @scope_stack = []
         @request_listeners = []
         @response_listeners = []
+        @document_loaded_listeners = []
       end
 
       # --- Config readers used by collaborators ---
@@ -216,6 +217,17 @@ module Dommy
       # Register a callback invoked with the Response after each request.
       def on_response(&block)
         @response_listeners << block
+        self
+      end
+
+      # Register a callback invoked with the new Window each time a navigation
+      # installs an HTML document (visit, redirects, link clicks, form submits,
+      # back/forward, reload, meta refresh). This is the page-load lifecycle
+      # seam a JavaScript runtime hooks to install window globals, execute
+      # <script> tags, and fire DOMContentLoaded/load. Not invoked for #fetch
+      # (which never changes the document) or for non-HTML responses.
+      def on_document_loaded(&block)
+        @document_loaded_listeners << block
         self
       end
 
@@ -401,7 +413,10 @@ module Dommy
       def apply_navigation_response(response, final_url, push_history: true)
         @last_response = response
         @current_url = final_url
-        @current_window = response.window if response.html?
+        if response.html?
+          @current_window = response.window
+          @document_loaded_listeners.each { |cb| cb.call(@current_window) }
+        end
         @history.push(final_url) if push_history
       end
 

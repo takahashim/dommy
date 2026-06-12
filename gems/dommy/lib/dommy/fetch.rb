@@ -4,15 +4,23 @@ require "json"
 require "securerandom"
 
 module Dommy
-  # `fetch` polyfill. No real network — instead consults
-  # `JS.global[:__fetchy_stub__]` (a Hash{url => entry}) installed by
-  # the test. Mirrors the same fixture protocol that `test_fetchy.rb`'s
-  # JavaScript installer uses, so tests don't need a JS engine to drive
-  # the stub.
+  # `fetch` polyfill. No real network — instead resolves a response
+  # *entry* and synthesizes a Response from it. Entries come from, in
+  # order:
   #
-  # Each entry in the stub hash supports:
+  #   1. `window.globals["__fetch_handler__"]` — a callable
+  #      `call(url, init) -> entry-or-nil`. This is the seam host
+  #      environments use to serve real requests (e.g. dommy-rack's
+  #      NetworkBridge routes same-origin URLs to the Rack app).
+  #      Returning nil falls through to the stub maps.
+  #   2. `JS.global[:__fetchy_stub__]` (a Hash{url => entry})
+  #      installed by the test. Mirrors the same fixture protocol that
+  #      `test_fetchy.rb`'s JavaScript installer uses, so tests don't
+  #      need a JS engine to drive the stub.
+  #
+  # Each entry supports:
   #   "status" / "statusText" / "body" / "contentType" /
-  #   "headers" (Hash) / "delay" (ms)
+  #   "headers" (Hash) / "url" / "redirected" / "delay" (ms)
   # plus AbortController signal propagation when `init[:signal]` is
   # passed.
   class FetchFn
@@ -27,14 +35,6 @@ module Dommy
       url = args[0].to_s
       init = normalize_init(args[1] || {})
 
-      # Each spec file installs its stub under its own global name.
-      # `test_fetchy.rb` uses `__fetchy_stub__`; `test_resource*.rb`
-      # use `__resource_fetch_stub__` and `__inject_fetch_stub__`.
-      # Check them in order — only one should be set at a time.
-      stub_map = @window.globals["__fetchy_stub__"] ||
-        @window.globals["__resource_fetch_stub__"] ||
-        @window.globals["__inject_fetch_stub__"] ||
-        {}
       # `js_eval`'s JS installer increments these globals; mirror so
       # specs that probe `__fetch_count__` / `__last_url__` / etc.
       # observe the same state shape they'd see from a real injector.
@@ -43,7 +43,7 @@ module Dommy
       @window.globals["__last_init__"] = init
       @window.globals["__last_body__"] = init["body"] if init.is_a?(Hash)
 
-      entry = stub_map[url] if stub_map.is_a?(Hash)
+      entry = resolve_entry(url, init)
       promise = PromiseValue.new(@window)
 
       if entry.nil?
@@ -78,6 +78,26 @@ module Dommy
     end
 
     private
+
+    # Resolve the response entry for a request: a `__fetch_handler__`
+    # callable gets first refusal; a nil from it (or no handler) falls
+    # through to the stub maps. Each spec file installs its stub under
+    # its own global name — `test_fetchy.rb` uses `__fetchy_stub__`;
+    # `test_resource*.rb` use `__resource_fetch_stub__` and
+    # `__inject_fetch_stub__`. Checked in order; only one should be set
+    # at a time.
+    def resolve_entry(url, init)
+      handler = @window.globals["__fetch_handler__"]
+      if handler.respond_to?(:call)
+        entry = handler.call(url, init)
+        return entry if entry
+      end
+
+      stub_map = @window.globals["__fetchy_stub__"] ||
+        @window.globals["__resource_fetch_stub__"] ||
+        @window.globals["__inject_fetch_stub__"]
+      stub_map.is_a?(Hash) ? stub_map[url] : nil
+    end
 
     # Coerce `init` into a Hash with string keys so the rest of the
     # pipeline (and the `__last_init__` globals) sees a uniform shape.

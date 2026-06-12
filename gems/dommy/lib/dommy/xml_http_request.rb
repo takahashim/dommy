@@ -289,6 +289,18 @@ module Dommy
     end
 
     def lookup_stub
+      # Same resolution order as FetchFn: a `__fetch_handler__` callable
+      # (e.g. dommy-rack's NetworkBridge serving same-origin requests from
+      # the Rack app) gets first refusal; nil falls through to the stubs.
+      handler = @window.globals["__fetch_handler__"]
+      if handler.respond_to?(:call)
+        entry = handler.call(
+          @url,
+          {"method" => @method, "headers" => @request_headers, "body" => @request_body&.to_s}
+        )
+        return entry if entry
+      end
+
       stub_map = @window.globals["__fetchy_stub__"] ||
         @window.globals["__resource_fetch_stub__"] ||
         @window.globals["__inject_fetch_stub__"]
