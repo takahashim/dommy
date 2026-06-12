@@ -359,6 +359,7 @@ module Dommy
       # ("loading" → "interactive" → "complete") via #__internal_set_ready_state__
       # to drive code that waits on DOMContentLoaded / load.
       @ready_state = "complete"
+      @__current_script__ = nil
     end
 
     # Whether this is an "HTML document" in the DOM sense (created by the HTML
@@ -1001,6 +1002,10 @@ module Dommy
         forms
       when "scripts"
         scripts
+      when "currentScript"
+        # The <script> currently executing, set by the host around each script
+        # run (see #__internal_set_current_script__); null outside execution.
+        @__current_script__
       when "images"
         images
       when "embeds", "plugins"
@@ -1208,6 +1213,15 @@ module Dommy
       when "complete"
         @default_view&.dispatch_event(Event.new("load"))
       end
+      nil
+    end
+
+    # Set `document.currentScript` to the <script> element being executed (and
+    # back to nil afterward). The host (script boot) brackets each classic
+    # script run with this so code reading `document.currentScript` sees its own
+    # element, matching browser behavior.
+    def __internal_set_current_script__(element)
+      @__current_script__ = element
       nil
     end
 

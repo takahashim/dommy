@@ -10,6 +10,17 @@ class TestDocument < Minitest::Test
     @doc = @win.document
   end
 
+  def test_current_script_defaults_to_nil_and_tracks_set
+    assert_nil @doc.__js_get__("currentScript")
+
+    script = @doc.create_element("script")
+    @doc.__internal_set_current_script__(script)
+    assert_same script, @doc.__js_get__("currentScript")
+
+    @doc.__internal_set_current_script__(nil)
+    assert_nil @doc.__js_get__("currentScript")
+  end
+
   def test_body_is_an_element
     assert_kind_of(Dommy::Element, @doc.body)
     assert_equal("BODY", @doc.body.tag_name)

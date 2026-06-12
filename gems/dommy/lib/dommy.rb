@@ -70,6 +70,7 @@ require_relative "dommy/url"
 require_relative "dommy/form_data"
 require_relative "dommy/dom_parser"
 require_relative "dommy/css"
+require_relative "dommy/resources"
 
 module Dommy
   # Parse an HTML string and return a fresh `Window`.

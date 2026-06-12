@@ -649,6 +649,24 @@ module Dommy
       @__script_started = true
       body
     end
+
+    # The classic-script `src` to fetch and execute now, or nil if it must not
+    # run: an inline script (no src), a non-classic type (module/JSON/etc.), or
+    # one that already ran. The external counterpart of
+    # #__internal_take_pending_script__ — it sets the same "already started"
+    # flag so the host fetches/executes the external body at most once, even if
+    # the node is re-inserted. The fetch itself is the host's job (Dommy has no
+    # network); this only decides eligibility and returns the URL.
+    def __internal_take_pending_src__
+      return nil if @__script_started
+
+      s = src.to_s
+      return nil if s.empty?
+      return nil unless CLASSIC_SCRIPT_TYPES.include?(type.to_s.strip.downcase)
+
+      @__script_started = true
+      s
+    end
   end
 
   # `<link>` — primarily for stylesheets, icons, preload, manifests.
