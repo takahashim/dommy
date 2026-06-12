@@ -404,6 +404,14 @@ module Dommy
         @time_stamp
       when "cancelBubble"
         @propagation_stopped
+      when "immediatePropagationStopped"
+        # Non-standard, but real frameworks feature-detect it: Stimulus's
+        # extendEvent does `"immediatePropagationStopped" in event` and, when
+        # present, reads the flag directly instead of installing its own
+        # tracking shim. Expose the live flag so that path stays correct (it
+        # also keeps `"immediatePropagationStopped" in event` from being a
+        # present-but-undefined no-op).
+        @immediate_propagation_stopped
       when "eventPhase"
         event_phase
       else
