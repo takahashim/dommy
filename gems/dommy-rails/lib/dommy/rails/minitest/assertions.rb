@@ -130,11 +130,10 @@ module Dommy
         end
 
         def assert_dom_has_turbo_stream(actual, action:, target:, msg: nil)
-          body = dom_body_for(actual)
-          matched = Dommy::Rails::TurboStream.matches?(body, action: action, target: target)
+          stream = Dommy::Rails::TurboStream.find(dom_body_for(actual), action: action, target: target)
           msg ||= "expected to find turbo-stream action=#{action} target=#{target}"
-          assert(matched, msg)
-          yield Dommy::Rails::TurboStream.fragment_document_for(body, action: action, target: target) if block_given? && matched
+          assert(stream, msg)
+          yield Dommy::Rails::TurboStream.fragment_document(stream) if block_given? && stream
         end
 
         def refute_dom_has_turbo_stream(actual, action:, target:, msg: nil)
@@ -241,21 +240,21 @@ module Dommy
         end
 
         def assert_mail_has_html_link(mail, text = nil, href: nil, count: nil, msg: nil)
-          document = Dommy::Rails::PageInspector.html_document_from_mail(mail)
+          document = Dommy::Rails::MailPart.html_document(mail)
           msg ||= "expected mail to have an HTML part"
           assert(document, msg)
           assert_dom_has_link(document, text, href: href, count: count, msg: msg)
         end
 
         def assert_mail_has_html_text(mail, text, msg: nil)
-          document = Dommy::Rails::PageInspector.html_document_from_mail(mail)
+          document = Dommy::Rails::MailPart.html_document(mail)
           msg ||= "expected mail HTML to contain #{text.inspect}"
           assert(document, "expected mail to have an HTML part")
           assert_dom_has_text(document, text, msg: msg)
         end
 
         def assert_mail_has_plain_text(mail, text, msg: nil)
-          body = Dommy::Rails::PageInspector.mail_plain_body(mail).to_s
+          body = Dommy::Rails::MailPart.plain_body(mail).to_s
           msg ||= "expected mail plain text to contain #{text.inspect}, got #{body.inspect}"
           assert(Dommy::Internal::DomMatching.text_matches?(body, text), msg)
         end
@@ -263,14 +262,11 @@ module Dommy
         private
 
         def dom_document_for(actual)
-          return actual.document if actual.respond_to?(:document)
-          return actual if actual.respond_to?(:query_selector_all)
-
-          Dommy.parse(dom_body_for(actual)).document
+          Dommy::Rails::MatchTarget.document(actual)
         end
 
         def dom_body_for(actual)
-          actual.respond_to?(:body) ? actual.body.to_s : actual.to_s
+          Dommy::Rails::MatchTarget.body(actual)
         end
 
         def form_desc(action:, method:, model:)

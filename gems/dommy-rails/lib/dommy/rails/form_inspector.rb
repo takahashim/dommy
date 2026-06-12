@@ -30,15 +30,20 @@ module Dommy
         elsif model.respond_to?(:to_model)
           model.to_model.model_name.param_key
         else
-          model.class.name.underscore
+          # No ActiveSupport fallback: dommy-rails depends only on dommy,
+          # and Rails form helpers require these methods too.
+          raise ArgumentError,
+            "model: expects an object responding to #model_name or #to_model, got #{model.class}"
         end
       end
 
       # A Rails model form scopes its field names under the model's
       # param key (e.g. name="article[title]").
       def form_has_model?(form, model_name)
-        fields = form.query_selector_all("input[name^='#{model_name}['], textarea[name^='#{model_name}['], select[name^='#{model_name}[']")
-        fields.any?
+        prefix = "#{model_name}["
+        form.query_selector_all("input, textarea, select").to_a.any? do |field|
+          field.get_attribute("name").to_s.start_with?(prefix)
+        end
       end
 
       private_class_method :model_name_for, :form_has_model?

@@ -417,10 +417,9 @@ module Dommy
           end
 
           def matches?(actual, &block)
-            @body = MatchTarget.body(actual)
-            matched = Dommy::Rails::TurboStream.matches?(@body, action: @action, target: @target)
-            block.call(Dommy::Rails::TurboStream.fragment_document_for(@body, action: @action, target: @target)) if matched && block
-            matched
+            stream = Dommy::Rails::TurboStream.find(MatchTarget.body(actual), action: @action, target: @target)
+            block.call(Dommy::Rails::TurboStream.fragment_document(stream)) if stream && block
+            !stream.nil?
           end
 
           def does_not_match?(actual)
@@ -670,7 +669,7 @@ module Dommy
           end
 
           def matches?(mail)
-            @document = Dommy::Rails::PageInspector.html_document_from_mail(mail)
+            @document = Dommy::Rails::MailPart.html_document(mail)
             return false unless @document
 
             @matched = Dommy::Rails::PageInspector.links(@document, text: @text, href: @href)
@@ -702,7 +701,7 @@ module Dommy
           end
 
           def matches?(mail)
-            @document = Dommy::Rails::PageInspector.html_document_from_mail(mail)
+            @document = Dommy::Rails::MailPart.html_document(mail)
             return false unless @document
 
             @actual = Dommy::Internal::DomMatching.text_of(@document)
@@ -734,7 +733,7 @@ module Dommy
           end
 
           def matches?(mail)
-            @actual = Dommy::Rails::PageInspector.mail_plain_body(mail).to_s
+            @actual = Dommy::Rails::MailPart.plain_body(mail).to_s
             Dommy::Internal::DomMatching.text_matches?(@actual, @text)
           end
 
@@ -752,21 +751,6 @@ module Dommy
 
           def failure_message_when_negated
             "expected mail plain text not to include #{@text.inspect}"
-          end
-        end
-
-        module MatchTarget
-          module_function
-
-          def document(actual)
-            return actual.document if actual.respond_to?(:document)
-            return actual if actual.respond_to?(:query_selector_all)
-
-            Dommy.parse(body(actual)).document
-          end
-
-          def body(actual)
-            actual.respond_to?(:body) ? actual.body.to_s : actual.to_s
           end
         end
       end

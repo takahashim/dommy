@@ -36,6 +36,15 @@ class TestFormInspector < Minitest::Test
     assert Dommy::Rails::FormInspector.matches?(doc, model: decorated)
   end
 
+  def test_rejects_model_without_active_model_interface
+    html = '<form action="/articles" method="post"><input type="text" name="article[title]"></form>'
+    doc = parse_html(html)
+    error = assert_raises(ArgumentError) do
+      Dommy::Rails::FormInspector.matches?(doc, model: Object.new)
+    end
+    assert_includes error.message, "model_name"
+  end
+
   private
 
   # Mimics the ActiveModel::Naming surface FormInspector relies on

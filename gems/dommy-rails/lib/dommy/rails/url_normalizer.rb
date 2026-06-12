@@ -1,7 +1,17 @@
+# frozen_string_literal: true
+
+require "cgi"
 require "uri"
 
 module Dommy
   module Rails
+    # Normalizes URLs so Rails URL-helper output and rendered HTML
+    # compare equal despite representational differences.
+    #
+    # Deliberately lenient: scheme and host are dropped, query
+    # parameters are sorted, HTML entities are unescaped, and trailing
+    # slashes are removed. Strict external-host matching is out of
+    # scope (see README).
     module UrlNormalizer
       module_function
 
@@ -10,17 +20,17 @@ module Dommy
       end
 
       def normalize(url)
-        return "" if url.nil? || url.empty?
+        url = url.to_s
+        return "" if url.empty?
 
-        # Unescape HTML entities before parsing
-        url = url.to_s.gsub("&amp;", "&")
+        # Attribute values may arrive HTML-escaped (e.g. &amp; in raw
+        # response bodies).
+        url = CGI.unescapeHTML(url)
 
         uri = URI.parse(url)
-        # Remove scheme and host for comparison
         path = uri.path.to_s
         path = path.chomp("/") unless path == "/"
 
-        # Sort query parameters
         query = if uri.query
           params = URI.decode_www_form(uri.query).sort_by { |k, _| k }
           URI.encode_www_form(params)
@@ -28,7 +38,7 @@ module Dommy
 
         [path, query].compact.join("?")
       rescue URI::InvalidURIError
-        url.to_s
+        url
       end
     end
   end

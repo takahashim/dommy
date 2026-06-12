@@ -14,16 +14,10 @@ module Dommy
       end
 
       def meta_matches?(document, name: nil, property: nil, content: nil)
-        selector = if name
-          "meta[name='#{name}']"
-        elsif property
-          "meta[property='#{property}']"
-        else
-          "meta"
-        end
-
-        document.query_selector_all(selector).to_a.any? do |meta|
-          content.nil? || meta.get_attribute("content").to_s == content.to_s
+        document.query_selector_all("meta").to_a.any? do |meta|
+          (name.nil? || meta.get_attribute("name").to_s == name.to_s) &&
+            (property.nil? || meta.get_attribute("property").to_s == property.to_s) &&
+            (content.nil? || meta.get_attribute("content").to_s == content.to_s)
         end
       end
 
@@ -66,27 +60,6 @@ module Dommy
 
       def present_content?(element)
         element && element.get_attribute("content").to_s != ""
-      end
-
-      def html_document_from_mail(mail)
-        body = mail_html_body(mail)
-        body ? Dommy.parse(body).document : nil
-      end
-
-      def mail_html_body(mail)
-        if mail.respond_to?(:html_part) && mail.html_part
-          mail.html_part.body.to_s
-        elsif mail.respond_to?(:body)
-          mail.body.to_s
-        end
-      end
-
-      def mail_plain_body(mail)
-        if mail.respond_to?(:text_part) && mail.text_part
-          mail.text_part.body.to_s
-        elsif mail.respond_to?(:body)
-          mail.body.to_s
-        end
       end
     end
   end

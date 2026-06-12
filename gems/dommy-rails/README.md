@@ -108,6 +108,22 @@ expect(mail).to have_html_text("Confirm your account")
 expect(mail).to have_plain_text("Welcome")
 ```
 
+## URL normalization
+
+`have_link(href:)`, `have_form(action:)`, and their Minitest counterparts
+absorb the representational differences between Rails URL helpers and
+rendered HTML. Before comparison, both sides are normalized:
+
+- scheme and host are dropped (`http://www.example.com/articles` ≡ `/articles`)
+- query parameters are sorted (`?b=2&a=1` ≡ `?a=1&b=2`)
+- HTML entities are unescaped (`&amp;` ≡ `&`)
+- trailing slashes are removed (`/articles/` ≡ `/articles`)
+
+This is deliberately lenient: because the host is ignored, an absolute
+URL to an external site with the same path matches a relative `href:`.
+Strict external-host matching is out of scope for now; pass a `Regexp`
+as `href:` when you need to pin the host.
+
 ## License
 
 MIT

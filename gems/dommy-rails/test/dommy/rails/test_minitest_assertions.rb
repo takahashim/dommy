@@ -50,6 +50,19 @@ class TestMinitestAssertions < Minitest::Test
     assert_dom_has_authenticity_token(doc)
   end
 
+  def test_assert_dom_has_meta_requires_all_given_criteria
+    doc = parse_html(<<~HTML)
+      <head>
+        <meta name="description" content="Article index">
+        <meta property="og:title" content="Articles">
+      </head>
+    HTML
+
+    assert_dom_has_meta(doc, property: "og:title", content: "Articles")
+    refute_dom_has_meta(doc, name: "description", property: "og:title")
+    refute_dom_has_meta(doc, name: "description", content: "Articles")
+  end
+
   def test_assert_dom_has_link_normalizes_urls
     doc = parse_html('<a href="http://www.example.com/articles?bar=2&amp;foo=1">Articles</a>')
 

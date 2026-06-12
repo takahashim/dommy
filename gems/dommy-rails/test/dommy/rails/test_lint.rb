@@ -41,4 +41,38 @@ class TestLint < Minitest::Test
     assert_equal "A", issues.first[:element].tag_name
     assert_equal "BUTTON", issues.first[:ancestor].tag_name
   end
+
+  def test_missing_form_labels_flags_unlabeled_field
+    html = '<form><input type="text" name="title"></form>'
+    doc = parse_html(html)
+    issues = Dommy::Rails::Lint.missing_form_labels(doc)
+    assert_equal 1, issues.size
+    assert_equal "title", issues.first[:name]
+  end
+
+  def test_missing_form_labels_accepts_label_associations
+    html = <<~HTML
+      <form>
+        <label for="title">Title</label><input type="text" id="title" name="title">
+        <label>Body<textarea name="body"></textarea></label>
+        <input type="text" name="tag" aria-label="Tag">
+        <input type="search" name="q" placeholder="Search">
+      </form>
+    HTML
+    doc = parse_html(html)
+    assert_empty Dommy::Rails::Lint.missing_form_labels(doc)
+  end
+
+  def test_missing_form_labels_skips_non_labelable_inputs
+    html = <<~HTML
+      <form>
+        <input type="hidden" name="authenticity_token" value="secret">
+        <input type="submit" value="Save">
+        <input type="button" value="Preview">
+        <input type="reset" value="Reset">
+      </form>
+    HTML
+    doc = parse_html(html)
+    assert_empty Dommy::Rails::Lint.missing_form_labels(doc)
+  end
 end
