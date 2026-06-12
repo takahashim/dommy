@@ -97,11 +97,15 @@ module Dommy
         # (`::before`, `:first-line`) — such a clause matches no element.
         attr_reader :clauses
 
-        def initialize(string)
+        def initialize(string, in_has: false)
           @s = string
           @i = 0
           @n = string.length
           @clauses = []
+          # True while parsing the argument of a `:has()` — a structurally
+          # nested `:has()` is invalid (string occurrences inside quoted
+          # attribute values are fine).
+          @in_has = in_has
         end
 
         # selector-list := <complex-selector> (',' <complex-selector>)* with
@@ -201,7 +205,14 @@ module Dommy
             saw_any = true
           end
           loop do
-            case peek
+            c = peek
+            break unless c == "#" || c == "." || c == "[" || c == ":"
+
+            # A pseudo-element ends the compound: `::before.foo`,
+            # `::before:hover`, `::before::after` are all invalid.
+            fail!("selector after pseudo-element") if pseudo_element
+
+            case c
             when "#"
               subclasses << parse_id!
             when "."
@@ -215,8 +226,6 @@ module Dommy
               else
                 subclasses << parsed
               end
-            else
-              break
             end
             saw_any = true
           end
@@ -432,7 +441,7 @@ module Dommy
         def consume_function_args!(name, pseudo_element:)
           advance # consume '('
           arg = consume_function_argument_source
-          arg_parser = Parser.new(arg)
+          arg_parser = Parser.new(arg, in_has: @in_has)
           if pseudo_element
             # ::slotted(<compound>), ::part(<ident>+), ::cue(<selector>), …
             case name
@@ -445,8 +454,8 @@ module Dommy
           elsif name == "not"
             parse_selector_argument_list(arg, forgiving: false)
           elsif name == "has"
+            fail!("nested :has() is invalid") if @in_has
             rels = parse_relative_selector_argument_list(arg)
-            fail!("nested :has() is invalid") if arg.match?(/:has\(/i)
             fail!("pseudo-element in :has() is invalid") if rels.any? { |r| r.complex.pseudo_element? }
             rels
           elsif NTH_FUNCTIONS.include?(name)
@@ -494,18 +503,20 @@ module Dommy
           selectors = []
           clauses.each do |clause|
             begin
-              selectors.concat(Parser.new(clause).parse_selector_list!.selectors)
+              selectors.concat(Parser.new(clause, in_has: @in_has).parse_selector_list!.selectors)
             rescue InvalidSelector
               raise unless forgiving
             end
           end
-          fail!("empty selector list") if selectors.empty?
+          # A forgiving selector list (`:is`/`:where`) whose every clause is
+          # invalid is still valid — it just matches nothing (empty list).
+          fail!("empty selector list") if selectors.empty? && !forgiving
           SelectorAST::SelectorList.new(selectors)
         end
 
         def parse_relative_selector_argument_list(source)
           split_selector_source(source).map do |clause|
-            Parser.new(clause).parse_relative_selector!
+            Parser.new(clause, in_has: true).parse_relative_selector!
           end
         end
 
@@ -558,21 +569,20 @@ module Dommy
           SelectorAST::NthExpression.new(a, b, of_list)
         end
 
+        # css-syntax An+B: `<integer>` and `n` form a single token (`3n`), so
+        # whitespace between them (`3 n`) is invalid; whitespace around the
+        # operator before the B part (`3n + 1`) is fine.
+        AN_PLUS_B = /\A([+-])?[ \t\r\n\f]*(\d+)?n(?:[ \t\r\n\f]*([+-])[ \t\r\n\f]*(\d+))?\z/
+
         def parse_an_plus_b(source)
-          s = source.downcase.gsub(/\s+/, "")
+          s = source.strip.downcase
           return [2, 1] if s == "odd"
           return [2, 0] if s == "even"
-          return [0, Integer(s)] if s.match?(/\A[+-]?\d+\z/)
-          return [1, 0] if s == "n" || s == "+n"
-          return [-1, 0] if s == "-n"
-          if (m = s.match(/\A([+-]?\d*)n([+-]\d+)?\z/))
-            raw_a = m[1]
-            a = case raw_a
-            when "", "+" then 1
-            when "-" then -1
-            else raw_a.to_i
-            end
-            b = m[2].to_i
+          return [0, Integer(s.delete(" \t\r\n\f"))] if s.match?(/\A[+-]?[ \t\r\n\f]*\d+\z/)
+          if (m = s.match(AN_PLUS_B))
+            a = (m[2] ? m[2].to_i : 1)
+            a = -a if m[1] == "-"
+            b = m[3] ? Integer("#{m[3]}#{m[4]}") : 0
             return [a, b]
           end
           fail!("invalid An+B expression")

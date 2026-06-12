@@ -99,4 +99,58 @@ class TestSelectorParser < Minitest::Test
     refute SP.valid?(":has(:has(.x))")
     refute SP.valid?(":has(::before)")
   end
+
+  # A forgiving selector list (`:is`/`:where`) whose every clause is invalid
+  # is still a valid selector — it parses to an empty list and matches nothing.
+  def test_forgiving_list_with_all_invalid_branches_is_valid_and_matches_nothing
+    assert SP.valid?(":is(:unknown-xyz)")
+    assert SP.valid?(":where(:unknown-xyz)")
+    is_pseudo = SP.parse!(":is(:unknown-xyz)").selectors.first.rightmost.subclass_selectors.first
+    assert_empty is_pseudo.argument.selectors
+
+    doc = Dommy.parse('<div class="a"></div>').document
+    assert_equal [], doc.query_selector_all(":is(:unknown-xyz)").to_a
+    assert_equal [], doc.query_selector_all(":where(:unknown-xyz)").to_a
+
+    # A valid branch still matches even when an invalid sibling is dropped.
+    matched = doc.query_selector_all(":is(.a, :unknown-xyz)").to_a
+    assert_equal 1, matched.length
+    assert_equal "a", matched.first.get_attribute("class")
+  end
+
+  def test_non_forgiving_lists_still_reject_all_invalid_branches
+    refute SP.valid?(":not(:unknown-xyz)")
+    refute SP.valid?(":has(:unknown-xyz)")
+  end
+
+  # `:has(` appearing only inside a quoted attribute value is not a nested
+  # `:has()`; only a structurally parsed `:has` inside `:has` is invalid.
+  def test_has_nesting_is_detected_structurally_not_textually
+    assert SP.valid?('div:has([title=":has(x)"])')
+    refute SP.valid?(":has(:has(.x))")
+    refute SP.valid?(":has(div :has(.x))")
+  end
+
+  # An+B: `<integer>` and `n` are one token, so `3 n` is invalid; whitespace
+  # around the operator (`3n + 1`, `+ 3n`) stays valid.
+  def test_an_plus_b_rejects_whitespace_between_integer_and_n
+    refute SP.valid?(":nth-child(3 n)")
+    refute SP.valid?(":nth-child(3 n + 1)")
+    assert SP.valid?(":nth-child(3n + 1)")
+    assert SP.valid?(":nth-child(+ 3n)")
+    assert SP.valid?(":nth-child(3n)")
+    assert SP.valid?(":nth-child( 2n - 1 )")
+  end
+
+  # A pseudo-element ends a compound selector: nothing may follow it.
+  def test_pseudo_element_must_be_last_in_compound
+    refute SP.valid?("div::before.foo")
+    refute SP.valid?("div::before#x")
+    refute SP.valid?("div::before[a]")
+    refute SP.valid?("div::before:hover")
+    refute SP.valid?("div::before::after")
+    refute SP.valid?("p:first-line.foo") # legacy one-colon form too
+    assert SP.valid?("div.foo::before")
+    assert SP.valid?("div::before, .foo")
+  end
 end

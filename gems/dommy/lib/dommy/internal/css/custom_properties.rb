@@ -15,7 +15,15 @@ module Dommy
         # property may still use its fallback.
         Cycle = Struct.new(:name)
 
+        # The CSS function name is ASCII case-insensitive; the preceding
+        # character guard keeps identifiers like `novar(` from matching.
+        VAR_PATTERN = /(?<![\w-])var\(/i
+
         module_function
+
+        def contains_var?(value)
+          value.to_s.match?(VAR_PATTERN)
+        end
 
         # Resolve var() inside the custom property values themselves.
         # `values` is "--name" => raw value; returns "--name" => substituted
@@ -60,7 +68,9 @@ module Dommy
           out = +""
           index = 0
           while index < value.length
-            unless value[index, 4] == "var("
+            at_var = value[index, 4].casecmp("var(").zero? &&
+              (index.zero? || !value[index - 1].match?(/[\w-]/))
+            unless at_var
               out << value[index]
               index += 1
               next

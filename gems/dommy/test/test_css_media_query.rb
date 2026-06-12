@@ -48,6 +48,19 @@ class TestCssMediaQuery < Minitest::Test
     assert MQ.match?("(height: 500px)", e)
   end
 
+  def test_unitless_zero_is_a_valid_length
+    e = env(viewport_width: 800)
+    assert MQ.match?("(min-width: 0)", e)
+    assert MQ.match?("(min-height: 0)", e)
+    assert MQ.match?("(0 <= width)", e)
+  end
+
+  def test_unitless_nonzero_is_invalid
+    e = env(viewport_width: 800)
+    refute MQ.match?("(min-width: 600)", e)
+    refute MQ.match?("(600 <= width)", e)
+  end
+
   def test_em_units_are_16px
     assert MQ.match?("(min-width: 40em)", env(viewport_width: 640))
     refute MQ.match?("(min-width: 40em)", env(viewport_width: 639))
@@ -126,6 +139,12 @@ class TestCssMediaQuery < Minitest::Test
   def test_only_screen
     assert MQ.match?("only screen and (min-width: 600px)", env(viewport_width: 800))
     refute MQ.match?("only print and (min-width: 600px)", env(viewport_width: 800))
+  end
+
+  def test_only_before_condition_is_invalid
+    e = env(viewport_width: 800)
+    refute MQ.match?("only (min-width: 0px)", e)
+    refute MQ.match?("only (min-width: 600px) and (max-width: 900px)", e)
   end
 
   # --- media types ------------------------------------------------------

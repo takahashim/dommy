@@ -72,6 +72,10 @@ module Dommy
             negate_query = true
             i = 1
           elsif tokens[0] == "only"
+            # `only` is only valid immediately before a media type
+            # (`only screen`); `only (condition)` is a parse error.
+            return false unless tokens[1].is_a?(String)
+
             i = 1
           end
           return false if i >= tokens.size
@@ -272,7 +276,11 @@ module Dommy
         # --- value parsing ---------------------------------------------
 
         # Lengths in px; em/rem are converted at the canonical 16px.
+        # A bare 0 (no unit) is a valid length; any other unitless
+        # number is not.
         def parse_length(value)
+          return 0.0 if value.match?(/\A0+(?:\.0+)?\z/)
+
           match = value.match(/\A(\d+(?:\.\d+)?)(px|em|rem)\z/)
           return nil unless match
 

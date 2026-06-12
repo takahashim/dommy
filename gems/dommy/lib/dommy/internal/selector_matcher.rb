@@ -31,57 +31,109 @@ module Dommy
       def closest(element, selector_ast)
         node = element
         while node&.respond_to?(:matches?)
-          return node if matches?(node, selector_ast, scope: node)
+          # DOM Standard: closest keeps the *original* element as the
+          # scoping root for every iteration.
+          return node if matches?(node, selector_ast, scope: element)
 
           node = node.parent_element
         end
         nil
       end
 
-      def matches_complex?(element, complex, scope:)
+      # Match a complex selector with the rightmost compound as subject,
+      # evaluating right-to-left WITH backtracking: descendant and `~`
+      # combinators have multiple candidates, and a failure further left
+      # must retry the next candidate (`.a > .b .c` where the nearest
+      # `.b` ancestor has the wrong parent).
+      #
+      # `anchor:`/`leading:` carry :has() semantics — when the chain is
+      # fully consumed, its leftmost element must additionally relate to
+      # the anchor via the relative selector's leading combinator.
+      def matches_complex?(element, complex, scope:, anchor: nil, leading: nil)
         parts = complex.parts
-        idx = parts.length - 1
-        return false unless matches_compound?(element, parts[idx].compound, scope: scope)
+        return false unless matches_compound?(element, parts.last.compound, scope: scope)
 
-        current = element
-        while idx.positive?
-          combinator = parts[idx].combinator || :descendant
-          idx -= 1
-          compound = parts[idx].compound
-          current = match_left(current, combinator, compound, scope: scope)
-          return false unless current
-        end
-        true
+        match_left_from(element, parts, parts.length - 1, scope: scope, anchor: anchor, leading: leading)
       end
 
-      def match_left(element, combinator, compound, scope:)
+      # Match parts[0...index] to the left of `current` (already matched
+      # against parts[index]). Recursion gives the backtracking: each
+      # candidate that satisfies the next compound also has to complete
+      # the rest of the chain, otherwise the search continues.
+      def match_left_from(current, parts, index, scope:, anchor:, leading:)
+        if index.zero?
+          return true if anchor.nil?
+
+          return anchor_relation?(current, anchor, leading || :descendant)
+        end
+
+        combinator = parts[index].combinator || :descendant
+        compound = parts[index - 1].compound
         case combinator
         when :child
-          parent = element.parent_element
-          parent if parent && matches_compound?(parent, compound, scope: scope)
+          parent = current.parent_element
+          !parent.nil? && matches_compound?(parent, compound, scope: scope) &&
+            match_left_from(parent, parts, index - 1, scope: scope, anchor: anchor, leading: leading)
         when :next_sibling
-          sib = element.previous_element_sibling
-          sib if sib && matches_compound?(sib, compound, scope: scope)
+          sib = current.previous_element_sibling
+          !sib.nil? && matches_compound?(sib, compound, scope: scope) &&
+            match_left_from(sib, parts, index - 1, scope: scope, anchor: anchor, leading: leading)
         when :subsequent_sibling
-          sib = element.previous_element_sibling
+          sib = current.previous_element_sibling
           while sib
-            return sib if matches_compound?(sib, compound, scope: scope)
+            if matches_compound?(sib, compound, scope: scope) &&
+               match_left_from(sib, parts, index - 1, scope: scope, anchor: anchor, leading: leading)
+              return true
+            end
 
             sib = sib.previous_element_sibling
           end
-          nil
-        else
-          parent = element.parent_element
+          false
+        when :column
+          # `||` needs table column semantics Dommy doesn't model; the
+          # design memo keeps it unsupported — match nothing (never treat
+          # it as a descendant combinator).
+          false
+        else # :descendant
+          parent = current.parent_element
           while parent
-            return parent if matches_compound?(parent, compound, scope: scope)
+            if matches_compound?(parent, compound, scope: scope) &&
+               match_left_from(parent, parts, index - 1, scope: scope, anchor: anchor, leading: leading)
+              return true
+            end
 
             parent = parent.parent_element
           end
-          nil
+          false
+        end
+      end
+
+      # Does `leftmost` stand in `combinator` relation to the :has()
+      # anchor? (The implied :scope at the head of a relative selector.)
+      def anchor_relation?(leftmost, anchor, combinator)
+        case combinator
+        when :child
+          anchor.equal?(leftmost.parent_element)
+        when :next_sibling
+          anchor.equal?(leftmost.previous_element_sibling)
+        when :subsequent_sibling
+          sib = leftmost.previous_element_sibling
+          while sib
+            return true if anchor.equal?(sib)
+
+            sib = sib.previous_element_sibling
+          end
+          false
+        else # :descendant
+          !anchor.equal?(leftmost) && anchor.respond_to?(:contains?) && anchor.contains?(leftmost)
         end
       end
 
       def matches_compound?(element, compound, scope:)
+        # A pseudo-element subject never matches an element (querySelector*,
+        # matches). The cascade strips pseudo-elements before matching and
+        # indexes those rules separately.
+        return false if compound.pseudo_element
         return false unless matches_type?(element, compound.type)
 
         compound.subclass_selectors.all? { |selector| matches_simple?(element, selector, scope: scope) }
@@ -89,7 +141,9 @@ module Dommy
 
       def matches_type?(element, type)
         return true unless type
-        return true if type.is_a?(SelectorAST::UniversalSelector)
+        return matches_type_namespace?(element, type.namespace) if type.is_a?(SelectorAST::UniversalSelector)
+
+        return false unless matches_type_namespace?(element, type.namespace)
 
         actual = element.local_name.to_s
         expected = type.name.to_s
@@ -98,6 +152,16 @@ module Dommy
         else
           actual == expected
         end
+      end
+
+      # Namespace prefixes the parser admits: nil (no prefix — with no
+      # @namespace rules a type selector matches any namespace), :any
+      # (`*|`), :none (`|` — only elements in no namespace; named prefixes
+      # are undeclared and already raised at parse time).
+      def matches_type_namespace?(element, namespace)
+        return true if namespace.nil? || namespace == :any
+
+        element.namespace_uri.to_s.empty? if namespace == :none
       end
 
       def matches_simple?(element, selector, scope:)
@@ -166,7 +230,8 @@ module Dommy
         when "hover"
           hovered = element.owner_document&.__hovered_element__
           hovered && (element.equal?(hovered) || element.contains?(hovered))
-        when "active", "visited" then false
+        when "active", "visited" then false # supported-but-currently-false (no pointer state / history)
+        when "dir" then dir_match?(element, pseudo.argument)
         when "target" then element.get_attribute("id").to_s == Internal.target_id(element.owner_document).to_s && !Internal.target_id(element.owner_document).nil?
         when "lang" then lang_match?(element, pseudo.argument)
         when "link" then link_element?(element)
@@ -176,29 +241,41 @@ module Dommy
         end
       end
 
+      # `:has(RS)` — the relative selector is anchored at `element` (the
+      # implied :scope). Candidates are potential *subjects* (the relative
+      # complex's rightmost compound); the anchor relation of the chain's
+      # leftmost element is enforced inside matches_complex? via anchor:/
+      # leading:, so e.g. `section:has(.a .b)` cannot satisfy `.a` with an
+      # ancestor outside the section, and `:has(+ .a .b)` finds subjects
+      # inside the adjacent sibling. Inside :has, `:scope` is the anchor.
       def has_relative?(element, relative_selectors, scope:)
         relative_selectors.any? do |relative|
-          relative_candidates(element, relative.leading_combinator).any? do |candidate|
-            matches_complex?(candidate, relative.complex, scope: scope || element)
+          leading = relative.leading_combinator || :descendant
+          relative_candidates(element, leading).any? do |candidate|
+            matches_complex?(candidate, relative.complex, scope: element, anchor: element, leading: leading)
           end
         end
       end
 
+      # The subject search space per leading combinator: descendants for
+      # descendant/child relations; the following sibling(s) *and their
+      # descendants* for sibling relations (`:has(+ .a .b)`'s subject lives
+      # inside the next sibling).
       def relative_candidates(element, combinator)
         case combinator
-        when :child
-          element.children.to_a
         when :next_sibling
-          [element.next_element_sibling].compact
+          sib = element.next_element_sibling
+          sib ? [sib] + element_descendants(sib) : []
         when :subsequent_sibling
           out = []
           sib = element.next_element_sibling
           while sib
             out << sib
+            out.concat(element_descendants(sib))
             sib = sib.next_element_sibling
           end
           out
-        else
+        else # :descendant / :child
           element_descendants(element)
         end
       end
@@ -256,11 +333,17 @@ module Dommy
         a.namespace_uri == b.namespace_uri && a.local_name == b.local_name
       end
 
-      def query_root(root, scope)
+      # DOM Standard scope-match: candidates come from the receiver's
+      # *root* (document, fragment, or a detached top element), with the
+      # receiver as scoping root — so ancestors outside the receiver still
+      # satisfy left-hand compounds. Walking the parent chain (rather than
+      # jumping to owner_document) keeps fragment-rooted subtrees queryable.
+      def query_root(root, _scope)
         return root if root.is_a?(Document) || root.is_a?(ShadowRoot) || root.is_a?(Fragment)
-        return root if root.respond_to?(:parent_node) && root.parent_node.nil?
 
-        scope&.owner_document || root
+        node = root
+        node = node.parent_node while node.respond_to?(:parent_node) && node.parent_node
+        node
       end
 
       def default_scope(root)
@@ -353,7 +436,10 @@ module Dommy
         false
       end
 
-      def lang_match?(element, lang)
+      # `:lang()` accepts a list of language ranges; the element's content
+      # language (nearest lang attribute) must extended-filter-match any of
+      # them (RFC 4647 §3.3.2 — so `de-DE` matches `de-Latn-DE`).
+      def lang_match?(element, ranges)
         actual = nil
         node = element
         while node
@@ -366,12 +452,59 @@ module Dommy
         end
         return false unless actual
 
-        expected = lang.to_s.downcase
-        actual == expected || actual.start_with?("#{expected}-")
+        Array(ranges).any? { |range| lang_range_match?(actual, range.to_s.downcase) }
+      end
+
+      def lang_range_match?(actual, range)
+        return false if range.empty?
+        return true if range == "*"
+
+        tags = actual.split("-")
+        subs = range.split("-")
+        return false unless subs[0] == "*" || tags[0] == subs[0]
+
+        i = 1
+        j = 1
+        while j < subs.length
+          if subs[j] == "*"
+            j += 1
+          elsif i >= tags.length
+            return false
+          elsif tags[i] == subs[j]
+            i += 1
+            j += 1
+          elsif tags[i].length == 1
+            # A singleton subtag (e.g. "x") ends the matchable prefix.
+            return false
+          else
+            i += 1
+          end
+        end
+        true
       end
 
       def link_element?(element)
         %w[a area link].include?(element.local_name.to_s.downcase) && element.has_attribute?("href")
+      end
+
+      # `:dir()` from the nearest dir attribute (ltr/rtl; auto and absent
+      # fall back to the document default ltr — no computed-direction or
+      # content heuristics).
+      def dir_match?(element, argument)
+        expected = Array(argument).first.to_s.downcase
+        return false unless %w[ltr rtl].include?(expected)
+
+        actual = "ltr"
+        node = element
+        while node
+          value = node.get_attribute("dir").to_s.downcase if node.respond_to?(:get_attribute)
+          if %w[ltr rtl].include?(value)
+            actual = value
+            break
+          end
+          node = node.parent_element
+        end
+        actual == expected
       end
     end
   end

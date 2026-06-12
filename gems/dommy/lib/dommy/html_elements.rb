@@ -2967,16 +2967,31 @@ module Dommy
       @__disabled = !!v
     end
 
-    # `style.sheet` — always non-nil for `<style>` (in browsers the
-    # text content is parsed; we hand back an empty sheet stub that
-    # consumers can manipulate via insertRule/deleteRule).
+    # `style.sheet` — always non-nil for `<style>`. Memoized per text
+    # content (CSSOM: repeated reads return the same object), seeded
+    # with the element's CSS text so insertRule/deleteRule order against
+    # it. Rewriting the element's text discards the sheet and any rules
+    # inserted via CSSOM — browsers re-parse into a fresh sheet too.
     def sheet
-      @__sheet ||= CSSStyleSheet.new(
+      text = text_content.to_s
+      return @__sheet if @__sheet && @__sheet_text == text
+
+      @__sheet_text = text
+      @__sheet = CSSStyleSheet.new(
         owner_node: self,
         media: media,
         title: @__node__["title"].to_s,
-        type: (type.empty? ? "text/css" : type)
+        type: (type.empty? ? "text/css" : type),
+        source_text: text
       )
+    end
+
+    # The memoized sheet, or nil when none was created yet or the
+    # element's text changed since (stale sheet). Lets the cascade read
+    # CSSOM state only for sheets someone actually touched, without
+    # instantiating sheet objects for every `<style>` in the document.
+    def __instantiated_sheet__
+      @__sheet if @__sheet && @__sheet_text == text_content.to_s
     end
 
     def __js_get__(key)

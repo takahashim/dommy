@@ -1,21 +1,22 @@
 # frozen_string_literal: true
 
 module Dommy
-  # `CSSStyleSheet` — stub implementation. Dommy has no CSS parser
-  # nor a render tree, so we don't interpret rule text; the sheet
-  # acts as an ordered list of opaque `CSSRule`-like wrappers.
-  #
-  # Useful for code that does:
+  # `CSSStyleSheet` — the sheet itself doesn't interpret rule text; it
+  # acts as an ordered list of opaque `CSSRule`-like wrappers. The
+  # cascade consumes the sheet through `cascade_text` (all rule texts
+  # in document order), so insertRule/deleteRule/replaceSync and
+  # `disabled` are reflected in computed styles for `<style>`-owned
+  # sheets (Internal::CSS::RuleIndex re-parses on the next lookup).
   #
   #   sheet.insertRule("p { color: red }", 0);
   #   for (const r of sheet.cssRules) console.log(r.cssText);
   #
-  # `disabled` is honored as state. `href`, `media`, `title`, `type`
-  # mirror the owner node's attributes when present.
+  # `href`, `media`, `title`, `type` mirror the owner node's
+  # attributes when present.
   class CSSStyleSheet
     attr_reader :owner_node, :css_rules
 
-    def initialize(owner_node:, href: nil, media: nil, title: nil, type: "text/css")
+    def initialize(owner_node:, href: nil, media: nil, title: nil, type: "text/css", source_text: nil)
       @owner_node = owner_node
       @href = href
       @media = media
@@ -23,6 +24,11 @@ module Dommy
       @type = type
       @disabled = false
       @css_rules = CSSRuleList.new
+      # The owner node's CSS text at sheet creation, kept as one opaque
+      # rule entry — insertRule(0) lands before it, appends land after,
+      # exactly like a parsed sheet would order them.
+      text = source_text.to_s
+      @css_rules.__internal_insert__(0, CSSRule.new(text, self)) unless text.empty?
     end
 
     def disabled
@@ -30,7 +36,18 @@ module Dommy
     end
 
     def disabled=(v)
-      @disabled = !!v
+      v = !!v
+      changed = @disabled != v
+      @disabled = v
+      __bump_owner_style_generation__ if changed
+      v
+    end
+
+    # The sheet's full CSS text in document order — what the cascade
+    # parses in place of the owner `<style>`'s raw text once the sheet
+    # has been mutated through the CSSOM.
+    def cascade_text
+      @css_rules.map(&:css_text).join("\n")
     end
 
     def href
@@ -64,6 +81,7 @@ module Dommy
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx > @css_rules.length
 
       @css_rules.__internal_insert__(idx, CSSRule.new(rule_text.to_s, self))
+      __bump_owner_style_generation__
       idx
     end
 
@@ -72,6 +90,7 @@ module Dommy
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx >= @css_rules.length
 
       @css_rules.__internal_delete_at__(idx)
+      __bump_owner_style_generation__
       nil
     end
 
@@ -79,9 +98,8 @@ module Dommy
     # (no parsing — we keep it as one opaque entry).
     def replace_sync(text)
       @css_rules.__internal_clear__
-      return nil if text.to_s.empty?
-
-      @css_rules.__internal_insert__(0, CSSRule.new(text.to_s, self))
+      @css_rules.__internal_insert__(0, CSSRule.new(text.to_s, self)) unless text.to_s.empty?
+      __bump_owner_style_generation__
       nil
     end
 
@@ -138,6 +156,16 @@ module Dommy
       when "replace"
         replace(args[0])
       end
+    end
+
+    private
+
+    # CSSOM mutations must invalidate the owner document's computed-style
+    # cache — the rule index re-reads `cascade_text` on the next lookup.
+    def __bump_owner_style_generation__
+      doc = @owner_node.respond_to?(:owner_document) ? @owner_node.owner_document : nil
+      doc.__bump_style_generation__ if doc.respond_to?(:__bump_style_generation__)
+      nil
     end
   end
 

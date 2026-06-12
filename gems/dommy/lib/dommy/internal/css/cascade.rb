@@ -35,6 +35,9 @@ module Dommy
         def computed_style(element, pseudo_element: nil)
           document = element.owner_document
           return {}.freeze unless document
+          # CSSOM: an element outside the flat tree has no computed style —
+          # browsers return empty strings for every property.
+          return {}.freeze if element.respond_to?(:is_connected?) && !element.is_connected?
 
           cache = style_cache(document)
           if pseudo_element
@@ -78,7 +81,7 @@ module Dommy
         end
 
         def compute(element, document, pseudo_element: nil)
-          winners, ua_winners = collect_winners(element, index_for(document), pseudo_element: pseudo_element)
+          index = index_for(document)
 
           parent = pseudo_element ? nil : element.parent_element
           parent_styles = if pseudo_element
@@ -87,18 +90,18 @@ module Dommy
             parent ? computed_style(parent) : nil
           end
 
-          custom = resolve_custom_properties(winners, ua_winners, parent_styles)
+          # Two passes (css-variables-1 §3): the custom properties resolve
+          # first, then every other declaration substitutes var() BEFORE
+          # shorthand expansion and wide-keyword interpretation — so
+          # `background: var(--c)` expands the substituted value, not the
+          # literal var() text.
+          custom_winners, custom_ua = collect_winners(element, index, pseudo_element: pseudo_element, custom_only: true)
+          custom = resolve_custom_properties(custom_winners, custom_ua, parent_styles)
 
-          # The cascaded value with var() substituted; nil both for "no
-          # declaration" and for "invalid at computed-value time", which the
-          # caller's inherit/initial default fill handles (= unset, per
-          # css-variables-1 §3).
+          winners, ua_winners = collect_winners(element, index, pseudo_element: pseudo_element, custom: custom)
+
           fetch = lambda do |name|
-            value = resolve_cascaded(name, winners, ua_winners, parent_styles)
-            next value unless value&.include?("var(")
-
-            substituted = CustomProperties.substitute(value, ->(n) { custom[n] })
-            substituted.is_a?(String) && !substituted.strip.empty? ? substituted.strip : nil
+            resolve_cascaded(name, winners, ua_winners, parent_styles)
           end
 
           root = document.document_element
@@ -161,7 +164,10 @@ module Dommy
 
         # Gather the winning declaration per property — and separately the
         # winning UA declaration, which is what `revert` rolls back to.
-        def collect_winners(element, index, pseudo_element: nil)
+        # `custom_only: true` collects just the custom-property declarations
+        # (pass 1); the main pass receives the resolved `custom:` set so
+        # var() substitutes before expansion.
+        def collect_winners(element, index, pseudo_element: nil, custom: nil, custom_only: false)
           winners = {}
           ua_winners = {}
 
@@ -175,25 +181,58 @@ module Dommy
             end
           end
 
-          index.matches_for(element, pseudo_element).each do |match|
-            match.declarations.each_with_index do |decl, position|
-              rank = precedence(match.origin, decl.important, match.specificity, match.order, position)
-              PropertyRegistry.expand(decl.name, decl.value).each do |(name, value)|
-                consider.call(name, value, rank, match.origin)
-              end
+          each_declaration(element, index, pseudo_element) do |name, value, rank, origin|
+            if name.start_with?("--")
+              consider.call(name, value, rank, origin) if custom_only
+              next
             end
-          end
+            next if custom_only
 
-          unless pseudo_element
-            inline_declarations(element).each_with_index do |(name, value, important), position|
-              rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position)
-              PropertyRegistry.expand(name, value).each do |(n, v)|
-                consider.call(n, v, rank, :inline)
-              end
+            expand_declaration(name, value, custom).each do |(expanded_name, expanded_value)|
+              consider.call(expanded_name, expanded_value, rank, origin)
             end
           end
 
           [winners, ua_winners]
+        end
+
+        # Every declaration that cascades onto the element, with its
+        # precedence rank: matched rules first, then the style attribute
+        # (which doesn't apply to pseudo-elements).
+        def each_declaration(element, index, pseudo_element)
+          index.matches_for(element, pseudo_element).each do |match|
+            match.declarations.each_with_index do |decl, position|
+              rank = precedence(match.origin, decl.important, match.specificity, match.order, position)
+              yield decl.name, decl.value, rank, match.origin
+            end
+          end
+          return if pseudo_element
+
+          inline_declarations(element).each_with_index do |(name, value, important), position|
+            rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position)
+            yield name, value, rank, :inline
+          end
+        end
+
+        # The computed-value-time part of one declaration: substitute var()
+        # (an invalid substitution makes the declaration's longhands behave
+        # as unset — css-variables-1 §3), interpret a CSS-wide keyword on a
+        # shorthand as applying to every longhand, then expand.
+        def expand_declaration(name, value, custom)
+          value = value.to_s
+          if custom && CustomProperties.contains_var?(value)
+            substituted = CustomProperties.substitute(value, ->(n) { custom[n] })
+            if substituted.is_a?(String) && !substituted.strip.empty?
+              value = substituted.strip
+            else
+              return PropertyRegistry.expansion_targets(name).map { |target| [target, "unset"] }
+            end
+          end
+          if WIDE_KEYWORDS.include?(value.downcase)
+            return PropertyRegistry.expansion_targets(name).map { |target| [target, value] }
+          end
+
+          PropertyRegistry.expand(name, value)
         end
 
         # Comparable precedence tuple: importance level, specificity (A,B,C),
@@ -229,7 +268,7 @@ module Dommy
             value = value.strip
             next if name.empty? || value.empty?
 
-            important = !value.sub!(/\s*!important\s*\z/i, "").nil?
+            important = !value.sub!(/\s*!\s*important\s*\z/i, "").nil?
             [name, value, important]
           end
         end

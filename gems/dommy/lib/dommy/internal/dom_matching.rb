@@ -159,8 +159,15 @@ module Dommy
         return true if node.respond_to?(:name) && node.name == "input" && node["type"] == "hidden"
 
         style = node["style"].to_s
-        style.match?(/display\s*:\s*none/i) || style.match?(/visibility\s*:\s*hidden/i)
+        style.match?(/display\s*:\s*none/i) ||
+          style.match?(/visibility\s*:\s*hidden/i) ||
+          # Inline zero opacity hides too — keeps the fast path consistent
+          # with the CSS-aware check on sheetless documents.
+          style.match?(INLINE_ZERO_OPACITY)
       end
+
+      # opacity: 0 / 0.0 / .0 / 0% (and nothing else) as an inline value.
+      INLINE_ZERO_OPACITY = /opacity\s*:\s*\+?(?:0+(?:\.0*)?|\.0+)%?\s*(?:[;!]|\z)/i
 
       def non_rendering_tag?(node)
         node.respond_to?(:name) && %w[head script style template].include?(node.name)

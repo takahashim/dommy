@@ -160,6 +160,61 @@ class TestCssCustomProperties < Minitest::Test
     assert_equal "", declaration.get_property_value("--missing")
   end
 
+  # --- var() in shorthands (substitution precedes expansion) ------------
+
+  def test_var_in_a_shorthand_substitutes_before_expansion
+    doc = doc_for(<<~HTML)
+      <style>
+        :root { --c: red; --m: 1px 2px }
+        #a { background: var(--c) }
+        #b { margin: var(--m) }
+      </style>
+      <p id="a">x</p><p id="b">y</p>
+    HTML
+    assert_equal "rgb(255, 0, 0)", computed(doc, "a")["background-color"]
+    assert_equal "1px", computed(doc, "b")["margin-top"]
+    assert_equal "2px", computed(doc, "b")["margin-right"]
+  end
+
+  def test_invalid_var_in_a_shorthand_unsets_its_longhands
+    doc = doc_for(<<~HTML)
+      <style>
+        #x { background: red }
+        #x { background: var(--missing) }
+      </style>
+      <p id="x">x</p>
+    HTML
+    assert_equal "rgba(0, 0, 0, 0)", computed(doc, "x")["background-color"]
+  end
+
+  def test_wide_keyword_on_a_shorthand_applies_to_its_longhands
+    doc = doc_for(<<~HTML)
+      <style>
+        #o { background-color: green; font-style: italic }
+        #i { background: inherit; font: inherit }
+      </style>
+      <div id="o"><p id="i">x</p></div>
+    HTML
+    assert_equal "rgb(0, 128, 0)", computed(doc, "i")["background-color"]
+    assert_equal "italic", computed(doc, "i")["font-style"]
+  end
+
+  def test_var_fallback_resolving_to_a_wide_keyword_is_interpreted
+    doc = doc_for(<<~HTML)
+      <style>
+        #o { color: green }
+        #x { color: var(--undef, inherit) }
+      </style>
+      <div id="o"><p id="x">x</p></div>
+    HTML
+    assert_equal "rgb(0, 128, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_var_function_name_is_case_insensitive
+    doc = doc_for('<style>:root { --c: red } #x { color: VAR(--c) }</style><p id="x">x</p>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
   def test_tailwind_style_layered_variables_resolve
     doc = doc_for(<<~HTML)
       <style>

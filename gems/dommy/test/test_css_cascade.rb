@@ -200,6 +200,79 @@ class TestCssCascade < Minitest::Test
     assert_same first, computed(doc, "x")
   end
 
+  # --- CSSOM (CSSStyleSheet) connection --------------------------------
+
+  def test_insert_rule_reaches_the_computed_style
+    doc = doc_for('<style></style><p id="t">x</p>')
+    assert_equal "rgb(0, 0, 0)", computed(doc, "t")["color"]
+
+    doc.query_selector("style").sheet.insert_rule("#t{color:red}", 0)
+    assert_equal "rgb(255, 0, 0)", computed(doc, "t")["color"]
+  end
+
+  def test_insert_rule_at_zero_precedes_the_style_text
+    doc = doc_for('<style>#t { color: red }</style><p id="t">x</p>')
+    sheet = doc.query_selector("style").sheet
+    sheet.insert_rule("#t { color: blue }", 0)
+
+    # Equal specificity: the original (now later) rule wins by source order.
+    assert_equal "rgb(255, 0, 0)", computed(doc, "t")["color"]
+
+    sheet.insert_rule("#t { color: green }")
+    assert_equal "rgb(0, 128, 0)", computed(doc, "t")["color"]
+  end
+
+  def test_delete_rule_removes_it_from_the_cascade
+    doc = doc_for('<style></style><p id="t">x</p>')
+    sheet = doc.query_selector("style").sheet
+    sheet.insert_rule("#t{color:red}", 0)
+    assert_equal "rgb(255, 0, 0)", computed(doc, "t")["color"]
+
+    sheet.delete_rule(0)
+    assert_equal "rgb(0, 0, 0)", computed(doc, "t")["color"]
+  end
+
+  def test_disabled_mutes_the_sheet_and_false_restores_it
+    doc = doc_for('<style>#t { color: red }</style><p id="t">x</p>')
+    sheet = doc.query_selector("style").sheet
+    sheet.insert_rule("#t { display: none }", 0)
+    assert_equal "none", computed(doc, "t")["display"]
+
+    sheet.disabled = true
+    assert_equal "rgb(0, 0, 0)", computed(doc, "t")["color"]
+    assert_equal "block", computed(doc, "t")["display"]
+
+    sheet.disabled = false
+    assert_equal "rgb(255, 0, 0)", computed(doc, "t")["color"]
+    assert_equal "none", computed(doc, "t")["display"]
+  end
+
+  def test_sheet_is_memoized_while_the_text_is_unchanged
+    doc = doc_for('<style>#t { color: red }</style><p id="t">x</p>')
+    style = doc.query_selector("style")
+    assert_same style.sheet, style.sheet
+  end
+
+  def test_text_rewrite_rebuilds_the_sheet_and_drops_inserted_rules
+    doc = doc_for('<style id="s">#t { color: red }</style><p id="t">x</p>')
+    style = doc.get_element_by_id("s")
+    old_sheet = style.sheet
+    old_sheet.insert_rule("#t { display: none }", 0)
+    assert_equal "none", computed(doc, "t")["display"]
+
+    style.text_content = "#t { color: blue }"
+    refute_same old_sheet, style.sheet
+    assert_equal "rgb(0, 0, 255)", computed(doc, "t")["color"]
+    assert_equal "block", computed(doc, "t")["display"]
+  end
+
+  def test_replace_sync_swaps_the_sheet_contents
+    doc = doc_for('<style>#t { color: red }</style><p id="t">x</p>')
+    sheet = doc.query_selector("style").sheet
+    sheet.replace_sync("#t { color: blue }")
+    assert_equal "rgb(0, 0, 255)", computed(doc, "t")["color"]
+  end
+
   # --- @media / viewport (P2) -------------------------------------------
 
   def test_media_rule_applies_when_condition_matches_default_viewport
@@ -315,6 +388,44 @@ class TestCssCascade < Minitest::Test
     refute Dommy::Internal::DomMatching.visible?(
       Dommy.parse('<p id="y" style="display: none">x</p>').document.get_element_by_id("y")
     )
+  end
+
+  # --- review-fix regressions -------------------------------------------
+
+  def test_style_media_attribute_gates_the_sheet
+    doc = doc_for('<style media="(max-width: 100px)">#x { color: red }</style><p id="x">x</p>')
+    assert_equal "rgb(0, 0, 0)", computed(doc, "x")["color"]
+
+    doc.default_view.resize_to(80, 600)
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_selector_list_mixing_element_and_pseudo_element_branches
+    doc = doc_for('<style>div, ::before { color: red }</style><div id="d">x</div>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "d")["color"]
+    declaration = doc.default_view.get_computed_style(doc.get_element_by_id("d"), "::before")
+    assert_equal "rgb(255, 0, 0)", declaration["color"]
+  end
+
+  def test_detached_elements_have_an_empty_computed_style
+    doc = doc_for("<p>x</p>")
+    detached = doc.create_element("div")
+    assert_equal({}, CASCADE.computed_style(detached))
+    assert_equal "", doc.default_view.get_computed_style(detached)["display"]
+  end
+
+  def test_inline_important_with_space_before_the_keyword
+    doc = doc_for(<<~HTML)
+      <style>#x { color: blue !important }</style>
+      <p id="x" style="color: red ! important">x</p>
+    HTML
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_inline_zero_opacity_hides_even_without_author_css
+    doc = doc_for('<p id="x" style="opacity: 0">x</p><p id="y" style="opacity: 0.5">y</p>')
+    refute Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("x"))
+    assert Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("y"))
   end
 
   # --- getComputedStyle ------------------------------------------------

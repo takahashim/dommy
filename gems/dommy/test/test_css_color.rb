@@ -69,6 +69,47 @@ class TestCssColor < Minitest::Test
     assert_equal "rgba(1, 2, 3, 0)", Color.normalize("rgba(1, 2, 3, 0)")
   end
 
+  def test_normalize_clamps_rgb_components
+    assert_equal "rgb(255, 0, 0)", Color.normalize("rgb(300, 0, 0)")
+    assert_equal "rgb(0, 255, 0)", Color.normalize("rgb(-10, 999, -1)")
+  end
+
+  def test_normalize_clamps_alpha
+    # alpha > 1 clamps to 1, which collapses to rgb()
+    assert_equal "rgb(0, 0, 0)", Color.normalize("rgba(0, 0, 0, 5)")
+    assert_equal "rgba(0, 0, 0, 0)", Color.normalize("rgba(0, 0, 0, -0.5)")
+  end
+
+  def test_extract_named_and_hex
+    assert_equal "rgb(255, 0, 0)", Color.extract("red url(x.png)")
+    assert_equal "rgb(170, 187, 204)", Color.extract("url(x.png) #abc no-repeat")
+    assert_equal "rgba(0, 0, 0, 0)", Color.extract("transparent url(x.png)")
+  end
+
+  def test_extract_rgb_function
+    assert_equal "rgb(1, 2, 3)", Color.extract("url(x.png) rgb(1, 2, 3)")
+    assert_equal "rgba(1, 2, 3, 0.5)", Color.extract("rgba(1, 2, 3, 0.5) no-repeat")
+  end
+
+  def test_extract_ignores_hex_inside_url
+    assert_nil Color.extract("url(#abc)")
+    assert_nil Color.extract("no-repeat url(#abc) center")
+  end
+
+  def test_extract_ignores_colors_inside_gradients
+    assert_nil Color.extract("linear-gradient(to right, red 0%, blue 100%)")
+    assert_nil Color.extract("linear-gradient(red, blue)")
+    assert_nil Color.extract("linear-gradient(rgb(1, 2, 3), blue)")
+  end
+
+  def test_extract_top_level_color_next_to_gradient
+    assert_equal "rgb(255, 0, 0)", Color.extract("linear-gradient(blue, green) red")
+  end
+
+  def test_extract_no_color
+    assert_nil Color.extract("url(x.png) no-repeat center")
+  end
+
   def test_unknown_values_pass_through
     assert_equal "hsl(120, 50%, 50%)", Color.normalize("hsl(120, 50%, 50%)")
     assert_equal "var(--main-color)", Color.normalize("var(--main-color)")

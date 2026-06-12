@@ -168,7 +168,7 @@ module Dommy
         HEX_PATTERN = /\A#(\h{3}|\h{4}|\h{6}|\h{8})\z/
         private_constant :HEX_PATTERN
 
-        RGB_PATTERN = /\Argba?\(\s*(\d{1,3})\s*,\s*(\d{1,3})\s*,\s*(\d{1,3})(?:\s*,\s*(\d*\.?\d+))?\s*\)\z/i
+        RGB_PATTERN = /\Argba?\(\s*(-?\d{1,3})\s*,\s*(-?\d{1,3})\s*,\s*(-?\d{1,3})(?:\s*,\s*(-?\d*\.?\d+))?\s*\)\z/i
         private_constant :RGB_PATTERN
 
         # Normalizes +value+ to the computed-style serialization.
@@ -191,8 +191,8 @@ module Dommy
           end
 
           if (match = RGB_PATTERN.match(stripped))
-            r, g, b = match[1].to_i, match[2].to_i, match[3].to_i
-            return serialize(r, g, b, match[4] && Float(match[4]))
+            r, g, b = match[1].to_i.clamp(0, 255), match[2].to_i.clamp(0, 255), match[3].to_i.clamp(0, 255)
+            return serialize(r, g, b, match[4] && Float(match[4]).clamp(0.0, 1.0))
           end
 
           value
@@ -205,15 +205,48 @@ module Dommy
         # @param value [String] a whitespace-separated CSS shorthand value
         # @return [String, nil]
         def extract(value)
-          if (match = value.match(/rgba?\([^)]*\)|#\h{3,8}\b/i))
-            return normalize(match[0])
-          end
-
-          value.split(/\s+/).each do |token|
+          top_level_tokens(value).each do |token|
             lower = token.downcase
-            return normalize(token) if lower == "transparent" || NAMED.key?(lower)
+            if token.include?("(")
+              # Function tokens are skipped wholesale (url(#abc),
+              # linear-gradient(red, blue), …) — except rgb()/rgba(),
+              # which are themselves colors.
+              return normalize(token) if lower.start_with?("rgb(", "rgba(")
+            elsif HEX_PATTERN.match?(lower) || lower == "transparent" || NAMED.key?(lower)
+              return normalize(token)
+            end
           end
           nil
+        end
+
+        # Splits +value+ into top-level tokens: whitespace separates tokens
+        # only outside parentheses, so a function and its arguments (e.g.
+        # `linear-gradient(to right, red)`) stay one token.
+        def top_level_tokens(value)
+          tokens = []
+          current = +""
+          depth = 0
+          value.each_char do |char|
+            case char
+            when "("
+              depth += 1
+              current << char
+            when ")"
+              depth -= 1 if depth.positive?
+              current << char
+            when /\s/
+              if depth.positive?
+                current << char
+              elsif !current.empty?
+                tokens << current
+                current = +""
+              end
+            else
+              current << char
+            end
+          end
+          tokens << current unless current.empty?
+          tokens
         end
 
         # Expands a 3/4/6/8-digit hex body into the rgb()/rgba() form.

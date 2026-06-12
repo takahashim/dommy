@@ -10,8 +10,8 @@ module Dommy
   module Internal
     module CSS
       # The document-wide "rule -> matched elements" index: every style
-      # rule's selector runs through the backend's query engine exactly once,
-      # so per-element cascade work is a Hash lookup. Built lazily per style
+      # rule's selector runs through SelectorMatcher exactly once, so
+      # per-element cascade work is a Hash lookup. Built lazily per style
       # generation (see Cascade) and thrown away wholesale on invalidation —
       # a viewport resize bumps the generation too, so @media re-evaluates.
       class RuleIndex
@@ -49,11 +49,25 @@ module Dommy
         private
 
         # Author sheets in document order. <style> contents are parsed
-        # directly; <link rel=stylesheet> participates only once a host
-        # environment fills its content in (not wired yet).
+        # directly; a media attribute gates the whole sheet (same evaluator
+        # as @media). When a CSSStyleSheet was instantiated for the element
+        # (and isn't stale), its CSSOM state wins: `cascade_text` carries
+        # insertRule/deleteRule edits and `disabled` mutes the whole sheet.
+        # <link rel=stylesheet> participates only once a host environment
+        # fills its content in (not wired yet).
         def author_sheets
-          @document.query_selector_all("style").to_a.map do |style_element|
-            safe_parse(style_element.text_content.to_s)
+          @document.query_selector_all("style").to_a.filter_map do |style_element|
+            media = style_element.get_attribute("media").to_s.strip
+            next nil unless media.empty? || MediaQuery.match?(media, environment)
+
+            sheet = style_element.respond_to?(:__instantiated_sheet__) && style_element.__instantiated_sheet__
+            if sheet
+              next nil if sheet.disabled
+
+              safe_parse(sheet.cascade_text)
+            else
+              safe_parse(style_element.text_content.to_s)
+            end
           end
         end
 
@@ -77,10 +91,14 @@ module Dommy
             @order += 1
             @author_rules ||= origin == :author
             rule.selectors.each do |selector|
-              pseudo = selector.ast.selectors.find(&:pseudo_element?)&.pseudo_element&.name
-              target_index = pseudo ? @pseudo_index[pseudo] : @index
-              query(selector.ast).each do |element|
-                (target_index[element] ||= []) << Match.new(origin, selector.specificity, @order, rule.declarations)
+              # Classify per complex selector, not per list — `div, ::before`
+              # must index its branches separately (element vs pseudo).
+              selector.ast.selectors.each do |complex|
+                pseudo = complex.pseudo_element&.name
+                target_index = pseudo ? @pseudo_index[pseudo] : @index
+                query_complex(complex).each do |element|
+                  (target_index[element] ||= []) << Match.new(origin, complex.specificity.to_a, @order, rule.declarations)
+                end
               end
             end
           end
@@ -95,16 +113,13 @@ module Dommy
           end
         end
 
-        def query(selector_ast)
-          ast = strip_pseudo_elements(selector_ast)
-          Internal::SelectorMatcher.query(@document, ast)
-        end
-
-        def strip_pseudo_elements(selector_ast)
-          selectors = selector_ast.selectors.map do |complex|
-            complex.pseudo_element? ? complex.without_pseudo_element : complex
-          end
-          Internal::SelectorAST::SelectorList.new(selectors)
+        # Match one complex selector (its pseudo-element stripped — the
+        # matcher never matches pseudo-element subjects against elements;
+        # specificity stays that of the full selector).
+        def query_complex(complex)
+          complex = complex.without_pseudo_element if complex.pseudo_element?
+          list = Internal::SelectorAST::SelectorList.new([complex])
+          Internal::SelectorMatcher.query(@document, list)
         end
 
         def pseudo_name(pseudo_element)

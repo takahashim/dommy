@@ -47,7 +47,9 @@ module Dommy
       return true if element.tag_name == "INPUT" && element.respond_to?(:type) && element.type == "hidden"
 
       style = element.get_attribute("style").to_s.downcase
-      style.match?(/display\s*:\s*none/) || style.match?(/visibility\s*:\s*hidden/)
+      style.match?(/display\s*:\s*none/) ||
+        style.match?(/visibility\s*:\s*hidden/) ||
+        style.match?(::Dommy::Internal::DomMatching::INLINE_ZERO_OPACITY)
     end
   end
 end

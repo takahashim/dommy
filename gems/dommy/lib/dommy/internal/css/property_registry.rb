@@ -47,9 +47,25 @@ module Dommy
           "inset" => "%s",
         }.freeze
 
+        # The longhands each curated shorthand covers — what a CSS-wide
+        # keyword (or an invalid var() substitution) applies to when it
+        # appears as the shorthand's whole value.
+        EXPANSION_TARGETS = {
+          "margin" => %w[margin-top margin-right margin-bottom margin-left],
+          "padding" => %w[padding-top padding-right padding-bottom padding-left],
+          "inset" => %w[top right bottom left],
+          "overflow" => %w[overflow-x overflow-y],
+          "gap" => %w[row-gap column-gap],
+          "background" => %w[background-color],
+          "font" => %w[font-style font-weight font-size line-height font-family],
+          "text-decoration" => %w[text-decoration-line],
+        }.freeze
+
         module_function
 
         def known?(name) = PROPERTIES.key?(name)
+
+        def expansion_targets(name) = EXPANSION_TARGETS.fetch(name, [name])
 
         # Custom properties inherit by default (css-variables-1 §2); their
         # initial value is the guaranteed-invalid value (nil here).
