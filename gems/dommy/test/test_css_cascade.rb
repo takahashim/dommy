@@ -200,6 +200,78 @@ class TestCssCascade < Minitest::Test
     assert_same first, computed(doc, "x")
   end
 
+  # --- @media / viewport (P2) -------------------------------------------
+
+  def test_media_rule_applies_when_condition_matches_default_viewport
+    doc = doc_for('<style>@media (min-width: 600px) { #x { display: none } }</style><p id="x">x</p>')
+    assert_equal "none", computed(doc, "x")["display"]
+  end
+
+  def test_media_rule_skipped_when_condition_fails
+    doc = doc_for('<style>@media (min-width: 2000px) { #x { display: none } }</style><p id="x">x</p>')
+    assert_equal "block", computed(doc, "x")["display"]
+  end
+
+  def test_resize_reevaluates_media_rules
+    doc = doc_for('<style>@media (max-width: 600px) { #x { display: none } }</style><p id="x">x</p>')
+    assert_equal "block", computed(doc, "x")["display"]
+
+    doc.default_view.resize_to(500, 700)
+    assert_equal "none", computed(doc, "x")["display"]
+
+    doc.default_view.resize_to(1280, 720)
+    assert_equal "block", computed(doc, "x")["display"]
+  end
+
+  def test_nested_media_conditions_are_anded
+    doc = doc_for(<<~HTML)
+      <style>
+        @media screen { @media (min-width: 600px) { #a { display: none } } }
+        @media print { @media (min-width: 600px) { #b { display: none } } }
+      </style>
+      <p id="a">a</p><p id="b">b</p>
+    HTML
+    assert_equal "none", computed(doc, "a")["display"]
+    assert_equal "block", computed(doc, "b")["display"]
+  end
+
+  def test_media_dependent_visibility
+    doc = doc_for('<style>@media (max-width: 600px) { #x { display: none } }</style><p id="x">x</p>')
+    assert Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("x"))
+
+    doc.default_view.resize_to(400, 700)
+    refute Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("x"))
+  end
+
+  def test_resize_fires_resize_event_and_mql_change
+    doc = doc_for('<p id="x">x</p>')
+    win = doc.default_view
+    mql = win.__js_call__("matchMedia", ["(min-width: 600px)"])
+    assert mql.matches
+
+    changes = []
+    resized = 0
+    mql.add_event_listener("change", proc { |e| changes << e.matches })
+    win.add_event_listener("resize", proc { resized += 1 })
+
+    win.resize_to(500, 700)
+    refute mql.matches
+    assert_equal [false], changes
+    assert_equal 1, resized
+
+    # No flip, no change event.
+    win.resize_to(400, 700)
+    assert_equal [false], changes
+    assert_equal 2, resized
+  end
+
+  def test_viewport_defaults_and_js_access
+    win = doc_for("<p>x</p>").default_view
+    assert_equal 1280, win.inner_width
+    assert_equal 720, win.__js_get__("innerHeight")
+    assert_equal 1.0, win.__js_get__("devicePixelRatio")
+  end
+
   # --- visible? integration --------------------------------------------
 
   def test_visible_detects_class_based_display_none

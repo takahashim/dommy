@@ -15,7 +15,9 @@ class TestMatchMedia < Minitest::Test
     mql = @win.__js_call__("matchMedia", ["(min-width: 600px)"])
     assert_kind_of(Dommy::MediaQueryList, mql)
     assert_equal("(min-width: 600px)", mql.media)
-    refute(mql.matches)
+    # Evaluated for real against the default 1280x720 viewport.
+    assert(mql.matches)
+    refute(@win.__js_call__("matchMedia", ["(min-width: 2000px)"]).matches)
   end
 
   def test_set_matches_dispatches_change_event

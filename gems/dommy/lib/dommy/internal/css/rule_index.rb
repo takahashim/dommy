@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "parser"
+require_relative "media_query"
 require_relative "ua_stylesheet"
 
 module Dommy
@@ -9,10 +10,8 @@ module Dommy
       # The document-wide "rule -> matched elements" index: every style
       # rule's selector runs through the backend's query engine exactly once,
       # so per-element cascade work is a Hash lookup. Built lazily per style
-      # generation (see Cascade) and thrown away wholesale on invalidation.
-      #
-      # @media rules are skipped for now (their evaluation needs the viewport
-      # Environment — css-cascade.md Phase 2).
+      # generation (see Cascade) and thrown away wholesale on invalidation —
+      # a viewport resize bumps the generation too, so @media re-evaluates.
       class RuleIndex
         Match = Struct.new(:origin, :specificity, :order, :declarations)
 
@@ -61,7 +60,12 @@ module Dommy
 
         def add_rules(rules, origin)
           rules.each do |rule|
-            next unless rule.style?
+            if rule.media?
+              # Nested @media is an AND: each level's condition gates its
+              # contents. Inactive blocks contribute nothing to the index.
+              add_rules(rule.rules, origin) if MediaQuery.match?(rule.condition, environment)
+              next
+            end
 
             @order += 1
             @author_rules ||= origin == :author
@@ -70,6 +74,15 @@ module Dommy
                 (@index[element] ||= []) << Match.new(origin, selector.specificity, @order, rule.declarations)
               end
             end
+          end
+        end
+
+        # The media environment of the document's window — or the default
+        # (1280x720) for windowless documents (fragments, DOMParser output).
+        def environment
+          @environment ||= begin
+            view = @document.respond_to?(:default_view) ? @document.default_view : nil
+            (view && view.media_environment) || MediaQuery::DEFAULT
           end
         end
 

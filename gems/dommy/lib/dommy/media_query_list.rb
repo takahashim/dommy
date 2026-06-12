@@ -1,11 +1,17 @@
 # frozen_string_literal: true
 
+require_relative "internal/css/media_query"
+
 module Dommy
   # `MediaQueryList` — what `window.matchMedia(query)` returns.
   #
-  # Dommy has no layout / viewport, so `matches` is `false` by default.
-  # Tests drive media query changes via `__test_set_matches__(bool)`, which
-  # flips the boolean and fires a `change` event — exactly the surface
+  # `matches` evaluates the query against the window's media environment
+  # (viewport 1280x720 by default; see Window#resize_to). When the
+  # environment changes, the window notifies every list it handed out and a
+  # `change` event fires for those whose result flipped.
+  #
+  # `__test_set_matches__(bool)` remains as a test seam: it forces the
+  # match state (overriding evaluation) and fires `change` — the surface
   # libraries like Material-UI / Bootstrap / @testing-library consult.
   #
   # Spec: https://drafts.csswg.org/cssom-view/#mediaquerylist
@@ -17,12 +23,16 @@ module Dommy
     def initialize(window, query)
       @window = window
       @media = query.to_s
-      @matches = false
+      @forced = nil
       @onchange = nil
+      @last_matches = evaluate
+      window.__register_media_query_list__(self) if window.respond_to?(:__register_media_query_list__)
     end
 
     def matches
-      @matches
+      return @forced unless @forced.nil?
+
+      @last_matches = evaluate
     end
 
     alias matches? matches
@@ -40,13 +50,26 @@ module Dommy
 
     alias removeListener remove_listener
 
-    # Test seam: flip the match state and dispatch a `change` event so
-    # subscribers re-render.
+    # Test seam: force the match state (evaluation is bypassed from then
+    # on) and dispatch a `change` event so subscribers re-render.
     def __test_set_matches__(value)
-      return if @matches == !!value
+      return if matches == !!value
 
-      @matches = !!value
-      dispatch_event(MediaQueryListEvent.new("change", "matches" => @matches, "media" => @media))
+      @forced = !!value
+      dispatch_change(@forced)
+      nil
+    end
+
+    # Called by the window when the media environment changed (resize etc.).
+    # Fires `change` when the evaluated result flipped; a forced value wins.
+    def __environment_changed__
+      return unless @forced.nil?
+
+      current = evaluate
+      return if current == @last_matches
+
+      @last_matches = current
+      dispatch_change(current)
       nil
     end
 
@@ -55,7 +78,7 @@ module Dommy
       when "media"
         @media
       when "matches"
-        @matches
+        matches
       when "onchange"
         @onchange
       end
@@ -81,7 +104,7 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "matches"
-        @matches
+        matches
       when "addListener"
         add_listener(args[0])
       when "removeListener"
@@ -97,6 +120,16 @@ module Dommy
 
     def __internal_event_parent__
       nil
+    end
+
+    private
+
+    def evaluate
+      Internal::CSS::MediaQuery.match?(@media, @window.media_environment)
+    end
+
+    def dispatch_change(matches)
+      dispatch_event(MediaQueryListEvent.new("change", "matches" => matches, "media" => @media))
     end
   end
 

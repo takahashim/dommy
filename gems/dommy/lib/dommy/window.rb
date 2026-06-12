@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "internal/css/cascade"
+require_relative "internal/css/media_query"
 
 # Dommy — a happy-dom-style DOM polyfill in pure Ruby. Backbone is
 # Nokogiri::HTML5 plus a small scheduler/event-loop layer.
@@ -104,6 +105,12 @@ module Dommy
         @custom_elements
       when "navigator"
         @navigator
+      when "innerWidth", "outerWidth"
+        media_environment.viewport_width
+      when "innerHeight", "outerHeight"
+        media_environment.viewport_height
+      when "devicePixelRatio"
+        media_environment.device_pixel_ratio
       when "scrollX", "pageXOffset"
         @scroll_x || 0
       when "scrollY", "pageYOffset"
@@ -141,7 +148,7 @@ module Dommy
       fetch encodeURIComponent decodeURIComponent addEventListener removeEventListener
       dispatchEvent setTimeout clearTimeout setInterval clearInterval requestAnimationFrame
       cancelAnimationFrame queueMicrotask requestIdleCallback cancelIdleCallback structuredClone
-      matchMedia getComputedStyle scroll scrollTo scrollBy
+      matchMedia getComputedStyle scroll scrollTo scrollBy resizeTo
     ]
     def __js_call__(method, args)
       case method
@@ -181,6 +188,8 @@ module Dommy
         MediaQueryList.new(self, args[0].to_s)
       when "getComputedStyle"
         get_computed_style(args[0], args[1])
+      when "resizeTo"
+        resize_to(args[0], args[1])
       when "scroll", "scrollTo"
         scroll_to(*args)
       when "scrollBy"
@@ -209,6 +218,41 @@ module Dommy
     def fire_hashchange(old_hash, new_hash)
       event = CustomEvent.new("hashchange", "detail" => {"oldURL" => old_hash, "newURL" => new_hash})
       dispatch_event(event)
+    end
+
+    # --- Viewport / media environment (cssom-view) ---
+
+    # The media-feature environment matchMedia and @media evaluate against
+    # (viewport 1280x720, light scheme, dpr 1 by default). Mutable; after a
+    # direct mutation call __media_environment_changed__ to propagate —
+    # resize_to does both for the viewport.
+    def media_environment
+      @media_environment ||= Internal::CSS::MediaQuery::Environment.default
+    end
+
+    def inner_width = media_environment.viewport_width
+    def inner_height = media_environment.viewport_height
+
+    # Resize the virtual viewport: updates the environment, invalidates
+    # computed styles (@media), re-evaluates handed-out MediaQueryLists
+    # (firing their `change` events), and fires the window `resize` event.
+    def resize_to(width, height)
+      media_environment.viewport_width = width.to_i
+      media_environment.viewport_height = height.to_i
+      __media_environment_changed__
+      dispatch_event(Event.new("resize"))
+      nil
+    end
+
+    def __media_environment_changed__
+      @document&.__bump_style_generation__
+      (@media_query_lists || []).each(&:__environment_changed__)
+      nil
+    end
+
+    def __register_media_query_list__(mql)
+      (@media_query_lists ||= []) << mql
+      nil
     end
 
     # CSSOM getComputedStyle. With the makiri-backed CSS parser available
