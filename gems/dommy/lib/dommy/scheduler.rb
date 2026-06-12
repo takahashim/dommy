@@ -108,6 +108,14 @@ module Dommy
       @timers.values.select(&:active).map(&:due_at).min
     end
 
+    # The earliest due time among pending requestAnimationFrame callbacks, or
+    # nil when none are scheduled. Lets a host flush RAF (advancing to the next
+    # frame boundary) during a `settle` without jumping the clock past
+    # not-yet-due `setTimeout`s.
+    def next_animation_frame_at
+      @timers.values.select { |t| t.active && t.kind == :raf }.map(&:due_at).min
+    end
+
     private
 
     def next_id

@@ -1,0 +1,89 @@
+# frozen_string_literal: true
+
+require_relative "test_helper"
+
+# The shared interaction layer (Dommy::Interaction): event synthesis, field
+# interaction with input/change events, form serialization, and the locator.
+class TestInteraction < Minitest::Test
+  include DommyTestHelper
+
+  def test_event_synthesis_click_dispatches_full_sequence
+    win = make_window("<button id='b'>x</button>")
+    button = win.document.get_element_by_id("b")
+    seen = []
+    %w[pointerdown mousedown focus pointerup mouseup click].each do |type|
+      button.add_event_listener(type, ->(e) { seen << e.type })
+    end
+
+    prevented = Dommy::Interaction::EventSynthesis.click(button)
+    assert_equal %w[pointerdown mousedown focus pointerup mouseup click], seen
+    assert_equal false, prevented
+  end
+
+  def test_event_synthesis_click_reports_prevent_default
+    win = make_window("<a id='a' href='#'>x</a>")
+    link = win.document.get_element_by_id("a")
+    link.add_event_listener("click", ->(e) { e.__js_call__("preventDefault", []) })
+
+    assert_equal true, Dommy::Interaction::EventSynthesis.click(link)
+  end
+
+  def test_field_interactor_fill_in_fires_input_and_change
+    win = make_window("<input id='f'>")
+    doc = win.document
+    field = doc.get_element_by_id("f")
+    events = []
+    field.add_event_listener("input", ->(_e) { events << "input:#{field.value}" })
+    field.add_event_listener("change", ->(_e) { events << "change:#{field.value}" })
+
+    fi = Dommy::Interaction::FieldInteractor.new(Dommy::Interaction::Locator.new(doc), doc)
+    fi.fill_in("f", with: "hello")
+
+    assert_equal "hello", field.value
+    assert_equal ["input:hello", "change:hello"], events
+  end
+
+  def test_field_interactor_check_fires_change
+    win = make_window("<input type='checkbox' id='c'>")
+    doc = win.document
+    box = doc.get_element_by_id("c")
+    fired = false
+    box.add_event_listener("change", ->(_e) { fired = true })
+
+    Dommy::Interaction::FieldInteractor.new(Dommy::Interaction::Locator.new(doc), doc).check("c")
+
+    assert box.checked
+    assert fired
+  end
+
+  def test_form_submission_takes_method_override_keywords
+    win = make_window(<<~HTML)
+      <form method="post" action="/p">
+        <input name="_method" value="patch">
+        <input name="title" value="hi">
+        <button type="submit">Go</button>
+      </form>
+    HTML
+    form = win.document.query_selector("form")
+    submitter = win.document.query_selector("button")
+
+    result = Dommy::Interaction::FormSubmission.new(
+      form, submitter, respect_method_override: true, method_override_param: "_method"
+    ).submit!
+
+    assert_equal "PATCH", result[:method]
+    assert_includes result[:params], ["title", "hi"]
+    refute(result[:params].any? { |name, _| name == "_method" }, "override param is consumed")
+  end
+
+  def test_scheduler_next_animation_frame_at
+    sched = Dommy::Scheduler.new
+    assert_nil sched.next_animation_frame_at
+
+    sched.request_animation_frame(-> {})
+    assert_equal 16, sched.next_animation_frame_at
+    # A plain timer does not count as an animation frame.
+    sched.set_timeout(-> {}, 500)
+    assert_equal 16, sched.next_animation_frame_at
+  end
+end

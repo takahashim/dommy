@@ -10,6 +10,12 @@ module Dommy
     # URL, document, cookie jar, persistent header store, and history; delegates
     # URL/redirect logic to Navigation and form data collection to FormSubmission.
     class Session
+      # Element finding, scoping, field interaction, generic click, and query
+      # matchers come from the shared interaction layer; the session adds
+      # navigation (click_link / click_button / submit_form). `after_interaction`
+      # stays the module's no-op (the no-JS session has nothing to settle).
+      include Dommy::Interaction::Driver
+
       DEFAULT_ACCEPT = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"
 
       Config = Struct.new(
@@ -269,15 +275,9 @@ module Dommy
       end
 
       # --- Scoping ---
-
-      # Restrict element finds and matchers to within the first element
-      # matching `selector` for the duration of the block.
-      def within(selector, &block)
-        node = scope_root&.query_selector(selector)
-        raise ElementNotFoundError, "no element matching #{selector.inspect}" unless node
-
-        with_scope(node, &block)
-      end
+      # `within` / `with_scope` / `scope_root` / `scope_text` come from
+      # Dommy::Interaction::Driver. `within_frame` is session-specific (it
+      # fetches the frame document over the network).
 
       # Load the iframe matched by `locator` (id, name, or CSS; the sole frame
       # if omitted) and scope finds/matchers to its document for the block.
@@ -295,23 +295,8 @@ module Dommy
       end
 
       # --- Matchers ---
-
-      def has_css?(selector, count: nil)
-        nodes = scope_root ? scope_root.query_selector_all(selector) : []
-        count ? nodes.size == count : !nodes.empty?
-      end
-
-      def has_no_css?(selector, count: nil) = !has_css?(selector, count: count)
-
-      def has_text?(string)
-        scope_text.include?(string.to_s)
-      end
-
-      def has_no_text?(string) = !has_text?(string)
-
-      def has_link?(locator) = element_present? { finder.find_link(locator) }
-      def has_button?(locator) = element_present? { finder.find_button(locator) }
-      def has_field?(locator) = element_present? { finder.find_field(locator) }
+      # has_css? / has_no_css? / has_text? / has_no_text? / has_link? /
+      # has_button? / has_field? come from Dommy::Interaction::Driver.
 
       # --- Link navigation ---
 
@@ -334,16 +319,9 @@ module Dommy
       end
 
       # --- Form field setting ---
-
-      # Form field setting delegates to FieldInteractor (DOM mutation only;
-      # a subsequent submit is what turns into a navigation).
-      def fill_in(locator, with:) = field_interactor.fill_in(locator, with: with)
-      def choose(locator) = field_interactor.choose(locator)
-      def check(locator) = field_interactor.check(locator)
-      def uncheck(locator) = field_interactor.uncheck(locator)
-      def attach_file(locator, path) = field_interactor.attach_file(locator, path)
-      def select(value, from:) = field_interactor.select(value, from: from)
-      def unselect(value, from:) = field_interactor.unselect(value, from: from)
+      # fill_in / choose / check / uncheck / attach_file / select / unselect
+      # come from Dommy::Interaction::Driver (they now also fire input/change
+      # events; a subsequent submit is what turns into a navigation).
 
       # --- Form submission ---
 
@@ -464,56 +442,8 @@ module Dommy
         href.to_s
       end
 
-      # A Locator bound to the current scope (document, or the innermost
-      # #within / #within_frame node), for finding elements.
-      def finder
-        Locator.new(scope_root)
-      end
-
-      # A FieldInteractor bound to the current scope's finder and the document
-      # (the document is the fallback scope when clearing a radio group).
-      def field_interactor
-        FieldInteractor.new(finder, document)
-      end
-
-      # The node element finds and matchers query against: the innermost active
-      # scope, or the document when none is open.
-      def scope_root
-        @scope_stack.last || document
-      end
-
-      # Push `node` as the active scope for the block, always restoring the
-      # previous scope afterward. Returns the block value, or the node itself
-      # when no block is given.
-      def with_scope(node)
-        @scope_stack.push(node)
-        begin
-          block_given? ? yield(self) : node
-        ensure
-          @scope_stack.pop
-        end
-      end
-
-      # Visible text of the current scope. Documents expose text via <body>;
-      # elements expose it directly.
-      def scope_text
-        root = scope_root
-        return "" unless root
-        return root.body&.text_content.to_s if root.respond_to?(:body) # document-like
-
-        root.respond_to?(:text_content) ? root.text_content.to_s : ""
-      end
-
-      # True if the block finds an element. A unique match or an ambiguous
-      # match both count as present; only "not found" counts as absent.
-      def element_present?
-        yield
-        true
-      rescue ElementNotFoundError
-        false
-      rescue AmbiguousElementError
-        true
-      end
+      # finder / field_interactor / scope_root / with_scope / scope_text /
+      # element_present? come from Dommy::Interaction::Driver.
 
       # Locate an iframe by id, name attribute, or CSS selector; the sole frame
       # in scope when no locator is given.
