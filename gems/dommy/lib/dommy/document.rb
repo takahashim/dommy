@@ -640,8 +640,7 @@ module Dommy
       return wrap_node(src) if src.document == @backend_doc
 
       # Cross-document: hand the detached source to the backend, which
-      # returns the node now owned by this document — the same node for
-      # Nokogiri (it reassigns ownership in place), or an imported copy for
+      # returns the node now owned by this document — an imported copy for
       # Makiri (a node can't move between arenas). Drop the stale source
       # wrapper, then reseat the caller's Dommy wrapper onto the adopted
       # node so `adopt_node(x).equal?(x)` stays true across documents.
@@ -760,8 +759,7 @@ module Dommy
       return node unless node.respond_to?(:__dommy_backend_node__)
 
       # appendChild adopts a node from another document (per spec). Only needed on
-      # a backend that can't move a node across documents (Makiri); Nokogiri moves
-      # it on add_child, and adopting an empty target document would have no root.
+      # a backend that can't move a node across documents (Makiri).
       if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
         node = adopt_node(node)
       end
@@ -770,9 +768,7 @@ module Dommy
     end
 
     # ParentNode / Node mutation on the document's direct children (the doctype
-    # and the document element). Operate on the Nokogiri document node; string
-    # arguments (which would need a text child the document can't hold) are
-    # ignored rather than raising.
+    # and the document element).
     def document_insert(args, prepend:)
       nodes = args.filter_map { |a| backend_node(a) }
       if prepend && (first = @backend_doc.children.first)
@@ -790,8 +786,6 @@ module Dommy
     end
 
     def document_remove_child(node)
-      # The doctype is synthesized from the Nokogiri DTD rather than wrapped as a
-      # tree node, so remove the internal subset directly.
       return __internal_remove_doctype__(node) if node.is_a?(DocumentType)
 
       bn = backend_node(node)
@@ -847,7 +841,7 @@ module Dommy
     end
 
     # `document.cloneNode(deep)` → a fresh Document over a (deep) copy of the
-    # Nokogiri tree, preserving the content type.
+    # Makiri tree, preserving the content type.
     def clone_node(deep)
       copy = deep ? Backend.clone_document(@backend_doc) : Backend.empty_document
       Document.new(nil, backend_doc: copy).tap { |d| d.content_type = @content_type }
@@ -916,7 +910,7 @@ module Dommy
       __js_set__(key.to_s, value)
     end
 
-    # Create a Comment node. Wraps the Nokogiri comment so it flows
+    # Create a Comment node. Wraps the Makiri comment so it flows
     # through the same wrap_node identity machinery as Element / TextNode.
     def create_comment(text)
       @node_wrapper_cache.create_comment(text)

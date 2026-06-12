@@ -6,8 +6,7 @@ Notes for contributors working on Dommy's internals.
 
 Dommy is the base of a three-gem stack, each layer depending on the one below:
 
-- **dommy** — a pure-Ruby DOM polyfill over a pluggable parsing backend
-  (Nokogiri::HTML5 by default; makiri experimental).
+- **dommy** — a pure-Ruby DOM polyfill over a parsing backend Makiri.
 - **dommy-rack** — a Rack-backed browser-session layer (navigation, form
   submission, multipart encoding) that drives a Dommy document.
 - **capybara-dommy** — a Capybara driver built on dommy-rack.

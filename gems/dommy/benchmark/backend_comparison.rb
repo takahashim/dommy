@@ -3,13 +3,9 @@
 require "benchmark/ips"
 require_relative "../lib/dommy"
 
-# Compare the Nokogiri (libxml2) and Makiri (Lexbor) backends across the
-# operations Dommy leans on: parsing, the query methods, identity-cached
-# wrapping, text extraction, and cloneNode.
-#
 #   bundle exec ruby benchmark/backend_comparison.rb
 
-BACKENDS = %i[nokogiri makiri].freeze
+BACKENDS = %i[makiri].freeze
 
 # A non-trivial document: 400 articles so parse/query costs dominate the
 # per-call overhead.

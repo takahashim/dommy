@@ -1,6 +1,6 @@
 # Dommy
 
-Dommy is a pure Ruby DOM polyfill built on [Nokogiri::HTML5](https://nokogiri.org/), inspired by happy-dom and jsdom.
+Dommy is a pure Ruby DOM polyfill built on [Makiri](https://github.com/takahashim/makiri), inspired by happy-dom and jsdom.
 It gives Ruby tests a browser style DOM with events, MutationObserver, Custom Elements, Shadow DOM, the File API, timers, and Storage, without requiring a real browser.
 
 ## Quick start

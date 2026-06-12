@@ -10,7 +10,7 @@ Gem::Specification.new do |spec|
 
   spec.summary = "happy-dom-style DOM polyfill in pure Ruby"
   spec.description = <<~DESC
-    A pure Ruby DOM polyfill built on Nokogiri::HTML5, inspired by happy-dom and jsdom. It gives Ruby tests a browser style DOM with events, MutationObserver, Custom Elements, Shadow DOM, the File API, timers, and Storage, without requiring a real browser.
+    A pure Ruby DOM polyfill built on Makiri, inspired by happy-dom and jsdom. It gives Ruby tests a browser style DOM with events, MutationObserver, Custom Elements, Shadow DOM, the File API, timers, and Storage, without requiring a real browser.
   DESC
   spec.homepage = "https://github.com/takahashim/dommy"
   spec.required_ruby_version = ">= 3.2"
@@ -23,7 +23,4 @@ Gem::Specification.new do |spec|
 
   # Default HTML parser backend.
   spec.add_dependency "makiri", "~> 0.4"
-
-  # Dommy also supports Nokogiri via Dommy::Backend.use(:nokogiri); install
-  # that gem separately to opt in.
 end

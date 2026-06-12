@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Dommy is a pure-Ruby DOM polyfill built on top of [Nokogiri::HTML5](https://nokogiri.org/) that facilitates parsing arbitrary HTML into a DOM tree, its manipulation, and (re)serialization into HTML form. It exposes browser-like DOM semantics so view, component, and request specs can verify DOM structure and behavior without spinning up a real browser.
+Dommy is a pure-Ruby DOM polyfill built on top of Makiri that facilitates parsing arbitrary HTML into a DOM tree, its manipulation, and (re)serialization into HTML form. It exposes browser-like DOM semantics so view, component, and request specs can verify DOM structure and behavior without spinning up a real browser.
 
 ## Goals
 
@@ -60,42 +60,11 @@ Spec references:
 - [Storage Standard](https://storage.spec.whatwg.org/)
 - [URL Standard](https://url.spec.whatwg.org/)
 
-### Pluggable Backend Abstraction
-
-Dommy abstracts the underlying DOM parser behind a backend interface:
-
-- Nokogiri::HTML5 (current default): Mature, battle-tested, C-based via libxml2
-- Nokolexbor (in progress): Rust-based via Lexbor, faster parsing
-
-This abstraction allows teams to choose their performance/stability tradeoff and enables future parser adoptions without rewriting Dommy.
-
-## Unresolved Issues
-
-### 1. Nokolexbor Backend Maturity
-
-Nokolexbor has two known API gaps vs Nokogiri:
-
-- **Namespace binding**: `add_namespace_definition(nil, href)` doesn't update the element's own namespace. Workaround: check both `node.namespace` and `node.namespace_definitions[0]`.
-- **Object identity**: Fresh Ruby wrappers for the same C node have different `object_id`. Workaround: use node pointer in Hash keys, not `object_id`.
-
-Both are documented in **NOKOLEXBOR_IMPROVEMENTS_SPEC.md** and **NOKOLEXBOR_NODE_IDENTITY_SPEC.md**. Once Nokolexbor improvements land, these workarounds vanish.
-
-**Decision needed:** Should we maintain dual Nokogiri/Nokolexbor support indefinitely, or migrate fully once Nokolexbor matures?
-
-### 2. Visibility Detection (resolved)
-
-Resolved by the CSS cascade layer (`internal/css/`, see css-cascade.md): with the makiri-backed CSS parser available, `display: none` / `visibility: hidden` from `<style>` sheets is detected through computed styles (UA + author + inline cascade, inheritance included). Sheetless documents keep the original HTML-level fast path, which also remains the fallback when makiri is absent. Still out of scope: layout-dependent invisibility and media-query-conditional rules (cascade Phase 2).
-
-### 3. Default Backend Selection
-
-As Nokolexbor matures, should the default switch from Nokogiri to Nokolexbor? What's the deprecation path for Nokogiri support?
-
 ## References
 
 Implementation-related projects:
 
-- [Nokogiri](https://nokogiri.org/)
-- [Nokolexbor](https://github.com/serpapi/nokolexbor/)
+- [Makiri](https://github.com/takahashim/makiri/)
 
 Core web platform specifications:
 

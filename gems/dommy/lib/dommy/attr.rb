@@ -8,7 +8,7 @@ module Dommy
   #
   # We represent two states:
   #   - "owned" — the Attr is attached to an Element. value reads/writes
-  #     go through the element's Nokogiri attribute slot.
+  #     go through the element's Makiri attribute slot.
   #   - "detached" — created via `document.createAttribute(name)` but
   #     not yet attached. Value is stored locally; `setAttributeNode`
   #     transfers it to an element.
@@ -166,7 +166,7 @@ module Dommy
   # `.getNamedItem(name)`, `.removeNamedItem(name)`, `.setNamedItem(attr)`,
   # plus property-style access (`attributes.id`, `attributes.class`).
   #
-  # NamedNodeMap is *live* — it re-reads the element's Nokogiri
+  # NamedNodeMap is *live* — it re-reads the element's Makiri
   # attributes on every access so DOM mutations are reflected.
   class NamedNodeMap
     include Enumerable

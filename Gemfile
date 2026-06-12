@@ -11,7 +11,6 @@ gem "dommy-rails", path: "gems/dommy-rails"
 
 # HTML parser backends. At least one is required; both are listed so the
 # dommy test suite can verify each adapter.
-gem "nokogiri"
 gem "makiri", path: "../makiri"
 
 # Shared dev tooling.
