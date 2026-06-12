@@ -50,7 +50,11 @@ module Dommy
         module_function
 
         def known?(name) = PROPERTIES.key?(name)
-        def inherited?(name) = PROPERTIES[name]&.inherited || false
+
+        # Custom properties inherit by default (css-variables-1 §2); their
+        # initial value is the guaranteed-invalid value (nil here).
+        def inherited?(name) = name.start_with?("--") || PROPERTIES[name]&.inherited || false
+
         def initial(name) = PROPERTIES[name]&.initial
 
         # Expand a (possibly shorthand) declaration into [[name, value], ...]

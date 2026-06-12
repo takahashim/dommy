@@ -18,7 +18,10 @@ module Dommy
         end
 
         def get_property_value(name)
-          styles[name.to_s.downcase].to_s
+          key = name.to_s
+          # Custom properties are case-sensitive; everything else isn't.
+          key = key.downcase unless key.start_with?("--")
+          styles[key].to_s
         end
 
         def [](name)

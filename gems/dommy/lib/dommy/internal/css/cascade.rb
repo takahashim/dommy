@@ -2,6 +2,7 @@
 
 require_relative "parser"
 require_relative "property_registry"
+require_relative "custom_properties"
 require_relative "rule_index"
 require_relative "computed_style_declaration"
 
@@ -75,6 +76,20 @@ module Dommy
           parent = element.parent_element
           parent_styles = parent ? computed_style(parent) : nil
 
+          custom = resolve_custom_properties(winners, ua_winners, parent_styles)
+
+          # The cascaded value with var() substituted; nil both for "no
+          # declaration" and for "invalid at computed-value time", which the
+          # caller's inherit/initial default fill handles (= unset, per
+          # css-variables-1 §3).
+          fetch = lambda do |name|
+            value = resolve_cascaded(name, winners, ua_winners, parent_styles)
+            next value unless value&.include?("var(")
+
+            substituted = CustomProperties.substitute(value, ->(n) { custom[n] })
+            substituted.is_a?(String) && !substituted.strip.empty? ? substituted.strip : nil
+          end
+
           root = document.document_element
           root_px = if root.nil? || element.equal?(root)
             ROOT_FONT_SIZE_PX
@@ -83,16 +98,13 @@ module Dommy
           end
 
           result = {}
-          result["font-size"] = compute_font_size(
-            resolve_cascaded("font-size", winners, ua_winners, parent_styles),
-            parent_styles, root_px
-          )
+          result["font-size"] = compute_font_size(fetch.call("font-size"), parent_styles, root_px)
           own_px = px_of(result["font-size"])
 
           PropertyRegistry::PROPERTIES.each_key do |name|
             next if name == "font-size"
 
-            value = resolve_cascaded(name, winners, ua_winners, parent_styles)
+            value = fetch.call(name)
             value ||= if PropertyRegistry.inherited?(name) && parent_styles
               parent_styles[name]
             else
@@ -106,13 +118,34 @@ module Dommy
           # Unregistered properties degrade to their cascaded value as-is
           # (no inheritance, no normalization).
           winners.each_key do |name|
-            next if PropertyRegistry.known?(name) || result.key?(name)
+            next if PropertyRegistry.known?(name) || name.start_with?("--") || result.key?(name)
 
-            value = resolve_cascaded(name, winners, ua_winners, parent_styles)
+            value = fetch.call(name)
             result[name] = value if value
           end
 
+          # Computed custom properties are part of the computed style: the
+          # children inherit them from here, and getPropertyValue("--x")
+          # reads them.
+          result.merge!(custom)
+
           result
+        end
+
+        # The element's computed custom property set: the parent's (custom
+        # properties inherit), overlaid with this element's cascaded
+        # declarations, then var()-resolved with cycle detection. An
+        # explicit `initial` (or an unresolvable value) removes the entry —
+        # the guaranteed-invalid value.
+        def resolve_custom_properties(winners, ua_winners, parent_styles)
+          merged = parent_styles ? parent_styles.select { |key, _| key.start_with?("--") } : {}
+          winners.each_key do |name|
+            next unless name.start_with?("--")
+
+            value = resolve_cascaded(name, winners, ua_winners, parent_styles)
+            value.nil? ? merged.delete(name) : merged[name] = value
+          end
+          CustomProperties.resolve_all(merged)
         end
 
         # Gather the winning declaration per property — and separately the
@@ -176,7 +209,10 @@ module Dommy
             name, value = chunk.split(":", 2)
             next unless name && value
 
-            name = name.strip.downcase
+            name = name.strip
+            # Property names are ASCII case-insensitive — except custom
+            # properties, which are case-sensitive (css-variables-1 §2).
+            name = name.downcase unless name.start_with?("--")
             value = value.strip
             next if name.empty? || value.empty?
 
