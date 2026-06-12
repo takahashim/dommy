@@ -7,6 +7,7 @@ source "https://rubygems.org"
 gem "dommy", path: "gems/dommy"
 gem "dommy-rack", path: "gems/dommy-rack"
 gem "capybara-dommy", path: "gems/capybara-dommy"
+gem "dommy-rails", path: "gems/dommy-rails"
 
 # HTML parser backends. At least one is required; both are listed so the
 # dommy test suite can verify each adapter.
@@ -17,6 +18,7 @@ gem "makiri", path: "../makiri"
 gem "rake", "~> 13.0"
 gem "irb"
 gem "rbs"
+gem "rails", ">= 7.1"
 
 # dommy benchmarks.
 gem "benchmark-ips"

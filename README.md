@@ -10,6 +10,7 @@ This repository is a monorepo containing the core library and its integration ge
 | [`dommy`](gems/dommy) | `gems/dommy` | happy-dom-style DOM polyfill in pure Ruby (Nokogiri/Nokolexbor backend). |
 | [`dommy-rack`](gems/dommy-rack) | `gems/dommy-rack` | Rack-backed, browser-like session layer over a `Dommy::Document`. |
 | [`capybara-dommy`](gems/capybara-dommy) | `gems/capybara-dommy` | A Capybara driver backed by `dommy` and `dommy-rack`. |
+| [`dommy-rails`](gems/dommy-rails) | `gems/dommy-rails` | Rails-specific DOM matchers and assertions for request/view/component/mailer specs. |
 
 Each gem keeps its own `gemspec`, `README`, and test suite, and is released to RubyGems independently.
 
@@ -36,6 +37,7 @@ bundle exec rake test
 bundle exec rake test:dommy
 bundle exec rake test:dommy-rack
 bundle exec rake test:capybara-dommy
+bundle exec rake test:dommy-rails
 ```
 
 You can also run a gem's suite from its own directory:
@@ -44,7 +46,7 @@ You can also run a gem's suite from its own directory:
 cd gems/dommy && bundle exec rake
 ```
 
-`dommy` and `dommy-rack` use Minitest; `capybara-dommy` uses RSpec (including the Capybara driver compliance suite).
+`dommy`, `dommy-rack`, and `dommy-rails` use Minitest; `capybara-dommy` uses RSpec (including the Capybara driver compliance suite).
 
 ## Releasing
 

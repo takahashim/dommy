@@ -2,13 +2,14 @@
 
 # Aggregate Rake tasks for the Dommy monorepo. Each gem keeps its own Rakefile
 # (and default task); this file just fans out to them.
-GEMS = %w[dommy dommy-rack capybara-dommy].freeze
+GEMS = %w[dommy dommy-rack capybara-dommy dommy-rails].freeze
 
 # All gems are versioned in lockstep; these hold the single VERSION constant each.
 VERSION_FILES = {
   "dommy" => "gems/dommy/lib/dommy/version.rb",
   "dommy-rack" => "gems/dommy-rack/lib/dommy/rack/version.rb",
   "capybara-dommy" => "gems/capybara-dommy/lib/capybara/dommy/version.rb",
+  "dommy-rails" => "gems/dommy-rails/lib/dommy/rails/version.rb",
 }.freeze
 
 GEMS.each do |name|
