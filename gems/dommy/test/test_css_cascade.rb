@@ -294,6 +294,21 @@ class TestCssCascade < Minitest::Test
     assert Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("shown"))
   end
 
+  def test_visible_treats_zero_opacity_as_invisible
+    doc = doc_for(<<~HTML)
+      <style>.ghost { opacity: 0 } .faint { opacity: 0.5 } .zero-pct { opacity: 0% }</style>
+      <p id="ghost" class="ghost">x</p>
+      <div class="ghost"><p id="nested">x</p></div>
+      <p id="faint" class="faint">x</p>
+      <p id="pct" class="zero-pct">x</p>
+    HTML
+    refute Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("ghost"))
+    # Zero anywhere in the ancestor chain zeroes the effective opacity.
+    refute Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("nested"))
+    assert Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("faint"))
+    refute Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("pct"))
+  end
+
   def test_visible_keeps_the_fast_path_for_sheetless_documents
     doc = doc_for('<p id="x" class="hidden">x</p>')
     assert Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("x"))

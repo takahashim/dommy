@@ -117,11 +117,22 @@ module Dommy
 
         current = element
         while current
-          return false if CSS::Cascade.computed_style(current)["display"] == "none"
+          styles = CSS::Cascade.computed_style(current)
+          return false if styles["display"] == "none"
+          # Zero effective opacity is invisible (Selenium's displayed
+          # algorithm); a zero anywhere in the chain zeroes the product.
+          return false if opacity_zero?(styles["opacity"])
           current = current.respond_to?(:parent_element) ? current.parent_element : nil
         end
 
         true
+      end
+
+      def opacity_zero?(value)
+        text = value.to_s.strip
+        return false unless text.match?(/\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?\z/)
+
+        text.to_f <= 0
       end
 
       # Filter elements by Capybara-style :visible option.

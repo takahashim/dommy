@@ -171,7 +171,7 @@ end
 Supported Capybara-style options: `text:` / `exact:` / `count:` (Integer or Range) / `visible:` / `href:` / `with:` / `type:`. `wait:` is accepted and ignored (Dommy is synchronous).
 
 > [!NOTE]
-> `:visible` understands CSS stylesheets when the `makiri` gem is available (its bundled lexbor provides the CSS parser — the default backend already is makiri): `display: none` / `visibility: hidden` set via a class in a `<style>` sheet is detected, on the element or an ancestor, alongside the HTML-level signals (`hidden` attribute, `<input type=hidden>`, non-rendering ancestors, inline styles). There is still **no layout engine**: geometry-dependent invisibility (zero size, off-screen, overlap) and media-query-conditional rules are not evaluated, and `getComputedStyle` returns computed (not used) values — `width: auto` stays `"auto"`. Without makiri, detection falls back to the HTML-level signals only.
+> `:visible` understands CSS stylesheets when the `makiri` gem is available (its bundled lexbor provides the CSS parser — the default backend already is makiri): `display: none` / `visibility: hidden` / `opacity: 0` set via a class in a `<style>` sheet is detected, on the element or an ancestor, alongside the HTML-level signals (`hidden` attribute, `<input type=hidden>`, non-rendering ancestors, inline styles). There is still **no layout engine**: geometry-dependent invisibility (zero size, off-screen, overlap) and media-query-conditional rules are not evaluated, and `getComputedStyle` returns computed (not used) values — `width: auto` stays `"auto"`. Without makiri, detection falls back to the HTML-level signals only.
 
 ## What's in scope
 

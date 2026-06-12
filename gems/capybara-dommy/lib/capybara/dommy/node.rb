@@ -115,8 +115,12 @@ module Capybara
         native.value = state[:chars].join
       end
 
-      def style(_styles)
-        {}
+      # Computed styles for Capybara's matches_style? / style: filters,
+      # served by Dommy's CSS cascade (values come back in the computed
+      # serialization, e.g. colors as rgb()).
+      def style(styles)
+        computed = ::Dommy::Internal::CSS::Cascade.computed_style(native)
+        Array(styles).flatten.to_h { |name| [name.to_s, computed[name.to_s].to_s] }
       end
 
       # --- Interaction ---

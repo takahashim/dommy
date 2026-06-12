@@ -12,13 +12,14 @@ end
 #
 # shadow_dom stays skipped not for the capability itself but because its
 # only spec (Node#path inside a shadow tree) obtains the element via
-# evaluate_script, which needs a JS engine.
+# evaluate_script, which needs a JS engine. The css group runs (computed
+# styles come from Dommy's CSS cascade); only its geometry-dependent
+# pieces are skipped inline below.
 skipped_tests = %i[
   js
   modals
   windows
   screenshot
-  css
   scroll
   spatial
   shadow_dom
@@ -31,5 +32,9 @@ Capybara::SpecHelper.run_specs(TestSessions::Dommy, "Dommy", capybara_skip: skip
   case example.metadata[:full_description]
   when /#active_element should support reloading/
     skip "Drives focus from a script via execute_script (needs a JS engine)"
+  when /obscured/
+    skip "Element#obscured? needs geometry (no layout engine)"
+  when /#assert_matches_style should raise error/, /:style option should support Hash/
+    skip "Asserts the exact Hash#inspect failure-message format, which changed in Ruby 3.4"
   end
 end
