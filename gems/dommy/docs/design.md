@@ -82,13 +82,9 @@ Both are documented in **NOKOLEXBOR_IMPROVEMENTS_SPEC.md** and **NOKOLEXBOR_NODE
 
 **Decision needed:** Should we maintain dual Nokogiri/Nokolexbor support indefinitely, or migrate fully once Nokolexbor matures?
 
-### 2. Visibility Detection
+### 2. Visibility Detection (resolved)
 
-Visibility is HTML-level only: `hidden` attribute, inline `style="display: none"`, non-rendering ancestors (`<head>`, `<script>`, `<style>`, `<template>`). CSS class-based visibility (e.g., `class="hidden"` with `.hidden { display: none }`) is not detected.
-
-**Workaround:** Assert on the class directly, or use a real browser for that spec.
-
-**Decision needed:** Should we add a pluggable CSS parser stub for common patterns, or accept the limitation?
+Resolved by the CSS cascade layer (`internal/css/`, see css-cascade.md): with the makiri-backed CSS parser available, `display: none` / `visibility: hidden` from `<style>` sheets is detected through computed styles (UA + author + inline cascade, inheritance included). Sheetless documents keep the original HTML-level fast path, which also remains the fallback when makiri is absent. Still out of scope: layout-dependent invisibility and media-query-conditional rules (cascade Phase 2).
 
 ### 3. Default Backend Selection
 

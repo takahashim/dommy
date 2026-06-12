@@ -7,6 +7,11 @@ RSpec.describe Capybara::Dommy::Node do
     driver_for(html, **options).find_css(css).first
   end
 
+  it "treats class-based display:none as invisible (CSS cascade)" do
+    n = node("<style>.hidden { display: none }</style><p id='x' class='hidden'>h</p>", "#x")
+    expect(n).not_to be_visible
+  end
+
   it "exposes a lowercase tag name" do
     expect(node("<input id='x'>", "#x").tag_name).to eq("input")
   end

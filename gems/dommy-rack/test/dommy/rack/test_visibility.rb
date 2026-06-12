@@ -39,4 +39,25 @@ class Dommy::Rack::TestVisibility < Minitest::Test
   def test_visible_input_with_other_style
     assert Dommy::Rack.visible?(el("<input id='x' type='text' style='color: red'>", "#x"))
   end
+  def test_css_class_display_none_hides
+    refute Dommy::Rack.visible?(
+      el('<style>.hidden { display: none }</style><p id="x" class="hidden">x</p>', "#x")
+    )
+  end
+
+  def test_css_class_on_ancestor_hides_descendant
+    refute Dommy::Rack.visible?(
+      el('<style>.hidden { display: none }</style><div class="hidden"><p id="x">x</p></div>', "#x")
+    )
+  end
+
+  def test_css_visibility_hidden_is_overridable_by_descendant
+    html = <<~HTML
+      <style>.quiet { visibility: hidden } .loud { visibility: visible }</style>
+      <div class="quiet"><p id="h">x</p><p id="s" class="loud">x</p></div>
+    HTML
+    doc = Dommy.parse(html).document
+    refute Dommy::Rack.visible?(doc.query_selector("#h"))
+    assert Dommy::Rack.visible?(doc.query_selector("#s"))
+  end
 end

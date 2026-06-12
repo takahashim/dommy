@@ -1,13 +1,19 @@
 # frozen_string_literal: true
 
+require "dommy/internal/dom_matching"
+
 module Dommy
   module Rack
     module_function
 
-    # Simplified visibility check for capybara-style interaction. An element
-    # is hidden if it (or an ancestor) is hidden via the `hidden` attribute,
-    # an inline `display: none` / `visibility: hidden` style, or is an
-    # `<input type="hidden">`. No CSS cascade / computed style / layout.
+    # Visibility check for capybara-style interaction. An element is hidden
+    # if it (or an ancestor) is hidden via the `hidden` attribute, an inline
+    # `display: none` / `visibility: hidden` style, or is an
+    # `<input type="hidden">`; everything except <summary> inside a closed
+    # <details> is hidden too. When the document carries author CSS (and
+    # dommy's makiri-backed parser is available), stylesheet-driven
+    # `display: none` / `visibility: hidden` is detected as well — no
+    # layout, so geometry-dependent invisibility stays out of scope.
     def visible?(element)
       return false if element.nil?
 
@@ -20,7 +26,7 @@ module Dommy
       end
       return false if hidden_by_closed_details?(element)
 
-      true
+      ::Dommy::Internal::DomMatching.css_visible?(element)
     end
 
     # Inside a closed <details>, everything except the <summary> is hidden.

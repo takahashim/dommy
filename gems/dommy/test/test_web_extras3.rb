@@ -106,11 +106,13 @@ end
 class TestGetComputedStyle < Minitest::Test
   include DommyTestHelper
 
-  def test_returns_inline_style_lookup
+  def test_returns_computed_value_for_inline_style
     win = make_window("<div id='x' style='color: red'>hi</div>")
     el = win.document.query_selector("#x")
     cs = win.__js_call__("getComputedStyle", [el])
-    assert_equal("red", cs["color"])
+    # With the CSS cascade (makiri-backed) the value comes back in the
+    # browser's computed serialization, not the author's spelling.
+    assert_equal("rgb(255, 0, 0)", cs["color"])
   end
 end
 

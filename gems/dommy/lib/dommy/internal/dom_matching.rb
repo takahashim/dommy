@@ -83,13 +83,13 @@ module Dommy
         end
       end
 
-      # Best-effort visibility check using HTML-level signals only.
-      # Does NOT evaluate CSS stylesheets — `display: none` via class
-      # is NOT detected. See README for details and workarounds.
-      #
-      # Detects: `hidden` attribute, `<input type=hidden>`, non-rendering
-      # ancestors (head/script/style/template), inline `display:none` /
-      # `visibility:hidden` on element or any ancestor.
+      # Visibility check. Fast HTML-level signals first (`hidden` attribute,
+      # `<input type=hidden>`, non-rendering ancestors, inline
+      # `display:none` / `visibility:hidden`); when the document carries
+      # author CSS and the makiri-backed parser is available, stylesheet-
+      # driven `display:none` / `visibility:hidden` (e.g. via a class) is
+      # detected through the computed style as well. No layout: geometry-
+      # dependent invisibility stays out of scope.
       def visible?(element)
         return true unless element.respond_to?(:__dommy_backend_node__)
 
@@ -99,6 +99,26 @@ module Dommy
         NodeTraversal.each_ancestor(node) do |ancestor|
           return false if non_rendering_tag?(ancestor)
           return false if node_invisible_self?(ancestor)
+        end
+
+        css_visible?(element)
+      end
+
+      # CSS-aware extension of visible?, consulted only when the document
+      # has author CSS (Cascade.author_css? keeps sheetless documents on the
+      # fast path). `display: none` on the element or any ancestor hides;
+      # computed `visibility: hidden/collapse` (inherited, overridable by a
+      # descendant's `visibility: visible`) hides.
+      def css_visible?(element)
+        document = element.respond_to?(:owner_document) ? element.owner_document : nil
+        return true unless document && CSS::Cascade.author_css?(document)
+
+        return false if %w[hidden collapse].include?(CSS::Cascade.computed_style(element)["visibility"])
+
+        current = element
+        while current
+          return false if CSS::Cascade.computed_style(current)["display"] == "none"
+          current = current.respond_to?(:parent_element) ? current.parent_element : nil
         end
 
         true

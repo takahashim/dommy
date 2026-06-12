@@ -319,6 +319,20 @@ module Dommy
 
     attr_reader :nokogiri_doc
     attr_accessor :default_view
+    # --- CSS cascade support (Internal::CSS) ---
+    # Monotonic counter bumped on every DOM mutation; the CSS layer
+    # invalidates its per-document style cache wholesale when it moves.
+    # The cache slot itself is owned by Internal::CSS::Cascade.
+    attr_accessor :__css_style_cache__
+
+    def style_generation
+      @style_generation || 0
+    end
+
+    def __bump_style_generation__
+      @style_generation = style_generation + 1
+      nil
+    end
     # content_type defaults to "text/html"; settable so an integration layer
     # can reflect the response Content-Type. Read-only over the JS bridge.
     attr_accessor :content_type

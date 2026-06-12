@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "internal/css/cascade"
+
 # Dommy — a happy-dom-style DOM polyfill in pure Ruby. Backbone is
 # Nokogiri::HTML5 plus a small scheduler/event-loop layer.
 #
@@ -178,11 +180,7 @@ module Dommy
       when "matchMedia"
         MediaQueryList.new(self, args[0].to_s)
       when "getComputedStyle"
-        # No CSS engine — return the element's inline style. That
-        # covers `getComputedStyle(el).getPropertyValue("color")` for
-        # values the test set inline via `el.style.color = "..."`.
-        target = args[0]
-        target.respond_to?(:style) ? target.style : nil
+        get_computed_style(args[0], args[1])
       when "scroll", "scrollTo"
         scroll_to(*args)
       when "scrollBy"
@@ -211,6 +209,24 @@ module Dommy
     def fire_hashchange(old_hash, new_hash)
       event = CustomEvent.new("hashchange", "detail" => {"oldURL" => old_hash, "newURL" => new_hash})
       dispatch_event(event)
+    end
+
+    # CSSOM getComputedStyle. With the makiri-backed CSS parser available
+    # this resolves the full cascade (UA sheet + <style> sheets + style
+    # attribute); without it, falls back to the element's inline style (the
+    # historical behavior). A pseudo-element argument yields an empty
+    # declaration (Dommy renders no ::before/::after boxes).
+    def get_computed_style(element, pseudo_element = nil)
+      return nil unless element
+
+      if Internal::CSS::Parser.available?
+        pseudo = pseudo_element.to_s
+        Internal::CSS::ComputedStyleDeclaration.new(
+          element, pseudo_element: pseudo.empty? ? nil : pseudo
+        )
+      else
+        element.respond_to?(:style) ? element.style : nil
+      end
     end
 
     private

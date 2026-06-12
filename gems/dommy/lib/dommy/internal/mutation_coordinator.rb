@@ -99,6 +99,7 @@ module Dommy
         previous_sibling: nil,
         next_sibling: nil
       )
+        @document.__bump_style_generation__
         target = @document.wrap_node(target_node)
         return nil unless target
         return nil if added_nodes.empty? && removed_nodes.empty?
@@ -147,6 +148,7 @@ module Dommy
 
       # Fire MutationObserver attribute records
       def notify_attribute_mutation(target_node:, attribute_name:, old_value:, namespace: nil)
+        @document.__bump_style_generation__
         target = @document.wrap_node(target_node)
         return nil unless target
 
@@ -181,6 +183,7 @@ module Dommy
 
       # Fire MutationObserver characterData records
       def notify_character_data_mutation(target_node:, old_value:)
+        @document.__bump_style_generation__
         target = @document.wrap_node(target_node)
         return nil unless target
 
