@@ -196,9 +196,10 @@ module Dommy
         when "=" then actual == expected
         when "~=" then actual.split(/\s+/).include?(expected)
         when "|=" then actual == expected || actual.start_with?("#{expected}-")
-        when "^=" then actual.start_with?(expected)
-        when "$=" then actual.end_with?(expected)
-        when "*=" then actual.include?(expected)
+        # `^=`/`$=`/`*=` against the empty string never match (Selectors 4 §6.2).
+        when "^=" then !expected.empty? && actual.start_with?(expected)
+        when "$=" then !expected.empty? && actual.end_with?(expected)
+        when "*=" then !expected.empty? && actual.include?(expected)
         else false
         end
       end

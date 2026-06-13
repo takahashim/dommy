@@ -168,8 +168,10 @@ module Dommy
         HEX_PATTERN = /\A#(\h{3}|\h{4}|\h{6}|\h{8})\z/
         private_constant :HEX_PATTERN
 
-        RGB_PATTERN = /\Argba?\(\s*(-?\d{1,3})\s*,\s*(-?\d{1,3})\s*,\s*(-?\d{1,3})(?:\s*,\s*(-?\d*\.?\d+))?\s*\)\z/i
-        private_constant :RGB_PATTERN
+        # rgb()/rgba()/hsl()/hsla() in either legacy comma syntax or modern
+        # space syntax (`rgb(R G B / A)`), with integer or percentage channels.
+        COLOR_FN_PATTERN = /\A(rgba?|hsla?)\((.*)\)\z/im
+        private_constant :COLOR_FN_PATTERN
 
         # Normalizes +value+ to the computed-style serialization.
         # Unrecognized values are returned as-is (never raises).
@@ -190,9 +192,8 @@ module Dommy
             return from_hex(match[1])
           end
 
-          if (match = RGB_PATTERN.match(stripped))
-            r, g, b = match[1].to_i.clamp(0, 255), match[2].to_i.clamp(0, 255), match[3].to_i.clamp(0, 255)
-            return serialize(r, g, b, match[4] && Float(match[4]).clamp(0.0, 1.0))
+          if (match = COLOR_FN_PATTERN.match(stripped))
+            return normalize_function(match[1].downcase, match[2]) || value
           end
 
           value
@@ -247,6 +248,97 @@ module Dommy
           end
           tokens << current unless current.empty?
           tokens
+        end
+
+        # Normalize an rgb()/hsl() function body to rgb()/rgba(). Returns nil
+        # when the channels don't parse (the caller keeps the original text).
+        def normalize_function(name, args)
+          channels, alpha = split_color_args(args)
+          return nil unless channels.length == 3
+
+          rgb =
+            if name.start_with?("rgb")
+              channels.map { |channel| rgb_channel(channel) }
+            else
+              hsl_to_rgb(hue(channels[0]), percentage(channels[1]), percentage(channels[2]))
+            end
+          return nil if rgb.any?(&:nil?)
+
+          serialize(*rgb, alpha)
+        end
+
+        # [[c1, c2, c3], alpha_or_nil]. Channels are comma- or space-separated;
+        # a `/` introduces the alpha (modern syntax), as does a 4th legacy comma
+        # value.
+        def split_color_args(args)
+          args = args.strip
+          if args.include?("/")
+            main, alpha = args.split("/", 2)
+            [main.strip.split(/[\s,]+/), parse_alpha(alpha.strip)]
+          else
+            parts = args.split(/[\s,]+/)
+            parts.length == 4 ? [parts[0, 3], parse_alpha(parts[3])] : [parts, nil]
+          end
+        end
+
+        def rgb_channel(channel)
+          if channel.end_with?("%")
+            value = Float(channel[0..-2]) / 100.0 * 255
+          else
+            value = Float(channel)
+          end
+          value.round.clamp(0, 255)
+        rescue ArgumentError, TypeError
+          nil
+        end
+
+        def parse_alpha(text)
+          value = text.end_with?("%") ? Float(text[0..-2]) / 100.0 : Float(text)
+          value.clamp(0.0, 1.0)
+        rescue ArgumentError, TypeError
+          nil
+        end
+
+        # An <hue>: a bare number or <angle> (deg/grad/rad/turn), wrapped into
+        # [0, 360). nil when unparseable.
+        def hue(text)
+          text = text.downcase
+          degrees =
+            case text
+            when /\A(-?\d*\.?\d+)deg\z/ then Float(Regexp.last_match(1))
+            when /\A(-?\d*\.?\d+)grad\z/ then Float(Regexp.last_match(1)) * 0.9
+            when /\A(-?\d*\.?\d+)rad\z/ then Float(Regexp.last_match(1)) * 180 / Math::PI
+            when /\A(-?\d*\.?\d+)turn\z/ then Float(Regexp.last_match(1)) * 360
+            when /\A-?\d*\.?\d+\z/ then Float(text)
+            end
+          degrees && degrees % 360
+        end
+
+        def percentage(text)
+          return nil unless text.end_with?("%")
+
+          (Float(text[0..-2]) / 100.0).clamp(0.0, 1.0)
+        rescue ArgumentError, TypeError
+          nil
+        end
+
+        # HSL -> [r, g, b] (0..255). h in degrees, s/l in 0..1.
+        def hsl_to_rgb(h, s, l)
+          return [nil] if h.nil? || s.nil? || l.nil?
+
+          chroma = (1 - (2 * l - 1).abs) * s
+          secondary = chroma * (1 - ((h / 60.0) % 2 - 1).abs)
+          match = l - chroma / 2
+          r, g, b =
+            case h
+            when 0...60 then [chroma, secondary, 0]
+            when 60...120 then [secondary, chroma, 0]
+            when 120...180 then [0, chroma, secondary]
+            when 180...240 then [0, secondary, chroma]
+            when 240...300 then [secondary, 0, chroma]
+            else [chroma, 0, secondary]
+            end
+          [r, g, b].map { |channel| ((channel + match) * 255).round }
         end
 
         # Expands a 3/4/6/8-digit hex body into the rgb()/rgba() form.

@@ -110,8 +110,18 @@ class TestCssColor < Minitest::Test
     assert_nil Color.extract("url(x.png) no-repeat center")
   end
 
+  def test_hsl_normalizes_to_rgb
+    assert_equal "rgb(64, 191, 64)", Color.normalize("hsl(120, 50%, 50%)")
+    assert_equal "rgb(255, 0, 0)", Color.normalize("hsl(0 100% 50%)")
+    assert_equal "rgba(0, 0, 255, 0.5)", Color.normalize("hsla(240, 100%, 50%, 0.5)")
+  end
+
+  def test_modern_and_percentage_rgb
+    assert_equal "rgba(255, 0, 0, 0.5)", Color.normalize("rgb(255 0 0 / 50%)")
+    assert_equal "rgb(255, 0, 0)", Color.normalize("rgb(100%, 0%, 0%)")
+  end
+
   def test_unknown_values_pass_through
-    assert_equal "hsl(120, 50%, 50%)", Color.normalize("hsl(120, 50%, 50%)")
     assert_equal "var(--main-color)", Color.normalize("var(--main-color)")
     assert_equal "currentcolor", Color.normalize("currentcolor")
     assert_equal "not-a-color", Color.normalize("not-a-color")
