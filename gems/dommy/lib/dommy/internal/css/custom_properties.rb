@@ -8,13 +8,6 @@ module Dommy
       # properties resolve among themselves (with cycle detection), then
       # regular property values substitute against the resolved set.
       module CustomProperties
-        # Unwinding marker for cycle detection: poisons every property on
-        # the resolution stack up to (and including) the one named — a
-        # cycle participant is invalid "fallback notwithstanding"
-        # (css-variables-1 §3.1), while a mere *reference* to an invalid
-        # property may still use its fallback.
-        Cycle = Struct.new(:name)
-
         # The CSS function name is ASCII case-insensitive; the preceding
         # character guard keeps identifiers like `novar(` from matching.
         VAR_PATTERN = /(?<![\w-])var\(/i
@@ -28,29 +21,25 @@ module Dommy
         # Resolve var() inside the custom property values themselves.
         # `values` is "--name" => raw value; returns "--name" => substituted
         # value with invalid (cyclic / unresolvable) entries dropped.
+        #
+        # Cycles are detected up front on the dependency graph (the strongly
+        # connected components): every property in a cycle is the guaranteed-
+        # invalid value, fallback notwithstanding (css-variables-1 §3.1). A
+        # property that merely *references* a cyclic/unset property still uses
+        # its var() fallback — so the same DFS that mishandles secondary cycles
+        # (a property in two overlapping cycles) is replaced by SCC analysis.
         def resolve_all(values)
+          cyclic = cyclic_properties(values)
           resolved = {}
-          visiting = {}
 
           resolve = lambda do |name|
             next resolved[name] if resolved.key?(name)
-            next Cycle.new(name) if visiting[name]
+            next (resolved[name] = nil) if cyclic[name]
 
             value = values[name]
-            next resolved[name] = nil if value.nil?
+            next (resolved[name] = nil) if value.nil?
 
-            visiting[name] = true
-            result = substitute(value, resolve)
-            visiting.delete(name)
-
-            if result.is_a?(Cycle)
-              resolved[name] = nil
-              # Keep poisoning the stack until the frame that started the
-              # cycle; above it, the property is just "invalid".
-              result.name == name ? nil : result
-            else
-              resolved[name] = result
-            end
+            resolved[name] = substitute(value, resolve)
           end
 
           values.each_key { |name| resolve.call(name) }
@@ -58,10 +47,10 @@ module Dommy
         end
 
         # Substitute every var(--name[, fallback]) in `value` using `lookup`
-        # (callable: name -> value / nil / Cycle). Returns the substituted
-        # string, nil when invalid at computed-value time, or a Cycle being
-        # unwound. The fallback (everything after the first top-level comma,
-        # commas included) is itself substituted and may nest var().
+        # (callable: name -> resolved value, or nil when the property is unset
+        # or cyclic — in which case the fallback is used). Returns the
+        # substituted string, or nil when invalid at computed-value time (an
+        # unmatched paren, or a var() with no fallback to a missing property).
         def substitute(value, lookup, depth = 0)
           return nil if depth > 32 # runaway guard
 
@@ -81,13 +70,11 @@ module Dommy
 
             name, fallback = split_args(value[(index + 4)...close])
             replacement = lookup.call(name)
-            return replacement if replacement.is_a?(Cycle)
 
             if replacement.nil?
               return nil if fallback.nil?
 
               replacement = substitute(fallback, lookup, depth + 1)
-              return replacement if replacement.is_a?(Cycle)
               return nil if replacement.nil?
             end
 
@@ -95,6 +82,73 @@ module Dommy
             index = close + 1
           end
           out
+        end
+
+        # The custom-property names that participate in a dependency cycle: the
+        # members of every strongly connected component of size > 1, plus any
+        # self-referencing property (`--a: var(--a)`). Tarjan's SCC over the
+        # var()-reference graph.
+        def cyclic_properties(values)
+          graph = {}
+          values.each_key { |name| graph[name] = references(values[name]).select { |ref| values.key?(ref) }.uniq }
+
+          state = {index: 0, indices: {}, lowlink: {}, on_stack: {}, stack: [], cyclic: {}}
+          graph.each_key { |name| strongconnect(name, graph, state) unless state[:indices].key?(name) }
+          state[:cyclic]
+        end
+
+        # One node of Tarjan's SCC algorithm.
+        def strongconnect(node, graph, state)
+          state[:indices][node] = state[:lowlink][node] = state[:index]
+          state[:index] += 1
+          state[:stack].push(node)
+          state[:on_stack][node] = true
+
+          graph[node].each do |neighbour|
+            if !state[:indices].key?(neighbour)
+              strongconnect(neighbour, graph, state)
+              state[:lowlink][node] = [state[:lowlink][node], state[:lowlink][neighbour]].min
+            elsif state[:on_stack][neighbour]
+              state[:lowlink][node] = [state[:lowlink][node], state[:indices][neighbour]].min
+            end
+          end
+
+          return unless state[:lowlink][node] == state[:indices][node]
+
+          component = []
+          loop do
+            popped = state[:stack].pop
+            state[:on_stack][popped] = false
+            component << popped
+            break if popped == node
+          end
+          if component.length > 1 || graph[component.first].include?(component.first)
+            component.each { |member| state[:cyclic][member] = true }
+          end
+        end
+
+        # The custom-property names a value depends on for cycle detection: the
+        # FIRST argument of each top-level var(). Fallback references don't
+        # count — a cycle that exists only in an unused fallback is not a cycle
+        # (csswg-drafts#11500), so `var(--x, var(--y))` depends on --x only.
+        def references(value)
+          refs = []
+          index = 0
+          while index < value.length
+            unless value[index, 4].casecmp("var(").zero? &&
+                   (index.zero? || !value[index - 1].match?(/[\w-]/))
+              index += 1
+              next
+            end
+
+            close = matching_paren_index(value, index + 3)
+            break unless close
+
+            name, = split_args(value[(index + 4)...close])
+            refs << name
+            index = close + 1
+          end
+          refs
         end
 
         def matching_paren_index(value, open_index)
