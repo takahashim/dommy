@@ -118,4 +118,20 @@ class TestWPTCssomComputedStyle < Minitest::Test
     el = document.create_element("span")
     assert_equal "", document.default_view.get_computed_style(el)["color"]
   end
+
+  # getComputedStyle(el, pseudo) exposes the cascaded computed declaration for
+  # the standard pseudo-elements (no box generation, just the cascade).
+  def test_pseudo_element_computed_styles
+    %w[::before ::after ::first-line ::first-letter ::marker ::selection ::placeholder].each do |pseudo|
+      document = Dommy.parse("<style>#t#{pseudo} { color: red }</style><p id=\"t\">x</p>").document
+      cs = document.default_view.get_computed_style(document.get_element_by_id("t"), pseudo)
+      assert_equal "rgb(255, 0, 0)", cs["color"], "expected #{pseudo} to cascade"
+    end
+  end
+
+  def test_unknown_pseudo_element_is_empty
+    document = Dommy.parse('<style>#t::bogus { color: red }</style><p id="t">x</p>').document
+    cs = document.default_view.get_computed_style(document.get_element_by_id("t"), "::bogus")
+    assert_equal "", cs["color"]
+  end
 end

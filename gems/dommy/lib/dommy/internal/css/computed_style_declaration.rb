@@ -12,6 +12,13 @@ module Dommy
       class ComputedStyleDeclaration
         EMPTY = {}.freeze
 
+        # Pseudo-elements getComputedStyle exposes a cascaded computed
+        # declaration for (no box generation, just the cascade). Unknown
+        # pseudo-elements yield an empty declaration, as browsers do.
+        KNOWN_PSEUDO_ELEMENTS = %w[
+          before after first-line first-letter marker selection placeholder backdrop
+        ].freeze
+
         def initialize(element, pseudo_element: nil)
           @element = element
           @pseudo_element = pseudo_element
@@ -100,7 +107,10 @@ module Dommy
         private
 
         def styles
-          return EMPTY if @pseudo_element && !%w[::before :before before ::after :after after].include?(@pseudo_element)
+          if @pseudo_element
+            name = @pseudo_element.to_s.delete_prefix("::").delete_prefix(":")
+            return EMPTY unless KNOWN_PSEUDO_ELEMENTS.include?(name)
+          end
 
           Cascade.computed_style(@element, pseudo_element: @pseudo_element)
         end
