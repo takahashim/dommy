@@ -281,7 +281,13 @@ module Dommy
           end
         end
 
+        # The css-color-4 `none` keyword marks a missing component; in the
+        # legacy rgb()/rgba() serialization a computed color uses 0 for it.
+        def none?(text) = text.casecmp("none").zero?
+
         def rgb_channel(channel)
+          return 0 if none?(channel)
+
           if channel.end_with?("%")
             value = Float(channel[0..-2]) / 100.0 * 255
           else
@@ -293,6 +299,8 @@ module Dommy
         end
 
         def parse_alpha(text)
+          return 0.0 if none?(text)
+
           value = text.end_with?("%") ? Float(text[0..-2]) / 100.0 : Float(text)
           value.clamp(0.0, 1.0)
         rescue ArgumentError, TypeError
@@ -303,6 +311,8 @@ module Dommy
         # [0, 360). nil when unparseable.
         def hue(text)
           text = text.downcase
+          return 0.0 if none?(text)
+
           degrees =
             case text
             when /\A(-?\d*\.?\d+)deg\z/ then Float(Regexp.last_match(1))
@@ -315,6 +325,7 @@ module Dommy
         end
 
         def percentage(text)
+          return 0.0 if none?(text)
           return nil unless text.end_with?("%")
 
           (Float(text[0..-2]) / 100.0).clamp(0.0, 1.0)
