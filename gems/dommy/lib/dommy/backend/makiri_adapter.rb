@@ -54,19 +54,29 @@ module Dommy
         end
       end
 
-      # `new Document()` / createDocument want an empty document. We back it with
-      # an HTML document (children dropped so it starts with no documentElement)
-      # rather than XML::Document, because Makiri keeps HTML and XML nodes as
-      # distinct C types that can't share a tree: WPT routinely appends an
-      # XML-document-created node (e.g. createCDATASection) into the main HTML
-      # tree, which a real XML-backed document here would reject. Until Makiri
-      # supports cross-kind adoption, an HTML-backed empty document keeps those
-      # cross-tree inserts working (at the cost of XML niceties like a real
-      # CDATA node type on `new Document()`).
+      # A fresh, empty HTML-backed document (children dropped so it starts with no
+      # documentElement). The backing for a shallow clone of an HTML document.
       def empty_document
         doc = ::Makiri::HTML::Document.parse("")
         doc.children.to_a.each(&:unlink)
         doc
+      end
+
+      # A fresh, empty XML-backed document — the backing for `new Document()` /
+      # createDocument, which the DOM defines as XML documents. An XML backing
+      # gives them case preservation, real CDATA nodes (nodeType 4) and namespace
+      # tracking. Makiri's cross-kind `import_node` translates between the HTML and
+      # XML node representations, so a node created here can still be adopted into
+      # the main HTML tree (and vice versa) — which is why an XML backing no longer
+      # blocks the cross-tree inserts WPT performs.
+      def empty_xml_document
+        ::Makiri::XML::Document.new
+      end
+
+      # An empty document matching `doc`'s kind, for a shallow document clone
+      # (cloneNode(false) on a document must keep the same flavor).
+      def empty_document_like(doc)
+        doc.is_a?(::Makiri::XML::Document) ? empty_xml_document : empty_document
       end
 
       # Lexbor seeds even an empty parse with an <html> shell and has no `root=`,
@@ -150,15 +160,14 @@ module Dommy
         doc.create_comment(content)
       end
 
-      # CDATASection (nodeType 4). A genuine XML document mints a real CDATA node
-      # and the XML serializer emits `<![CDATA[…]]>`. `Document#create_cdata_section`
-      # now rejects HTML documents up front (NotSupportedError, per spec), so the
-      # only caller reaching here on a non-XML backend is a `new Document()` /
-      # createDocument document — which Makiri backs with an HTML::Document for
-      # cross-kind adoption (see #empty_document). Lexbor's HTML serializer raises
-      # on a native CDATA node, so for that HTML-backed empty document we fall back
-      # to a text node (serialization-safe; the cost is no real CDATA node type on
-      # `new Document()`, tracked in Makiri docs/xml_node_dommy_parity).
+      # CDATASection (nodeType 4). A genuine XML document — including a
+      # `new Document()` / createDocument document, now XML-backed (see
+      # #empty_xml_document) — mints a real CDATA node and the XML serializer emits
+      # `<![CDATA[…]]>`. `Document#create_cdata_section` rejects HTML documents up
+      # front (NotSupportedError, per spec), so the text-node fallback below is a
+      # defensive guard for any non-XML backend that still slips through (Lexbor's
+      # HTML serializer raises on a native CDATA node, so a text node keeps
+      # serialization safe).
       def create_cdata(content, doc)
         if doc.is_a?(::Makiri::XML::Document)
           doc.create_cdata(content)

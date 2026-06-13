@@ -152,4 +152,40 @@ class TestWPTDocumentCreate < Minitest::Test
       @doc.create_element_ns("any", "")
     end
   end
+
+  # ---- createDocument produces a real XML document ----
+  # WPT: dom/nodes/DOMImplementation-createDocument.html and friends. The DOM
+  # defines createDocument / `new Document()` as XML documents; Dommy backs them
+  # with a Makiri XML document, so CDATA is a real node and names keep their case.
+
+  def xml_document = @doc.implementation.create_document(nil, "root", nil)
+
+  def test_createDocument_createCDATASection_is_cdata_node
+    cdata = xml_document.create_cdata_section("hi")
+    assert_equal(Dommy::Node::CDATA_SECTION_NODE, cdata.__js_get__("nodeType"))
+    assert_equal("hi", cdata.data)
+  end
+
+  def test_createDocument_preserves_element_case
+    el = xml_document.create_element("FooBar")
+    assert_equal("FooBar", el.tag_name)
+  end
+
+  # ---- cross-kind adoption (Makiri cross-kind import_node) ----
+
+  def test_adopt_xml_node_into_html_tree
+    xml = xml_document
+    span = xml.create_element("span")
+    span.append_child(xml.create_text_node("from-xml"))
+    adopted = @doc.adopt_node(span)
+    @doc.body.append_child(adopted)
+    assert_includes(@doc.body.inner_html, "from-xml")
+  end
+
+  def test_import_html_node_into_xml_document
+    div = @doc.create_element("div")
+    div.append_child(@doc.create_text_node("from-html"))
+    imported = xml_document.import_node(div, true)
+    assert_equal(Dommy::Node::ELEMENT_NODE, imported.__js_get__("nodeType"))
+  end
 end

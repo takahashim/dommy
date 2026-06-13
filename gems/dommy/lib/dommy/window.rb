@@ -392,7 +392,7 @@ module Dommy
         # `new Document()` — a fresh empty document (content type application/xml
         # per the DOM Standard, so it behaves as a non-HTML document).
         "Document" => Bridge::Constructor.new do
-          Document.new(nil, backend_doc: Backend.empty_document).tap { |d| d.content_type = "application/xml" }
+          Document.new(nil, backend_doc: Backend.empty_xml_document).tap { |d| d.content_type = "application/xml" }
         end,
         # `new Text(data?)` / `new Comment(data?)` / `new DocumentFragment()` —
         # create the node in this window's associated document (DOM Standard).

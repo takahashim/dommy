@@ -152,7 +152,7 @@ module Dommy
     # non-empty. (The doctype argument is accepted but not stored, as document
     # equality compares only structure that survives wrap_node.)
     def create_document(namespace, qualified_name, _doctype = nil)
-      doc = Document.new(nil, backend_doc: Backend.empty_document)
+      doc = Document.new(nil, backend_doc: Backend.empty_xml_document)
       # createDocument's content type is keyed off the namespace. None is
       # "text/html", so tagName keeps its case; xhtml+xml still routes
       # createElement to the HTML namespace (so an XHTML document isEqualNode
@@ -767,7 +767,7 @@ module Dommy
     # `document.cloneNode(deep)` → a fresh Document over a (deep) copy of the
     # Makiri tree, preserving the content type.
     def clone_node(deep)
-      copy = deep ? Backend.clone_document(@backend_doc) : Backend.empty_document
+      copy = deep ? Backend.clone_document(@backend_doc) : Backend.empty_document_like(@backend_doc)
       Document.new(nil, backend_doc: copy).tap { |d| d.content_type = @content_type }
     end
 

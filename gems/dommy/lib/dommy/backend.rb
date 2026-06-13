@@ -58,9 +58,22 @@ module Dommy
         current.clone_document(doc)
       end
 
-      # A fresh, empty backing document (shallow document clone / new Document).
+      # A fresh, empty HTML-backed document.
       def empty_document
         current.empty_document
+      end
+
+      # A fresh, empty XML-backed document — for `new Document()` / createDocument,
+      # which the DOM defines as XML documents (case-preserving, real CDATA
+      # nodeType, namespaces).
+      def empty_xml_document
+        current.empty_xml_document
+      end
+
+      # An empty backing document matching `doc`'s kind (HTML stays HTML, XML stays
+      # XML) — for a shallow document clone, whose result keeps the source flavor.
+      def empty_document_like(doc)
+        current.empty_document_like(doc)
       end
 
       # Bring `node` (already detached from its old tree) into `target_doc`,
