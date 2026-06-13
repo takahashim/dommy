@@ -429,6 +429,56 @@ class TestCssCascade < Minitest::Test
     assert_equal "block", computed(doc, "b")["display"]
   end
 
+  # --- @import ----------------------------------------------------------
+
+  def import_doc(html, sheets)
+    doc = doc_for(html)
+    doc.css_import_resolver = ->(url) { sheets[url] }
+    doc
+  end
+
+  def test_import_splices_referenced_rules
+    doc = import_doc(
+      '<style>@import url(base.css); #x { color: green }</style><p id="x">x</p>',
+      "base.css" => "#x { color: red; font-weight: bold }"
+    )
+    s = computed(doc, "x")
+    # imported rules sit at the @import position (before #x{green}), so green
+    # wins on source order, but the imported font-weight still applies.
+    assert_equal "rgb(0, 128, 0)", s["color"]
+    assert_equal "700", s["font-weight"]
+  end
+
+  def test_import_is_recursive
+    doc = import_doc(
+      '<style>@import url(a.css);</style><p id="x">x</p>',
+      "a.css" => "@import url(b.css);",
+      "b.css" => "#x { color: red }"
+    )
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_import_media_query_gates_the_sheet
+    doc = import_doc(
+      '<style>@import "big.css" (min-width: 9999px);</style><p id="x">x</p>',
+      "big.css" => "#x { color: red }"
+    )
+    assert_equal "rgb(0, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_import_cycle_is_guarded
+    doc = import_doc(
+      '<style>@import url(a.css);</style><p id="x">x</p>',
+      "a.css" => "@import url(a.css); #x { color: red }"
+    )
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_import_without_resolver_contributes_nothing
+    doc = doc_for('<style>@import url(base.css); #x { color: green }</style><p id="x">x</p>')
+    assert_equal "rgb(0, 128, 0)", computed(doc, "x")["color"]
+  end
+
   # --- @layer / @supports -----------------------------------------------
 
   def test_layer_rules_apply_in_source_order

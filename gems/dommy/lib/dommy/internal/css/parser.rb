@@ -45,6 +45,13 @@ module Dommy
           def grouping? = true
         end
 
+        # @import url(...) [media] — the referenced sheet's rules are spliced
+        # in at this position (RuleIndex resolves the URL through the host).
+        # `media` (may be "") gates them like @media.
+        ImportRule = Struct.new(:url, :media) do
+          def grouping? = false
+        end
+
         # Raised when CSS features are used without the makiri gem.
         class Unavailable < StandardError
           def initialize(msg = nil)
@@ -107,7 +114,27 @@ module Dommy
             LayerRule.new(normalize_rules(rule[:rules]))
           when "supports"
             SupportsRule.new(rule[:prelude], normalize_rules(rule[:rules]))
+          when "import"
+            parse_import(rule[:prelude])
           end
+        end
+
+        # @import prelude: `url(x)` / `"x"` / `'x'`, optionally followed by a
+        # media query. Returns nil (the rule is dropped) when no URL is found.
+        def parse_import(prelude)
+          prelude = prelude.to_s.strip
+          if (match = prelude.match(/\Aurl\(\s*(.*?)\s*\)/i))
+            url = match[1]
+          elsif (match = prelude.match(/\A(?:"([^"]*)"|'([^']*)')/))
+            url = match[1] || match[2]
+          else
+            return nil
+          end
+
+          url = url.to_s.gsub(/\A["']|["']\z/, "").strip
+          return nil if url.empty?
+
+          ImportRule.new(url, prelude[match.end(0)..].to_s.strip)
         end
 
         def build_style_rule(selectors, declarations)

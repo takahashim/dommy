@@ -333,6 +333,16 @@ module Dommy
       @style_generation = style_generation + 1
       nil
     end
+
+    # A host-supplied `->(url) { css_text_or_nil }` resolving @import URLs to
+    # CSS (Dommy has no network of its own — same idea as <link> filling).
+    # Setting it invalidates cached styles so the next cascade picks up imports.
+    attr_reader :css_import_resolver
+
+    def css_import_resolver=(resolver)
+      @css_import_resolver = resolver
+      __bump_style_generation__
+    end
     # content_type defaults to "text/html"; settable so an integration layer
     # can reflect the response Content-Type. Read-only over the JS bridge.
     attr_accessor :content_type

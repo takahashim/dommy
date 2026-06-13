@@ -27,6 +27,7 @@ module Dommy
           @index = {}.compare_by_identity
           @pseudo_index = Hash.new { |h, k| h[k] = {}.compare_by_identity }
           @order = 0
+          @imported_urls = {}
           add_rules(UAStylesheet.rules, :ua)
           author_sheets.each { |rules| add_rules(rules, :author) }
         end
@@ -102,6 +103,11 @@ module Dommy
 
         def add_rules(rules, origin)
           rules.each do |rule|
+            if rule.is_a?(Parser::ImportRule)
+              import_rules(rule, origin)
+              next
+            end
+
             if rule.grouping?
               # Conditional group rules (@media/@supports/@layer): their block
               # contributes (flattened, in source order) only when active. An
@@ -124,6 +130,32 @@ module Dommy
               end
             end
           end
+        end
+
+        # Splice an @import's referenced sheet in at this position: gate on its
+        # media query, resolve the URL through the host (Dommy fetches nothing),
+        # then parse and recurse. Each URL is imported once per build — a cheap
+        # cycle/duplicate guard.
+        def import_rules(rule, origin)
+          return unless rule.media.empty? || MediaQuery.match?(rule.media, environment)
+          return if @imported_urls[rule.url]
+
+          @imported_urls[rule.url] = true
+          css = resolve_import(rule.url)
+          add_rules(safe_parse(css), origin) if css
+        end
+
+        # The host's URL -> CSS resolver (dommy-rack wires it to a same-origin
+        # fetch); nil when no host supplied one, so @import then contributes
+        # nothing.
+        def resolve_import(url)
+          resolver = @document.respond_to?(:css_import_resolver) && @document.css_import_resolver
+          return nil unless resolver
+
+          text = resolver.call(url)
+          text&.to_s
+        rescue StandardError
+          nil
         end
 
         # Whether a grouping rule's block applies: @media gates on the viewport
