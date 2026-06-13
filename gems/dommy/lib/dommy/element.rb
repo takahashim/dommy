@@ -1596,6 +1596,12 @@ module Dommy
       set_attribute("role", value.to_s)
     end
 
+    # The WAI-ARIA computed role (what `getByRole` / WPT's get_computed_role
+    # report): an explicit valid `role` attribute, else the implicit HTML role.
+    def computed_role
+      Internal::AriaRole.compute(self)
+    end
+
     # `Node.baseURI` — resolves against the document's base URL, which
     # in turn honors the first `<base href>` element (see
     # `Document#base_uri`).
@@ -2338,9 +2344,12 @@ module Dommy
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
       hasChildNodes hasAttributes getRootNode normalize contains
       compareDocumentPosition isSameNode lookupNamespaceURI lookupPrefix isDefaultNamespace
+      __internal_computed_role__
     ]
     def __js_call__(method, args)
       case method
+      when "__internal_computed_role__"
+        computed_role
       when "hasChildNodes"
         has_child_nodes?
       when "hasAttributes"
