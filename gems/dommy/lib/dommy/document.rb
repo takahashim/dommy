@@ -81,13 +81,16 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[isEqualNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition
+    js_methods %w[isEqualNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition contains
       appendChild insertBefore removeChild replaceChild before after replaceWith remove
       addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
         false
+      when "contains"
+        # A DocumentType is a leaf node: it contains only itself.
+        !args[0].nil? && is_same_node(args[0])
       when "isEqualNode"
         is_equal_node(args[0])
       when "isSameNode"
@@ -204,7 +207,7 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[isEqualNode isSameNode getRootNode normalize hasChildNodes
+    js_methods %w[isEqualNode isSameNode getRootNode normalize hasChildNodes contains
       appendData insertData deleteData replaceData substringData compareDocumentPosition
       appendChild insertBefore removeChild replaceChild before after replaceWith remove
       addEventListener removeEventListener dispatchEvent]
@@ -212,6 +215,9 @@ module Dommy
       case method
       when "hasChildNodes"
         false
+      when "contains"
+        # A ProcessingInstruction is a leaf node: it contains only itself.
+        !args[0].nil? && is_same_node(args[0])
       when "isEqualNode"
         is_equal_node(args[0])
       when "isSameNode"
