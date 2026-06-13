@@ -277,7 +277,8 @@ class TestXMLHttpRequest < Minitest::Test
     xhr.open("GET", "/api/foo", false)
     xhr.send
     assert_equal(1, @win.globals["__fetch_count__"])
-    assert_equal("/api/foo", @win.globals["__last_url__"])
+    # open() resolves the URL against the document base before the request.
+    assert_equal("http://localhost/api/foo", @win.globals["__last_url__"])
     assert_equal("GET", @win.globals["__last_method__"])
   end
 

@@ -68,7 +68,8 @@ module Dommy
     def open(method, url, async = true, _user = nil, _password = nil)
       reset_state
       @method = method.to_s.upcase
-      @url = url.to_s
+      # XHR resolves the request URL against the document base URL, like fetch.
+      @url = @window.__internal_resolve_url__(url.to_s)
       @async = async.nil? ? true : !!async
       @request_headers = {}
       transition(OPENED)
@@ -306,7 +307,7 @@ module Dommy
         @window.globals["__inject_fetch_stub__"]
       return nil unless stub_map.is_a?(Hash)
 
-      stub_map[@url]
+      stub_map[@url] || stub_map[@window.__internal_url_path__(@url)]
     end
 
     # Bookkeeping that lets specs assert "fetch was called N times"

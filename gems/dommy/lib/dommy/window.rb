@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "uri"
+
 require_relative "internal/css/cascade"
 require_relative "internal/css/media_query"
 
@@ -224,7 +226,7 @@ module Dommy
 
     # The media-feature environment matchMedia and @media evaluate against
     # (viewport 1280x720, light scheme, dpr 1 by default). Mutable; after a
-    # direct mutation call __media_environment_changed__ to propagate —
+    # direct mutation call __internal_media_environment_changed__ to propagate —
     # resize_to does both for the viewport.
     def media_environment
       @media_environment ||= Internal::CSS::MediaQuery::Environment.default
@@ -233,24 +235,45 @@ module Dommy
     def inner_width = media_environment.viewport_width
     def inner_height = media_environment.viewport_height
 
+    # Resolve a (possibly relative) URL against the document base URL — the
+    # API base URL of this window's environment, as fetch/XHR use when
+    # constructing a request. Returns the input unchanged if it can't resolve.
+    def __internal_resolve_url__(url)
+      base = @document&.base_uri
+      return url.to_s if base.to_s.empty?
+
+      URI.join(base.to_s, url.to_s).to_s
+    rescue URI::Error
+      url.to_s
+    end
+
+    # The path (with query) of a URL — lets a stub keyed by a path ("/api")
+    # match its resolved absolute form ("http://host/api").
+    def __internal_url_path__(url)
+      uri = URI.parse(url.to_s)
+      uri.query ? "#{uri.path}?#{uri.query}" : uri.path
+    rescue URI::Error
+      url.to_s
+    end
+
     # Resize the virtual viewport: updates the environment, invalidates
     # computed styles (@media), re-evaluates handed-out MediaQueryLists
     # (firing their `change` events), and fires the window `resize` event.
     def resize_to(width, height)
       media_environment.viewport_width = width.to_i
       media_environment.viewport_height = height.to_i
-      __media_environment_changed__
+      __internal_media_environment_changed__
       dispatch_event(Event.new("resize"))
       nil
     end
 
-    def __media_environment_changed__
-      @document&.__bump_style_generation__
-      (@media_query_lists || []).each(&:__environment_changed__)
+    def __internal_media_environment_changed__
+      @document&.__internal_bump_style_generation__
+      (@media_query_lists || []).each(&:__internal_environment_changed__)
       nil
     end
 
-    def __register_media_query_list__(mql)
+    def __internal_register_media_query_list__(mql)
       (@media_query_lists ||= []) << mql
       nil
     end

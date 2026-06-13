@@ -24,10 +24,13 @@ class TestFetchHandler < Minitest::Test
 
   def setup
     @win = make_window
+    # The request URL is resolved against the document base before it reaches
+    # the handler, so the handler is keyed by the absolute URL.
     @handler = RecordingHandler.new(
-      "/app" => {"status" => 201, "body" => "from handler", "headers" => {"Content-Type" => "text/plain"}}
+      "http://localhost/app" => {"status" => 201, "body" => "from handler", "headers" => {"Content-Type" => "text/plain"}}
     )
     @win.globals["__fetch_handler__"] = @handler
+    # A stub may still be keyed by path; it matches the resolved URL's path.
     @win.globals["__fetchy_stub__"] = {"/stubbed" => {"status" => 200, "body" => "from stub"}}
   end
 
@@ -37,7 +40,7 @@ class TestFetchHandler < Minitest::Test
     assert_equal 201, response.__js_get__("status")
     assert_equal "from handler", response.__js_call__("text", []).await
     url, init = @handler.calls.last
-    assert_equal "/app", url
+    assert_equal "http://localhost/app", url
     assert_equal "POST", init["method"]
     assert_equal "data", init["body"]
   end
@@ -46,7 +49,7 @@ class TestFetchHandler < Minitest::Test
     response = Dommy::FetchFn.new(@win).__js_call__("fetch", ["/stubbed", nil]).await
 
     assert_equal "from stub", response.__js_call__("text", []).await
-    assert_equal "/stubbed", @handler.calls.last.first
+    assert_equal "http://localhost/stubbed", @handler.calls.last.first
   end
 
   def test_xhr_resolves_through_the_handler_with_request_init
@@ -58,7 +61,7 @@ class TestFetchHandler < Minitest::Test
     assert_equal 201, xhr.__js_get__("status")
     assert_equal "from handler", xhr.__js_get__("responseText")
     url, init = @handler.calls.last
-    assert_equal "/app", url
+    assert_equal "http://localhost/app", url
     assert_equal "POST", init["method"]
     assert_equal "payload", init["body"]
     assert_equal "t1", init["headers"]["X-Token"]

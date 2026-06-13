@@ -32,7 +32,10 @@ module Dommy
     # `__js_call__("fetch", ...)` or as a callable handle. Both routes
     # delegate to `call(args)` so behavior is identical.
     def __js_call__(_method, args)
-      url = args[0].to_s
+      # Per Fetch, the request URL is resolved against the document base URL up
+      # front; the handler, stub maps, and response.url all see the absolute
+      # URL (no per-handler resolution).
+      url = @window.__internal_resolve_url__(args[0].to_s)
       init = normalize_init(args[1] || {})
 
       # `js_eval`'s JS installer increments these globals; mirror so
@@ -96,7 +99,11 @@ module Dommy
       stub_map = @window.globals["__fetchy_stub__"] ||
         @window.globals["__resource_fetch_stub__"] ||
         @window.globals["__inject_fetch_stub__"]
-      stub_map.is_a?(Hash) ? stub_map[url] : nil
+      return nil unless stub_map.is_a?(Hash)
+
+      # The URL is now absolute; a stub keyed by a path ("/api") still matches
+      # its resolved form ("http://host/api").
+      stub_map[url] || stub_map[@window.__internal_url_path__(url)]
     end
 
     # Coerce `init` into a Hash with string keys so the rest of the
@@ -642,7 +649,7 @@ module Dommy
     def fill(init)
       case init
       when Headers
-        init.__raw_pairs__.each { |name, value| append_value(name, value) }
+        init.__internal_raw_pairs__.each { |name, value| append_value(name, value) }
       when Array
         init.each do |pair|
           unless pair.is_a?(Array) && pair.length == 2
@@ -659,7 +666,7 @@ module Dommy
 
     # Internal: a copy of the raw [name, value] pairs — lets one Headers be
     # filled from another without losing duplicates or split Set-Cookie values.
-    def __raw_pairs__
+    def __internal_raw_pairs__
       @list.map(&:dup)
     end
 

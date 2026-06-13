@@ -132,7 +132,9 @@ class TestWPTFetchIntrospection < Minitest::Test
 
   def test_last_url_records_most_recent_url
     @win.__js_call__("fetch", ["/x"])
-    assert_equal("/x", @win.globals["__last_url__"])
+    # __last_url__ records the resolved request URL (Fetch resolves against the
+    # document base before the request is made).
+    assert_equal("http://localhost/x", @win.globals["__last_url__"])
   end
 
   def test_last_init_records_init_hash
