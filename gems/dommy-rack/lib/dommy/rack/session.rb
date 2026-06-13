@@ -123,8 +123,16 @@ module Dommy
 
       # --- Navigation API ---
 
-      def visit(path)
-        @navigation.navigate(method: "GET", url: path)
+      # Navigate to `path` (GET). For a `javascript: true` session, the loaded
+      # page's scripts boot and then the page is settled (microtasks, due-now
+      # timers, and requestAnimationFrame run) so it is ready to inspect /
+      # interact without a manual #settle. Pass `settle: false` to observe the
+      # page mid-flight (before on-load async work completes). No-op settle when
+      # JS is disabled.
+      def visit(path, settle: true)
+        result = @navigation.navigate(method: "GET", url: path)
+        self.settle if settle && @js_runtime
+        result
       end
 
       def navigate(method: "GET", url:, params: nil, body: nil, headers: {})
