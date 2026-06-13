@@ -176,7 +176,7 @@ module Capybara
       # mouseover/mouseout events are dispatched (nothing observes them
       # without JavaScript).
       def hover
-        native.owner_document.__set_hovered_element__(native)
+        native.owner_document.__internal_set_hovered_element__(native)
         nil
       end
 

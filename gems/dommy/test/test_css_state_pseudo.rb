@@ -20,25 +20,25 @@ class TestCssStatePseudo < Minitest::Test
 
     refute button.matches?(":hover")
 
-    doc.__set_hovered_element__(button)
+    doc.__internal_set_hovered_element__(button)
     assert button.matches?(":hover")
     assert doc.get_element_by_id("outer").matches?(":hover")
     refute doc.get_element_by_id("other").matches?(":hover")
 
-    doc.__set_hovered_element__(nil)
+    doc.__internal_set_hovered_element__(nil)
     refute button.matches?(":hover")
   end
 
   def test_hover_in_query_selector_all
     doc = doc_for('<button id="a">a</button><button id="b">b</button>')
-    doc.__set_hovered_element__(doc.get_element_by_id("b"))
+    doc.__internal_set_hovered_element__(doc.get_element_by_id("b"))
 
     assert_equal ["b"], doc.query_selector_all("button:hover").map { |el| el.get_attribute("id") }
   end
 
   def test_hover_inside_not_keeps_negated_semantics
     doc = doc_for('<div id="a"></div><div id="b"></div>')
-    doc.__set_hovered_element__(doc.get_element_by_id("b"))
+    doc.__internal_set_hovered_element__(doc.get_element_by_id("b"))
 
     assert_equal ["a"], doc.query_selector_all("div:not(:hover)").map { |el| el.get_attribute("id") }
   end
@@ -54,10 +54,10 @@ class TestCssStatePseudo < Minitest::Test
     menu = doc.get_element_by_id("menu")
     assert_equal "none", CASCADE.computed_style(menu)["display"]
 
-    doc.__set_hovered_element__(menu)
+    doc.__internal_set_hovered_element__(menu)
     assert_equal "block", CASCADE.computed_style(menu)["display"]
 
-    doc.__set_hovered_element__(nil)
+    doc.__internal_set_hovered_element__(nil)
     assert_equal "none", CASCADE.computed_style(menu)["display"]
   end
 

@@ -71,9 +71,9 @@ module Dommy
         # filled its CSS in (Dommy fetches nothing). The filled sheet is read
         # through `cascade_text`, exactly like a <style>'s CSSOM sheet.
         def link_sheet_rules(element)
-          return nil unless element.respond_to?(:__stylesheet_for_cascade__)
+          return nil unless element.respond_to?(:__internal_stylesheet_for_cascade__)
 
-          sheet = element.__stylesheet_for_cascade__
+          sheet = element.__internal_stylesheet_for_cascade__
           return nil if sheet.nil? || sheet.disabled
 
           safe_parse(sheet.cascade_text)
@@ -83,7 +83,7 @@ module Dommy
         # stale), its CSSOM state wins: `cascade_text` carries insertRule edits
         # and `disabled` mutes it. Otherwise the element's text is parsed.
         def style_element_rules(element)
-          sheet = element.respond_to?(:__instantiated_sheet__) && element.__instantiated_sheet__
+          sheet = element.respond_to?(:__internal_instantiated_sheet__) && element.__internal_instantiated_sheet__
           if sheet
             return nil if sheet.disabled
 

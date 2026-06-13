@@ -67,7 +67,7 @@ module Dommy
           return true unless document.query_selector("style").nil?
 
           document.query_selector_all("link").any? do |link|
-            link.respond_to?(:__stylesheet_for_cascade__) && link.__stylesheet_for_cascade__
+            link.respond_to?(:__internal_stylesheet_for_cascade__) && link.__internal_stylesheet_for_cascade__
           end
         end
 

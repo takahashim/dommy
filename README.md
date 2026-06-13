@@ -48,6 +48,22 @@ cd gems/dommy && bundle exec rake
 
 `dommy`, `dommy-rack`, and `dommy-rails` use Minitest; `capybara-dommy` uses RSpec (including the Capybara driver compliance suite).
 
+### Internal method naming (`__xxx__`)
+
+Methods wrapped in double underscores are **not part of the public DOM API** — the
+name marks them as internal or bridge-only. To keep them from proliferating
+ad-hoc, every such method must use exactly one of these four prefixes:
+
+| Prefix | Purpose |
+| --- | --- |
+| `__js_*__` | Bridge protocol for external JS runtimes (`__js_get__` / `__js_set__` / `__js_call__` / `__js_new__`, …). The contract lives in `lib/dommy/bridge.rb`. |
+| `__internal_*__` | Spec-internal steps and non-public cross-object coordination (the largest group). |
+| `__test_*__` | Test-only hooks for simulating events the environment would otherwise raise (`__test_trigger__`, …). |
+| `__dommy_*__` | Backend (makiri) integration (`__dommy_backend_node__`, `__dommy_bytes__`). |
+
+When adding an internal coordination method, prefix it with `__internal_`. Do not
+introduce new bare `__name__` methods outside these four families.
+
 ## Releasing
 
 Build and push each gem from its own subdirectory:

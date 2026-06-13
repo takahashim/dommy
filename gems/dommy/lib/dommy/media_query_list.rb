@@ -26,7 +26,7 @@ module Dommy
       @forced = nil
       @onchange = nil
       @last_matches = evaluate
-      window.__register_media_query_list__(self) if window.respond_to?(:__register_media_query_list__)
+      window.__internal_register_media_query_list__(self) if window.respond_to?(:__internal_register_media_query_list__)
     end
 
     def matches
@@ -62,7 +62,7 @@ module Dommy
 
     # Called by the window when the media environment changed (resize etc.).
     # Fires `change` when the evaluated result flipped; a forced value wins.
-    def __environment_changed__
+    def __internal_environment_changed__
       return unless @forced.nil?
 
       current = evaluate

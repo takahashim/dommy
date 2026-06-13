@@ -329,7 +329,7 @@ module Dommy
       @style_generation || 0
     end
 
-    def __bump_style_generation__
+    def __internal_bump_style_generation__
       @style_generation = style_generation + 1
       nil
     end
@@ -341,7 +341,7 @@ module Dommy
 
     def css_import_resolver=(resolver)
       @css_import_resolver = resolver
-      __bump_style_generation__
+      __internal_bump_style_generation__
     end
     # content_type defaults to "text/html"; settable so an integration layer
     # can reflect the response Content-Type. Read-only over the JS bridge.
@@ -565,28 +565,28 @@ module Dommy
     def __internal_set_active_element__(el)
       # Focus is selector-observable state (:focus / :focus-within rules), so
       # a change invalidates computed styles.
-      __bump_style_generation__ unless @active_element.equal?(el)
+      __internal_bump_style_generation__ unless @active_element.equal?(el)
       @active_element = el
     end
 
     # The explicitly focused element (nil when nothing holds focus) — what
     # :focus matches. Distinct from #active_element, which falls back to
     # <body> per spec.
-    def __focused_element__
+    def __internal_focused_element__
       @active_element
     end
 
     # The element the (virtual) pointer hovers — :hover matches it and its
     # ancestors. Set from tests or capybara-dommy's Node#hover; nil clears.
-    def __hovered_element__
+    def __internal_hovered_element__
       @hovered_element
     end
 
-    def __set_hovered_element__(el)
+    def __internal_set_hovered_element__(el)
       return if @hovered_element.equal?(el)
 
       @hovered_element = el
-      __bump_style_generation__
+      __internal_bump_style_generation__
       nil
     end
 
@@ -606,7 +606,15 @@ module Dommy
     # Ruby Proc, a JS-bridge callable, or an object with
     # `accept_node` / `acceptNode`.
     def create_tree_walker(root, what_to_show = NodeFilter::SHOW_ALL, filter = nil)
-      TreeWalker.new(root, what_to_show, filter)
+      TreeWalker.new(require_node_root(root), what_to_show, filter)
+    end
+
+    # The `root` of a TreeWalker / NodeIterator is a non-nullable WebIDL `Node`:
+    # a null or non-Node argument is a TypeError before construction.
+    def require_node_root(root)
+      return root if root.is_a?(Dommy::Node)
+
+      raise Bridge::TypeError, "createTreeWalker/createNodeIterator root must be a Node"
     end
 
     # WebIDL `unsigned long whatToShow = 0xFFFFFFFF`: an omitted or `undefined`
@@ -739,7 +747,7 @@ module Dommy
     # `document.createNodeIterator(root, whatToShow?, filter?)` —
     # flat depth-first iteration.
     def create_node_iterator(root, what_to_show = NodeFilter::SHOW_ALL, filter = nil)
-      iterator = NodeIterator.new(root, what_to_show, filter)
+      iterator = NodeIterator.new(require_node_root(root), what_to_show, filter)
       # Track live iterators so node removal can run the "NodeIterator
       # pre-removing steps" (adjusting referenceNode) before a node detaches.
       @node_iterators << iterator

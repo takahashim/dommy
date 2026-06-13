@@ -225,12 +225,12 @@ module Dommy
         when "checked" then Internal.checked_state?(element)
         when "enabled" then enableable_element?(element) && !disabled_element?(element)
         when "disabled" then enableable_element?(element) && disabled_element?(element)
-        when "focus", "focus-visible" then element.owner_document&.__focused_element__.equal?(element)
+        when "focus", "focus-visible" then element.owner_document&.__internal_focused_element__.equal?(element)
         when "focus-within"
-          focused = element.owner_document&.__focused_element__
+          focused = element.owner_document&.__internal_focused_element__
           focused && (element.equal?(focused) || element.contains?(focused))
         when "hover"
-          hovered = element.owner_document&.__hovered_element__
+          hovered = element.owner_document&.__internal_hovered_element__
           hovered && (element.equal?(hovered) || element.contains?(hovered))
         when "active", "visited" then false # supported-but-currently-false (no pointer state / history)
         when "dir" then dir_match?(element, pseudo.argument)

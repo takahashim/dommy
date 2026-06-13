@@ -304,7 +304,7 @@ module Dommy
       @__checked = !!v
       # Checkedness is property state (no attribute mutation fires), yet it
       # is selector-observable via :checked — invalidate computed styles.
-      @document&.__bump_style_generation__
+      @document&.__internal_bump_style_generation__
     end
 
     def labels
@@ -714,14 +714,14 @@ module Dommy
 
       @__sheet = build_link_sheet(css.to_s)
       doc = owner_document
-      doc.__bump_style_generation__ if doc.respond_to?(:__bump_style_generation__)
+      doc.__internal_bump_style_generation__ if doc.respond_to?(:__internal_bump_style_generation__)
       @__sheet
     end
 
     # The sheet the cascade should read, or nil when this link isn't a
     # stylesheet or no one instantiated/filled its sheet yet. (Unlike
     # `sheet`, this never instantiates — an untouched link costs nothing.)
-    def __stylesheet_for_cascade__
+    def __internal_stylesheet_for_cascade__
       @__sheet if @__sheet && stylesheet_rel?
     end
 
@@ -3062,7 +3062,7 @@ module Dommy
     # element's text changed since (stale sheet). Lets the cascade read
     # CSSOM state only for sheets someone actually touched, without
     # instantiating sheet objects for every `<style>` in the document.
-    def __instantiated_sheet__
+    def __internal_instantiated_sheet__
       @__sheet if @__sheet && @__sheet_text == text_content.to_s
     end
 
