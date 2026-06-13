@@ -14,6 +14,13 @@ module Dommy
       XMLNS_NS = "http://www.w3.org/2000/xmlns/"
       HTML_NS  = "http://www.w3.org/1999/xhtml"
 
+      # HTML void elements: when empty and in the HTML namespace they self-close
+      # with a trailing space in XML serialization (`<br />`).
+      VOID_ELEMENTS = %w[
+        area base basefont bgsound br col embed frame hr img input keygen link
+        meta param source track wbr
+      ].freeze
+
       # An attribute as the algorithm sees it (regular or a synthesized xmlns).
       Attr = Struct.new(:namespace, :prefix, :local_name, :value)
 
@@ -93,8 +100,7 @@ module Dommy
 
         children = child_nodes(node)
         if children.empty?
-          # HTML void elements get " /", everything else a bare self-close.
-          markup << "/>"
+          markup << empty_element_close(ns, node, qualified)
           return markup
         end
 
@@ -102,6 +108,16 @@ module Dommy
         children.each { |c| markup << serialize_node(c, inherited_ns, map, prefix_index) }
         markup << "</#{qualified}>"
         markup
+      end
+
+      # WHATWG XML serialization of an empty element: an HTML-namespace void
+      # element self-closes with a space (`<br />`); any other HTML-namespace
+      # element gets an explicit end tag (`<div></div>`); a non-HTML element
+      # self-closes (`<foo/>`).
+      def empty_element_close(ns, node, qualified)
+        return "/>" unless ns == HTML_NS
+
+        VOID_ELEMENTS.include?(local_name(node).downcase) ? " />" : "></#{qualified}>"
       end
 
       # https://w3c.github.io/DOM-Parsing/#recording-the-namespace
@@ -210,9 +226,11 @@ module Dommy
         created = created_namespace(node)
         return presence(created[0]) if created
 
+        # The backend's raw namespace — the HTML namespace for an HTML element
+        # (which an XML serialization DOES declare as xmlns="…xhtml"), or the
+        # parsed namespace for an XML element.
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
-        ns = backend ? Backend.namespace_of(backend) : nil
-        presence(ns&.href)
+        presence(backend.respond_to?(:namespace_uri) ? backend.namespace_uri : nil)
       end
 
       def element_prefix(node)
@@ -220,8 +238,7 @@ module Dommy
         return presence(created[1]) if created
 
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
-        ns = backend ? Backend.namespace_of(backend) : nil
-        presence(ns.respond_to?(:prefix) ? ns&.prefix : nil)
+        presence(backend.respond_to?(:prefix) ? backend.prefix : nil)
       end
 
       # The backend node name is the local part, case-preserved (the wrapper's
