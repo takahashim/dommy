@@ -353,6 +353,20 @@ module Dommy
       0
     end
 
+    # WebIDL coercion for the `Text`/`Comment` constructor's `optional DOMString
+    # data = ""`: an omitted or undefined argument uses the default (""), but an
+    # explicit `null` stringifies to "null" per ToString. (Omitted arrives as an
+    # empty args list; explicit JS null arrives as a Ruby nil element.)
+    def node_data_arg(args)
+      return "" if args.empty?
+
+      value = args[0]
+      return "" if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
+      return "null" if value.nil?
+
+      value.to_s
+    end
+
     # Build the JS-global constructor map. Blocks are lazy (run at `new X()`
     # time), so they may reference `win` / `@document` freely.
     def build_constructors
@@ -380,6 +394,11 @@ module Dommy
         "Document" => Bridge::Constructor.new do
           Document.new(nil, backend_doc: Backend.empty_document).tap { |d| d.content_type = "application/xml" }
         end,
+        # `new Text(data?)` / `new Comment(data?)` / `new DocumentFragment()` —
+        # create the node in this window's associated document (DOM Standard).
+        "Text" => Bridge::Constructor.new { |args| win.document.create_text_node(node_data_arg(args)) },
+        "Comment" => Bridge::Constructor.new { |args| win.document.create_comment(node_data_arg(args)) },
+        "DocumentFragment" => Bridge::Constructor.new { |_args| win.document.create_document_fragment },
         "Event" => Bridge::Constructor.new { |args| Event.new(args[0], args[1]) },
         "CustomEvent" => Bridge::Constructor.new { |args| CustomEvent.new(args[0], args[1]) },
         "MessageEvent" => Bridge::Constructor.new { |args| MessageEvent.new(args[0], args[1]) },
