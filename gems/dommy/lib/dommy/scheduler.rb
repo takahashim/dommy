@@ -132,9 +132,15 @@ module Dommy
     end
 
     def cancel_timer(id)
-      timer = @timers[id.to_i]
+      # WHATWG: clearTimeout/clearInterval with a missing or non-numeric handle
+      # (e.g. `clearTimeout(undefined)`, which React's scheduler emits) is a
+      # silent no-op rather than an error.
+      return unless id.respond_to?(:to_i)
+
+      key = id.to_i
+      timer = @timers[key]
       timer.active = false if timer
-      @timers.delete(id.to_i)
+      @timers.delete(key)
       nil
     end
 
