@@ -10,6 +10,21 @@ class TestDocument < Minitest::Test
     @doc = @win.document
   end
 
+  def test_take_pending_module_returns_inline_and_external
+    @doc.body.inner_html = <<~HTML
+      <script type="module">window.x = 1;</script>
+      <script type="module" src="/app.js"></script>
+      <script>window.y = 2;</script>
+    HTML
+    inline, external, classic = @doc.query_selector_all("script").to_a
+
+    assert_equal [:inline, "window.x = 1;"], inline.__internal_take_pending_module__
+    assert_nil inline.__internal_take_pending_module__, "started flag prevents a second run"
+    assert_equal [:external, "/app.js"], external.__internal_take_pending_module__
+    assert_nil classic.__internal_take_pending_module__, "a classic script is not a module"
+    refute_nil classic.__internal_take_pending_script__
+  end
+
   def test_current_script_defaults_to_nil_and_tracks_set
     assert_nil @doc.__js_get__("currentScript")
 

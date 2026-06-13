@@ -667,6 +667,28 @@ module Dommy
       @__script_started = true
       s
     end
+
+    # A `type="module"` script to evaluate now, or nil if it must not run (a
+    # non-module type, an empty inline body, or one that already ran). Returns
+    # `[:inline, body]` or `[:external, src]`; the host evaluates it as an ES
+    # module (resolving its imports). Sets the same "already started" flag so a
+    # module runs at most once.
+    def __internal_take_pending_module__
+      return nil if @__script_started
+      return nil unless type.to_s.strip.downcase == "module"
+
+      s = src.to_s
+      if s.empty?
+        body = text_content.to_s
+        return nil if body.strip.empty?
+
+        @__script_started = true
+        [:inline, body]
+      else
+        @__script_started = true
+        [:external, s]
+      end
+    end
   end
 
   # `<link>` — primarily for stylesheets, icons, preload, manifests.
