@@ -98,13 +98,14 @@ module Dommy
     end
 
     include Bridge::Methods
+    # `matches` is a read-only attribute (boolean), exposed through __js_get__ —
+    # not a method. Listing it here would shadow the getter with a callable, so
+    # `mql.matches` would evaluate to a function instead of the boolean.
     js_methods %w[
-      matches addListener removeListener addEventListener removeEventListener dispatchEvent
+      addListener removeListener addEventListener removeEventListener dispatchEvent
     ]
     def __js_call__(method, args)
       case method
-      when "matches"
-        matches
       when "addListener"
         add_listener(args[0])
       when "removeListener"

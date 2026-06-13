@@ -1028,9 +1028,7 @@ module Dommy
         # Historically `<a name>` (with a name attribute), not every link.
         HTMLCollection.new { @backend_doc.css("a[name]").map { |n| wrap_node(n) }.compact }
       when "styleSheets"
-        # No CSS engine; expose an empty (but present + iterable) StyleSheetList
-        # so `document.styleSheets.length` / iteration don't blow up.
-        NodeList.new
+        style_sheets
       when "children"
         children
       when "childNodes"
@@ -1377,6 +1375,16 @@ module Dommy
 
     def query_selector_all(selector)
       @node_wrapper_cache.query_selector_all(selector)
+    end
+
+    # `document.styleSheets` — the CSSStyleSheet of each <style> and
+    # <link rel=stylesheet> in document order (CSSOM). Computed on access so
+    # it reflects the current tree.
+    def style_sheets
+      sheets = query_selector_all("style, link").filter_map do |element|
+        element.sheet if element.respond_to?(:sheet)
+      end
+      NodeList.new(sheets)
     end
 
     def get_element_by_id(id)
