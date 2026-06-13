@@ -1173,8 +1173,26 @@ module Dommy
       else
         @__node__.inner_html = value.to_s
         @document.migrate_template_descendants(@__node__)
+        mark_fragment_scripts_started(@__node__.children.to_a)
       end
       notify_child_list(added: @__node__.children.to_a, removed: removed)
+    end
+
+    # Per the HTML fragment parsing algorithm, a <script> created while parsing a
+    # fragment (innerHTML / insertAdjacentHTML / outerHTML) has its "already
+    # started" flag set, so it never executes when inserted. Flag every script in
+    # the freshly parsed backend subtree before the connection notification —
+    # which is what would otherwise run them — fires.
+    def mark_fragment_scripts_started(backend_nodes)
+      backend_nodes.each do |nk|
+        next unless nk.respond_to?(:element?) && nk.element?
+
+        if nk.name == "script"
+          wrapped = @document.wrap_node(nk)
+          wrapped&.__internal_mark_script_already_started__ if wrapped.respond_to?(:__internal_mark_script_already_started__)
+        end
+        mark_fragment_scripts_started(nk.children.to_a) if nk.respond_to?(:children)
+      end
     end
 
     HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
@@ -1361,6 +1379,7 @@ module Dommy
       anchor = @__node__.next_sibling
       removed = @__node__
       new_nodes = fragment.children.to_a
+      mark_fragment_scripts_started(new_nodes)
       @__node__.unlink
       if anchor
         new_nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
@@ -1740,6 +1759,7 @@ module Dommy
 
       fragment = Parser.fragment(html.to_s, owner_doc: @__node__.document)
       nodes = fragment.children.to_a
+      mark_fragment_scripts_started(nodes)
       # `add_previous_sibling` inserts immediately before the anchor, so a forward
       # walk preserves document order; `add_next_sibling` inserts immediately
       # after, so afterend walks in reverse to keep order.

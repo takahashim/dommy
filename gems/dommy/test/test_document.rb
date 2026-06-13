@@ -11,18 +11,32 @@ class TestDocument < Minitest::Test
   end
 
   def test_take_pending_module_returns_inline_and_external
-    @doc.body.inner_html = <<~HTML
-      <script type="module">window.x = 1;</script>
-      <script type="module" src="/app.js"></script>
-      <script>window.y = 2;</script>
-    HTML
-    inline, external, classic = @doc.query_selector_all("script").to_a
+    # Build the scripts with createElement so they aren't flagged "already
+    # started" by the fragment parser (which innerHTML would do) — this isolates
+    # the take-pending-module logic itself.
+    inline = @doc.create_element("script").tap { |s| s.set_attribute("type", "module"); s.text_content = "window.x = 1;" }
+    external = @doc.create_element("script").tap { |s| s.set_attribute("type", "module"); s.set_attribute("src", "/app.js") }
+    classic = @doc.create_element("script").tap { |s| s.text_content = "window.y = 2;" }
 
     assert_equal [:inline, "window.x = 1;"], inline.__internal_take_pending_module__
     assert_nil inline.__internal_take_pending_module__, "started flag prevents a second run"
     assert_equal [:external, "/app.js"], external.__internal_take_pending_module__
     assert_nil classic.__internal_take_pending_module__, "a classic script is not a module"
     refute_nil classic.__internal_take_pending_script__
+  end
+
+  # Per the HTML fragment parsing algorithm, a <script> inserted via innerHTML
+  # (classic or module) has its "already started" flag set, so it never runs —
+  # take-pending returns nil for it.
+  def test_fragment_parsed_scripts_are_already_started
+    @doc.body.inner_html = <<~HTML
+      <script>window.y = 2;</script>
+      <script type="module">window.x = 1;</script>
+    HTML
+    classic, mod = @doc.query_selector_all("script").to_a
+
+    assert_nil classic.__internal_take_pending_script__
+    assert_nil mod.__internal_take_pending_module__
   end
 
   def test_current_script_defaults_to_nil_and_tracks_set

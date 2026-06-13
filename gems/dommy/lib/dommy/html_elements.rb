@@ -638,6 +638,14 @@ module Dommy
     CLASSIC_SCRIPT_TYPES = ["", "text/javascript", "application/javascript",
                             "application/ecmascript", "text/ecmascript"].freeze
 
+    # Set the HTML "already started" flag without running anything. The fragment
+    # parsing algorithm (innerHTML / insertAdjacentHTML / outerHTML / DOMParser)
+    # flags its scripts this way so they never execute on insertion.
+    def __internal_mark_script_already_started__
+      @__script_started = true
+      nil
+    end
+
     def __internal_take_pending_script__
       return nil if @__script_started
       return nil unless src.to_s.empty?
