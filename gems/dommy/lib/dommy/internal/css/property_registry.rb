@@ -28,7 +28,15 @@ module Dommy
           "text-decoration-line" => Property.new(inherited: false, initial: "none"),
           "white-space" => Property.new(inherited: true, initial: "normal"),
           "letter-spacing" => Property.new(inherited: true, initial: "normal"),
+          "word-spacing" => Property.new(inherited: true, initial: "normal"),
           "cursor" => Property.new(inherited: true, initial: "auto"),
+          "direction" => Property.new(inherited: true, initial: "ltr"),
+          "text-transform" => Property.new(inherited: true, initial: "none"),
+          "text-indent" => Property.new(inherited: true, initial: "0px"),
+          "font-variant" => Property.new(inherited: true, initial: "normal"),
+          "list-style-type" => Property.new(inherited: true, initial: "disc"),
+          "list-style-position" => Property.new(inherited: true, initial: "outside"),
+          "tab-size" => Property.new(inherited: true, initial: "8"),
           "z-index" => Property.new(inherited: false, initial: "auto"),
           "position" => Property.new(inherited: false, initial: "static"),
         }.freeze
@@ -98,27 +106,55 @@ module Dommy
           end
         end
 
+        # px-per-unit for the absolute length units (CSS Values 4: 96px per
+        # inch). These need no layout, so a computed value can carry them as px.
+        ABSOLUTE_UNIT_PX = {
+          "px" => 1.0,
+          "pt" => 96.0 / 72,
+          "pc" => 16.0,
+          "in" => 96.0,
+          "cm" => 96.0 / 2.54,
+          "mm" => 96.0 / 25.4,
+          "q" => 96.0 / 25.4 / 40,
+        }.freeze
+
+        LENGTH_PATTERN = /\A(-?\d+(?:\.\d+)?)(px|em|rem|pt|pc|in|cm|mm|q|vw|vh|vmin|vmax)\z/i
+
         # The computed-value transform for one property. `font_size` /
-        # `root_font_size` are the element's / root's computed font-size in px
-        # (used to resolve em/rem lengths without layout).
-        def computed_value(name, value, font_size:, root_font_size:)
+        # `root_font_size` are the element's / root's computed font-size in px;
+        # `viewport_width` / `viewport_height` the viewport in px. Together they
+        # let a bare length resolve to px without layout (em/rem/absolute/vw/vh).
+        def computed_value(name, value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
           return Color.normalize(value) if COLOR_PROPERTIES.include?(name)
           return FONT_WEIGHT_KEYWORDS.fetch(value.downcase, value) if name == "font-weight"
 
-          resolve_font_relative_length(value, font_size, root_font_size) || value
+          resolve_length(value,
+            font_size: font_size, root_font_size: root_font_size,
+            viewport_width: viewport_width, viewport_height: viewport_height) || value
         end
 
-        # Resolve a bare "<number>em" / "<number>rem" length against the
-        # given font sizes. Returns nil when the value isn't such a length
-        # (or the needed font size couldn't be resolved to px).
-        def resolve_font_relative_length(value, font_size, root_font_size)
-          match = value.match(/\A(-?\d+(?:\.\d+)?)(em|rem)\z/i)
+        # Resolve a bare "<number><unit>" length to px. Handles font-relative
+        # (em/rem), absolute (px/pt/pc/in/cm/mm/Q) and viewport (vw/vh/vmin/vmax)
+        # units — everything resolvable without layout. Returns nil when the
+        # value isn't a single such length (or the needed base is unavailable),
+        # so the caller keeps the specified value.
+        def resolve_length(value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
+          match = value.match(LENGTH_PATTERN)
           return nil unless match
 
-          base = match[2].downcase == "em" ? font_size : root_font_size
-          return nil unless base
-
-          format_px(match[1].to_f * base)
+          number = match[1].to_f
+          unit = match[2].downcase
+          px =
+            case unit
+            when "em" then font_size && number * font_size
+            when "rem" then root_font_size && number * root_font_size
+            when "vw" then viewport_width && number * viewport_width / 100.0
+            when "vh" then viewport_height && number * viewport_height / 100.0
+            when "vmin" then viewport_width && viewport_height && number * [viewport_width, viewport_height].min / 100.0
+            when "vmax" then viewport_width && viewport_height && number * [viewport_width, viewport_height].max / 100.0
+            else number * ABSOLUTE_UNIT_PX[unit]
+            end
+          px && format_px(px)
         end
 
         def format_px(number)

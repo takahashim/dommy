@@ -695,19 +695,34 @@ module Dommy
   class HTMLLinkElement < HTMLElement
     reflect_string :href, :rel, :type, :media, :sizes, :hreflang, :integrity, as_attr: { attr: "as", js: "as" }, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
     # `link.sheet` — non-nil only when this link is a stylesheet
-    # (`rel` contains "stylesheet"). The sheet itself is a stub:
-    # Dommy doesn't fetch or parse CSS, but consumers can still
-    # `insertRule` / `deleteRule` against the in-memory sheet.
+    # (`rel` contains "stylesheet"). Dommy fetches nothing itself, so the
+    # sheet starts empty; a host environment supplies the CSS via
+    # `set_stylesheet_text`. Once filled it participates in the cascade and
+    # `insertRule` / `deleteRule` work against it like any CSSOM sheet.
     def sheet
-      return nil unless rel.split(/\s+/).any? { |t| t.casecmp("stylesheet").zero? }
+      return nil unless stylesheet_rel?
 
-      @__sheet ||= CSSStyleSheet.new(
-        owner_node: self,
-        href: href,
-        media: media,
-        title: @__node__["title"].to_s,
-        type: (type.empty? ? "text/css" : type)
-      )
+      @__sheet ||= build_link_sheet
+    end
+
+    # Host hook (e.g. dommy-rack resolving `<link href>` from a response):
+    # supply the CSS this link points at. Re-seeds the sheet — splitting the
+    # text into CSSRules — and invalidates the document's computed styles so
+    # the next getComputedStyle / visible? sees the new rules.
+    def set_stylesheet_text(css)
+      return nil unless stylesheet_rel?
+
+      @__sheet = build_link_sheet(css.to_s)
+      doc = owner_document
+      doc.__bump_style_generation__ if doc.respond_to?(:__bump_style_generation__)
+      @__sheet
+    end
+
+    # The sheet the cascade should read, or nil when this link isn't a
+    # stylesheet or no one instantiated/filled its sheet yet. (Unlike
+    # `sheet`, this never instantiates — an untouched link costs nothing.)
+    def __stylesheet_for_cascade__
+      @__sheet if @__sheet && stylesheet_rel?
     end
 
     def __js_get__(key)
@@ -720,6 +735,23 @@ module Dommy
       else
         super
       end
+    end
+
+    private
+
+    def stylesheet_rel?
+      rel.split(/\s+/).any? { |token| token.casecmp("stylesheet").zero? }
+    end
+
+    def build_link_sheet(source_text = nil)
+      CSSStyleSheet.new(
+        owner_node: self,
+        href: href,
+        media: media,
+        title: @__node__["title"].to_s,
+        type: (type.empty? ? "text/css" : type),
+        source_text: source_text
+      )
     end
   end
 

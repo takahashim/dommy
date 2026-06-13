@@ -133,6 +133,25 @@ class TestCssCascade < Minitest::Test
     assert_equal "20px", computed(doc, "x")["letter-spacing"]
   end
 
+  def test_absolute_length_units_resolve_to_px
+    doc = doc_for('<style>#pt { font-size: 12pt } #in { text-indent: 1in }</style><p id="pt">x</p><p id="in">y</p>')
+    assert_equal "16px", computed(doc, "pt")["font-size"]
+    assert_equal "96px", computed(doc, "in")["text-indent"]
+  end
+
+  def test_viewport_units_resolve_against_the_viewport
+    doc = doc_for('<style>#x { font-size: 10vw; letter-spacing: 1vh }</style><p id="x">x</p>')
+    # default viewport is 1280x720
+    assert_equal "128px", computed(doc, "x")["font-size"]
+    assert_equal "7.2px", computed(doc, "x")["letter-spacing"]
+  end
+
+  def test_inherited_property_outside_color_font_inherits
+    doc = doc_for('<style>#outer { text-transform: uppercase; text-indent: 5px }</style><div id="outer"><span id="inner">x</span></div>')
+    assert_equal "uppercase", computed(doc, "inner")["text-transform"]
+    assert_equal "5px", computed(doc, "inner")["text-indent"]
+  end
+
   def test_color_values_normalize_to_rgb_serialization
     doc = doc_for('<style>#x { color: rebeccapurple; background-color: #00ff00 }</style><p id="x">x</p>')
     styles = computed(doc, "x")

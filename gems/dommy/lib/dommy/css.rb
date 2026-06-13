@@ -24,11 +24,13 @@ module Dommy
       @type = type
       @disabled = false
       @css_rules = CSSRuleList.new
-      # The owner node's CSS text at sheet creation, kept as one opaque
-      # rule entry — insertRule(0) lands before it, appends land after,
-      # exactly like a parsed sheet would order them.
-      text = source_text.to_s
-      @css_rules.__internal_insert__(0, CSSRule.new(text, self)) unless text.empty?
+      # The owner node's CSS text at sheet creation, split into one CSSRule
+      # per top-level rule (source order) so cssRules mirrors the parsed
+      # sheet — selectorText / style / nested cssRules read off each slice.
+      # insertRule(0) lands before them, appends after, as a real sheet would.
+      Internal::CSSRuleText.split_rules(source_text).each_with_index do |slice, i|
+        @css_rules.__internal_insert__(i, CSSRule.new(slice, self))
+      end
     end
 
     def disabled
@@ -158,6 +160,13 @@ module Dommy
       end
     end
 
+    # A child CSSRule whose text changed (e.g. `rule.style.color = ...`)
+    # invalidates the owner document's computed style the same way
+    # insertRule/deleteRule do — its rebuilt cssText feeds `cascade_text`.
+    def __notify_rule_changed__
+      __bump_owner_style_generation__
+    end
+
     private
 
     # CSSOM mutations must invalidate the owner document's computed-style
@@ -236,10 +245,160 @@ module Dommy
     end
   end
 
-  # `CSSRule` — opaque wrapper over the raw rule text. Real engines
-  # have a subclass hierarchy (CSSStyleRule, CSSMediaRule, etc.), but
-  # without a CSS parser we keep one minimal type that round-trips
-  # the source text.
+  # `CSSStyleRule#style` — a live, mutable CSSStyleDeclaration backed by a
+  # rule's declaration block. Reads come from the parsed block; every write
+  # reserializes the block and hands it back to the owning CSSRule, which
+  # rebuilds its cssText and invalidates the document's computed-style cache.
+  class RuleStyleDeclaration
+    include Enumerable
+
+    def initialize(rule, body_text)
+      @rule = rule
+      @props = parse(body_text)
+    end
+
+    def get_property_value(name)
+      entry = @props[name.to_s]
+      entry ? entry[:value] : ""
+    end
+
+    def get_property_priority(name)
+      entry = @props[name.to_s]
+      entry ? entry[:priority] : ""
+    end
+
+    def set_property(name, value, priority = nil)
+      key = name.to_s
+      if value.nil? || value.to_s.empty?
+        @props.delete(key)
+      else
+        important = priority.to_s.downcase == "important" ? "important" : ""
+        @props[key] = {value: value.to_s, priority: important}
+      end
+      flush!
+      nil
+    end
+
+    def remove_property(name)
+      removed = @props.delete(name.to_s)
+      flush!
+      removed ? removed[:value] : ""
+    end
+
+    def [](key)
+      key.is_a?(Integer) ? @props.keys[key].to_s : get_property_value(key)
+    end
+
+    def []=(name, value)
+      set_property(name, value)
+    end
+
+    def length
+      @props.size
+    end
+
+    def item(index)
+      @props.keys[index.to_i].to_s
+    end
+
+    def css_text
+      @props.map do |name, entry|
+        important = entry[:priority] == "important" ? " !important" : ""
+        "#{name}: #{entry[:value]}#{important};"
+      end.join(" ")
+    end
+
+    def css_text=(text)
+      @props = parse(text)
+      flush!
+    end
+
+    def each(&blk)
+      @props.keys.each(&blk)
+    end
+
+    # camelCase / snake_case property accessors (`style.backgroundColor`).
+    def method_missing(name, *args)
+      str = name.to_s
+      if str.end_with?("=")
+        set_property(css_name(str[0..-2]), args.first)
+      elsif args.empty?
+        get_property_value(css_name(str))
+      else
+        super
+      end
+    end
+
+    def respond_to_missing?(_name, _include_private = false)
+      true
+    end
+
+    def __js_get__(key)
+      case key
+      when "cssText" then css_text
+      when "length" then length
+      when "parentRule" then @rule
+      else
+        if key.is_a?(Integer) || key.to_s.match?(/\A\d+\z/)
+          self[key.to_i]
+        else
+          get_property_value(css_name(key.to_s))
+        end
+      end
+    end
+
+    def __js_set__(key, value)
+      case key
+      when "cssText" then self.css_text = value
+      else set_property(css_name(key.to_s), value)
+      end
+
+      nil
+    end
+
+    include Bridge::Methods
+    js_methods %w[getPropertyValue getPropertyPriority setProperty removeProperty item]
+    def __js_call__(method, args)
+      case method
+      when "getPropertyValue" then get_property_value(args[0])
+      when "getPropertyPriority" then get_property_priority(args[0])
+      when "setProperty" then set_property(args[0], args[1], args[2])
+      when "removeProperty" then remove_property(args[0])
+      when "item" then item(args[0].to_i)
+      end
+    end
+
+    private
+
+    def css_name(name)
+      str = name.to_s
+      return str if str.start_with?("--")
+
+      str.include?("_") ? str.tr("_", "-") : str.gsub(/[A-Z]/) { "-#{Regexp.last_match(0).downcase}" }
+    end
+
+    # Parse a declaration block into ordered { name => {value:, priority:} },
+    # reusing the cascade's declaration parser (same normalization the cascade
+    # sees) so reads agree with computed style.
+    def parse(body_text)
+      Internal::CSS::Parser.parse_declarations(body_text.to_s).each_with_object({}) do |decl, out|
+        out[decl.name] = {value: decl.value, priority: decl.important ? "important" : ""}
+      end
+    end
+
+    def flush!
+      @rule.__rebuild_from_style__(css_text)
+    end
+  end
+
+  # `CSSRule` — one parsed stylesheet rule. `cssText` round-trips the source
+  # slice verbatim until the rule is mutated. The CSSOM subclass hierarchy
+  # (CSSStyleRule / CSSMediaRule / …) is collapsed into this one class, which
+  # exposes the accessors per `type`: `selectorText` + `style` for style
+  # rules, `conditionText` + `cssRules` for grouping rules (@media/@supports).
+  # The selector text and declaration block are derived lazily with
+  # Internal::CSSRuleText (a light scanner; the cascade's correctness still
+  # comes from lexbor).
   class CSSRule
     STYLE_RULE = 1
     CHARSET_RULE = 2
@@ -249,6 +408,15 @@ module Dommy
     PAGE_RULE = 6
     KEYFRAMES_RULE = 7
     KEYFRAME_RULE = 8
+    SUPPORTS_RULE = 12
+
+    AT_RULE_TYPES = {
+      "media" => MEDIA_RULE, "supports" => SUPPORTS_RULE, "import" => IMPORT_RULE,
+      "charset" => CHARSET_RULE, "font-face" => FONT_FACE_RULE, "page" => PAGE_RULE,
+      "keyframes" => KEYFRAMES_RULE
+    }.freeze
+
+    GROUPING_TYPES = [MEDIA_RULE, SUPPORTS_RULE].freeze
 
     attr_reader :parent_style_sheet
 
@@ -263,53 +431,133 @@ module Dommy
 
     def css_text=(v)
       @css_text = v.to_s
+      invalidate!
     end
 
-    # We don't parse, so report the generic STYLE_RULE type.
     def type
-      STYLE_RULE
+      keyword = Internal::CSSRuleText.at_keyword(prelude)
+      keyword ? AT_RULE_TYPES.fetch(keyword, STYLE_RULE) : STYLE_RULE
     end
+
+    def style_rule?
+      type == STYLE_RULE
+    end
+
+    def grouping?
+      GROUPING_TYPES.include?(type)
+    end
+
+    # CSSStyleRule#selectorText — the rule's selector list ("" for at-rules).
+    def selector_text
+      style_rule? ? prelude : ""
+    end
+
+    def selector_text=(value)
+      return unless style_rule?
+
+      @selector = value.to_s
+      rebuild_css_text!
+    end
+
+    # CSSStyleRule#style — a live, mutable declaration block. nil for at-rules
+    # (matching the absent `style` member on CSSMediaRule etc.). Writes
+    # reserialize cssText and invalidate the document's computed-style cache.
+    def style
+      return nil unless style_rule?
+
+      @style ||= RuleStyleDeclaration.new(self, Internal::CSSRuleText.split_rule(@css_text).last)
+    end
+
+    # CSSGroupingRule#cssRules — the nested rules of an @media/@supports block.
+    def css_rules
+      return nil unless grouping?
+
+      @css_rules ||= begin
+        list = CSSRuleList.new
+        Internal::CSSRuleText.split_rules(body).each_with_index do |slice, i|
+          list.__internal_insert__(i, CSSRule.new(slice, @parent_style_sheet))
+        end
+        list
+      end
+    end
+
+    # CSSConditionRule#conditionText / CSSMediaRule#media — the condition text
+    # after the at-keyword.
+    def condition_text
+      grouping? ? prelude.sub(/\A@[-a-z]+/i, "").strip : ""
+    end
+    alias_method :media, :condition_text
 
     def parent_rule
       nil
     end
 
+    # Called by RuleStyleDeclaration after a property write: rebuild cssText
+    # from the (possibly new) selector and declaration block.
+    def __rebuild_from_style__(block_text)
+      @selector ||= prelude
+      @css_text = block_text.empty? ? "#{@selector} {}" : "#{@selector} { #{block_text} }"
+      @parent_style_sheet&.__notify_rule_changed__
+      nil
+    end
+
     def __js_get__(key)
       case key
-      when "cssText"
-        @css_text
-      when "type"
-        type
-      when "parentStyleSheet"
-        @parent_style_sheet
-      when "parentRule"
-        parent_rule
-      when "STYLE_RULE"
-        STYLE_RULE
-      when "MEDIA_RULE"
-        MEDIA_RULE
-      when "IMPORT_RULE"
-        IMPORT_RULE
-      when "FONT_FACE_RULE"
-        FONT_FACE_RULE
-      when "PAGE_RULE"
-        PAGE_RULE
-      when "KEYFRAMES_RULE"
-        KEYFRAMES_RULE
-      when "KEYFRAME_RULE"
-        KEYFRAME_RULE
-      when "CHARSET_RULE"
-        CHARSET_RULE
+      when "cssText" then @css_text
+      when "type" then type
+      when "selectorText" then selector_text
+      when "style" then style
+      when "cssRules" then css_rules
+      when "conditionText" then grouping? ? condition_text : nil
+      when "media" then grouping? ? condition_text : nil
+      when "parentStyleSheet" then @parent_style_sheet
+      when "parentRule" then parent_rule
+      when "STYLE_RULE" then STYLE_RULE
+      when "MEDIA_RULE" then MEDIA_RULE
+      when "IMPORT_RULE" then IMPORT_RULE
+      when "FONT_FACE_RULE" then FONT_FACE_RULE
+      when "PAGE_RULE" then PAGE_RULE
+      when "KEYFRAMES_RULE" then KEYFRAMES_RULE
+      when "KEYFRAME_RULE" then KEYFRAME_RULE
+      when "SUPPORTS_RULE" then SUPPORTS_RULE
+      when "CHARSET_RULE" then CHARSET_RULE
       end
     end
 
     def __js_set__(key, value)
       case key
-      when "cssText"
-        self.css_text = value
+      when "cssText" then self.css_text = value
+      when "selectorText" then self.selector_text = value
       end
 
       nil
+    end
+
+    private
+
+    # The rule prelude (selector list or at-rule keyword + condition),
+    # memoized; recomputed after css_text changes.
+    def prelude
+      @prelude ||= Internal::CSSRuleText.split_rule(@css_text).first
+    end
+
+    # The block body (text between the outermost braces), or "" when absent.
+    def body
+      Internal::CSSRuleText.split_rule(@css_text).last.to_s
+    end
+
+    def rebuild_css_text!
+      @css_text = body.strip.empty? ? "#{@selector} {}" : "#{@selector} { #{body.strip} }"
+      @prelude = nil
+      @parent_style_sheet&.__notify_rule_changed__
+    end
+
+    # Drop derived state after cssText is replaced wholesale.
+    def invalidate!
+      @prelude = nil
+      @selector = nil
+      @style = nil
+      @css_rules = nil
     end
   end
 

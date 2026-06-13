@@ -57,8 +57,18 @@ module Dommy
           return false unless document && Parser.available?
 
           cache = style_cache(document)
-          cache[:author_css] = !document.query_selector("style").nil? if cache[:author_css].nil?
+          cache[:author_css] = document_has_author_css?(document) if cache[:author_css].nil?
           cache[:author_css]
+        end
+
+        # Any <style>, or a <link rel=stylesheet> a host has filled in (an
+        # unfilled link contributes nothing, so it stays off the slow path).
+        def document_has_author_css?(document)
+          return true unless document.query_selector("style").nil?
+
+          document.query_selector_all("link").any? do |link|
+            link.respond_to?(:__stylesheet_for_cascade__) && link.__stylesheet_for_cascade__
+          end
         end
 
         def style_cache(document)
@@ -110,9 +120,10 @@ module Dommy
           else
             px_of(computed_style(root)["font-size"]) || ROOT_FONT_SIZE_PX
           end
+          vw, vh = viewport(document)
 
           result = {}
-          result["font-size"] = compute_font_size(fetch.call("font-size"), parent_styles, root_px)
+          result["font-size"] = compute_font_size(fetch.call("font-size"), parent_styles, root_px, vw, vh)
           own_px = px_of(result["font-size"])
 
           PropertyRegistry::PROPERTIES.each_key do |name|
@@ -125,7 +136,8 @@ module Dommy
               PropertyRegistry.initial(name)
             end
             result[name] = PropertyRegistry.computed_value(
-              name, value.to_s, font_size: own_px, root_font_size: root_px
+              name, value.to_s, font_size: own_px, root_font_size: root_px,
+              viewport_width: vw, viewport_height: vh
             )
           end
 
@@ -307,21 +319,32 @@ module Dommy
           end
         end
 
-        # font-size is computed first: em/rem/% resolve against the parent /
-        # root computed font-size, which needs no layout. Keywords and other
-        # units pass through as specified.
-        def compute_font_size(specified, parent_styles, root_px)
+        # font-size is computed first: em/%/rem/absolute/viewport units resolve
+        # against the parent / root computed font-size and the viewport, none of
+        # which needs layout. (em and % are relative to the *parent* font-size.)
+        # Keywords and unhandled values pass through as specified.
+        def compute_font_size(specified, parent_styles, root_px, viewport_width, viewport_height)
           inherited = parent_styles ? parent_styles["font-size"] : PropertyRegistry.initial("font-size")
           return inherited if specified.nil?
 
           parent_px = px_of(inherited) || ROOT_FONT_SIZE_PX
-          case specified
-          when /\A(-?\d+(?:\.\d+)?)px\z/i then PropertyRegistry.format_px(Regexp.last_match(1).to_f)
-          when /\A(-?\d+(?:\.\d+)?)em\z/i then PropertyRegistry.format_px(Regexp.last_match(1).to_f * parent_px)
-          when /\A(-?\d+(?:\.\d+)?)rem\z/i then PropertyRegistry.format_px(Regexp.last_match(1).to_f * root_px)
-          when /\A(-?\d+(?:\.\d+)?)%\z/i then PropertyRegistry.format_px(Regexp.last_match(1).to_f / 100.0 * parent_px)
-          else specified
+          if (match = specified.match(/\A(-?\d+(?:\.\d+)?)%\z/i))
+            return PropertyRegistry.format_px(match[1].to_f / 100.0 * parent_px)
           end
+
+          PropertyRegistry.resolve_length(
+            specified, font_size: parent_px, root_font_size: root_px,
+            viewport_width: viewport_width, viewport_height: viewport_height
+          ) || specified
+        end
+
+        # The viewport size in px for resolving vw/vh, from the document's
+        # window media environment. nil when the document has no window
+        # (fragments, DOMParser output) — vw/vh then stay as specified.
+        def viewport(document)
+          view = document.respond_to?(:default_view) ? document.default_view : nil
+          env = view&.media_environment
+          env ? [env.viewport_width, env.viewport_height] : [nil, nil]
         end
 
         def px_of(value)

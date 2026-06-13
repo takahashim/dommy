@@ -48,26 +48,46 @@ module Dommy
 
         private
 
-        # Author sheets in document order. <style> contents are parsed
-        # directly; a media attribute gates the whole sheet (same evaluator
-        # as @media). When a CSSStyleSheet was instantiated for the element
-        # (and isn't stale), its CSSOM state wins: `cascade_text` carries
-        # insertRule/deleteRule edits and `disabled` mutes the whole sheet.
-        # <link rel=stylesheet> participates only once a host environment
-        # fills its content in (not wired yet).
+        # Author sheets in document order. <style> and <link rel=stylesheet>
+        # are walked together so their relative order is preserved (it breaks
+        # cascade ties). A `media` attribute gates the whole sheet (same
+        # evaluator as @media); `disabled` mutes it.
         def author_sheets
-          @document.query_selector_all("style").to_a.filter_map do |style_element|
-            media = style_element.get_attribute("media").to_s.strip
+          @document.query_selector_all("style, link").to_a.filter_map do |element|
+            media = element.get_attribute("media").to_s.strip
             next nil unless media.empty? || MediaQuery.match?(media, environment)
 
-            sheet = style_element.respond_to?(:__instantiated_sheet__) && style_element.__instantiated_sheet__
-            if sheet
-              next nil if sheet.disabled
+            link_element?(element) ? link_sheet_rules(element) : style_element_rules(element)
+          end
+        end
 
-              safe_parse(sheet.cascade_text)
-            else
-              safe_parse(style_element.text_content.to_s)
-            end
+        def link_element?(element)
+          element.local_name.to_s.casecmp("link").zero?
+        end
+
+        # A <link rel=stylesheet> contributes only once a host environment has
+        # filled its CSS in (Dommy fetches nothing). The filled sheet is read
+        # through `cascade_text`, exactly like a <style>'s CSSOM sheet.
+        def link_sheet_rules(element)
+          return nil unless element.respond_to?(:__stylesheet_for_cascade__)
+
+          sheet = element.__stylesheet_for_cascade__
+          return nil if sheet.nil? || sheet.disabled
+
+          safe_parse(sheet.cascade_text)
+        end
+
+        # When a CSSStyleSheet was instantiated for the <style> (and isn't
+        # stale), its CSSOM state wins: `cascade_text` carries insertRule edits
+        # and `disabled` mutes it. Otherwise the element's text is parsed.
+        def style_element_rules(element)
+          sheet = element.respond_to?(:__instantiated_sheet__) && element.__instantiated_sheet__
+          if sheet
+            return nil if sheet.disabled
+
+            safe_parse(sheet.cascade_text)
+          else
+            safe_parse(element.text_content.to_s)
           end
         end
 
