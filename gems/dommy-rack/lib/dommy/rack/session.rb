@@ -465,10 +465,19 @@ module Dommy
           # Fill external stylesheets before listeners (script boot /
           # DOMContentLoaded) run, so CSS-driven computed styles and :visible
           # are correct from the first observation.
-          load_document_stylesheets(@current_window) if load_stylesheets?
+          install_stylesheet_loading(@current_window) if load_stylesheets?
           @document_loaded_listeners.each { |cb| cb.call(@current_window) }
         end
         @history.push(final_url) if push_history
+      end
+
+      # Wire same-origin CSS loading for a freshly installed document: fill
+      # <link rel=stylesheet> sheets eagerly and register an @import resolver
+      # (pulled lazily when the cascade hits an @import).
+      def install_stylesheet_loading(window)
+        load_document_stylesheets(window)
+        document = window&.document
+        document.css_import_resolver = ->(url) { fetch_stylesheet_text(url) } if document
       end
 
       # Resolve each same-origin `<link rel=stylesheet>` through the app and

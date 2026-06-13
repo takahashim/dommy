@@ -69,4 +69,24 @@ class Dommy::Rack::TestStylesheetLoading < Minitest::Test
     session.visit("/page")
     assert_empty fetched
   end
+
+  def test_at_import_is_resolved_through_the_app
+    app = app_for(
+      "GET /page" => html_response('<style>@import url(/extra.css);</style><p id="x" class="hidden">x</p>'),
+      "GET /extra.css" => css_response(".hidden { display: none }")
+    )
+    session = Dommy::Rack::Session.new(app, load_stylesheets: true)
+    session.visit("/page")
+    refute Dommy::Rack.visible?(session.at_css("#x"))
+  end
+
+  def test_at_import_ignored_by_default_rack_test
+    app = app_for(
+      "GET /page" => html_response('<style>@import url(/extra.css);</style><p id="x" class="hidden">x</p>'),
+      "GET /extra.css" => css_response(".hidden { display: none }")
+    )
+    session = Dommy::Rack::Session.new(app)
+    session.visit("/page")
+    assert Dommy::Rack.visible?(session.at_css("#x"))
+  end
 end
