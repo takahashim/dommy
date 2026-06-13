@@ -181,7 +181,8 @@ module Dommy
           "in" => 96.0,
           "cm" => 96.0 / 2.54,
           "mm" => 96.0 / 25.4,
-          "q" => 96.0 / 25.4 / 40,
+          # 1Q = 1/40 of a centimetre (CSS Values 4 §5.2).
+          "q" => 96.0 / 2.54 / 40,
         }.freeze
 
         LENGTH_PATTERN = /\A(-?\d+(?:\.\d+)?)(px|em|rem|pt|pc|in|cm|mm|q|vw|vh|vmin|vmax)\z/i
@@ -193,6 +194,7 @@ module Dommy
         def computed_value(name, value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
           return Color.normalize(value) if COLOR_PROPERTIES.include?(name)
           return FONT_WEIGHT_KEYWORDS.fetch(value.downcase, value) if name == "font-weight"
+          return clamp_opacity(value) if name == "opacity"
           # A <percentage> line-height computes to px against the element's own
           # font-size (CSS2 §10.8.1), inherited as that length. A unitless
           # <number> is kept as the number — its whole point is to inherit
@@ -204,6 +206,21 @@ module Dommy
           ctx = {font_size: font_size, root_font_size: root_font_size,
                  viewport_width: viewport_width, viewport_height: viewport_height}
           evaluate_calc(value, **ctx) || resolve_length(value, **ctx) || value
+        end
+
+        # opacity computes to a number clamped to [0, 1]; a percentage maps to
+        # that fraction (css-color-4 §13). Unparseable values pass through.
+        def clamp_opacity(value)
+          text = value.to_s.strip
+          number =
+            if text.end_with?("%")
+              Float(text[0..-2]) / 100.0
+            else
+              Float(text)
+            end
+          format_number(number.clamp(0.0, 1.0))
+        rescue ArgumentError, TypeError
+          value
         end
 
         # px for a "<number>%" value against `base` px, or nil when not a

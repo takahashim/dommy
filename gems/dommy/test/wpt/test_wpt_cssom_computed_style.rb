@@ -37,11 +37,23 @@ class TestWPTCssomComputedStyle < Minitest::Test
     assert_equal "rgba(0, 0, 0, 0)", value("background-color: transparent", "background-color")
   end
 
-  # css-values-4 §5: absolute lengths resolve to px (96px per inch).
+  # css-values-4 §5: absolute lengths resolve to px (96px per inch). 1cm =
+  # 10mm = 40Q.
   def test_absolute_lengths_resolve_to_px
     assert_equal "16px", value("text-indent: 12pt", "text-indent")
     assert_equal "96px", value("text-indent: 1in", "text-indent")
     assert_equal "37.795px", value("text-indent: 1cm", "text-indent")
+    assert_equal "37.795px", value("text-indent: 10mm", "text-indent")
+    assert_equal "37.795px", value("text-indent: 40Q", "text-indent")
+  end
+
+  # css-color-4 §13: opacity computes to a number clamped to [0, 1]; a
+  # percentage maps to that fraction.
+  def test_opacity_is_clamped
+    assert_equal "1", value("opacity: 2", "opacity")
+    assert_equal "0", value("opacity: -1", "opacity")
+    assert_equal "0.5", value("opacity: 50%", "opacity")
+    assert_equal "0.25", value("opacity: 0.25", "opacity")
   end
 
   # css-values-4 §6.1: font-relative em/rem against computed font sizes.

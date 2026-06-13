@@ -41,29 +41,52 @@ module Dommy
         end
 
         # Tokens: "(" ")" "," operators, {num:, unit:}, {fn:} (an ident, only
-        # valid before "("). Returns nil on an unexpected character.
+        # valid before "("). Returns nil on an unexpected character — or when a
+        # binary +/- lacks the whitespace CSS Values 4 §10.1 requires on both
+        # sides (`1px+1px` is invalid; a unary sign after (/,/operator is fine).
         def calc_tokenize(str)
           tokens = []
           index = 0
           length = str.length
+          space_before = true # the opening boundary counts as whitespace
           while index < length
             char = str[index]
             if char.match?(/\s/)
+              space_before = true
               index += 1
+              next
+            end
+
+            if (char == "+" || char == "-") && binary_operator_position?(tokens.last)
+              space_after = index + 1 < length && str[index + 1].match?(/\s/)
+              return nil unless space_before && space_after
+              tokens << char
             elsif "+-*/(),".include?(char)
               tokens << char
-              index += 1
             elsif (match = str[index..].match(/\A(\d*\.\d+|\d+\.?\d*)([a-z%]*)/i))
               tokens << {num: match[1].to_f, unit: match[2].downcase}
               index += match[0].length
+              space_before = false
+              next
             elsif (match = str[index..].match(/\A[a-z]+/i))
               tokens << {fn: match[0].downcase}
               index += match[0].length
+              space_before = false
+              next
             else
               return nil
             end
+
+            space_before = false
+            index += 1
           end
           tokens
+        end
+
+        # A +/- is a binary operator (vs a unary sign) when it follows a value:
+        # a number/dimension or a closing paren.
+        def binary_operator_position?(previous)
+          previous == ")" || (previous.is_a?(Hash) && previous.key?(:num))
         end
       end
 

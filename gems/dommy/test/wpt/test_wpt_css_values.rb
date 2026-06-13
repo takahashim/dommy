@@ -73,4 +73,15 @@ class TestWPTCssValues < Minitest::Test
     assert_equal "calc(10px + 2)", value("letter-spacing: calc(10px + 2)", "letter-spacing")
     assert_equal "calc(10px * 2px)", value("letter-spacing: calc(10px * 2px)", "letter-spacing")
   end
+
+  # css-values-4 §10.1: whitespace is required on both sides of a binary + or -
+  # (a unary sign after (/,/operator, and * / are exempt). Missing whitespace is
+  # invalid, so the function does not reduce.
+  def test_binary_plus_minus_require_surrounding_whitespace
+    assert_equal "calc(1px+1px)", value("letter-spacing: calc(1px+1px)", "letter-spacing")
+    assert_equal "calc(5px -2px)", value("letter-spacing: calc(5px -2px)", "letter-spacing")
+    assert_equal "8px", value("letter-spacing: calc(10px - 2px)", "letter-spacing")
+    assert_equal "8px", value("letter-spacing: calc(10px + -2px)", "letter-spacing") # unary - is fine
+    assert_equal "6px", value("letter-spacing: calc(2*3px)", "letter-spacing")       # * needs no space
+  end
 end
