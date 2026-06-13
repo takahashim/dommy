@@ -43,7 +43,7 @@ module Dommy
       v = !!v
       changed = @disabled != v
       @disabled = v
-      __bump_owner_style_generation__ if changed
+      __internal_bump_owner_style_generation__ if changed
       v
     end
 
@@ -87,7 +87,7 @@ module Dommy
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx > @css_rules.length
 
       @css_rules.__internal_insert__(idx, CSSRule.new(rule_text.to_s, self))
-      __bump_owner_style_generation__
+      __internal_bump_owner_style_generation__
       idx
     end
 
@@ -99,7 +99,7 @@ module Dommy
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx >= @css_rules.length
 
       @css_rules.__internal_delete_at__(idx)
-      __bump_owner_style_generation__
+      __internal_bump_owner_style_generation__
       nil
     end
 
@@ -126,7 +126,7 @@ module Dommy
     def replace_sync(text)
       @css_rules.__internal_clear__
       @css_rules.__internal_insert__(0, CSSRule.new(text.to_s, self)) unless text.to_s.empty?
-      __bump_owner_style_generation__
+      __internal_bump_owner_style_generation__
       nil
     end
 
@@ -194,17 +194,17 @@ module Dommy
     # A child CSSRule whose text changed (e.g. `rule.style.color = ...`)
     # invalidates the owner document's computed style the same way
     # insertRule/deleteRule do — its rebuilt cssText feeds `cascade_text`.
-    def __notify_rule_changed__
-      __bump_owner_style_generation__
+    def __internal_notify_rule_changed__
+      __internal_bump_owner_style_generation__
     end
 
     private
 
     # CSSOM mutations must invalidate the owner document's computed-style
     # cache — the rule index re-reads `cascade_text` on the next lookup.
-    def __bump_owner_style_generation__
+    def __internal_bump_owner_style_generation__
       doc = @owner_node.respond_to?(:owner_document) ? @owner_node.owner_document : nil
-      doc.__bump_style_generation__ if doc.respond_to?(:__bump_style_generation__)
+      doc.__internal_bump_style_generation__ if doc.respond_to?(:__internal_bump_style_generation__)
       nil
     end
   end
@@ -418,7 +418,7 @@ module Dommy
     end
 
     def flush!
-      @rule.__rebuild_from_style__(css_text)
+      @rule.__internal_rebuild_from_style__(css_text)
     end
   end
 
@@ -512,12 +512,19 @@ module Dommy
       end
     end
 
-    # CSSConditionRule#conditionText / CSSMediaRule#media — the condition text
-    # after the at-keyword.
+    # CSSConditionRule#conditionText — the condition text after the at-keyword.
     def condition_text
       grouping? ? prelude.sub(/\A@[-a-z]+/i, "").strip : ""
     end
-    alias_method :media, :condition_text
+
+    # CSSMediaRule#media — a live MediaList over the @media condition. nil for
+    # non-media rules. Mutations rebuild the rule's prelude and reflow the
+    # cascade.
+    def media
+      return nil unless type == MEDIA_RULE
+
+      @media_list ||= MediaList.new(condition_text, on_change: method(:__internal_set_media__))
+    end
 
     def parent_rule
       nil
@@ -525,10 +532,20 @@ module Dommy
 
     # Called by RuleStyleDeclaration after a property write: rebuild cssText
     # from the (possibly new) selector and declaration block.
-    def __rebuild_from_style__(block_text)
+    def __internal_rebuild_from_style__(block_text)
       @selector ||= prelude
       @css_text = block_text.empty? ? "#{@selector} {}" : "#{@selector} { #{block_text} }"
-      @parent_style_sheet&.__notify_rule_changed__
+      @parent_style_sheet&.__internal_notify_rule_changed__
+      nil
+    end
+
+    # Called by the MediaList when its media text changes: rebuild the @media
+    # prelude (keeping the block body) and reflow the cascade.
+    def __internal_set_media__(media_text)
+      @css_text = "@media #{media_text} { #{body} }"
+      @prelude = nil
+      @media_list = nil
+      @parent_style_sheet&.__internal_notify_rule_changed__
       nil
     end
 
@@ -540,7 +557,7 @@ module Dommy
       when "style" then style
       when "cssRules" then css_rules
       when "conditionText" then grouping? ? condition_text : nil
-      when "media" then grouping? ? condition_text : nil
+      when "media" then media
       when "parentStyleSheet" then @parent_style_sheet
       when "parentRule" then parent_rule
       when "STYLE_RULE" then STYLE_RULE
@@ -559,6 +576,9 @@ module Dommy
       case key
       when "cssText" then self.css_text = value
       when "selectorText" then self.selector_text = value
+      when "media"
+        # CSSMediaRule#media is settable with a media-text string.
+        __internal_set_media__(value.to_s) if type == MEDIA_RULE
       else
         # Signal "not a host property" so the bridge keeps the assignment as a
         # JS-side expando (WebIDL platform objects allow expandos; WPT's
@@ -585,7 +605,7 @@ module Dommy
     def rebuild_css_text!
       @css_text = body.strip.empty? ? "#{@selector} {}" : "#{@selector} { #{body.strip} }"
       @prelude = nil
-      @parent_style_sheet&.__notify_rule_changed__
+      @parent_style_sheet&.__internal_notify_rule_changed__
     end
 
     # Drop derived state after cssText is replaced wholesale.
@@ -594,6 +614,95 @@ module Dommy
       @selector = nil
       @style = nil
       @css_rules = nil
+      @media_list = nil
+    end
+  end
+
+  # `MediaList` — the CSSOM list of comma-separated media queries behind
+  # `CSSMediaRule#media` (and `<style>`/`<link>`/`CSSStyleSheet#media`).
+  # Indexed, with mediaText/append/delete editing; `on_change` (optional) is
+  # called with the new media text after any mutation so the owner can persist
+  # it.
+  class MediaList
+    def initialize(media_text = "", on_change: nil)
+      @items = parse(media_text)
+      @on_change = on_change
+    end
+
+    def length
+      @items.length
+    end
+
+    def item(index)
+      i = index.to_i
+      i.negative? || i >= @items.length ? nil : @items[i]
+    end
+
+    def media_text
+      @items.join(", ")
+    end
+
+    def media_text=(text)
+      @items = parse(text)
+      notify
+    end
+
+    # css-mediaqueries: appendMedium is a no-op when the medium is already
+    # present (case-insensitively); deleteMedium removes every match.
+    def append_medium(medium)
+      medium = medium.to_s.strip
+      return if medium.empty? || @items.any? { |existing| existing.casecmp(medium).zero? }
+
+      @items << medium
+      notify
+    end
+
+    def delete_medium(medium)
+      medium = medium.to_s.strip
+      @items.reject! { |existing| existing.casecmp(medium).zero? }
+      notify
+    end
+
+    def to_s
+      media_text
+    end
+
+    def __js_get__(key)
+      case key
+      when "length" then length
+      when "mediaText" then media_text
+      else
+        item(key.to_i) if key.is_a?(Integer) || key.to_s.match?(/\A\d+\z/)
+      end
+    end
+
+    def __js_set__(key, value)
+      return Bridge::UNHANDLED unless key == "mediaText"
+
+      # [LegacyNullToEmptyString]: `media.mediaText = null` clears it.
+      self.media_text = value.nil? ? "" : value
+      nil
+    end
+
+    include Bridge::Methods
+    js_methods %w[item appendMedium deleteMedium toString]
+    def __js_call__(method, args)
+      case method
+      when "item" then item(args[0])
+      when "appendMedium" then append_medium(args[0])
+      when "deleteMedium" then delete_medium(args[0])
+      when "toString" then to_s
+      end
+    end
+
+    private
+
+    def parse(text)
+      text.to_s.split(",").map(&:strip).reject(&:empty?)
+    end
+
+    def notify
+      @on_change&.call(media_text)
     end
   end
 
