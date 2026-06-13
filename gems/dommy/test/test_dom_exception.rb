@@ -91,6 +91,38 @@ class TestDOMExceptionThrowSites < Minitest::Test
     assert_raises(Dommy::DOMException::NotFoundError) { parent.remove_child(stray) }
   end
 
+  def test_insert_before_with_non_child_reference_raises_not_found
+    parent = @doc.get_element_by_id("h")
+    node = @doc.create_element("span")
+    stray = @doc.create_element("b") # not a child of parent
+    assert_raises(Dommy::DOMException::NotFoundError) { parent.insert_before(node, stray) }
+  end
+
+  def test_insert_doctype_into_element_raises_hierarchy_request
+    parent = @doc.get_element_by_id("h")
+    doctype = @doc.implementation.create_document_type("html", "", "")
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { parent.append_child(doctype) }
+  end
+
+  def test_append_non_insertable_node_raises_hierarchy_request
+    parent = @doc.get_element_by_id("h")
+    # A Document is a Node but not an insertable child type.
+    other = @doc.implementation.create_html_document("t")
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { parent.append_child(other) }
+  end
+
+  def test_append_child_null_raises_type_error
+    parent = @doc.get_element_by_id("h")
+    # WebIDL: the argument is a non-nullable Node.
+    assert_raises(Dommy::Bridge::TypeError) { parent.append_child(nil) }
+  end
+
+  def test_append_child_null_on_leaf_raises_type_error
+    text = @doc.create_text_node("x")
+    # Coercion precedes the leaf's HierarchyRequestError.
+    assert_raises(Dommy::Bridge::TypeError) { text.__js_call__("appendChild", [nil]) }
+  end
+
   def test_dispatch_event_with_non_event_raises_type_error
     # TypeError stays as TypeError per spec (not a DOMException).
     el = @doc.get_element_by_id("h")

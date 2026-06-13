@@ -100,8 +100,12 @@ module Dommy
       when "compareDocumentPosition"
         compare_document_position(args[0])
       when "appendChild", "insertBefore"
+        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
+
         raise DOMException::HierarchyRequestError, "a DocumentType may not have children"
       when "removeChild", "replaceChild"
+        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
+
         raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
       when "before"
         before(*args)
@@ -227,8 +231,12 @@ module Dommy
       when "compareDocumentPosition"
         compare_document_position(args[0])
       when "appendChild", "insertBefore"
+        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
+
         raise DOMException::HierarchyRequestError, "a ProcessingInstruction may not have children"
       when "removeChild", "replaceChild"
+        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
+
         raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
       when "before", "after", "replaceWith", "remove"
         # ChildNode mixin: a created PI has no parent, so these are no-ops per

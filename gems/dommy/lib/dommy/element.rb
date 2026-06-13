@@ -435,9 +435,14 @@ module Dommy
         args[0].respond_to?(:__dommy_backend_node__) &&
           args[0].__dommy_backend_node__ == @__node__
       when "appendChild", "insertBefore"
-        # CharacterData is a leaf — it cannot be a parent.
+        # WebIDL coerces the Node argument first (null/non-Node → TypeError);
+        # only then does a leaf node reject any child with HierarchyRequestError.
+        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
+
         raise DOMException::HierarchyRequestError, "this node type does not support children"
       when "removeChild", "replaceChild"
+        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
+
         raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
       when "compareDocumentPosition"
         compare_document_position(args[0])
@@ -2629,23 +2634,21 @@ module Dommy
     end
 
     def insert_before(child, reference)
-      check_hierarchy!(child)
+      coerce_node_argument!(child)
+      # WHATWG: if the reference child is the node being inserted, the reference
+      # becomes that node's next sibling, so "insert x before x" doesn't move x.
+      reference = wrapped_next_sibling(reference) if same_wrapped_node?(reference, child)
+      ensure_pre_insertion_validity!(child, reference)
       nodes = detach_dom_nodes(child)
-      if reference.nil?
+      if reference.nil? || (defined?(Bridge::UNDEFINED) && reference.equal?(Bridge::UNDEFINED))
         append_dom_nodes(nodes)
       else
+        # The reference is guaranteed (by validity) to be a child here. Insert in
+        # order before it: each new node becomes its immediate previous sibling,
+        # so forward iteration yields the original order (reverse would flip a
+        # multi-node fragment).
         ref_node = unwrap_dom_node(reference)
-        if ref_node&.parent != @__node__
-          # Per spec this should be a NotFoundError, but the legacy
-          # behaviour of `appendChild` when reference is foreign is a
-          # silent append. Preserve that for compatibility.
-          append_dom_nodes(nodes)
-        else
-          # Insert in order before the fixed reference: each new node becomes the
-          # reference's immediate previous sibling, so forward iteration yields
-          # the original order (reverse would flip a multi-node fragment).
-          nodes.each { |node| ref_node.add_previous_sibling(node) }
-        end
+        nodes.each { |node| ref_node.add_previous_sibling(node) }
       end
 
       notify_child_list(added: nodes)
@@ -2653,6 +2656,7 @@ module Dommy
     end
 
     def remove_child(child)
+      coerce_node_argument!(child)
       node = unwrap_dom_node(child)
       unless node&.parent == @__node__
         raise DOMException::NotFoundError, "node is not a child of this element"
@@ -2668,8 +2672,13 @@ module Dommy
     # MutationObserver of both changes in one record so observers
     # see the swap atomically.
     def replace_child(new_child, old_child)
+      coerce_node_argument!(new_child)
+      coerce_node_argument!(old_child)
+      # replaceChild shares the pre-insertion checks (ancestor, node type,
+      # doctype placement); the reference child here is old_child, so step 3
+      # also enforces that it is actually a child (NotFoundError otherwise).
+      ensure_pre_insertion_validity!(new_child, old_child)
       old_node = unwrap_dom_node(old_child)
-      return nil unless old_node&.parent == @__node__
 
       # Capture the insertion point (old's next sibling) before detaching the new
       # child, which may itself be old (replaceChild(x, x)) or old's sibling.
@@ -2853,6 +2862,20 @@ module Dommy
 
     def detach_for_insert(value)
       detach_dom_nodes(value).first
+    end
+
+    # Whether two wrapped values back the same backend node (used to detect
+    # `insertBefore(x, x)`).
+    def same_wrapped_node?(a, b)
+      an = a.respond_to?(:__dommy_backend_node__) ? a.__dommy_backend_node__ : nil
+      bn = b.respond_to?(:__dommy_backend_node__) ? b.__dommy_backend_node__ : nil
+      !an.nil? && an == bn
+    end
+
+    # The wrapped next sibling of a wrapped reference node (nil at end of list).
+    def wrapped_next_sibling(reference)
+      nk = reference.respond_to?(:__dommy_backend_node__) ? reference.__dommy_backend_node__&.next : nil
+      nk && @document.wrap_node(nk)
     end
 
     def unwrap_dom_node(value)
