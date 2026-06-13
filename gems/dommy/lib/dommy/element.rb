@@ -1909,9 +1909,33 @@ module Dommy
       inner_html
     end
 
+    # `click()` runs the HTML activation behavior around the dispatched event:
+    # pre-click activation may change state (e.g. toggle a checkbox), the click
+    # is dispatched, and then either the activation behavior runs (not canceled)
+    # or the pre-click state is restored (default prevented). Elements with no
+    # activation behavior (the default) just dispatch the event.
     def click
-      dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+      pre = pre_click_activation_state
+      not_canceled = dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+      return not_canceled if pre.nil?
+
+      if not_canceled
+        run_post_click_activation(pre)
+      else
+        restore_pre_click_activation(pre)
+      end
+      not_canceled
     end
+
+    # Activation-behavior hooks. The default element has none; HTMLInputElement
+    # overrides these for checkbox/radio.
+    def pre_click_activation_state
+      nil
+    end
+
+    def run_post_click_activation(_state); end
+
+    def restore_pre_click_activation(_state); end
 
     def get_attribute_names
       Backend.attribute_nodes(@__node__).map(&:name)

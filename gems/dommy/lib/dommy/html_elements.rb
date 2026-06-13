@@ -315,9 +315,105 @@ module Dommy
 
     def checked=(v)
       @__checked = !!v
+      # A radio becoming checked unchecks the rest of its radio button group.
+      uncheck_radio_group if @__checked && type == "radio"
       # Checkedness is property state (no attribute mutation fires), yet it
       # is selector-observable via :checked — invalidate computed styles.
       @document&.__internal_bump_style_generation__
+    end
+
+    # `indeterminate` is pure property state (no content attribute), default
+    # false. Selector-observable via :indeterminate, so bump style generation.
+    def indeterminate
+      @__indeterminate || false
+    end
+
+    def indeterminate=(v)
+      @__indeterminate = !!v
+      @document&.__internal_bump_style_generation__
+    end
+
+    # --- Click activation behavior (checkbox / radio) -------------------
+
+    # HTML pre-click activation: a checkbox toggles; a radio becomes checked
+    # (which unchecks its group). Returns the state needed to undo this if the
+    # click is canceled, or nil for inputs with no activation behavior.
+    def pre_click_activation_state
+      # Only a mutable (enabled) checkbox/radio has activation behavior.
+      return nil if disabled
+
+      case type
+      when "checkbox"
+        old = checked
+        old_indeterminate = indeterminate
+        # Pre-click activation clears indeterminate, then toggles checkedness.
+        self.indeterminate = false
+        self.checked = !old
+        { kind: :checkbox, old_checked: old, old_indeterminate: old_indeterminate }
+      when "radio"
+        old_checked = checked
+        previously_checked = old_checked ? nil : currently_checked_in_radio_group
+        self.checked = true
+        { kind: :radio, old_checked: old_checked, previously_checked: previously_checked }
+      end
+    end
+
+    # Not canceled: fire `input` then `change` (HTML "input activation
+    # behavior"). Both are UA-generated, so trusted and non-cancelable.
+    def run_post_click_activation(_state)
+      dispatch_event(Event.new("input", "bubbles" => true).__internal_mark_trusted__)
+      dispatch_event(Event.new("change", "bubbles" => true).__internal_mark_trusted__)
+    end
+
+    # Canceled (default prevented): restore the pre-click checkedness. For a
+    # radio, also re-check whichever member was checked before.
+    def restore_pre_click_activation(state)
+      case state[:kind]
+      when :checkbox
+        self.checked = state[:old_checked]
+        self.indeterminate = state[:old_indeterminate]
+      when :radio
+        self.checked = state[:old_checked]
+        prev = state[:previously_checked]
+        prev.checked = true if prev && !prev.equal?(self)
+      end
+    end
+
+    # The currently-checked radio in this element's group (or nil).
+    def currently_checked_in_radio_group
+      radio_group_members.find { |radio| radio.checked && !radio.equal?(self) }
+    end
+
+    # Uncheck every other radio in this element's group.
+    def uncheck_radio_group
+      radio_group_members.each do |radio|
+        next if radio.equal?(self)
+
+        radio.__internal_set_checked_silently__(false)
+      end
+    end
+
+    # Set checkedness without re-running the group cascade (used while
+    # unchecking peers).
+    def __internal_set_checked_silently__(value)
+      @__checked = !!value
+      @document&.__internal_bump_style_generation__
+    end
+
+    # The radio button group: radios sharing this element's non-empty name and
+    # form owner (or, with no form, no form either). Orphan-tree grouping for
+    # detached radios is not modeled.
+    def radio_group_members
+      group_name = get_attribute("name").to_s
+      return [self] if group_name.empty?
+
+      owner_form = form
+      scope = owner_form || @document
+      return [self] unless scope.respond_to?(:query_selector_all)
+
+      scope.query_selector_all("input[type='radio']").to_a.select do |radio|
+        radio.get_attribute("name").to_s == group_name && radio.form.equal?(owner_form)
+      end
     end
 
     def labels
@@ -402,6 +498,8 @@ module Dommy
         value
       when "checked"
         checked
+      when "indeterminate"
+        indeterminate
       when "readonly", "readOnly"
         readonly
       when "labels"
@@ -429,6 +527,8 @@ module Dommy
         self.value = value
       when "checked"
         self.checked = value
+      when "indeterminate"
+        self.indeterminate = value
       when "readonly", "readOnly"
         self.readonly = value
       else
