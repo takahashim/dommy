@@ -747,11 +747,29 @@ module Dommy
     # `document.createNodeIterator(root, whatToShow?, filter?)` —
     # flat depth-first iteration.
     def create_node_iterator(root, what_to_show = NodeFilter::SHOW_ALL, filter = nil)
-      iterator = NodeIterator.new(require_node_root(root), what_to_show, filter)
-      # Track live iterators so node removal can run the "NodeIterator
-      # pre-removing steps" (adjusting referenceNode) before a node detaches.
-      @node_iterators << iterator
+      root = require_node_root(root)
+      iterator = NodeIterator.new(root, what_to_show, filter)
+      # The "NodeIterator pre-removing steps" run for iterators whose root's node
+      # document is the removed node's document. Track the iterator on the root's
+      # document — which is `self` for a same-document root, but a different
+      # document when the root came from elsewhere (e.g.
+      # implementation.createHTMLDocument), where the removal fires.
+      node_iterator_document(root).__internal_track_node_iterator__(iterator)
       iterator
+    end
+
+    # The document that owns `root`'s subtree (where its removals fire), so a
+    # NodeIterator is tracked where its pre-removing steps will run. Falls back
+    # to `self` for a root with no resolvable document.
+    def node_iterator_document(root)
+      return root if root.is_a?(Dommy::Document)
+
+      doc = root.instance_variable_get(:@document)
+      doc.is_a?(Dommy::Document) ? doc : self
+    end
+
+    def __internal_track_node_iterator__(iterator)
+      @node_iterators << iterator
     end
 
     # Minimal DocumentType — represents the `<!doctype html>` line.
