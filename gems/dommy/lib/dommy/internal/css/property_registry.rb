@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "color"
+require_relative "calc"
 
 module Dommy
   module Internal
@@ -193,33 +194,36 @@ module Dommy
           return Color.normalize(value) if COLOR_PROPERTIES.include?(name)
           return FONT_WEIGHT_KEYWORDS.fetch(value.downcase, value) if name == "font-weight"
 
-          resolve_length(value,
-            font_size: font_size, root_font_size: root_font_size,
-            viewport_width: viewport_width, viewport_height: viewport_height) || value
+          ctx = {font_size: font_size, root_font_size: root_font_size,
+                 viewport_width: viewport_width, viewport_height: viewport_height}
+          evaluate_calc(value, **ctx) || resolve_length(value, **ctx) || value
         end
 
-        # Resolve a bare "<number><unit>" length to px. Handles font-relative
-        # (em/rem), absolute (px/pt/pc/in/cm/mm/Q) and viewport (vw/vh/vmin/vmax)
-        # units — everything resolvable without layout. Returns nil when the
-        # value isn't a single such length (or the needed base is unavailable),
-        # so the caller keeps the specified value.
-        def resolve_length(value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
-          match = value.match(LENGTH_PATTERN)
+        # Resolve a bare "<number><unit>" length to a px string, or nil when it
+        # isn't a single resolvable length. See resolve_length_px for the units.
+        def resolve_length(value, **ctx)
+          px = resolve_length_px(value, **ctx)
+          px && format_px(px)
+        end
+
+        # The px magnitude (Float) of a single "<number><unit>" length, or nil
+        # when the value isn't such a length or its base is unavailable. Handles
+        # font-relative (em/rem), absolute (px/pt/pc/in/cm/mm/Q) and viewport
+        # (vw/vh/vmin/vmax) units — everything resolvable without layout.
+        def resolve_length_px(value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
+          match = value.to_s.match(LENGTH_PATTERN)
           return nil unless match
 
           number = match[1].to_f
-          unit = match[2].downcase
-          px =
-            case unit
-            when "em" then font_size && number * font_size
-            when "rem" then root_font_size && number * root_font_size
-            when "vw" then viewport_width && number * viewport_width / 100.0
-            when "vh" then viewport_height && number * viewport_height / 100.0
-            when "vmin" then viewport_width && viewport_height && number * [viewport_width, viewport_height].min / 100.0
-            when "vmax" then viewport_width && viewport_height && number * [viewport_width, viewport_height].max / 100.0
-            else number * ABSOLUTE_UNIT_PX[unit]
-            end
-          px && format_px(px)
+          case match[2].downcase
+          when "em" then font_size && number * font_size
+          when "rem" then root_font_size && number * root_font_size
+          when "vw" then viewport_width && number * viewport_width / 100.0
+          when "vh" then viewport_height && number * viewport_height / 100.0
+          when "vmin" then viewport_width && viewport_height && number * [viewport_width, viewport_height].min / 100.0
+          when "vmax" then viewport_width && viewport_height && number * [viewport_width, viewport_height].max / 100.0
+          else number * ABSOLUTE_UNIT_PX[match[2].downcase]
+          end
         end
 
         def format_px(number)

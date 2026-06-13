@@ -254,6 +254,30 @@ class TestCssCascade < Minitest::Test
     assert_equal "rgb(0, 128, 0)", s["text-decoration-color"]
   end
 
+  # --- calc() / min() / max() / clamp() ---------------------------------
+
+  def test_calc_resolves_in_computed_value
+    doc = doc_for('<style>#x { font-size: calc(10px + 2px); letter-spacing: calc(2rem - 4px) }</style><p id="x">x</p>')
+    s = computed(doc, "x")
+    assert_equal "12px", s["font-size"]
+    assert_equal "28px", s["letter-spacing"]
+  end
+
+  def test_calc_with_viewport_units
+    doc = doc_for('<style>#x { letter-spacing: calc(50vw - 10px) }</style><p id="x">x</p>')
+    assert_equal "630px", computed(doc, "x")["letter-spacing"] # 1280/2 - 10
+  end
+
+  def test_clamp_for_font_size
+    doc = doc_for('<style>#x { font-size: clamp(12px, 50vw, 20px) }</style><p id="x">x</p>')
+    assert_equal "20px", computed(doc, "x")["font-size"]
+  end
+
+  def test_calc_with_percentage_stays_symbolic
+    doc = doc_for('<style>#x { letter-spacing: calc(100% - 10px) }</style><p id="x">x</p>')
+    assert_equal "calc(100% - 10px)", computed(doc, "x")["letter-spacing"]
+  end
+
   def test_color_values_normalize_to_rgb_serialization
     doc = doc_for('<style>#x { color: rebeccapurple; background-color: #00ff00 }</style><p id="x">x</p>')
     styles = computed(doc, "x")

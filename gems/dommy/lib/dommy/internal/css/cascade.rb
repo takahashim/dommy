@@ -358,10 +358,11 @@ module Dommy
             return PropertyRegistry.format_px(match[1].to_f / 100.0 * parent_px)
           end
 
-          PropertyRegistry.resolve_length(
-            specified, font_size: parent_px, root_font_size: root_px,
-            viewport_width: viewport_width, viewport_height: viewport_height
-          ) || specified
+          # em inside a font-size calc is relative to the parent font-size.
+          ctx = {font_size: parent_px, root_font_size: root_px,
+                 viewport_width: viewport_width, viewport_height: viewport_height}
+          PropertyRegistry.evaluate_calc(specified, **ctx) ||
+            PropertyRegistry.resolve_length(specified, **ctx) || specified
         end
 
         # The viewport size in px for resolving vw/vh, from the document's
