@@ -327,6 +327,54 @@ class TestCssCascade < Minitest::Test
     assert_equal "block", computed(doc, "b")["display"]
   end
 
+  # --- @layer / @supports -----------------------------------------------
+
+  def test_layer_rules_apply_in_source_order
+    doc = doc_for(<<~HTML)
+      <style>
+        @layer base { #x { color: red } }
+        #x { color: green }
+      </style>
+      <p id="x">x</p>
+    HTML
+    # @layer is treated as plain source order, so the later unlayered rule wins.
+    assert_equal "rgb(0, 128, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_supports_block_applies_when_condition_holds
+    doc = doc_for('<style>@supports (display: grid) { #x { color: red } }</style><p id="x">x</p>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_supports_not_grid_does_not_apply
+    doc = doc_for('<style>@supports not (display: grid) { #x { color: red } }</style><p id="x">x</p>')
+    assert_equal "rgb(0, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_supports_and_or_combine
+    doc = doc_for(<<~HTML)
+      <style>
+        @supports (display: grid) and (color: red) { #a { color: red } }
+        @supports (display: grid) or (whatever: nope) { #b { color: red } }
+      </style>
+      <p id="a">a</p><p id="b">b</p>
+    HTML
+    assert_equal "rgb(255, 0, 0)", computed(doc, "a")["color"]
+    assert_equal "rgb(255, 0, 0)", computed(doc, "b")["color"]
+  end
+
+  def test_other_at_rules_are_ignored_without_breaking_the_cascade
+    doc = doc_for(<<~HTML)
+      <style>
+        @keyframes spin { from { opacity: 0 } to { opacity: 1 } }
+        @font-face { font-family: Foo; src: url(x.woff2) }
+        #x { color: red }
+      </style>
+      <p id="x">x</p>
+    HTML
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
   def test_media_dependent_visibility
     doc = doc_for('<style>@media (max-width: 600px) { #x { display: none } }</style><p id="x">x</p>')
     assert Dommy::Internal::DomMatching.visible?(doc.get_element_by_id("x"))
@@ -474,6 +522,20 @@ class TestCssCascade < Minitest::Test
     declaration = doc.default_view.get_computed_style(doc.get_element_by_id("x"), "::before")
     assert_equal "rgb(255, 0, 0)", declaration.get_property_value("color")
     assert_equal "\"!\"", declaration.get_property_value("content")
+  end
+
+  # A pseudo-element rule (which the lexbor binding surfaces as :bad_style for
+  # Dommy to re-validate) must not leak onto the element it qualifies.
+  def test_pseudo_element_rule_does_not_apply_to_the_element
+    doc = doc_for('<style>p { color: red } p::before { color: blue; content: "x" }</style><p id="x">x</p>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  # A genuinely invalid selector that lexbor rejects is dropped by Dommy's
+  # re-validation (not silently applied).
+  def test_invalid_selector_rule_is_dropped
+    doc = doc_for('<style>p { color: red } p:totally-unknown-pseudo { color: green }</style><p id="x">x</p>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
   end
 
   def test_js_bridge_get_computed_style

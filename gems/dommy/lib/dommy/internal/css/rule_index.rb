@@ -2,6 +2,7 @@
 
 require_relative "parser"
 require_relative "media_query"
+require_relative "supports"
 require_relative "ua_stylesheet"
 require_relative "../selector_ast"
 require_relative "../selector_matcher"
@@ -101,10 +102,11 @@ module Dommy
 
         def add_rules(rules, origin)
           rules.each do |rule|
-            if rule.media?
-              # Nested @media is an AND: each level's condition gates its
-              # contents. Inactive blocks contribute nothing to the index.
-              add_rules(rule.rules, origin) if MediaQuery.match?(rule.condition, environment)
+            if rule.grouping?
+              # Conditional group rules (@media/@supports/@layer): their block
+              # contributes (flattened, in source order) only when active. An
+              # inactive block contributes nothing. Nesting is an AND.
+              add_rules(rule.rules, origin) if grouping_active?(rule)
               next
             end
 
@@ -121,6 +123,17 @@ module Dommy
                 end
               end
             end
+          end
+        end
+
+        # Whether a grouping rule's block applies: @media gates on the viewport
+        # environment, @supports on its condition, @layer is always on (source
+        # order). Unknown grouping kinds default to active (fail open).
+        def grouping_active?(rule)
+          case rule
+          when Parser::MediaRule then MediaQuery.match?(rule.condition, environment)
+          when Parser::SupportsRule then Supports.match?(rule.condition)
+          else true
           end
         end
 

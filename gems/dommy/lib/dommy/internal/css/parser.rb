@@ -21,13 +21,28 @@ module Dommy
         Declaration = Struct.new(:name, :value, :important)
 
         StyleRule = Struct.new(:selectors, :declarations) do
-          def style? = true
-          def media? = false
+          def grouping? = false
         end
 
+        # Grouping at-rules (CSS conditional rules): their block contributes
+        # its rules to the cascade only when the rule is "active" (RuleIndex
+        # decides — @media query matches, @supports condition holds, @layer
+        # always). The block is flattened in source order; @layer ordering and
+        # @supports/@media precedence beyond source order are out of scope.
         MediaRule = Struct.new(:condition, :rules) do
-          def style? = false
-          def media? = true
+          def grouping? = true
+        end
+
+        # @layer { ... } — treated as plain source order (its rules always
+        # participate; layer precedence is a documented non-goal).
+        LayerRule = Struct.new(:rules) do
+          def grouping? = true
+        end
+
+        # @supports (cond) { ... } — its rules participate when `condition`
+        # evaluates true (Supports.match?).
+        SupportsRule = Struct.new(:condition, :rules) do
+          def grouping? = true
         end
 
         # Raised when CSS features are used without the makiri gem.
@@ -52,31 +67,53 @@ module Dommy
           end
         end
 
-        # Parse a stylesheet into an Array of StyleRule / MediaRule in source
-        # order. Lexbor's css-syntax-3 error recovery applies: invalid
-        # declarations and unknown at-rules are already dropped.
+        # Parse a stylesheet into an Array of StyleRule / MediaRule / LayerRule
+        # / SupportsRule in source order (other at-rules are ignored). Lexbor's
+        # css-syntax-3 error recovery applies; selectors and at-rules it can't
+        # parse are surfaced for Dommy to re-validate, not silently dropped.
         def parse(text)
           raise Unavailable unless available?
 
-          source = text.to_s
-          normalize_rules(::Makiri::Lexbor::CSS.parse_stylesheet(source)) + parse_pseudo_element_rules(source)
+          normalize_rules(::Makiri::Lexbor::CSS.parse_stylesheet(text.to_s))
         end
 
         def normalize_rules(rules)
           rules.filter_map do |rule|
             case rule[:type]
             when :style
-              selectors = normalize_selectors(rule[:selectors])
-              next if selectors.empty?
-
-              StyleRule.new(
-                selectors,
-                rule[:declarations].map { |d| Declaration.new(d[:name], d[:value], d[:important]) }
-              )
-            when :media
-              MediaRule.new(rule[:condition], normalize_rules(rule[:rules]))
+              build_style_rule(normalize_selectors(rule[:selectors]), rule[:declarations])
+            when :bad_style
+              # lexbor couldn't parse this selector list (most often a
+              # pseudo-element like ::before, which its parser predates).
+              # Re-validate the raw prelude with Dommy's Selectors L4 parser:
+              # pseudo-element rules survive, genuinely invalid ones drop
+              # (normalize_selectors returns []).
+              build_style_rule(normalize_selectors([{text: rule[:selector_text]}]), rule[:declarations])
+            when :at_rule
+              normalize_at_rule(rule)
             end
           end
+        end
+
+        # @media / @layer / @supports become grouping rules the cascade
+        # understands; every other at-rule (@font-face, @keyframes, @import,
+        # @page, ...) is ignored for now (returning nil drops it from the
+        # rule stream, but lexbor still parsed it, so nothing crashes).
+        def normalize_at_rule(rule)
+          case rule[:name].to_s.downcase
+          when "media"
+            MediaRule.new(rule[:prelude], normalize_rules(rule[:rules]))
+          when "layer"
+            LayerRule.new(normalize_rules(rule[:rules]))
+          when "supports"
+            SupportsRule.new(rule[:prelude], normalize_rules(rule[:rules]))
+          end
+        end
+
+        def build_style_rule(selectors, declarations)
+          return nil if selectors.empty?
+
+          StyleRule.new(selectors, declarations.map { |d| Declaration.new(d[:name], d[:value], d[:important]) })
         end
 
         def normalize_selectors(selectors)
@@ -88,39 +125,9 @@ module Dommy
           []
         end
 
-        def parse_pseudo_element_rules(source)
-          each_style_block(source).filter_map do |selector_text, declaration_text|
-            next if selector_text.include?("@")
-            next unless selector_text.match?(/::?(?:before|after|first-line|first-letter)(?![\w-])/i)
-
-            selectors = normalize_selectors(selector_text.split(",").map { |text| {text: text.strip} })
-            next if selectors.empty?
-
-            declarations = parse_declarations(declaration_text)
-            next if declarations.empty?
-
-            StyleRule.new(selectors, declarations)
-          end
-        end
-
-        def each_style_block(source)
-          return enum_for(:each_style_block, source) unless block_given?
-
-          i = 0
-          while i < source.length
-            open = source.index("{", i)
-            break unless open
-
-            selector = source[i...open].to_s.strip
-            close = source.index("}", open + 1)
-            break unless close
-
-            body = source[(open + 1)...close].to_s
-            yield selector, body
-            i = close + 1
-          end
-        end
-
+        # Parse a bare declaration block (no selector / braces) into
+        # Declarations. Used by the CSSOM RuleStyleDeclaration to read a rule's
+        # `style`; the cascade reaches declarations through parse/normalize_rules.
         def parse_declarations(text)
           text.split(";").filter_map do |chunk|
             name, value = chunk.split(":", 2)
