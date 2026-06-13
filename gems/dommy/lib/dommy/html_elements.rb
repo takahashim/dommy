@@ -15,6 +15,19 @@ module Dommy
     def case_sensitive_attribute_names?
       false
     end
+
+    private
+
+    # HTML "rules for parsing integers": optional leading ASCII whitespace, an
+    # optional sign, then ASCII digits (trailing junk allowed). Returns the
+    # integer, or nil when the value is absent or doesn't begin with a valid
+    # integer — callers supply the reflected attribute's default.
+    def parse_html_integer(value)
+      return nil if value.nil?
+
+      match = value.to_s.sub(/\A[ \t\n\f\r]+/, "").match(/\A[-+]?\d+/)
+      match ? match[0].to_i : nil
+    end
   end
 
   # `<a>` — exposes URL-component getters/setters via the `href`
@@ -2848,8 +2861,9 @@ module Dommy
   class HTMLOListElement < HTMLElement
     reflect_string :type
     reflect_boolean :reversed
+    # `start` reflects the content attribute as a long with default 1.
     def start
-      (@__node__["start"] || "1").to_i
+      parse_html_integer(@__node__["start"]) || 1
     end
 
     def start=(v)
@@ -2879,8 +2893,9 @@ module Dommy
   end
 
   class HTMLLIElement < HTMLElement
+    # `value` reflects the content attribute as a long with default 0.
     def value
-      @__node__["value"]&.to_i
+      parse_html_integer(@__node__["value"]) || 0
     end
 
     def value=(v)

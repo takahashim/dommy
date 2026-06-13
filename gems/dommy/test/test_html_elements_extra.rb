@@ -241,8 +241,18 @@ class TestHTMLListElements < Minitest::Test
     assert_equal(7, li.value)
   end
 
-  def test_li_value_nil_when_unset
-    assert_nil(@doc.create_element("li").value)
+  def test_li_value_defaults_to_zero_when_unset
+    # `value` reflects a long with default 0 per the HTML Standard.
+    assert_equal(0, @doc.create_element("li").value)
+  end
+
+  def test_ol_start_defaults_to_one_and_parses_leading_integer
+    ol = @doc.create_element("ol")
+    assert_equal(1, ol.start)            # unspecified → default 1
+    ol.set_attribute("start", "A")
+    assert_equal(1, ol.start)            # unparseable → default 1
+    ol.set_attribute("start", "3xyz")
+    assert_equal(3, ol.start)            # leading integer, trailing junk ignored
   end
 end
 
