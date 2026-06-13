@@ -24,6 +24,16 @@ module Capybara
           return native.validation_message
         end
 
+        # `checked` / `selected` reflect the live IDL property (current state),
+        # not the content attribute (which is the *default*) — as WebDriver's
+        # getAttribute does for these boolean attributes.
+        if key == "checked" && native.respond_to?(:checked)
+          return native.checked ? "true" : nil
+        end
+        if key == "selected" && native.respond_to?(:selected)
+          return native.selected ? "true" : nil
+        end
+
         native.get_attribute(key)
       end
 
@@ -322,25 +332,15 @@ module Capybara
         value && !value.empty?
       end
 
-      # Reflect checked state on the attribute so node[:checked] and form
-      # submission both observe it (Dommy's `checked=` only sets the property).
+      # Toggle through the control's native activation behavior (which fires
+      # input/change and, for a radio, maintains its group) — only when it
+      # isn't already in the requested state, matching a real click.
       def set_checkbox(value)
-        if value
-          native.set_attribute("checked", "checked")
-        else
-          native.remove_attribute("checked")
-        end
+        native.click if checked? != !!value
       end
 
       def set_radio
-        name = native.get_attribute("name")
-        scope = native.closest("form") || document
-        if name && scope
-          scope.query_selector_all("input[type='radio']").each do |radio|
-            radio.remove_attribute("checked") if radio.get_attribute("name") == name
-          end
-        end
-        native.set_attribute("checked", "checked")
+        native.click unless checked?
       end
 
       def set_file(value)
