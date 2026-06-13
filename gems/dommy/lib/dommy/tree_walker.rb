@@ -42,9 +42,13 @@ module Dommy
     private
 
     # Returns FILTER_ACCEPT / FILTER_REJECT / FILTER_SKIP for the
-    # given wrapped node.
+    # given wrapped node. Per WHATWG "filter", the active-flag re-entrancy
+    # check comes first: a NodeFilter that re-enters its own walker/iterator
+    # (calls nextNode etc. while the filter is still running) is an
+    # InvalidStateError.
     def accept(node)
       return NodeFilter::FILTER_REJECT unless node
+      raise DOMException::InvalidStateError, "NodeFilter is already active" if @active
       return NodeFilter::FILTER_SKIP if (NodeFilter.bitmask_for(node) & @what_to_show) == 0
 
       result = invoke_filter(node)
@@ -58,16 +62,25 @@ module Dommy
       # A non-null filter with no callable acceptNode is a TypeError when invoked.
       raise Bridge::TypeError, "NodeFilter is not callable" unless cb
 
-      # A NodeFilter's exception must propagate out of the traversal method, so
-      # use the raising invocation when the callback supports it (a JS function);
-      # a Ruby callable propagates naturally.
-      result = if cb.respond_to?(:__js_call_with_raise__)
-        cb.__js_call_with_raise__([node])
-      elsif cb.respond_to?(:__js_call__)
-        cb.__js_call__("call", [node])
-      else
-        cb.call(node)
-      end
+      # The active flag is set around the user callback only; a re-entrant
+      # traversal during this window trips the guard in `accept`. It must be
+      # cleared even when the callback throws so the walker stays usable.
+      @active = true
+      result =
+        begin
+          # A NodeFilter's exception must propagate out of the traversal method,
+          # so use the raising invocation when the callback supports it (a JS
+          # function); a Ruby callable propagates naturally.
+          if cb.respond_to?(:__js_call_with_raise__)
+            cb.__js_call_with_raise__([node])
+          elsif cb.respond_to?(:__js_call__)
+            cb.__js_call__("call", [node])
+          else
+            cb.call(node)
+          end
+        ensure
+          @active = false
+        end
       # WebIDL coerces the filter return (an `unsigned short`): booleans and
       # null become 0/1, everything else ToInteger.
       return 1 if result == true

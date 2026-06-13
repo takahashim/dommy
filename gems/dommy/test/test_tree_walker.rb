@@ -125,4 +125,37 @@ class TestTreeWalker < Minitest::Test
     walker = @doc.create_tree_walker(@root)
     assert_same(@root, walker.root)
   end
+
+  # WHATWG "filter" sets an active flag around the user callback; a NodeFilter
+  # that re-enters its own walker (calls a traversal method while still running)
+  # is an InvalidStateError.
+  def test_filter_reentrancy_raises_invalid_state_error
+    walker = nil
+    raised = nil
+    filter = proc do |_node|
+      begin
+        walker.next_node
+      rescue Dommy::DOMException::InvalidStateError => e
+        raised = e
+      end
+      Dommy::NodeFilter::FILTER_ACCEPT
+    end
+    walker = @doc.create_tree_walker(@root, Dommy::NodeFilter::SHOW_ALL, filter)
+    walker.next_node
+
+    assert_instance_of(Dommy::DOMException::InvalidStateError, raised)
+  end
+
+  # The active flag is cleared even when the filter throws, so the walker stays
+  # usable for the next (non-reentrant) traversal.
+  def test_active_flag_cleared_after_filter_raises
+    walker = nil
+    filter = proc { |_node| walker.next_node }
+    walker = @doc.create_tree_walker(@root, Dommy::NodeFilter::SHOW_ELEMENT, filter)
+
+    assert_raises(Dommy::DOMException::InvalidStateError) { walker.next_node }
+    # A fresh walker (no re-entrancy) still traverses normally afterward.
+    plain = @doc.create_tree_walker(@root, Dommy::NodeFilter::SHOW_ELEMENT)
+    assert_equal(3, [plain.next_node, plain.next_node, plain.next_node].compact.size)
+  end
 end
