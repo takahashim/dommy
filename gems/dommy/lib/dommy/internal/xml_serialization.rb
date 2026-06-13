@@ -211,7 +211,7 @@ module Dommy
         return 4  if defined?(Dommy::CDATASectionNode) && node.is_a?(Dommy::CDATASectionNode)
         return 3  if node.is_a?(Dommy::TextNode)
         return 8  if node.is_a?(Dommy::CommentNode)
-        return 7  if node.is_a?(Dommy::ProcessingInstruction)
+        return 7  if node.is_a?(Dommy::ProcessingInstructionNode)
         return 10 if node.is_a?(Dommy::DocumentType)
         return 11 if node.is_a?(Dommy::Fragment)
         return 9  if node.is_a?(Dommy::Document)

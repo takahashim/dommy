@@ -190,12 +190,12 @@ module Dommy
       end
 
       # The node types that may be inserted under an element-like parent:
-      # DocumentFragment, DocumentType, Element, CharacterData (Text / Comment /
-      # CDATASection), and ProcessingInstruction. A Document or Attr is not
-      # insertable.
+      # DocumentFragment, DocumentType, Element, and CharacterData (Text /
+      # Comment / CDATASection / ProcessingInstruction — all CharacterDataNode
+      # subclasses). A Document or Attr is not insertable.
       def insertable_child?(value)
         value.is_a?(Dommy::Element) || value.is_a?(Dommy::Fragment) ||
-          value.is_a?(Dommy::CharacterDataNode) || value.is_a?(Dommy::ProcessingInstruction) ||
+          value.is_a?(Dommy::CharacterDataNode) ||
           value.is_a?(Dommy::DocumentType)
       end
     end

@@ -65,6 +65,18 @@ module Dommy
         wrap_node(Backend.create_comment(text.to_s, @document.backend_doc))
       end
 
+      # WHATWG Document.createProcessingInstruction: the target must be a valid
+      # XML Name and the data must not contain the PI close delimiter "?>", else
+      # InvalidCharacterError. The result is a real backend-backed PI node.
+      def create_processing_instruction(target, data)
+        t = domstring(target)
+        d = domstring(data)
+        raise DOMException::InvalidCharacterError, "invalid processing instruction target: #{t.inspect}" unless t.match?(Namespaces::NAME)
+        raise DOMException::InvalidCharacterError, "processing instruction data must not contain '?>'" if d.include?("?>")
+
+        wrap_node(Backend.create_processing_instruction(t, d, @document.backend_doc))
+      end
+
       def create_document_fragment
         wrap_node(@document.backend_doc.fragment(""))
       end
@@ -205,6 +217,8 @@ module Dommy
           TextNode.new(@document, node)
         when Backend.comment_class
           CommentNode.new(@document, node)
+        when Backend.processing_instruction_class
+          ProcessingInstructionNode.new(@document, node)
         when Backend.document_fragment_class
           Fragment.new(@document, node)
         end

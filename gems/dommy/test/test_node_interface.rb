@@ -135,6 +135,45 @@ class TestNodeInterface < Minitest::Test
     assert_equal("ab", p.data) # unchanged, no error
   end
 
+  # A PI is a real backend-backed node: it inserts into the tree, reports its
+  # parent/nodeType/nodeName, serializes, and removes like any other node.
+  def test_pi_participates_in_tree
+    p = pi
+    @doc.body.__js_call__("appendChild", [p])
+    assert_same(@doc.body, p.parent_node)
+    assert(@doc.body.child_nodes.include?(p))
+    assert_equal(7, p.__js_get__("nodeType"))
+    assert_equal("t", p.__js_get__("nodeName"))
+    assert_includes(@doc.body.inner_html, "<?t ab>")
+    p.__js_call__("remove", [])
+    refute(@doc.body.child_nodes.include?(p))
+  end
+
+  def test_pi_clone_node
+    p = pi
+    clone = p.__js_call__("cloneNode", [false])
+    assert_equal("t", clone.target)
+    assert_equal("ab", clone.data)
+    refute_same(p, clone)
+  end
+
+  # WHATWG createProcessingInstruction validation.
+  def test_create_pi_validation
+    assert_raises(Dommy::DOMException::InvalidCharacterError) do
+      @doc.__js_call__("createProcessingInstruction", ["bad target", "x"])
+    end
+    assert_raises(Dommy::DOMException::InvalidCharacterError) do
+      @doc.__js_call__("createProcessingInstruction", ["ok", "a?>b"])
+    end
+  end
+
+  # createCDATASection is unsupported on an HTML document (per spec).
+  def test_create_cdata_section_rejected_on_html_document
+    assert_raises(Dommy::DOMException::NotSupportedError) do
+      @doc.__js_call__("createCDATASection", ["x"])
+    end
+  end
+
   # --- compareDocumentPosition + namespace lookups on Element --------
 
   def test_element_compare_and_namespace

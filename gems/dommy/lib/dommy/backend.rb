@@ -135,6 +135,17 @@ module Dommy
         current.respond_to?(:cdata_class) ? current.cdata_class : nil
       end
 
+      # ProcessingInstruction node (`<?target data?>`). Supported by every
+      # backend Dommy ships (both Makiri document families), so — unlike CDATA —
+      # there is no text-node fallback.
+      def create_processing_instruction(target, data, doc)
+        current.create_processing_instruction(target, data, doc)
+      end
+
+      def processing_instruction_class
+        current.processing_instruction_class
+      end
+
       def namespace_of(node)
         current.namespace_of(node)
       end

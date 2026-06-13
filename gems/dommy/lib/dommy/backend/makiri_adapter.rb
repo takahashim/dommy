@@ -19,6 +19,7 @@ module Dommy
       Text = ::Makiri::Text
       Comment = ::Makiri::Comment
       CDATASection = ::Makiri::CDATASection
+      ProcessingInstruction = ::Makiri::ProcessingInstruction
       DocumentFragment = ::Makiri::DocumentFragment
       Node = ::Makiri::Node
 
@@ -149,16 +150,15 @@ module Dommy
         doc.create_comment(content)
       end
 
-      # CDATASection (nodeType 4). An XML document mints a real CDATA node and the
-      # XML serializer emits `<![CDATA[…]]>`. An HTML document, however, can also
-      # mint a native CDATA (Makiri >= …), but Lexbor's HTML serializer *raises*
-      # on a CDATA node (its node-type switch errors on anything but
-      # element/text/comment — and lexbor is vendored unmodified). Since Dommy's
-      # innerHTML/outerHTML/clone route through that serializer, a CDATA in an HTML
-      # tree would make serialization throw. So for HTML documents we fall back to
-      # a text node: cross-document inserts still work (it is an HTML-family node)
-      # and serialization is safe. Real CDATA on `new Document()` waits on a
-      # CDATA-capable HTML serializer (tracked in Makiri docs/xml_node_dommy_parity).
+      # CDATASection (nodeType 4). A genuine XML document mints a real CDATA node
+      # and the XML serializer emits `<![CDATA[…]]>`. `Document#create_cdata_section`
+      # now rejects HTML documents up front (NotSupportedError, per spec), so the
+      # only caller reaching here on a non-XML backend is a `new Document()` /
+      # createDocument document — which Makiri backs with an HTML::Document for
+      # cross-kind adoption (see #empty_document). Lexbor's HTML serializer raises
+      # on a native CDATA node, so for that HTML-backed empty document we fall back
+      # to a text node (serialization-safe; the cost is no real CDATA node type on
+      # `new Document()`, tracked in Makiri docs/xml_node_dommy_parity).
       def create_cdata(content, doc)
         if doc.is_a?(::Makiri::XML::Document)
           doc.create_cdata(content)
@@ -171,6 +171,17 @@ module Dommy
       # CDATASectionNode (it is a Text subtype, matched before Text).
       def cdata_class
         ::Makiri::CDATASection
+      end
+
+      # Both Makiri document families (HTML and XML) mint a real PI node and
+      # serialize it (HTML as `<?target data>`, XML as `<?target data?>`), so PIs
+      # — unlike CDATA — need no HTML-document fallback.
+      def create_processing_instruction(target, data, doc)
+        doc.create_processing_instruction(target, data)
+      end
+
+      def processing_instruction_class
+        ::Makiri::ProcessingInstruction
       end
 
       # Makiri doesn't track XML namespaces. We synthesize one for SVG by

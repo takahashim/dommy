@@ -129,143 +129,6 @@ module Dommy
     end
   end
 
-  # ProcessingInstruction (`<?target data?>`) — a CharacterData-like node with a
-  # `target`; created via `document.createProcessingInstruction`.
-  class ProcessingInstruction
-    include Node
-
-    attr_reader :target
-
-    def initialize(target, data, document = nil)
-      @target = target.to_s
-      @data = data.to_s
-      @document = document
-    end
-
-    include EventTarget
-
-    def data = @data
-
-    def __js_get__(key)
-      case key
-      when "target"
-        @target
-      when "data", "nodeValue", "textContent"
-        @data
-      when "nodeName"
-        @target
-      when "nodeType"
-        7
-      when "length"
-        @data.length
-      when "ownerDocument"
-        @document
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "data", "nodeValue", "textContent"
-        @data = value.to_s
-      else
-        return Bridge::UNHANDLED
-      end
-      nil
-    end
-
-    # A PI is CharacterData: its data methods are string operations on @data.
-    def substring_data(offset, count)
-      o = offset.to_i
-      raise DOMException::IndexSizeError, "offset out of bounds" if o.negative? || o > @data.length
-
-      @data[o, count.to_i] || ""
-    end
-
-    def append_data(value)
-      @data += value.to_s
-      nil
-    end
-
-    def insert_data(offset, value)
-      o = offset.to_i
-      raise DOMException::IndexSizeError, "offset out of bounds" if o.negative? || o > @data.length
-
-      @data = @data[0, o].to_s + value.to_s + (@data[o..] || "")
-      nil
-    end
-
-    def delete_data(offset, count)
-      o = offset.to_i
-      raise DOMException::IndexSizeError, "offset out of bounds" if o.negative? || o > @data.length
-
-      @data = @data[0, o].to_s + (@data[(o + count.to_i)..] || "")
-      nil
-    end
-
-    def replace_data(offset, count, value)
-      delete_data(offset, count)
-      insert_data(offset, value)
-      nil
-    end
-
-    def __internal_event_parent__
-      nil
-    end
-
-    include Bridge::Methods
-    js_methods %w[isEqualNode isSameNode getRootNode normalize hasChildNodes contains
-      appendData insertData deleteData replaceData substringData compareDocumentPosition
-      appendChild insertBefore removeChild replaceChild before after replaceWith remove
-      addEventListener removeEventListener dispatchEvent]
-    def __js_call__(method, args)
-      case method
-      when "hasChildNodes"
-        false
-      when "contains"
-        # A ProcessingInstruction is a leaf node: it contains only itself.
-        !args[0].nil? && is_same_node(args[0])
-      when "isEqualNode"
-        is_equal_node(args[0])
-      when "isSameNode"
-        is_same_node(args[0])
-      when "getRootNode"
-        get_root_node(args[0])
-      when "compareDocumentPosition"
-        compare_document_position(args[0])
-      when "appendChild", "insertBefore"
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::HierarchyRequestError, "a ProcessingInstruction may not have children"
-      when "removeChild", "replaceChild"
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
-      when "before", "after", "replaceWith", "remove"
-        # ChildNode mixin: a created PI has no parent, so these are no-ops per
-        # spec (they act only when the node is inserted in a tree).
-        nil
-      when "normalize"
-        nil
-      when "substringData"
-        substring_data(args[0], args[1])
-      when "appendData"
-        append_data(args[0])
-      when "insertData"
-        insert_data(args[0], args[1])
-      when "deleteData"
-        delete_data(args[0], args[1])
-      when "replaceData"
-        replace_data(args[0], args[1], args[2])
-      when "addEventListener"
-        add_event_listener(args[0], args[1], args[2])
-      when "removeEventListener"
-        remove_event_listener(args[0], args[1], args[2])
-      when "dispatchEvent"
-        dispatch_event(args[0])
-      end
-    end
-  end
-
   # `document.implementation` — the DOMImplementation.
   class DOMImplementation
     def initialize(document)
@@ -811,7 +674,7 @@ module Dommy
     end
 
     def create_processing_instruction(target, data)
-      ProcessingInstruction.new(target, data, self)
+      @node_wrapper_cache.create_processing_instruction(target, data)
     end
 
     # Append a node as a child of the document itself (e.g. a comment alongside
@@ -978,7 +841,15 @@ module Dommy
     end
 
     def create_cdata_section(text)
-      @node_wrapper_cache.create_cdata_section(text)
+      # WHATWG: createCDATASection throws NotSupportedError on an HTML document
+      # (CDATA sections exist only in XML). This also sidesteps Lexbor's HTML
+      # serializer, which can't emit a CDATA node.
+      raise DOMException::NotSupportedError, "createCDATASection is not supported on an HTML document" if html_document?
+
+      str = text.to_s
+      raise DOMException::InvalidCharacterError, "CDATA section data must not contain ']]>'" if str.include?("]]>")
+
+      @node_wrapper_cache.create_cdata_section(str)
     end
 
     def create_document_fragment

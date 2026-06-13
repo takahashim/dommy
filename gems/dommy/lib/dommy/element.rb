@@ -618,6 +618,46 @@ module Dommy
     end
   end
 
+  # ProcessingInstruction (`<?target data?>`, nodeType 7) — CharacterData with a
+  # `target`. Backed by a real backend node (created via
+  # document.createProcessingInstruction), so it participates in the tree like
+  # Text/Comment: insertion, ChildNode methods, identity caching and
+  # serialization all come from the shared CharacterDataNode machinery.
+  class ProcessingInstructionNode < CharacterDataNode
+    def node_type
+      7
+    end
+
+    # WHATWG: a ProcessingInstruction's nodeName is its target.
+    def node_name
+      @__node__.target
+    end
+
+    def target
+      @__node__.target
+    end
+
+    def __js_get__(key)
+      case key
+      when "target"
+        @__node__.target
+      else
+        super
+      end
+    end
+
+    # Own __js_call__ methods, on top of CharacterDataNode's.
+    js_methods %w[cloneNode]
+    def __js_call__(method, args)
+      case method
+      when "cloneNode"
+        @document.create_processing_instruction(@__node__.target, @__node__.content)
+      else
+        super
+      end
+    end
+  end
+
   # (`LiveChildren` removed — `el.children` now returns a
   # `Dommy::HTMLCollection` initialized with a re-evaluating block.)
 
