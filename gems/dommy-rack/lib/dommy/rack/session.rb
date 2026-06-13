@@ -27,6 +27,13 @@ module Dommy
 
       attr_reader :last_request, :last_response, :history
 
+      # A factory `->(session) { js_runtime_host }` that binds a JS runtime to a
+      # session for `javascript: true`. dommy-js-quickjs installs one when its
+      # rack integration is required; nil means JS support is unavailable.
+      class << self
+        attr_accessor :javascript_runtime_factory
+      end
+
       def initialize(app,
                      default_host: "http://example.org",
                      follow_redirects: true,
@@ -36,7 +43,8 @@ module Dommy
                      user_agent: "DommyRack",
                      accept: DEFAULT_ACCEPT,
                      enforce_same_origin: true,
-                     follow_meta_refresh: true)
+                     follow_meta_refresh: true,
+                     javascript: false)
         @app = app
         @config = Config.new(
           default_host: default_host,
@@ -61,6 +69,47 @@ module Dommy
         @request_listeners = []
         @response_listeners = []
         @document_loaded_listeners = []
+        @js_runtime = build_js_runtime if javascript
+      end
+
+      # Whether this session runs page JavaScript (created with `javascript:
+      # true`). When true, navigation boots `<script>` tags and the interaction
+      # verbs drive JS handlers.
+      def javascript? = !@js_runtime.nil?
+
+      # Run JS for side effects against the current document's realm.
+      def execute_script(script)
+        require_js!.execute(script)
+        nil
+      end
+
+      # Evaluate JS and return the value (DOM nodes decoded to Dommy objects).
+      def evaluate_script(script) = require_js!.evaluate(script)
+
+      # Settle work ready at the current virtual time (microtasks + due-now
+      # timers + requestAnimationFrame). A future setTimeout(ms) needs
+      # #advance_time.
+      def settle
+        require_js!.settle
+        self
+      end
+
+      # Advance virtual time by `ms`, running timers that come due, then settle.
+      def advance_time(ms)
+        require_js!.advance_time(ms)
+        self
+      end
+
+      # Uncaught JS errors / unhandled rejections and console output collected
+      # by the JS runtime ([] when JS is disabled). A test integration fails on
+      # non-empty js_errors.
+      def js_errors = @js_runtime ? @js_runtime.js_errors : []
+      def console = @js_runtime ? @js_runtime.console : []
+
+      # Dispose the JS runtime(s). Safe to call when JS is disabled.
+      def dispose_js
+        @js_runtime&.dispose
+        @js_runtime = nil
       end
 
       # --- Config readers used by collaborators ---
@@ -398,7 +447,35 @@ module Dommy
         @history.push(final_url) if push_history
       end
 
+      # After an interaction's events are dispatched (Ruby-side, synchronously
+      # invoking JS handlers), drain the JS runtime so promise reactions settle
+      # before the next line. A no-op when JS is disabled (the mixin default).
+      def after_interaction
+        @js_runtime&.drain
+      end
+
       private
+
+      def build_js_runtime
+        factory = self.class.javascript_runtime_factory
+        unless factory
+          begin
+            require "dommy/js/quickjs/rack"
+          rescue LoadError
+            # fall through to the helpful error below
+          end
+          factory = self.class.javascript_runtime_factory
+        end
+        unless factory
+          raise Error, "javascript: true requires dommy-js-quickjs " \
+                       "(add the gem and `require \"dommy/js/quickjs/rack\"`)"
+        end
+        factory.call(self)
+      end
+
+      def require_js!
+        @js_runtime || raise(Error, "session was not created with javascript: true")
+      end
 
       # Serialize data as a JSON body and navigate. A String is sent verbatim
       # (already-encoded JSON); anything else is run through JSON.generate.
