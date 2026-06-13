@@ -152,6 +152,38 @@ class TestCssCascade < Minitest::Test
     assert_equal "5px", computed(doc, "inner")["text-indent"]
   end
 
+  def test_current_color_resolves_to_the_elements_color
+    doc = doc_for('<style>#x { color: red; background-color: currentColor }</style><p id="x">x</p>')
+    styles = computed(doc, "x")
+    assert_equal "rgb(255, 0, 0)", styles["color"]
+    assert_equal "rgb(255, 0, 0)", styles["background-color"]
+  end
+
+  def test_current_color_resolves_per_element_not_to_the_ancestor
+    doc = doc_for(<<~HTML)
+      <style>
+        #outer { color: red }
+        #inner { color: blue; background-color: currentColor }
+      </style>
+      <div id="outer"><span id="inner">x</span></div>
+    HTML
+    # currentColor uses the *inner* element's own color, not the inherited red.
+    assert_equal "rgb(0, 0, 255)", computed(doc, "inner")["background-color"]
+  end
+
+  def test_current_color_on_color_property_means_inherit
+    doc = doc_for(<<~HTML)
+      <style>#outer { color: green } #inner { color: currentColor }</style>
+      <div id="outer"><span id="inner">x</span></div>
+    HTML
+    assert_equal "rgb(0, 128, 0)", computed(doc, "inner")["color"]
+  end
+
+  def test_current_color_embedded_in_an_unexpanded_shorthand
+    doc = doc_for('<style>#x { color: red; border: 1px solid currentColor }</style><p id="x">x</p>')
+    assert_equal "1px solid rgb(255, 0, 0)", computed(doc, "x")["border"]
+  end
+
   def test_color_values_normalize_to_rgb_serialization
     doc = doc_for('<style>#x { color: rebeccapurple; background-color: #00ff00 }</style><p id="x">x</p>')
     styles = computed(doc, "x")

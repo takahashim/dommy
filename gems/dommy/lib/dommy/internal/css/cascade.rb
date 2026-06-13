@@ -135,6 +135,12 @@ module Dommy
             else
               PropertyRegistry.initial(name)
             end
+            # `color: currentColor` means "inherit the color" (there is no
+            # other color to point at); resolve it before normalization so the
+            # value other properties' currentColor resolves against is real.
+            if name == "color" && value.to_s.casecmp("currentcolor").zero?
+              value = parent_styles ? parent_styles["color"] : PropertyRegistry.initial("color")
+            end
             result[name] = PropertyRegistry.computed_value(
               name, value.to_s, font_size: own_px, root_font_size: root_px,
               viewport_width: vw, viewport_height: vh
@@ -150,12 +156,32 @@ module Dommy
             result[name] = value if value
           end
 
+          # currentColor resolves to the element's own computed color (CSSOM
+          # resolved value), in every other property that carries it.
+          resolve_current_color!(result)
+
           # Computed custom properties are part of the computed style: the
           # children inherit them from here, and getPropertyValue("--x")
           # reads them.
           result.merge!(custom)
 
           result
+        end
+
+        # Replace the `currentColor` keyword — whole-value or embedded (e.g.
+        # `border: 1px solid currentColor`) — with the computed `color`, for
+        # every property except `color` itself (already resolved) and custom
+        # properties (var() substitutes those before this point).
+        def resolve_current_color!(result)
+          own = result["color"]
+          return unless own
+
+          result.each do |name, value|
+            next if name == "color" || name.start_with?("--")
+            next unless value.is_a?(String) && value.match?(/\bcurrentcolor\b/i)
+
+            result[name] = value.gsub(/\bcurrentcolor\b/i, own)
+          end
         end
 
         # The element's computed custom property set: the parent's (custom
