@@ -26,6 +26,19 @@ module Dommy
           false
         end
 
+        # The CSS.supports(property, value) two-argument form: is
+        # `property: value` a supported declaration? Optimistic, like a feature
+        # query in match? — a non-empty property + value is "supported".
+        def supports_declaration?(property, value)
+          property = property.to_s.strip
+          value = value.to_s.strip
+          return false if property.empty? || value.empty?
+
+          declaration_supported?("#{property}: #{value}")
+        rescue StandardError
+          false
+        end
+
         # <supports-condition> = not <in-parens>
         #                      | <in-parens> [and <in-parens>]*
         #                      | <in-parens> [or <in-parens>]*

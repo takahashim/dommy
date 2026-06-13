@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "internal/css/supports"
+
 module Dommy
   # `CSSStyleSheet` — the sheet itself doesn't interpret rule text; it
   # acts as an ordered list of opaque `CSSRule`-like wrappers. The
@@ -562,7 +564,8 @@ module Dommy
   end
 
   # `window.CSS` namespace object — `escape()` for safe selector building
-  # (used by Turbo and friends) and a `supports()` stub (no CSS engine).
+  # (used by Turbo and friends) and `supports()` backed by the @supports
+  # condition evaluator.
   class CSSNamespace
     def __js_get__(_key) = nil
     def __js_set__(_key, _value) = Bridge::UNHANDLED
@@ -574,7 +577,18 @@ module Dommy
       when "escape"
         self.class.escape(args[0])
       when "supports"
-        false
+        supports?(args)
+      end
+    end
+
+    # CSS.supports(property, value) checks one declaration; CSS.supports(
+    # conditionText) evaluates a full <supports-condition>. Both go through the
+    # same optimistic evaluator the cascade uses for @supports.
+    def supports?(args)
+      if args.length >= 2 && !args[1].nil?
+        Internal::CSS::Supports.supports_declaration?(args[0], args[1])
+      else
+        Internal::CSS::Supports.match?(args[0])
       end
     end
 
