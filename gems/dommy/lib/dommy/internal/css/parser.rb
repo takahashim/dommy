@@ -81,39 +81,71 @@ module Dommy
         def parse(text)
           raise Unavailable unless available?
 
-          normalize_rules(::Makiri::Lexbor::CSS.parse_stylesheet(text.to_s))
+          rules = ::Makiri::Lexbor::CSS.parse_stylesheet(text.to_s)
+          normalize_rules(rules, collect_namespaces(rules))
         end
 
-        def normalize_rules(rules)
+        def normalize_rules(rules, namespaces = {})
           rules.filter_map do |rule|
             case rule[:type]
             when :style
-              build_style_rule(normalize_selectors(rule[:selectors]), rule[:declarations])
+              build_style_rule(normalize_selectors(rule[:selectors], namespaces), rule[:declarations])
             when :bad_style
               # lexbor couldn't parse this selector list (most often a
               # pseudo-element like ::before, which its parser predates).
               # Re-validate the raw prelude with Dommy's Selectors L4 parser:
               # pseudo-element rules survive, genuinely invalid ones drop
               # (normalize_selectors returns []).
-              build_style_rule(normalize_selectors([{text: rule[:selector_text]}]), rule[:declarations])
+              build_style_rule(normalize_selectors([{text: rule[:selector_text]}], namespaces), rule[:declarations])
             when :at_rule
-              normalize_at_rule(rule)
+              normalize_at_rule(rule, namespaces)
             end
           end
+        end
+
+        # The stylesheet's @namespace prefix => URI map (with :default for the
+        # prefixless default namespace), so `svg|rect` resolves when the sheet
+        # declared `@namespace svg url(...)`. @namespace is top-level only.
+        def collect_namespaces(rules)
+          rules.each_with_object({}) do |rule, namespaces|
+            next unless rule[:type] == :at_rule && rule[:name].to_s.casecmp("namespace").zero?
+
+            prefix, uri = parse_namespace(rule[:prelude])
+            namespaces[prefix.nil? ? :default : prefix] = uri if uri
+          end
+        end
+
+        # @namespace prelude: `[prefix] (url(uri) | "uri")`. Returns
+        # [prefix_or_nil, uri_or_nil].
+        def parse_namespace(prelude)
+          rest = prelude.to_s.strip
+          prefix = nil
+          if (match = rest.match(/\A([A-Za-z_][\w-]*)\s+/))
+            prefix = match[1]
+            rest = rest[match.end(0)..]
+          end
+
+          uri =
+            if (match = rest.match(/\Aurl\(\s*(.*?)\s*\)\s*\z/i))
+              match[1]
+            elsif (match = rest.match(/\A(?:"([^"]*)"|'([^']*)')\s*\z/))
+              match[1] || match[2]
+            end
+          [prefix, uri&.gsub(/\A["']|["']\z/, "")&.strip]
         end
 
         # @media / @layer / @supports become grouping rules the cascade
         # understands; every other at-rule (@font-face, @keyframes, @import,
         # @page, ...) is ignored for now (returning nil drops it from the
         # rule stream, but lexbor still parsed it, so nothing crashes).
-        def normalize_at_rule(rule)
+        def normalize_at_rule(rule, namespaces = {})
           case rule[:name].to_s.downcase
           when "media"
-            MediaRule.new(rule[:prelude], normalize_rules(rule[:rules]))
+            MediaRule.new(rule[:prelude], normalize_rules(rule[:rules], namespaces))
           when "layer"
-            LayerRule.new(normalize_rules(rule[:rules]))
+            LayerRule.new(normalize_rules(rule[:rules], namespaces))
           when "supports"
-            SupportsRule.new(rule[:prelude], normalize_rules(rule[:rules]))
+            SupportsRule.new(rule[:prelude], normalize_rules(rule[:rules], namespaces))
           when "import"
             parse_import(rule[:prelude])
           end
@@ -143,9 +175,9 @@ module Dommy
           StyleRule.new(selectors, declarations.map { |d| Declaration.new(d[:name], d[:value], d[:important]) })
         end
 
-        def normalize_selectors(selectors)
+        def normalize_selectors(selectors, namespaces = {})
           selectors.map do |selector|
-            ast = Internal::SelectorParser.parse!(selector[:text])
+            ast = Internal::SelectorParser.parse!(selector[:text], namespaces: namespaces)
             Selector.new(selector[:text], ast, ast.specificity.to_a)
           end
         rescue DOMException::SyntaxError

@@ -154,14 +154,15 @@ module Dommy
         end
       end
 
-      # Namespace prefixes the parser admits: nil (no prefix — with no
-      # @namespace rules a type selector matches any namespace), :any
-      # (`*|`), :none (`|` — only elements in no namespace; named prefixes
-      # are undeclared and already raised at parse time).
+      # Namespace values the parser produces: nil (no prefix and no default
+      # namespace — matches any namespace), :any (`*|`), :none (`|` — only the
+      # null namespace), or a URI String (a resolved `prefix|` or the default
+      # namespace from @namespace) — the element must be in that namespace.
       def matches_type_namespace?(element, namespace)
         return true if namespace.nil? || namespace == :any
+        return element.namespace_uri.to_s.empty? if namespace == :none
 
-        element.namespace_uri.to_s.empty? if namespace == :none
+        element.namespace_uri.to_s == namespace.to_s
       end
 
       def matches_simple?(element, selector, scope:)

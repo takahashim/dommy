@@ -53,6 +53,31 @@ class TestSelectorParser < Minitest::Test
     assert_equal "div.foo", SP.validate!("div.foo")
   end
 
+  SVG_NS = "http://www.w3.org/2000/svg"
+
+  def test_declared_namespace_prefix_resolves_to_its_uri
+    ast = SP.parse!("svg|rect", namespaces: {"svg" => SVG_NS})
+    type = ast.selectors.first.parts.first.compound.type
+    assert_equal SVG_NS, type.namespace
+    assert_equal "rect", type.name
+  end
+
+  def test_default_namespace_applies_to_unprefixed_type
+    ast = SP.parse!("rect", namespaces: {default: SVG_NS})
+    assert_equal SVG_NS, ast.selectors.first.parts.first.compound.type.namespace
+  end
+
+  def test_undeclared_prefix_still_raises_with_a_namespace_map
+    assert_raises(Dommy::DOMException::SyntaxError) do
+      SP.parse!("other|rect", namespaces: {"svg" => SVG_NS})
+    end
+  end
+
+  def test_namespace_prefix_resolves_inside_is_and_not
+    ast = SP.parse!(":is(svg|rect, svg|circle)", namespaces: {"svg" => SVG_NS})
+    refute_nil ast # resolves without raising
+  end
+
   def test_valid_predicate
     assert SP.valid?("div > p")
     refute SP.valid?("div % p")

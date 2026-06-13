@@ -41,8 +41,12 @@ module Dommy
 
       module_function
 
-      def parse!(selector)
-        new_parser(selector.to_s).parse_selector_list!
+      # `namespaces` maps a prefix String to its URI (with the symbol key
+      # :default for the default namespace), letting `svg|rect` resolve in a
+      # stylesheet that declared `@namespace`. nil/empty (the DOM querySelector
+      # path) keeps any named prefix undeclared — a SyntaxError, as before.
+      def parse!(selector, namespaces: nil)
+        new_parser(selector.to_s, namespaces).parse_selector_list!
       rescue InvalidSelector => e
         raise ::Dommy::DOMException::SyntaxError, "'#{selector}' is not a valid selector: #{e.message}"
       end
@@ -83,8 +87,8 @@ module Dommy
         s
       end
 
-      def new_parser(string)
-        Parser.new(string)
+      def new_parser(string, namespaces = nil)
+        Parser.new(string, namespaces: namespaces)
       end
 
       # Recursive-descent parser over a character buffer. Methods raise
@@ -97,7 +101,7 @@ module Dommy
         # (`::before`, `:first-line`) — such a clause matches no element.
         attr_reader :clauses
 
-        def initialize(string, in_has: false)
+        def initialize(string, in_has: false, namespaces: nil)
           @s = string
           @i = 0
           @n = string.length
@@ -106,6 +110,10 @@ module Dommy
           # nested `:has()` is invalid (string occurrences inside quoted
           # attribute values are fine).
           @in_has = in_has
+          # prefix String => URI (and :default => default-namespace URI) from a
+          # stylesheet's @namespace rules; {} on the DOM querySelector path.
+          @namespaces = namespaces || {}
+          @default_namespace = @namespaces[:default]
         end
 
         # selector-list := <complex-selector> (',' <complex-selector>)* with
@@ -247,7 +255,9 @@ module Dommy
 
         # type := [<ns-prefix>]? (<ident> | '*')
         def parse_type_or_universal!
-          ns = namespace_prefix_ahead? ? parse_namespace_prefix! : nil
+          # No prefix: the default namespace (if declared) applies to type and
+          # universal selectors (but not attribute selectors).
+          ns = namespace_prefix_ahead? ? parse_namespace_prefix! : @default_namespace
           if peek == "*"
             advance
             SelectorAST::UniversalSelector.new(ns)
@@ -285,8 +295,9 @@ module Dommy
             # empty (no-namespace) prefix
             ns = :none
           elsif ident_start?
-            ns = consume_ident!
-            fail_undeclared_namespace!
+            prefix = consume_ident!
+            ns = @namespaces[prefix]
+            fail_undeclared_namespace! unless ns
           else
             fail!("invalid namespace prefix")
           end
@@ -441,7 +452,7 @@ module Dommy
         def consume_function_args!(name, pseudo_element:)
           advance # consume '('
           arg = consume_function_argument_source
-          arg_parser = Parser.new(arg, in_has: @in_has)
+          arg_parser = Parser.new(arg, in_has: @in_has, namespaces: @namespaces)
           if pseudo_element
             # ::slotted(<compound>), ::part(<ident>+), ::cue(<selector>), …
             case name
@@ -503,7 +514,7 @@ module Dommy
           selectors = []
           clauses.each do |clause|
             begin
-              selectors.concat(Parser.new(clause, in_has: @in_has).parse_selector_list!.selectors)
+              selectors.concat(Parser.new(clause, in_has: @in_has, namespaces: @namespaces).parse_selector_list!.selectors)
             rescue InvalidSelector
               raise unless forgiving
             end
@@ -516,7 +527,7 @@ module Dommy
 
         def parse_relative_selector_argument_list(source)
           split_selector_source(source).map do |clause|
-            Parser.new(clause, in_has: true).parse_relative_selector!
+            Parser.new(clause, in_has: true, namespaces: @namespaces).parse_relative_selector!
           end
         end
 

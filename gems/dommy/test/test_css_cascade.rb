@@ -481,6 +481,47 @@ class TestCssCascade < Minitest::Test
     assert_equal "block", computed(doc, "b")["display"]
   end
 
+  # --- @namespace -------------------------------------------------------
+
+  def test_namespace_prefix_matches_only_that_namespace
+    doc = doc_for(<<~HTML)
+      <style>
+        @namespace svg url(http://www.w3.org/2000/svg);
+        rect { color: green }
+        svg|rect { color: red }
+      </style>
+      <svg><rect id="r"></rect></svg>
+    HTML
+    assert_equal "rgb(255, 0, 0)", computed(doc, "r")["color"]
+  end
+
+  def test_namespace_prefix_does_not_match_other_namespace
+    doc = doc_for(<<~HTML)
+      <style>
+        @namespace svg url(http://www.w3.org/2000/svg);
+        svg|a { color: red }
+      </style>
+      <a id="a">x</a>
+    HTML
+    assert_equal "rgb(0, 0, 0)", computed(doc, "a")["color"]
+  end
+
+  def test_default_namespace_applies_to_unprefixed_type_selectors
+    doc = doc_for(<<~HTML)
+      <style>
+        @namespace url(http://www.w3.org/2000/svg);
+        rect { color: blue }
+      </style>
+      <svg><rect id="r"></rect></svg>
+    HTML
+    assert_equal "rgb(0, 0, 255)", computed(doc, "r")["color"]
+  end
+
+  def test_undeclared_prefix_drops_the_rule_only
+    doc = doc_for('<style>foo|div { color: red } #d { color: green }</style><div id="d"></div>')
+    assert_equal "rgb(0, 128, 0)", computed(doc, "d")["color"]
+  end
+
   # --- @import ----------------------------------------------------------
 
   def import_doc(html, sheets)
