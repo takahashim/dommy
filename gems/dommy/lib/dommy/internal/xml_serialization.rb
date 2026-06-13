@@ -207,12 +207,18 @@ module Dommy
       # wrapper's #namespace_uri, which defaults to the HTML namespace for HTML
       # documents and isn't right for an XML serialization.
       def element_namespace(node)
+        created = created_namespace(node)
+        return presence(created[0]) if created
+
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
         ns = backend ? Backend.namespace_of(backend) : nil
         presence(ns&.href)
       end
 
       def element_prefix(node)
+        created = created_namespace(node)
+        return presence(created[1]) if created
+
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
         ns = backend ? Backend.namespace_of(backend) : nil
         presence(ns.respond_to?(:prefix) ? ns&.prefix : nil)
@@ -221,8 +227,17 @@ module Dommy
       # The backend node name is the local part, case-preserved (the wrapper's
       # #local_name lower-cases for HTML).
       def local_name(node)
+        created = created_namespace(node)
+        return created[2] if created && presence(created[2])
+
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
         backend ? backend.name.split(":", 2).last : node.__js_get__("nodeName")
+      end
+
+      # The explicit createElementNS [namespace, prefix, local] when the backend
+      # (lexbor) didn't retain it, else nil.
+      def created_namespace(node)
+        node.respond_to?(:__internal_created_namespace__) ? node.__internal_created_namespace__ : nil
       end
 
       def child_nodes(node)

@@ -1227,6 +1227,16 @@ module Dommy
       @__ns_prefix
     end
 
+    # The [namespace, prefix, local_name] explicitly assigned via createElementNS,
+    # or nil when the element wasn't created with an explicit namespace. Lets the
+    # XML serializer recover element-namespace info the makiri backend (lexbor,
+    # HTML-only) doesn't retain.
+    def __internal_created_namespace__
+      return nil unless @__ns_qname
+
+      [@__ns_uri, @__ns_prefix, @__ns_local]
+    end
+
     def id
       @__node__["id"].to_s
     end
