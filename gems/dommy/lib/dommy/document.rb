@@ -1136,12 +1136,14 @@ module Dommy
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
       removeEventListener dispatchEvent write writeln open close isEqualNode appendChild
       hasChildNodes contains append prepend replaceChildren removeChild insertBefore replaceChild
-      cloneNode normalize
+      cloneNode normalize compareDocumentPosition
     ]
     def __js_call__(method, args)
       case method
       when "hasChildNodes"
         @backend_doc.children.any?
+      when "compareDocumentPosition"
+        compare_document_position(args[0])
       when "contains"
         contains?(args[0])
       when "isEqualNode"
