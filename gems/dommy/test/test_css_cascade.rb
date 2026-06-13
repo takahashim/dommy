@@ -179,9 +179,79 @@ class TestCssCascade < Minitest::Test
     assert_equal "rgb(0, 128, 0)", computed(doc, "inner")["color"]
   end
 
-  def test_current_color_embedded_in_an_unexpanded_shorthand
+  def test_current_color_in_an_expanded_border_longhand
     doc = doc_for('<style>#x { color: red; border: 1px solid currentColor }</style><p id="x">x</p>')
-    assert_equal "1px solid rgb(255, 0, 0)", computed(doc, "x")["border"]
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["border-top-color"]
+  end
+
+  # --- shorthand expansion ----------------------------------------------
+
+  def test_border_shorthand_expands_to_all_sides
+    doc = doc_for('<style>#x { border: 2px solid red }</style><p id="x">x</p>')
+    s = computed(doc, "x")
+    assert_equal "2px", s["border-top-width"]
+    assert_equal "solid", s["border-left-style"]
+    assert_equal "rgb(255, 0, 0)", s["border-bottom-color"]
+  end
+
+  def test_border_shorthand_tokens_are_order_independent
+    doc = doc_for('<style>#x { border: red 2px dashed }</style><p id="x">x</p>')
+    s = computed(doc, "x")
+    assert_equal "2px", s["border-top-width"]
+    assert_equal "dashed", s["border-top-style"]
+    assert_equal "rgb(255, 0, 0)", s["border-top-color"]
+  end
+
+  def test_border_omitted_color_resets_to_currentcolor
+    doc = doc_for('<style>#x { color: blue; border: 1px solid }</style><p id="x">x</p>')
+    assert_equal "rgb(0, 0, 255)", computed(doc, "x")["border-top-color"]
+  end
+
+  def test_border_color_box_expansion
+    doc = doc_for('<style>#x { border-color: red green blue }</style><p id="x">x</p>')
+    s = computed(doc, "x")
+    assert_equal "rgb(255, 0, 0)", s["border-top-color"]
+    assert_equal "rgb(0, 128, 0)", s["border-right-color"]
+    assert_equal "rgb(0, 0, 255)", s["border-bottom-color"]
+    assert_equal "rgb(0, 128, 0)", s["border-left-color"] # 3-value: left mirrors right
+  end
+
+  def test_later_border_shorthand_resets_earlier_longhand
+    doc = doc_for('<style>#x { border-color: red; border: 1px solid }</style><p id="x">x</p>')
+    assert_equal "rgb(0, 0, 0)", computed(doc, "x")["border-top-color"]
+  end
+
+  def test_flex_shorthand
+    doc = doc_for('<style>#x { flex: 2 0 30% }</style><p id="x">x</p>')
+    s = computed(doc, "x")
+    assert_equal "2", s["flex-grow"]
+    assert_equal "0", s["flex-shrink"]
+    assert_equal "30%", s["flex-basis"]
+  end
+
+  def test_flex_keyword_forms
+    none = doc_for('<style>#x { flex: none }</style><p id="x">x</p>')
+    assert_equal ["0", "0", "auto"], %w[flex-grow flex-shrink flex-basis].map { |p| computed(none, "x")[p] }
+    num = doc_for('<style>#y { flex: 3 }</style><p id="y">y</p>')
+    assert_equal ["3", "1", "0%"], %w[flex-grow flex-shrink flex-basis].map { |p| computed(num, "y")[p] }
+  end
+
+  def test_list_style_shorthand
+    doc = doc_for('<style>#x { list-style: square inside }</style><ul id="x"></ul>')
+    s = computed(doc, "x")
+    assert_equal "square", s["list-style-type"]
+    assert_equal "inside", s["list-style-position"]
+    assert_equal "none", s["list-style-image"]
+  end
+
+  def test_outline_and_text_decoration_shorthands
+    doc = doc_for('<style>#x { outline: thin dashed blue; text-decoration: underline dotted green }</style><p id="x">x</p>')
+    s = computed(doc, "x")
+    assert_equal "dashed", s["outline-style"]
+    assert_equal "rgb(0, 0, 255)", s["outline-color"]
+    assert_equal "underline", s["text-decoration-line"]
+    assert_equal "dotted", s["text-decoration-style"]
+    assert_equal "rgb(0, 128, 0)", s["text-decoration-color"]
   end
 
   def test_color_values_normalize_to_rgb_serialization

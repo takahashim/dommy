@@ -36,24 +36,58 @@ module Dommy
           "font-variant" => Property.new(inherited: true, initial: "normal"),
           "list-style-type" => Property.new(inherited: true, initial: "disc"),
           "list-style-position" => Property.new(inherited: true, initial: "outside"),
+          "list-style-image" => Property.new(inherited: true, initial: "none"),
           "tab-size" => Property.new(inherited: true, initial: "8"),
           "z-index" => Property.new(inherited: false, initial: "auto"),
           "position" => Property.new(inherited: false, initial: "static"),
+          # Color longhands of the border/outline/text-decoration shorthands:
+          # registered so they normalize to rgb() and resolve currentColor (the
+          # initial of each). Width/style longhands stay unregistered (passed
+          # through as specified — Dommy applies no style-dependent used-value
+          # rule like "width is 0 when style is none").
+          "border-top-color" => Property.new(inherited: false, initial: "currentColor"),
+          "border-right-color" => Property.new(inherited: false, initial: "currentColor"),
+          "border-bottom-color" => Property.new(inherited: false, initial: "currentColor"),
+          "border-left-color" => Property.new(inherited: false, initial: "currentColor"),
+          "outline-color" => Property.new(inherited: false, initial: "currentColor"),
+          "text-decoration-color" => Property.new(inherited: false, initial: "currentColor"),
+          "text-decoration-style" => Property.new(inherited: false, initial: "solid"),
+          "flex-grow" => Property.new(inherited: false, initial: "0"),
+          "flex-shrink" => Property.new(inherited: false, initial: "1"),
+          "flex-basis" => Property.new(inherited: false, initial: "auto"),
+          "flex-direction" => Property.new(inherited: false, initial: "row"),
+          "flex-wrap" => Property.new(inherited: false, initial: "nowrap"),
         }.freeze
 
-        COLOR_PROPERTIES = %w[color background-color].freeze
+        COLOR_PROPERTIES = %w[
+          color background-color
+          border-top-color border-right-color border-bottom-color border-left-color
+          outline-color text-decoration-color
+        ].freeze
 
         FONT_WEIGHT_KEYWORDS = {"normal" => "400", "bold" => "700"}.freeze
 
-        # text-decoration-line keywords (text-decoration shorthand picks
-        # these out; remaining tokens are style/color and stay unexpanded).
+        # text-decoration sub-property keyword sets (the shorthand classifies
+        # each token as a line, a style, or — failing both — a color).
         TEXT_DECORATION_LINES = %w[none underline overline line-through blink].freeze
+        TEXT_DECORATION_STYLES = %w[solid double dotted dashed wavy].freeze
+
+        BORDER_SIDES = %w[top right bottom left].freeze
+        BORDER_STYLE_KEYWORDS = %w[none hidden dotted dashed solid double groove ridge inset outset].freeze
+        BORDER_WIDTH_KEYWORDS = %w[thin medium thick].freeze
 
         BOX_SHORTHANDS = {
           "margin" => "margin-%s",
           "padding" => "padding-%s",
           "inset" => "%s",
         }.freeze
+
+        # Per-side longhands of the `border` family, in (width, style, color)
+        # order across the four sides — the targets a CSS-wide keyword on
+        # `border` expands to.
+        BORDER_LONGHANDS = BORDER_SIDES.flat_map do |side|
+          %w[width style color].map { |kind| "border-#{side}-#{kind}" }
+        end.freeze
 
         # The longhands each curated shorthand covers — what a CSS-wide
         # keyword (or an invalid var() substitution) applies to when it
@@ -66,7 +100,22 @@ module Dommy
           "gap" => %w[row-gap column-gap],
           "background" => %w[background-color],
           "font" => %w[font-style font-weight font-size line-height font-family],
-          "text-decoration" => %w[text-decoration-line],
+          "text-decoration" => %w[text-decoration-line text-decoration-style text-decoration-color],
+          "border" => BORDER_LONGHANDS,
+          "border-width" => %w[border-top-width border-right-width border-bottom-width border-left-width],
+          "border-style" => %w[border-top-style border-right-style border-bottom-style border-left-style],
+          "border-color" => %w[border-top-color border-right-color border-bottom-color border-left-color],
+          "border-top" => %w[border-top-width border-top-style border-top-color],
+          "border-right" => %w[border-right-width border-right-style border-right-color],
+          "border-bottom" => %w[border-bottom-width border-bottom-style border-bottom-color],
+          "border-left" => %w[border-left-width border-left-style border-left-color],
+          "outline" => %w[outline-width outline-style outline-color],
+          "flex" => %w[flex-grow flex-shrink flex-basis],
+          "flex-flow" => %w[flex-direction flex-wrap],
+          "list-style" => %w[list-style-type list-style-position list-style-image],
+          "place-content" => %w[align-content justify-content],
+          "place-items" => %w[align-items justify-items],
+          "place-self" => %w[align-self justify-self],
         }.freeze
 
         module_function
@@ -101,6 +150,22 @@ module Dommy
             expand_font(value) || [[name, value]]
           when "text-decoration"
             expand_text_decoration(value)
+          when "border"
+            expand_border_all(value)
+          when "border-top", "border-right", "border-bottom", "border-left"
+            expand_border_side(name.delete_prefix("border-"), value)
+          when "border-width", "border-style", "border-color"
+            expand_border_box(name.delete_prefix("border-"), value) || [[name, value]]
+          when "outline"
+            expand_outline(value)
+          when "flex"
+            expand_flex(value)
+          when "flex-flow"
+            expand_flex_flow(value)
+          when "list-style"
+            expand_list_style(value)
+          when "place-content", "place-items", "place-self"
+            expand_place(name.delete_prefix("place-"), value)
           else
             [[name, value]]
           end
@@ -225,8 +290,184 @@ module Dommy
         end
 
         def expand_text_decoration(value)
-          lines = value.split(/\s+/).select { |t| TEXT_DECORATION_LINES.include?(t.downcase) }
-          [["text-decoration-line", lines.empty? ? "none" : lines.join(" ")]]
+          lines = []
+          style = nil
+          color = nil
+          split_tokens(value).each do |token|
+            low = token.downcase
+            if TEXT_DECORATION_LINES.include?(low)
+              lines << token
+            elsif TEXT_DECORATION_STYLES.include?(low)
+              style = token
+            else
+              color ||= token
+            end
+          end
+          [["text-decoration-line", lines.empty? ? "none" : lines.join(" ")],
+           ["text-decoration-style", style || "solid"],
+           ["text-decoration-color", color || "currentColor"]]
+        end
+
+        # Whitespace split that keeps parenthesized groups intact, so a color
+        # `rgb(0, 0, 0)` or an `url(...)` stays one token.
+        def split_tokens(value)
+          tokens = []
+          current = +""
+          depth = 0
+          value.each_char do |char|
+            if char == "("
+              depth += 1
+              current << char
+            elsif char == ")"
+              depth -= 1 if depth.positive?
+              current << char
+            elsif char.match?(/\s/) && depth.zero?
+              tokens << current unless current.empty?
+              current = +""
+            else
+              current << char
+            end
+          end
+          tokens << current unless current.empty?
+          tokens
+        end
+
+        # 1 value -> all sides, 2 -> v/h, 3 -> t/h/b, 4 -> t/r/b/l.
+        def box_values(tokens)
+          case tokens.size
+          when 1 then [tokens[0]] * 4
+          when 2 then [tokens[0], tokens[1], tokens[0], tokens[1]]
+          when 3 then [tokens[0], tokens[1], tokens[2], tokens[1]]
+          else tokens[0, 4]
+          end
+        end
+
+        # Classify the tokens of a `border`/`border-<side>`/`outline` value into
+        # {width:, style:, color:} (order-independent, omitted parts nil).
+        def parse_border_shorthand(value)
+          parts = {width: nil, style: nil, color: nil}
+          split_tokens(value).each do |token|
+            low = token.downcase
+            if parts[:style].nil? && BORDER_STYLE_KEYWORDS.include?(low)
+              parts[:style] = token
+            elsif parts[:width].nil? && border_width_token?(low)
+              parts[:width] = token
+            else
+              parts[:color] ||= token
+            end
+          end
+          parts
+        end
+
+        def border_width_token?(low)
+          BORDER_WIDTH_KEYWORDS.include?(low) || low.match?(/\A[.\-\d]/)
+        end
+
+        # Omitted border sub-properties reset to their initial (shorthand
+        # semantics): width medium, style none, color currentColor.
+        def border_triple(prefix, parts)
+          [["#{prefix}-width", parts[:width] || "medium"],
+           ["#{prefix}-style", parts[:style] || "none"],
+           ["#{prefix}-color", parts[:color] || "currentColor"]]
+        end
+
+        def expand_border_all(value)
+          parts = parse_border_shorthand(value)
+          BORDER_SIDES.flat_map { |side| border_triple("border-#{side}", parts) }
+        end
+
+        def expand_border_side(side, value)
+          border_triple("border-#{side}", parse_border_shorthand(value))
+        end
+
+        # `border-width|style|color: <box>` — one kind across the four sides.
+        def expand_border_box(kind, value)
+          tokens = split_tokens(value)
+          return nil unless (1..4).cover?(tokens.size)
+
+          BORDER_SIDES.zip(box_values(tokens)).map { |side, v| ["border-#{side}-#{kind}", v] }
+        end
+
+        def expand_outline(value)
+          parts = parse_border_shorthand(value)
+          [["outline-width", parts[:width] || "medium"],
+           ["outline-style", parts[:style] || "none"],
+           ["outline-color", parts[:color] || "currentColor"]]
+        end
+
+        # `flex` per css-flexbox-1 §7.1.1: none -> 0 0 auto, auto -> 1 1 auto,
+        # a bare number -> grow 1 0%, etc. Omitted parts take the shorthand's
+        # reset values, not the longhand initials.
+        def expand_flex(value)
+          tokens = split_tokens(value)
+          grow, shrink, basis =
+            case tokens.size
+            when 1 then flex_one(tokens[0])
+            when 2 then flex_two(tokens[0], tokens[1])
+            else tokens[0, 3]
+            end
+          [["flex-grow", grow], ["flex-shrink", shrink], ["flex-basis", basis]]
+        end
+
+        def flex_one(token)
+          case token.downcase
+          when "none" then ["0", "0", "auto"]
+          when "auto" then ["1", "1", "auto"]
+          when "initial" then ["0", "1", "auto"]
+          else number?(token) ? [token, "1", "0%"] : ["1", "1", token]
+          end
+        end
+
+        def flex_two(first, second)
+          number?(second) ? [first, second, "0%"] : [first, "1", second]
+        end
+
+        def number?(token) = token.match?(/\A-?\d+(?:\.\d+)?\z/)
+
+        def expand_flex_flow(value)
+          direction = nil
+          wrap = nil
+          split_tokens(value).each do |token|
+            low = token.downcase
+            if %w[row row-reverse column column-reverse].include?(low)
+              direction = token
+            elsif %w[nowrap wrap wrap-reverse].include?(low)
+              wrap = token
+            end
+          end
+          [["flex-direction", direction || "row"], ["flex-wrap", wrap || "nowrap"]]
+        end
+
+        # `list-style: <type> || <position> || <image>` (any order). A `none`
+        # sets both type and image to none (css-lists-3).
+        def expand_list_style(value)
+          type = position = image = nil
+          none = false
+          split_tokens(value).each do |token|
+            low = token.downcase
+            if %w[inside outside].include?(low)
+              position = token
+            elsif low.start_with?("url(")
+              image = token
+            elsif low == "none"
+              none = true
+            else
+              type = token
+            end
+          end
+          type ||= "none" if none
+          image ||= "none" if none
+          [["list-style-type", type || "disc"],
+           ["list-style-position", position || "outside"],
+           ["list-style-image", image || "none"]]
+        end
+
+        # place-content/items/self: `<align> [<justify>]`; a single value
+        # applies to both. (Multi-keyword alignment values like `safe center`
+        # are not split — a documented simplification.)
+        def expand_place(suffix, value)
+          tokens = split_tokens(value)
+          [["align-#{suffix}", tokens[0]], ["justify-#{suffix}", tokens[1] || tokens[0]]]
         end
       end
     end
