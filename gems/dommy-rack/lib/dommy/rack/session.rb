@@ -22,6 +22,7 @@ module Dommy
         :default_host, :follow_redirects, :max_redirects,
         :respect_method_override, :method_override_param,
         :user_agent, :accept, :enforce_same_origin, :follow_meta_refresh,
+        :load_stylesheets,
         keyword_init: true
       )
 
@@ -32,6 +33,14 @@ module Dommy
       # rack integration is required; nil means JS support is unavailable.
       class << self
         attr_accessor :javascript_runtime_factory
+
+        # Fetching external <link rel=stylesheet> CSS (so class-based
+        # visibility matches a browser) is browser-spec behavior, not plain
+        # rack_test: an unset `load_stylesheets` follows `javascript` (a
+        # browser spec runs page JS too). An explicit value always wins.
+        def resolve_load_stylesheets(load_stylesheets, javascript)
+          load_stylesheets.nil? ? javascript : load_stylesheets
+        end
       end
 
       def initialize(app,
@@ -44,6 +53,7 @@ module Dommy
                      accept: DEFAULT_ACCEPT,
                      enforce_same_origin: true,
                      follow_meta_refresh: true,
+                     load_stylesheets: nil,
                      javascript: false)
         @app = app
         @config = Config.new(
@@ -55,7 +65,8 @@ module Dommy
           user_agent: user_agent,
           accept: accept,
           enforce_same_origin: enforce_same_origin,
-          follow_meta_refresh: follow_meta_refresh
+          follow_meta_refresh: follow_meta_refresh,
+          load_stylesheets: self.class.resolve_load_stylesheets(load_stylesheets, javascript)
         ).freeze
         @cookie_jar = CookieJar.new
         @headers = HeaderStore.new
@@ -119,6 +130,7 @@ module Dommy
       def max_redirects = @config.max_redirects
       def enforce_same_origin? = @config.enforce_same_origin
       def follow_meta_refresh? = @config.follow_meta_refresh
+      def load_stylesheets? = @config.load_stylesheets
       def config = @config
 
       # --- Navigation API ---
@@ -450,9 +462,41 @@ module Dommy
         @current_url = final_url
         if response.html?
           @current_window = response.window
+          # Fill external stylesheets before listeners (script boot /
+          # DOMContentLoaded) run, so CSS-driven computed styles and :visible
+          # are correct from the first observation.
+          load_document_stylesheets(@current_window) if load_stylesheets?
           @document_loaded_listeners.each { |cb| cb.call(@current_window) }
         end
         @history.push(final_url) if push_history
+      end
+
+      # Resolve each same-origin `<link rel=stylesheet>` through the app and
+      # fill its sheet (Dommy fetches nothing on its own). Best-effort: a
+      # cross-origin href, a non-2xx response, or any fetch error just leaves
+      # that link empty — its rules simply don't apply, never raising mid-load.
+      def load_document_stylesheets(window)
+        document = window&.document
+        return unless document
+
+        document.query_selector_all("link").each do |link|
+          next unless link.respond_to?(:set_stylesheet_text)
+
+          href = link.get_attribute("href").to_s
+          next if href.empty? || link.get_attribute("rel").to_s !~ /\bstylesheet\b/i
+
+          css = fetch_stylesheet_text(href)
+          link.set_stylesheet_text(css) if css
+        end
+      end
+
+      def fetch_stylesheet_text(href)
+        response = fetch(href)
+        return nil unless response&.status.to_i.between?(200, 299)
+
+        response.body.to_s
+      rescue StandardError
+        nil
       end
 
       # After an interaction's events are dispatched (Ruby-side, synchronously
