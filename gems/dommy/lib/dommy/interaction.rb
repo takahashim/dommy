@@ -20,6 +20,8 @@ module Dommy
   end
 end
 
+# Shared text/selector matching primitives the driver's matchers rely on.
+require_relative "internal/dom_matching"
 require_relative "interaction/event_synthesis"
 require_relative "interaction/locator"
 require_relative "interaction/field_interactor"
