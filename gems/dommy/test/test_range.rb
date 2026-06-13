@@ -104,6 +104,42 @@ class TestRange < Minitest::Test
     assert_equal(-1, a.compare_boundary_points(Dommy::Range::END_TO_END, b))
   end
 
+  def test_compare_boundary_points_coerces_how_per_webidl
+    a = @doc.create_range
+    a.set_start(@text, 0)
+    a.set_end(@text, 5)
+    b = @doc.create_range
+    b.set_start(@text, 3)
+    b.set_end(@text, 8)
+
+    # unsigned short: NaN / Infinity / 65536 / "0" all convert to 0 (START_TO_START).
+    assert_equal(-1, a.compare_boundary_points(Float::NAN, b))
+    assert_equal(-1, a.compare_boundary_points(Float::INFINITY, b))
+    assert_equal(-1, a.compare_boundary_points(65_536, b))
+    assert_equal(-1, a.compare_boundary_points("0", b))
+    # Values that don't convert to 0-3 are a NotSupportedError.
+    assert_raises(Dommy::DOMException::NotSupportedError) { a.compare_boundary_points(8, b) }
+    assert_raises(Dommy::DOMException::NotSupportedError) { a.compare_boundary_points(-1, b) }
+  end
+
+  def test_range_boundary_constants_exposed_via_js_get
+    r = @doc.create_range
+    assert_equal(0, r.__js_get__("START_TO_START"))
+    assert_equal(1, r.__js_get__("START_TO_END"))
+    assert_equal(2, r.__js_get__("END_TO_END"))
+    assert_equal(3, r.__js_get__("END_TO_START"))
+  end
+
+  def test_range_node_length_uses_comment_data_length
+    comment = @doc.create_comment("Alphabet soup?")
+    @doc.body.append_child(comment)
+    range = @doc.create_range
+    # Offset within the 14-char comment's data is valid (was rejected when a
+    # comment's length was computed as its child count, 0).
+    range.set_start(comment, 4)
+    assert_equal(4, range.start_offset)
+  end
+
   def test_clone_range_is_independent
     range = @doc.create_range
     range.set_start(@text, 0)

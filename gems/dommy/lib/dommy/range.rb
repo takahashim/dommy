@@ -256,7 +256,10 @@ module Dommy
     # --- Ordering / containment ------------------------------------
 
     def compare_boundary_points(how, other)
-      # `how` must be one of the four named constants, else NotSupportedError.
+      # `how` is a WebIDL `unsigned short`: coerce first (NaN/±0/±Infinity → 0,
+      # otherwise truncate toward zero and take modulo 2^16), then require one of
+      # the four named constants, else NotSupportedError.
+      how = to_unsigned_short(how)
       unless [START_TO_START, START_TO_END, END_TO_END, END_TO_START].include?(how)
         raise DOMException::NotSupportedError, "invalid comparison type: #{how}"
       end
@@ -359,6 +362,14 @@ module Dommy
         collapsed?
       when "commonAncestorContainer"
         common_ancestor_container
+      when "START_TO_START"
+        START_TO_START
+      when "START_TO_END"
+        START_TO_END
+      when "END_TO_END"
+        END_TO_END
+      when "END_TO_START"
+        END_TO_START
       end
     end
 
@@ -438,19 +449,52 @@ module Dommy
       node.respond_to?(:node_type) && node.node_type == 3
     end
 
+    # WHATWG "length of a node": a DocumentType is 0; a CharacterData node
+    # (Text / CDATASection / ProcessingInstruction / Comment) is its data
+    # length; any other node is its number of children.
     def length_of(node)
-      if text_node?(node)
-        node.data.to_s.length
-      elsif node.respond_to?(:child_nodes)
-        node.child_nodes.length
-      else
+      case node.respond_to?(:node_type) ? node.node_type : nil
+      when 10 # DocumentType
         0
+      when 3, 4, 7, 8 # Text, CDATASection, ProcessingInstruction, Comment
+        node.respond_to?(:data) ? node.data.to_s.length : 0
+      else
+        node.respond_to?(:child_nodes) ? node.child_nodes.length : 0
       end
     end
 
     # WebIDL unsigned long: wrap modulo 2^32 (so -1 → 4294967295).
     def unsigned_long(value)
       value.to_i % (2**32)
+    end
+
+    # WebIDL `unsigned short` conversion: ToNumber, then NaN/±0/±Infinity → 0,
+    # otherwise truncate toward zero and take modulo 2^16.
+    def to_unsigned_short(value)
+      num = web_to_number(value)
+      return 0 if num.nan? || num.zero? || num.infinite?
+
+      ((num.negative? ? -1 : 1) * num.abs.floor) % 65536
+    end
+
+    # WebIDL ToNumber for the values that reach a bridged argument.
+    def web_to_number(value)
+      case value
+      when Numeric then value.to_f
+      when nil, false then 0.0
+      when true then 1.0
+      when String
+        stripped = value.strip
+        return 0.0 if stripped.empty?
+
+        begin
+          Float(stripped)
+        rescue ArgumentError
+          Float::NAN
+        end
+      else
+        Float::NAN
+      end
     end
 
     # Two nodes share a root iff their topmost ancestors are the same node.
