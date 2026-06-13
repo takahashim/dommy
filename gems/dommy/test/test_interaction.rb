@@ -76,6 +76,23 @@ class TestInteraction < Minitest::Test
     refute(result[:params].any? { |name, _| name == "_method" }, "override param is consumed")
   end
 
+  def test_has_css_with_text_and_count
+    win = make_window(<<~HTML)
+      <ul><li class="todo">Buy milk</li><li class="todo">Walk dog</li></ul>
+    HTML
+    driver = Object.new.extend(Dommy::Interaction::Driver)
+    driver.define_singleton_method(:document) { win.document }
+
+    assert driver.has_css?("li.todo")
+    assert driver.has_css?("li.todo", text: "Buy milk")
+    assert driver.has_css?("li.todo", text: /walk/i)
+    refute driver.has_css?("li.todo", text: "Cook dinner")
+    assert driver.has_css?("li.todo", count: 2)
+    refute driver.has_css?("li.todo", count: 1)
+    assert driver.has_css?("li.todo", text: "Buy milk", count: 1)
+    assert driver.has_no_css?("li.todo", text: "nope")
+  end
+
   def test_scheduler_next_animation_frame_at
     sched = Dommy::Scheduler.new
     assert_nil sched.next_animation_frame_at

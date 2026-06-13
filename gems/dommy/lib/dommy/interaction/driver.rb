@@ -122,12 +122,16 @@ module Dommy
 
       # --- Matchers ---
 
-      def has_css?(selector, count: nil)
-        nodes = scope_root ? scope_root.query_selector_all(selector) : []
+      # True when an element matches `selector` in scope. `text:` keeps only
+      # elements whose text contains the String (or matches the Regexp);
+      # `count:` requires an exact number of matches.
+      def has_css?(selector, text: nil, count: nil)
+        nodes = scope_root ? scope_root.query_selector_all(selector).to_a : []
+        nodes = nodes.select { |node| text_matches?(node, text) } unless text.nil?
         count ? nodes.size == count : !nodes.empty?
       end
 
-      def has_no_css?(selector, count: nil) = !has_css?(selector, count: count)
+      def has_no_css?(selector, text: nil, count: nil) = !has_css?(selector, text: text, count: count)
 
       def has_text?(string)
         scope_text.include?(string.to_s)
@@ -145,6 +149,13 @@ module Dommy
       end
 
       private
+
+      # Whether a node's text satisfies a `text:` filter (substring for a
+      # String, pattern for a Regexp).
+      def text_matches?(node, text)
+        content = node.respond_to?(:text_content) ? node.text_content.to_s : ""
+        text.is_a?(Regexp) ? content.match?(text) : content.include?(text.to_s)
+      end
 
       # True if the block finds an element. A unique or ambiguous match counts
       # as present; only "not found" counts as absent.
