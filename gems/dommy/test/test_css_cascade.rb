@@ -254,6 +254,34 @@ class TestCssCascade < Minitest::Test
     assert_equal "rgb(0, 128, 0)", s["text-decoration-color"]
   end
 
+  # --- line-height ------------------------------------------------------
+
+  def test_line_height_percentage_resolves_to_px
+    doc = doc_for('<style>#x { font-size: 20px; line-height: 150% }</style><p id="x">x</p>')
+    assert_equal "30px", computed(doc, "x")["line-height"]
+  end
+
+  def test_line_height_unitless_number_is_kept
+    doc = doc_for('<style>#x { font-size: 20px; line-height: 1.5 }</style><p id="x">x</p>')
+    assert_equal "1.5", computed(doc, "x")["line-height"]
+  end
+
+  def test_line_height_unitless_inherits_as_number
+    doc = doc_for(<<~HTML)
+      <style>#outer { font-size: 20px; line-height: 1.5 } #inner { font-size: 40px }</style>
+      <div id="outer"><span id="inner">x</span></div>
+    HTML
+    # The unitless number inherits as-is (scales to each font-size), unlike a
+    # resolved percentage which would have inherited the ancestor's px.
+    assert_equal "1.5", computed(doc, "inner")["line-height"]
+  end
+
+  def test_line_height_length_and_normal_unchanged
+    doc = doc_for('<style>#a { font-size: 20px; line-height: 2em } #b { line-height: normal }</style><p id="a">a</p><p id="b">b</p>')
+    assert_equal "40px", computed(doc, "a")["line-height"]
+    assert_equal "normal", computed(doc, "b")["line-height"]
+  end
+
   # --- calc() / min() / max() / clamp() ---------------------------------
 
   def test_calc_resolves_in_computed_value

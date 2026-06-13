@@ -193,10 +193,26 @@ module Dommy
         def computed_value(name, value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
           return Color.normalize(value) if COLOR_PROPERTIES.include?(name)
           return FONT_WEIGHT_KEYWORDS.fetch(value.downcase, value) if name == "font-weight"
+          # A <percentage> line-height computes to px against the element's own
+          # font-size (CSS2 §10.8.1), inherited as that length. A unitless
+          # <number> is kept as the number — its whole point is to inherit
+          # unitless and scale to each descendant's font-size.
+          if name == "line-height" && (pct = percentage_of(value, font_size))
+            return pct
+          end
 
           ctx = {font_size: font_size, root_font_size: root_font_size,
                  viewport_width: viewport_width, viewport_height: viewport_height}
           evaluate_calc(value, **ctx) || resolve_length(value, **ctx) || value
+        end
+
+        # px for a "<number>%" value against `base` px, or nil when not a
+        # percentage (or no base available).
+        def percentage_of(value, base)
+          return nil unless base
+
+          match = value.to_s.strip.match(/\A(-?\d+(?:\.\d+)?)%\z/)
+          match && format_px(match[1].to_f / 100.0 * base)
         end
 
         # Resolve a bare "<number><unit>" length to a px string, or nil when it
