@@ -165,6 +165,8 @@ module Dommy
       case key
       when "disabled"
         self.disabled = value
+      else
+        return Bridge::UNHANDLED
       end
 
       nil
@@ -557,6 +559,11 @@ module Dommy
       case key
       when "cssText" then self.css_text = value
       when "selectorText" then self.selector_text = value
+      else
+        # Signal "not a host property" so the bridge keeps the assignment as a
+        # JS-side expando (WebIDL platform objects allow expandos; WPT's
+        # [SameObject] tests stash a marker on cssRules[i] and read it back).
+        return Bridge::UNHANDLED
       end
 
       nil
