@@ -173,7 +173,40 @@ module Dommy
         node.respond_to?(:name) && %w[head script style template].include?(node.name)
       end
 
-      private_class_method :node_invisible_self?, :non_rendering_tag?
+      # Tags whose text never renders, so it must not count as page text.
+      NON_RENDERED_TEXT_TAGS = %w[head script style template noscript].freeze
+
+      # Visible text of a node's subtree: like `text_content`, but excluding
+      # subtrees that never render (script/style/head/template/noscript).
+      # Mirrors what a browser exposes to `has_text?` / text filters, so JSON
+      # embedded in a `<script data-page>` (Inertia/Turbo) or inline CSS is not
+      # mistaken for visible page text.
+      def rendered_text(node)
+        return "" if node.nil?
+
+        out = +""
+        append_rendered_text(node, out)
+        out
+      end
+
+      def append_rendered_text(node, out)
+        return unless node.respond_to?(:child_nodes)
+
+        node.child_nodes.each do |child|
+          # Element wrappers don't expose node_type as a Ruby method (it lives
+          # on the JS bridge), so branch on class: recurse into rendered
+          # elements, take character data verbatim, skip comments.
+          if child.is_a?(Dommy::Element)
+            next if NON_RENDERED_TEXT_TAGS.include?(child.local_name.to_s.downcase)
+
+            append_rendered_text(child, out)
+          elsif child.respond_to?(:node_type) && child.node_type == Dommy::Node::TEXT_NODE
+            out << child.text_content.to_s
+          end
+        end
+      end
+
+      private_class_method :node_invisible_self?, :non_rendering_tag?, :append_rendered_text
     end
   end
 end

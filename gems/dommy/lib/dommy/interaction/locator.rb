@@ -14,7 +14,7 @@ module Dommy
       # A form field by id, name, label text, placeholder, or aria-label.
       def find_field(locator)
         candidates = []
-        by_id = @document.get_element_by_id(locator)
+        by_id = element_by_id(locator)
         candidates << by_id if by_id
         candidates.concat(by_name(locator))
         candidates.concat(label_targets(locator))
@@ -49,13 +49,26 @@ module Dommy
       def form_for(element)
         form_id = element.get_attribute("form")
         if form_id && !form_id.empty?
-          @document.get_element_by_id(form_id)
+          element_by_id(form_id)
         else
           element.closest("form")
         end
       end
 
       private
+
+      # Resolve an id within scope. The scope may be a Document (which has
+      # getElementById) or, under `within(selector)`, a plain Element — which
+      # has no getElementById, so fall back to a subtree scan by id attribute.
+      def element_by_id(id)
+        return nil if id.nil? || id.to_s.empty?
+
+        if @document.respond_to?(:get_element_by_id)
+          @document.get_element_by_id(id)
+        else
+          @document.query_selector_all("[id]").find { |el| el.get_attribute("id") == id.to_s }
+        end
+      end
 
       def by_name(locator)
         @document.query_selector_all("[name]").select { |e| e.get_attribute("name") == locator }
@@ -68,9 +81,26 @@ module Dommy
 
       def label_targets(locator)
         @document.query_selector_all("label")
-          .select { |label| label.text_content.strip == locator }
+          .select { |label| label_caption(label) == locator }
           .map { |label| label_control(label) }
           .compact
+      end
+
+      # A label's caption text: its own text, excluding nested form controls
+      # (a wrapped `<label>Status<select>…</select></label>` reads as "Status",
+      # not "Status" plus the option text).
+      def label_caption(label)
+        parts = []
+        label.child_nodes.each do |child|
+          if child.is_a?(Dommy::Element)
+            next if %w[input select textarea button].include?(child.local_name.to_s.downcase)
+
+            parts << child.text_content.to_s
+          elsif child.respond_to?(:text_content)
+            parts << child.text_content.to_s
+          end
+        end
+        parts.join.strip
       end
 
       def label_control(label)
@@ -78,7 +108,7 @@ module Dommy
 
         for_id = label.get_attribute("for")
         if for_id && !for_id.empty?
-          @document.get_element_by_id(for_id)
+          element_by_id(for_id)
         else
           label.query_selector("input, textarea, select")
         end

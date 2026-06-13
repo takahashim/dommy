@@ -41,9 +41,9 @@ module Dommy
       def scope_text
         root = scope_root
         return "" unless root
-        return root.body&.text_content.to_s if root.respond_to?(:body)
+        return Internal::DomMatching.rendered_text(root.body) if root.respond_to?(:body)
 
-        root.respond_to?(:text_content) ? root.text_content.to_s : ""
+        root.respond_to?(:child_nodes) ? Internal::DomMatching.rendered_text(root) : ""
       end
 
       # --- Finding ---
@@ -78,7 +78,12 @@ module Dommy
       # event sequence so JS click handlers run.
       def click(selector)
         element = find(selector)
-        EventSynthesis.click(element)
+        prevented = EventSynthesis.click(element)
+        # Browser activation behavior: an un-prevented click on a submit button
+        # runs form submission, whose JS-observable effect is a `submit` event
+        # on the owning form (a SPA handles it / preventDefaults navigation).
+        # This makes `click "button[type=submit]"` behave like a real click.
+        submit_owning_form(element) unless prevented
         after_interaction
         element
       end
@@ -158,10 +163,22 @@ module Dommy
 
       private
 
+      # Dispatch a `submit` event on the form owning a clicked submit button.
+      # Real navigation on an un-prevented submit is a host (Session) concern;
+      # here we only surface the event so SPA handlers run.
+      def submit_owning_form(element)
+        return unless respond_to?(:submit_button?, true) && submit_button?(element)
+
+        form = finder.form_for(element)
+        return unless form
+
+        form.dispatch_event(Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true))
+      end
+
       # Whether a node's text satisfies a `text:` filter (substring for a
       # String, pattern for a Regexp).
       def text_matches?(node, text)
-        content = node.respond_to?(:text_content) ? node.text_content.to_s : ""
+        content = Internal::DomMatching.rendered_text(node)
         text.is_a?(Regexp) ? content.match?(text) : content.include?(text.to_s)
       end
 
