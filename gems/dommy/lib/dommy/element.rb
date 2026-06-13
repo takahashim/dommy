@@ -1602,6 +1602,12 @@ module Dommy
       Internal::AriaRole.compute(self)
     end
 
+    # The WAI-ARIA accessible name (WPT's get_computed_label): aria-labelledby /
+    # aria-label / native label / name-from-content / title.
+    def computed_label
+      Internal::AccessibleName.compute(self)
+    end
+
     # `Node.baseURI` — resolves against the document's base URL, which
     # in turn honors the first `<base href>` element (see
     # `Document#base_uri`).
@@ -2344,12 +2350,14 @@ module Dommy
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
       hasChildNodes hasAttributes getRootNode normalize contains
       compareDocumentPosition isSameNode lookupNamespaceURI lookupPrefix isDefaultNamespace
-      __internal_computed_role__
+      __internal_computed_role__ __internal_computed_label__
     ]
     def __js_call__(method, args)
       case method
       when "__internal_computed_role__"
         computed_role
+      when "__internal_computed_label__"
+        computed_label
       when "hasChildNodes"
         has_child_nodes?
       when "hasAttributes"
