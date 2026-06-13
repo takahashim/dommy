@@ -71,6 +71,8 @@ module Dommy
         @public_id
       when "systemId"
         @system_id
+      when "ownerDocument"
+        @owner_document
       end
     end
 
@@ -264,16 +266,22 @@ module Dommy
     end
   end
 
-  # `document.implementation` — the DOMImplementation. Only the node factories
-  # WPT exercises are provided; createDocument/createHTMLDocument are not yet
-  # implemented (foreign documents).
+  # `document.implementation` — the DOMImplementation.
   class DOMImplementation
     def initialize(document)
       @document = document
     end
 
+    # A created DocumentType's node document is the implementation's document.
+    # (Qualified-name validation against the QName production is not enforced —
+    # a couple of invalid-name WPT cases stay as documented gaps.)
     def create_document_type(qualified_name, public_id, system_id)
-      DocumentType.new(qualified_name, public_id, system_id)
+      DocumentType.new(qualified_name, public_id, system_id, owner_document: @document)
+    end
+
+    # `hasFeature()` is a no-op that always returns true (DOM Standard).
+    def has_feature(*)
+      true
     end
 
     # createDocument(namespace, qualifiedName, doctype?) — a fresh XML document,
@@ -311,7 +319,7 @@ module Dommy
     def __js_get__(_key) = nil
 
     include Bridge::Methods
-    js_methods %w[createDocumentType createDocument createHTMLDocument]
+    js_methods %w[createDocumentType createDocument createHTMLDocument hasFeature]
     def __js_call__(method, args)
       case method
       when "createDocumentType"
@@ -320,6 +328,8 @@ module Dommy
         create_document(args[0], args[1], args[2])
       when "createHTMLDocument"
         create_html_document(args[0])
+      when "hasFeature"
+        has_feature
       end
     end
   end
