@@ -25,6 +25,8 @@ if defined?(RubyVM::AbstractSyntaxTree) && RUBY_ENGINE == "ruby"
       Dommy::Bridge::PromiseSettler
       Dommy::FetchFn
       Dommy::DatasetMap
+      Dommy::Js::HostCallback
+      Dommy::Js::HostNodeFilter
     ].freeze
 
     @file_ast = {}

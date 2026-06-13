@@ -18,7 +18,9 @@ Gem::Specification.new do |spec|
 
   spec.metadata["homepage_uri"] = spec.homepage
 
-  spec.files = Dir["lib/**/*.rb", "README.md"]
+  # Includes the JS bridge runtime bundles (lib/dommy/js/*.js) read at load by
+  # Dommy::Js::HostBridge, not just Ruby sources.
+  spec.files = Dir["lib/**/*.rb", "lib/**/*.js", "README.md"]
   spec.require_paths = ["lib"]
 
   # Default HTML parser backend.
