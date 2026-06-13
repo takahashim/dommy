@@ -76,6 +76,15 @@ require_relative "dommy/css"
 require_relative "dommy/resources"
 require_relative "dommy/interaction"
 
+# JS-runtime host layer (engine-agnostic): the Runtime port + backend registry,
+# script-boot orchestration, and the standalone Browser. A concrete JS engine
+# (e.g. dommy-js-quickjs) registers itself through `Dommy::Js.register_runtime`.
+require_relative "dommy/js/runtime"
+require_relative "dommy/js/import_map"
+require_relative "dommy/js/module_loader"
+require_relative "dommy/js/script_boot"
+require_relative "dommy/browser"
+
 module Dommy
   # Parse an HTML string and return a fresh `Window`.
   #
