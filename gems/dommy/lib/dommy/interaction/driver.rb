@@ -57,14 +57,19 @@ module Dommy
       end
 
       # The single element matching `selector` in scope (raises if none).
-      def find(selector)
-        scope_root&.query_selector(selector) ||
-          raise(ElementNotFoundError, "no element matching #{selector.inspect}")
+      # The first element matching `selector` in scope (raises if none). `text:`
+      # keeps only elements whose text contains the String (or matches the
+      # Regexp).
+      def find(selector, text: nil)
+        all(selector, text: text).first ||
+          raise(ElementNotFoundError, "no element matching #{selector.inspect}#{" with text #{text.inspect}" if text}")
       end
 
-      # All elements matching `selector` in scope (possibly empty).
-      def all(selector)
-        scope_root ? scope_root.query_selector_all(selector).to_a : []
+      # All elements matching `selector` in scope (possibly empty), optionally
+      # filtered by `text:`.
+      def all(selector, text: nil)
+        nodes = scope_root ? scope_root.query_selector_all(selector).to_a : []
+        text.nil? ? nodes : nodes.select { |node| text_matches?(node, text) }
       end
 
       # --- Interaction ---
@@ -133,11 +138,14 @@ module Dommy
 
       def has_no_css?(selector, text: nil, count: nil) = !has_css?(selector, text: text, count: count)
 
-      def has_text?(string)
-        scope_text.include?(string.to_s)
+      # True when the current scope's text contains `text` (a String substring)
+      # or matches it (a Regexp).
+      def has_text?(text)
+        content = scope_text
+        text.is_a?(Regexp) ? content.match?(text) : content.include?(text.to_s)
       end
 
-      def has_no_text?(string) = !has_text?(string)
+      def has_no_text?(text) = !has_text?(text)
 
       def has_link?(locator) = element_present? { finder.find_link(locator) }
       def has_button?(locator) = element_present? { finder.find_button(locator) }

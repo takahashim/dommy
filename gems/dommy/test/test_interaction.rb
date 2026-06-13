@@ -93,6 +93,33 @@ class TestInteraction < Minitest::Test
     assert driver.has_no_css?("li.todo", text: "nope")
   end
 
+  def test_find_and_all_with_text_filter
+    win = make_window(<<~HTML)
+      <ul><li class="todo">Buy milk</li><li class="todo">Walk dog</li></ul>
+    HTML
+    driver = Object.new.extend(Dommy::Interaction::Driver)
+    driver.define_singleton_method(:document) { win.document }
+
+    assert_equal 2, driver.all("li.todo").size
+    assert_equal 1, driver.all("li.todo", text: "Walk").size
+    assert_equal 0, driver.all("li.todo", text: "Cook").size
+
+    assert_equal "Buy milk", driver.find("li.todo", text: "Buy milk").text_content
+    assert_equal "Walk dog", driver.find("li.todo", text: /walk/i).text_content
+    assert_raises(Dommy::Interaction::ElementNotFoundError) { driver.find("li.todo", text: "Cook") }
+  end
+
+  def test_has_text_accepts_regexp
+    win = make_window("<p>Status: Done</p>")
+    driver = Object.new.extend(Dommy::Interaction::Driver)
+    driver.define_singleton_method(:document) { win.document }
+
+    assert driver.has_text?("Done")
+    assert driver.has_text?(/done/i)
+    refute driver.has_text?(/active/i)
+    assert driver.has_no_text?(/active/i)
+  end
+
   def test_scheduler_next_animation_frame_at
     sched = Dommy::Scheduler.new
     assert_nil sched.next_animation_frame_at
