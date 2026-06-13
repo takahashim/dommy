@@ -67,8 +67,9 @@ module Dommy
           when "length" then length
           when "parentRule" then nil
           else
-            value = styles[camel_to_kebab(key)]
-            value&.to_s
+            # An unset/unknown property reads as "" per CSSStyleDeclaration
+            # (a detached element's whole declaration is empty), not undefined.
+            styles[camel_to_kebab(key)].to_s
           end
         end
 

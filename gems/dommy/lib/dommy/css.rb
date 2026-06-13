@@ -78,9 +78,11 @@ module Dommy
       nil
     end
 
-    # `insertRule(rule_text, index)` — appends an opaque CSSRule at the
-    # given position (default: end). Returns the index used.
+    # `insertRule(rule, index)` — `rule` is required; inserts a CSSRule at the
+    # given position (Dommy defaults to the end). Returns the index used.
     def insert_rule(rule_text, index = nil)
+      raise Bridge::TypeError, "insertRule requires a rule" if rule_text.nil?
+
       idx = index.nil? ? @css_rules.length : index.to_i
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx > @css_rules.length
 
@@ -89,13 +91,34 @@ module Dommy
       idx
     end
 
+    # `deleteRule(index)` — `index` is required.
     def delete_rule(index)
+      raise Bridge::TypeError, "deleteRule requires an index" if index.nil?
+
       idx = index.to_i
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx >= @css_rules.length
 
       @css_rules.__internal_delete_at__(idx)
       __bump_owner_style_generation__
       nil
+    end
+
+    # `addRule(selector, style, index)` — the legacy IE-era editing API (still
+    # in CSSOM). Builds `selector { style }`, inserts it (default: at the end),
+    # and returns -1. Omitted selector/style stringify to "undefined", matching
+    # the spec's coercion.
+    def add_rule(selector = nil, style = nil, index = nil)
+      selector = selector.nil? ? "undefined" : selector.to_s
+      style = style.nil? ? "undefined" : style.to_s
+      idx = index.nil? ? @css_rules.length : index.to_i
+      insert_rule("#{selector} { #{style} }", idx)
+      -1
+    end
+
+    # `removeRule(index = 0)` — the legacy alias for deleteRule (its index
+    # defaults to 0, unlike deleteRule's required argument).
+    def remove_rule(index = 0)
+      delete_rule(index.nil? ? 0 : index)
     end
 
     # `replaceSync(text)` — replace all rules with a single rule blob
@@ -148,13 +171,17 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[insertRule deleteRule replaceSync replace]
+    js_methods %w[insertRule deleteRule addRule removeRule replaceSync replace]
     def __js_call__(method, args)
       case method
       when "insertRule"
         insert_rule(args[0], args[1])
       when "deleteRule"
         delete_rule(args[0])
+      when "addRule"
+        add_rule(args[0], args[1], args[2])
+      when "removeRule"
+        remove_rule(args[0])
       when "replaceSync"
         replace_sync(args[0])
       when "replace"
