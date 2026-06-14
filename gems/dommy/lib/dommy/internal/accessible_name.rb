@@ -7,8 +7,11 @@ module Dommy
     # Testing Library's name option matches. A focused implementation covering
     # the common steps: aria-labelledby, aria-label, native host-language
     # labels (<label>, alt), name-from-content for the roles that allow it, and
-    # the title fallback. Layout/CSS-derived names (pseudo-content) and embedded
-    # control values are out of scope.
+    # the title fallback. Name-from-content folds in CSS `::before` / `::after`
+    # generated content (the accname algorithm requires it) — but only the text
+    # components it can resolve without rendering: quoted strings and `attr()`.
+    # `counter()` / `counters()`, bare `url()` images, and other layout-derived
+    # content contribute nothing. Embedded control values are out of scope.
     module AccessibleName
       # Roles whose accessible name may come from descendant content.
       NAME_FROM_CONTENT = %w[
@@ -154,12 +157,14 @@ module Dommy
         nil
       end
 
-      # Concatenate child text nodes and the names of element children.
+      # Concatenate child text nodes and the names of element children, with the
+      # `::before` content prepended and `::after` content appended (accname
+      # name-from-content folds in generated content).
       def content_name(node, visited)
         bn = node.__dommy_backend_node__
         return "" unless bn.respond_to?(:children)
 
-        bn.children.map do |child|
+        children = bn.children.map do |child|
           if child.respond_to?(:text?) && child.text?
             child.text.to_s
           elsif child.respond_to?(:element?) && child.element?
@@ -169,6 +174,46 @@ module Dommy
             ""
           end
         end.join
+
+        pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
+      end
+
+      # The text contribution of a `::before` / `::after` pseudo-element's
+      # computed `content`. "" when the CSS layer is unavailable, the pseudo has
+      # no generated content (`none` / `normal`), or its content is purely
+      # non-text (counter/url/etc.).
+      def pseudo_content(node, pseudo)
+        return "" unless Internal::CSS::Parser.available?
+
+        decl = Internal::CSS::ComputedStyleDeclaration.new(node, pseudo_element: pseudo)
+        content_text(decl.get_property_value("content"), node)
+      rescue StandardError
+        ""
+      end
+
+      # Resolve a computed `content` value to its accname text. Scans for the
+      # text-bearing components in order — quoted strings (CSS-unescaped) and
+      # `attr(name)` (read off `node`) — and ignores everything else (`none` /
+      # `normal`, `counter()`, `url()`, keywords). The image `/ "alt"` syntax is
+      # covered for free: its alt string matches the quoted-string branch.
+      def content_text(value, node)
+        v = value.to_s.strip
+        return "" if v.empty? || v == "none" || v == "normal"
+
+        text = +""
+        v.scan(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|attr\(\s*([-\w]+)\s*\)/) do
+          dq, sq, attr = Regexp.last_match.captures
+          text << (attr ? node.get_attribute(attr).to_s : unescape_css_string(dq || sq))
+        end
+        text
+      end
+
+      # CSS string unescaping: `\HEX ` → the code point, `\<char>` → the char.
+      def unescape_css_string(str)
+        str.gsub(/\\(?:([0-9a-fA-F]{1,6})[ \t\n]?|(.))/) do
+          hex = Regexp.last_match(1)
+          hex ? [hex.to_i(16)].pack("U") : Regexp.last_match(2)
+        end
       end
     end
   end

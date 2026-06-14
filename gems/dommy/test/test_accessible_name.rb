@@ -50,4 +50,37 @@ class TestAccessibleName < Minitest::Test
     assert_equal "Legend", label_of("<fieldset><legend>Legend</legend></fieldset>", "fieldset")
     assert_equal "Cap", label_of("<table><caption>Cap</caption></table>", "table")
   end
+
+  # ---- CSS ::before / ::after generated content (accname folds it in) ----
+
+  def test_name_from_content_includes_pseudo_content
+    html = '<style>button::before{content:"★ "}button::after{content:" (!)"}</style>' \
+           "<button>Save</button>"
+    assert_equal "★ Save (!)", label_of(html, "button")
+  end
+
+  # A CSS hex escape (`\2605` = ★) terminated by one space: the space delimits
+  # the escape, so the string is just "★" — the matcher must decode it.
+  def test_pseudo_content_decodes_css_hex_escape
+    html = '<style>button::before{content:"\2605 OK"}</style><button>Go</button>'
+    assert_equal "★OKGo", label_of(html, "button")
+  end
+
+  def test_pseudo_content_resolves_attr
+    html = '<style>.req::after{content:" " attr(data-mark)}</style>' \
+           '<a href="#" role="link" class="req" data-mark="required">Email</a>'
+    assert_equal "Email required", label_of(html, "a")
+  end
+
+  def test_pseudo_content_ignores_counter_and_url
+    html = '<style>button::before{content:counter(n)}button::after{content:url(x.png)}</style>' \
+           "<button>X</button>"
+    assert_equal "X", label_of(html, "button")
+  end
+
+  def test_aria_label_still_wins_over_pseudo_content
+    html = '<style>button::before{content:"PSEUDO "}</style>' \
+           '<button aria-label="Explicit">Save</button>'
+    assert_equal "Explicit", label_of(html, "button")
+  end
 end
