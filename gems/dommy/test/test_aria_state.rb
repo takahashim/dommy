@@ -64,8 +64,12 @@ class TestAriaState < Minitest::Test
     assert_equal({level: 5}, state_of('<div role="heading" aria-level="5">x</div>', "div"))
   end
 
-  def test_non_heading_has_no_level
+  def test_level_only_for_level_supporting_roles
     refute_includes state_of("<p>x</p>", "p").keys, :level
+    # An hN keeps its level under listitem/row/treeitem, but not under a role
+    # that does not support aria-level (tablist).
+    assert_equal 2, state_of('<h2 role="listitem">x</h2>', "h2")[:level]
+    refute_includes state_of('<h2 role="tablist">x</h2>', "h2").keys, :level
   end
 
   def test_plain_element_has_empty_state

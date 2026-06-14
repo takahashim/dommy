@@ -14,6 +14,8 @@ module Dommy
     # <option>'s selected, a <details>'s open) wins; otherwise the matching
     # `aria-*` attribute is read (tri-state where ARIA allows it).
     module AriaState
+      # Roles that expose aria-level / a heading level in the snapshot.
+      LEVEL_ROLES = %w[heading listitem row treeitem].freeze
       CHECKABLE = %w[checkbox radio menuitemcheckbox menuitemradio switch treeitem].freeze
       SELECTABLE = %w[option tab row gridcell treeitem columnheader rowheader].freeze
       READONLY_ROLES = %w[textbox searchbox spinbutton combobox gridcell columnheader rowheader].freeze
@@ -26,10 +28,11 @@ module Dommy
         add(states, :checked, checked_state(element)) if CHECKABLE.include?(role)
         add(states, :disabled, disabled_state(element))
         add(states, :expanded, expanded_state(element))
-        # The level (hN tag or aria-level) is reported whenever present, even
-        # when an explicit role overrides the heading role (<h2 role=listitem>
-        # is still [level=2]).
-        add(states, :level, AriaRole.heading_level(element))
+        # The level (hN tag or aria-level) is reported for the roles that
+        # support it, even when an explicit role overrides the heading role
+        # (<h2 role=listitem> is `listitem [level=2]`, but <h2 role=tablist> has
+        # no level).
+        add(states, :level, LEVEL_ROLES.include?(role) ? AriaRole.heading_level(element) : nil)
         add(states, :pressed, tristate(element, "aria-pressed")) if role == "button"
         add(states, :readonly, readonly_state(element)) if READONLY_ROLES.include?(role)
         add(states, :required, required_state(element)) if REQUIRED_ROLES.include?(role)
