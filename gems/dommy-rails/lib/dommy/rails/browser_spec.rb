@@ -104,7 +104,10 @@ module Dommy
         ::File.write(::File.join(dir, "trace.json"), browser.trace.to_json)
         ::File.write(::File.join(dir, "trace.txt"), browser.trace.to_text)
         ::File.write(::File.join(dir, "visible-text.txt"), browser.text.to_s)
-        ::File.write(::File.join(dir, "dom-summary.txt"), browser.debug.dom_summary) if browser.respond_to?(:debug)
+        if browser.respond_to?(:debug)
+          ::File.write(::File.join(dir, "dom-summary.txt"), browser.debug.dom_summary)
+          ::File.write(::File.join(dir, "aria-snapshot.txt"), browser.debug.aria_snapshot)
+        end
         dir
       rescue StandardError
         nil

@@ -110,6 +110,7 @@ class TestBrowserSpec < Minitest::Test
       assert File.exist?(File.join(dir, "trace.txt"))
       assert File.exist?(File.join(dir, "visible-text.txt"))
       assert File.exist?(File.join(dir, "dom-summary.txt"))
+      assert File.exist?(File.join(dir, "aria-snapshot.txt"))
       assert_equal "page", File.read(File.join(dir, "visible-text.txt"))
       assert browser.disposed, "still disposes after saving artifacts"
     end

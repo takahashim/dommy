@@ -42,6 +42,14 @@ module Dommy
           refute(matched, msg)
         end
 
+        # Assert the subject's ARIA snapshot matches `expected` (Playwright-style
+        # subset; names may be /regex/).
+        def assert_aria_snapshot(expected, actual, msg: nil)
+          snapshot = dom_document_for(actual).aria_snapshot
+          msg ||= "expected aria snapshot to match:\n#{expected}\ngot:\n#{snapshot}"
+          assert(Dommy::Rails::AriaSnapshotMatching.matches?(snapshot, expected), msg)
+        end
+
         def assert_dom_has_meta(actual, name: nil, property: nil, content: nil, msg: nil)
           matched = Dommy::Rails::PageInspector.meta_matches?(dom_document_for(actual), name: name, property: property, content: content)
           msg ||= "expected to find meta #{meta_desc(name: name, property: property, content: content)}"
