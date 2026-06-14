@@ -26,7 +26,7 @@ module Dommy
         keyword_init: true
       )
 
-      attr_reader :last_request, :last_response, :history
+      attr_reader :last_request, :last_response, :history, :trace
 
       # A factory `->(session) { js_runtime_host }` that binds a JS runtime to a
       # session for `javascript: true`. dommy-js-quickjs installs one when its
@@ -54,7 +54,10 @@ module Dommy
                      enforce_same_origin: true,
                      follow_meta_refresh: true,
                      load_stylesheets: nil,
-                     javascript: false)
+                     javascript: false,
+                     trace: false,
+                     trace_level: :verbose,
+                     trace_dom: false)
         @app = app
         @config = Config.new(
           default_host: default_host,
@@ -81,12 +84,20 @@ module Dommy
         @response_listeners = []
         @document_loaded_listeners = []
         @js_runtime = build_js_runtime if javascript
+        # Built last so it can subscribe to the (already-created) JS runtime's
+        # console / js_error / script seams as well as the request/document seams.
+        @trace = Trace.attach(self, level: trace_level, dom: trace_dom) if trace
       end
 
       # Whether this session runs page JavaScript (created with `javascript:
       # true`). When true, navigation boots `<script>` tags and the interaction
       # verbs drive JS handlers.
       def javascript? = !@js_runtime.nil?
+
+      # The bound JS runtime (a SessionRuntime), or nil when JS is disabled.
+      # Exposed for the Trace to subscribe to the runtime's console / js_error /
+      # script seams; not part of the everyday browsing API.
+      def __internal_js_runtime = @js_runtime
 
       # Run JS for side effects against the current document's realm.
       def execute_script(script)
@@ -142,6 +153,7 @@ module Dommy
       # page mid-flight (before on-load async work completes). No-op settle when
       # JS is disabled.
       def visit(path, settle: true)
+        @trace&.__internal_open_action(:visit, path)
         result = @navigation.navigate(method: "GET", url: path)
         self.settle if settle && @js_runtime
         result
@@ -370,6 +382,7 @@ module Dommy
       # --- Link navigation ---
 
       def click_link(locator)
+        @trace&.__internal_open_action(:click_link, locator)
         click_link_element(finder.find_link(locator))
       end
 
@@ -395,6 +408,7 @@ module Dommy
       # --- Form submission ---
 
       def click_button(locator)
+        @trace&.__internal_open_action(:click_button, locator)
         button = finder.find_button(locator)
         # Only submit buttons submit a form. type=button / type=reset are
         # no-ops here since there is no JavaScript to handle their click.
@@ -407,6 +421,7 @@ module Dommy
         raise InvalidFormError, "element is not inside a form" if form.nil?
 
         result = FormSubmission.new(form, submitter, @config).submit!
+        @trace&.__internal_record_form(method: result[:method], url: result[:url], params: result[:params])
         navigate(method: result[:method], url: resolve_document_url(result[:url]),
                  params: result[:params], headers: referer_headers)
       end

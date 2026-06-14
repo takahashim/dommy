@@ -19,6 +19,7 @@ require_relative "rack/navigation"
 require_relative "rack/resources"
 require_relative "rack/network_bridge"
 require_relative "rack/session_runtime"
+require_relative "rack/trace"
 require_relative "rack/session"
 
 module Dommy
