@@ -16,7 +16,13 @@ module Dommy
       # generation (see Cascade) and thrown away wholesale on invalidation —
       # a viewport resize bumps the generation too, so @media re-evaluates.
       class RuleIndex
-        Match = Struct.new(:origin, :specificity, :order, :declarations, :layer)
+        Match = Struct.new(:origin, :specificity, :order, :declarations, :layer, :proximity)
+
+        # A resolved @scope: the scoping roots that scope-start matched, and the
+        # per-root scope limits (boundary elements from scope-end). An element is
+        # in scope for a root when it is an inclusive descendant of that root and
+        # not an inclusive descendant of any of the root's limits.
+        Scope = Struct.new(:roots, :ends)
 
         def self.build(document)
           new(document)
@@ -120,11 +126,11 @@ module Dommy
           []
         end
 
-        def add_rules(rules, origin, layer: nil)
+        def add_rules(rules, origin, layer: nil, scope: nil)
           rules.each do |rule|
             case rule
             when Parser::ImportRule
-              import_rules(rule, origin, layer: layer)
+              import_rules(rule, origin, layer: layer, scope: scope)
             when Parser::LayerStatement
               # `@layer a, b;` only fixes layer order; no rules to add.
               rule.names.each { |name| register_layer(layer_full_name(layer, name)) }
@@ -132,20 +138,26 @@ module Dommy
               # `@layer name { ... }` — enter the (possibly nested) layer.
               full = layer_full_name(layer, rule.name)
               register_layer(full)
-              add_rules(rule.rules, origin, layer: full)
+              add_rules(rule.rules, origin, layer: full, scope: scope)
+            when Parser::ScopeRule
+              # `@scope (start) to (end) { ... }` — resolve the roots/limits and
+              # scope the block's rules. (A nested @scope replaces the outer one
+              # for its block; combining both is a documented limitation.)
+              resolved = build_scope(rule.start, rule.end)
+              add_rules(rule.rules, origin, layer: layer, scope: resolved) if resolved
             else
               if rule.grouping?
                 # @media / @supports: the block contributes (flattened, in
-                # source order, keeping the current layer) only when active.
-                add_rules(rule.rules, origin, layer: layer) if grouping_active?(rule)
+                # source order, keeping the current layer/scope) only when active.
+                add_rules(rule.rules, origin, layer: layer, scope: scope) if grouping_active?(rule)
               else
-                add_style_rule(rule, origin, layer)
+                add_style_rule(rule, origin, layer, scope)
               end
             end
           end
         end
 
-        def add_style_rule(rule, origin, layer)
+        def add_style_rule(rule, origin, layer, scope)
           @order += 1
           @author_rules ||= origin == :author
           rule.selectors.each do |selector|
@@ -154,9 +166,30 @@ module Dommy
             selector.ast.selectors.each do |complex|
               pseudo = complex.pseudo_element&.name
               target_index = pseudo ? @pseudo_index[pseudo] : @index
-              query_complex(complex).each do |element|
-                (target_index[element] ||= []) << Match.new(origin, complex.specificity.to_a, @order, rule.declarations, layer)
+              spec = complex.specificity.to_a
+              if scope
+                index_scoped(complex, spec, target_index, origin, layer, scope, rule.declarations)
+              else
+                query_complex(complex).each do |element|
+                  (target_index[element] ||= []) << Match.new(origin, spec, @order, rule.declarations, layer, nil)
+                end
               end
+            end
+          end
+        end
+
+        # Index a scoped style rule: for each scoping root, match the selector
+        # with `:scope` bound to that root, keep only in-scope subjects, and tag
+        # each match with its scope proximity (generations from the subject up to
+        # the root — the cascade's nearest-scope tiebreaker).
+        def index_scoped(complex, spec, target_index, origin, layer, scope, declarations)
+          scope.roots.each do |root|
+            ends = scope.ends[root] || EMPTY
+            query_complex(complex, scope: root).each do |element|
+              next unless in_scope?(element, root, ends)
+
+              (target_index[element] ||= []) <<
+                Match.new(origin, spec, @order, declarations, layer, generations(element, root))
             end
           end
         end
@@ -191,13 +224,75 @@ module Dommy
         # media query, resolve the URL through the host (Dommy fetches nothing),
         # then parse and recurse. Each URL is imported once per build — a cheap
         # cycle/duplicate guard.
-        def import_rules(rule, origin, layer: nil)
+        def import_rules(rule, origin, layer: nil, scope: nil)
           return unless rule.media.empty? || MediaQuery.match?(rule.media, environment)
           return if @imported_urls[rule.url]
 
           @imported_urls[rule.url] = true
           css = resolve_import(rule.url)
-          add_rules(safe_parse(css), origin, layer: layer) if css
+          add_rules(safe_parse(css), origin, layer: layer, scope: scope) if css
+        end
+
+        # Resolve an @scope's prelude into a Scope (roots + per-root limits), or
+        # nil when the scope-start selector is invalid (the block then matches
+        # nothing). A nil start scopes to the document element; a nil end has no
+        # lower boundary. scope-end is matched with `:scope` bound to the root
+        # and kept to that root's subtree (a "donut" lower boundary).
+        def build_scope(start_text, end_text)
+          roots =
+            if start_text
+              ast = parse_selector(start_text)
+              return nil unless ast
+
+              Internal::SelectorMatcher.query(@document, ast)
+            else
+              [@document.document_element].compact
+            end
+
+          end_ast = end_text ? parse_selector(end_text) : nil
+          ends = {}.compare_by_identity
+          roots.each do |root|
+            ends[root] = if end_ast
+              Internal::SelectorMatcher.query(@document, end_ast, scope: root).select { |limit| inclusive?(root, limit) }
+            else
+              EMPTY
+            end
+          end
+          Scope.new(roots, ends)
+        end
+
+        def parse_selector(text)
+          Internal::SelectorParser.parse!(text)
+        rescue DOMException::SyntaxError
+          nil
+        end
+
+        # In scope for `root`: an inclusive descendant of the root that is not an
+        # inclusive descendant of any of the root's scope limits.
+        def in_scope?(element, root, ends)
+          return false unless inclusive?(root, element)
+
+          ends.none? { |limit| inclusive?(limit, element) }
+        end
+
+        # Whether `descendant` is `ancestor` or contained by it (DOM contains? is
+        # inclusive, but the equal? guard keeps it correct for any backend).
+        def inclusive?(ancestor, descendant)
+          ancestor.equal?(descendant) ||
+            (ancestor.respond_to?(:contains?) && ancestor.contains?(descendant))
+        end
+
+        # Scope proximity: the number of generations from `element` up to `root`
+        # (0 when they are the same element). `root` is guaranteed to be an
+        # ancestor-or-self of `element` (in_scope? checked it).
+        def generations(element, root)
+          steps = 0
+          current = element
+          until current.nil? || current.equal?(root)
+            current = current.parent_element
+            steps += 1
+          end
+          steps
         end
 
         # The host's URL -> CSS resolver (dommy-rack wires it to a same-origin
@@ -236,10 +331,10 @@ module Dommy
         # Match one complex selector (its pseudo-element stripped — the
         # matcher never matches pseudo-element subjects against elements;
         # specificity stays that of the full selector).
-        def query_complex(complex)
+        def query_complex(complex, scope: nil)
           complex = complex.without_pseudo_element if complex.pseudo_element?
           list = Internal::SelectorAST::SelectorList.new([complex])
-          Internal::SelectorMatcher.query(@document, list)
+          Internal::SelectorMatcher.query(@document, list, scope: scope)
         end
 
         def pseudo_name(pseudo_element)

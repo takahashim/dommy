@@ -4,7 +4,8 @@ require_relative "../test_helper"
 
 # WPT-flavoured coverage for conditional/grouping at-rules feeding the cascade:
 # @media nesting, @layer (real cascade-layer ordering — layered styles sort
-# between origin and specificity), and @import splicing. Adapted (not mirrored):
+# between origin and specificity), @scope (in-scope matching, :scope binding,
+# donut scope-end, proximity), and @import splicing. Adapted (not mirrored):
 # WPT uses testharness.js / reftests; here rules are applied through
 # getComputedStyle.
 #
@@ -129,5 +130,50 @@ class TestWPTCssCascadeAtRules < Minitest::Test
       resolver: ->(url) { sheets[url] }
     )
     assert_equal "rgb(255, 0, 0)", cs["color"] # b.css applied; big.css media-gated out
+  end
+
+  # css-cascade-6 §3: a scoped rule only matches elements in scope (an inclusive
+  # descendant of an element matching scope-start).
+  def test_scope_limits_matching_to_in_scope_elements
+    html = '<style>@scope (.card) { p { color: red } }</style>' \
+           '<div class="card"><p id="in">x</p></div><p id="out">y</p>'
+    assert_equal "rgb(255, 0, 0)", computed(html, "in")["color"]
+    assert_equal "rgb(0, 0, 0)", computed(html, "out")["color"]
+  end
+
+  # :scope inside @scope binds to the scoping root.
+  def test_scope_pseudo_binds_to_scoping_root
+    html = '<style>@scope (.card) { :scope { color: green } }</style><div class="card" id="t">x</div>'
+    assert_equal "rgb(0, 128, 0)", computed(html, "t")["color"]
+  end
+
+  # scope-end is a "donut" lower boundary: the limit element and its descendants
+  # are out of scope.
+  def test_scope_end_excludes_lower_boundary
+    html = '<style>@scope (.card) to (.content) { p { color: red } }</style>' \
+           '<div class="card"><p id="above">a</p>' \
+           '<div class="content"><p id="below">b</p></div></div>'
+    assert_equal "rgb(255, 0, 0)", computed(html, "above")["color"]
+    assert_equal "rgb(0, 0, 0)", computed(html, "below")["color"]
+  end
+
+  # css-cascade-6 §6.x: scope proximity (generations to the nearest scoping root)
+  # breaks ties between specificity and source order — the nearer scope wins even
+  # when its rule is declared earlier.
+  def test_scope_proximity_beats_source_order
+    html = '<style>' \
+           '@scope (.inner) { p { color: red } }' \
+           '@scope (.outer) { p { color: green } }' \
+           '</style>' \
+           '<div class="outer"><div class="inner"><p id="t">x</p></div></div>'
+    assert_equal "rgb(255, 0, 0)", computed(html, "t")["color"]
+  end
+
+  # A scoped declaration (finite proximity) beats an unscoped one (proximity
+  # infinity) at equal specificity.
+  def test_scoped_beats_unscoped_at_equal_specificity
+    html = '<style>p { color: green } @scope (.card) { p { color: red } }</style>' \
+           '<div class="card"><p id="t">x</p></div>'
+    assert_equal "rgb(255, 0, 0)", computed(html, "t")["color"]
   end
 end

@@ -242,16 +242,17 @@ module Dommy
           index.matches_for(element, pseudo_element).each do |match|
             layer_index = index.layer_index_of(match.layer)
             match.declarations.each_with_index do |decl, position|
-              rank = precedence(match.origin, decl.important, match.specificity, match.order, position, layer_index)
+              rank = precedence(match.origin, decl.important, match.specificity, match.order, position,
+                layer_index, match.proximity)
               yield decl.name, decl.value, rank, match.origin
             end
           end
           return if pseudo_element
 
           # The style attribute is unlayered (the implicit final layer, index
-          # layer_count).
+          # layer_count) and unscoped (nil proximity).
           inline_declarations(element).each_with_index do |(name, value, important), position|
-            rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position, layer_count)
+            rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position, layer_count, nil)
             yield name, value, rank, :inline
           end
         end
@@ -283,14 +284,24 @@ module Dommy
         # same-importance author rules) because it outranks any selector's
         # specificity. The layer rank sits between origin and specificity, per
         # the cascade sort order.
-        def precedence(origin, important, specificity, order, position, layer_index)
+        def precedence(origin, important, specificity, order, position, layer_index, proximity)
           level = if important
             {ua: 5, inline: 4, author: 3}.fetch(origin)
           else
             {inline: 2, author: 1, ua: 0}.fetch(origin)
           end
           [level, layer_rank(important, layer_index),
-           specificity[0], specificity[1], specificity[2], order, position]
+           specificity[0], specificity[1], specificity[2],
+           proximity_rank(proximity), order, position]
+        end
+
+        # The @scope contribution to precedence, sitting between specificity and
+        # source order. A scoped declaration's proximity is its generation count
+        # to the scoping root (0 = the root itself); the nearer scope wins, so it
+        # is negated. An unscoped declaration (nil) has proximity infinity, so a
+        # scoped declaration of equal specificity always beats it.
+        def proximity_rank(proximity)
+          proximity ? -proximity : -Float::INFINITY
         end
 
         # The cascade-layer contribution to a declaration's precedence.

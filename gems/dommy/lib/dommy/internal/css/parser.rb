@@ -53,6 +53,14 @@ module Dommy
           def grouping? = true
         end
 
+        # @scope (start) to (end) { ... } — `start`/`end` are selector-list texts
+        # (either may be nil: a missing `start` scopes to the document element,
+        # a missing `end` has no lower boundary). RuleIndex resolves the scoping
+        # roots and limits and scopes the block's rules to in-scope elements.
+        ScopeRule = Struct.new(:start, :end, :rules) do
+          def grouping? = true
+        end
+
         # @import url(...) [media] — the referenced sheet's rules are spliced
         # in at this position (RuleIndex resolves the URL through the host).
         # `media` (may be "") gates them like @media.
@@ -154,6 +162,9 @@ module Dommy
             normalize_layer(rule, namespaces)
           when "supports"
             SupportsRule.new(rule[:prelude], normalize_rules(rule[:rules], namespaces))
+          when "scope"
+            scope_start, scope_end = parse_scope_prelude(rule[:prelude])
+            ScopeRule.new(scope_start, scope_end, normalize_rules(rule[:rules], namespaces))
           when "import"
             parse_import(rule[:prelude])
           end
@@ -180,6 +191,23 @@ module Dommy
         # anonymous layer yields no names).
         def split_layer_names(prelude)
           prelude.to_s.split(",").map(&:strip).reject(&:empty?)
+        end
+
+        # @scope prelude: `(<start>) [to (<end>)]`. Returns [start_or_nil,
+        # end_or_nil] as selector-list texts (an empty prelude — bare @scope —
+        # yields [nil, nil]).
+        def parse_scope_prelude(prelude)
+          text = prelude.to_s.strip
+          return [nil, nil] if text.empty?
+
+          match = text.match(/\A\(\s*(.*?)\s*\)\s*(?:to\s*\(\s*(.*?)\s*\)\s*)?\z/m)
+          return [nil, nil] unless match
+
+          [presence(match[1]), presence(match[2])]
+        end
+
+        def presence(string)
+          string.nil? || string.empty? ? nil : string
         end
 
         # @import prelude: `url(x)` / `"x"` / `'x'`, optionally followed by a
