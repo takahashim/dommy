@@ -48,6 +48,17 @@ module Dommy
         explicit_role(element) || implicit_role(element) || ""
       end
 
+      # The heading level for a heading element: an explicit positive
+      # `aria-level`, else the `hN` tag's number, else nil. The role itself
+      # stays "heading" (level is a separate ARIA property the a11y tree emits).
+      def heading_level(element)
+        aria = element.get_attribute("aria-level").to_s
+        return aria.to_i if aria.match?(/\A\d+\z/) && aria.to_i.positive?
+
+        tag = element.local_name.to_s.downcase
+        tag.match?(/\Ah[1-6]\z/) ? tag[1].to_i : nil
+      end
+
       def explicit_role(element)
         raw = element.get_attribute("role").to_s.strip
         return nil if raw.empty?

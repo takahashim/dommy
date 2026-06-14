@@ -309,6 +309,18 @@ module Dommy
       wrap_node(@backend_doc.at_css("body"))
     end
 
+    # The document's accessibility tree (built from <body>; the document itself
+    # has no accessible node). See Internal::AccessibilityTree.
+    def accessibility_tree
+      Internal::AccessibilityTree.build(self)
+    end
+    alias_method :aria_tree, :accessibility_tree
+
+    # A Playwright-compatible ARIA snapshot of the document.
+    def aria_snapshot
+      Internal::AriaSnapshot.serialize(accessibility_tree)
+    end
+
     # Serialize the whole document to HTML (including the doctype).
     def to_html
       @backend_doc.to_html

@@ -73,7 +73,16 @@ module Dommy
       # aria-labelledby: join each referenced element's name. Returns nil when
       # the attribute is absent/empty (so the caller falls through).
       def labelledby_name(node, visited)
-        ids = node.get_attribute("aria-labelledby").to_s.split(/\s+/).reject(&:empty?)
+        referenced_names(node, "aria-labelledby", visited)
+      end
+
+      # Join the accessible names of the elements an IDREF-list attribute
+      # (aria-labelledby / aria-describedby) points at. Returns nil when the
+      # attribute is absent/empty or resolves to nothing, so the caller falls
+      # through. Each referenced node is named with `referenced: true` (it does
+      # not restart a labelledby traversal) and `allow_content: true`.
+      def referenced_names(node, attribute, visited = [])
+        ids = node.get_attribute(attribute).to_s.split(/\s+/).reject(&:empty?)
         return nil if ids.empty?
 
         doc = node.respond_to?(:document) ? node.document : nil

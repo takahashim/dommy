@@ -25,6 +25,11 @@ module Dommy
 
       # The scope's collapsed visible text content.
       def visible_text = DomSummary.text(@scope)
+
+      # The accessibility tree / Playwright-compatible ARIA snapshot of the
+      # current scope.
+      def aria_tree = Internal::AccessibilityTree.build(@scope)
+      def aria_snapshot = Internal::AriaSnapshot.serialize(aria_tree)
     end
   end
 end
