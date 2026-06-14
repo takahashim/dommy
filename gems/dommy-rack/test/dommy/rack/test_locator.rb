@@ -38,6 +38,13 @@ class Dommy::Rack::TestLocator < Minitest::Test
     assert_raises(Dommy::Rack::AmbiguousElementError) { loc.find_field("dup") }
   end
 
+  def test_not_found_message_lists_available_candidates
+    loc = locator_for('<input name="email" aria-label="Email"><button type="submit">Save</button>')
+    error = assert_raises(Dommy::Rack::ElementNotFoundError) { loc.find_button("Publish") }
+    assert_includes error.message, 'no button matching "Publish"'
+    assert_includes error.message, '"Save" button[type=submit]'
+  end
+
   def test_find_link_by_text_and_href
     loc = locator_for('<a href="/x">Go</a>')
     assert_equal "/x", loc.find_link("Go").get_attribute("href")

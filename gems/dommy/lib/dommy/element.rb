@@ -1658,6 +1658,26 @@ module Dommy
       Internal::AccessibleName.compute(self)
     end
 
+    # The WAI-ARIA accessible description: aria-describedby / aria-description /
+    # title (title only when not already used as the accessible name).
+    def computed_description
+      Internal::AccessibleDescription.compute(self)
+    end
+
+    # The accessibility tree rooted at this element (a synthetic root whose
+    # children are this element's accessible nodes). See
+    # Internal::AccessibilityTree.
+    def accessibility_tree
+      Internal::AccessibilityTree.build(self)
+    end
+    alias_method :aria_tree, :accessibility_tree
+
+    # A Playwright-compatible ARIA snapshot (indented YAML outline) of this
+    # element's accessibility subtree.
+    def aria_snapshot
+      Internal::AriaSnapshot.serialize(accessibility_tree)
+    end
+
     # `Node.baseURI` — resolves against the document's base URL, which
     # in turn honors the first `<base href>` element (see
     # `Document#base_uri`).
@@ -2424,7 +2444,7 @@ module Dommy
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
       hasChildNodes hasAttributes getRootNode normalize contains
       compareDocumentPosition isSameNode lookupNamespaceURI lookupPrefix isDefaultNamespace
-      __internal_computed_role__ __internal_computed_label__
+      __internal_computed_role__ __internal_computed_label__ __internal_computed_description__
     ]
     def __js_call__(method, args)
       case method
@@ -2432,6 +2452,8 @@ module Dommy
         computed_role
       when "__internal_computed_label__"
         computed_label
+      when "__internal_computed_description__"
+        computed_description
       when "hasChildNodes"
         has_child_nodes?
       when "hasAttributes"

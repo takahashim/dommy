@@ -10,6 +10,7 @@ require_relative "rails/mail_part"
 require_relative "rails/match_target"
 require_relative "rails/dom_source"
 require_relative "rails/page_inspector"
+require_relative "rails/aria_snapshot_matching"
 
 module Dommy
   module Rails

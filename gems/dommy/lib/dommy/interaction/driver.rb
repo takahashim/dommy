@@ -52,6 +52,12 @@ module Dommy
         Locator.new(scope_root)
       end
 
+      # A read-only debugging view (forms / links / buttons / fields / summary)
+      # over the current scope. See Dommy::Interaction::Debug.
+      def debug
+        Debug.new(scope_root)
+      end
+
       def field_interactor
         FieldInteractor.new(finder, document)
       end
@@ -70,6 +76,35 @@ module Dommy
       def all(selector, text: nil)
         nodes = scope_root ? scope_root.query_selector_all(selector).to_a : []
         text.nil? ? nodes : nodes.select { |node| text_matches?(node, text) }
+      end
+
+      # --- Accessibility-role finding (getByRole) ---
+
+      # Elements in scope whose computed ARIA role is `role`, optionally filtered
+      # by accessible `name:` (substring; `exact: true` or a Regexp for
+      # precision) and `level:`. Walks the accessibility tree, so aria-hidden /
+      # invisible / presentational nodes are already excluded. Possibly empty.
+      def all_by_role(role, name: nil, level: nil, exact: false)
+        RoleQuery.match(scope_root, role: role, name: name, level: level, exact: exact)
+      end
+
+      # The single element with role `role` (+ optional name/level). Raises
+      # ElementNotFoundError when none (listing the roles that ARE present) and
+      # AmbiguousElementError when more than one.
+      def find_by_role(role, name: nil, level: nil, exact: false)
+        matches = all_by_role(role, name: name, level: level, exact: exact)
+        raise ElementNotFoundError, role_not_found_message(role, name, level) if matches.empty?
+        raise AmbiguousElementError, "#{matches.size} elements with role #{role.to_s.inspect}" if matches.size > 1
+
+        matches.first
+      end
+
+      def has_role?(role, name: nil, level: nil, exact: false)
+        !all_by_role(role, name: name, level: level, exact: exact).empty?
+      end
+
+      def has_no_role?(role, name: nil, level: nil, exact: false)
+        all_by_role(role, name: name, level: level, exact: exact).empty?
       end
 
       # --- Interaction ---
@@ -173,6 +208,18 @@ module Dommy
         return unless form
 
         form.dispatch_event(Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true))
+      end
+
+      # "no element with role …" plus the roles that WERE present (the most
+      # useful thing to see when a role query misses).
+      def role_not_found_message(role, name, level)
+        base = "no element with role #{role.to_s.inspect}"
+        base += " named #{name.inspect}" if name
+        base += " at level #{level}" if level
+        rows = RoleQuery.available(scope_root)
+        return base if rows.empty?
+
+        "#{base}\n\nAvailable roles:\n#{rows.map { |row| "  #{row}" }.join("\n")}"
       end
 
       # Whether a node's text satisfies a `text:` filter (substring for a

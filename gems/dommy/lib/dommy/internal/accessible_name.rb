@@ -13,11 +13,12 @@ module Dommy
     # `counter()` / `counters()`, bare `url()` images, and other layout-derived
     # content contribute nothing. Embedded control values are out of scope.
     module AccessibleName
-      # Roles whose accessible name may come from descendant content.
+      # Roles whose accessible name may come from descendant content. (term /
+      # definition are nameFrom:author per ARIA, so they are NOT here.)
       NAME_FROM_CONTENT = %w[
-        button cell checkbox columnheader comment definition gridcell heading
+        button cell checkbox columnheader comment gridcell heading
         link menuitem menuitemcheckbox menuitemradio option radio row rowheader
-        sectionhead suggestion switch tab tooltip term treeitem
+        sectionhead suggestion switch tab tooltip treeitem
       ].freeze
 
       # Form controls whose name can come from an associated <label>.
@@ -25,10 +26,16 @@ module Dommy
 
       module_function
 
-      # The accessible name string ("" when none). The harness normalizes ASCII
-      # whitespace and trims, so internal spacing need only be roughly correct.
+      # The accessible name string ("" when none). ASCII whitespace runs are
+      # collapsed and the result trimmed, matching how browsers / Playwright
+      # flatten an accessible name.
       def compute(element)
-        name_of(element, [], referenced: false, allow_content: false).strip
+        squish(name_of(element, [], referenced: false, allow_content: false))
+      end
+
+      # Collapse ASCII whitespace runs to single spaces and trim.
+      def squish(text)
+        text.to_s.gsub(/\s+/, " ").strip
       end
 
       # `referenced`: this node was reached through aria-labelledby, so it must
@@ -67,13 +74,26 @@ module Dommy
         title = node.get_attribute("title").to_s
         return title unless title.empty?
 
+        # 6. Placeholder — the lowest-priority name source (below the title).
+        placeholder = placeholder_fallback(node)
+        return placeholder if placeholder
+
         ""
       end
 
       # aria-labelledby: join each referenced element's name. Returns nil when
       # the attribute is absent/empty (so the caller falls through).
       def labelledby_name(node, visited)
-        ids = node.get_attribute("aria-labelledby").to_s.split(/\s+/).reject(&:empty?)
+        referenced_names(node, "aria-labelledby", visited)
+      end
+
+      # Join the accessible names of the elements an IDREF-list attribute
+      # (aria-labelledby / aria-describedby) points at. Returns nil when the
+      # attribute is absent/empty or resolves to nothing, so the caller falls
+      # through. Each referenced node is named with `referenced: true` (it does
+      # not restart a labelledby traversal) and `allow_content: true`.
+      def referenced_names(node, attribute, visited = [])
+        ids = node.get_attribute(attribute).to_s.split(/\s+/).reject(&:empty?)
         return nil if ids.empty?
 
         doc = node.respond_to?(:document) ? node.document : nil
@@ -98,6 +118,8 @@ module Dommy
           input_native_name(node, visited)
         when "fieldset"
           child_element_name(node, "legend", visited)
+        when "figure"
+          child_element_name(node, "figcaption", visited)
         when "table"
           child_element_name(node, "caption", visited)
         when *LABELABLE
@@ -117,12 +139,32 @@ module Dommy
         name_of(node.document.wrap_node(child), visited, referenced: false, allow_content: true)
       end
 
+      # Input types for which the placeholder contributes the accessible name
+      # (the text-like inputs); type=number / range / date / … do not.
+      PLACEHOLDER_TYPES = %w[text search tel url email password].freeze
+
       def input_native_name(node, visited)
         type = node.get_attribute("type").to_s.downcase
         return node.get_attribute("alt") || node.get_attribute("value").to_s if type == "image"
         return node.get_attribute("value").to_s if %w[button submit reset].include?(type)
 
         label_text(node, visited)
+      end
+
+      # The placeholder names a text-like input / textarea, but only as the
+      # lowest-priority source (below the title).
+      def placeholder_fallback(node)
+        tag = node.tag_name.to_s.downcase
+        return placeholder_name(node) if tag == "textarea"
+        return nil unless tag == "input"
+
+        type = node.get_attribute("type").to_s.downcase
+        (type.empty? || PLACEHOLDER_TYPES.include?(type)) ? placeholder_name(node) : nil
+      end
+
+      def placeholder_name(node)
+        placeholder = node.get_attribute("placeholder").to_s
+        placeholder.empty? ? nil : placeholder
       end
 
       # The concatenated text of the <label>s associated with a control:
@@ -169,13 +211,47 @@ module Dommy
             child.text.to_s
           elsif child.respond_to?(:element?) && child.element?
             wrapped = node.document.wrap_node(child)
-            wrapped ? name_of(wrapped, visited, referenced: false, allow_content: true) : ""
+            next "" unless wrapped
+
+            name = name_of(wrapped, visited, referenced: false, allow_content: true)
+            # Concatenate contributions directly (inline content glues:
+            # "button" + "" + "label" -> "buttonlabel"); a block-level box is
+            # padded with spaces so sibling cells / blocks separate
+            # ("Profile" + "A" -> "Profile A"). compute collapses the runs.
+            block_level?(wrapped) ? " #{name} " : name
           else
             ""
           end
         end.join
 
         pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
+      end
+
+      # Elements that generate a block-level box by the UA stylesheet — used as
+      # the fallback when no CSS layer is available to compute `display`.
+      BLOCK_TAGS = %w[
+        address article aside blockquote caption dd details div dl dt fieldset
+        figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr legend li main
+        menu nav ol p pre section summary table tbody td tfoot th thead tr ul
+      ].freeze
+
+      # Whether an element generates a block-level box, so its text is separated
+      # from siblings by whitespace in name-from-content (inline boxes glue). The
+      # computed `display` decides when CSS is available (honoring author CSS);
+      # otherwise the UA-default block-tag set is used so table cells / list
+      # items still separate.
+      def block_level?(element)
+        display = computed_display(element)
+        return BLOCK_TAGS.include?(element.local_name.to_s.downcase) if display.nil?
+
+        !display.start_with?("inline") && !%w[none contents].include?(display)
+      end
+
+      def computed_display(element)
+        value = Internal::CSS::Cascade.computed_style(element)["display"].to_s
+        value.empty? ? nil : value
+      rescue StandardError
+        nil
       end
 
       # The text contribution of a `::before` / `::after` pseudo-element's

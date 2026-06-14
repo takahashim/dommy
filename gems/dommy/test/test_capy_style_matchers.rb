@@ -204,4 +204,61 @@ class TestCapyStyleMatchers < Minitest::Test
     html = "<a href='/about'>About</a>"
     assert(have_link("About", href: "/about").matches?(html))
   end
+
+  # --- have_role -----------------------------------------------------
+
+  def test_have_role_by_role_and_name
+    assert(have_role("button", name: "Submit").matches?(@dom))
+    assert(have_role("heading", name: "Welcome").matches?(@dom))
+    assert(have_role("link", name: "Sign up").matches?(@dom))
+  end
+
+  def test_have_role_with_level
+    assert(have_role("heading", level: 1).matches?(@dom))
+    refute(have_role("heading", level: 3).matches?(@dom))
+  end
+
+  def test_have_role_count_and_negated
+    assert(have_role("link", count: 2).matches?(@dom))
+    assert(have_no_role("checkbox").matches?(@dom))
+  end
+
+  def test_have_role_failure_message
+    matcher = have_role("checkbox")
+    refute(matcher.matches?(@dom))
+    assert_includes(matcher.failure_message, 'role "checkbox"')
+  end
+
+  # --- failure_context decoration ------------------------------------
+
+  def test_failure_context_appends_to_message
+    Dommy::RSpec.failure_context = ->(subject) { "Context for #{subject.class}" }
+    matcher = have_selector("h1.missing")
+    refute(matcher.matches?(@dom))
+
+    assert_includes(matcher.failure_message, "expected to find")
+    assert_includes(matcher.failure_message, "Context for")
+  ensure
+    Dommy::RSpec.failure_context = nil
+  end
+
+  def test_failure_context_default_leaves_message_unchanged
+    matcher = have_content("Goodbye")
+    refute(matcher.matches?(@dom))
+
+    # No context registered: the message is exactly the matcher's own, with no
+    # appended blank-line-separated section.
+    assert(matcher.failure_message.start_with?("expected text to include \"Goodbye\", got "))
+    refute_includes(matcher.failure_message, "\n\n")
+  end
+
+  def test_failure_context_errors_do_not_mask_failure
+    Dommy::RSpec.failure_context = ->(_subject) { raise "boom" }
+    matcher = have_selector("h1.missing")
+    refute(matcher.matches?(@dom))
+
+    assert_includes(matcher.failure_message, "expected to find")
+  ensure
+    Dommy::RSpec.failure_context = nil
+  end
 end

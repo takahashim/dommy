@@ -46,9 +46,20 @@ class TestAccessibleName < Minitest::Test
     assert_equal "Wrapped", label_of("<label>Wrapped<input></label>", "input")
   end
 
-  def test_fieldset_legend_and_table_caption
+  def test_placeholder_is_lowest_priority_name_fallback
+    assert_equal "Search", label_of('<input type="text" placeholder="Search">', "input")
+    assert_equal "Body", label_of('<textarea placeholder="Body"></textarea>', "textarea")
+    # A label wins over placeholder; so does a title (placeholder is below it).
+    assert_equal "Name", label_of('<label for="i">Name</label><input id="i" placeholder="ignored">', "input")
+    assert_equal "title", label_of('<input type="text" title="title" placeholder="ignored">', "input")
+    # Non-text-like inputs (number/range/…) get no name from placeholder.
+    assert_equal "", label_of('<input type="number" placeholder="ignored">', "input")
+  end
+
+  def test_fieldset_legend_table_caption_figure_figcaption
     assert_equal "Legend", label_of("<fieldset><legend>Legend</legend></fieldset>", "fieldset")
     assert_equal "Cap", label_of("<table><caption>Cap</caption></table>", "table")
+    assert_equal "FigCap", label_of("<figure><figcaption>FigCap</figcaption></figure>", "figure")
   end
 
   # ---- CSS ::before / ::after generated content (accname folds it in) ----
@@ -95,5 +106,16 @@ class TestAccessibleName < Minitest::Test
     html = '<style>button::before{content:"PSEUDO "}</style>' \
            '<button aria-label="Explicit">Save</button>'
     assert_equal "Explicit", label_of(html, "button")
+  end
+
+  def test_internal_whitespace_is_collapsed
+    assert_equal "two words", label_of("<button>two   words</button>", "button")
+    assert_equal "spaced label", label_of('<button aria-label="spaced   label">x</button>', "button")
+  end
+
+  def test_name_from_content_separates_element_children
+    # Sibling cells must not glue: "Profile" + "Profile" + "A".
+    html = "<table><tr><td>Profile</td><td>Profile</td><td>A</td></tr></table>"
+    assert_equal "Profile Profile A", label_of(html, "tr")
   end
 end

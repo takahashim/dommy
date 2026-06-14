@@ -76,6 +76,14 @@ module Dommy
         HaveNoField.new(name_or_label, **opts)
       end
 
+      def have_role(role, name: nil, level: nil, count: nil, exact: false)
+        HaveRole.new(role, name: name, level: level, count: count, exact: exact)
+      end
+
+      def have_no_role(role, name: nil, level: nil, exact: false)
+        HaveNoRole.new(role, name: name, level: level, exact: exact)
+      end
+
       # ----- Base behavior shared across element-finding matchers -----
 
       # @api private
@@ -351,6 +359,124 @@ module Dommy
       class HaveNoField < HaveField
         include Negated
       end
+
+      # @api private
+      # Matches elements by computed ARIA role (+ optional accessible name /
+      # level), walking the accessibility tree via Interaction::RoleQuery.
+      class HaveRole
+        def initialize(role, name: nil, level: nil, count: nil, exact: false)
+          @role = role
+          @name = name
+          @level = level
+          @count = count
+          @exact = exact
+        end
+
+        def matches?(scope)
+          @matched = Interaction::RoleQuery.match(
+            Internal::ScopeResolution.resolve(scope),
+            role: @role, name: @name, level: @level, exact: @exact
+          )
+          @count ? @matched.size == @count : !@matched.empty?
+        end
+
+        def does_not_match?(scope)
+          matches?(scope)
+          @count ? @matched.size != @count : @matched.empty?
+        end
+
+        def description
+          "have #{describe_target}"
+        end
+
+        def failure_message
+          "expected to find #{describe_target}, found #{@matched.size}"
+        end
+
+        def failure_message_when_negated
+          "expected NOT to find #{describe_target}, found #{@matched.size}"
+        end
+
+        private
+
+        def describe_target
+          parts = ["role #{@role.to_s.inspect}"]
+          parts << "named #{@name.inspect}" if @name
+          parts << "at level #{@level}" if @level
+          parts << "(count: #{@count.inspect})" if @count
+          parts.join(" ")
+        end
+      end
+
+      # @api private
+      class HaveNoRole < HaveRole
+        def matches?(scope)
+          !super
+        end
+
+        def does_not_match?(scope)
+          !matches?(scope)
+        end
+
+        def failure_message
+          "expected NOT to find #{describe_target}, found #{@matched.size}"
+        end
+
+        def failure_message_when_negated
+          "expected to find #{describe_target}, found #{@matched.size}"
+        end
+      end
+
+      # Prepended to every concrete matcher so it sits first in the method
+      # resolution order: it remembers the matched subject and wraps the
+      # matcher's own `failure_message` (via `super`) with any extra context a
+      # host registered through `Dommy::RSpec.failure_context` (e.g. dommy-rails
+      # appends a recent trace for a trace-enabled session). With no context
+      # registered the message is returned unchanged, so existing behavior — and
+      # existing message assertions — are preserved.
+      module FailureContext
+        def matches?(scope)
+          @__dommy_subject = scope
+          super
+        end
+
+        def does_not_match?(scope)
+          @__dommy_subject = scope
+          super
+        end
+
+        def failure_message
+          Dommy::RSpec.__decorate_failure(super, @__dommy_subject)
+        end
+
+        def failure_message_when_negated
+          Dommy::RSpec.__decorate_failure(super, @__dommy_subject)
+        end
+      end
+
+      [HaveSelector, HaveNoSelector, HaveContent, HaveNoContent,
+        HaveLink, HaveNoLink, HaveButton, HaveNoButton,
+        HaveField, HaveNoField, HaveRole, HaveNoRole].each { |matcher| matcher.prepend(FailureContext) }
+    end
+
+    class << self
+      # A `->(subject) { String | nil }` consulted when a matcher fails: its
+      # return value is appended to the failure message. Hosts set this to add
+      # context (dommy-rails registers a recent-trace summary for trace-enabled
+      # sessions). nil (the default) leaves every message untouched.
+      attr_accessor :failure_context
+    end
+
+    # Append the host's failure context to `message` for `subject`, or return
+    # `message` unchanged. Never raises out of a failure path: a misbehaving
+    # context proc must not mask the real assertion failure.
+    def self.__decorate_failure(message, subject)
+      return message unless failure_context && subject
+
+      extra = failure_context.call(subject)
+      extra ? "#{message}\n\n#{extra}" : message
+    rescue StandardError
+      message
     end
   end
 end

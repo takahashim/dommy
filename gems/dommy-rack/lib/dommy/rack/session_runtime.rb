@@ -29,8 +29,22 @@ module Dommy
         @runtimes = {}.compare_by_identity
         @js_errors = []
         @console = []
+        @console_listeners = []
+        @js_error_listeners = []
+        @script_listeners = []
+        @document_listeners = []
         session.on_document_loaded { |window| on_page_load(window) }
       end
+
+      # Observation seams a Trace (or other host) subscribes to. console output,
+      # JS errors, and script-boot results are realm-internal — they surface
+      # here, not on the Session — so the runtime fans them out. `on_document`
+      # fires before a freshly loaded page's scripts boot (see on_page_load), so
+      # a `:document` marker is ordered ahead of that page's `:script` entries.
+      def on_console(&block) = @console_listeners << block
+      def on_js_error(&block) = @js_error_listeners << block
+      def on_script(&block) = @script_listeners << block
+      def on_document(&block) = @document_listeners << block
 
       def execute(js) = current_runtime.execute(js)
       def evaluate(js) = current_runtime.evaluate(js)
@@ -95,20 +109,27 @@ module Dommy
       # window / fetch bridge are live before any script runs.
       def on_page_load(window)
         dispose_all
+        # Announce the document BEFORE booting its scripts so a subscriber (the
+        # Trace) records the `:document` marker ahead of the `:script` entries
+        # that build_runtime emits during boot.
+        @document_listeners.each { |cb| cb.call(window) }
         runtime_for(window.document)
       end
 
       def build_runtime(doc)
         rt = Dommy::Js.build_runtime
-        rt.on_unhandled_rejection { |err| @js_errors << err }
-        rt.on_log { |log| @console << log }
+        rt.on_unhandled_rejection { |err| record_js_error(err) }
+        rt.on_log { |log| record_console(log) }
         rt.define_host_object("document", doc)
         if (window = doc&.default_view)
           rt.install_window(window)
           rt.install_browser_globals
           resources = ::Dommy::Rack::Resources.new(@session)
           window.globals["__fetch_handler__"] = ::Dommy::Resources::FetchHandler.new(resources)
-          ::Dommy::Js::ScriptBoot.run_document_scripts(rt, doc, resources: resources)
+          ::Dommy::Js::ScriptBoot.run_document_scripts(
+            rt, doc, resources: resources,
+            on_script: ->(element, error) { @script_listeners.each { |cb| cb.call(element, error) } }
+          )
         end
         rt
       end
@@ -116,6 +137,18 @@ module Dommy
       def dispose_all
         @runtimes.each_value(&:dispose)
         @runtimes = {}.compare_by_identity
+      end
+
+      # Collect a JS error / console log into the cross-realm streams and fan it
+      # out to any registered observers (the Trace).
+      def record_js_error(err)
+        @js_errors << err
+        @js_error_listeners.each { |cb| cb.call(err) }
+      end
+
+      def record_console(log)
+        @console << log
+        @console_listeners.each { |cb| cb.call(log) }
       end
     end
   end

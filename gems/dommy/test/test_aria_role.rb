@@ -34,8 +34,12 @@ class TestAriaRole < Minitest::Test
       "<a>x</a>" => ["a", "generic"],
       '<input type="checkbox">' => ["input", "checkbox"],
       "<input>" => ["input", "textbox"],
+      '<input type="date">' => ["input", "textbox"],
+      '<input type="color">' => ["input", "textbox"],
+      '<input type="file">' => ["input", "button"],
       "<select></select>" => ["select", "combobox"],
-      '<select multiple></select>' => ["select", "listbox"]
+      '<select multiple></select>' => ["select", "listbox"],
+      "<select><optgroup></optgroup></select>" => ["optgroup", "group"]
     }
     cases.each do |html, (sel, expected)|
       assert_equal expected, role_of(html, sel), "#{html} -> #{sel}"
@@ -49,8 +53,17 @@ class TestAriaRole < Minitest::Test
 
   def test_region_requires_accessible_name
     assert_equal "region", role_of('<section aria-label="n"></section>', "section")
-    # Explicit region without a name falls back to the implicit role.
+    # region/form need a name; unnamed, the token is skipped (here -> implicit).
+    # (Per WPT get_computed_role; Chromium's ariaSnapshot keeps an unnamed
+    # terminal explicit region/form, a known snapshot-only divergence.)
     assert_equal "navigation", role_of('<nav role="region"></nav>', "nav")
+    assert_equal "group", role_of('<nav role="region group"></nav>', "nav")
+  end
+
+  def test_form_requires_accessible_name
+    assert_equal "form", role_of('<form aria-label="n"></form>', "form")
+    # An unnamed implicit form is generic.
+    assert_equal "generic", role_of("<form></form>", "form")
   end
 
   def test_role_fallback_picks_first_valid_token
@@ -65,5 +78,34 @@ class TestAriaRole < Minitest::Test
     # role=none on a focusable element is overridden by the implicit role.
     assert_equal "none", role_of('<span role="none"></span>', "span")
     assert_equal "button", role_of('<button role="none" tabindex="0"></button>', "button")
+    # Native focusability counts too: a[href] / a non-disabled control.
+    assert_equal "link", role_of('<a role="presentation" href="#">x</a>', "a")
+    assert_equal "button", role_of('<button role="none">x</button>', "button")
+    # A non-focusable anchor (no href) keeps role=none.
+    assert_equal "none", role_of('<a role="none">x</a>', "a")
+  end
+
+  def test_img_empty_alt_is_canonical_none
+    assert_equal "none", role_of('<img alt="" src="x">', "img")
+    assert_equal "img", role_of('<img alt="cat" src="x">', "img")
+  end
+
+  def test_details_is_group
+    assert_equal "group", role_of("<details><summary>s</summary></details>", "details")
+  end
+
+  def test_th_scope
+    # Explicit scope wins.
+    assert_equal "rowheader", role_of('<table><tr><th scope="row">H</th></tr></table>', "th")
+    assert_equal "columnheader", role_of('<table><tr><th scope="col">H</th></tr></table>', "th")
+    # Auto: a th bordering a <td> in its row heads that row; a th with only
+    # header neighbours heads its column.
+    assert_equal "rowheader", role_of("<table><tr><th>H</th><td>d</td></tr></table>", "th")
+    assert_equal "rowheader", role_of("<table><tr><td>d</td><th>H</th></tr></table>", "th")
+    assert_equal "columnheader", role_of("<table><tr><th>A</th><th>B</th></tr></table>", "th:first-child")
+    # In `th th td`, the header bordering the data cell is the row header.
+    cols = make_window("<table><tr><th>A</th><th>B</th><td>d</td></tr></table>").document.query_selector_all("th")
+    assert_equal "columnheader", cols[0].computed_role
+    assert_equal "rowheader", cols[1].computed_role
   end
 end

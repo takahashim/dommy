@@ -1,0 +1,16 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# SUT runner for the aria-snapshot PBT tool.
+#
+# Reads an HTML document on stdin and writes Dommy's Playwright-compatible
+# ARIA snapshot YAML to stdout. Used as the `--sut` command for live
+# differential testing against real Playwright:
+#
+#   pnpm diff --sut "ruby -Igems/dommy/lib gems/dommy/bin/dommy-aria" \
+#             --cwd /Users/maki/git/dommy
+
+require "dommy"
+
+html = $stdin.read
+print Dommy.parse(html).document.aria_snapshot

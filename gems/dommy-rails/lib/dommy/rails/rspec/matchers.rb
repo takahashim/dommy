@@ -16,6 +16,10 @@ module Dommy
           HaveTitle.new(expected)
         end
 
+        def match_aria_snapshot(expected)
+          MatchAriaSnapshot.new(expected)
+        end
+
         def have_meta(name: nil, property: nil, content: nil)
           HaveMeta.new(name: name, property: property, content: content)
         end
@@ -208,6 +212,36 @@ module Dommy
 
           def failure_message_when_negated
             "expected title not to match #{@expected.inspect}"
+          end
+        end
+
+        # Playwright-style ARIA snapshot subset match. `expected` is a template
+        # snapshot (its nodes must appear in the actual tree, in order); names
+        # may be `/regex/`.
+        class MatchAriaSnapshot
+          def initialize(expected)
+            @expected = expected
+          end
+
+          def matches?(actual)
+            @actual = MatchTarget.document(actual).aria_snapshot
+            Dommy::Rails::AriaSnapshotMatching.matches?(@actual, @expected)
+          end
+
+          def does_not_match?(actual)
+            !matches?(actual)
+          end
+
+          def description
+            "match aria snapshot"
+          end
+
+          def failure_message
+            "expected aria snapshot to match:\n#{@expected}\ngot:\n#{@actual}"
+          end
+
+          def failure_message_when_negated
+            "expected aria snapshot not to match:\n#{@expected}"
           end
         end
 

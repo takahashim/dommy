@@ -128,4 +128,20 @@ class TestMinitestAssertions < Minitest::Test
       assert_dom_html_equal(el, "Goodbye")
     end
   end
+
+  # --- assert_dom_has_role --------------------------------------------
+
+  def test_assert_dom_has_role
+    assert_dom_has_role(@dom, "heading", level: 1)
+    assert_dom_has_role(@dom, "button", name: "Submit")
+    assert_dom_has_role(@dom, "listitem", count: 3)
+  end
+
+  def test_refute_dom_has_role
+    refute_dom_has_role(@dom, "checkbox")
+  end
+
+  def test_assert_dom_has_role_fails_when_missing
+    assert_raises(Minitest::Assertion) { assert_dom_has_role(@dom, "checkbox") }
+  end
 end

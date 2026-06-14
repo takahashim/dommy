@@ -23,19 +23,20 @@ module Dommy
     module ScriptBoot
       module_function
 
-      def run_document_scripts(runtime, document, resources: nil, on_error: nil)
-        ScriptBooter.new(runtime, document, resources: resources, on_error: on_error).run
+      def run_document_scripts(runtime, document, resources: nil, on_error: nil, on_script: nil)
+        ScriptBooter.new(runtime, document, resources: resources, on_error: on_error, on_script: on_script).run
       end
     end
 
     # One document's script-boot run. Instantiated per boot by ScriptBoot; the
     # collaborators are ivars so the per-script steps take only what varies.
     class ScriptBooter
-      def initialize(runtime, document, resources: nil, on_error: nil)
+      def initialize(runtime, document, resources: nil, on_error: nil, on_script: nil)
         @runtime = runtime
         @document = document
         @resources = resources
         @on_error = on_error
+        @on_script = on_script
         @loader = nil
       end
 
@@ -65,16 +66,30 @@ module Dommy
         ImportMap.parse(el ? el.text : "")
       end
 
+      # Run one <script> element and, only when it actually had pending work,
+      # notify `on_script` (element, error) — success with nil, failure with the
+      # raised error (alongside the existing `on_error`). Skipped/non-classic
+      # elements (no pending body/src/module) are not reported.
       def run_one(element)
+        @on_script.call(element, nil) if run_pending(element) && @on_script
+      rescue StandardError => e
+        @on_error&.call(e)
+        @on_script&.call(element, e)
+      end
+
+      # Execute the element's pending inline body / external src / module, and
+      # return whether any of them matched (so run_one knows a script ran).
+      def run_pending(element)
         if (body = element.__internal_take_pending_script__)
           with_current_script(element) { @runtime.load_script(body) }
         elsif (src = element.__internal_take_pending_src__)
           run_external(element, src)
         elsif (mod = element.__internal_take_pending_module__)
           run_module(mod)
+        else
+          return false
         end
-      rescue StandardError => e
-        @on_error&.call(e)
+        true
       end
 
       # An ES module script. `currentScript` is null for modules (spec), so it
