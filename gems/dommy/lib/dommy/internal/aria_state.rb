@@ -48,9 +48,30 @@ module Dommy
       end
 
       def selected_state(element)
-        return element.selected if native_option?(element)
+        return option_selected?(element) if native_option?(element)
 
         tristate(element, "aria-selected")
+      end
+
+      # An <option>'s effective selectedness. In a single-selection <select>
+      # only one option is selected — the last bearing the `selected` attribute,
+      # or the first option when none does — so the attribute alone (which Dommy
+      # reflects) over-reports. A multiple select selects every marked option.
+      def option_selected?(option)
+        select = option.respond_to?(:closest) ? option.closest("select") : nil
+        return !!option.selected unless select
+        return option.has_attribute?("selected") if select.respond_to?(:multiple) && select.multiple
+
+        same_node?(option, single_selected_option(select))
+      end
+
+      def single_selected_option(select)
+        options = select.options.to_a
+        options.reverse_each.find { |o| o.has_attribute?("selected") } || options.first
+      end
+
+      def same_node?(first, second)
+        second && first.__dommy_backend_node__ == second.__dommy_backend_node__
       end
 
       # Expanded comes only from aria-expanded. A native <details open> is NOT

@@ -12,8 +12,10 @@ module Dommy
     # printed (a document has no top line), matching Playwright.
     module AriaSnapshot
       # The serialized flags, in fixed render order. A boolean flag renders only
-      # when true or "mixed"; `level` renders as `[level=N]`.
-      FLAG_ORDER = %i[checked disabled expanded level pressed readonly required selected].freeze
+      # when true or "mixed"; `level` renders as `[level=N]`. `readonly` and
+      # `required` are computed (AriaState) but NOT serialized — Playwright emits
+      # neither in its snapshot — so they stay out of this list.
+      FLAG_ORDER = %i[checked disabled expanded level pressed selected].freeze
 
       module_function
 

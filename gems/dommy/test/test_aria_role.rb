@@ -80,9 +80,14 @@ class TestAriaRole < Minitest::Test
     # Explicit scope wins.
     assert_equal "rowheader", role_of('<table><tr><th scope="row">H</th></tr></table>', "th")
     assert_equal "columnheader", role_of('<table><tr><th scope="col">H</th></tr></table>', "th")
-    # Auto: a th sharing its row with a <td> is a row header; an all-th row is
-    # column headers.
+    # Auto: a th bordering a <td> in its row heads that row; a th with only
+    # header neighbours heads its column.
     assert_equal "rowheader", role_of("<table><tr><th>H</th><td>d</td></tr></table>", "th")
+    assert_equal "rowheader", role_of("<table><tr><td>d</td><th>H</th></tr></table>", "th")
     assert_equal "columnheader", role_of("<table><tr><th>A</th><th>B</th></tr></table>", "th:first-child")
+    # In `th th td`, the header bordering the data cell is the row header.
+    cols = make_window("<table><tr><th>A</th><th>B</th><td>d</td></tr></table>").document.query_selector_all("th")
+    assert_equal "columnheader", cols[0].computed_role
+    assert_equal "rowheader", cols[1].computed_role
   end
 end

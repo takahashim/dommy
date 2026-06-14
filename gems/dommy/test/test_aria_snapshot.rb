@@ -38,10 +38,11 @@ class TestAriaSnapshot < Minitest::Test
     HTML
     # A wrapping <label>'s text both names its control AND appears as a
     # standalone text node — matching Playwright (the label is not suppressed).
+    # readonly / required are not serialized (Playwright emits neither).
     expected = <<~SNAP
       - form "Signup":
         - text: "Email"
-        - textbox "Email" [required]
+        - textbox "Email"
         - checkbox [checked]
         - button "Submit"
     SNAP

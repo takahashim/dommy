@@ -46,6 +46,13 @@ class TestAccessibleName < Minitest::Test
     assert_equal "Wrapped", label_of("<label>Wrapped<input></label>", "input")
   end
 
+  def test_placeholder_is_a_name_fallback
+    # placeholder names an input/textarea after a label, before the title.
+    assert_equal "Search", label_of('<input type="text" placeholder="Search">', "input")
+    assert_equal "Body", label_of('<textarea placeholder="Body"></textarea>', "textarea")
+    assert_equal "Name", label_of('<label for="i">Name</label><input id="i" placeholder="ignored">', "input")
+  end
+
   def test_fieldset_legend_and_table_caption
     assert_equal "Legend", label_of("<fieldset><legend>Legend</legend></fieldset>", "fieldset")
     assert_equal "Cap", label_of("<table><caption>Cap</caption></table>", "table")

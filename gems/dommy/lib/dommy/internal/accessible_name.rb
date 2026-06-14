@@ -111,6 +111,8 @@ module Dommy
           alt.nil? ? nil : alt
         when "input"
           input_native_name(node, visited)
+        when "textarea"
+          label_text(node, visited) || placeholder_name(node)
         when "fieldset"
           child_element_name(node, "legend", visited)
         when "table"
@@ -132,12 +134,26 @@ module Dommy
         name_of(node.document.wrap_node(child), visited, referenced: false, allow_content: true)
       end
 
+      # Input types for which the placeholder contributes the accessible name
+      # (the text-like inputs); type=number / range / date / … do not.
+      PLACEHOLDER_TYPES = %w[text search tel url email password].freeze
+
       def input_native_name(node, visited)
         type = node.get_attribute("type").to_s.downcase
         return node.get_attribute("alt") || node.get_attribute("value").to_s if type == "image"
         return node.get_attribute("value").to_s if %w[button submit reset].include?(type)
 
-        label_text(node, visited)
+        label = label_text(node, visited)
+        return label if label
+
+        # Per HTML-AAM the placeholder is a name fallback (after a label, before
+        # the title) — but only for text-like inputs.
+        (type.empty? || PLACEHOLDER_TYPES.include?(type)) ? placeholder_name(node) : nil
+      end
+
+      def placeholder_name(node)
+        placeholder = node.get_attribute("placeholder").to_s
+        placeholder.empty? ? nil : placeholder
       end
 
       # The concatenated text of the <label>s associated with a control:

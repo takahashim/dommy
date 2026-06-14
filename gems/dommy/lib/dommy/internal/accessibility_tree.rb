@@ -61,6 +61,7 @@ module Dommy
       # presentational / generic).
       def nodes_for(element)
         return [] if excluded?(element)
+        return [] if lone_unscoped_th?(element)
 
         role = AriaRole.compute(element)
         children = build_children(element)
@@ -118,6 +119,23 @@ module Dommy
         return true if element.get_attribute("aria-hidden").to_s.casecmp?("true")
 
         !DomMatching.visible?(element)
+      end
+
+      # A lone, unscoped <th> that is the only cell of the only row of its table
+      # is not emitted as a header cell — Chromium folds it into the row's
+      # accessible name. An explicit `scope`, a sibling cell, or a second row all
+      # make it a real header.
+      def lone_unscoped_th?(element)
+        return false unless element.local_name.to_s.casecmp?("th")
+        return false unless element.get_attribute("scope").to_s.empty?
+
+        table = element.respond_to?(:closest) ? element.closest("table") : nil
+        return false unless table
+
+        rows = table.query_selector_all("tr").to_a
+        return false unless rows.size == 1
+
+        rows.first.query_selector_all("td, th").to_a.size == 1
       end
 
       def squish(text) = text.to_s.gsub(/\s+/, " ").strip

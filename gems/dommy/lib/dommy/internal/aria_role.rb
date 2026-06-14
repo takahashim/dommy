@@ -143,29 +143,43 @@ module Dommy
         alt == "" ? "none" : "img"
       end
 
-      # A <th> is a column or row header. An explicit `scope` wins; otherwise a
-      # th sharing its row with data cells (<td>) acts as a row header, while a
-      # th in an all-header row is a column header.
+      # A <th> is a column or row header. An explicit `scope` wins; otherwise the
+      # auto algorithm: a header cell that borders a data cell (<td>) within its
+      # row heads that row, so it is a row header; a header cell with only header
+      # neighbors heads its column.
       def th_role(element)
         case element.get_attribute("scope").to_s.downcase
         when "row", "rowgroup" then "rowheader"
         when "col", "colgroup" then "columnheader"
-        else row_has_data_cell?(element) ? "rowheader" : "columnheader"
+        else auto_th_role(element)
         end
       end
 
-      def row_has_data_cell?(element)
+      def auto_th_role(element)
         row = element.respond_to?(:parent_element) ? element.parent_element : nil
-        return false unless row
+        return "columnheader" unless row
 
-        row.children.any? { |cell| cell.local_name.to_s.casecmp?("td") }
+        cells = row.children.select { |cell| %w[td th].include?(cell.local_name.to_s.downcase) }
+        index = cells.index { |cell| same_node?(cell, element) }
+        return "columnheader" unless index
+
+        previous = index.zero? ? nil : cells[index - 1]
+        neighbors = [previous, cells[index + 1]].compact
+        neighbors.any? { |cell| cell.local_name.to_s.casecmp?("td") } ? "rowheader" : "columnheader"
+      end
+
+      def same_node?(first, second)
+        first && second && first.__dommy_backend_node__ == second.__dommy_backend_node__
       end
 
       INPUT_ROLES = {
         "button" => "button", "submit" => "button", "reset" => "button",
         "image" => "button", "checkbox" => "checkbox", "radio" => "radio",
         "range" => "slider", "number" => "spinbutton", "email" => "textbox",
-        "tel" => "textbox", "text" => "textbox", "url" => "textbox", "search" => "searchbox"
+        "tel" => "textbox", "text" => "textbox", "url" => "textbox", "search" => "searchbox",
+        # type=password has no ARIA role per HTML-AAM (to avoid exposing the
+        # value) but Chromium / Playwright expose it as a textbox.
+        "password" => "textbox"
       }.freeze
 
       def input_role(element)

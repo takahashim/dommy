@@ -59,6 +59,19 @@ class TestAccessibilityTree < Minitest::Test
     assert_equal %w[listitem listitem], roles
   end
 
+  def test_lone_unscoped_th_folds_into_row
+    # A single unscoped th in a single-row/single-cell table is not emitted as a
+    # header cell; the row keeps its name (Chromium behavior).
+    nodes = tree("<table><tr><th>X</th></tr></table>")
+    row = nodes.first[:children].first[:children].first # table > rowgroup > row
+    assert_equal({role: "row", name: "X"}, row)
+
+    # A scoped th, or one with a sibling cell, stays a real header.
+    scoped = tree('<table><tr><th scope="col">X</th></tr></table>')
+    cell = scoped.first[:children].first[:children].first[:children].first
+    assert_equal "columnheader", cell[:role]
+  end
+
   def test_adjacent_text_is_coalesced
     # <summary> collapses to text "Settings"; the trailing "Title" text merges
     # with it into one text node under the details group.
