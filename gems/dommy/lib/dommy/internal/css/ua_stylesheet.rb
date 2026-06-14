@@ -23,7 +23,7 @@ module Dommy
 
           html, body, address, article, aside, blockquote, details, dialog,
           dd, div, dl, dt, fieldset, figcaption, figure, footer, form,
-          h1, h2, h3, h4, h5, h6, header, hgroup, hr, main, nav, ol, p,
+          h1, h2, h3, h4, h5, h6, header, hgroup, hr, legend, main, nav, ol, p,
           pre, section, summary, ul { display: block }
           li { display: list-item }
           table { display: table }

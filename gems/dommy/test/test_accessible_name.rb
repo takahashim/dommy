@@ -56,9 +56,10 @@ class TestAccessibleName < Minitest::Test
     assert_equal "", label_of('<input type="number" placeholder="ignored">', "input")
   end
 
-  def test_fieldset_legend_and_table_caption
+  def test_fieldset_legend_table_caption_figure_figcaption
     assert_equal "Legend", label_of("<fieldset><legend>Legend</legend></fieldset>", "fieldset")
     assert_equal "Cap", label_of("<table><caption>Cap</caption></table>", "table")
+    assert_equal "FigCap", label_of("<figure><figcaption>FigCap</figcaption></figure>", "figure")
   end
 
   # ---- CSS ::before / ::after generated content (accname folds it in) ----

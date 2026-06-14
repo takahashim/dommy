@@ -117,6 +117,8 @@ module Dommy
           input_native_name(node, visited)
         when "fieldset"
           child_element_name(node, "legend", visited)
+        when "figure"
+          child_element_name(node, "figcaption", visited)
         when "table"
           child_element_name(node, "caption", visited)
         when *LABELABLE
@@ -228,8 +230,8 @@ module Dommy
       # the fallback when no CSS layer is available to compute `display`.
       BLOCK_TAGS = %w[
         address article aside blockquote caption dd details div dl dt fieldset
-        figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr li main menu
-        nav ol p pre section summary table tbody td tfoot th thead tr ul
+        figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr legend li main
+        menu nav ol p pre section summary table tbody td tfoot th thead tr ul
       ].freeze
 
       # Whether an element generates a block-level box, so its text is separated
