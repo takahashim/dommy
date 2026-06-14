@@ -72,10 +72,16 @@ class TestAccessibilityTree < Minitest::Test
     assert_equal "columnheader", cell[:role]
   end
 
-  def test_adjacent_text_is_coalesced
-    # <summary> collapses to text "Settings"; the trailing "Title" text merges
-    # with it into one text node under the details group.
+  def test_adjacent_text_coalesces_with_block_spacing
+    # <summary> is block-level → its text is separated from the trailing text
+    # by a space, and the two merge into one node.
     nodes = tree("<details open><summary>Settings</summary>Title</details>")
     assert_equal [{role: "group", children: [{role: :text, name: "Settings Title"}]}], nodes
+  end
+
+  def test_adjacent_inline_text_glues
+    # Inline <label>s collapse and their promoted text glues with no space.
+    nodes = tree("<label>Save</label><label>Save</label>")
+    assert_equal [{role: :text, name: "SaveSave"}], nodes
   end
 end

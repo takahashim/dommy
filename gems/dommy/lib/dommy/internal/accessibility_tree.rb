@@ -53,7 +53,26 @@ module Dommy
         start = scope.respond_to?(:body) ? scope.body : scope
         root = Node.new(role: :root, element: scope)
         root.children = start ? nodes_for(start) : []
+        # Text is carried raw through construction so adjacent runs concatenate
+        # with correct (block vs inline) spacing; collapse it to its final form
+        # once, here.
+        finalize_text(root)
         root
+      end
+
+      # Squish each text node's accumulated content and drop the empties,
+      # depth-first. Coalescing already merged adjacent runs during build.
+      def finalize_text(node)
+        node.children = node.children.filter_map do |child|
+          if child.text?
+            text = squish(child.name)
+            Node.new(role: :text, name: text) unless text.empty?
+          else
+            finalize_text(child)
+            child
+          end
+        end
+        node
       end
 
       # The accessible nodes an element contributes to its parent: 0 (excluded),
@@ -67,8 +86,11 @@ module Dommy
         children = build_children(element)
 
         # Presentational and generic/roleless containers drop out; their
-        # children are promoted to the parent.
-        return children if role == "none" || role == "" || role == "generic"
+        # children are promoted to the parent. A block-level box separates its
+        # text from siblings, so its promoted run is padded with whitespace.
+        if role == "none" || role == "" || role == "generic"
+          return AccessibleName.block_level?(element) ? [text_node(" "), *children, text_node(" ")] : children
+        end
 
         node = Node.new(
           role: role,
@@ -91,26 +113,29 @@ module Dommy
           if child.is_a?(Dommy::Element)
             out.concat(nodes_for(child))
           elsif child.is_a?(Dommy::TextNode)
-            text = squish(child.text_content.to_s)
-            out << Node.new(role: :text, name: text) unless text.empty?
+            # Keep the text raw (whitespace and all); spacing is resolved when
+            # adjacent runs are coalesced and finally squished.
+            out << text_node(child.text_content.to_s)
           end
         end
         coalesce_text(out)
       end
 
-      # Merge runs of adjacent text nodes into one (joined by a space), matching
-      # how the snapshot presents contiguous text. Promotion of a collapsed
-      # element's text children can place two text nodes side by side, so this
-      # runs after the children are assembled.
+      # Merge runs of adjacent text nodes into one by direct concatenation —
+      # inline content glues ("Save" + "Save" -> "SaveSave"); the whitespace that
+      # separates block-level content comes from the padding added when a
+      # block box is promoted (see nodes_for).
       def coalesce_text(nodes)
         nodes.each_with_object([]) do |node, out|
           if node.text? && out.last&.text?
-            out[-1] = Node.new(role: :text, name: "#{out.last.name} #{node.name}")
+            out[-1] = text_node("#{out.last.name}#{node.name}")
           else
             out << node
           end
         end
       end
+
+      def text_node(text) = Node.new(role: :text, name: text)
 
       # An element (and its whole subtree) is excluded from the tree when
       # `aria-hidden="true"` or when it is not visually rendered. `visible?`
