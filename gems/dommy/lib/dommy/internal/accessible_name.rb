@@ -191,14 +191,19 @@ module Dommy
         ""
       end
 
-      # Resolve a computed `content` value to its accname text. Scans for the
-      # text-bearing components in order — quoted strings (CSS-unescaped) and
+      # Resolve a computed `content` value to its accname text. `counter()` /
+      # `counters()` are resolved first (to quoted strings); then it scans for
+      # the text-bearing components in order — quoted strings (CSS-unescaped) and
       # `attr(name)` (read off `node`) — and ignores everything else (`none` /
-      # `normal`, `counter()`, `url()`, keywords). The image `/ "alt"` syntax is
-      # covered for free: its alt string matches the quoted-string branch.
+      # `normal`, `url()`, keywords). The image `/ "alt"` syntax is covered for
+      # free: its alt string matches the quoted-string branch.
       def content_text(value, node)
         v = value.to_s.strip
         return "" if v.empty? || v == "none" || v == "normal"
+
+        if v.match?(/\bcounters?\(/i)
+          v = Internal::CSS::Counters.substitute(v, Internal::CSS::Cascade.counter_values(node))
+        end
 
         text = +""
         v.scan(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|attr\(\s*([-\w]+)\s*\)/) do

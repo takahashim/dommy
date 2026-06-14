@@ -72,10 +72,23 @@ class TestAccessibleName < Minitest::Test
     assert_equal "Email required", label_of(html, "a")
   end
 
-  def test_pseudo_content_ignores_counter_and_url
-    html = '<style>button::before{content:counter(n)}button::after{content:url(x.png)}</style>' \
-           "<button>X</button>"
+  def test_pseudo_content_ignores_url_image
+    html = '<style>button::after{content:url(x.png)}</style><button>X</button>'
     assert_equal "X", label_of(html, "button")
+  end
+
+  # CSS counters are resolved in generated content: a counter-increment plus
+  # counter() in ::before yields the running value.
+  def test_pseudo_content_resolves_counter
+    html = '<style>button{counter-increment:n} button::before{content:counter(n) ". "}</style>' \
+           "<button>A</button><button id=\"t\">B</button>"
+    assert_equal "2. B", label_of(html, "#t")
+  end
+
+  # counter() of a never-declared counter is 0 (implicitly created).
+  def test_pseudo_content_counter_defaults_to_zero
+    html = '<style>button::before{content:counter(n)}</style><button>X</button>'
+    assert_equal "0X", label_of(html, "button")
   end
 
   def test_aria_label_still_wins_over_pseudo_content

@@ -3,6 +3,7 @@
 require_relative "parser"
 require_relative "property_registry"
 require_relative "custom_properties"
+require_relative "counters"
 require_relative "rule_index"
 require_relative "computed_style_declaration"
 
@@ -88,6 +89,17 @@ module Dommy
         # documents in general) never pay for UA-sheet selector queries.
         def index_for(document)
           style_cache(document)[:index] ||= RuleIndex.build(document)
+        end
+
+        # The in-scope CSS counter values at `element` ({ name => stack }), for
+        # resolving counter()/counters() in generated content. The whole-document
+        # map is built once per style generation. {} when there is no CSS layer.
+        def counter_values(element)
+          document = element.respond_to?(:owner_document) ? element.owner_document : nil
+          return {} unless document && Parser.available?
+
+          map = (style_cache(document)[:counters] ||= Counters.build(document))
+          map[element] || {}
         end
 
         def compute(element, document, pseudo_element: nil)
