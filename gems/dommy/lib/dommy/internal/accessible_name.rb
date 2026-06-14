@@ -13,11 +13,12 @@ module Dommy
     # `counter()` / `counters()`, bare `url()` images, and other layout-derived
     # content contribute nothing. Embedded control values are out of scope.
     module AccessibleName
-      # Roles whose accessible name may come from descendant content.
+      # Roles whose accessible name may come from descendant content. (term /
+      # definition are nameFrom:author per ARIA, so they are NOT here.)
       NAME_FROM_CONTENT = %w[
-        button cell checkbox columnheader comment definition gridcell heading
+        button cell checkbox columnheader comment gridcell heading
         link menuitem menuitemcheckbox menuitemradio option radio row rowheader
-        sectionhead suggestion switch tab tooltip term treeitem
+        sectionhead suggestion switch tab tooltip treeitem
       ].freeze
 
       # Form controls whose name can come from an associated <label>.
