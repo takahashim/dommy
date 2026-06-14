@@ -79,6 +79,13 @@ class TestAccessibilityTree < Minitest::Test
     assert_equal [{role: "group", children: [{role: :text, name: "Settings Title"}]}], nodes
   end
 
+  def test_text_duplicating_the_name_is_dropped
+    # aria-label="X">X exposes no text child; >Y keeps the differing text.
+    assert_equal [{role: "banner", name: "X"}], tree('<header aria-label="X">X</header>')
+    assert_equal [{role: "banner", name: "X", children: [{role: :text, name: "Y"}]}],
+      tree('<header aria-label="X">Y</header>')
+  end
+
   def test_adjacent_inline_text_glues
     # Inline <label>s collapse and their promoted text glues with no space.
     nodes = tree("<label>Save</label><label>Save</label>")
