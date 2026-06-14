@@ -64,6 +64,16 @@ class TestAriaSnapshot < Minitest::Test
     assert_equal win.document.aria_snapshot, win.document.body.aria_snapshot
   end
 
+  def test_range_and_number_show_value
+    # A range slider always shows its value (default = midpoint); a number
+    # spinbutton only when non-empty. ARIA aria-valuenow shows nothing.
+    assert_equal %(- slider "x":\n  - text: "3"\n), snap('<input type="range" min="0" max="10" value="3" aria-label="x">')
+    assert_equal %(- slider "x":\n  - text: "50"\n), snap('<input type="range" aria-label="x">')
+    assert_equal %(- spinbutton "x":\n  - text: "2"\n), snap('<input type="number" value="2" aria-label="x">')
+    assert_equal %(- spinbutton "x"\n), snap('<input type="number" aria-label="x">')
+    assert_equal %(- slider "x"\n), snap('<div role="slider" aria-valuenow="5" aria-label="x"></div>')
+  end
+
   def test_to_h_programmatic
     tree = make_window("<h2>Title</h2>").document.accessibility_tree
     assert_equal [{role: "heading", name: "Title", states: {level: 2}}], tree.to_h[:children]

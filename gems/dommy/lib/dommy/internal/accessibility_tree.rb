@@ -102,6 +102,9 @@ module Dommy
         # Name-from-content roles fold their descendant text into the name, so
         # those text nodes are not emitted again; descendant roled nodes stay.
         node.children = AccessibleName::NAME_FROM_CONTENT.include?(role) ? children.reject(&:text?) : children
+        # A native range / number control shows its value as inline text.
+        value = native_widget_value(element, role)
+        node.children << text_node(value) if value
         [node]
       end
 
@@ -136,6 +139,37 @@ module Dommy
       end
 
       def text_node(text) = Node.new(role: :text, name: text)
+
+      # The displayed value of a native range / number input (the only widgets
+      # whose value Chromium puts in the snapshot — ARIA aria-valuenow / progress
+      # / meter show nothing). A range always shows a value (defaulting to the
+      # midpoint of its min/max); a number shows one only when non-empty.
+      def native_widget_value(element, role)
+        return nil unless %w[slider spinbutton].include?(role)
+        return nil unless element.local_name.to_s.casecmp?("input")
+
+        value = element.value.to_s
+        case element.get_attribute("type").to_s.downcase
+        when "range" then value.empty? ? range_default(element) : value
+        when "number" then value.empty? ? nil : value
+        end
+      end
+
+      def range_default(element)
+        min = numeric(element.get_attribute("min"), 0.0)
+        max = numeric(element.get_attribute("max"), 100.0)
+        format_number(min + ((max - min) / 2.0))
+      end
+
+      def numeric(value, fallback)
+        Float(value)
+      rescue ArgumentError, TypeError
+        fallback
+      end
+
+      def format_number(number)
+        number == number.to_i ? number.to_i.to_s : number.to_s
+      end
 
       # An element (and its whole subtree) is excluded from the tree when
       # `aria-hidden="true"` or when it is not visually rendered. `visible?`
