@@ -79,11 +79,16 @@ class TestAccessibilityTree < Minitest::Test
     assert_equal [{role: "group", children: [{role: :text, name: "Settings Title"}]}], nodes
   end
 
-  def test_text_duplicating_the_name_is_dropped
-    # aria-label="X">X exposes no text child; >Y keeps the differing text.
+  def test_sole_text_duplicating_the_name_is_dropped
+    # The sole child being text == name drops it; a differing text, or a text
+    # with a sibling, is kept.
     assert_equal [{role: "banner", name: "X"}], tree('<header aria-label="X">X</header>')
     assert_equal [{role: "banner", name: "X", children: [{role: :text, name: "Y"}]}],
       tree('<header aria-label="X">Y</header>')
+    # A text equal to the name but alongside a sibling node is NOT dropped.
+    nodes = tree('<header aria-label="X"><label><input type="checkbox">X</label></header>')
+    roles = nodes.first[:children].map { |c| c[:role] }
+    assert_equal ["checkbox", :text], roles
   end
 
   def test_adjacent_inline_text_glues

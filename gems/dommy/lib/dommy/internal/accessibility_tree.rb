@@ -102,17 +102,21 @@ module Dommy
         # Name-from-content roles fold their descendant text into the name, so
         # those text nodes are not emitted again; descendant roled nodes stay.
         node.children = AccessibleName::NAME_FROM_CONTENT.include?(role) ? children.reject(&:text?) : children
-        # A text child that merely repeats the (author-supplied) accessible name
-        # is not exposed again (aria-label="X">X has no text child).
-        node.children = node.children.reject { |child| redundant_name_text?(child, node.name) }
+        # When a node's sole content is text that just repeats its (author-
+        # supplied) accessible name, that text is not exposed again
+        # (aria-label="X">X is `banner "X"`, but a text sibling keeps it).
+        node.children = [] if sole_name_text?(node)
         # A native range / number control shows its value as inline text.
         value = native_widget_value(element, role)
         node.children << text_node(value) if value
         [node]
       end
 
-      def redundant_name_text?(child, name)
-        child.text? && !name.to_s.empty? && squish(child.name) == name
+      def sole_name_text?(node)
+        return false unless node.children.size == 1 && !node.name.to_s.empty?
+
+        child = node.children.first
+        child.text? && squish(child.name) == node.name
       end
 
       # Walk an element's child nodes in document order: significant text
