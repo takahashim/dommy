@@ -13,9 +13,12 @@ module Dommy
     # Nothing here is QuickJS-specific; this layer is intended to move into a
     # future `dommy-js` gem with QuickJS/wasm backends plugged in underneath.
     #
-    # Two collaborators keep the marshalling core free of DOM specifics:
+    # Collaborators keep the bridge focused on the engine ABI:
+    #   Marshaller          — Ruby<->JS value conversion + the handle/callback
+    #                         identity tables (#wrap / #unwrap, delegated below)
     #   DomInterfaces       — interface name/chain derivation (instanceof support)
     #   ConstructorResolver — `new Event(...)` style reverse construction
+    #   CustomElementBridge — JS customElements.define -> Dommy wiring
     #
     # Backend contract:
     #   backend.eval(js)                         -> evaluate top-level JS
@@ -51,9 +54,9 @@ module Dommy
 
       def initialize(backend)
         @backend = backend
-        @handles = HandleTable.new
-        @callback_objects = {}
-        @listener_objects = {}
+        # The marshaller owns value conversion + the handle/callback identity
+        # tables; the bridge keeps the engine ABI and lifecycle wiring.
+        @codec = Marshaller.new(self)
         @constructor_resolver = ConstructorResolver.new
         @custom_element_bridge = CustomElementBridge.new(self)
         @microtask_procs = {}
@@ -63,7 +66,7 @@ module Dommy
 
       # Bind a Ruby object to a JS global of the given name.
       def define_host_object(name, obj)
-        handle = @handles.register(obj)
+        handle = @codec.register(obj)
         @backend.eval("globalThis[#{name.to_s.to_json}] = __rbHost.makeProxy(#{handle}); undefined;")
         obj
       end
@@ -99,7 +102,7 @@ module Dommy
       # `instanceof subWin.Element` and `subDoc.defaultView.DOMException` resolve
       # to the same constructors the top window uses. Idempotent per window.
       def expose_constructors_on(window_obj)
-        handle = @handles.register(window_obj)
+        handle = @codec.register(window_obj)
         # Retain the proxy in a JS-side registry: the constructors are defined as
         # own properties on the proxy's target, so the proxy must stay alive (and
         # keep its handle) — otherwise GC releases it and a later
@@ -114,7 +117,7 @@ module Dommy
       # Invoke a JS custom element lifecycle callback (connectedCallback etc.) for
       # a Dommy node. Called by the bridged custom element class (see CustomElementBridge).
       def invoke_lifecycle(node, callback, args)
-        handle = @handles.register(node)
+        handle = @codec.register(node)
         unwrap(@backend.call_js("__rbHost.invokeLifecycle", handle, callback, wrap(Array(args))))
       end
 
@@ -154,7 +157,7 @@ module Dommy
 
       # Number of live handle entries. Introspection for lifetime tests.
       def registered_count
-        @handles.size
+        @codec.size
       end
 
       private
@@ -251,7 +254,7 @@ module Dommy
       # microtask drain hook.
       def install_lifecycle_abi!
         @backend.define_host_function("__rb_release_handle") do |handle|
-          @handles.release(handle)
+          @codec.release(handle)
           nil
         end
         # Run a Ruby microtask previously registered by schedule_native_microtask,
@@ -313,164 +316,18 @@ module Dommy
         @backend.run_bundle("observable_runtime.js", OBSERVABLE_RUNTIME_JS)
       end
 
+      # The strict handle lookup for a receiver (raises on a missing handle,
+      # unlike the tolerant argument path in Marshaller#unwrap).
       def host(handle)
-        @handles.fetch(handle)
+        @codec.host(handle)
       end
 
-      # A callback's return value, or — when the JS side tagged the result as a
-      # throw ("__rb_cb_threw__") — the thrown value re-raised (raising) or
-      # swallowed (the default, returning nil).
-      def callback_result(raw, raising)
-        if raw.is_a?(Hash) && raw.key?(WireTags::CALLBACK_THREW)
-          raise Dommy::Bridge::ThrowValue.new(unwrap(raw[WireTags::CALLBACK_THREW])) if raising
-
-          return nil
-        end
-        unwrap(raw)
-      end
-
-      # Run a host-function body, converting a raised Dommy::DOMException into a
-      # tagged marker that the JS side (rehydrate) re-throws as a real
-      # DOMException (name + legacy code, `instanceof DOMException`). Otherwise
-      # the quickjs gem flattens it to a plain Error — no name/code — which
-      # breaks `assert_throws_dom` and every DOM error contract (removeChild
-      # NotFoundError, classList SyntaxError/InvalidCharacterError, …).
-      def dom_guard
-        yield
-      rescue Dommy::Bridge::ThrowValue => e
-        # A host method threw an arbitrary value (e.g. throwIfAborted's reason);
-        # re-throw it verbatim JS-side, identity preserved.
-        {WireTags::THROW => wrap(e.value)}
-      rescue Dommy::DOMException => e
-        {WireTags::EXCEPTION => {"name" => e.name, "message" => e.message, "code" => e.code}}
-      rescue Dommy::Bridge::TypeError => e
-        # A deliberate, spec-mandated JS TypeError (e.g. `new URL(bad)`). Tagged
-        # so rehydrate rethrows a real `TypeError` — `assert_throws_js(TypeError,
-        # …)` checks `instanceof TypeError`, which a DOMException/Error fails.
-        {WireTags::EXCEPTION => {"name" => "TypeError", "message" => e.message, "js_native" => true}}
-      rescue Dommy::Bridge::RangeError => e
-        # A spec-mandated JS RangeError (e.g. `new Response(b, {status: 42})`).
-        {WireTags::EXCEPTION => {"name" => "RangeError", "message" => e.message, "js_native" => true}}
-      end
-
-      # Ruby -> JS: tag bridge-able objects so the JS side can proxy them.
-      # Recurses Array and Hash so nested DOM nodes are tagged too (symmetric
-      # with #unwrap).
-      def wrap(value)
-        # A `__js_call__` may return the UNDEFINED sentinel for a void op; marshal
-        # it so the JS side yields `undefined` rather than `null`.
-        if value.equal?(Dommy::Bridge::UNDEFINED)
-          return {WireTags::UNDEFINED => true}
-        end
-        # A byte buffer tagged ArrayBuffer crosses back as a bare ArrayBuffer
-        # (checked before Bytes, since ArrayBuffer < Bytes).
-        if value.is_a?(Dommy::Bridge::ArrayBuffer)
-          return {WireTags::ARRAY_BUFFER => value.to_a}
-        end
-        # A byte buffer crosses back as a JS Uint8Array.
-        if value.is_a?(Dommy::Bridge::Bytes)
-          return {WireTags::BYTES => value.to_a}
-        end
-        # An opaque JS value returns as its original JS object (identity kept).
-        if value.is_a?(Dommy::Bridge::JSValue)
-          return {WireTags::JS_REF => value.ref}
-        end
-        # A JS EventListener object wrapped on the way in returns as that same JS
-        # object (so removeEventListener(el, this) reaches the right listener).
-        if value.is_a?(HostEventListener)
-          return {WireTags::JS_REF => value.ref}
-        end
-
-        # A host collection that subclasses Array (e.g. Dommy::NodeList < Array)
-        # must cross as a proxy carrying its DOM interface — so `instanceof
-        # NodeList`, `.item()` and the NodeList iterator work — rather than being
-        # flattened to a plain JS array by the `when Array` branch below. Plain
-        # Arrays (not bridgeable) still map element-wise.
-        if value.is_a?(Array) && bridgeable?(value)
-          return {WireTags::HANDLE => @handles.register(value)}
-        end
-
-        case value
-        when Array
-          value.map { |element| wrap(element) }
-        when Hash
-          value.transform_values { |element| wrap(element) }
-        when HostCallback
-          # A JS function that crossed into Ruby returns as the same live JS
-          # function (not a proxy), so callbacks nested in objects round-trip.
-          {WireTags::CALLBACK => value.id}
-        else
-          if bridgeable?(value)
-            {WireTags::HANDLE => @handles.register(value)}
-          else
-            value
-          end
-        end
-      end
-
-      # A value crosses as a proxy if it implements any of the bridge ABI — not
-      # only __js_get__: method-only objects (observers) and constructors expose
-      # __js_call__ / __js_new__ without properties.
-      def bridgeable?(value)
-        value.respond_to?(:__js_get__) ||
-          value.respond_to?(:__js_call__) ||
-          value.respond_to?(:__js_new__)
-      end
-
-      # JS -> Ruby: rebuild tagged handles / callbacks into Ruby objects.
-      def unwrap(value)
-        case value
-        when Array
-          value.map { |element| unwrap(element) }
-        when Hash
-          if value.key?(WireTags::HANDLE)
-            # Tolerant: an argument referencing a released/invalid node resolves
-            # to nil rather than crashing (e.g. Vue passes a transient handle
-            # during v-model setup). A receiver handle still uses strict #host.
-            @handles.lookup(value[WireTags::HANDLE])
-          elsif value.key?(WireTags::CALLBACK)
-            id = value[WireTags::CALLBACK]
-            @callback_objects[id] ||= HostCallback.new(self, id)
-          elsif value.key?(WireTags::JS_REF)
-            ref = value[WireTags::JS_REF]
-            if value[WireTags::HANDLE_EVENT]
-              # A JS object implementing EventListener (handleEvent). Wrap it as a
-              # Ruby listener whose #handle_event routes back to its handleEvent.
-              # Memoized by ref so the same JS object yields the same wrapper,
-              # letting removeEventListener match the listener by identity.
-              @listener_objects[ref] ||= HostEventListener.new(self, ref, value[WireTags::JS_LABEL])
-            elsif value[WireTags::ACCEPT_NODE]
-              # A NodeFilter callback-interface object. Wrap it so a traversal
-              # invokes acceptNode on the live JS object (fresh getter, this =
-              # object, exceptions propagated).
-              (@filter_objects ||= {})[ref] ||= HostNodeFilter.new(self, ref)
-            else
-              # An opaque JS value (a non-plain object Ruby just stores and
-              # returns, e.g. an abort reason) — kept as a handle so it
-              # round-trips with identity rather than being flattened to a Hash.
-              Dommy::Bridge::JSValue.new(ref, value[WireTags::JS_LABEL])
-            end
-          elsif value.key?(WireTags::UNDEFINED)
-            # A top-level JS `undefined` argument — distinct from JS null (nil).
-            Dommy::Bridge::UNDEFINED
-          elsif value.key?(WireTags::BYTES)
-            # A JS ArrayBuffer / TypedArray argument arrives as a byte buffer.
-            Dommy::Bridge::Bytes.new(value[WireTags::BYTES])
-          else
-            value.transform_values { |element| unwrap(element) }
-          end
-        when :undefined
-          # A bare JS `undefined` (e.g. a property-set value, marshalled
-          # directly rather than through the tagged-args path) arrives as the
-          # `:undefined` symbol — see the backend contract above. Normalize it to
-          # the same sentinel a tagged top-level undefined produces, so setters
-          # can distinguish it from `null` (e.g. `el.ariaLabel = undefined`
-          # removes the attribute).
-          Dommy::Bridge::UNDEFINED
-        else
-          value
-        end
-      end
+      # Marshalling is the Marshaller's job; the bridge calls these from its ABI
+      # blocks and invoke_* helpers.
+      def wrap(value) = @codec.wrap(value)
+      def unwrap(value) = @codec.unwrap(value)
+      def dom_guard(&block) = @codec.dom_guard(&block)
+      def callback_result(raw, raising) = @codec.callback_result(raw, raising)
 
       # Which property names should be treated as callable methods. The ABI
       # keeps properties (__js_get__) and methods (__js_call__) in disjoint

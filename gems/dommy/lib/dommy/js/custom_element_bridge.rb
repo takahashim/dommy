@@ -38,21 +38,52 @@ module Dommy
 
       private
 
-      # A Dommy custom element class that forwards each reaction to the JS
-      # instance. `__js_custom_element_name__` marks the node so the bridge tells
-      # the JS side to upgrade it on first crossing (see HostBridge interface info).
+      # A Dommy custom element class for `name` whose reactions forward to the JS
+      # instance. A fresh subclass per tag carries the bridge / name / observed
+      # set as class-level attributes; the reaction methods are defined once on
+      # the base (BridgedCustomElement), reading them via `self.class` — so no
+      # per-registration method definition is needed.
       def build_class(name, observed)
-        bridge = @bridge
-        Class.new(Dommy::HTMLElement) do
-          define_singleton_method(:observed_attributes) { observed }
-          define_method(:__js_custom_element_name__) { name }
-          define_method(:connected_callback) { bridge.invoke_lifecycle(self, "connectedCallback", []) }
-          define_method(:disconnected_callback) { bridge.invoke_lifecycle(self, "disconnectedCallback", []) }
-          define_method(:adopted_callback) { bridge.invoke_lifecycle(self, "adoptedCallback", []) }
-          define_method(:attribute_changed_callback) do |attr, old_value, new_value|
-            bridge.invoke_lifecycle(self, "attributeChangedCallback", [attr, old_value, new_value])
-          end
+        klass = Class.new(BridgedCustomElement)
+        klass.js_bridge = @bridge
+        klass.js_name = name
+        klass.js_observed = observed
+        klass
+      end
+    end
+
+    # Base for a JS-defined custom element. Each registered tag is a subclass
+    # carrying its bridge / tag name / observed attributes; the lifecycle
+    # reactions (defined once here) forward to the JS instance through the
+    # bridge. `__js_custom_element_name__` marks the node so the bridge upgrades
+    # it on first crossing (see HostBridge interface info).
+    class BridgedCustomElement < Dommy::HTMLElement
+      class << self
+        attr_accessor :js_bridge, :js_name, :js_observed
+
+        def observed_attributes
+          js_observed
         end
+      end
+
+      def __js_custom_element_name__
+        self.class.js_name
+      end
+
+      def connected_callback
+        self.class.js_bridge.invoke_lifecycle(self, "connectedCallback", [])
+      end
+
+      def disconnected_callback
+        self.class.js_bridge.invoke_lifecycle(self, "disconnectedCallback", [])
+      end
+
+      def adopted_callback
+        self.class.js_bridge.invoke_lifecycle(self, "adoptedCallback", [])
+      end
+
+      def attribute_changed_callback(attr, old_value, new_value)
+        self.class.js_bridge.invoke_lifecycle(self, "attributeChangedCallback", [attr, old_value, new_value])
       end
     end
   end

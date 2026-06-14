@@ -16,44 +16,65 @@ module Dommy
     # Browser collects it for strict mode, the Capybara adapter ignores it) so
     # the rest of the page still loads. Shared by `Dommy::Browser` and the
     # Capybara driver so script boot lives in one place.
+    #
+    # The module is the stable entry point; the work lives on ScriptBooter, a
+    # short-lived instance that holds the runtime / document / resources /
+    # on_error collaborators so they aren't threaded through every step.
     module ScriptBoot
       module_function
 
       def run_document_scripts(runtime, document, resources: nil, on_error: nil)
-        runtime.set_document_ready_state("loading")
-        loader = install_module_loader(runtime, document, resources)
-        document.scripts.each { |el| run_one(runtime, document, el, resources, loader, on_error) }
-        runtime.set_document_ready_state("interactive")
-        runtime.set_document_ready_state("complete")
+        ScriptBooter.new(runtime, document, resources: resources, on_error: on_error).run
       end
+    end
+
+    # One document's script-boot run. Instantiated per boot by ScriptBoot; the
+    # collaborators are ivars so the per-script steps take only what varies.
+    class ScriptBooter
+      def initialize(runtime, document, resources: nil, on_error: nil)
+        @runtime = runtime
+        @document = document
+        @resources = resources
+        @on_error = on_error
+        @loader = nil
+      end
+
+      def run
+        @runtime.set_document_ready_state("loading")
+        @loader = install_module_loader
+        @document.scripts.each { |element| run_one(element) }
+        @runtime.set_document_ready_state("interactive")
+        @runtime.set_document_ready_state("complete")
+      end
+
+      private
 
       # Wire the ESM resolver before any module runs: parse the page's first
       # <script type="importmap">, then resolve bare specifiers through it and
       # fetch module sources through `resources`. Returns the loader so inline
       # modules can be seeded under a document URL.
-      def install_module_loader(runtime, document, resources)
-        import_map = parse_import_map(document)
-        loader = ModuleLoader.new(resources, import_map, base_url: document_base(document))
+      def install_module_loader
+        loader = ModuleLoader.new(@resources, parse_import_map, base_url: document_base)
         # The engine requires a Proc specifically.
-        runtime.module_loader = ->(specifier, importer) { loader.call(specifier, importer) }
+        @runtime.module_loader = ->(specifier, importer) { loader.call(specifier, importer) }
         loader
       end
 
-      def parse_import_map(document)
-        el = document.scripts.find { |s| s.type.to_s.strip.downcase == "importmap" }
+      def parse_import_map
+        el = @document.scripts.find { |s| s.type.to_s.strip.downcase == "importmap" }
         ImportMap.parse(el ? el.text : "")
       end
 
-      def run_one(runtime, document, element, resources, loader, on_error)
+      def run_one(element)
         if (body = element.__internal_take_pending_script__)
-          with_current_script(document, element) { runtime.load_script(body) }
+          with_current_script(element) { @runtime.load_script(body) }
         elsif (src = element.__internal_take_pending_src__)
-          run_external(runtime, document, element, src, resources)
+          run_external(element, src)
         elsif (mod = element.__internal_take_pending_module__)
-          run_module(runtime, document, mod, loader)
+          run_module(mod)
         end
       rescue StandardError => e
-        on_error&.call(e)
+        @on_error&.call(e)
       end
 
       # An ES module script. `currentScript` is null for modules (spec), so it
@@ -63,43 +84,43 @@ module Dommy
       # unique cache key, which carries a `#dommy-inline-N` fragment for a
       # second inline module, so we set `import.meta.url` (writable) to the
       # clean page URL up front. An external module loads by its own URL.
-      def run_module(runtime, document, mod, loader)
+      def run_module(mod)
         kind, value = mod
         if kind == :inline
-          base = inline_base(document)
+          base = inline_base
           # No newline, so the original body's line numbers are preserved.
           body = "import.meta.url = #{base.to_json}; #{value}"
-          runtime.load_module_url(loader.seed_inline(base, body))
-        elsif (url = resolve_url(document, value))
-          runtime.load_module_url(url)
+          @runtime.load_module_url(@loader.seed_inline(base, body))
+        elsif (url = resolve_url(value))
+          @runtime.load_module_url(url)
         end
       end
 
       # The page URL an inline module is identified by (its import.meta.url and
       # the base for its relative imports).
-      def inline_base(document)
-        base = document_base(document)
+      def inline_base
+        base = document_base
         base.empty? ? "about:blank" : base
       end
 
-      def run_external(runtime, document, element, src, resources)
-        return unless resources
+      def run_external(element, src)
+        return unless @resources
 
-        url = resolve_url(document, src)
+        url = resolve_url(src)
         return unless url
 
-        response = resources.get(url)
+        response = @resources.get(url)
         return unless response&.success?
 
         # Cache the compiled bytecode by URL: vendored bundles re-parse on
         # every fresh VM otherwise.
-        with_current_script(document, element) { runtime.load_script_cached(response.body, cache_key: url) }
+        with_current_script(element) { @runtime.load_script_cached(response.body, cache_key: url) }
       end
 
       # Resolve a script's `src` against the document's base URL, which is the
       # realm's own location (correct for frames too).
-      def resolve_url(document, src)
-        ::URI.join(document_base(document), src).to_s
+      def resolve_url(src)
+        ::URI.join(document_base, src).to_s
       rescue ::URI::InvalidURIError
         nil
       end
@@ -107,17 +128,17 @@ module Dommy
       # The document's effective base URL string: its `<base>`-derived base
       # URI, falling back to the realm's own location. Empty string when
       # neither is set (callers decide their own fallback).
-      def document_base(document)
-        base = document.base_uri
-        base = document.url if base.to_s.empty?
+      def document_base
+        base = @document.base_uri
+        base = @document.url if base.to_s.empty?
         base.to_s
       end
 
-      def with_current_script(document, element)
-        document.__internal_set_current_script__(element)
+      def with_current_script(element)
+        @document.__internal_set_current_script__(element)
         yield
       ensure
-        document.__internal_set_current_script__(nil)
+        @document.__internal_set_current_script__(nil)
       end
     end
   end
