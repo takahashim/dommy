@@ -106,8 +106,8 @@ module Dommy
         # supplied) accessible name, that text is not exposed again
         # (aria-label="X">X is `banner "X"`, but a text sibling keeps it).
         node.children = [] if sole_name_text?(node)
-        # A native range / number control shows its value as inline text.
-        value = native_widget_value(element, role)
+        # A native range / number / color control shows its value as inline text.
+        value = native_widget_value(element)
         node.children << text_node(value) if value
         [node]
       end
@@ -151,17 +151,18 @@ module Dommy
 
       def text_node(text) = Node.new(role: :text, name: text)
 
-      # The displayed value of a native range / number input (the only widgets
-      # whose value Chromium puts in the snapshot — ARIA aria-valuenow / progress
-      # / meter show nothing). A range always shows a value (defaulting to the
-      # midpoint of its min/max); a number shows one only when non-empty.
-      def native_widget_value(element, role)
-        return nil unless %w[slider spinbutton].include?(role)
+      # The displayed value of a native range / number / color input (the only
+      # widgets whose value Chromium puts in the snapshot — ARIA aria-valuenow /
+      # progress / meter show nothing). A range always shows a value (defaulting
+      # to the midpoint of its min/max); color defaults to "#000000"; a number
+      # shows one only when non-empty.
+      def native_widget_value(element)
         return nil unless element.local_name.to_s.casecmp?("input")
 
         value = element.value.to_s
         case element.get_attribute("type").to_s.downcase
         when "range" then value.empty? ? range_default(element) : value
+        when "color" then value.empty? ? "#000000" : value
         when "number" then value.empty? ? nil : value
         end
       end

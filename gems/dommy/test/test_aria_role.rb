@@ -34,8 +34,12 @@ class TestAriaRole < Minitest::Test
       "<a>x</a>" => ["a", "generic"],
       '<input type="checkbox">' => ["input", "checkbox"],
       "<input>" => ["input", "textbox"],
+      '<input type="date">' => ["input", "textbox"],
+      '<input type="color">' => ["input", "textbox"],
+      '<input type="file">' => ["input", "button"],
       "<select></select>" => ["select", "combobox"],
-      '<select multiple></select>' => ["select", "listbox"]
+      '<select multiple></select>' => ["select", "listbox"],
+      "<select><optgroup></optgroup></select>" => ["optgroup", "group"]
     }
     cases.each do |html, (sel, expected)|
       assert_equal expected, role_of(html, sel), "#{html} -> #{sel}"

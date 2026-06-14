@@ -115,6 +115,7 @@ module Dommy
         when "menu", "ol", "ul" then "list"
         when "meter" then "meter"
         when "nav" then "navigation"
+        when "optgroup" then "group"
         when "option" then "option"
         when "output" then "status"
         when "p" then "paragraph"
@@ -176,12 +177,15 @@ module Dommy
 
       INPUT_ROLES = {
         "button" => "button", "submit" => "button", "reset" => "button",
-        "image" => "button", "checkbox" => "checkbox", "radio" => "radio",
+        "image" => "button", "file" => "button", "checkbox" => "checkbox", "radio" => "radio",
         "range" => "slider", "number" => "spinbutton", "email" => "textbox",
         "tel" => "textbox", "text" => "textbox", "url" => "textbox", "search" => "searchbox",
         # type=password has no ARIA role per HTML-AAM (to avoid exposing the
-        # value) but Chromium / Playwright expose it as a textbox.
-        "password" => "textbox"
+        # value) but Chromium / Playwright expose it as a textbox. The
+        # date/time family and color likewise expose as a textbox.
+        "password" => "textbox", "color" => "textbox", "date" => "textbox",
+        "datetime-local" => "textbox", "month" => "textbox", "week" => "textbox",
+        "time" => "textbox"
       }.freeze
 
       def input_role(element)

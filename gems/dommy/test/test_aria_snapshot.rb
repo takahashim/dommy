@@ -72,6 +72,8 @@ class TestAriaSnapshot < Minitest::Test
     assert_equal %(- spinbutton "x":\n  - text: "2"\n), snap('<input type="number" value="2" aria-label="x">')
     assert_equal %(- spinbutton "x"\n), snap('<input type="number" aria-label="x">')
     assert_equal %(- slider "x"\n), snap('<div role="slider" aria-valuenow="5" aria-label="x"></div>')
+    # color is a textbox showing its value (default "#000000").
+    assert_equal %(- textbox "x":\n  - text: "#000000"\n), snap('<input type="color" aria-label="x">')
   end
 
   def test_to_h_programmatic
