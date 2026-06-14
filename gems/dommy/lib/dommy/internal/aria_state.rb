@@ -66,27 +66,34 @@ module Dommy
       def option_selected?(option)
         select = option.respond_to?(:closest) ? option.closest("select") : nil
         return !!option.selected unless select
-        # A list box (multiple, or size > 1) has no default selection — an
-        # option is selected only when explicitly marked. A single drop-down
-        # selects the last marked option, or the first when none is.
-        return option.has_attribute?("selected") if listbox_select?(select)
+        # Only `multiple` allows multiple selection — each marked option is
+        # selected. Otherwise the select is single-selection (drop-down or a
+        # size>1 list box): the last marked option wins.
+        return option.has_attribute?("selected") if multiple_select?(select)
 
-        same_node?(option, single_selected_option(select))
+        same_node?(option, effective_single_selection(select))
       end
 
-      def listbox_select?(select)
-        return true if select.respond_to?(:multiple) && select.multiple
-
-        select.get_attribute("size").to_s.to_i > 1
+      def multiple_select?(select)
+        select.respond_to?(:multiple) && select.multiple
       end
 
-      def single_selected_option(select)
-        options = select.options.to_a
-        options.reverse_each.find { |o| o.has_attribute?("selected") } || options.first
+      # The single selected option: the last bearing `selected`, or — only for a
+      # drop-down (not multiple and no size>1) — the first option when none is.
+      def effective_single_selection(select)
+        options = select.query_selector_all("option").to_a
+        marked = options.reverse_each.find { |option| option.has_attribute?("selected") }
+        return marked if marked
+
+        dropdown?(select) ? options.first : nil
+      end
+
+      def dropdown?(select)
+        !multiple_select?(select) && select.get_attribute("size").to_s.to_i <= 1
       end
 
       def same_node?(first, second)
-        second && first.__dommy_backend_node__ == second.__dommy_backend_node__
+        !!(first && second && first.__dommy_backend_node__ == second.__dommy_backend_node__)
       end
 
       # Expanded comes only from aria-expanded. A native <details open> is NOT
