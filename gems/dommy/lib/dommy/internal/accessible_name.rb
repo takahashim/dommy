@@ -73,6 +73,10 @@ module Dommy
         title = node.get_attribute("title").to_s
         return title unless title.empty?
 
+        # 6. Placeholder — the lowest-priority name source (below the title).
+        placeholder = placeholder_fallback(node)
+        return placeholder if placeholder
+
         ""
       end
 
@@ -111,8 +115,6 @@ module Dommy
           alt.nil? ? nil : alt
         when "input"
           input_native_name(node, visited)
-        when "textarea"
-          label_text(node, visited) || placeholder_name(node)
         when "fieldset"
           child_element_name(node, "legend", visited)
         when "table"
@@ -143,11 +145,17 @@ module Dommy
         return node.get_attribute("alt") || node.get_attribute("value").to_s if type == "image"
         return node.get_attribute("value").to_s if %w[button submit reset].include?(type)
 
-        label = label_text(node, visited)
-        return label if label
+        label_text(node, visited)
+      end
 
-        # Per HTML-AAM the placeholder is a name fallback (after a label, before
-        # the title) — but only for text-like inputs.
+      # The placeholder names a text-like input / textarea, but only as the
+      # lowest-priority source (below the title).
+      def placeholder_fallback(node)
+        tag = node.tag_name.to_s.downcase
+        return placeholder_name(node) if tag == "textarea"
+        return nil unless tag == "input"
+
+        type = node.get_attribute("type").to_s.downcase
         (type.empty? || PLACEHOLDER_TYPES.include?(type)) ? placeholder_name(node) : nil
       end
 
@@ -200,16 +208,33 @@ module Dommy
             child.text.to_s
           elsif child.respond_to?(:element?) && child.element?
             wrapped = node.document.wrap_node(child)
-            wrapped ? name_of(wrapped, visited, referenced: false, allow_content: true) : ""
+            next "" unless wrapped
+
+            name = name_of(wrapped, visited, referenced: false, allow_content: true)
+            # Concatenate contributions directly (inline content glues:
+            # "button" + "" + "label" -> "buttonlabel"); a block-level box is
+            # padded with spaces so sibling cells / blocks separate
+            # ("Profile" + "A" -> "Profile A"). compute collapses the runs.
+            block_level?(wrapped) ? " #{name} " : name
           else
             ""
           end
-          # Separate each child's contribution with a space so sibling cells /
-          # elements don't glue together ("Profile" + "A" -> "Profile A"); the
-          # top-level `compute` collapses any resulting double spaces.
-        end.join(" ")
+        end.join
 
         pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
+      end
+
+      # Whether an element generates a block-level box (so its text is separated
+      # from siblings by whitespace in name-from-content). Inline boxes glue.
+      # Without a computed style (no CSS layer) we cannot tell, so treat it as
+      # inline — the spec's "rendered" spacing degrades gracefully.
+      def block_level?(element)
+        display = Internal::CSS::Cascade.computed_style(element)["display"].to_s
+        return false if display.empty?
+
+        !display.start_with?("inline") && !%w[none contents].include?(display)
+      rescue StandardError
+        false
       end
 
       # The text contribution of a `::before` / `::after` pseudo-element's
