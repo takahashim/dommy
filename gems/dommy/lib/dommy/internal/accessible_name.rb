@@ -224,17 +224,31 @@ module Dommy
         pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
       end
 
-      # Whether an element generates a block-level box (so its text is separated
-      # from siblings by whitespace in name-from-content). Inline boxes glue.
-      # Without a computed style (no CSS layer) we cannot tell, so treat it as
-      # inline — the spec's "rendered" spacing degrades gracefully.
+      # Elements that generate a block-level box by the UA stylesheet — used as
+      # the fallback when no CSS layer is available to compute `display`.
+      BLOCK_TAGS = %w[
+        address article aside blockquote caption dd details div dl dt fieldset
+        figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr li main menu
+        nav ol p pre section summary table tbody td tfoot th thead tr ul
+      ].freeze
+
+      # Whether an element generates a block-level box, so its text is separated
+      # from siblings by whitespace in name-from-content (inline boxes glue). The
+      # computed `display` decides when CSS is available (honoring author CSS);
+      # otherwise the UA-default block-tag set is used so table cells / list
+      # items still separate.
       def block_level?(element)
-        display = Internal::CSS::Cascade.computed_style(element)["display"].to_s
-        return false if display.empty?
+        display = computed_display(element)
+        return BLOCK_TAGS.include?(element.local_name.to_s.downcase) if display.nil?
 
         !display.start_with?("inline") && !%w[none contents].include?(display)
+      end
+
+      def computed_display(element)
+        value = Internal::CSS::Cascade.computed_style(element)["display"].to_s
+        value.empty? ? nil : value
       rescue StandardError
-        false
+        nil
       end
 
       # The text contribution of a `::before` / `::after` pseudo-element's
