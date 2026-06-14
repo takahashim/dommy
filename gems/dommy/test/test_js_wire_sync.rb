@@ -47,6 +47,18 @@ class TestJsWireSync < Minitest::Test
     end
   end
 
+  # host_runtime.js must tag a top-level `undefined` crossing to Ruby itself
+  # (dehydrateTop), rather than relying on the backend to marshal a bare JS
+  # `undefined` to a sentinel — that is what keeps the protocol engine-neutral
+  # (V8/mini_racer cannot tell undefined from null). Guards against reverting the
+  # return/set sites to a bare `dehydrate(...)`.
+  def test_undefined_is_tagged_engine_neutrally
+    assert_includes RUNTIME_JS, "function dehydrateTop",
+      "host_runtime.js must define dehydrateTop so undefined crosses as a tag on every engine"
+    assert_operator RUNTIME_JS.scan(/dehydrateTop\(/).size, :>=, 4,
+      "dehydrateTop should tag undefined at the call-arg, callback-return, and property-set sites"
+  end
+
   private
 
   # The host-function names HostBridge registers, captured by booting it over a

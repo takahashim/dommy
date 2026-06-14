@@ -30,12 +30,15 @@ module Dommy
     # Value representation a backend must deliver across the boundary (host
     # function arguments and call_js results): JSON-ish Ruby values
     # (Hash/Array/String/Numeric/true/false/nil) carrying the WireTags protocol.
-    # One non-JSON value is part of the contract: a *bare* JS `undefined` — one
-    # not wrapped in a WireTags-tagged value (e.g. a property-set value, which a
-    # backend marshals directly rather than through the tagged-args path) —
-    # arrives as the Ruby symbol `:undefined`. The bridge normalizes that to
-    # Dommy::Bridge::UNDEFINED, keeping it distinct from JS null (nil). Any
-    # backend must honor this, so the bridge needs no engine-specific knowledge.
+    # The backend does NOT need to distinguish JS `undefined` from `null` in its
+    # value marshalling: host_runtime.js tags every top-level `undefined` crossing
+    # to Ruby (dehydrateTop — callback/host returns, property-set values, call
+    # args) as `{__rb_undefined: true}`, so it arrives as Dommy::Bridge::UNDEFINED
+    # regardless of the engine (V8/mini_racer cannot tell the two apart, and need
+    # not). As a defensive fallback, the bridge also normalizes a *bare* JS
+    # `undefined` delivered as the Ruby symbol `:undefined` (a backend that can
+    # produce it, like QuickJS) to Dommy::Bridge::UNDEFINED, but no backend is
+    # required to.
     #
     # The host object must implement __js_get__/__js_set__/__js_call__, and the
     # bridge needs to know which names are methods (callable via __js_call__)

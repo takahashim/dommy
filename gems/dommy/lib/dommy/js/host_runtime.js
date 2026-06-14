@@ -214,7 +214,7 @@ globalThis.__rbHost = (function () {
     // with identity preserved (NodeFilter, where the exception must propagate
     // out of the traversal method that ran the filter).
     try {
-      return dehydrate(fn.apply(receiver, rehydrate(args || [])));
+      return dehydrateTop(fn.apply(receiver, rehydrate(args || [])));
     } catch (e) {
       // Preserve the thrown value's identity through the round trip, even for a
       // plain object (`throw {name:"x"}`) which dehydrate would otherwise flatten
@@ -353,7 +353,7 @@ globalThis.__rbHost = (function () {
   function invokeJsRefHandleEvent(ref, event) {
     const o = jsRefs.get(ref);
     if (!o || typeof o.handleEvent !== "function") return undefined;
-    return dehydrate(o.handleEvent(rehydrate(event)));
+    return dehydrateTop(o.handleEvent(rehydrate(event)));
   }
 
   // Invoke a NodeFilter object's acceptNode for one node. acceptNode is fetched
@@ -365,7 +365,7 @@ globalThis.__rbHost = (function () {
     if (!o) return undefined;
     try {
       const fn = o.acceptNode;
-      return dehydrate(fn.call(o, rehydrate(node)));
+      return dehydrateTop(fn.call(o, rehydrate(node)));
     } catch (e) {
       const tagged = (e !== null && (typeof e === "object" || typeof e === "function"))
         ? { __rb_js_ref: registerJsRef(e) }
@@ -374,14 +374,24 @@ globalThis.__rbHost = (function () {
     }
   }
 
-  // Dehydrate a top-level call/constructor argument list, tagging an explicit
-  // `undefined` so it crosses as Dommy::Bridge::UNDEFINED (distinct from the
-  // `nil` a JS `null` becomes) — letting WebIDL-style dispatch tell an omitted
-  // optional argument from an explicit null. Only top-level args are tagged;
-  // `undefined` nested inside an object still dehydrates to null, preserving
-  // existing option-bag behavior.
+  // Dehydrate a TOP-LEVEL value crossing to Ruby, tagging an explicit
+  // `undefined` so it arrives as Dommy::Bridge::UNDEFINED (distinct from the
+  // `nil` a JS `null` becomes). Tagging here — rather than relying on the
+  // backend to marshal a bare JS `undefined` to a sentinel — keeps the protocol
+  // engine-neutral: every backend gets `{__rb_undefined:true}`, whether or not
+  // its value marshalling can tell `undefined` from `null` (V8/mini_racer
+  // cannot). Only top-level values are tagged; `undefined` nested inside an
+  // object still dehydrates to null, preserving option-bag behavior.
+  function dehydrateTop(v) {
+    return v === undefined ? { __rb_undefined: true } : dehydrate(v);
+  }
+
+  // Dehydrate a top-level call/constructor argument list (each arg via
+  // dehydrateTop), so an explicit `undefined` argument is distinguishable from
+  // null — letting WebIDL-style dispatch tell an omitted optional argument from
+  // an explicit null.
   function dehydrateArgs(args) {
-    return Array.prototype.map.call(args, (a) => (a === undefined ? { __rb_undefined: true } : dehydrate(a)));
+    return Array.prototype.map.call(args, dehydrateTop);
   }
 
   // A host call that raised a Dommy::DOMException comes back tagged so it can be
@@ -782,7 +792,7 @@ globalThis.__rbHost = (function () {
           configurable: true,
           enumerable: true,
           get() { return rehydrate(__rb_host_get(this[HKEY], field)); },
-          set(v) { __rb_host_set(this[HKEY], field, dehydrate(v)); },
+          set(v) { __rb_host_set(this[HKEY], field, dehydrateTop(v)); },
         });
       }
     }
@@ -975,7 +985,7 @@ globalThis.__rbHost = (function () {
         // (null → "", else ToString — so `innerHTML = 42` / `{toString…}` work and
         // a toString that throws propagates) before the value crosses into Ruby.
         if (NULL_TO_EMPTY_STRING_SETTERS.has(prop)) value = value === null ? "" : String(value);
-        const handled = __rb_host_set(handle, prop, dehydrate(value));
+        const handled = __rb_host_set(handle, prop, dehydrateTop(value));
         // A throwing setter comes back as a tagged exception — re-throw it.
         if (handled && typeof handled === "object" && handled.__rb_exception__) {
           throw makeHostError(handled.__rb_exception__);
@@ -1158,7 +1168,7 @@ globalThis.__rbHost = (function () {
     const p = makeProxy(handle);
     const fn = p[callback];
     if (typeof fn !== "function") return undefined;
-    return dehydrate(fn.apply(p, rehydrate(args || [])));
+    return dehydrateTop(fn.apply(p, rehydrate(args || [])));
   }
 
   // customElements.define(name, JSClass): register JS-side and ask Ruby to wire
