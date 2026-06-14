@@ -225,9 +225,23 @@ module Dommy
       # Presentation conflict resolution (simplified): a focusable element or one
       # with a global ARIA attribute keeps its implicit role.
       def presentation_conflict?(element)
-        return true if present?(element.get_attribute("tabindex"))
+        return true if focusable?(element)
 
         %w[aria-label aria-labelledby aria-describedby].any? { |a| present?(element.get_attribute(a)) }
+      end
+
+      # Whether the element is focusable — a tabindex, or a natively-focusable
+      # control (a/area with href, or a non-disabled form control). Native
+      # focusability matters: <a href role=presentation> is still a link.
+      def focusable?(element)
+        return true if present?(element.get_attribute("tabindex"))
+
+        case element.local_name.to_s.downcase
+        when "a", "area" then element.has_attribute?("href")
+        when "button", "select", "textarea" then !element.has_attribute?("disabled")
+        when "input" then element.get_attribute("type").to_s.downcase != "hidden" && !element.has_attribute?("disabled")
+        else false
+        end
       end
     end
   end

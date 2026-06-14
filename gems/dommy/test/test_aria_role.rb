@@ -74,6 +74,11 @@ class TestAriaRole < Minitest::Test
     # role=none on a focusable element is overridden by the implicit role.
     assert_equal "none", role_of('<span role="none"></span>', "span")
     assert_equal "button", role_of('<button role="none" tabindex="0"></button>', "button")
+    # Native focusability counts too: a[href] / a non-disabled control.
+    assert_equal "link", role_of('<a role="presentation" href="#">x</a>', "a")
+    assert_equal "button", role_of('<button role="none">x</button>', "button")
+    # A non-focusable anchor (no href) keeps role=none.
+    assert_equal "none", role_of('<a role="none">x</a>', "a")
   end
 
   def test_img_empty_alt_is_canonical_none
