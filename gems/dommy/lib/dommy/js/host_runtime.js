@@ -290,7 +290,9 @@ globalThis.__rbHost = (function () {
       seen = seen || new WeakSet();
       if (seen.has(v)) return undefined; // break reference cycles
       seen.add(v);
-      if (Array.isArray(v)) return v.map((e) => dehydrate(e, seen));
+      // A nested `undefined` array element collapses to null (like JSON), so
+      // arrays cross uniformly across engines (see the object branch below).
+      if (Array.isArray(v)) return v.map((e) => (e === undefined ? null : dehydrate(e, seen)));
       // An "exotic" object — anything that is NOT a plain data object (Error,
       // DOMException, Map, a class instance, …) — crosses as an opaque JS-side
       // reference, so a value Ruby merely stores and hands back (an
@@ -323,7 +325,11 @@ globalThis.__rbHost = (function () {
       // Ruby as "�x" — leaving it raw lets the gem mangle it (e.g. "U+d835").
       for (const k of Object.keys(v)) {
         const key = /[\ud800-\udfff]/.test(k) ? scrubLoneSurrogates(k) : k;
-        out[key] = dehydrate(v[k], seen);
+        // A NESTED `undefined` collapses to null (option-bag semantics, like
+        // JSON) on every engine — done here rather than left to the backend,
+        // whose undefined marshalling varies (QuickJS keeps it as a sentinel,
+        // V8 gives null). Only top-level values are tagged (dehydrateTop).
+        out[key] = v[k] === undefined ? null : dehydrate(v[k], seen);
       }
       return out;
     }
@@ -1211,7 +1217,11 @@ globalThis.__rbHost = (function () {
 
   return {
     makeProxy, invokeCallback, invokeJsRefHandleEvent, invokeJsRefAcceptNode, runScript, scheduleMicrotask,
-    tag: dehydrate, interfaceOf,
+    // `tag` is the public top-level dehydrate (used by engine gems' eval_tagged
+    // for evaluate() results): it tags a top-level `undefined` so
+    // `evaluate("undefined")` yields UNDEFINED on every engine, not just those
+    // whose value marshalling distinguishes undefined from null.
+    tag: dehydrateTop, interfaceOf,
     seedInterfaces, invokeLifecycle, attachStatics, exposeConstructorsOnWindow,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,
