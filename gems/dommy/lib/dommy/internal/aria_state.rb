@@ -66,9 +66,18 @@ module Dommy
       def option_selected?(option)
         select = option.respond_to?(:closest) ? option.closest("select") : nil
         return !!option.selected unless select
-        return option.has_attribute?("selected") if select.respond_to?(:multiple) && select.multiple
+        # A list box (multiple, or size > 1) has no default selection — an
+        # option is selected only when explicitly marked. A single drop-down
+        # selects the last marked option, or the first when none is.
+        return option.has_attribute?("selected") if listbox_select?(select)
 
         same_node?(option, single_selected_option(select))
+      end
+
+      def listbox_select?(select)
+        return true if select.respond_to?(:multiple) && select.multiple
+
+        select.get_attribute("size").to_s.to_i > 1
       end
 
       def single_selected_option(select)

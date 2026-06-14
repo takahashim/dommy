@@ -36,6 +36,12 @@ class TestAriaState < Minitest::Test
   def test_option_selected
     html = "<select><option selected>A</option><option>B</option></select>"
     assert_equal({selected: true}, state_of(html, "option")) # first option
+
+    # A single drop-down default-selects its first option; a list box
+    # (size > 1 / multiple) has no default selection.
+    assert_equal({selected: true}, state_of("<select><option>A</option></select>", "option"))
+    assert_equal({selected: false}, state_of('<select size="4"><option>A</option></select>', "option"))
+    assert_equal({selected: false}, state_of("<select multiple><option>A</option></select>", "option"))
   end
 
   def test_expanded_from_aria_expanded_only
