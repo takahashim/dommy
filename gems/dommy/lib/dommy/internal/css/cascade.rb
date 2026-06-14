@@ -238,16 +238,20 @@ module Dommy
         # precedence rank: matched rules first, then the style attribute
         # (which doesn't apply to pseudo-elements).
         def each_declaration(element, index, pseudo_element)
+          layer_count = index.layer_count
           index.matches_for(element, pseudo_element).each do |match|
+            layer_index = index.layer_index_of(match.layer)
             match.declarations.each_with_index do |decl, position|
-              rank = precedence(match.origin, decl.important, match.specificity, match.order, position)
+              rank = precedence(match.origin, decl.important, match.specificity, match.order, position, layer_index)
               yield decl.name, decl.value, rank, match.origin
             end
           end
           return if pseudo_element
 
+          # The style attribute is unlayered (the implicit final layer, index
+          # layer_count).
           inline_declarations(element).each_with_index do |(name, value, important), position|
-            rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position)
+            rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position, layer_count)
             yield name, value, rank, :inline
           end
         end
@@ -273,17 +277,32 @@ module Dommy
           PropertyRegistry.expand(name, value)
         end
 
-        # Comparable precedence tuple: importance level, specificity (A,B,C),
-        # rule order, declaration position. Later/higher wins on <=>. The
-        # style attribute gets its own levels (above same-importance author
-        # rules) because it outranks any selector's specificity.
-        def precedence(origin, important, specificity, order, position)
+        # Comparable precedence tuple: importance level, cascade-layer rank,
+        # specificity (A,B,C), rule order, declaration position. Later/higher
+        # wins on <=>. The style attribute gets its own levels (above
+        # same-importance author rules) because it outranks any selector's
+        # specificity. The layer rank sits between origin and specificity, per
+        # the cascade sort order.
+        def precedence(origin, important, specificity, order, position, layer_index)
           level = if important
             {ua: 5, inline: 4, author: 3}.fetch(origin)
           else
             {inline: 2, author: 1, ua: 0}.fetch(origin)
           end
-          [level, specificity[0], specificity[1], specificity[2], order, position]
+          [level, layer_rank(important, layer_index),
+           specificity[0], specificity[1], specificity[2], order, position]
+        end
+
+        # The cascade-layer contribution to a declaration's precedence.
+        # `layer_index` is the layer's 0-based order, or the layer count for the
+        # implicit final layer that holds unlayered styles (callers pass that for
+        # unlayered declarations). For normal declarations a later layer wins, so
+        # the index is used directly and the unlayered final layer (highest
+        # index) beats every explicit layer. For important declarations the order
+        # reverses — an earlier layer wins, and unlayered important is lowest —
+        # so the index is negated.
+        def layer_rank(important, layer_index)
+          important ? -layer_index : layer_index
         end
 
         # The element's style attribute as [name, value, important] triples.

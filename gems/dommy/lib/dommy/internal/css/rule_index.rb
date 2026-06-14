@@ -16,7 +16,7 @@ module Dommy
       # generation (see Cascade) and thrown away wholesale on invalidation —
       # a viewport resize bumps the generation too, so @media re-evaluates.
       class RuleIndex
-        Match = Struct.new(:origin, :specificity, :order, :declarations)
+        Match = Struct.new(:origin, :specificity, :order, :declarations, :layer)
 
         def self.build(document)
           new(document)
@@ -28,6 +28,12 @@ module Dommy
           @pseudo_index = Hash.new { |h, k| h[k] = {}.compare_by_identity }
           @order = 0
           @imported_urls = {}
+          # Cascade-layer order: full layer name => 0-based index, assigned on
+          # first declaration (statement or block), in source order across all
+          # sheets. Unlayered styles act as a final implicit layer at index
+          # #layer_count (see Cascade#layer_rank).
+          @layer_order = {}
+          @anon_layer_seq = 0
           add_rules(UAStylesheet.rules, :ua)
           author_sheets.each { |rules| add_rules(rules, :author) }
         end
@@ -46,6 +52,19 @@ module Dommy
         # callers (visible? fast path) skip cascade work entirely.
         def author_rules?
           @author_rules ? true : false
+        end
+
+        # The number of explicit cascade layers — also the index of the
+        # implicit final layer that holds all unlayered styles.
+        def layer_count
+          @layer_order.size
+        end
+
+        # A match's layer position for cascade sorting: the explicit layer's
+        # 0-based order, or #layer_count for unlayered styles (and any layer
+        # name that was never declared). See Cascade#layer_rank.
+        def layer_index_of(layer)
+          (layer && @layer_order[layer]) || @layer_order.size
         end
 
         private
@@ -101,48 +120,84 @@ module Dommy
           []
         end
 
-        def add_rules(rules, origin)
+        def add_rules(rules, origin, layer: nil)
           rules.each do |rule|
-            if rule.is_a?(Parser::ImportRule)
-              import_rules(rule, origin)
-              next
-            end
-
-            if rule.grouping?
-              # Conditional group rules (@media/@supports/@layer): their block
-              # contributes (flattened, in source order) only when active. An
-              # inactive block contributes nothing. Nesting is an AND.
-              add_rules(rule.rules, origin) if grouping_active?(rule)
-              next
-            end
-
-            @order += 1
-            @author_rules ||= origin == :author
-            rule.selectors.each do |selector|
-              # Classify per complex selector, not per list — `div, ::before`
-              # must index its branches separately (element vs pseudo).
-              selector.ast.selectors.each do |complex|
-                pseudo = complex.pseudo_element&.name
-                target_index = pseudo ? @pseudo_index[pseudo] : @index
-                query_complex(complex).each do |element|
-                  (target_index[element] ||= []) << Match.new(origin, complex.specificity.to_a, @order, rule.declarations)
-                end
+            case rule
+            when Parser::ImportRule
+              import_rules(rule, origin, layer: layer)
+            when Parser::LayerStatement
+              # `@layer a, b;` only fixes layer order; no rules to add.
+              rule.names.each { |name| register_layer(layer_full_name(layer, name)) }
+            when Parser::LayerRule
+              # `@layer name { ... }` — enter the (possibly nested) layer.
+              full = layer_full_name(layer, rule.name)
+              register_layer(full)
+              add_rules(rule.rules, origin, layer: full)
+            else
+              if rule.grouping?
+                # @media / @supports: the block contributes (flattened, in
+                # source order, keeping the current layer) only when active.
+                add_rules(rule.rules, origin, layer: layer) if grouping_active?(rule)
+              else
+                add_style_rule(rule, origin, layer)
               end
             end
           end
+        end
+
+        def add_style_rule(rule, origin, layer)
+          @order += 1
+          @author_rules ||= origin == :author
+          rule.selectors.each do |selector|
+            # Classify per complex selector, not per list — `div, ::before`
+            # must index its branches separately (element vs pseudo).
+            selector.ast.selectors.each do |complex|
+              pseudo = complex.pseudo_element&.name
+              target_index = pseudo ? @pseudo_index[pseudo] : @index
+              query_complex(complex).each do |element|
+                (target_index[element] ||= []) << Match.new(origin, complex.specificity.to_a, @order, rule.declarations, layer)
+              end
+            end
+          end
+        end
+
+        # Record a (fully-qualified) layer's first appearance, idempotently —
+        # registering each ancestor prefix first so a parent layer always
+        # precedes its sublayers in layer order (`@layer a.b` declares `a` too,
+        # and earlier). Returns the name.
+        def register_layer(name)
+          parts = name.split(".")
+          parts.each_index do |i|
+            prefix = parts[0..i].join(".")
+            @layer_order[prefix] ||= @layer_order.size
+          end
+          name
+        end
+
+        # The full dotted name of layer `name` nested under `parent` (`outer` +
+        # `inner` -> `outer.inner`). A nil `name` is anonymous — minted unique
+        # each call so it can never be reopened (the leading space keeps it out
+        # of any real ident space).
+        def layer_full_name(parent, name)
+          if name.nil?
+            @anon_layer_seq += 1
+            name = " anon#{@anon_layer_seq}"
+          end
+
+          parent ? "#{parent}.#{name}" : name
         end
 
         # Splice an @import's referenced sheet in at this position: gate on its
         # media query, resolve the URL through the host (Dommy fetches nothing),
         # then parse and recurse. Each URL is imported once per build — a cheap
         # cycle/duplicate guard.
-        def import_rules(rule, origin)
+        def import_rules(rule, origin, layer: nil)
           return unless rule.media.empty? || MediaQuery.match?(rule.media, environment)
           return if @imported_urls[rule.url]
 
           @imported_urls[rule.url] = true
           css = resolve_import(rule.url)
-          add_rules(safe_parse(css), origin) if css
+          add_rules(safe_parse(css), origin, layer: layer) if css
         end
 
         # The host's URL -> CSS resolver (dommy-rack wires it to a same-origin
@@ -159,8 +214,8 @@ module Dommy
         end
 
         # Whether a grouping rule's block applies: @media gates on the viewport
-        # environment, @supports on its condition, @layer is always on (source
-        # order). Unknown grouping kinds default to active (fail open).
+        # environment, @supports on its condition. (@layer is handled in
+        # add_rules, not here.) Unknown grouping kinds default to active.
         def grouping_active?(rule)
           case rule
           when Parser::MediaRule then MediaQuery.match?(rule.condition, environment)

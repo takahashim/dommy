@@ -33,10 +33,18 @@ module Dommy
           def grouping? = true
         end
 
-        # @layer { ... } — treated as plain source order (its rules always
-        # participate; layer precedence is a documented non-goal).
-        LayerRule = Struct.new(:rules) do
+        # @layer name { ... } — a named (or anonymous, name nil) cascade layer.
+        # Its rules always participate; their precedence is decided by layer
+        # order (RuleIndex/Cascade), which sits between origin and specificity.
+        LayerRule = Struct.new(:name, :rules) do
           def grouping? = true
+        end
+
+        # @layer a, b, c; (statement form) or an empty @layer block — declares
+        # layer names (and thereby their order) without contributing rules.
+        # `names` entries are layer names; nil means an anonymous layer.
+        LayerStatement = Struct.new(:names) do
+          def grouping? = false
         end
 
         # @supports (cond) { ... } — its rules participate when `condition`
@@ -143,12 +151,35 @@ module Dommy
           when "media"
             MediaRule.new(rule[:prelude], normalize_rules(rule[:rules], namespaces))
           when "layer"
-            LayerRule.new(normalize_rules(rule[:rules], namespaces))
+            normalize_layer(rule, namespaces)
           when "supports"
             SupportsRule.new(rule[:prelude], normalize_rules(rule[:rules], namespaces))
           when "import"
             parse_import(rule[:prelude])
           end
+        end
+
+        # @layer comes in two shapes (lexbor reports both as an at_rule):
+        #   block form `@layer name { rules }` — one named/anonymous layer with
+        #     content (an empty block carries no rules, like a statement);
+        #   statement form `@layer a, b, c;` — declares several layers' order
+        #     without content.
+        # An empty `rules` means the statement form (or empty block): it only
+        # fixes layer order. A nil name (empty prelude) is an anonymous layer.
+        def normalize_layer(rule, namespaces)
+          names = split_layer_names(rule[:prelude])
+          rules = rule[:rules] || []
+          if rules.empty?
+            LayerStatement.new(names.empty? ? [nil] : names)
+          else
+            LayerRule.new(names.first, normalize_rules(rules, namespaces))
+          end
+        end
+
+        # The comma-separated layer names of an @layer prelude ("" → [], so an
+        # anonymous layer yields no names).
+        def split_layer_names(prelude)
+          prelude.to_s.split(",").map(&:strip).reject(&:empty?)
         end
 
         # @import prelude: `url(x)` / `"x"` / `'x'`, optionally followed by a
