@@ -20,13 +20,13 @@ module Dommy
         candidates.concat(label_targets(locator))
         candidates.concat(by_field_attribute("placeholder", locator))
         candidates.concat(by_field_attribute("aria-label", locator))
-        resolve_single(candidates, locator)
+        resolve_single(candidates, locator, noun: "field", available: -> { DomSummary.field_labels(@document) })
       end
 
       # An <a> by visible text, id, title, or exact href.
       def find_link(locator)
         matches = @document.query_selector_all("a").select { |a| link_matches?(a, locator) }
-        resolve_single(matches, locator)
+        resolve_single(matches, locator, noun: "link", available: -> { DomSummary.link_labels(@document) })
       end
 
       # A submit-capable button by text, value, id, name, or alt.
@@ -34,7 +34,8 @@ module Dommy
         buttons = @document.query_selector_all(
           "button, input[type='submit'], input[type='image'], input[type='button']"
         )
-        resolve_single(buttons.select { |b| button_matches?(b, locator) }, locator)
+        resolve_single(buttons.select { |b| button_matches?(b, locator) }, locator,
+          noun: "button", available: -> { DomSummary.button_labels(@document) })
       end
 
       # The <option> of a select matching by visible text, then by value.
@@ -131,15 +132,26 @@ module Dommy
           button.get_attribute("alt") == locator
       end
 
-      def resolve_single(candidates, locator)
+      def resolve_single(candidates, locator, noun: "element", available: nil)
         unique = candidates.compact.uniq(&:__dommy_backend_node__)
-        raise ElementNotFoundError, "no element matching #{locator.inspect}" if unique.empty?
+        raise ElementNotFoundError, not_found_message(noun, locator, available) if unique.empty?
 
         if unique.size > 1
           raise AmbiguousElementError, "#{unique.size} elements match #{locator.inspect}"
         end
 
         unique.first
+      end
+
+      # "no button matching "Save"" plus, when the finder supplied an enumerator,
+      # the candidates that WERE present — the most useful thing to see when a
+      # locator misses. The enumerator runs only on the failure path.
+      def not_found_message(noun, locator, available)
+        base = "no #{noun} matching #{locator.inspect}"
+        rows = available&.call
+        return base if rows.nil? || rows.empty?
+
+        "#{base}\n\nAvailable #{noun}s:\n#{rows.map { |row| "  #{row}" }.join("\n")}"
       end
     end
   end

@@ -52,6 +52,12 @@ module Dommy
         Locator.new(scope_root)
       end
 
+      # A read-only debugging view (forms / links / buttons / fields / summary)
+      # over the current scope. See Dommy::Interaction::Debug.
+      def debug
+        Debug.new(scope_root)
+      end
+
       def field_interactor
         FieldInteractor.new(finder, document)
       end
