@@ -34,7 +34,9 @@ module Dommy
       SYNONYMS = { "directory" => "list", "image" => "img", "presentation" => "none" }.freeze
 
       # Roles that require an author-provided accessible name; without one the
-      # token is skipped (role fallback continues to the next token).
+      # token is skipped (role fallback continues to the next token, else the
+      # implicit role). Per WPT get_computed_role; note Chromium's ariaSnapshot
+      # differs for an unnamed terminal role="region"/"form" (it keeps the role).
       NAME_REQUIRED = %w[form region].freeze
 
       # Sectioning content under which <header>/<footer> are generic rather than

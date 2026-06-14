@@ -26,7 +26,10 @@ module Dommy
         add(states, :checked, checked_state(element)) if CHECKABLE.include?(role)
         add(states, :disabled, disabled_state(element))
         add(states, :expanded, expanded_state(element))
-        add(states, :level, role == "heading" ? AriaRole.heading_level(element) : nil)
+        # The level (hN tag or aria-level) is reported whenever present, even
+        # when an explicit role overrides the heading role (<h2 role=listitem>
+        # is still [level=2]).
+        add(states, :level, AriaRole.heading_level(element))
         add(states, :pressed, tristate(element, "aria-pressed")) if role == "button"
         add(states, :readonly, readonly_state(element)) if READONLY_ROLES.include?(role)
         add(states, :required, required_state(element)) if REQUIRED_ROLES.include?(role)

@@ -49,13 +49,16 @@ class TestAriaRole < Minitest::Test
 
   def test_region_requires_accessible_name
     assert_equal "region", role_of('<section aria-label="n"></section>', "section")
-    # Explicit region without a name falls back to the implicit role.
+    # region/form need a name; unnamed, the token is skipped (here -> implicit).
+    # (Per WPT get_computed_role; Chromium's ariaSnapshot keeps an unnamed
+    # terminal explicit region/form, a known snapshot-only divergence.)
     assert_equal "navigation", role_of('<nav role="region"></nav>', "nav")
+    assert_equal "group", role_of('<nav role="region group"></nav>', "nav")
   end
 
   def test_form_requires_accessible_name
     assert_equal "form", role_of('<form aria-label="n"></form>', "form")
-    # An unnamed form is not a landmark — it is generic.
+    # An unnamed implicit form is generic.
     assert_equal "generic", role_of("<form></form>", "form")
   end
 
