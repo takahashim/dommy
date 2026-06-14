@@ -64,4 +64,65 @@ class TestBrowserSpec < Minitest::Test
     host.dommy_browser_teardown # should NOT raise (the error was acknowledged)
     assert browser.disposed
   end
+
+  # A browser stub carrying a trace, for the failure-artifact path.
+  class TraceFake
+    Trace = Struct.new(:current_page) do
+      def to_json(*) = '{"version":"1"}'
+      def to_text(**) = "ACTION visit \"/x\""
+    end
+
+    attr_reader :js_errors, :disposed
+
+    def initialize
+      @js_errors = []
+      @disposed = false
+    end
+
+    def dispose_js = @disposed = true
+    def trace = Trace.new({url: "/x", title: "X"})
+    def html = "<html><body>page</body></html>"
+    def text = "page"
+    def debug = ::Dommy::Interaction::Debug.new(::Dommy.parse(html).document)
+  end
+
+  # A host that writes artifacts under a temp dir.
+  class ArtifactHost < Host
+    attr_reader :dir
+
+    def initialize(browser, dir)
+      super(browser)
+      @dir = dir
+    end
+
+    def dommy_failures_dir = @dir
+  end
+
+  def test_failure_saves_artifacts
+    Dir.mktmpdir do |tmp|
+      browser = TraceFake.new
+      host = ArtifactHost.new(browser, tmp)
+      host.dommy_browser_after(failed: true, label: "Todos toggles a todo")
+
+      dir = File.join(tmp, "todos-toggles-a-todo")
+      assert File.exist?(File.join(dir, "current.html"))
+      assert File.exist?(File.join(dir, "trace.json"))
+      assert File.exist?(File.join(dir, "trace.txt"))
+      assert File.exist?(File.join(dir, "visible-text.txt"))
+      assert File.exist?(File.join(dir, "dom-summary.txt"))
+      assert_equal "page", File.read(File.join(dir, "visible-text.txt"))
+      assert browser.disposed, "still disposes after saving artifacts"
+    end
+  end
+
+  def test_passing_example_saves_nothing
+    Dir.mktmpdir do |tmp|
+      browser = TraceFake.new
+      host = ArtifactHost.new(browser, tmp)
+      host.dommy_browser_after(failed: false, label: "ok")
+
+      assert_empty Dir.children(tmp)
+      assert browser.disposed
+    end
+  end
 end

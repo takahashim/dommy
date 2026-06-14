@@ -351,6 +351,57 @@ module Dommy
       class HaveNoField < HaveField
         include Negated
       end
+
+      # Prepended to every concrete matcher so it sits first in the method
+      # resolution order: it remembers the matched subject and wraps the
+      # matcher's own `failure_message` (via `super`) with any extra context a
+      # host registered through `Dommy::RSpec.failure_context` (e.g. dommy-rails
+      # appends a recent trace for a trace-enabled session). With no context
+      # registered the message is returned unchanged, so existing behavior — and
+      # existing message assertions — are preserved.
+      module FailureContext
+        def matches?(scope)
+          @__dommy_subject = scope
+          super
+        end
+
+        def does_not_match?(scope)
+          @__dommy_subject = scope
+          super
+        end
+
+        def failure_message
+          Dommy::RSpec.__decorate_failure(super, @__dommy_subject)
+        end
+
+        def failure_message_when_negated
+          Dommy::RSpec.__decorate_failure(super, @__dommy_subject)
+        end
+      end
+
+      [HaveSelector, HaveNoSelector, HaveContent, HaveNoContent,
+        HaveLink, HaveNoLink, HaveButton, HaveNoButton,
+        HaveField, HaveNoField].each { |matcher| matcher.prepend(FailureContext) }
+    end
+
+    class << self
+      # A `->(subject) { String | nil }` consulted when a matcher fails: its
+      # return value is appended to the failure message. Hosts set this to add
+      # context (dommy-rails registers a recent-trace summary for trace-enabled
+      # sessions). nil (the default) leaves every message untouched.
+      attr_accessor :failure_context
+    end
+
+    # Append the host's failure context to `message` for `subject`, or return
+    # `message` unchanged. Never raises out of a failure path: a misbehaving
+    # context proc must not mask the real assertion failure.
+    def self.__decorate_failure(message, subject)
+      return message unless failure_context && subject
+
+      extra = failure_context.call(subject)
+      extra ? "#{message}\n\n#{extra}" : message
+    rescue StandardError
+      message
     end
   end
 end
