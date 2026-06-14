@@ -22,6 +22,13 @@ module Dommy
         @shadow_roots[Backend.identity_key(fragment_node)]
       end
 
+      # Every registered ShadowRoot (used by the cascade to collect shadow-tree
+      # stylesheets). Insertion order; includes roots whose host may have since
+      # been detached (harmless — their rules only match their own subtree).
+      def all
+        @shadow_roots.values
+      end
+
       # Find the enclosing ShadowRoot for a given node.
       # Walks up the ancestor chain looking for a shadow root.
       # Uses NodeTraversal to avoid duplication of tree walking logic.

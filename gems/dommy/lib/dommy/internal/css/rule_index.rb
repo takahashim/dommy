@@ -42,9 +42,14 @@ module Dommy
           @anon_layer_seq = 0
           add_rules(UAStylesheet.rules, :ua)
           author_sheets.each { |rules| add_rules(rules, :author) }
+          add_shadow_sheets
         end
 
         EMPTY = [].freeze
+
+        # A shadow-tree styling context: the ShadowRoot whose <style> a rule came
+        # from, and its host element (what `:host` targets).
+        Shadow = Struct.new(:root, :host)
 
         def matches_for(element, pseudo_element = nil)
           if pseudo_element
@@ -126,7 +131,7 @@ module Dommy
           []
         end
 
-        def add_rules(rules, origin, layer: nil, scope: nil)
+        def add_rules(rules, origin, layer: nil, scope: nil, shadow: nil)
           rules.each do |rule|
             case rule
             when Parser::ImportRule
@@ -138,44 +143,187 @@ module Dommy
               # `@layer name { ... }` — enter the (possibly nested) layer.
               full = layer_full_name(layer, rule.name)
               register_layer(full)
-              add_rules(rule.rules, origin, layer: full, scope: scope)
+              add_rules(rule.rules, origin, layer: full, scope: scope, shadow: shadow)
             when Parser::ScopeRule
               # `@scope (start) to (end) { ... }` — resolve the roots/limits and
               # scope the block's rules. (A nested @scope replaces the outer one
               # for its block; combining both is a documented limitation.)
               resolved = build_scope(rule.start, rule.end)
-              add_rules(rule.rules, origin, layer: layer, scope: resolved) if resolved
+              add_rules(rule.rules, origin, layer: layer, scope: resolved, shadow: shadow) if resolved
             else
               if rule.grouping?
                 # @media / @supports: the block contributes (flattened, in
-                # source order, keeping the current layer/scope) only when active.
-                add_rules(rule.rules, origin, layer: layer, scope: scope) if grouping_active?(rule)
+                # source order, keeping the current layer/scope/shadow) only when active.
+                add_rules(rule.rules, origin, layer: layer, scope: scope, shadow: shadow) if grouping_active?(rule)
               else
-                add_style_rule(rule, origin, layer, scope)
+                add_style_rule(rule, origin, layer, scope, shadow)
               end
             end
           end
         end
 
-        def add_style_rule(rule, origin, layer, scope)
+        def add_style_rule(rule, origin, layer, scope, shadow)
           @order += 1
           @author_rules ||= origin == :author
           rule.selectors.each do |selector|
             # Classify per complex selector, not per list — `div, ::before`
             # must index its branches separately (element vs pseudo).
             selector.ast.selectors.each do |complex|
-              pseudo = complex.pseudo_element&.name
-              target_index = pseudo ? @pseudo_index[pseudo] : @index
               spec = complex.specificity.to_a
-              if scope
-                index_scoped(complex, spec, target_index, origin, layer, scope, rule.declarations)
+              if shadow
+                index_shadow_complex(complex, spec, origin, layer, shadow, rule.declarations)
+              elsif complex.pseudo_element&.name == "part"
+                index_part_complex(complex, spec, origin, layer, rule.declarations)
               else
-                query_complex(complex).each do |element|
-                  (target_index[element] ||= []) << Match.new(origin, spec, @order, rule.declarations, layer, nil)
+                pseudo = complex.pseudo_element&.name
+                target_index = pseudo ? @pseudo_index[pseudo] : @index
+                if scope
+                  index_scoped(complex, spec, target_index, origin, layer, scope, rule.declarations)
+                else
+                  query_complex(complex).each do |element|
+                    (target_index[element] ||= []) << Match.new(origin, spec, @order, rule.declarations, layer, nil)
+                  end
                 end
               end
             end
           end
+        end
+
+        # Each ShadowRoot's <style> sheets, scoped to that shadow tree. Document
+        # queries never cross into a shadow fragment, so a shadow tree's elements
+        # otherwise get no author rules — this is where encapsulated styles enter.
+        def add_shadow_sheets
+          return unless @document.respond_to?(:__internal_all_shadow_roots__)
+
+          @document.__internal_all_shadow_roots__.each do |root|
+            host = root.respond_to?(:host) ? root.host : nil
+            next unless host
+
+            shadow = Shadow.new(root, host)
+            shadow_style_rules(root).each { |rules| add_rules(rules, :author, shadow: shadow) }
+          end
+        end
+
+        def shadow_style_rules(root)
+          root.query_selector_all("style").to_a.filter_map { |style| safe_parse(style.text_content.to_s) }
+        end
+
+        # Index one complex selector of a shadow-tree style rule. Handles the
+        # shadow-only pseudos (`:host` / `:host()` targeting the host, and
+        # `::slotted()` targeting assigned light-DOM nodes) and scopes plain
+        # selectors to the shadow tree.
+        def index_shadow_complex(complex, spec, origin, layer, shadow, declarations)
+          if complex.pseudo_element&.name == "slotted"
+            slotted_targets(complex, shadow).each { |el| record(@index, el, origin, spec, declarations, layer) }
+            return
+          end
+
+          pseudo = complex.pseudo_element&.name
+          target_index = pseudo ? @pseudo_index[pseudo] : @index
+          shadow_targets(complex, shadow).each { |el| record(target_index, el, origin, spec, declarations, layer) }
+        end
+
+        # The elements a shadow-internal complex selector matches. A leading
+        # `:host` / `:host()` targets the host (when it is the whole selector) or
+        # acts as the scoping ancestor for the shadow-tree subject of the rest of
+        # the selector; otherwise the selector is matched within the shadow tree.
+        def shadow_targets(complex, shadow)
+          host_pseudo = leading_host_pseudo(complex)
+          unless host_pseudo
+            list = single_complex_list(complex.pseudo_element? ? complex.without_pseudo_element : complex)
+            return Internal::SelectorMatcher.query(shadow.root, list, scope: shadow.root)
+          end
+
+          return [] unless host_matches?(shadow.host, host_pseudo)
+          return [shadow.host] if complex.parts.length == 1
+
+          # `:host(...) <rest>` — every shadow element is conceptually a descendant
+          # of the host, so the remainder matches within the shadow tree. (The
+          # combinator after :host is treated as descendant; child/sibling refinement
+          # is a documented limitation.)
+          Internal::SelectorMatcher.query(shadow.root, host_remainder_list(complex), scope: shadow.root)
+        end
+
+        def leading_host_pseudo(complex)
+          complex.parts.first.compound.subclass_selectors.find do |selector|
+            selector.is_a?(Internal::SelectorAST::PseudoClass) && %w[host host-context].include?(selector.name)
+          end
+        end
+
+        # Whether `:host` / `:host(arg)` / `:host-context(arg)` matches the host.
+        def host_matches?(host, host_pseudo)
+          return false unless host
+
+          argument = host_pseudo.argument
+          if host_pseudo.name == "host-context"
+            return false if argument.nil?
+
+            return host_or_ancestor_matches?(host, argument)
+          end
+          argument.nil? || Internal::SelectorMatcher.matches?(host, argument)
+        end
+
+        def host_or_ancestor_matches?(element, argument)
+          current = element
+          while current.respond_to?(:parent_element)
+            return true if Internal::SelectorMatcher.matches?(current, argument)
+
+            current = current.parent_element
+          end
+          false
+        end
+
+        # Drop the leading `:host(...)` part, returning the remaining complex as a
+        # one-selector list (its new head loses the inherited combinator).
+        def host_remainder_list(complex)
+          rest = complex.parts[1..]
+          parts = [Internal::SelectorAST::Part.new(nil, rest.first.compound)] + rest[1..]
+          single_complex_list(Internal::SelectorAST::ComplexSelector.new(parts))
+        end
+
+        # `::slotted(<compound>)` — the light-DOM nodes assigned to a slot in this
+        # shadow tree whose flat-tree parent is the host, matching the compound.
+        def slotted_targets(complex, shadow)
+          compound = complex.pseudo_element.argument
+          list = compound.is_a?(Internal::SelectorAST::SelectorList) ? compound : single_complex_list(compound)
+          assigned_slottables(shadow).select { |el| Internal::SelectorMatcher.matches?(el, list) }
+        end
+
+        def assigned_slottables(shadow)
+          shadow.root.query_selector_all("slot").to_a.flat_map do |slot|
+            slot.respond_to?(:assigned_elements) ? slot.assigned_elements : []
+          end
+        end
+
+        # `<compound>::part(name)` from a document/outer style: the elements with a
+        # matching `part` token inside the shadow tree of a host the compound chain
+        # matches.
+        def index_part_complex(complex, spec, origin, layer, declarations)
+          names = complex.pseudo_element.argument
+          return unless names.is_a?(Array) && !names.empty?
+
+          host_list = single_complex_list(complex.without_pseudo_element)
+          Internal::SelectorMatcher.query(@document, host_list).each do |host|
+            part_elements(host, names).each { |el| record(@index, el, origin, spec, declarations, layer) }
+          end
+        end
+
+        def part_elements(host, names)
+          root = host.respond_to?(:shadow_root) ? host.shadow_root : nil
+          return [] unless root
+
+          root.query_selector_all("[part]").to_a.select do |el|
+            tokens = el.get_attribute("part").to_s.split(/\s+/)
+            names.all? { |name| tokens.include?(name) }
+          end
+        end
+
+        def single_complex_list(complex)
+          Internal::SelectorAST::SelectorList.new([complex])
+        end
+
+        def record(target_index, element, origin, spec, declarations, layer)
+          (target_index[element] ||= []) << Match.new(origin, spec, @order, declarations, layer, nil)
         end
 
         # Index a scoped style rule: for each scoping root, match the selector

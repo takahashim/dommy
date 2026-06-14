@@ -9,7 +9,9 @@ module Dommy
   #
   # Tree manipulation works the same as a normal Element/Fragment;
   # the boundary is enforced only on outer queries and event
-  # composition. CSS scoping (`:host`, `::slotted`) is out of scope.
+  # composition. CSS scoping (`:host` / `::slotted` / `::part`, and this
+  # tree's `<style>` rules) is handled by the cascade — see
+  # `internal/css/rule_index.rb` and css-cascade.md.
   class ShadowRoot
     include EventTarget
     include Node

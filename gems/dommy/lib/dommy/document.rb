@@ -1186,6 +1186,12 @@ module Dommy
       @shadow_registry.find_enclosing(node)
     end
 
+    # Every ShadowRoot attached in this document — the cascade collects each
+    # one's <style> sheets and scopes them to that shadow tree.
+    def __internal_all_shadow_roots__
+      @shadow_registry.all
+    end
+
     # Lifecycle callback dispatchers. Errors raised inside user
     # callbacks are swallowed so a single buggy custom element can't
     # break the whole mutation pipeline.
