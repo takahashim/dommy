@@ -89,7 +89,23 @@ module Dommy
       # Makiri can't move a node between document arenas, so adoption imports a
       # detached copy owned by `target_doc`. The caller reseats the wrapper onto
       # this returned node, preserving Dommy-level identity.
+      #
+      # Gap absorption: Lexbor's HTML serializer has no CDATA case (it errors on a
+      # CDATA node) and Lexbor is a pinned upstream submodule, so Makiri's
+      # cross-kind import_node fails closed when bringing an XML CDATASection into
+      # an HTML document. Rather than let that surface as an error, degrade the
+      # node to a text node carrying the same data — the data a spec-faithful HTML
+      # serializer emits anyway (CDATASection is a Text subtype). The caller
+      # reseats the Dommy CDATASection wrapper onto this node, so `nodeType`
+      # stays 4 at the DOM level; only the backing node (and thus serialization)
+      # is text. An XML target keeps a real CDATA node. This handles a directly
+      # adopted CDATA node (a CDATA descendant inside an adopted element subtree
+      # is rare, untested, and still fails closed in the backend).
       def adopt(node, target_doc)
+        if node.is_a?(::Makiri::CDATASection) && !target_doc.is_a?(::Makiri::XML::Document)
+          return target_doc.create_text_node(node.text)
+        end
+
         target_doc.import_node(node, true)
       end
 
@@ -209,8 +225,23 @@ module Dommy
         Namespace.new(uri)
       end
 
-      def add_namespace_definition(_node, _prefix, _href)
-        # No-op: Makiri doesn't support XML namespaces.
+      # Bind a *prefixed* element's namespace so the prefix resolves. An XML
+      # document resolves an element's prefix from xmlns declarations at insertion
+      # time, so a prefixed element (createElementNS / createDocument with a
+      # qualified name like "foo:div") must carry an xmlns:prefix declaration or
+      # the insert fails with an unbound-prefix error. The namespaceURI itself is
+      # tracked on the Dommy wrapper, so the unprefixed case needs nothing here —
+      # and must add no attribute, lest a spurious xmlns surface in the DOM view
+      # (attributes/isEqualNode). An HTML (Lexbor) document tracks the namespace
+      # natively and needs no declaration either. (This was a blanket no-op back
+      # when new Document()/createDocument were HTML-backed; XML-backing them
+      # surfaced the prefixed-element gap.)
+      def add_namespace_definition(node, prefix, href)
+        return if prefix.nil? || prefix.empty?
+        return unless node.document.is_a?(::Makiri::XML::Document)
+
+        node["xmlns:#{prefix}"] = href.to_s
+        nil
       end
 
       def namespace_definitions(_node)
