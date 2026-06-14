@@ -79,6 +79,21 @@ module Dommy
         refute_includes(actual_classes, class_name.to_s, msg)
       end
 
+      # Assert the scope contains an element with computed ARIA role `role`
+      # (+ optional accessible name / level). Walks the accessibility tree, so
+      # aria-hidden / invisible elements are excluded.
+      def assert_dom_has_role(scope, role, name: nil, level: nil, count: nil, exact: false, msg: nil)
+        matched = dom_roles_for(scope, role, name: name, level: level, exact: exact)
+        msg ||= "expected to find role #{role.to_s.inspect}#{role_clause(name, level, count)}, found #{matched.size}"
+        assert(Internal::DomMatching.count_matches?(matched.size, count), msg)
+      end
+
+      def refute_dom_has_role(scope, role, name: nil, level: nil, count: nil, exact: false, msg: nil)
+        matched = dom_roles_for(scope, role, name: name, level: level, exact: exact)
+        msg ||= "expected NOT to find role #{role.to_s.inspect}#{role_clause(name, level, nil)}, found #{matched.size}"
+        refute(Internal::DomMatching.count_matches?(matched.size, count), msg)
+      end
+
       def assert_dom_html_equal(scope, expected_html, msg: nil)
         scope = Internal::ScopeResolution.resolve(scope)
         actual_n = Internal::DomMatching.normalize_html(Internal::DomMatching.html_of(scope))
@@ -99,6 +114,18 @@ module Dommy
 
       def dom_text_of(scope)
         Internal::DomMatching.text_of(Internal::ScopeResolution.resolve(scope))
+      end
+
+      def dom_roles_for(scope, role, name:, level:, exact:)
+        Interaction::RoleQuery.match(Internal::ScopeResolution.resolve(scope), role: role, name: name, level: level, exact: exact)
+      end
+
+      def role_clause(name, level, count)
+        clause = +""
+        clause << " named #{name.inspect}" if name
+        clause << " at level #{level}" if level
+        clause << " (count: #{count.inspect})" if count
+        clause
       end
     end
   end
