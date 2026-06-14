@@ -36,8 +36,11 @@ class TestAriaSnapshot < Minitest::Test
         <button>Submit</button>
       </form>
     HTML
+    # A wrapping <label>'s text both names its control AND appears as a
+    # standalone text node — matching Playwright (the label is not suppressed).
     expected = <<~SNAP
       - form "Signup":
+        - text: "Email"
         - textbox "Email" [required]
         - checkbox [checked]
         - button "Submit"

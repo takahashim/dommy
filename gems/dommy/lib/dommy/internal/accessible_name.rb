@@ -25,10 +25,16 @@ module Dommy
 
       module_function
 
-      # The accessible name string ("" when none). The harness normalizes ASCII
-      # whitespace and trims, so internal spacing need only be roughly correct.
+      # The accessible name string ("" when none). ASCII whitespace runs are
+      # collapsed and the result trimmed, matching how browsers / Playwright
+      # flatten an accessible name.
       def compute(element)
-        name_of(element, [], referenced: false, allow_content: false).strip
+        squish(name_of(element, [], referenced: false, allow_content: false))
+      end
+
+      # Collapse ASCII whitespace runs to single spaces and trim.
+      def squish(text)
+        text.to_s.gsub(/\s+/, " ").strip
       end
 
       # `referenced`: this node was reached through aria-labelledby, so it must
@@ -182,7 +188,10 @@ module Dommy
           else
             ""
           end
-        end.join
+          # Separate each child's contribution with a space so sibling cells /
+          # elements don't glue together ("Profile" + "A" -> "Profile A"); the
+          # top-level `compute` collapses any resulting double spaces.
+        end.join(" ")
 
         pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
       end

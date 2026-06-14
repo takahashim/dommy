@@ -53,16 +53,29 @@ module Dommy
         tristate(element, "aria-selected")
       end
 
+      # Expanded comes only from aria-expanded. A native <details open> is NOT
+      # reported as expanded (Playwright / Chromium put no expanded state on the
+      # details group).
       def expanded_state(element)
-        return element.open if native_details?(element)
-
         tristate(element, "aria-expanded")
       end
+
+      # Form controls whose `disabled` content attribute is meaningful but which
+      # do not (all) expose a reflected `disabled` IDL property in Dommy.
+      DISABLEABLE_TAGS = %w[button fieldset input optgroup option select textarea].freeze
 
       # disabled / readonly / required are binary (no "[disabled=false]"): return
       # true or nil so the caller omits the key when absent.
       def disabled_state(element)
-        true if (element.respond_to?(:disabled) && element.disabled) || aria_true?(element, "aria-disabled")
+        true if native_disabled?(element) || aria_true?(element, "aria-disabled")
+      end
+
+      # Native disabledness: the reflected property when present (input/option/
+      # optgroup), else the content attribute on a disable-able control.
+      def native_disabled?(element)
+        return element.disabled if element.respond_to?(:disabled)
+
+        DISABLEABLE_TAGS.include?(element.local_name.to_s.downcase) && element.has_attribute?("disabled")
       end
 
       def readonly_state(element)
@@ -89,7 +102,6 @@ module Dommy
       end
 
       def native_option?(element) = element.respond_to?(:selected) && tag?(element, "option")
-      def native_details?(element) = element.respond_to?(:open) && tag?(element, "details")
       def tag?(element, name) = element.local_name.to_s.casecmp?(name)
     end
   end

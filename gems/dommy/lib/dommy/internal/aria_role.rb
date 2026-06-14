@@ -92,6 +92,7 @@ module Dommy
         when "del" then "deletion"
         when "dialog" then "dialog"
         when "dd" then "definition"
+        when "details" then "group"
         when "dfn" then "term"
         when "dt" then "term"
         when "em" then "emphasis"
@@ -126,7 +127,7 @@ module Dommy
         when "tbody", "tfoot", "thead" then "rowgroup"
         when "td" then "cell"
         when "textarea" then "textbox"
-        when "th" then "columnheader"
+        when "th" then th_role(element)
         when "time" then "time"
         when "tr" then "row"
         end
@@ -136,8 +137,28 @@ module Dommy
 
       def img_role(element)
         alt = element.get_attribute("alt")
-        # An explicitly empty alt makes the image presentational.
-        alt == "" ? "presentation" : "img"
+        # An explicitly empty alt makes the image presentational. Return the
+        # canonical "none" (not its "presentation" synonym) so the accessibility
+        # tree flattens it like any other presentational node.
+        alt == "" ? "none" : "img"
+      end
+
+      # A <th> is a column or row header. An explicit `scope` wins; otherwise a
+      # th sharing its row with data cells (<td>) acts as a row header, while a
+      # th in an all-header row is a column header.
+      def th_role(element)
+        case element.get_attribute("scope").to_s.downcase
+        when "row", "rowgroup" then "rowheader"
+        when "col", "colgroup" then "columnheader"
+        else row_has_data_cell?(element) ? "rowheader" : "columnheader"
+        end
+      end
+
+      def row_has_data_cell?(element)
+        row = element.respond_to?(:parent_element) ? element.parent_element : nil
+        return false unless row
+
+        row.children.any? { |cell| cell.local_name.to_s.casecmp?("td") }
       end
 
       INPUT_ROLES = {

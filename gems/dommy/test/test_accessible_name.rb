@@ -96,4 +96,15 @@ class TestAccessibleName < Minitest::Test
            '<button aria-label="Explicit">Save</button>'
     assert_equal "Explicit", label_of(html, "button")
   end
+
+  def test_internal_whitespace_is_collapsed
+    assert_equal "two words", label_of("<button>two   words</button>", "button")
+    assert_equal "spaced label", label_of('<button aria-label="spaced   label">x</button>', "button")
+  end
+
+  def test_name_from_content_separates_element_children
+    # Sibling cells must not glue: "Profile" + "Profile" + "A".
+    html = "<table><tr><td>Profile</td><td>Profile</td><td>A</td></tr></table>"
+    assert_equal "Profile Profile A", label_of(html, "tr")
+  end
 end

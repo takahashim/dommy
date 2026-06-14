@@ -66,4 +66,23 @@ class TestAriaRole < Minitest::Test
     assert_equal "none", role_of('<span role="none"></span>', "span")
     assert_equal "button", role_of('<button role="none" tabindex="0"></button>', "button")
   end
+
+  def test_img_empty_alt_is_canonical_none
+    assert_equal "none", role_of('<img alt="" src="x">', "img")
+    assert_equal "img", role_of('<img alt="cat" src="x">', "img")
+  end
+
+  def test_details_is_group
+    assert_equal "group", role_of("<details><summary>s</summary></details>", "details")
+  end
+
+  def test_th_scope
+    # Explicit scope wins.
+    assert_equal "rowheader", role_of('<table><tr><th scope="row">H</th></tr></table>', "th")
+    assert_equal "columnheader", role_of('<table><tr><th scope="col">H</th></tr></table>', "th")
+    # Auto: a th sharing its row with a <td> is a row header; an all-th row is
+    # column headers.
+    assert_equal "rowheader", role_of("<table><tr><th>H</th><td>d</td></tr></table>", "th")
+    assert_equal "columnheader", role_of("<table><tr><th>A</th><th>B</th></tr></table>", "th:first-child")
+  end
 end

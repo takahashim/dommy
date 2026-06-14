@@ -58,4 +58,11 @@ class TestAccessibilityTree < Minitest::Test
     roles = nodes.first[:children].map { |c| c[:role] }
     assert_equal %w[listitem listitem], roles
   end
+
+  def test_adjacent_text_is_coalesced
+    # <summary> collapses to text "Settings"; the trailing "Title" text merges
+    # with it into one text node under the details group.
+    nodes = tree("<details open><summary>Settings</summary>Title</details>")
+    assert_equal [{role: "group", children: [{role: :text, name: "Settings Title"}]}], nodes
+  end
 end

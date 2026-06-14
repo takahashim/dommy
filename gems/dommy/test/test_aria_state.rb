@@ -38,14 +38,20 @@ class TestAriaState < Minitest::Test
     assert_equal({selected: true}, state_of(html, "option")) # first option
   end
 
-  def test_details_open_is_expanded
-    assert_equal({expanded: true}, state_of("<details open><summary>s</summary></details>", "details"))
-    assert_equal({expanded: false}, state_of("<details><summary>s</summary></details>", "details"))
+  def test_expanded_from_aria_expanded_only
+    # A native <details open> (role group) carries no expanded state; only
+    # aria-expanded does.
+    assert_equal({}, state_of("<details open><summary>s</summary></details>", "details"))
+    assert_equal({expanded: true}, state_of('<div role="button" aria-expanded="true">x</div>', "div"))
+    assert_equal({expanded: false}, state_of('<div role="button" aria-expanded="false">x</div>', "div"))
   end
 
   def test_disabled_native_and_aria
     assert_equal(true, state_of('<input type="text" disabled>', "input")[:disabled])
     assert_equal(true, state_of('<div role="textbox" aria-disabled="true"></div>', "div")[:disabled])
+    # <button>/<select>/<textarea> carry the disabled attribute but no reflected
+    # IDL property — read it off the attribute.
+    assert_equal(true, state_of("<button disabled>x</button>", "button")[:disabled])
   end
 
   def test_required_and_readonly

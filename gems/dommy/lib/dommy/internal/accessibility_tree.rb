@@ -65,11 +65,6 @@ module Dommy
         role = AriaRole.compute(element)
         children = build_children(element)
 
-        # A <label>'s text content names its associated control, so it must not
-        # also surface as a standalone text node (Playwright / ARIA); only its
-        # roled descendants (the control itself) are promoted.
-        children = children.reject(&:text?) if label_element?(element)
-
         # Presentational and generic/roleless containers drop out; their
         # children are promoted to the parent.
         return children if role == "none" || role == "" || role == "generic"
@@ -99,7 +94,21 @@ module Dommy
             out << Node.new(role: :text, name: text) unless text.empty?
           end
         end
-        out
+        coalesce_text(out)
+      end
+
+      # Merge runs of adjacent text nodes into one (joined by a space), matching
+      # how the snapshot presents contiguous text. Promotion of a collapsed
+      # element's text children can place two text nodes side by side, so this
+      # runs after the children are assembled.
+      def coalesce_text(nodes)
+        nodes.each_with_object([]) do |node, out|
+          if node.text? && out.last&.text?
+            out[-1] = Node.new(role: :text, name: "#{out.last.name} #{node.name}")
+          else
+            out << node
+          end
+        end
       end
 
       # An element (and its whole subtree) is excluded from the tree when
@@ -111,7 +120,6 @@ module Dommy
         !DomMatching.visible?(element)
       end
 
-      def label_element?(element) = element.local_name.to_s.casecmp?("label")
       def squish(text) = text.to_s.gsub(/\s+/, " ").strip
     end
   end
