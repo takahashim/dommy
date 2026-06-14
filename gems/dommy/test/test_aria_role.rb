@@ -53,6 +53,12 @@ class TestAriaRole < Minitest::Test
     assert_equal "navigation", role_of('<nav role="region"></nav>', "nav")
   end
 
+  def test_form_requires_accessible_name
+    assert_equal "form", role_of('<form aria-label="n"></form>', "form")
+    # An unnamed form is not a landmark — it is generic.
+    assert_equal "generic", role_of("<form></form>", "form")
+  end
+
   def test_role_fallback_picks_first_valid_token
     assert_equal "group", role_of('<div role="bogus group"></div>', "div")
   end

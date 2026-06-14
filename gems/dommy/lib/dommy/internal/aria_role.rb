@@ -99,7 +99,7 @@ module Dommy
         when "fieldset" then "group"
         when "figure" then "figure"
         when "footer" then landmark_or_generic(element, "contentinfo")
-        when "form" then named?(element) ? "form" : "form"
+        when "form" then named?(element) ? "form" : "generic"
         when "h1", "h2", "h3", "h4", "h5", "h6" then "heading"
         when "header" then landmark_or_generic(element, "banner")
         when "hr" then "separator"
