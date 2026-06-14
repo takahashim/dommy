@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        gem: [dommy, dommy-rack, capybara-dommy]
+        gem: [dommy, dommy-rack, capybara-dommy, dommy-rails]
         ruby: ["3.2", "3.3", "3.4", "4.0"]
 
     steps:
