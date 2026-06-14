@@ -24,5 +24,5 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   # Default HTML parser backend.
-  spec.add_dependency "makiri", "~> 0.4"
+  spec.add_dependency "makiri", "~> 0.5"
 end

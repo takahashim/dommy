@@ -9,9 +9,10 @@ gem "dommy-rack", path: "gems/dommy-rack"
 gem "capybara-dommy", path: "gems/capybara-dommy"
 gem "dommy-rails", path: "gems/dommy-rails"
 
-# HTML parser backends. At least one is required; both are listed so the
-# dommy test suite can verify each adapter.
-gem "makiri", path: "../makiri"
+# HTML parser backend (Lexbor-based). Published on RubyGems; for makiri
+# development, uncomment the `path:` override to use a local sibling checkout.
+gem "makiri", "~> 0.5"
+# gem "makiri", path: "../makiri"
 
 # Shared dev tooling.
 gem "rake", "~> 13.0"
