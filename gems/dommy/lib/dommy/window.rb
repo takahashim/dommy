@@ -498,6 +498,30 @@ module Dommy
         "URLPattern" => Bridge::Constructor.new { |args| URLPattern.new(args[0], args[1]) },
         "Range" => Bridge::Constructor.new { |_args| Range.new(@document) },
         "URL" => url,
+        # Legacy named constructors (HTML `[LegacyFactoryFunction]`): each builds
+        # the corresponding element. `new Image()` is `<img>`, `new Audio()` is
+        # `<audio>` (preload="auto"), `new Option()` is `<option>`. The JS side
+        # exposes the globals with the target interface's prototype so e.g.
+        # `new Image() instanceof HTMLImageElement` holds.
+        "Image" => Bridge::Constructor.new { |args|
+          img = win.document.create_element("img")
+          img.set_attribute("width", args[0].to_s) unless args[0].nil?
+          img.set_attribute("height", args[1].to_s) unless args[1].nil?
+          img
+        },
+        "Audio" => Bridge::Constructor.new { |args|
+          audio = win.document.create_element("audio")
+          audio.set_attribute("preload", "auto")
+          audio.set_attribute("src", args[0].to_s) unless args[0].nil?
+          audio
+        },
+        "Option" => Bridge::Constructor.new { |args|
+          opt = win.document.create_element("option")
+          opt.text = args[0].to_s unless args[0].nil? || args[0].to_s.empty?
+          opt.value = args[1].to_s if args.length >= 2 && !args[1].nil?
+          opt.selected = true if args[2] || args[3] # defaultSelected / selectedness
+          opt
+        },
       }
     end
   end

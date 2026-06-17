@@ -820,11 +820,34 @@ globalThis.__rbHost = (function () {
     return proto;
   }
 
+  // Legacy named constructors (HTML `[LegacyFactoryFunction]`): a global factory
+  // function whose `.prototype` IS the target interface's prototype, so
+  // `new Image() instanceof HTMLImageElement` holds and `(new Image).constructor`
+  // is HTMLImageElement (the prototype's own `constructor`). Construction routes
+  // to Ruby (which builds the actual <img>/<audio>/<option> element).
+  const NAMED_CONSTRUCTORS = { Image: "HTMLImageElement", Audio: "HTMLAudioElement", Option: "HTMLOptionElement" };
+
+  function exposeNamedConstructors() {
+    for (const alias in NAMED_CONSTRUCTORS) {
+      if (alias in globalThis) continue;
+      const proto = protos.get(NAMED_CONSTRUCTORS[alias]);
+      if (!proto) continue;
+      const ctor = function (...args) {
+        if (new.target === undefined) throw new TypeError(alias + " requires 'new'");
+        return constructInterface(alias, args);
+      };
+      Object.defineProperty(ctor, "name", { value: alias, configurable: true });
+      ctor.prototype = proto; // share the interface prototype -> instanceof works
+      globalThis[alias] = ctor;
+    }
+  }
+
   // Eagerly build the base interfaces (chains supplied by Ruby, the single
   // source of hierarchy knowledge) so `instanceof Node` / `typeof HTMLElement`
   // resolve before an instance of that exact type has crossed.
   function seedInterfaces(chains) {
     chains.forEach((c) => protoForChain(c, 0));
+    exposeNamedConstructors();
   }
 
   // 1c: expose an interface constructor's static/class methods (URL.createObjectURL,
@@ -867,6 +890,10 @@ globalThis.__rbHost = (function () {
       "Proxy", "Reflect", "JSON", "Math"
     );
     const interfaceNames = new Set(protos.keys());
+    // Legacy named constructors are seeded JS functions too; the window
+    // otherwise resolves them to the host-backed Constructor proxy (a
+    // non-constructable "object"), so replace those the same way as interfaces.
+    for (const alias in NAMED_CONSTRUCTORS) { names.push(alias); interfaceNames.add(alias); }
     for (const name of names) {
       const ctor = globalThis[name];
       if (typeof ctor !== "function") continue;
