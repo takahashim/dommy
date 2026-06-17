@@ -2,20 +2,25 @@
 
 module Dommy
   module Js
-    # Boot a parsed document's classic `<script>` tags like a browser: run them
-    # in document order (inline directly, external fetched through a resources
-    # adapter), set `document.currentScript` around each, and replay the
-    # readyState lifecycle so ready-gated startup code (Stimulus / Turbo / jQuery
-    # ready) takes the real path.
+    # Boot a parsed document's `<script>` tags like a browser: run them in two
+    # passes that mirror the HTML spec, set `document.currentScript` around each,
+    # and replay the readyState lifecycle so ready-gated startup code (Stimulus /
+    # Turbo / jQuery ready) takes the real path.
     #
-    #   loading -> run scripts in document order -> interactive (DOMContentLoaded)
+    #   loading -> parser-blocking classic scripts (document order)
+    #           -> deferred scripts: modules + classic `defer` (document order)
+    #           -> interactive (DOMContentLoaded)
     #           -> complete (load)
     #
-    # Module / non-classic scripts are skipped (HTMLScriptElement decides). A
-    # failed fetch or a throwing script is isolated; `on_error` is notified (the
-    # Browser collects it for strict mode, the Capybara adapter ignores it) so
-    # the rest of the page still loads. Shared by `Dommy::Browser` and the
-    # Capybara driver so script boot lives in one place.
+    # The two passes matter: a `<script type="module">` is *deferred* — it must
+    # run after the parser-inserted classic scripts even when it appears earlier
+    # in the document (e.g. a Nuxt entry module placed above the inline
+    # `window.__NUXT__ = {...}` bootstrap it depends on). Running everything in
+    # one document-order pass would execute the module against half-initialized
+    # globals. A failed fetch or a throwing script is isolated; `on_error` is
+    # notified (the Browser collects it for strict mode, the Capybara adapter
+    # ignores it) so the rest of the page still loads. Shared by `Dommy::Browser`
+    # and the Capybara driver so script boot lives in one place.
     #
     # The module is the stable entry point; the work lives on ScriptBooter, a
     # short-lived instance that holds the runtime / document / resources /
@@ -43,12 +48,30 @@ module Dommy
       def run
         @runtime.set_document_ready_state("loading")
         @loader = install_module_loader
-        @document.scripts.each { |element| run_one(element) }
+        scripts = @document.scripts.to_a
+        # Pass 1: parser-blocking classic scripts, in document order.
+        scripts.each { |element| run_one(element) unless deferred?(element) }
+        # Pass 2: deferred scripts (modules + classic `defer`), in document order.
+        scripts.each { |element| run_one(element) if deferred?(element) }
         @runtime.set_document_ready_state("interactive")
         @runtime.set_document_ready_state("complete")
       end
 
       private
+
+      # Whether the element runs in the deferred pass rather than at its parse
+      # position. Module scripts are always deferred; a classic script is
+      # deferred only with a `src` and the `defer` attribute (inline classic
+      # scripts ignore `defer`). `async` opts out of deferral — it runs as soon
+      # as it is available, which in this synchronous model is the first pass.
+      def deferred?(element)
+        return false if element.async
+
+        module_script?(element) || (external?(element) && element.defer)
+      end
+
+      def module_script?(element) = element.type.to_s.strip.downcase == "module"
+      def external?(element) = !element.src.to_s.empty?
 
       # Wire the ESM resolver before any module runs: parse the page's first
       # <script type="importmap">, then resolve bare specifiers through it and
