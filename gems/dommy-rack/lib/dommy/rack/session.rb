@@ -84,6 +84,8 @@ module Dommy
         @request_listeners = []
         @response_listeners = []
         @document_loaded_listeners = []
+        @subresource_allowlist = []        # hosts allowed for cross-origin <script>/fetch/XHR
+        @blocked_subresource_hosts = []    # cross-origin hosts declined since the last reset
         @js_runtime = build_js_runtime if javascript
         # Built last so it can subscribe to the (already-created) JS runtime's
         # console / js_error / script seams as well as the request/document seams.
@@ -144,6 +146,36 @@ module Dommy
       def follow_meta_refresh? = @config.follow_meta_refresh
       def load_stylesheets? = @config.load_stylesheets
       def config = @config
+
+      # --- Cross-origin subresource policy ---
+      #
+      # By default only same-origin `<script src>` / `fetch` / XHR load (see
+      # Dommy::Rack::Resources). Hosts allowed here also load — an embedding
+      # browser prompts the user for a blocked host and reloads. The network
+      # backend's SSRF guard still applies, so this never reaches private hosts.
+
+      def allow_subresource_host(host)
+        host = host.to_s
+        @subresource_allowlist << host unless host.empty? || @subresource_allowlist.include?(host)
+        self
+      end
+
+      def subresource_host_allowed?(host) = @subresource_allowlist.include?(host.to_s)
+
+      # Cross-origin hosts whose subresources were declined since the last reset,
+      # so a UI can offer to allow them.
+      def blocked_subresource_hosts = @blocked_subresource_hosts.dup
+
+      def reset_blocked_subresource_hosts
+        @blocked_subresource_hosts.clear
+        self
+      end
+
+      # Internal: Resources records a declined cross-origin host here.
+      def __internal_record_blocked_subresource(host)
+        host = host.to_s
+        @blocked_subresource_hosts << host unless host.empty? || @blocked_subresource_hosts.include?(host)
+      end
 
       # --- Navigation API ---
 

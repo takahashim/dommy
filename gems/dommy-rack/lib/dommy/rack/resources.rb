@@ -5,11 +5,14 @@ require "uri"
 module Dommy
   module Rack
     # `Dommy::Resources` adapter backed by a Rack session: serves same-origin
-    # requests from the real app (sharing the session's cookie jar) and declines
-    # (returns nil) cross-origin ones so callers fall through to stubs. This is
-    # the Rack arm of the single resources interface used for both `<script src>`
-    # loads and `fetch` / XHR; `NetworkBridge.install` wires it as the window's
-    # fetch handler.
+    # requests from the real app (sharing the session's cookie jar). Cross-origin
+    # requests are declined (return nil, so callers fall through to stubs) UNLESS
+    # the session's subresource allowlist permits the host — letting an embedding
+    # browser opt a host in (after prompting) so a SPA's cross-origin bundle can
+    # load. Declined cross-origin hosts are recorded on the session for that UI.
+    # This is the Rack arm of the single resources interface used for both
+    # `<script src>` loads and `fetch` / XHR; `NetworkBridge.install` wires it as
+    # the window's fetch handler.
     class Resources
       def initialize(session)
         @session = session
@@ -19,7 +22,11 @@ module Dommy
 
       def request(method:, url:, headers: {}, body: nil)
         target = absolute_url(url)
-        return nil unless target && same_origin?(target)
+        return nil unless target
+        unless same_origin?(target) || allowed_cross_origin?(target)
+          record_blocked(target)
+          return nil
+        end
 
         response = @session.fetch(
           target,
@@ -55,6 +62,22 @@ module Dommy
         t.scheme == b.scheme && t.host == b.host && t.port == b.port
       rescue URI::InvalidURIError
         false
+      end
+
+      def allowed_cross_origin?(target)
+        host = host_of(target)
+        !host.nil? && @session.subresource_host_allowed?(host)
+      end
+
+      def record_blocked(target)
+        host = host_of(target)
+        @session.__internal_record_blocked_subresource(host) if host
+      end
+
+      def host_of(target)
+        URI.parse(target).host
+      rescue URI::InvalidURIError
+        nil
       end
     end
   end
