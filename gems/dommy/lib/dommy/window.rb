@@ -154,6 +154,7 @@ module Dommy
       dispatchEvent setTimeout clearTimeout setInterval clearInterval requestAnimationFrame
       cancelAnimationFrame queueMicrotask requestIdleCallback cancelIdleCallback structuredClone
       matchMedia getComputedStyle scroll scrollTo scrollBy resizeTo
+      alert confirm prompt open reportError getSelection postMessage
     ]
     def __js_call__(method, args)
       case method
@@ -203,6 +204,20 @@ module Dommy
         scroll_to(*args)
       when "scrollBy"
         scroll_by(*args)
+      when "alert"
+        nil # headless: no dialog (happy-dom semantics)
+      when "confirm"
+        false # no user -> treated as "Cancel"
+      when "prompt"
+        nil # no user input
+      when "open"
+        nil # cannot open a new browsing context headlessly
+      when "reportError"
+        nil # swallow programmatic error reports (no uncaught surfacing here)
+      when "getSelection"
+        document&.get_selection
+      when "postMessage"
+        post_message(args[0])
       else
         # Additional window-level methods (fetch, location, history,
         # Promise, MutationObserver, etc.) arrive in later sessions.
@@ -318,6 +333,14 @@ module Dommy
     def scroll_by(*args)
       x, y = parse_scroll_args(args, @scroll_x || 0, @scroll_y || 0, relative: true)
       update_scroll(x, y)
+    end
+
+    # `window.postMessage`: deliver a structured-cloned `message` to this window's
+    # own message handlers, asynchronously (a microtask), as the spec requires.
+    def post_message(message)
+      data = Dommy.structured_clone(message)
+      @scheduler.queue_microtask(proc { dispatch_event(MessageEvent.new("message", "data" => data)) })
+      nil
     end
 
     # Accept either positional `(x, y)` or a `{ left:, top: }` options dict.
