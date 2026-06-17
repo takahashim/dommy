@@ -68,8 +68,14 @@ class TestBrowserSpec < Minitest::Test
   # A browser stub carrying a trace, for the failure-artifact path.
   class TraceFake
     Trace = Struct.new(:current_page) do
-      def to_json(*) = '{"version":"1"}'
       def to_text(**) = "ACTION visit \"/x\""
+      def record_error(**) = nil
+
+      def save(dir, **)
+        ::FileUtils.mkdir_p(::File.join(dir, "artifacts"))
+        ::File.write(::File.join(dir, "trace.ndjson"), %({"op":"trace_start"}\n))
+        dir
+      end
     end
 
     attr_reader :js_errors, :disposed
@@ -106,7 +112,7 @@ class TestBrowserSpec < Minitest::Test
 
       dir = File.join(tmp, "todos-toggles-a-todo")
       assert File.exist?(File.join(dir, "current.html"))
-      assert File.exist?(File.join(dir, "trace.json"))
+      assert File.exist?(File.join(dir, "trace.ndjson"))
       assert File.exist?(File.join(dir, "trace.txt"))
       assert File.exist?(File.join(dir, "visible-text.txt"))
       assert File.exist?(File.join(dir, "dom-summary.txt"))
