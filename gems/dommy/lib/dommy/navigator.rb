@@ -8,7 +8,8 @@ module Dommy
   class Navigator
     DEFAULT_USER_AGENT = "Mozilla/5.0 (Dommy) Ruby"
 
-    attr_accessor :user_agent, :language, :languages, :platform, :vendor, :on_line, :cookie_enabled
+    attr_accessor :user_agent, :language, :languages, :platform, :vendor, :on_line, :cookie_enabled,
+      :hardware_concurrency, :max_touch_points
 
     def initialize(window)
       @window = window
@@ -19,6 +20,8 @@ module Dommy
       @vendor = "Dommy"
       @on_line = true
       @cookie_enabled = true
+      @hardware_concurrency = 8 # logical CPU count reported to JS
+      @max_touch_points = 0     # 0 => not a touch device
       @clipboard = Clipboard.new(window)
       @permissions = Permissions.new(window)
       @geolocation = Geolocation.new(window)
@@ -42,6 +45,15 @@ module Dommy
     end
 
     alias canShare can_share
+
+    # `navigator.sendBeacon(url, data)` — fire-and-forget POST used for analytics.
+    # Dommy does not emit the request (no background egress); it just reports
+    # success so callers that feature-detect `sendBeacon` take the beacon path.
+    def send_beacon(_url, _data = nil)
+      true
+    end
+
+    alias sendBeacon send_beacon
 
     # Vibration API. No-op in dommy, but the requested pattern is
     # recorded so tests can assert "we asked to vibrate".
@@ -91,6 +103,10 @@ module Dommy
         @on_line
       when "cookieEnabled"
         @cookie_enabled
+      when "hardwareConcurrency"
+        @hardware_concurrency
+      when "maxTouchPoints"
+        @max_touch_points
       when "clipboard"
         @clipboard
       when "permissions"
@@ -112,7 +128,7 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[share canShare vibrate getBattery]
+    js_methods %w[share canShare vibrate getBattery sendBeacon]
     def __js_call__(method, args)
       case method
       when "share"
@@ -123,6 +139,8 @@ module Dommy
         vibrate(args[0])
       when "getBattery"
         get_battery
+      when "sendBeacon"
+        send_beacon(args[0], args[1])
       end
     end
 

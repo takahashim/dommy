@@ -184,3 +184,34 @@ class TestPermissions < Minitest::Test
     refute(fired)
   end
 end
+
+# Concurrency / touch / beacon — standard navigator APIs added so feature
+# detection in SPA bundles doesn't dereference undefined. serviceWorker is
+# intentionally left undefined (graceful "not supported" detection).
+class TestNavigatorPlatformApis < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @nav = @win.navigator
+  end
+
+  def test_hardware_concurrency_default_and_override
+    assert_equal(8, @nav.__js_get__("hardwareConcurrency"))
+    @nav.hardware_concurrency = 2
+    assert_equal(2, @nav.__js_get__("hardwareConcurrency"))
+  end
+
+  def test_max_touch_points_default
+    assert_equal(0, @nav.__js_get__("maxTouchPoints"))
+  end
+
+  def test_send_beacon_reports_success_without_egress
+    assert_equal(true, @nav.__js_call__("sendBeacon", ["https://analytics.test/collect", "payload"]))
+    assert_equal(true, @nav.send_beacon("https://analytics.test/collect"))
+  end
+
+  def test_service_worker_is_undefined_on_purpose
+    assert_equal(Dommy::Bridge::UNDEFINED, @nav.__js_get__("serviceWorker"))
+  end
+end
