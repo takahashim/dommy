@@ -218,6 +218,8 @@ module Dommy
         @filter
       when "currentNode"
         @current_node
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -509,6 +511,8 @@ module Dommy
         @reference_node
       when "pointerBeforeReferenceNode"
         @pointer_before_reference
+      else
+        Bridge::ABSENT
       end
     end
 

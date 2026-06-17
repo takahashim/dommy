@@ -97,7 +97,7 @@ module Dommy
     end
 
     def __js_get__(_key)
-      nil
+      Bridge::ABSENT # method-only registry; any property read is absent
     end
 
     include Bridge::Methods

@@ -211,7 +211,9 @@ class TestNavigatorPlatformApis < Minitest::Test
     assert_equal(true, @nav.send_beacon("https://analytics.test/collect"))
   end
 
-  def test_service_worker_is_undefined_on_purpose
-    assert_equal(Dommy::Bridge::UNDEFINED, @nav.__js_get__("serviceWorker"))
+  def test_service_worker_is_absent_on_purpose
+    # Not implemented → genuinely absent: JS `undefined` AND `"serviceWorker" in
+    # navigator` is false, so feature detection takes the not-supported path.
+    assert_equal(Dommy::Bridge::ABSENT, @nav.__js_get__("serviceWorker"))
   end
 end

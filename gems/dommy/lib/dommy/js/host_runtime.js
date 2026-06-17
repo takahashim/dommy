@@ -435,6 +435,9 @@ globalThis.__rbHost = (function () {
       // A void DOM op marshals as this marker so it becomes `undefined`, not the
       // `null` a bare Ruby nil would (e.g. DOMTokenList add/remove return undefined).
       if (v.__rb_undefined) return undefined;
+      // A genuinely-absent property: the VALUE is `undefined` (the get trap and
+      // has trap inspect the raw `__rb_absent` tag for absence semantics).
+      if (v.__rb_absent) return undefined;
       // A host byte buffer (TextEncoder.encode, …) rehydrates to a Uint8Array.
       if (v.__rb_bytes) return new Uint8Array(v.__rb_bytes);
       // A host byte buffer tagged as an ArrayBuffer (Response/Blob/FileReader/
@@ -942,19 +945,26 @@ globalThis.__rbHost = (function () {
           }
           return fn;
         }
-        const v = rehydrate(__rb_host_get(handle, prop));
+        const raw = __rb_host_get(handle, prop);
+        // The host signals a genuinely-absent property with the ABSENT tag (value
+        // is `undefined`); a present-but-null property is bare nil (→ JS null).
+        // "Host owns nothing here" = absent OR (legacy) null, and only that drives
+        // the global / collection fallbacks below — NOT a real null value.
+        const isAbsent = raw !== null && typeof raw === "object" && raw.__rb_absent === true;
+        const v = rehydrate(raw);
+        const hostHasNoValue = isAbsent || v === null;
         if (v == null && (prop in t)) return Reflect.get(t, prop, receiver);
-        // The global window: a name the host doesn't resolve (null = absent)
-        // falls back to a JS global of the same name (an OWN globalThis prop —
-        // inherited names already resolved via `prop in t` above), so e.g. a
-        // UMD bundle's `globalThis.Stimulus = …` is visible as `window.Stimulus`.
-        if (v === null && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return globalThis[prop];
+        // The global window: a name the host doesn't resolve falls back to a JS
+        // global of the same name (an OWN globalThis prop — inherited names already
+        // resolved via `prop in t` above), so e.g. a UMD bundle's
+        // `globalThis.Stimulus = …` is visible as `window.Stimulus`.
+        if (hostHasNoValue && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return globalThis[prop];
         // A legacy platform collection returns `undefined` (not the host's null)
         // for a string property that resolves to no value. An out-of-range array
         // index is `undefined` and does NOT fall back to a named lookup (so
         // `coll[2147483648]` is undefined even if an element's id is that digit
         // string); other unsupported strings (`coll[""]`, `coll["x"]`) too.
-        if (v === null && (arrayLike || named) && typeof prop === "string" && prop !== "length") {
+        if (hostHasNoValue && (arrayLike || named) && typeof prop === "string" && prop !== "length") {
           if (arrayLike && isArrayIndex(prop)) return undefined;
           if (!isNamedKey(prop)) return undefined;
         }
@@ -983,9 +993,13 @@ globalThis.__rbHost = (function () {
         // storage. A host-resolved property (location, navigator, a Ruby-side
         // stash, …) keeps routing to the host below. (globalThis is NOT this
         // proxy's prototype, so the plain assignment can't recurse here.)
-        if (isGlobalWindow(handle) && rehydrate(__rb_host_get(handle, prop)) === null) {
-          globalThis[prop] = value;
-          return true;
+        if (isGlobalWindow(handle)) {
+          const cur = __rb_host_get(handle, prop);
+          const curAbsent = cur !== null && typeof cur === "object" && cur.__rb_absent === true;
+          if (curAbsent || rehydrate(cur) === null) {
+            globalThis[prop] = value;
+            return true;
+          }
         }
         // WebIDL [LegacyNullToEmptyString] DOMString setters coerce JS-side
         // (null → "", else ToString — so `innerHTML = 42` / `{toString…}` work and
@@ -1105,6 +1119,9 @@ globalThis.__rbHost = (function () {
         // sentinel, tagged `__rb_undefined`) — e.g. AbortSignal's `reason`
         // before abort — so report the latter present (`"reason" in signal`).
         const raw = __rb_host_get(handle, prop);
+        // A genuinely-absent property (ABSENT tag) reports MISSING; a
+        // present-but-undefined one (UNDEFINED tag) reports present.
+        if (raw !== null && typeof raw === "object" && raw.__rb_absent) return false;
         if (raw !== null && typeof raw === "object" && raw.__rb_undefined) return true;
         return rehydrate(raw) != null;
       }

@@ -179,7 +179,7 @@ module Dommy
       doc
     end
 
-    def __js_get__(_key) = nil
+    def __js_get__(_key) = Bridge::ABSENT # method-only; any property read is absent
 
     include Bridge::Methods
     js_methods %w[createDocumentType createDocument createHTMLDocument hasFeature]
@@ -983,7 +983,7 @@ module Dommy
       when "nodeName"
         "#document"
       else
-        nil
+        Bridge::ABSENT # unknown property: JS undefined, `in` reports absent
       end
     end
 
@@ -1467,6 +1467,8 @@ module Dommy
         @ready
       when "updateCallbackDone"
         @update_callback_done
+      else
+        Bridge::ABSENT
       end
     end
 

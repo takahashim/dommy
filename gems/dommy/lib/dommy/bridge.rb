@@ -37,6 +37,17 @@ module Dommy
     def UNDEFINED.inspect = "#<Dommy::Bridge::UNDEFINED>"
     UNDEFINED.freeze
 
+    # The sentinel a `__js_get__` returns for a GENUINELY-ABSENT property (a key
+    # the object does not have), as distinct from a present property whose value
+    # is `nil`/JS null or `UNDEFINED`/JS undefined. It marshals to JS `undefined`
+    # for the value, but the proxy reports `("x" in obj) === false` for it — so
+    # feature detection like `isUndefined(window.Vue)` AND `"Vue" in window` are
+    # both correct. (UNDEFINED means present-but-undefined → reported present.)
+    ABSENT = Object.new
+    def ABSENT.to_s = "undefined"
+    def ABSENT.inspect = "#<Dommy::Bridge::ABSENT>"
+    ABSENT.freeze
+
     # An opaque handle to a JS-side value that Ruby only stores and hands back
     # (an AbortSignal's reason, a CustomEvent's detail). A non-plain JS object
     # (Error, class instance, …) crosses as one of these instead of being

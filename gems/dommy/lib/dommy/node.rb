@@ -58,6 +58,8 @@ module Dommy
         if key.is_a?(Integer) || key.to_s.match?(/\A-?\d+\z/)
           token = item(key.to_i)
           token.nil? ? Bridge::UNDEFINED : token
+        else
+          Bridge::ABSENT # unknown non-index property
         end
       end
     end
@@ -168,6 +170,8 @@ module Dommy
         if key.is_a?(Integer) || key.to_s.match?(/\A-?\d+\z/)
           token = item(key.to_i)
           token.nil? ? Bridge::UNDEFINED : token
+        else
+          Bridge::ABSENT # unknown non-index property
         end
       end
     end

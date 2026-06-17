@@ -81,6 +81,8 @@ module Dommy
         matches
       when "onchange"
         @onchange
+      else
+        Bridge::ABSENT
       end
     end
 

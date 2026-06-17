@@ -19,7 +19,7 @@ module Dommy
     end
 
     def __js_get__(key)
-      key == "encoding" ? encoding : nil
+      key == "encoding" ? encoding : Bridge::ABSENT
     end
 
     include Bridge::Methods
@@ -76,6 +76,8 @@ module Dommy
       when "encoding" then @encoding
       when "fatal" then @fatal
       when "ignoreBOM" then @ignore_bom
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -289,6 +291,8 @@ module Dommy
         @writable
       when "encoding"
         encoding
+      else
+        Bridge::ABSENT
       end
     end
   end
@@ -322,6 +326,8 @@ module Dommy
         @writable
       when "encoding"
         @encoding
+      else
+        Bridge::ABSENT
       end
     end
   end

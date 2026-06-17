@@ -415,11 +415,12 @@ module Dommy
       when "eventPhase"
         event_phase
       else
-        # An unknown property reads back as JS `undefined`, not `null` — e.g. a
-        # non-dictionary member passed to the constructor (`new Event("x", {sweet:
-        # 1}).sweet`) is not reflected on the event. Genuinely-null DOM attributes
-        # (target/currentTarget/…) are explicit cases above and still return nil.
-        Bridge::UNDEFINED
+        # An unknown property is genuinely absent: JS `undefined` and
+        # `"x" in event` false — e.g. a non-dictionary member passed to the
+        # constructor (`new Event("x", {sweet: 1}).sweet`) is not reflected on the
+        # event. Genuinely-null DOM attributes (target/currentTarget/…) are
+        # explicit cases above and still return nil.
+        Bridge::ABSENT
       end
     end
 
@@ -813,6 +814,8 @@ module Dommy
         @rotation_angle
       when "force"
         @force
+      else
+        Bridge::ABSENT
       end
     end
   end
@@ -1147,6 +1150,8 @@ module Dommy
         @aborted ? @reason : Bridge::UNDEFINED
       when "onabort"
         @onabort_handler
+      else
+        Bridge::ABSENT
       end
     end
 

@@ -35,6 +35,8 @@ module Dommy
         URI(@origin).scheme ? "#{URI(@origin).scheme}:" : ""
       when "port"
         (URI(@origin).port || 80).to_s
+      else
+        Bridge::ABSENT
       end
     end
 

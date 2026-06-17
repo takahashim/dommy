@@ -120,10 +120,11 @@ module Dommy
       when "storage"
         @storage
       else
-        # An unknown navigator property is absent, not null — so feature
-        # detection like `navigator.scheduling !== undefined` (React's scheduler)
-        # takes the not-supported path instead of dereferencing null.
-        Bridge::UNDEFINED
+        # An unknown navigator property is genuinely absent: JS `undefined` value
+        # AND `"x" in navigator` false — so feature detection like
+        # `navigator.scheduling !== undefined` / `"serviceWorker" in navigator`
+        # both take the not-supported path instead of dereferencing null.
+        Bridge::ABSENT
       end
     end
 
@@ -330,6 +331,8 @@ module Dommy
         @state
       when "onchange"
         @onchange
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -507,6 +510,8 @@ module Dommy
         @type
       when "released"
         @released
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -548,6 +553,8 @@ module Dommy
         @discharging_time
       when "level"
         @level
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -625,6 +632,8 @@ module Dommy
         name
       when "mode"
         mode
+      else
+        Bridge::ABSENT
       end
     end
   end

@@ -75,9 +75,9 @@ class TestDOMExceptionJsBridge < Minitest::Test
     assert_equal("text", e.__js_get__("message"))
   end
 
-  def test_js_get_unknown_key_returns_nil
+  def test_js_get_unknown_key_is_absent
     e = Dommy::DOMException.new
-    assert_nil(e.__js_get__("whatever"))
+    assert_equal(Dommy::Bridge::ABSENT, e.__js_get__("whatever"))
   end
 end
 

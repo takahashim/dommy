@@ -158,6 +158,8 @@ module Dommy
         parent_style_sheet
       when "ownerRule"
         owner_rule
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -569,6 +571,8 @@ module Dommy
       when "KEYFRAME_RULE" then KEYFRAME_RULE
       when "SUPPORTS_RULE" then SUPPORTS_RULE
       when "CHARSET_RULE" then CHARSET_RULE
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -710,7 +714,7 @@ module Dommy
   # (used by Turbo and friends) and `supports()` backed by the @supports
   # condition evaluator.
   class CSSNamespace
-    def __js_get__(_key) = nil
+    def __js_get__(_key) = Bridge::ABSENT # method-only; any property read is absent
     def __js_set__(_key, _value) = Bridge::UNHANDLED
 
     include Bridge::Methods

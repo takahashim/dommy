@@ -105,6 +105,8 @@ module Dommy
       case key
       when "size", "length"
         size
+      else
+        Bridge::ABSENT
       end
     end
 

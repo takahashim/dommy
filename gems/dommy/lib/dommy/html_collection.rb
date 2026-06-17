@@ -118,8 +118,8 @@ module Dommy
           item(s.to_i)
         else
           # Non-array-index strings (negative, ≥ 2^32-1, or names) use the named
-          # getter.
-          named_item(s) || (s == "length" ? length : nil)
+          # getter; a miss is JS `undefined` (and `"x" in coll` false).
+          named_item(s) || (s == "length" ? length : Bridge::ABSENT)
         end
       end
     end

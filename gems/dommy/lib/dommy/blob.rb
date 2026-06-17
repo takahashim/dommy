@@ -63,6 +63,8 @@ module Dommy
         @size
       when "type"
         @type
+      else
+        Bridge::ABSENT
       end
     end
 

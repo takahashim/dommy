@@ -30,6 +30,10 @@ module Dommy
       ACCEPT_NODE = "__rb_accept_node"
       # The JS `undefined` value (distinct from null / Ruby nil).
       UNDEFINED = "__rb_undefined"
+      # A genuinely-absent property: marshals to JS `undefined` as a value, but the
+      # proxy reports it MISSING for the `in` operator (distinct from UNDEFINED,
+      # which is present-but-undefined). See Dommy::Bridge::ABSENT.
+      ABSENT = "__rb_absent"
       # A byte buffer crossing as a JS Uint8Array.
       BYTES = "__rb_bytes"
       # A byte buffer crossing as a bare JS ArrayBuffer.

@@ -260,6 +260,8 @@ module Dommy
     when "username" then username
     when "password" then password
     when "searchParams" then @search_params
+    else
+      Bridge::ABSENT
     end
   end
 
@@ -461,6 +463,8 @@ module Dommy
       case key
       when "size", "length"
         size
+      else
+        Bridge::ABSENT
       end
     end
 

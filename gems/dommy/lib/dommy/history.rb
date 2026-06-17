@@ -25,6 +25,8 @@ module Dommy
         @stack[@cursor][:state]
       when "scrollRestoration"
         @scroll_restoration
+      else
+        Bridge::ABSENT
       end
     end
 

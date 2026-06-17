@@ -370,6 +370,8 @@ module Dommy
         END_TO_END
       when "END_TO_START"
         END_TO_START
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -749,6 +751,8 @@ module Dommy
         is_collapsed
       when "type"
         is_collapsed ? "Caret" : "Range"
+      else
+        Bridge::ABSENT
       end
     end
 

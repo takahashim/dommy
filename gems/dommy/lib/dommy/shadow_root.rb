@@ -203,11 +203,10 @@ module Dommy
       when "nodeName"
         "#document-fragment"
       else
-        # A framework-private expando key (`_`/`$`) reports *absent* as undefined,
-        # not null — matching Element#__js_get__. lit-html renders into the shadow
-        # root and stores its part under `_$litPart$`, first probing it with
-        # `=== undefined`; returning null there made it deref a null part.
-        Bridge::UNDEFINED if key.start_with?("_") || key.include?("$")
+        # Any unknown key (incl. framework-private `_`/`$` expandos like
+        # lit-html's `_$litPart$`, which it probes with `=== undefined`) is
+        # genuinely absent: JS `undefined`, `in` false — matching Element.
+        Bridge::ABSENT
       end
     end
 

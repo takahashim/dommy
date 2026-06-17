@@ -83,7 +83,8 @@ module Dommy
       when "length"
         @store.size
       else
-        @store[key.to_s]
+        # A named-property miss is JS `undefined` (and `"k" in storage` false).
+        @store.key?(key.to_s) ? @store[key.to_s] : Bridge::ABSENT
       end
     end
 

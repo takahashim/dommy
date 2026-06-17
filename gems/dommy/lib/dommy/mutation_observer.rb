@@ -63,6 +63,8 @@ module Dommy
         @attribute_namespace
       when "oldValue"
         @old_value
+      else
+        Bridge::ABSENT
       end
     end
   end

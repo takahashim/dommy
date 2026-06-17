@@ -44,6 +44,8 @@ module Dommy
         @readable
       when "writable"
         @writable
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -111,6 +113,8 @@ module Dommy
         @readable
       when "writable"
         @writable
+      else
+        Bridge::ABSENT
       end
     end
 

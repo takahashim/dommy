@@ -22,6 +22,8 @@ module Dommy
         @port1
       when "port2"
         @port2
+      else
+        Bridge::ABSENT
       end
     end
   end
@@ -88,6 +90,8 @@ module Dommy
       case key
       when "onmessage"
         @onmessage
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -239,6 +243,8 @@ module Dommy
         @name
       when "onmessage"
         @onmessage
+      else
+        Bridge::ABSENT
       end
     end
 

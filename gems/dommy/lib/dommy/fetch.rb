@@ -195,6 +195,8 @@ module Dommy
         @cache
       when "redirect"
         @redirect
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -441,6 +443,8 @@ module Dommy
         body_stream
       when "bodyUsed"
         body_used?
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -680,7 +684,7 @@ module Dommy
     end
 
     def __js_get__(_key)
-      nil
+      Bridge::ABSENT # Headers exposes only methods; any property read is absent
     end
 
     def __js_set__(_key, _value)

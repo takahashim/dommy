@@ -90,6 +90,8 @@ module Dommy
         now
       when "timeOrigin"
         0.0
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -144,6 +146,8 @@ module Dommy
         duration
       when "detail"
         detail
+      else
+        Bridge::ABSENT
       end
     end
   end

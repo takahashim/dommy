@@ -59,6 +59,8 @@ module Dommy
       case key
       when "subtle"
         subtle
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -396,6 +398,8 @@ module Dommy
         {"name" => @algorithm_name, "hash" => {"name" => @hash_name}}
       when "usages"
         @usages
+      else
+        Bridge::ABSENT
       end
     end
   end

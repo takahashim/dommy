@@ -14,7 +14,7 @@ module Dommy
       when "name"
         @name
       else
-        nil
+        Bridge::ABSENT
       end
     end
 

@@ -55,6 +55,8 @@ module Dommy
         @drop_effect
       when "effectAllowed"
         @effect_allowed
+      else
+        Bridge::ABSENT
       end
     end
 

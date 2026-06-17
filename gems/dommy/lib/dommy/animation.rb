@@ -45,6 +45,8 @@ module Dommy
       case key
       when "target"
         @target
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -206,6 +208,8 @@ module Dommy
         ready
       when "id"
         @id
+      else
+        Bridge::ABSENT
       end
     end
 

@@ -86,6 +86,8 @@ module Dommy
         code
       when "message"
         message
+      else
+        Bridge::ABSENT
       end
     end
 

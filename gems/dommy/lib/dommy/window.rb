@@ -128,7 +128,10 @@ module Dommy
         # value still wins.
         @globals.key?("event") ? @globals["event"] : Bridge::UNDEFINED
       else
-        @globals[key]
+        # A stashed global wins (even if its value is nil/null); a key never set
+        # is genuinely absent → ABSENT so JS sees `undefined` and `"x" in window`
+        # is false (feature detection like `isUndefined(window.Vue)` works).
+        @globals.key?(key) ? @globals[key] : Bridge::ABSENT
       end
     end
 

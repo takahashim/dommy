@@ -1081,6 +1081,8 @@ module Dommy
         custom_error
       when "valid"
         valid
+      else
+        Bridge::ABSENT
       end
     end
 

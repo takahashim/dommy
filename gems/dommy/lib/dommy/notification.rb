@@ -66,6 +66,8 @@ module Dommy
         @tag
       when "data"
         @data
+      else
+        Bridge::ABSENT
       end
     end
 

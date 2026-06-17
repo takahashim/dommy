@@ -31,13 +31,14 @@ class TestWPTDatasetGetter < Minitest::Test
     assert_equal("alice", @el.dataset.__js_get__("userName"))
   end
 
-  def test_missing_property_returns_nil
-    assert_nil(@el.dataset.__js_get__("missing"))
+  def test_missing_property_is_absent
+    # DOMStringMap: a missing data-* is JS `undefined` (ABSENT), not null.
+    assert_equal(Dommy::Bridge::ABSENT, @el.dataset.__js_get__("missing"))
   end
 
   def test_non_data_attribute_not_exposed
     @el.set_attribute("class", "main")
-    assert_nil(@el.dataset.__js_get__("class"))
+    assert_equal(Dommy::Bridge::ABSENT, @el.dataset.__js_get__("class"))
   end
 end
 

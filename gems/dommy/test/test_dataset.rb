@@ -19,8 +19,9 @@ class TestDataset < Minitest::Test
     assert_equal("42", @ds.__js_get__("userId"))
   end
 
-  def test_missing_returns_nil
-    assert_nil(@ds.__js_get__("missing"))
+  def test_missing_property_is_absent
+    # A missing data-* reads as JS `undefined` (ABSENT), not null.
+    assert_equal(Dommy::Bridge::ABSENT, @ds.__js_get__("missing"))
   end
 
   def test_set_writes_attribute_with_kebab

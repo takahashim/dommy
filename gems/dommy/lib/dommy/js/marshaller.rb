@@ -40,6 +40,12 @@ module Dommy
         if value.equal?(Dommy::Bridge::UNDEFINED)
           return {WireTags::UNDEFINED => true}
         end
+        # A `__js_get__` returns the ABSENT sentinel for a genuinely-missing
+        # property: the JS value is `undefined`, but the proxy reports it absent
+        # for `in` (see host_runtime.js get/has traps).
+        if value.equal?(Dommy::Bridge::ABSENT)
+          return {WireTags::ABSENT => true}
+        end
         # A byte buffer tagged ArrayBuffer crosses back as a bare ArrayBuffer
         # (checked before Bytes, since ArrayBuffer < Bytes).
         if value.is_a?(Dommy::Bridge::ArrayBuffer)
@@ -131,6 +137,9 @@ module Dommy
           elsif value.key?(WireTags::UNDEFINED)
             # A top-level JS `undefined` argument — distinct from JS null (nil).
             Dommy::Bridge::UNDEFINED
+          elsif value.key?(WireTags::ABSENT)
+            # Symmetry with #wrap; an absent marker crossing back is the sentinel.
+            Dommy::Bridge::ABSENT
           elsif value.key?(WireTags::BYTES)
             # A JS ArrayBuffer / TypedArray argument arrives as a byte buffer.
             Dommy::Bridge::Bytes.new(value[WireTags::BYTES])

@@ -100,6 +100,8 @@ module Dommy
       when "specified"
         # Legacy/useless attribute — always true (WHATWG DOM).
         true
+      else
+        Bridge::ABSENT
       end
     end
 

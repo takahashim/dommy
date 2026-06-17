@@ -99,6 +99,8 @@ module Dommy
         @__node__.text
       when "ownerDocument"
         @document
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -407,6 +409,8 @@ module Dommy
         NodeList.new
       when "firstChild", "lastChild"
         nil
+      else
+        Bridge::ABSENT # unknown property: JS undefined, `in` absent
       end
     end
 
@@ -758,6 +762,8 @@ module Dommy
           i = key.to_i
           token = i.negative? ? nil : class_tokens[i]
           token.nil? ? Bridge::UNDEFINED : token
+        else
+          Bridge::ABSENT # unknown non-index property
         end
       end
     end
@@ -874,7 +880,10 @@ module Dommy
     end
 
     def __js_get__(key)
-      @element.__dommy_backend_node__[attr_name(key)]
+      # A missing data-* attribute reads as JS `undefined` (and `"foo" in dataset`
+      # is false), per DOMStringMap semantics.
+      value = @element.__dommy_backend_node__[attr_name(key)]
+      value.nil? ? Bridge::ABSENT : value
     end
 
     def __js_set__(key, value)
@@ -955,6 +964,8 @@ module Dommy
         @x + @width
       when "bottom"
         @y + @height
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -2203,9 +2214,14 @@ module Dommy
           # A framework-private expando key (React stores per-node state under
           # keys like `__reactListeners$<id>` and feature-detects it with
           # `node[key] === undefined`). Real DOM property names never use `_`/`$`,
-          # so reporting these *absent* (undefined, not null) is correct JS and
-          # doesn't touch real DOM reflection (which WPT pins to null).
-          Bridge::UNDEFINED
+          # so reporting these *absent* (undefined value, `in` false) is correct
+          # JS and doesn't touch real DOM reflection (which WPT pins to null).
+          Bridge::ABSENT
+        else
+          # A genuinely-unknown element property: JS `undefined`, `in` false.
+          # (Reflected / ARIA / on* IDL attributes are handled above and keep
+          # their nullable-DOMString null semantics.)
+          Bridge::ABSENT
         end
       end
     end

@@ -33,7 +33,7 @@ module Dommy
     alias parseFromString parse_from_string
 
     def __js_get__(_key)
-      nil
+      Bridge::ABSENT # method-only; any property read is absent
     end
 
     include Bridge::Methods
@@ -77,7 +77,7 @@ module Dommy
     alias serializeToString serialize_to_string
 
     def __js_get__(_key)
-      nil
+      Bridge::ABSENT # method-only; any property read is absent
     end
 
     include Bridge::Methods

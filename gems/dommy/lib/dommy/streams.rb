@@ -99,6 +99,8 @@ module Dommy
       case key
       when "locked"
         locked
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -244,6 +246,8 @@ module Dommy
       case key
       when "locked"
         locked
+      else
+        Bridge::ABSENT
       end
     end
 
@@ -340,6 +344,8 @@ module Dommy
         @readable
       when "writable"
         @writable
+      else
+        Bridge::ABSENT
       end
     end
   end

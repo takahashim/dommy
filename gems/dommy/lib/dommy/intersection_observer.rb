@@ -63,6 +63,8 @@ module Dommy
         @root_margin
       when "thresholds"
         @thresholds
+      else
+        Bridge::ABSENT
       end
     end
 
