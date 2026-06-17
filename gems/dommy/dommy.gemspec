@@ -25,4 +25,6 @@ Gem::Specification.new do |spec|
 
   # Default HTML parser backend.
   spec.add_dependency "makiri", "~> 0.5"
+  # base64 left the default gems in Ruby 3.4 (used for window.btoa / atob).
+  spec.add_dependency "base64"
 end

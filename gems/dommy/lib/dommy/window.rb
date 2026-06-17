@@ -147,7 +147,7 @@ module Dommy
 
     include Bridge::Methods
     js_methods %w[
-      fetch encodeURIComponent decodeURIComponent addEventListener removeEventListener
+      fetch encodeURIComponent decodeURIComponent btoa atob addEventListener removeEventListener
       dispatchEvent setTimeout clearTimeout setInterval clearInterval requestAnimationFrame
       cancelAnimationFrame queueMicrotask requestIdleCallback cancelIdleCallback structuredClone
       matchMedia getComputedStyle scroll scrollTo scrollBy resizeTo
@@ -160,6 +160,10 @@ module Dommy
         Internal::GlobalFunctions.encode_uri_component(args[0])
       when "decodeURIComponent"
         Internal::GlobalFunctions.decode_uri_component(args[0])
+      when "btoa"
+        Internal::GlobalFunctions.btoa(args[0])
+      when "atob"
+        Internal::GlobalFunctions.atob(args[0])
       when "addEventListener"
         add_event_listener(args[0], args[1], args[2])
       when "removeEventListener"
