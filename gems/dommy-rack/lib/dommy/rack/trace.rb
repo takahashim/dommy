@@ -140,8 +140,8 @@ module Dommy
 
       def to_ndjson(status: "ok", wall_time: nil, metadata: nil)
         inline = @artifacts.transform_values { |content| {content: content, encoding: "utf-8"} }
-        Ndjson.document(@events, level: @level, status: status, wall_time: wall_time,
-          metadata: metadata, artifacts: inline, end_wall_ms: monotonic_ms)
+        Ndjson.new(@events, level: @level, wall_time: wall_time, metadata: metadata,
+          artifacts: inline, end_wall_ms: monotonic_ms).document(status: status)
       end
 
       def write_ndjson(path, **opts)
@@ -160,8 +160,8 @@ module Dommy
           ::File.write(::File.join(dir, rel), content)
           out[seq] = {path: rel}
         end
-        ndjson = Ndjson.document(@events, level: @level, status: status, metadata: metadata,
-          artifacts: paths, end_wall_ms: monotonic_ms)
+        ndjson = Ndjson.new(@events, level: @level, metadata: metadata,
+          artifacts: paths, end_wall_ms: monotonic_ms).document(status: status)
         ::File.write(::File.join(dir, "trace.ndjson"), ndjson)
         dir
       end

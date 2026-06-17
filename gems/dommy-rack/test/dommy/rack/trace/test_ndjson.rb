@@ -106,7 +106,7 @@ module Dommy
       def test_dom_event_renames_inner_op_to_kind
         event = Trace::Event.new(seq: 5, t: 1.0, type: :dom, name: nil, action_seq: 2,
           data: {op: :added, target: "div#x", count: 3})
-        line = Trace::Ndjson.event_line(event)
+        line = Trace::Ndjson.new([event], level: :verbose).event_line(event)
 
         assert_equal "dom", line[:op]       # top-level op stays "dom"
         assert_equal :added, line[:kind]    # mutation kind moved to :kind
@@ -117,7 +117,7 @@ module Dommy
       def test_action_event_exposes_verb_and_label
         event = Trace::Event.new(seq: 1, t: nil, type: :action, name: :click_button,
           action_seq: nil, data: {verb: :click_button, label: "Save"})
-        line = Trace::Ndjson.event_line(event)
+        line = Trace::Ndjson.new([event], level: :verbose).event_line(event)
 
         assert_equal "action", line[:op]
         assert_equal :click_button, line[:verb]
