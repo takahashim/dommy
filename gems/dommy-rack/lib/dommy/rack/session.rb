@@ -57,7 +57,8 @@ module Dommy
                      javascript: false,
                      trace: false,
                      trace_level: :verbose,
-                     trace_dom: false)
+                     trace_dom: false,
+                     trace_snapshots: false)
         @app = app
         @config = Config.new(
           default_host: default_host,
@@ -86,7 +87,7 @@ module Dommy
         @js_runtime = build_js_runtime if javascript
         # Built last so it can subscribe to the (already-created) JS runtime's
         # console / js_error / script seams as well as the request/document seams.
-        @trace = Trace.attach(self, level: trace_level, dom: trace_dom) if trace
+        @trace = Trace.attach(self, level: trace_level, dom: trace_dom, snapshots: trace_snapshots) if trace
       end
 
       # Whether this session runs page JavaScript (created with `javascript:

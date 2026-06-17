@@ -23,13 +23,19 @@ module Dommy
       # example is passed so we can save artifacts on failure); Minitest tests
       # use `after_teardown` (defined below).
       def self.included(base)
-        base.after { |example| dommy_browser_after(failed: example.exception ? true : false, label: example.full_description) } if base.respond_to?(:after)
+        if base.respond_to?(:after)
+          base.after do |example|
+            dommy_browser_after(failed: example.exception ? true : false,
+              label: example.full_description, exception: example.exception)
+          end
+        end
       end
 
       # Minitest teardown hook (no-op outside Minitest).
       def after_teardown
-        failed = respond_to?(:failures) && !failures.empty?
-        dommy_browser_after(failed: failed, label: (name if respond_to?(:name)))
+        failures = respond_to?(:failures) ? self.failures : []
+        dommy_browser_after(failed: !failures.empty?, label: (name if respond_to?(:name)),
+          exception: failures.first)
       ensure
         super if defined?(super)
       end
@@ -37,8 +43,8 @@ module Dommy
       # On a failed example, write debugging artifacts (page HTML + trace +
       # visible text) before disposing, then run the normal teardown. Shared by
       # the RSpec and Minitest hooks.
-      def dommy_browser_after(failed:, label: nil)
-        dommy_save_failure_artifacts(label) if failed && browser_started?
+      def dommy_browser_after(failed:, label: nil, exception: nil)
+        dommy_save_failure_artifacts(label, exception: exception) if failed && browser_started?
         dommy_browser_teardown
       end
 
@@ -57,7 +63,8 @@ module Dommy
       def browser
         @dommy_browser ||= begin
           require "dommy/js/quickjs/rack"
-          ::Dommy::Rack::Session.new(dommy_browser_app, javascript: true, trace: true, trace_dom: true)
+          ::Dommy::Rack::Session.new(dommy_browser_app, javascript: true, trace: true, trace_dom: true,
+            trace_snapshots: true)
         end
       end
 
@@ -91,19 +98,29 @@ module Dommy
 
       private
 
-      # Write current.html / trace.json / trace.txt / visible-text.txt for a
-      # failed example into a per-example directory, so a CI run can surface
-      # what the browser saw. Best-effort: a browser without a trace (or any IO
-      # error) is skipped silently rather than masking the real failure.
-      def dommy_save_failure_artifacts(label)
+      # Write current.html / trace.txt / visible-text.txt plus a self-contained
+      # NDJSON trace bundle for a failed example into a per-example directory, so
+      # a CI run can surface what the browser saw. Best-effort: a browser without
+      # a trace (or any IO error) is skipped silently rather than masking the
+      # real failure.
+      def dommy_save_failure_artifacts(label, exception: nil)
         return unless browser.respond_to?(:trace) && browser.trace
+
+        # Append the failing expectation to the trace so the viewer shows where
+        # (and how) the test failed, in line with the events that led there.
+        if exception
+          browser.trace.record_error(message: exception.message.to_s.lines.first&.strip,
+            exception_class: exception.class.name)
+        end
 
         dir = ::File.join(dommy_failures_dir, dommy_artifact_slug(label))
         ::FileUtils.mkdir_p(dir)
         ::File.write(::File.join(dir, "current.html"), browser.html.to_s)
-        ::File.write(::File.join(dir, "trace.json"), browser.trace.to_json)
         ::File.write(::File.join(dir, "trace.txt"), browser.trace.to_text)
         ::File.write(::File.join(dir, "visible-text.txt"), browser.text.to_s)
+        # A self-contained NDJSON bundle (trace.ndjson + artifacts/) for the
+        # standalone `dommy-trace` viewer — the machine-readable trace format.
+        browser.trace.save(dir, status: "failed", metadata: {"example" => label.to_s})
         if browser.respond_to?(:debug)
           ::File.write(::File.join(dir, "dom-summary.txt"), browser.debug.dom_summary)
           ::File.write(::File.join(dir, "aria-snapshot.txt"), browser.debug.aria_snapshot)

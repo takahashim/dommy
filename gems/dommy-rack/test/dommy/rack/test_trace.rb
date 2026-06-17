@@ -70,7 +70,7 @@ module Dommy
 
         form = session.trace.forms.first
         assert_equal "a@b.com", form.data[:params]["email"]
-        assert_equal Trace::FILTERED, form.data[:params]["password"]
+        assert_equal Trace::ParamFilter::FILTERED, form.data[:params]["password"]
         # The form + its POST belong to the click_button action.
         assert_equal :click_button, session.trace.last_action.name
         assert_equal session.trace.last_action.seq, form.action_seq
@@ -92,10 +92,6 @@ module Dommy
         text = session.trace.to_text
         assert_match(/ACTION visit "\/hello"/, text)
         assert_match(%r{HTTP GET /hello 200}, text)
-
-        json = JSON.parse(session.trace.to_json)
-        assert_equal "1", json["version"]
-        assert(json["events"].any? { |e| e["type"] == "http" && e["status"] == 200 })
       end
     end
 

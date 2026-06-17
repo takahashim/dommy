@@ -3,8 +3,9 @@
 module Dommy
   module Rack
     class Trace
-      # Renders a Trace's event stream. Text for humans / failure messages,
-      # Json (a versioned, stable schema) for machines and AI diagnostics.
+      # Renders a Trace's event stream as a readable, action-grouped timeline
+      # for humans and failure messages. The machine-readable serialization is
+      # NDJSON (see Trace::Ndjson / #to_ndjson).
       module Formatter
         # A readable, action-grouped timeline. Events belonging to an action
         # are indented under its `ACTION` line.
@@ -59,21 +60,6 @@ module Dommy
           def label(value) = value ? " #{value.inspect}" : ""
           def query(value) = value ? "?#{value}" : ""
           def compact(value) = value.nil? ? "" : value.inspect
-        end
-
-        # Build the JSON event hash for one event. The action a non-action
-        # event belongs to is referenced by `action` (an event id), mirroring a
-        # parent pointer; actions list their child ids too.
-        def self.event_hash(event)
-          hash = {
-            id: "evt_#{event.seq}",
-            type: event.type,
-            t: event.t
-          }
-          hash[:name] = event.name if event.name
-          hash[:action] = "evt_#{event.action_seq}" if event.action_seq
-          hash.merge!(event.data)
-          hash
         end
       end
     end
