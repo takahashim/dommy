@@ -73,6 +73,7 @@ module Dommy
       # (nil → the configured default, QuickJS when dommy-js-quickjs is loaded).
       @runtime = Js.build_runtime(backend)
       @runtime.on_unhandled_rejection { |err| @js_errors << err }
+      @runtime.on_callback_error { |err| @js_errors << err } if @runtime.respond_to?(:on_callback_error)
       @runtime.on_log { |log| @console << log }
       @runtime.define_host_object("document", @window.document)
       @runtime.install_window(@window)

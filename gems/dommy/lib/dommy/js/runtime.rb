@@ -47,7 +47,9 @@ module Dommy
       ].freeze
 
       # Methods a backend may implement but is not required to.
-      OPTIONAL_METHODS = %i[install_wasm_memory_shim].freeze
+      #   on_callback_error { |e } observe a timer/rAF callback the engine
+      #                            force-killed (runaway loop); recorded, not fatal
+      OPTIONAL_METHODS = %i[install_wasm_memory_shim on_callback_error].freeze
 
       module_function
 

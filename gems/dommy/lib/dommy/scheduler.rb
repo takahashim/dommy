@@ -29,6 +29,16 @@ module Dommy
     # separate pass. Absent in vanilla CRuby use (falls back to `@microtasks`).
     attr_accessor :native_microtask_scheduler
 
+    # An optional hook (set by a JS runtime) invoked when a timer / rAF / idle
+    # callback raises. The host inspects the error and returns truthy to swallow
+    # it — e.g. a runtime execution-budget interrupt: a runaway callback the
+    # engine force-killed should be recorded and let browsing continue, not crash
+    # it (WHATWG: a timer callback's exception must not escape its dispatch). When
+    # swallowed, the offending timer is dropped so a self-rescheduling interval
+    # does not re-fire and re-stall every tick. Returning falsy (or no handler at
+    # all — vanilla CRuby use) re-raises, so genuine host bugs still surface.
+    attr_accessor :timer_error_handler
+
     def set_timeout(callback, delay_ms)
       register_timer(:timeout, callback, delay_ms.to_i, nil)
     end
@@ -153,18 +163,33 @@ module Dommy
         case timer.kind
         when :raf
           @timers.delete(timer.id)
-          CallableInvoker.invoke(timer.callback, @now_ms.to_f)
+          invoke_timer(timer, @now_ms.to_f)
         when :interval
-          CallableInvoker.invoke(timer.callback)
+          invoke_timer(timer)
           timer.due_at = @now_ms + timer.interval_ms if timer.active
         when :idle
           @timers.delete(timer.id)
-          CallableInvoker.invoke(timer.callback, IDLE_DEADLINE.dup)
+          invoke_timer(timer, IDLE_DEADLINE.dup)
         else
           @timers.delete(timer.id)
-          CallableInvoker.invoke(timer.callback)
+          invoke_timer(timer)
         end
       end
+    end
+
+    # Run a single timer's callback. A raised error is offered to
+    # `timer_error_handler` (set by the JS runtime); if it swallows the error the
+    # timer is dropped (so a runaway interval cannot re-stall every tick) and
+    # browsing continues. With no handler — or one that declines — the error
+    # propagates, preserving the default crash-on-bug behavior.
+    def invoke_timer(timer, *args)
+      CallableInvoker.invoke(timer.callback, *args)
+    rescue StandardError => e
+      raise unless @timer_error_handler&.call(e, timer)
+
+      timer.active = false
+      @timers.delete(timer.id)
+      nil
     end
   end
 end

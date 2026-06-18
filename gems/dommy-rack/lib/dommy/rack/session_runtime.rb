@@ -119,6 +119,7 @@ module Dommy
       def build_runtime(doc)
         rt = Dommy::Js.build_runtime
         rt.on_unhandled_rejection { |err| record_js_error(err) }
+        rt.on_callback_error { |err| record_js_error(err) } if rt.respond_to?(:on_callback_error)
         rt.on_log { |log| record_console(log) }
         rt.define_host_object("document", doc)
         if (window = doc&.default_view)
