@@ -2022,13 +2022,43 @@ module Dommy
       Backend.attribute_nodes(@__node__).map(&:name)
     end
 
-    # No layout engine — geometry getters return zeroed rects.
+    # No real layout engine. By default geometry getters return zeroed rects;
+    # when the window opts into approximate geometry (window.approximate_layout)
+    # they return non-zero estimates from a cheap pseudo-layout so a site that
+    # treats an all-zero rect as "the DOM is broken" can proceed.
     def get_bounding_client_rect
-      DOMRect.new
+      approximate_layout? ? DOMRect.new(**__internal_approx_box) : DOMRect.new
+    end
+
+    def approximate_layout? = !!@document&.default_view&.approximate_layout
+
+    # Estimate {x, y, width, height} (CSS px) without laying out the page: block
+    # elements fill the viewport width; inline elements are sized to their text;
+    # height is the wrapped line count × a nominal line height. Position is the
+    # origin (we don't position elements). Used only when approximate_layout?.
+    INLINE_TAGS = %w[a span b i em strong small code label abbr cite q sub sup time mark u s
+                     tt var samp kbd bdi bdo wbr big font nobr].freeze
+    APPROX_CHAR_PX = 8
+    APPROX_LINE_PX = 20
+
+    def __internal_approx_box
+      viewport = @document&.default_view&.inner_width.to_i
+      viewport = 1280 if viewport <= 0
+      text = text_content.to_s
+      content_px = text.length * APPROX_CHAR_PX
+      if INLINE_TAGS.include?(local_name.to_s.downcase)
+        {x: 0, y: 0, width: [content_px, viewport].min, height: text.empty? ? 0 : APPROX_LINE_PX}
+      else
+        lines = text.empty? ? 0 : [(content_px.to_f / viewport).ceil, 1].max
+        {x: 0, y: 0, width: viewport, height: lines * APPROX_LINE_PX}
+      end
     end
 
     def get_client_rects
-      []
+      return [] unless approximate_layout?
+
+      box = __internal_approx_box
+      box[:width].positive? || box[:height].positive? ? [DOMRect.new(**box)] : []
     end
 
     def request_fullscreen
@@ -2079,22 +2109,19 @@ module Dommy
         1
       when "isConnected"
         is_connected?
-      when
-          "scrollTop",
-          "scrollLeft",
-          "scrollWidth",
-          "scrollHeight",
-          "clientWidth",
-          "clientHeight",
-          "clientTop",
-          "clientLeft",
-          "offsetWidth",
-          "offsetHeight",
-          "offsetTop",
-          "offsetLeft"
-        # No layout engine — zeroed values match what real browsers
-        # report for hidden / pre-paint elements.
+      when "scrollTop", "scrollLeft", "clientTop", "clientLeft", "offsetTop", "offsetLeft"
+        # Position-ish metrics: 0 (we never lay elements out in the page), as a
+        # real browser reports for hidden / pre-paint elements.
         0
+      when "clientWidth", "clientHeight", "scrollWidth", "scrollHeight", "offsetWidth", "offsetHeight"
+        # Size metrics: 0 by default; a best-effort estimate when the window opts
+        # into approximate geometry (see #get_bounding_client_rect).
+        if approximate_layout?
+          box = __internal_approx_box
+          key.end_with?("Width") ? box[:width] : box[:height]
+        else
+          0
+        end
       when "offsetParent"
         nil
       when "popover"

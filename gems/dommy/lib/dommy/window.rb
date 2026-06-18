@@ -25,6 +25,13 @@ module Dommy
 
     attr_reader :document, :scheduler, :location, :globals, :custom_elements, :navigator
 
+    # Opt into best-effort geometry: when true, getBoundingClientRect / client* /
+    # offset* return non-zero estimates from a cheap pseudo-layout (viewport width
+    # + text content) instead of all-zero. Off by default so the no-layout
+    # contract (and the tests asserting 0) is unchanged; a browser front end
+    # (dommynx) turns it on so sites that bail on all-zero rects can proceed.
+    attr_accessor :approximate_layout
+
     def initialize(host = nil, backend_doc: nil)
       @host = host
       @scheduler = Scheduler.new

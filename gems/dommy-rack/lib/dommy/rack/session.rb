@@ -57,6 +57,7 @@ module Dommy
                      javascript: false,
                      network_executor: nil,
                      cross_origin_subresources: :same_origin,
+                     approximate_layout: false,
                      trace: false,
                      trace_level: :verbose,
                      trace_dom: false,
@@ -76,6 +77,12 @@ module Dommy
         # hosts). dommynx defaults to `:open` so modern third-party-bundled sites
         # are readable; the test/Rails front end keeps the conservative default.
         @cross_origin_subresources = cross_origin_subresources
+        # Opt the page's windows into best-effort geometry (non-zero
+        # getBoundingClientRect / client* / offset*) — a browser front end turns
+        # this on so sites that bail on all-zero rects render; off by default
+        # keeps the deterministic no-layout contract. Applied per window in
+        # #apply_navigation_response before its scripts boot.
+        @approximate_layout = approximate_layout
         @config = Config.new(
           default_host: default_host,
           follow_redirects: follow_redirects,
@@ -560,6 +567,9 @@ module Dommy
         @current_url = final_url
         if response.html?
           @current_window = response.window
+          # Set the geometry mode before scripts boot so the very first
+          # getBoundingClientRect a framework calls already sees it.
+          @current_window.approximate_layout = @approximate_layout if @approximate_layout
           # Fill external stylesheets before listeners (script boot /
           # DOMContentLoaded) run, so CSS-driven computed styles and :visible
           # are correct from the first observation.

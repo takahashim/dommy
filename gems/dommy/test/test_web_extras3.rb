@@ -37,6 +37,26 @@ class TestElementScrollAndSize < Minitest::Test
   def test_get_client_rects_empty
     assert_equal([], @el.__js_call__("getClientRects", []))
   end
+
+  # Opt-in approximate geometry: with window.approximate_layout on, geometry is a
+  # non-zero best-effort estimate instead of all-zero, so sites that bail on an
+  # all-zero rect can proceed.
+  def test_approximate_layout_gives_nonzero_geometry
+    @win.approximate_layout = true
+    rect = @el.__js_call__("getBoundingClientRect", [])
+
+    assert_operator rect.__js_get__("width"), :>, 0, "block fills the viewport width"
+    assert_operator rect.__js_get__("height"), :>, 0, "text gives it a non-zero height"
+    assert_operator @el.__js_get__("offsetWidth"), :>, 0
+    assert_operator @el.__js_get__("clientHeight"), :>, 0
+    refute_empty @el.__js_call__("getClientRects", [])
+  end
+
+  def test_approximate_layout_off_by_default_stays_zero
+    rect = @el.__js_call__("getBoundingClientRect", [])
+    assert_equal 0, rect.__js_get__("width")
+    assert_equal 0, rect.__js_get__("height")
+  end
 end
 
 # --- Popover API ------------------------------------------------
