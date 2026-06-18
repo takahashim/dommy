@@ -53,23 +53,41 @@ module Dommy
         nk.children.each { |c| notify_connected_subtree(c) } if nk.respond_to?(:children)
       end
 
-      # A srcless ("blank"/about:blank) `<iframe>` connected to the document is
-      # "loaded" immediately, so fire its load event ASYNCHRONOUSLY (a microtask),
-      # like a real browser — handlers are commonly attached after insertion
-      # (`document.body.appendChild(f); f.onload = …`). Without this, code that
-      # awaits a blank iframe's load hangs (FingerprintJS's `withIframe`, used by
-      # its font sources, did — which hung note.com's tracking plugin and its
-      # whole Nuxt hydration). A `src` iframe is left to the integration layer.
+      # A srcless ("blank"/about:blank) `<iframe>` connected to the document gets
+      # an empty nested browsing context (a real, complete content document) and
+      # fires its `load` event ASYNCHRONOUSLY (a microtask), like a real browser —
+      # handlers are commonly attached after insertion (`appendChild(f); f.onload
+      # = …`). Without this, code that awaits a blank iframe's load and then reads
+      # `iframe.contentWindow.document` hangs: FingerprintJS's `withIframe` (its
+      # font sources) does exactly that, which hung note.com's tracking plugin and
+      # its whole Nuxt hydration. A `src` iframe is left to the integration layer.
+      BLANK_IFRAME_SRCS = ["", "about:blank"].freeze
+
       def fire_blank_iframe_load(element)
         return unless element.respond_to?(:local_name) && element.local_name == "iframe"
         return unless element.respond_to?(:is_connected?) && element.is_connected?
-        return unless element.respond_to?(:src) && element.src.to_s.empty?
+        return unless element.respond_to?(:src) && BLANK_IFRAME_SRCS.include?(element.src.to_s.strip)
 
+        ensure_blank_content_document(element)
         fire = proc { element.dispatch_event(Event.new("load")) rescue nil }
         scheduler = (@document.default_view&.scheduler if @document.respond_to?(:default_view))
         scheduler ? scheduler.queue_microtask(fire) : fire.call
       rescue StandardError
         nil
+      end
+
+      # Give a blank iframe a fresh empty document (or its `srcdoc`) so
+      # `contentWindow` / `contentDocument` resolve and DOM ops + measurement
+      # inside it work (readyState defaults to "complete"). No-op if it already
+      # has one.
+      def ensure_blank_content_document(element)
+        return unless element.respond_to?(:__internal_set_content_document__)
+        return if element.respond_to?(:content_document) && element.content_document
+
+        srcdoc = (element.srcdoc.to_s if element.respond_to?(:srcdoc))
+        html = srcdoc.nil? || srcdoc.empty? ? "<html><head></head><body></body></html>" : srcdoc
+        win = Dommy::Window.new(backend_doc: Dommy::Backend.parse(html))
+        element.__internal_set_content_document__(win.document)
       end
 
       # A classic <script> that's now genuinely connected to this document runs:
