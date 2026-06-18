@@ -43,6 +43,18 @@ class Dommy::Rack::TestResources < Minitest::Test
     assert_nil resources.get("https://cdn.example.com/x")
   end
 
+  def test_open_session_serves_cross_origin
+    # An `:open` session loads cross-origin subresources (browser parity); the
+    # backend SSRF guard, not this gate, is the boundary. The cross-origin host is
+    # served by the same app here, returning its JSON.
+    session = Dommy::Rack::Session.new(app, enforce_same_origin: false, cross_origin_subresources: :open)
+    session.visit("/")
+    r = Dommy::Rack::Resources.new(session).get("https://cdn.example.com/api")
+    assert_equal 200, r.status
+    refute session.blocked_subresource_hosts.include?("cdn.example.com"),
+      "open mode does not record a block to prompt for"
+  end
+
   # --- Off-thread (async-network) path: #request_job ---
 
   def test_request_job_yields_the_same_response_as_request

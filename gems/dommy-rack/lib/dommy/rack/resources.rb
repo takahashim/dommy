@@ -60,7 +60,10 @@ module Dommy
       def served_target(method:, url:, headers:, body:)
         target = absolute_url(url)
         return nil unless target
-        return target if same_origin?(target) || allowed_cross_origin?(target)
+        # `:open` sessions load any cross-origin subresource (browser parity); the
+        # backend SSRF guard still blocks private hosts. Otherwise only same-origin
+        # or an allowlisted host loads, and a declined host is recorded to prompt.
+        return target if @session.open_subresources? || same_origin?(target) || allowed_cross_origin?(target)
 
         record_blocked(target)
         nil

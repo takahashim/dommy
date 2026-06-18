@@ -56,6 +56,7 @@ module Dommy
                      load_stylesheets: nil,
                      javascript: false,
                      network_executor: nil,
+                     cross_origin_subresources: :same_origin,
                      trace: false,
                      trace_level: :verbose,
                      trace_dom: false,
@@ -67,6 +68,14 @@ module Dommy
         # DeferredResponse; when nil (the default), everything stays synchronous
         # and deterministic. See #build_subresource_fetch_job.
         @network_executor = network_executor
+        # Cross-origin subresource policy. `:same_origin` (default) loads only
+        # same-origin `<script src>` / fetch / XHR unless a host is allowlisted
+        # (an embedding browser prompts and opts hosts in). `:open` loads any
+        # cross-origin subresource like a real browser — the network backend's
+        # SSRF guard is then the security boundary (it still cannot reach private
+        # hosts). dommynx defaults to `:open` so modern third-party-bundled sites
+        # are readable; the test/Rails front end keeps the conservative default.
+        @cross_origin_subresources = cross_origin_subresources
         @config = Config.new(
           default_host: default_host,
           follow_redirects: follow_redirects,
@@ -154,6 +163,10 @@ module Dommy
       def load_stylesheets? = @config.load_stylesheets
       def config = @config
       def network_executor = @network_executor
+
+      # Whether cross-origin subresources load freely (browser-like), with the
+      # backend SSRF guard as the only boundary. See cross_origin_subresources.
+      def open_subresources? = @cross_origin_subresources == :open
 
       # Whether an off-thread network completion is waiting to be applied on the
       # page thread (a worker finished and posted its response to the scheduler
