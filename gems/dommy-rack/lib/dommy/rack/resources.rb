@@ -16,6 +16,7 @@ module Dommy
     class Resources
       def initialize(session)
         @session = session
+        @prefetched = {} # absolute GET url => Resources::Response, warmed by #prefetch
       end
 
       def get(url, headers: {}) = request(method: "GET", url: url, headers: headers)
@@ -24,12 +25,55 @@ module Dommy
         target = served_target(method: method, url: url, headers: headers, body: body)
         return nil unless target
 
+        # A warmed GET (the page's <script src> bundles, fetched concurrently
+        # before the synchronous boot) is served from the cache with no network.
+        if method.to_s.upcase == "GET" && @prefetched.key?(target)
+          return @prefetched[target]
+        end
+
         to_resources_response(@session.fetch(
           target,
           method: method.to_s.upcase,
           headers: headers.is_a?(Hash) ? headers : {},
           body: body&.to_s
         ))
+      end
+
+      # Number of bundles prefetched at once: enough to saturate the link without
+      # spawning a thread per script on a huge page.
+      PREFETCH_CONCURRENCY = 8
+
+      # Warm the GET cache for `urls` by downloading them CONCURRENTLY, so the
+      # synchronous script boot that follows reads them instantly instead of
+      # fetching a dozen big bundles one after another (the dominant cost of a
+      # heavy SPA's first paint). Gated on the session being in browser mode (a
+      # network executor present) so plain test sessions stay sequential and
+      # deterministic. Uses its own bounded thread set — NOT the page's fetch/XHR
+      # executor, whose completion timing this must not depend on — and blocks
+      # until warmed (the wait is the slowest single download, not their sum). The
+      # worker-safe jobs touch only thread-safe state (cookie jar, frozen config).
+      def prefetch(urls)
+        return unless @session.network_executor
+
+        jobs = warmable_jobs(urls)
+        return if jobs.empty?
+
+        pending = Thread::Queue.new
+        jobs.each { |job| pending << job }
+        done = Thread::Queue.new
+        threads = Array.new([PREFETCH_CONCURRENCY, jobs.size].min) do
+          Thread.new do
+            while (item = (pending.pop(true) rescue nil))
+              target, job = item
+              done << [target, (job.call rescue nil)]
+            end
+          end
+        end
+        jobs.size.times do
+          target, rack_response = done.pop
+          @prefetched[target] = to_resources_response(rack_response) if rack_response
+        end
+        threads.each(&:join)
       end
 
       # The async-network counterpart of #request: makes the same page-thread
@@ -52,6 +96,20 @@ module Dommy
       end
 
       private
+
+      # [target, worker-safe job] for each served, not-yet-cached GET URL — the
+      # set #prefetch actually fetches. De-dupes so a bundle listed twice fetches
+      # once.
+      def warmable_jobs(urls)
+        seen = {}
+        urls.filter_map do |url|
+          target = served_target(method: "GET", url: url, headers: {}, body: nil)
+          next if target.nil? || @prefetched.key?(target) || seen[target]
+
+          seen[target] = true
+          [target, @session.build_subresource_fetch_job(target, method: "GET", headers: {}, body: nil)]
+        end
+      end
 
       # Resolve `url` to an absolute target we serve (same-origin, or a host the
       # session has allowed), recording and declining (nil) a cross-origin host.

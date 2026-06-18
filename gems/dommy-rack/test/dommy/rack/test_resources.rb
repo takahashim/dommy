@@ -82,6 +82,34 @@ class Dommy::Rack::TestResources < Minitest::Test
     assert_equal "abc", resources.request_job(method: "GET", url: "/whoami").call.body
   end
 
+  # A present executor just signals "browser mode" — #prefetch gates on one being
+  # set; it runs the fetches on its own threads, not through this object.
+  class PresentExecutor
+    def submit(_job, &_on_result) = self
+  end
+
+  def test_prefetch_warms_the_cache_so_a_later_get_skips_the_network
+    calls = 0
+    mutex = Mutex.new
+    counting = ->(_env) { mutex.synchronize { calls += 1 }; [200, {"Content-Type" => "text/plain"}, ["call#{calls}"]] }
+    session = Dommy::Rack::Session.new(counting, network_executor: PresentExecutor.new)
+    session.visit("/") # calls => 1
+    res = Dommy::Rack::Resources.new(session)
+
+    res.prefetch(["/app.js"]) # calls => 2 (fetched concurrently, cached)
+    r = res.get("/app.js")    # served from cache — no third app hit
+
+    assert_equal "call2", r.body
+    assert_equal 2, calls, "the warmed GET did not touch the app again"
+  end
+
+  def test_prefetch_is_a_noop_without_an_executor
+    res = resources # session has no network_executor
+    res.prefetch(["/api"])
+    # Nothing cached; a get still works (straight through the app).
+    assert_equal 200, res.get("/api").status
+  end
+
   def test_request_job_thunk_runs_safely_on_a_worker_thread
     job = resources.request_job(method: "GET", url: "/api")
     result = nil

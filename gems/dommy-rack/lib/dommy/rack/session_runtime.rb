@@ -140,12 +140,26 @@ module Dommy
             )
             @script_listeners.each { |cb| cb.call(element, nil) }
           end
+          # Warm the cache by downloading the document's <script src> bundles
+          # concurrently BEFORE the boot below runs them one by one — the dominant
+          # cost of a heavy SPA's first paint is fetching a dozen big bundles
+          # sequentially. No-op without a network executor.
+          resources.prefetch(external_script_srcs(doc))
           ::Dommy::Js::ScriptBoot.run_document_scripts(
             rt, doc, resources: resources,
             on_script: ->(element, error) { @script_listeners.each { |cb| cb.call(element, error) } }
           )
         end
         rt
+      end
+
+      # The `src` of every external script in the freshly parsed document, for
+      # concurrent prewarming. Resources resolves/filters them (origin gate); we
+      # just hand over the raw attribute values.
+      def external_script_srcs(doc)
+        return [] unless doc.respond_to?(:query_selector_all)
+
+        doc.query_selector_all("script[src]").filter_map { |el| el.get_attribute("src") }
       end
 
       def dispose_all
