@@ -66,6 +66,18 @@ module Dommy
     # all — vanilla CRuby use) re-raises, so genuine host bugs still surface.
     attr_accessor :timer_error_handler
 
+    # An optional hook (set by a JS runtime) that drains the ENGINE's microtask
+    # (promise-job) queue — the other half of a microtask checkpoint. The
+    # scheduler owns only its own `@microtasks`; the real microtask queue lives
+    # in the JS engine, so a spec-compliant checkpoint must drain both. WHATWG
+    # §8.1.7.3: the event loop performs a microtask checkpoint after running each
+    # task. Without this the scheduler would run every due timer task back-to-back
+    # and only drain microtasks once at the end, which reorders a microtask queued
+    # by one task after the next task — breaking code (Apollo/RxJS link chains)
+    # that relies on the per-task checkpoint. Absent in vanilla CRuby use (then a
+    # checkpoint drains only `@microtasks`).
+    attr_accessor :microtask_checkpoint
+
     def set_timeout(callback, delay_ms)
       register_timer(:timeout, callback, delay_ms.to_i, nil)
     end
@@ -128,12 +140,12 @@ module Dommy
       while next_due_timer_at && next_due_timer_at <= target
         @now_ms = next_due_timer_at
         run_due_timers
-        drain_microtasks
+        perform_microtask_checkpoint
         deliver_external
       end
 
       @now_ms = target
-      drain_microtasks
+      perform_microtask_checkpoint
       deliver_external
       nil
     end
@@ -187,6 +199,12 @@ module Dommy
     def run_due_timers
       due = @timers.values.select { |timer| timer.active && timer.due_at <= @now_ms }
       due.sort_by!(&:id)
+      # Each ordinary timer task is followed by a microtask checkpoint (WHATWG
+      # §8.1.7.3). The animation-frame callbacks of one rendering update are an
+      # exception: they run consecutively and share a single checkpoint after the
+      # batch (a microtask queued by one rAF must not run before the next rAF in
+      # the same frame), so they are checkpointed once at the end.
+      raf_ran = false
       due.each do |timer|
         next unless timer.active
 
@@ -194,17 +212,33 @@ module Dommy
         when :raf
           @timers.delete(timer.id)
           invoke_timer(timer, @now_ms.to_f)
+          raf_ran = true
         when :interval
           invoke_timer(timer)
           timer.due_at = @now_ms + timer.interval_ms if timer.active
+          perform_microtask_checkpoint
         when :idle
           @timers.delete(timer.id)
           invoke_timer(timer, IDLE_DEADLINE.dup)
+          perform_microtask_checkpoint
         else
           @timers.delete(timer.id)
           invoke_timer(timer)
+          perform_microtask_checkpoint
         end
       end
+      perform_microtask_checkpoint if raf_ran
+    end
+
+    # A WHATWG microtask checkpoint: drain the scheduler's own microtask queue
+    # AND the engine's promise-job queue (via the runtime hook). Host-side
+    # microtasks route onto the engine queue when a runtime is wired, so in that
+    # mode `@microtasks` is usually empty and the engine drain does the work; in
+    # vanilla CRuby the engine hook is absent and only `@microtasks` drains.
+    def perform_microtask_checkpoint
+      drain_microtasks
+      @microtask_checkpoint&.call
+      nil
     end
 
     # Run a single timer's callback. A raised error is offered to
