@@ -46,10 +46,30 @@ module Dommy
           if wrapped
             notify_connected(wrapped)
             run_connected_script(wrapped)
+            fire_blank_iframe_load(wrapped)
           end
         end
 
         nk.children.each { |c| notify_connected_subtree(c) } if nk.respond_to?(:children)
+      end
+
+      # A srcless ("blank"/about:blank) `<iframe>` connected to the document is
+      # "loaded" immediately, so fire its load event ASYNCHRONOUSLY (a microtask),
+      # like a real browser — handlers are commonly attached after insertion
+      # (`document.body.appendChild(f); f.onload = …`). Without this, code that
+      # awaits a blank iframe's load hangs (FingerprintJS's `withIframe`, used by
+      # its font sources, did — which hung note.com's tracking plugin and its
+      # whole Nuxt hydration). A `src` iframe is left to the integration layer.
+      def fire_blank_iframe_load(element)
+        return unless element.respond_to?(:local_name) && element.local_name == "iframe"
+        return unless element.respond_to?(:is_connected?) && element.is_connected?
+        return unless element.respond_to?(:src) && element.src.to_s.empty?
+
+        fire = proc { element.dispatch_event(Event.new("load")) rescue nil }
+        scheduler = (@document.default_view&.scheduler if @document.respond_to?(:default_view))
+        scheduler ? scheduler.queue_microtask(fire) : fire.call
+      rescue StandardError
+        nil
       end
 
       # A classic <script> that's now genuinely connected to this document runs:
