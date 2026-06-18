@@ -484,23 +484,28 @@ module Dommy
         # is the final request of any redirect chain: after a POST that
         # redirects (PRG), reload re-GETs the landing page rather than re-POSTing.
         @last_request_args = {method: method, url: absolute_url, params: params, body: body, headers: headers}
-        env = RequestBuilder.new(@config).build(
-          method: method,
-          url: absolute_url,
-          params: params,
-          body: body,
-          headers: @headers.merge(headers),
-          cookie_string: @cookie_jar.cookies_for(absolute_url)
+        page_exchange.request(method, absolute_url, params: params, body: body, headers: headers)
+      end
+
+      # The HttpExchange bound to this page: it reads the live header store and
+      # routes per-request observation back onto the page thread (record
+      # last_request, fire request/response listeners). The exchange itself only
+      # touches thread-safe / immutable collaborators, so the same primitive can
+      # later run on a network worker with inbox-routed hooks instead.
+      def page_exchange
+        @page_exchange ||= HttpExchange.new(
+          app: @app,
+          config: @config,
+          cookie_jar: @cookie_jar,
+          headers: @headers,
+          on_request: lambda { |env|
+            @last_request = env
+            @request_listeners.each { |cb| cb.call(env) }
+          },
+          on_response: lambda { |response|
+            @response_listeners.each { |cb| cb.call(response) }
+          }
         )
-        @last_request = env
-        @request_listeners.each { |cb| cb.call(env) }
-        status, response_headers, response_body = @app.call(env)
-        response = Response.new(status, response_headers, response_body, url: absolute_url)
-        response.set_cookie_strings.each do |sc|
-          @cookie_jar.store_from_header(sc, absolute_url)
-        end
-        @response_listeners.each { |cb| cb.call(response) }
-        response
       end
 
       # Apply a final navigation response: update last_response, current_url,
