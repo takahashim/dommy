@@ -155,6 +155,14 @@ module Dommy
       def config = @config
       def network_executor = @network_executor
 
+      # Whether an off-thread network completion is waiting to be applied on the
+      # page thread (a worker finished and posted its response to the scheduler
+      # inbox, not yet drained). A run loop ORs this with its executor's in-flight
+      # count to decide whether to keep ticking while async subresources load.
+      def external_network_pending?
+        !!@current_window&.scheduler&.external_pending?
+      end
+
       # --- Cross-origin subresource policy ---
       #
       # By default only same-origin `<script src>` / `fetch` / XHR load (see
