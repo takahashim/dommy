@@ -57,6 +57,25 @@ class TestDeferredResponse < Minitest::Test
     assert_equal "async-body", response.__js_call__("text", []).await
   end
 
+  # XMLHttpRequest takes the same deferred path: it stays open until the
+  # off-thread response arrives, then delivers on the page thread.
+  def test_xhr_resolves_an_async_deferred_response
+    deferred = Dommy::DeferredResponse.new(@sched)
+    @win.__js_set__("__fetch_handler__", ->(_url, _init) { deferred })
+
+    xhr = Dommy::XMLHttpRequest.new(@win)
+    xhr.open("GET", "/async", true)
+    xhr.send
+    refute_equal 4, xhr.ready_state, "still open until the response arrives" # 4 = DONE
+
+    Thread.new { deferred.complete({"status" => 200, "body" => "async-xhr"}) }.join
+    @sched.advance_time(0)
+
+    assert_equal 4, xhr.ready_state
+    assert_equal 200, xhr.status
+    assert_equal "async-xhr", xhr.response_text
+  end
+
   # A deferred that completes with nil (a network failure) fulfills as a 404-style
   # miss, like a synchronous miss.
   def test_deferred_nil_completion_is_a_miss

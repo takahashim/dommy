@@ -100,9 +100,27 @@ module Dommy
       entry = data_uri_entry || lookup_stub
       track_globals
 
+      # Async (live network): the handler returns a deferred whose response
+      # arrives off-thread and is delivered on the page thread. The request stays
+      # open until then. The sync path (stubs / cache / data:) delivers inline.
+      if entry.respond_to?(:on_complete)
+        entry.on_complete { |resolved| deliver_resolved(resolved, gen) }
+        return nil
+      end
+
+      deliver_resolved(entry, gen)
+      nil
+    end
+
+    # Deliver a resolved response entry (nil -> 404), honoring abort/reopen (the
+    # generation may have changed) and a simulated `delay`. Shared by the
+    # synchronous path and an async deferred completion.
+    def deliver_resolved(entry, gen)
+      return unless active?(gen)
+
       if entry.nil?
         deliver(body: "not found", status: 404, status_text: "Not Found", headers: {})
-        return nil
+        return
       end
 
       delay = entry["delay"]
@@ -113,8 +131,6 @@ module Dommy
       else
         deliver_entry(entry)
       end
-
-      nil
     end
 
     def abort
