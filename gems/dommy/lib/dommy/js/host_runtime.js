@@ -909,18 +909,31 @@ globalThis.__rbHost = (function () {
         }
       } catch (e) { /* non-configurable / frozen — leave as-is */ }
     }
-    // `window.Promise` must be the engine's native Promise (=== globalThis.Promise),
-    // like a real browser. The host exposes a Ruby-backed PromiseConstructor for
-    // its own internal promises; if it leaked onto the window, page feature
-    // detection (core-js et al.) would see a non-conforming Promise and install a
-    // polyfill whose microtasks the host can't flush — silently stalling every
-    // `await` and hanging SPA hydration. Force the native one here.
-    if (typeof globalThis.Promise === "function") {
+    // JS builtins must BE the engine's native globals on the window too
+    // (`window.Object === Object`, `window.console === console`, `x in
+    // window.console`), like a real browser. The host's __js_get__ returns
+    // sentinels for some of these (console / Object / Array / JSON) that
+    // otherwise cross as the WRONG type — a string — so `window.console.foo`
+    // and `x in window.console` throw ("invalid 'in' operand"); note.com's
+    // console wrapper hit this. The loop above misses them (non-function
+    // builtins are skipped; sentinel-stringed ones aren't interfaces). Promise
+    // also MUST be the native one so feature detection (core-js et al.) doesn't
+    // swap in a polyfill whose microtasks the host can't flush. Force them all.
+    for (const name of JS_GLOBALS) {
+      if (!(name in globalThis)) continue;
       try {
-        Object.defineProperty(w, "Promise", { value: globalThis.Promise, configurable: true, writable: true });
-      } catch (e) { /* leave as-is */ }
+        Object.defineProperty(w, name, { value: globalThis[name], configurable: true, writable: true });
+      } catch (e) { /* non-configurable / frozen — leave as-is */ }
     }
   }
+
+  // The engine's native globals that `window.X` must mirror exactly.
+  const JS_GLOBALS = [
+    "Object", "Array", "Function", "String", "Boolean", "Number", "BigInt",
+    "Symbol", "Date", "RegExp", "Promise", "Map", "Set", "WeakMap", "WeakSet",
+    "Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError",
+    "Proxy", "Reflect", "JSON", "Math", "console",
+  ];
 
   // ===== Host object proxy =====
 
