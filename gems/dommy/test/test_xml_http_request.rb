@@ -74,6 +74,25 @@ class TestXMLHttpRequest < Minitest::Test
     assert_equal("Not Found", xhr.status_text)
   end
 
+  # A `data:` URI resolves to its decoded payload (note.com loads icon SVGs as
+  # `data:image/svg+xml;base64,…` via XHR — a 404 there broke its SVG components).
+  def test_base64_data_uri_decodes_to_200
+    xhr = new_xhr
+    svg = "<svg width=\"24\"></svg>"
+    xhr.open("GET", "data:image/svg+xml;base64,#{[svg].pack("m0")}", false)
+    xhr.send
+    assert_equal(200, xhr.status)
+    assert_equal(svg, xhr.response_text)
+  end
+
+  def test_plain_data_uri_percent_decodes
+    xhr = new_xhr
+    xhr.open("GET", "data:text/plain,Hello%2C%20World", false)
+    xhr.send
+    assert_equal(200, xhr.status)
+    assert_equal("Hello, World", xhr.response_text)
+  end
+
   def test_sync_server_error_status
     xhr = new_xhr
     xhr.open("GET", "/api/err", false)

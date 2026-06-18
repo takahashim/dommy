@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "json"
+require_relative "data_uri"
 
 module Dommy
   # `XMLHttpRequest` polyfill. Consults the same stub maps that
@@ -96,7 +97,7 @@ module Dommy
       gen = @generation
       dispatch_event(ProgressEvent.new("loadstart"))
 
-      entry = lookup_stub
+      entry = data_uri_entry || lookup_stub
       track_globals
 
       if entry.nil?
@@ -287,6 +288,17 @@ module Dommy
     def transition(state)
       @ready_state = state
       dispatch_event(Event.new("readystatechange"))
+    end
+
+    # A `data:` URI resolves to a synthetic 200 stub entry (see Dommy::DataUri),
+    # so XHR to an inline `data:image/svg+xml;…` works like a browser. nil for any
+    # non-data URL.
+    def data_uri_entry
+      decoded = DataUri.parse(@url)
+      return nil unless decoded
+
+      {"body" => decoded[:body], "status" => 200, "statusText" => "OK",
+       "contentType" => decoded[:content_type]}
     end
 
     def lookup_stub

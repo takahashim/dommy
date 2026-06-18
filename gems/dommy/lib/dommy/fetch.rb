@@ -2,6 +2,7 @@
 
 require "json"
 require "securerandom"
+require_relative "data_uri"
 
 module Dommy
   # `fetch` polyfill. No real network — instead resolves a response
@@ -90,6 +91,11 @@ module Dommy
     # `__inject_fetch_stub__`. Checked in order; only one should be set
     # at a time.
     def resolve_entry(url, init)
+      if (decoded = DataUri.parse(url))
+        return {"body" => decoded[:body], "status" => 200, "statusText" => "OK",
+                "contentType" => decoded[:content_type]}
+      end
+
       handler = @window.globals["__fetch_handler__"]
       if handler.respond_to?(:call)
         entry = handler.call(url, init)
