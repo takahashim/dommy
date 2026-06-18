@@ -46,14 +46,13 @@ module Dommy
       # Warm the GET cache for `urls` by downloading them CONCURRENTLY, so the
       # synchronous script boot that follows reads them instantly instead of
       # fetching a dozen big bundles one after another (the dominant cost of a
-      # heavy SPA's first paint). Gated on the session being in browser mode (a
-      # network executor present) so plain test sessions stay sequential and
-      # deterministic. Uses its own bounded thread set — NOT the page's fetch/XHR
-      # executor, whose completion timing this must not depend on — and blocks
+      # heavy SPA's first paint). Gated on browser mode (open cross-origin) so
+      # plain test / Rails sessions stay sequential and deterministic. Uses its
+      # own bounded thread set (independent of any fetch/XHR executor) and blocks
       # until warmed (the wait is the slowest single download, not their sum). The
       # worker-safe jobs touch only thread-safe state (cookie jar, frozen config).
       def prefetch(urls)
-        return unless @session.network_executor
+        return unless @session.open_subresources?
 
         jobs = warmable_jobs(urls)
         return if jobs.empty?
