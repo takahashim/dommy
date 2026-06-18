@@ -63,4 +63,21 @@ class Dommy::Rack::TestCookieJar < Minitest::Test
     @jar.clear
     assert_nil @jar.get("manual")
   end
+
+  # The jar is shared between the page thread and network worker threads (the
+  # async network path). Concurrent stores/reads must neither corrupt @entries
+  # nor lose writes.
+  def test_concurrent_stores_and_reads_are_safe
+    threads = 50.times.map do |i|
+      Thread.new do
+        @jar.store_from_header("c#{i}=v#{i}; path=/", "http://example.org/")
+        @jar.cookies_for("http://example.org/") # concurrent read
+        @jar.get("c#{i}")
+      end
+    end
+    threads.each(&:join)
+
+    stored = @jar.cookies_for("http://example.org/")
+    50.times { |i| assert_includes stored, "c#{i}=v#{i}", "cookie ##{i} survived the race" }
+  end
 end

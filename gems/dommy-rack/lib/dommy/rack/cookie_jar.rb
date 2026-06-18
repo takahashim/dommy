@@ -16,6 +16,12 @@ module Dommy
 
       def initialize
         @entries = []
+        # The jar is shared between the page thread (document.cookie) and network
+        # worker threads (request Cookie headers + Set-Cookie storage), so every
+        # touch of @entries is guarded. The lock is held only around the array
+        # access (no I/O, no reentrancy into the jar), so it never serializes the
+        # blocking HTTP itself.
+        @mutex = Mutex.new
       end
 
       # Parse a single Set-Cookie header value and store the result.
@@ -24,10 +30,12 @@ module Dommy
         entry = parse_set_cookie(set_cookie_string, uri)
         return unless entry
 
-        if expired?(entry)
-          remove(entry.name, entry.domain, entry.path)
-        else
-          store_entry(entry)
+        @mutex.synchronize do
+          if expired?(entry)
+            remove(entry.name, entry.domain, entry.path)
+          else
+            store_entry(entry)
+          end
         end
       end
 
@@ -43,20 +51,20 @@ module Dommy
           http_only: http_only,
           host_only: domain.nil?
         )
-        store_entry(entry)
+        @mutex.synchronize { store_entry(entry) }
       end
 
       # First non-expired cookie value matching the name.
       def get(name)
-        @entries.find { |e| e.name == name.to_s && !expired?(e) }&.value
+        @mutex.synchronize { @entries.find { |e| e.name == name.to_s && !expired?(e) }&.value }
       end
 
       def clear
-        @entries = []
+        @mutex.synchronize { @entries = [] }
       end
 
       def all
-        @entries.reject { |e| expired?(e) }
+        @mutex.synchronize { @entries.reject { |e| expired?(e) } }
       end
 
       # Build the Cookie request header value for the given URL, or "".
@@ -66,13 +74,16 @@ module Dommy
         host = uri.host.to_s.downcase
         path = uri.path.to_s.empty? ? "/" : uri.path
 
-        matches = @entries.reject { |e| expired?(e) }.select do |e|
-          domain_match?(e, host) &&
-            path_match?(e.path, path) &&
-            (!e.secure || secure_request)
+        matches = @mutex.synchronize do
+          @entries.reject { |e| expired?(e) }.select do |e|
+            domain_match?(e, host) &&
+              path_match?(e.path, path) &&
+              (!e.secure || secure_request)
+          end
         end
 
-        # More specific (longer) paths first, per RFC 6265.
+        # More specific (longer) paths first, per RFC 6265 (on the snapshot copy,
+        # outside the lock).
         matches.sort_by! { |e| -e.path.length }
         matches.map { |e| "#{e.name}=#{e.value}" }.join("; ")
       end
