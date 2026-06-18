@@ -237,6 +237,11 @@ module Dommy
     # body when it's connected (Dommy has no JS engine of its own). nil = inert
     # scripts (the default for a standalone DOM).
     attr_accessor :script_runner
+    # A `->(element, src) {}` set by the integration layer to fetch + execute a
+    # classic `<script src>` that's dynamically inserted into the document (e.g.
+    # webpack/Vite loading an on-demand chunk via document.head.appendChild). It
+    # owns firing the element's load / error event. nil = such scripts are inert.
+    attr_accessor :external_script_runner
 
     def initialize(host = nil, backend_doc: nil, default_view: nil)
       @host = host

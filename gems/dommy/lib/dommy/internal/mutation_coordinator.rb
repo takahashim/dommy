@@ -52,18 +52,23 @@ module Dommy
         nk.children.each { |c| notify_connected_subtree(c) } if nk.respond_to?(:children)
       end
 
-      # A classic <script> that's now genuinely connected to this document runs
-      # its body through the document's script_runner (wired by the JS bridge).
-      # Gated on is_connected? because this walk also fires for additions to a
-      # still-detached subtree.
+      # A classic <script> that's now genuinely connected to this document runs:
+      # an inline body through the document's script_runner (wired by the JS
+      # bridge), an external `src` through external_script_runner (wired by the
+      # integration layer, which fetches + runs it — webpack/Vite load on-demand
+      # chunks by injecting `<script src>` this way). Gated on is_connected?
+      # because this walk also fires for additions to a still-detached subtree.
       def run_connected_script(element)
-        runner = @document.script_runner
-        return unless runner
-        return unless element.respond_to?(:__internal_take_pending_script__)
+        return unless element.respond_to?(:__internal_take_pending_script__) # a <script>
         return unless element.respond_to?(:is_connected?) && element.is_connected?
 
-        source = element.__internal_take_pending_script__
-        runner.call(source) if source
+        if (runner = @document.script_runner) && (source = element.__internal_take_pending_script__)
+          runner.call(source)
+        elsif @document.external_script_runner &&
+              element.respond_to?(:__internal_take_pending_src__) &&
+              (src = element.__internal_take_pending_src__)
+          @document.external_script_runner.call(element, src)
+        end
       rescue StandardError
         nil
       end

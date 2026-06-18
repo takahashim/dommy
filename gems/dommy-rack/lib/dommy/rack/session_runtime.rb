@@ -126,6 +126,14 @@ module Dommy
           rt.install_browser_globals
           resources = ::Dommy::Rack::Resources.new(@session)
           window.globals["__fetch_handler__"] = ::Dommy::Resources::FetchHandler.new(resources)
+          # Dynamically-inserted `<script src>` (webpack/Vite on-demand chunks)
+          # fetch + run through the same resources adapter, after boot.
+          doc.external_script_runner = lambda do |element, src|
+            ::Dommy::Js::ScriptBoot.run_external_script(
+              rt, doc, element, src, resources: resources, on_error: ->(e) { record_js_error(e) }
+            )
+            @script_listeners.each { |cb| cb.call(element, nil) }
+          end
           ::Dommy::Js::ScriptBoot.run_document_scripts(
             rt, doc, resources: resources,
             on_script: ->(element, error) { @script_listeners.each { |cb| cb.call(element, error) } }

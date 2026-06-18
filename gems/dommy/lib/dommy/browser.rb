@@ -83,8 +83,15 @@ module Dommy
       @window.globals["__fetch_handler__"] = Resources::FetchHandler.new(@resources) if @resources
 
       if execute_scripts
+        doc = @window.document
+        # Dynamically-inserted `<script src>` (webpack/Vite on-demand chunks)
+        # fetch + run through the same resources adapter, after boot.
+        doc.external_script_runner = lambda do |element, src|
+          Js::ScriptBoot.run_external_script(@runtime, doc, element, src,
+            resources: @resources, on_error: ->(e) { @js_errors << e })
+        end
         Js::ScriptBoot.run_document_scripts(
-          @runtime, @window.document, resources: @resources, on_error: ->(e) { @js_errors << e }
+          @runtime, doc, resources: @resources, on_error: ->(e) { @js_errors << e }
         )
         # Leave the page in a ready state: run on-load promises, due-now timers,
         # and rAF (not future timers). `settle: false` observes it mid-flight.

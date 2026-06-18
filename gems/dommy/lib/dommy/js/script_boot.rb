@@ -31,6 +31,13 @@ module Dommy
       def run_document_scripts(runtime, document, resources: nil, on_error: nil, on_script: nil)
         ScriptBooter.new(runtime, document, resources: resources, on_error: on_error, on_script: on_script).run
       end
+
+      # Fetch + execute a single `<script src>` that was dynamically inserted into
+      # an already-booted document (webpack/Vite on-demand chunk loading), then
+      # fire its load / error event so the loader's promise settles.
+      def run_external_script(runtime, document, element, src, resources: nil, on_error: nil)
+        ScriptBooter.new(runtime, document, resources: resources, on_error: on_error).run_inserted_external(element, src)
+      end
     end
 
     # One document's script-boot run. Instantiated per boot by ScriptBoot; the
@@ -57,7 +64,31 @@ module Dommy
         @runtime.set_document_ready_state("complete")
       end
 
+      # Fetch + run a dynamically-inserted external script, then fire `load` (or
+      # `error` if the fetch failed / it threw) so a loader awaiting the script
+      # element's onload resolves. The src was already taken from the element by
+      # the mutation coordinator, so this does not re-consume pending state.
+      def run_inserted_external(element, src)
+        ran = false
+        if @resources && (url = resolve_url(src)) && (response = @resources.get(url)) && response.success?
+          with_current_script(element) { @runtime.load_script_cached(response.body, cache_key: url) }
+          ran = true
+        end
+        dispatch_script_event(element, ran ? "load" : "error")
+      rescue StandardError => e
+        @on_error&.call(e)
+        dispatch_script_event(element, "error")
+      end
+
       private
+
+      def dispatch_script_event(element, type)
+        return unless element.respond_to?(:dispatch_event)
+
+        element.dispatch_event(Dommy::Event.new(type))
+      rescue StandardError
+        nil
+      end
 
       # Whether the element runs in the deferred pass rather than at its parse
       # position. Module scripts are always deferred; a classic script is
