@@ -101,14 +101,36 @@ module Dommy
         return unless element.respond_to?(:is_connected?) && element.is_connected?
 
         if (runner = @document.script_runner) && (source = element.__internal_take_pending_script__)
+          # A script-inserted INLINE classic script runs synchronously on insertion.
           runner.call(source)
         elsif @document.external_script_runner &&
               element.respond_to?(:__internal_take_pending_src__) &&
               (src = element.__internal_take_pending_src__)
-          @document.external_script_runner.call(element, src)
+          run_external_connected_script(element, src)
         end
       rescue StandardError
         nil
+      end
+
+      # A script-inserted EXTERNAL `<script src>` loads and runs ASYNCHRONOUSLY
+      # (per HTML spec), unlike an inline one. Running it synchronously inside the
+      # insertion steps would (a) execute it mid-render and, worse, (b) make the
+      # engine drain its microtask queue while JS is still on the stack — running
+      # an unrelated queued microtask (e.g. Vue's `nextTick` scheduler flush)
+      # re-entrantly and patching a half-built component tree (note.com's
+      # RecommendTemplate crashed Vue's `isPatchable` this way). Defer to a
+      # microtask so it runs at a proper checkpoint, after the current task
+      # unwinds. Re-check connectedness then (the node may have been removed).
+      def run_external_connected_script(element, src)
+        run = proc do
+          next unless element.respond_to?(:is_connected?) && element.is_connected?
+
+          @document.external_script_runner.call(element, src)
+        rescue StandardError
+          nil
+        end
+        scheduler = (@document.default_view&.scheduler if @document.respond_to?(:default_view))
+        scheduler ? scheduler.queue_microtask(run) : run.call
       end
 
       def notify_disconnected_subtree(nk)
