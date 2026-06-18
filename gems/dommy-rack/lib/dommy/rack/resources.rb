@@ -142,7 +142,9 @@ module Dommy
       end
 
       def absolute_url(url)
-        URI.join(base_url, url.to_s).to_s
+        # Percent-encode raw UTF-8 in a subresource URL (e.g. an <img> whose
+        # src has non-ASCII path) so the ASCII-only parser accepts it.
+        URI.join(base_url, Url.encode_iri(url)).to_s
       rescue URI::InvalidURIError
         nil
       end

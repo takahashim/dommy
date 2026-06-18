@@ -5,6 +5,7 @@ require "dommy"
 
 require_relative "rack/version"
 require_relative "rack/errors"
+require_relative "rack/url"
 require_relative "rack/response"
 require_relative "rack/cookie_jar"
 require_relative "rack/header_store"

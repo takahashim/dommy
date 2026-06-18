@@ -21,6 +21,17 @@ class Dommy::Rack::TestNavigation < Minitest::Test
     assert_equal "example.org", session.current_host
   end
 
+  def test_visit_non_ascii_url_percent_encodes_it
+    # A link with raw UTF-8 (note.com/hashtag/応援) must not crash the ASCII-only
+    # URI parser — it is percent-encoded before the request, like a browser.
+    session = Dommy::Rack::Session.new(
+      app_for("GET /hashtag/%E5%BF%9C%E6%8F%B4" => html_response("<h1>応援</h1>"))
+    )
+    session.visit("http://example.org/hashtag/応援")
+    assert_equal "http://example.org/hashtag/%E5%BF%9C%E6%8F%B4", session.current_url
+    assert_equal "応援", session.at_css("h1").text_content
+  end
+
   def test_follows_302_redirect_as_get
     app = app_for(
       "POST /posts" => [302, {"Location" => "/posts/1"}, []],

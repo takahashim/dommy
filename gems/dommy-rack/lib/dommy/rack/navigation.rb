@@ -19,7 +19,11 @@ module Dommy
       # Resolve a possibly-relative URL against a base (current URL or host).
       def resolve_url(url_or_path, base_url)
         base = base_url || @config.default_host
-        URI.join(base, url_or_path.to_s).to_s
+        # A link/redirect target may carry raw UTF-8 (e.g. /hashtag/応援); the
+        # ASCII-only URI parser needs it percent-encoded first (what a browser
+        # does), or URI.join raises and the rescue would leak a non-ASCII URL
+        # that crashes downstream (cookie matching, request building).
+        URI.join(base, Url.encode_iri(url_or_path)).to_s
       rescue URI::InvalidURIError
         url_or_path.to_s
       end
