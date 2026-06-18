@@ -126,7 +126,12 @@ module Dommy
           rt.install_window(window)
           rt.install_browser_globals
           resources = ::Dommy::Rack::Resources.new(@session)
-          window.globals["__fetch_handler__"] = ::Dommy::Resources::FetchHandler.new(resources)
+          # Off-thread network is opt-in: with a session executor, fetch / XHR
+          # resolve through a DeferredResponse on this window's scheduler;
+          # without one the handler stays synchronous.
+          window.globals["__fetch_handler__"] = ::Dommy::Resources::FetchHandler.new(
+            resources, executor: @session.network_executor, scheduler: window.scheduler
+          )
           # Dynamically-inserted `<script src>` (webpack/Vite on-demand chunks)
           # fetch + run through the same resources adapter, after boot.
           doc.external_script_runner = lambda do |element, src|

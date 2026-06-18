@@ -42,20 +42,52 @@ module Dommy
     # same Resources resolves window.fetch. A nil Response passes through to the
     # stub maps.
     class FetchHandler
-      def initialize(resources)
+      # `executor` (responds to `submit(job) { |result| }`) and `scheduler` opt
+      # this handler into off-thread network: when both are present and the
+      # adapter supports `request_job`, fetch / XHR run the request on a worker
+      # and resolve through a DeferredResponse. Without them everything stays
+      # synchronous (the deterministic default the tests rely on).
+      def initialize(resources, executor: nil, scheduler: nil)
         @resources = resources
+        @executor = executor
+        @scheduler = scheduler
       end
 
       def call(url, init = nil)
         init = {} unless init.is_a?(Hash)
-        response = @resources.request(
-          method: (init["method"] || "GET").to_s.upcase,
-          url: url.to_s,
-          headers: init["headers"].is_a?(Hash) ? init["headers"] : {},
-          body: init["body"]&.to_s
-        )
-        return nil unless response
+        method = (init["method"] || "GET").to_s.upcase
+        headers = init["headers"].is_a?(Hash) ? init["headers"] : {}
+        body = init["body"]&.to_s
 
+        return call_async(method, url, headers, body) if async?
+
+        response = @resources.request(method: method, url: url.to_s, headers: headers, body: body)
+        response && to_entry(response, url)
+      end
+
+      private
+
+      def async?
+        !@executor.nil? && @resources.respond_to?(:request_job)
+      end
+
+      # The page-thread serve/decline decision still runs synchronously (so an
+      # unserved URL falls through to the stub maps exactly as in the sync path);
+      # only a served request is handed to a worker. The DeferredResponse
+      # completes — on the page thread, via the scheduler inbox — with the same
+      # entry Hash the sync path returns (or nil for a network miss).
+      def call_async(method, url, headers, body)
+        job = @resources.request_job(method: method, url: url.to_s, headers: headers, body: body)
+        return nil unless job
+
+        deferred = Dommy::DeferredResponse.new(@scheduler)
+        @executor.submit(job) do |response|
+          deferred.complete(response && to_entry(response, url))
+        end
+        deferred
+      end
+
+      def to_entry(response, url)
         {
           "status" => response.status,
           "statusText" => response.status_text.to_s,

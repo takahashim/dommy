@@ -19,6 +19,15 @@ module Dommy
       # A copy of the stored headers. Mutate via #set / #delete.
       def to_h = @headers.dup
 
+      # A detached HeaderStore with the same headers, safe to hand to a network
+      # worker thread: it owns its own state (no shared mutation with the page's
+      # store) and keeps the case-insensitive #merge a plain Hash would lose.
+      def snapshot
+        copy = HeaderStore.new
+        @headers.each { |name, value| copy.set(name, value) }
+        copy
+      end
+
       def set(name, value)
         @headers[name.to_s] = value.to_s
         self

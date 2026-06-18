@@ -21,19 +21,52 @@ module Dommy
       def get(url, headers: {}) = request(method: "GET", url: url, headers: headers)
 
       def request(method:, url:, headers: {}, body: nil)
-        target = absolute_url(url)
+        target = served_target(method: method, url: url, headers: headers, body: body)
         return nil unless target
-        unless same_origin?(target) || allowed_cross_origin?(target)
-          record_blocked(target)
-          return nil
-        end
 
-        response = @session.fetch(
+        to_resources_response(@session.fetch(
+          target,
+          method: method.to_s.upcase,
+          headers: headers.is_a?(Hash) ? headers : {},
+          body: body&.to_s
+        ))
+      end
+
+      # The async-network counterpart of #request: makes the same page-thread
+      # serve/decline decision (origin gate, blocked-host recording), then — for a
+      # served URL — returns a worker-safe thunk that runs the request off the
+      # page thread and yields a Resources::Response. Returns nil for a URL we do
+      # not serve, exactly like #request, so the fetch handler falls through to
+      # stubs. The fetch handler submits the thunk to the network executor.
+      def request_job(method:, url:, headers: {}, body: nil)
+        target = served_target(method: method, url: url, headers: headers, body: body)
+        return nil unless target
+
+        job = @session.build_subresource_fetch_job(
           target,
           method: method.to_s.upcase,
           headers: headers.is_a?(Hash) ? headers : {},
           body: body&.to_s
         )
+        -> { to_resources_response(job.call) }
+      end
+
+      private
+
+      # Resolve `url` to an absolute target we serve (same-origin, or a host the
+      # session has allowed), recording and declining (nil) a cross-origin host.
+      # Shared by the sync #request and the async #request_job so both make the
+      # identical serve/decline decision on the page thread.
+      def served_target(method:, url:, headers:, body:)
+        target = absolute_url(url)
+        return nil unless target
+        return target if same_origin?(target) || allowed_cross_origin?(target)
+
+        record_blocked(target)
+        nil
+      end
+
+      def to_resources_response(response)
         Dommy::Resources::Response.new(
           status: response.status,
           status_text: ::Rack::Utils::HTTP_STATUS_CODES[response.status].to_s,
@@ -43,8 +76,6 @@ module Dommy
           redirected: !(response.redirects || []).empty?
         )
       end
-
-      private
 
       def base_url
         @session.current_url || @session.default_host

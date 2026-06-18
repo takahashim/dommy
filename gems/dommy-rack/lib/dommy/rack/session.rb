@@ -55,11 +55,18 @@ module Dommy
                      follow_meta_refresh: true,
                      load_stylesheets: nil,
                      javascript: false,
+                     network_executor: nil,
                      trace: false,
                      trace_level: :verbose,
                      trace_dom: false,
                      trace_snapshots: false)
         @app = app
+        # An optional off-thread network executor (responds to
+        # `submit(job) { |result| }`, e.g. dommynx's NetworkPool). When present,
+        # subresource fetch / XHR run on a worker and resolve via a
+        # DeferredResponse; when nil (the default), everything stays synchronous
+        # and deterministic. See #build_subresource_fetch_job.
+        @network_executor = network_executor
         @config = Config.new(
           default_host: default_host,
           follow_redirects: follow_redirects,
@@ -146,6 +153,7 @@ module Dommy
       def follow_meta_refresh? = @config.follow_meta_refresh
       def load_stylesheets? = @config.load_stylesheets
       def config = @config
+      def network_executor = @network_executor
 
       # --- Cross-origin subresource policy ---
       #
@@ -508,6 +516,22 @@ module Dommy
         )
       end
 
+      # Build a worker-safe thunk that fetches `target` (already absolute) and
+      # returns the Response, for the async-network path. Called on the page
+      # thread: it enforces same-origin and captures a header snapshot here, then
+      # hands back a Proc that a network worker runs through an HttpExchange
+      # touching only thread-safe state. Per-request observation is routed back
+      # onto the page thread via the scheduler inbox (so the Trace still sees
+      # subresource network); reload bookkeeping is intentionally not touched
+      # (a subresource fetch is not a navigation).
+      def build_subresource_fetch_job(target, method:, headers: {}, body: nil, redirect: :follow)
+        @navigation.check_same_origin!(target)
+        exchange = build_worker_exchange
+        lambda do
+          @navigation.fetch_resolved(exchange, method, target, headers: headers, body: body, redirect: redirect)
+        end
+      end
+
       # Apply a final navigation response: update last_response, current_url,
       # the document (HTML only), and the history stack.
       def apply_navigation_response(response, final_url, push_history: true)
@@ -569,6 +593,27 @@ module Dommy
       end
 
       private
+
+      # An HttpExchange for a network worker: it reads only thread-safe /
+      # immutable state (a detached header snapshot, the frozen Config, the
+      # thread-safe CookieJar, the stateless app). Request/response observation
+      # is posted to the scheduler inbox so listeners (the Trace) still fire on
+      # the page thread; last_request is deliberately left untouched off-thread.
+      def build_worker_exchange
+        sched = @current_window&.scheduler
+        HttpExchange.new(
+          app: @app,
+          config: @config,
+          cookie_jar: @cookie_jar,
+          headers: @headers.snapshot,
+          on_request: sched && lambda { |env|
+            sched.post_external { @request_listeners.each { |cb| cb.call(env) } }
+          },
+          on_response: sched && lambda { |response|
+            sched.post_external { @response_listeners.each { |cb| cb.call(response) } }
+          }
+        )
+      end
 
       def build_js_runtime
         factory = self.class.javascript_runtime_factory

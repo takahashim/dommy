@@ -42,4 +42,40 @@ class Dommy::Rack::TestResources < Minitest::Test
   def test_cross_origin_declines_with_nil
     assert_nil resources.get("https://cdn.example.com/x")
   end
+
+  # --- Off-thread (async-network) path: #request_job ---
+
+  def test_request_job_yields_the_same_response_as_request
+    job = resources.request_job(method: "GET", url: "/api")
+    refute_nil job
+
+    r = job.call # what a network worker runs
+    assert_equal 200, r.status
+    assert_equal '{"ok":true}', r.body
+    assert_equal "http://example.org/api", r.url
+  end
+
+  def test_request_job_declines_cross_origin_synchronously
+    # The serve/decline decision is made on the page thread, before any handoff.
+    assert_nil resources.request_job(method: "GET", url: "https://cdn.example.com/x")
+  end
+
+  def test_request_job_forwards_method_and_body
+    r = resources.request_job(method: "POST", url: "/api", body: "hello").call
+    assert_equal 201, r.status
+    assert_equal "got hello", r.body
+  end
+
+  def test_request_job_shares_the_session_cookie_jar
+    assert_equal "abc", resources.request_job(method: "GET", url: "/whoami").call.body
+  end
+
+  def test_request_job_thunk_runs_safely_on_a_worker_thread
+    job = resources.request_job(method: "GET", url: "/api")
+    result = nil
+    Thread.new { result = job.call }.join
+
+    assert_equal 200, result.status
+    assert_equal '{"ok":true}', result.body
+  end
 end

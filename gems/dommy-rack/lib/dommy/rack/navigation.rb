@@ -51,21 +51,17 @@ module Dommy
         verb = method.to_s.upcase
         target = resolve_url(url, @session.current_url)
         check_same_origin!(target)
+        run_fetch(verb, target, params: params, body: body, headers: headers, redirect: redirect)
+      end
 
-        args = {method: verb, url: target, params: params, body: body, headers: headers}
-        case redirect
-        when :follow
-          run(**args, follow: true).first
-        when :manual
-          run(**args, follow: false).first
-        when :error
-          response = run(**args, follow: false).first
-          raise Error, "redirect encountered with redirect: :error" if response.redirect?
-
-          response
-        else
-          raise ArgumentError, "unsupported redirect mode: #{redirect.inspect}"
-        end
+      # Worker-safe variant of #fetch: `target` is already absolute and origin-
+      # checked (the page thread did both before handing off), and every request
+      # in the redirect loop is issued through `exchange` (which touches only
+      # thread-safe state) instead of the session. Returns the Response. This is
+      # the primitive a network worker runs for the async-network path.
+      def fetch_resolved(exchange, method, target, params: nil, body: nil, headers: {}, redirect: :follow)
+        run_fetch(method.to_s.upcase, target, params: params, body: body, headers: headers,
+                  redirect: redirect, exchange: exchange)
       end
 
       # Re-navigate to an already-resolved URL without pushing a new history
@@ -78,7 +74,7 @@ module Dommy
 
       # Run the request/redirect loop. Returns [response, final_url].
       # Public so Session#fetch can reuse it without applying navigation state.
-      def run(method:, url:, params: nil, body: nil, headers: {}, follow: true)
+      def run(method:, url:, params: nil, body: nil, headers: {}, follow: true, exchange: nil)
         verb = method
         target = url
         # Carry the fragment across redirects: a redirect Location without its
@@ -88,9 +84,14 @@ module Dommy
         chain = []
 
         loop do
-          response = @session.raw_request(
-            verb, target, params: params, body: body, headers: headers
-          )
+          # Default path issues through the session (page thread). When an
+          # `exchange` is injected, the very same loop runs on a network worker.
+          response =
+            if exchange
+              exchange.request(verb, target, params: params, body: body, headers: headers)
+            else
+              @session.raw_request(verb, target, params: params, body: body, headers: headers)
+            end
 
           unless follow && redirect_to_follow?(response)
             response.redirects = chain
@@ -117,6 +118,26 @@ module Dommy
       end
 
       private
+
+      # Run the redirect loop per fetch `redirect` mode and return the Response.
+      # Shared by the page-thread #fetch and the worker-safe #fetch_resolved
+      # (which passes an `exchange`); the only difference is where requests issue.
+      def run_fetch(verb, target, params:, body:, headers:, redirect:, exchange: nil)
+        args = {method: verb, url: target, params: params, body: body, headers: headers, exchange: exchange}
+        case redirect
+        when :follow
+          run(**args, follow: true).first
+        when :manual
+          run(**args, follow: false).first
+        when :error
+          response = run(**args, follow: false).first
+          raise Error, "redirect encountered with redirect: :error" if response.redirect?
+
+          response
+        else
+          raise ArgumentError, "unsupported redirect mode: #{redirect.inspect}"
+        end
+      end
 
       # `about:` URLs never hit the app: install a blank document (a browser's
       # about:blank) and record the URL as-is in current_url and history.
