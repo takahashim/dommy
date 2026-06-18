@@ -47,13 +47,29 @@ module Dommy
       @window.globals["__last_init__"] = init
       @window.globals["__last_body__"] = init["body"] if init.is_a?(Hash)
 
-      entry = resolve_entry(url, init)
       promise = PromiseValue.new(@window)
+      result = resolve_entry(url, init)
+      # A handler may answer asynchronously (live network off-thread): it returns
+      # a deferred whose response arrives later and is applied on the page thread
+      # (via the scheduler inbox). The sync path (stubs / cache / data:) resolves
+      # the promise inline, exactly as before.
+      if result.respond_to?(:on_complete)
+        result.on_complete { |entry| fulfill_from_entry(promise, entry, url, init) }
+      else
+        fulfill_from_entry(promise, result, url, init)
+      end
+      promise
+    end
 
+    private
+
+    # Resolve `promise` from a response entry (nil -> 404), honoring a simulated
+    # `delay`. Used both for a synchronous entry and for an async one delivered
+    # later on the page thread.
+    def fulfill_from_entry(promise, entry, url, init)
       if entry.nil?
-        response = Response.new(@window, body: "not found", status: 404, status_text: "Not Found", type: "basic")
-        promise.fulfill(response)
-        return promise
+        promise.fulfill(Response.new(@window, body: "not found", status: 404, status_text: "Not Found", type: "basic"))
+        return
       end
 
       body = entry["body"]
@@ -62,14 +78,13 @@ module Dommy
       content_type = entry["contentType"] || "text/plain"
       headers = entry["headers"] || {"Content-Type" => content_type}
       # Simulate a followed redirect: `[:url]` overrides the response URL (the
-      # final location) and `[:redirected]` flags it, so consumers that branch
-      # on `response.redirected` / `response.url` (e.g. Turbo updating history to
-      # the redirected location) see a realistic response.
+      # final location) and `[:redirected]` flags it, so consumers that branch on
+      # `response.redirected` / `response.url` (e.g. Turbo updating history to the
+      # redirected location) see a realistic response.
       response_url = entry["url"] || url
       redirected = entry["redirected"] ? true : false
 
-      delay = entry["delay"]
-      if delay
+      if (delay = entry["delay"])
         install_delayed_resolve(promise, body, status, status_text, headers, init, delay)
       else
         promise.fulfill(
@@ -77,11 +92,7 @@ module Dommy
             headers: headers, url: response_url, redirected: redirected, type: "basic")
         )
       end
-
-      promise
     end
-
-    private
 
     # Resolve the response entry for a request: a `__fetch_handler__`
     # callable gets first refusal; a nil from it (or no handler) falls

@@ -47,6 +47,36 @@ class TestScheduler < Minitest::Test
     assert_equal([:m], fired)
   end
 
+  # An externally-posted completion (e.g. a network worker delivering a response)
+  # runs on the next event-loop advance — the cross-thread handoff for async I/O.
+  def test_external_completion_runs_on_advance
+    fired = []
+    @sched.post_external { fired << :done }
+    assert @sched.external_pending?
+    assert_empty(fired, "not run until the loop drains it")
+    @sched.advance_time(0)
+    assert_equal([:done], fired)
+    refute @sched.external_pending?
+  end
+
+  # Posting is thread-safe: a worker thread hands work back, the page thread runs
+  # it (single-threaded with the DOM/JS).
+  def test_external_completion_is_thread_safe
+    delivered = []
+    workers = 4.times.map { |i| Thread.new { @sched.post_external { delivered << i } } }
+    workers.each(&:join)
+    @sched.advance_time(0)
+    assert_equal [0, 1, 2, 3], delivered.sort
+  end
+
+  # A completion that itself schedules a timer is honored within the same advance.
+  def test_external_completion_can_schedule_work
+    log = []
+    @sched.post_external { @sched.set_timeout(proc { log << :timer }, 0) }
+    @sched.advance_time(0)
+    assert_equal([:timer], log)
+  end
+
   # A timer callback that raises propagates by default (no handler) — genuine
   # host bugs must surface rather than being silently swallowed.
   def test_timer_callback_error_propagates_without_a_handler

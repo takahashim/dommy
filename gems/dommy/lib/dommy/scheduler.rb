@@ -18,9 +18,36 @@ module Dommy
       @timers = {}
       @microtasks = []
       @native_microtask_scheduler = nil
+      @external_inbox = Thread::Queue.new
     end
 
     attr_reader :now_ms
+
+    # Post a completion to be run on the page (JS) thread the next time the event
+    # loop drains. THREAD-SAFE: this is the one place another thread may hand work
+    # back — e.g. a network worker delivering a response. It only enqueues a
+    # thunk; the thunk runs single-threaded with the DOM/JS (see #deliver_external),
+    # so workers never touch Dommy/QuickJS state. The thunk takes no arguments.
+    def post_external(&thunk)
+      @external_inbox << thunk
+      nil
+    end
+
+    # Run all externally-posted completions. PAGE THREAD ONLY — drained as part of
+    # advancing the event loop (see #advance_time).
+    def deliver_external
+      until @external_inbox.empty?
+        thunk = @external_inbox.pop(true)
+        CallableInvoker.invoke(thunk)
+      end
+      nil
+    rescue ThreadError
+      nil # raced empty between empty? and pop — nothing left to do
+    end
+
+    # True when a worker has handed back work not yet delivered. Lets the host
+    # keep the loop alive (ticking) until in-flight network responses are applied.
+    def external_pending? = !@external_inbox.empty?
 
     # An optional hook (set by a JS runtime) that enqueues a microtask onto the
     # engine's NATIVE promise-job queue. When present, `queue_microtask` routes
@@ -96,15 +123,18 @@ module Dommy
     end
 
     def advance_time(delta_ms)
+      deliver_external # apply any responses that arrived since the last drain
       target = @now_ms + [delta_ms.to_i, 0].max
       while next_due_timer_at && next_due_timer_at <= target
         @now_ms = next_due_timer_at
         run_due_timers
         drain_microtasks
+        deliver_external
       end
 
       @now_ms = target
       drain_microtasks
+      deliver_external
       nil
     end
 
