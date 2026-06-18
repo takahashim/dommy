@@ -787,6 +787,29 @@ globalThis.__rbHost = (function () {
         configurable: true, writable: true,
       });
     }
+    if (name === "ReadableStream") {
+      // WHATWG: a ReadableStream is async-iterable — `for await (const chunk of
+      // stream)` acquires a reader and yields each chunk. Real browsers expose
+      // this; code that streams a fetch body (e.g. Apollo Client's multipart /
+      // incremental-delivery reader) depends on it, and without it such a read
+      // sees an immediately-"done" iterator and produces nothing. Backed by the
+      // stream's own getReader()/read().
+      Object.defineProperty(proto, Symbol.asyncIterator, {
+        value: function () {
+          const reader = this.getReader();
+          return {
+            async next() {
+              const { value, done } = await reader.read();
+              if (done) { reader.releaseLock(); return { value: undefined, done: true }; }
+              return { value, done: false };
+            },
+            async return(v) { reader.releaseLock(); return { value: v, done: true }; },
+            [Symbol.asyncIterator]() { return this; },
+          };
+        },
+        configurable: true, writable: true,
+      });
+    }
     // Form-control value-like properties as real accessor descriptors on the
     // prototype, routing to the host. React's input value-tracker reads the
     // descriptor off `node.constructor.prototype` and wraps its get/set to
