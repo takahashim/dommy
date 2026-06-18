@@ -131,14 +131,43 @@ module Dommy
         end
 
         if entry.passive?
-          event.__internal_run_passive__ { CallableInvoker.invoke_listener(entry.listener, event) }
+          event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event) }
         else
-          CallableInvoker.invoke_listener(entry.listener, event)
+          invoke_listener_isolated(entry.listener, event)
         end
 
         break if event.immediate_propagation_stopped?
       end
 
+      nil
+    end
+
+    # Run one listener, isolating a throw so it can't escape the dispatch.
+    # WHATWG "inner invoke": if a listener's callback throws, the exception is
+    # *reported* (to the global error handler) and event dispatch continues with
+    # the remaining listeners — a broken handler must not derail the others or
+    # abort whatever Ruby drove the dispatch (a synthetic click from the host).
+    # The engine already swallows this for a JS-initiated dispatchEvent
+    # (HostBridge#invoke_callback, raising:false), but that has proven
+    # engine/Ruby-version-dependent — on some QuickJS/Ruby combinations a JS
+    # listener's throw surfaces as a Ruby exception here — so guard the
+    # host-initiated path too, mirroring MutationObserver#flush.
+    def invoke_listener_isolated(listener, event)
+      CallableInvoker.invoke_listener(listener, event)
+    rescue StandardError => e
+      __dommy_dump_event_failure__(event, listener, e) if ENV["DOMMY_EVENT_DEBUG"]
+      nil
+    end
+
+    # Diagnostic only (DOMMY_EVENT_DEBUG=<file>): when a listener throws, append
+    # the event type + error to a log file so an otherwise-unreproducible page
+    # failure can be traced to the handler that choked.
+    def __dommy_dump_event_failure__(event, listener, error)
+      path = ENV["DOMMY_EVENT_DEBUG"]
+      line = "=== event listener raised on #{event.type}: #{error.class}: #{error.message.to_s[0, 200]} " \
+             "(listener=#{listener.class})\n"
+      File.write(path, line, mode: "a")
+    rescue StandardError
       nil
     end
 

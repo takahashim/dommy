@@ -60,6 +60,18 @@ class TestEventTargetExtras < Minitest::Test
     assert(seen)
   end
 
+  def test_throwing_listener_is_isolated_and_dispatch_continues
+    # WHATWG: a listener's exception is reported and dispatch keeps going — it
+    # must not escape dispatch_event (a synthetic click from the host would
+    # otherwise crash). The later listener still fires.
+    fired = []
+    @btn.add_event_listener("click", proc { fired << :first })
+    @btn.add_event_listener("click", proc { raise "boom" })
+    @btn.add_event_listener("click", proc { fired << :third })
+    assert_equal(true, @btn.dispatch_event(Dommy::Event.new("click")))
+    assert_equal(%i[first third], fired)
+  end
+
   def test_custom_event_listener_via_constructor
     seen_detail = nil
     @btn.add_event_listener("ping", proc { |e| seen_detail = e.__js_get__("detail") })
