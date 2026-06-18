@@ -84,6 +84,8 @@ module Dommy
       response_url = entry["url"] || url
       redirected = entry["redirected"] ? true : false
 
+      __dommy_dump_fetch__(url, init, status, headers, body) if ENV["DOMMY_FETCH_DEBUG"]
+
       if (delay = entry["delay"])
         install_delayed_resolve(promise, body, status, status_text, headers, init, delay)
       else
@@ -139,6 +141,33 @@ module Dommy
       headers["Content-Type"] = body.type if !content_type_set && !body.type.empty?
       h["headers"] = headers
       h
+    end
+
+    # Diagnostic only (DOMMY_FETCH_DEBUG=<file>): append a record of what the
+    # page's fetch() received, so a response that an app's data layer can't
+    # consume (e.g. Apollo's "link chain completed without emitting a value",
+    # #95) can be traced to the actual request/response bytes Dommy handed it.
+    # Every fetch is logged compactly; a GraphQL request also dumps full bodies
+    # (that is where the emission breaks), which is the exchange we need to see.
+    def __dommy_dump_fetch__(url, init, status, headers, body)
+      path = ENV["DOMMY_FETCH_DEBUG"]
+      graphql = url.include?("graphql")
+      req_headers = init.is_a?(Hash) ? init["headers"] : nil
+      req_body = init.is_a?(Hash) ? init["body"] : nil
+      content_type = headers.is_a?(Hash) ? headers.find { |k, _| k.to_s.downcase == "content-type" }&.last : nil
+      method = (init.is_a?(Hash) ? (init["method"] || "GET") : "GET").to_s.upcase
+      cap = graphql ? 8000 : 300
+
+      lines = ["=== fetch #{graphql ? "[graphql] " : ""}#{method} #{url}"]
+      lines << "> req-headers: #{req_headers.inspect}" if graphql && req_headers
+      lines << "> req-body: #{req_body.to_s[0, cap]}" if req_body
+      lines << "< #{status} #{content_type} (#{body.to_s.bytesize} bytes)"
+      lines << "< res-headers: #{headers.inspect}" if graphql
+      lines << "< res-body: #{body.to_s[0, cap]}"
+      # `::File` — inside `module Dommy`, bare `File` resolves to Dommy's DOM File.
+      ::File.write(path, "#{lines.join("\n")}\n\n", mode: "a")
+    rescue StandardError
+      nil
     end
 
     def install_delayed_resolve(promise, body, status, status_text, headers, init, delay_ms)

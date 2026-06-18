@@ -166,7 +166,8 @@ module Dommy
       path = ENV["DOMMY_EVENT_DEBUG"]
       line = "=== event listener raised on #{event.type}: #{error.class}: #{error.message.to_s[0, 200]} " \
              "(listener=#{listener.class})\n"
-      File.write(path, line, mode: "a")
+      # `::File` — inside `module Dommy`, bare `File` is Dommy's DOM File.
+      ::File.write(path, line, mode: "a")
     rescue StandardError
       nil
     end
