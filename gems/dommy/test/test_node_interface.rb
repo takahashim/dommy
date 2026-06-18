@@ -41,6 +41,14 @@ class TestNodeInterface < Minitest::Test
     assert_same(f, f.__js_call__("getRootNode", [nil]))
   end
 
+  # The Document is its own root and must expose getRootNode as a real method —
+  # React's resource hoisting reads `container.getRootNode()` and throws (#446)
+  # if a document lacks it (falling back to the document's null ownerDocument).
+  def test_document_get_root_node_is_itself_and_exposed
+    assert_same(@doc, @doc.__js_call__("getRootNode", [nil]))
+    assert_includes @doc.__js_method_names__.map(&:to_s), "getRootNode"
+  end
+
   # --- EventTarget on non-element nodes ------------------------------
 
   def test_event_target_on_text_and_fragment

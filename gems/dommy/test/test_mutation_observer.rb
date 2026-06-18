@@ -24,6 +24,22 @@ class TestMutationObserver < Minitest::Test
     assert_equal(1, records.first.__js_get__("addedNodes").size)
   end
 
+  def test_a_throwing_callback_does_not_escape_or_stop_other_observers
+    ran_other = false
+    bad = Dommy::MutationObserver.new(@win, proc { |_recs| raise "boom in observer" })
+    good = Dommy::MutationObserver.new(@win, proc { |_recs| ran_other = true })
+    bad.__js_call__("observe", [@root, {"childList" => true}])
+    good.__js_call__("observe", [@root, {"childList" => true}])
+
+    @root.append_child(@doc.create_element("span"))
+    # WHATWG: a throwing observer callback is reported but must not escape its
+    # dispatch or abort the notify loop. Draining stays clean and the sibling
+    # observer still delivers — a page's JS isn't derailed by one broken observer.
+    @win.scheduler.drain_microtasks
+
+    assert ran_other, "the other observer still delivered after one threw"
+  end
+
   def test_subtree_option
     records = []
     obs = Dommy::MutationObserver.new(@win, proc { |recs| records.concat(recs) })

@@ -1024,10 +1024,16 @@ module Dommy
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
       removeEventListener dispatchEvent write writeln open close isEqualNode appendChild
       hasChildNodes contains append prepend replaceChildren removeChild insertBefore replaceChild
-      cloneNode normalize compareDocumentPosition
+      cloneNode normalize compareDocumentPosition getRootNode
     ]
     def __js_call__(method, args)
       case method
+      when "getRootNode"
+        # A document is its own root (no shadow tree above it), for any options.
+        # Exposing this is load-bearing: React's resource hoisting computes its
+        # "resource root" as `container.getRootNode()` and throws (#446) if the
+        # document lacks it, falling back to the document's null ownerDocument.
+        self
       when "hasChildNodes"
         @backend_doc.children.any?
       when "compareDocumentPosition"

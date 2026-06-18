@@ -260,6 +260,20 @@ module Dommy
       @records.clear
       # Per spec the callback receives (mutationRecords, observer) and is invoked
       # with `this` set to the observer.
+      invoke_observer_callback(records)
+    rescue StandardError => e
+      # A throwing observer callback MUST NOT escape its dispatch — WHATWG says to
+      # report the exception and keep notifying the other observers, and a page's
+      # JS must not be derailed by it. The engine swallows this for callbacks
+      # (HostBridge#invoke_callback, raising:false), but that has proven
+      # engine/Ruby-version-dependent, so guard here too. Without this, one broken
+      # observer (e.g. an image lazy-loader that throws on a batch of <img>
+      # mutations) cascades into a blank / "something went wrong" page.
+      __dommy_dump_mo_failure__(records, e) if ENV["DOMMY_MO_DEBUG"]
+      nil
+    end
+
+    def invoke_observer_callback(records)
       if @callback.respond_to?(:__js_call_with_this__)
         @callback.__js_call_with_this__([records, self], self)
       elsif @callback.respond_to?(:__js_call__)
@@ -267,6 +281,45 @@ module Dommy
       elsif @callback.respond_to?(:call)
         @callback.call(records, self)
       end
+    end
+
+    # Diagnostic only (DOMMY_MO_DEBUG=1): when a page's MutationObserver callback
+    # throws, append what it was handed + the error to a log file, so an
+    # otherwise-unreproducible failure (e.g. note.com's React #446 inside its
+    # resource observer) can be traced to the records/DOM it choked on.
+    def __dommy_dump_mo_failure__(records, error)
+      path = ENV["DOMMY_MO_DEBUG"]
+      path = "/tmp/dommy_mo_debug.log" if path == "1" || path.to_s.empty?
+      lines = ["=== MutationObserver callback raised: #{error.class}: #{error.message.to_s[0, 200]}",
+               "  observing #{@observed.size} target(s): " +
+                 @observed.first(3).map { |e|
+                   t = e[:target]
+                   "#{t.respond_to?(:__js_get__) ? t.__js_get__("nodeName") : t.class} " \
+                     "{childList:#{e[:child_list]},subtree:#{e[:subtree]},attrs:#{e[:attributes]},cdata:#{e[:character_data]}}"
+                 }.inspect[0, 200],
+               "  #{records.size} record(s):"]
+      records.first(40).each { |r| lines << "    - #{__dommy_record_summary__(r)}" }
+      (error.backtrace || []).grep(/\.js:/).first(6).each { |f| lines << "    js@ #{f[0, 140]}" }
+      ::File.open(path, "a") { |f| f.puts(lines.join("\n")) }
+    rescue StandardError
+      nil
+    end
+
+    def __dommy_record_summary__(record)
+      get = ->(key) { record.respond_to?(:__js_get__) ? record.__js_get__(key) : nil }
+      name = ->(n) { n.respond_to?(:__js_get__) ? n.__js_get__("nodeName") : n.class.name }
+      added = __dommy_node_names__(get.call("addedNodes"), name)
+      removed = __dommy_node_names__(get.call("removedNodes"), name)
+      "type=#{get.call("type")} target=#{name.call(get.call("target"))} " \
+        "added=#{added.first(6).inspect} removed=#{removed.first(6).inspect} attr=#{get.call("attributeName").inspect}"
+    rescue StandardError => e
+      "(summary failed: #{e.class})"
+    end
+
+    def __dommy_node_names__(list, name)
+      (list.respond_to?(:to_a) ? list.to_a : []).map { |n| name.call(n) }
+    rescue StandardError
+      []
     end
 
     # A MutationObserverInit member is a WebIDL `boolean`, so its value is
