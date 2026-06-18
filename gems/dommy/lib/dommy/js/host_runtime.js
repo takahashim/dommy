@@ -909,6 +909,17 @@ globalThis.__rbHost = (function () {
         }
       } catch (e) { /* non-configurable / frozen — leave as-is */ }
     }
+    // `window.Promise` must be the engine's native Promise (=== globalThis.Promise),
+    // like a real browser. The host exposes a Ruby-backed PromiseConstructor for
+    // its own internal promises; if it leaked onto the window, page feature
+    // detection (core-js et al.) would see a non-conforming Promise and install a
+    // polyfill whose microtasks the host can't flush — silently stalling every
+    // `await` and hanging SPA hydration. Force the native one here.
+    if (typeof globalThis.Promise === "function") {
+      try {
+        Object.defineProperty(w, "Promise", { value: globalThis.Promise, configurable: true, writable: true });
+      } catch (e) { /* leave as-is */ }
+    }
   }
 
   // ===== Host object proxy =====

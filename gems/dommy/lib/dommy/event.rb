@@ -574,6 +574,31 @@ module Dommy
     end
   end
 
+  # `PromiseRejectionEvent` — fired as `unhandledrejection` / `rejectionhandled`
+  # when a promise rejects with no handler (`event.promise` / `event.reason`).
+  # Critically, its mere existence is what Promise feature-detection (core-js
+  # et al.) checks: without it, libraries decide the native Promise is
+  # incomplete and swap in a polyfill whose microtask queue the host scheduler
+  # cannot flush — silently starving every `.then`/await and hanging SPA
+  # hydration (this is why note.com rendered only a shell).
+  class PromiseRejectionEvent < Event
+    attr_reader :promise, :reason
+
+    def initialize(type, init = nil)
+      super
+      @promise = read_init(init, "promise")
+      @reason = read_init(init, "reason")
+    end
+
+    def __js_get__(key)
+      case key
+      when "promise" then @promise
+      when "reason" then @reason
+      else super
+      end
+    end
+  end
+
   class MouseEvent < Event
     def initialize(type, init = nil)
       super

@@ -436,8 +436,15 @@ module Dommy
         "CloseEvent" => Bridge::Constructor.new { |args| CloseEvent.new(args[0], args[1]) },
         "MouseEvent" => Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) },
         "KeyboardEvent" => Bridge::Constructor.new { |args| KeyboardEvent.new(args[0], args[1]) },
+        "PromiseRejectionEvent" => Bridge::Constructor.new { |args| PromiseRejectionEvent.new(args[0], args[1]) },
         "EventTarget" => Bridge::Constructor.new { |_args| StandaloneEventTarget.new },
         "Error" => Bridge::Constructor.new { |args| ErrorValue.new(args[0]) },
+        # The host PromiseConstructor backs Ruby-side promises (fetch, the
+        # scheduler bridge). It must NOT shadow the engine's native Promise on the
+        # JS side, though — `window.Promise` is forced to globalThis.Promise in
+        # host_runtime.js's exposeConstructorsOnWindow so feature detection
+        # (core-js et al.) sees a real Promise (=== globalThis.Promise) and does
+        # not swap in a polyfill whose microtasks the host can't flush.
         "Promise" => Bridge::PromiseConstructor.new(win),
         "MutationObserver" => Bridge::Constructor.new { |args| MutationObserver.new(win, args[0]) },
         "AbortController" => Bridge::Constructor.new { |_args| AbortController.new },

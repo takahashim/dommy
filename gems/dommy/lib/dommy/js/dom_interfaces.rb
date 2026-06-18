@@ -78,6 +78,7 @@ module Dommy
         %w[CloseEvent Event],
         %w[MouseEvent Event],
         %w[KeyboardEvent Event],
+        %w[PromiseRejectionEvent Event],
         %w[DOMException],
         # Window-exposed constructors that frameworks call bare (new X(...)).
         # Seeding them creates the global; construction routes to the window.
