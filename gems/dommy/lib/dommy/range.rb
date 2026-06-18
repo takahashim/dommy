@@ -111,6 +111,18 @@ module Dommy
       nil
     end
 
+    # `createContextualFragment(html)` — parse an HTML string into a
+    # DocumentFragment using the range's start node as the parsing context
+    # (DOM Parsing & Serialization). Frameworks use it to turn an HTML string
+    # into nodes (Nuxt's DOM hydration / `<slot>` helpers call it via a Range).
+    def create_contextual_fragment(html)
+      context = @document.create_element(contextual_local_name)
+      context.inner_html = html.to_s # fragment-parses in the context element
+      fragment = @document.create_document_fragment
+      context.child_nodes.to_a.each { |child| fragment.append_child(child) }
+      fragment
+    end
+
     # --- Content extraction ----------------------------------------
 
     def to_s
@@ -380,7 +392,7 @@ module Dommy
       setStart setEnd setStartBefore setStartAfter setEndBefore setEndAfter collapse selectNode
       selectNodeContents toString cloneContents extractContents deleteContents surroundContents
       insertNode compareBoundaryPoints intersectsNode containsNode cloneRange detach
-      comparePoint isPointInRange getBoundingClientRect getClientRects
+      comparePoint isPointInRange getBoundingClientRect getClientRects createContextualFragment
     ]
     def __js_call__(method, args)
       case method
@@ -402,6 +414,8 @@ module Dommy
         select_node(args[0])
       when "selectNodeContents"
         select_node_contents(args[0])
+      when "createContextualFragment"
+        create_contextual_fragment(args[0])
       when "toString"
         to_s
       when "cloneContents"
@@ -436,6 +450,16 @@ module Dommy
     end
 
     private
+
+    # The local name of the element to fragment-parse in: the start node if it
+    # is an element, else its nearest element ancestor; falling back to "body"
+    # (the HTML fragment-parsing context) for a document/fragment/`<html>` start.
+    def contextual_local_name
+      node = @start_container
+      el = node.respond_to?(:node_type) && node.node_type == 1 ? node : (node.respond_to?(:parent_element) ? node.parent_element : nil)
+      name = el&.local_name
+      name.nil? || name.casecmp?("html") ? "body" : name
+    end
 
     def collapse_to_start
       @end_container = @start_container

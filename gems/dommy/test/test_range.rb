@@ -175,6 +175,25 @@ class TestRange < Minitest::Test
     assert_kind_of(Dommy::Range, range)
   end
 
+  # --- createContextualFragment --------------------------------
+
+  def test_create_contextual_fragment_parses_html_into_a_fragment
+    range = @doc.create_range
+    range.select_node(@p)
+    fragment = range.create_contextual_fragment("<span>a</span><b>c</b>")
+    assert_equal(Dommy::Fragment, fragment.class)
+    assert_equal(2, fragment.child_nodes.length)
+    assert_equal(%w[SPAN B], fragment.child_nodes.to_a.map(&:tag_name))
+    assert_equal("a", fragment.first_child.text_content)
+  end
+
+  def test_create_contextual_fragment_from_document_start_uses_body_context
+    range = @doc.create_range # default start is the document
+    fragment = range.create_contextual_fragment("<p>x</p>")
+    assert_equal("P", fragment.first_child.tag_name)
+    assert_equal("x", fragment.first_child.text_content)
+  end
+
   # --- Layout stub ----------------------------------------------
 
   def test_bounding_client_rect_is_zero
