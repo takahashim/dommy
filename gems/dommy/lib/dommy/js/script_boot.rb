@@ -82,12 +82,19 @@ module Dommy
 
       private
 
+      # Fire the script's load/error event ASYNCHRONOUSLY (a microtask), like a
+      # real browser. Code commonly does `head.appendChild(s); s.onload = …`
+      # (handlers set AFTER insertion), so a synchronous dispatch — during the
+      # appendChild — would fire before any handler is attached and be missed,
+      # hanging a loader that awaits onload (e.g. note.com's gtag plugin, which
+      # blocked Nuxt hydration). Deferring to a microtask lets the handler attach
+      # first.
       def dispatch_script_event(element, type)
         return unless element.respond_to?(:dispatch_event)
 
-        element.dispatch_event(Dommy::Event.new(type))
-      rescue StandardError
-        nil
+        fire = proc { element.dispatch_event(Dommy::Event.new(type)) rescue nil }
+        scheduler = (@document.default_view&.scheduler if @document.respond_to?(:default_view))
+        scheduler ? scheduler.queue_microtask(fire) : fire.call
       end
 
       # Whether the element runs in the deferred pass rather than at its parse
