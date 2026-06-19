@@ -214,7 +214,7 @@ globalThis.__rbHost = (function () {
     // with identity preserved (NodeFilter, where the exception must propagate
     // out of the traversal method that ran the filter).
     try {
-      return dehydrateTop(fn.apply(receiver, rehydrate(args || [])));
+      return dehydrateReturn(fn.apply(receiver, rehydrate(args || [])));
     } catch (e) {
       // Preserve the thrown value's identity through the round trip, even for a
       // plain object (`throw {name:"x"}`) which dehydrate would otherwise flatten
@@ -390,6 +390,28 @@ globalThis.__rbHost = (function () {
   // object still dehydrates to null, preserving option-bag behavior.
   function dehydrateTop(v) {
     return v === undefined ? { __rb_undefined: true } : dehydrate(v);
+  }
+
+  // A thenable returned from a callback (notably a Promise `.then` handler) is
+  // ADOPTED into a host promise so the host chain WAITS for it (Promises/A+),
+  // instead of crossing as an opaque ref the host machinery resolves with
+  // immediately — the microtask reorder that fires note.com's Apollo HttpLink
+  // "completed without emitting" (#95). Host proxies (already host promises) and
+  // plain values are unaffected. Used only for callback RETURN values, never for
+  // arguments (a promise passed as an argument must not be resolved).
+  function dehydrateReturn(v) {
+    if (v !== null && (typeof v === "object" || typeof v === "function") &&
+        !isProxy(v) && typeof v.then === "function") {
+      const handle = __rb_new_host_promise();
+      const settle = (ok, val) => __rb_settle_host_promise(handle, ok, dehydrateTop(val));
+      try {
+        v.then((val) => settle(true, val), (err) => settle(false, err));
+      } catch (e) {
+        settle(false, e);
+      }
+      return { __rb_handle: handle };
+    }
+    return dehydrateTop(v);
   }
 
   // Dehydrate a top-level call/constructor argument list (each arg via

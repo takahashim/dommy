@@ -79,6 +79,7 @@ module Dommy
       # distinct from define_host_object so the generic binder has no hidden
       # side effects.
       def window=(win)
+        @window = win # the window host promises (thenable adoption) schedule on
         @constructor_resolver.source = win
         @custom_element_bridge.window = win
         # Now that constructors are resolvable, expose their static methods
@@ -222,6 +223,20 @@ module Dommy
           dom_guard do
             obj = host(handle)
             obj.respond_to?(:__js_call__) ? wrap(obj.__js_call__(method, unwrap(args))) : nil
+          end
+        end
+        # A pending host PromiseValue used to ADOPT a JS thenable returned from a
+        # `.then` callback (Promises/A+): the JS side subscribes the thenable to
+        # settle this promise, so the host chain WAITS for the thenable instead of
+        # resolving immediately with an opaque ref (the HttpLink #95 reorder).
+        @backend.define_host_function("__rb_new_host_promise") do
+          dom_guard { @codec.register(Dommy::PromiseValue.new(@window)) }
+        end
+        @backend.define_host_function("__rb_settle_host_promise") do |handle, fulfilled, value|
+          dom_guard do
+            promise = host(handle)
+            fulfilled ? promise.fulfill(unwrap(value)) : promise.reject(unwrap(value))
+            nil
           end
         end
         # 2d: one call returns everything makeProxy needs — interface name +
