@@ -114,6 +114,8 @@ module Dommy
         @custom_elements
       when "navigator"
         @navigator
+      when "screen"
+        @screen ||= Screen.new(self)
       when "innerWidth", "outerWidth"
         media_environment.viewport_width
       when "innerHeight", "outerHeight"
