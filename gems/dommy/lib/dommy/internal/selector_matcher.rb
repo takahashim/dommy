@@ -25,6 +25,9 @@ module Dommy
       # to ancestors above `root` itself when a left-hand combinator needs them.
       def query(root, selector_ast, scope: nil)
         scope ||= default_scope(root)
+        fast = fast_query(root, selector_ast, scope: scope)
+        return fast if fast
+
         element_descendants(root).select do |element|
           matches?(element, selector_ast, scope: scope)
         end
@@ -38,12 +41,50 @@ module Dommy
       # matching against) the rest of the tree.
       def query_first(root, selector_ast, scope: nil)
         scope ||= default_scope(root)
+        fast = fast_query(root, selector_ast, scope: scope, first: true)
+        return fast.first if fast
+
         catch(:found) do
           each_descendant(root) do |element|
             throw(:found, element) if matches?(element, selector_ast, scope: scope)
           end
           nil
         end
+      end
+
+      # Backend pre-filter fast path. The Ruby matcher wraps EVERY descendant into
+      # a Dommy element before matching — so a `.foo` query over a 5000-element
+      # tree wraps all 5000 to return the 50 matches. Instead, walk the backend
+      # (lexbor) nodes directly and gate each by a cheap static pre-filter taken
+      # from the subject (rightmost) compound — its id, class, or a required
+      # attribute, read straight off the backend node — and only wrap + run the
+      # full #matches? on the candidates that pass. The pre-filter is a SUPERSET of
+      # the subject's requirement (no false negatives), so #matches? (the authority,
+      # which still handles combinators, pseudo-classes and types) yields exactly
+      # the same set, in the same document order. Returns the matches (possibly
+      # empty), or nil when the selector has no static subject pre-filter (a
+      # universal/pseudo-only subject) — then the caller uses the Ruby matcher.
+      def fast_query(root, selector_ast, scope:, first: false)
+        prefilters = static_prefilters(selector_ast)
+        return nil unless prefilters
+
+        backend_root = backend_root_of(root)
+        doc = document_of(root)
+        return nil unless backend_root && doc
+
+        out = []
+        catch(:done) do
+          each_backend_descendant(backend_root) do |bnode|
+            next unless prefilters.any? { |pf| backend_passes?(bnode, pf) }
+
+            element = doc.wrap_node(bnode)
+            next unless element && matches?(element, selector_ast, scope: scope)
+
+            out << element
+            throw(:done) if first
+          end
+        end
+        out
       end
 
       def closest(element, selector_ast)
@@ -382,6 +423,99 @@ module Dommy
         else
           []
         end
+      end
+
+      # ----- backend pre-filter fast path (see #fast_query) -----
+
+      # Every descendant ELEMENT of the backend node `bnode`, in document order,
+      # excluding `bnode` itself — walking lexbor nodes directly, no Dommy wrap.
+      def each_backend_descendant(bnode, &block)
+        bnode.element_children.each do |child|
+          block.call(child)
+          each_backend_descendant(child, &block)
+        end
+      end
+
+      # One [kind, value] pre-filter per complex selector — taken from its subject
+      # (rightmost) compound. nil when ANY subject lacks a static id/class/attribute
+      # to filter on (a universal- or pseudo-only subject), so the whole query
+      # falls back to the Ruby matcher.
+      def static_prefilters(selector_ast)
+        selector_ast.selectors.map do |complex|
+          compound = complex.parts.last.compound
+          return nil if compound.pseudo_element
+
+          prefilter_for(compound) || (return nil)
+        end
+      end
+
+      # The most selective static check in `compound` (id > class > attribute);
+      # nil if it has none. Pseudo-classes/types are NOT used (the type's
+      # case/namespace rules and pseudo state are left to the authoritative
+      # #matches?), so a tag- or pseudo-only compound returns nil.
+      def prefilter_for(compound)
+        id = klass = attr = nil
+        compound.subclass_selectors.each do |sub|
+          case sub
+          when SelectorAST::IdSelector then id ||= sub.value
+          when SelectorAST::ClassSelector then klass ||= sub.value
+          when SelectorAST::AttributeSelector then attr ||= sub.name if sub.namespace.nil?
+          end
+        end
+        return [:id, id] if id
+        return [:class, klass] if klass
+        return [:attr, attr] if attr
+
+        nil
+      end
+
+      # Does the backend node satisfy a pre-filter? A SUPERSET test (presence /
+      # exact id / class token) — never a false negative, so #matches? can prune.
+      def backend_passes?(bnode, prefilter)
+        kind, value = prefilter
+        case kind
+        when :id then bnode["id"] == value
+        when :class then class_attr_token?(bnode["class"], value)
+        when :attr then !bnode[value].nil?
+        end
+      end
+
+      # Is `token` a whitespace-separated word of the raw class attribute? Scans in
+      # place (no split/allocation), since this runs for every node in the tree.
+      def class_attr_token?(raw, token)
+        return false if raw.nil? || raw.empty?
+
+        pos = 0
+        len = token.length
+        while (i = raw.index(token, pos))
+          before = i.zero? || ascii_ws?(raw[i - 1])
+          after_index = i + len
+          after = after_index >= raw.length || ascii_ws?(raw[after_index])
+          return true if before && after
+
+          pos = i + 1
+        end
+        false
+      end
+
+      def ascii_ws?(char)
+        char == " " || char == "\t" || char == "\n" || char == "\f" || char == "\r"
+      end
+
+      # The backend (lexbor) node whose subtree holds the candidates.
+      def backend_root_of(root)
+        if root.is_a?(Document)
+          root.backend_doc
+        elsif root.respond_to?(:__dommy_backend_node__)
+          root.__dommy_backend_node__
+        end
+      end
+
+      # The owning Document (for identity-stable #wrap_node of a backend match).
+      def document_of(root)
+        return root if root.is_a?(Document)
+
+        root.document if root.respond_to?(:document)
       end
 
       def element_node?(node)
