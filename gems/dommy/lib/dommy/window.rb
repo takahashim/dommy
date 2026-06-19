@@ -343,10 +343,11 @@ module Dommy
     end
 
     # `window.postMessage`: deliver a structured-cloned `message` to this window's
-    # own message handlers, asynchronously (a microtask), as the spec requires.
+    # own message handlers from a TASK (the "post message" task source, not a
+    # microtask) — so it lands in a later event-loop turn, as the spec requires.
     def post_message(message)
       data = Dommy.structured_clone(message)
-      @scheduler.queue_microtask(proc { dispatch_event(MessageEvent.new("message", "data" => data)) })
+      @scheduler.set_timeout(proc { dispatch_event(MessageEvent.new("message", "data" => data)) }, 0)
       nil
     end
 

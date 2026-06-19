@@ -284,7 +284,7 @@ class TestMessageChannel < Minitest::Test
     received = nil
     mc.port2.__js_set__("onmessage", proc { |e| received = e.data })
     mc.port1.post_message("hello")
-    win.scheduler.drain_microtasks
+    win.scheduler.advance_time(0) # postMessage delivers via a task, not a microtask
     assert_equal("hello", received)
   end
 
@@ -295,7 +295,7 @@ class TestMessageChannel < Minitest::Test
     mc.port2.__js_set__("onmessage", proc { |e| received = e.data })
     src = {"k" => [1, 2, 3]}
     mc.port1.post_message(src)
-    win.scheduler.drain_microtasks
+    win.scheduler.advance_time(0) # postMessage delivers via a task, not a microtask
     assert_equal(src, received)
     refute_same(src, received)
   end
@@ -324,7 +324,7 @@ class TestBroadcastChannel < Minitest::Test
     sender.add_event_listener("message", proc { |e| self_received = e.data })
 
     sender.post_message("ping")
-    win.scheduler.drain_microtasks
+    win.scheduler.advance_time(0) # postMessage delivers via a task, not a microtask
 
     assert_equal("ping", received)
     # sender does not receive own messages

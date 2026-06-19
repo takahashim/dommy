@@ -2,8 +2,11 @@
 
 module Dommy
   # `MessageChannel` — creates a pair of `MessagePort`s connected to
-  # each other. `port1.postMessage(x)` queues a microtask that fires
-  # a `message` event on `port2`, and vice versa.
+  # each other. `port1.postMessage(x)` queues a TASK (the "post message" task
+  # source, not a microtask) that fires a `message` event on `port2`, and vice
+  # versa — so the message is delivered in a later event-loop turn, after the
+  # current task's microtask checkpoint. React's scheduler relies on this to
+  # yield as a macrotask.
   #
   # Spec: https://html.spec.whatwg.org/multipage/web-messaging.html
   class MessageChannel
@@ -49,7 +52,10 @@ module Dommy
       port = @entangled
       return unless port
 
-      @window.scheduler.queue_microtask(
+      # The "post message" task source — a task, NOT a microtask, so delivery
+      # happens in a later event-loop turn (after the current task's microtask
+      # checkpoint), matching browsers.
+      @window.scheduler.set_timeout(
         proc do
           evt = MessageEvent.new("message", "data" => Dommy.structured_clone(data))
           if port.__internal_started?
@@ -57,7 +63,8 @@ module Dommy
           else
             port.__internal_enqueue__(evt)
           end
-        end
+        end,
+        0
       )
 
       nil
@@ -213,10 +220,13 @@ module Dommy
       peers = @@registries[@window][@name].reject { |p| p.equal?(self) || p.closed? }
       cloned = Dommy.structured_clone(data)
       peers.each do |peer|
-        @window.scheduler.queue_microtask(
+        # A task (post message task source), not a microtask — delivered in a
+        # later turn like a real BroadcastChannel.
+        @window.scheduler.set_timeout(
           proc do
             peer.dispatch_event(MessageEvent.new("message", "data" => cloned))
-          end
+          end,
+          0
         )
       end
 
