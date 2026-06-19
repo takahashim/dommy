@@ -1418,6 +1418,54 @@ globalThis.__rbHost = (function () {
     upgrade: (root) => { if (isProxy(root)) __rb_upgrade_custom_elements(root[HKEY]); }
   };
 
+  // ===== Unhandled-rejection detail capture (opt-in diagnostics) =====
+  //
+  // The engine stringifies a non-Error rejection reason to "[object Object]"
+  // before Ruby sees it, hiding what actually failed (e.g. note.com's React
+  // error). When installed, record a RICH description (message/stack, or the
+  // own-property JSON) of each rejection AS IT HAPPENS — wrapping the Promise
+  // constructor (so `.then`-chain and executor rejections are seen) and the
+  // static reject — so the Ruby side can replace the detail-less report with the
+  // truth. Behavior-preserving (only records), and only installed when asked.
+  function describeRejection(reason) {
+    try {
+      if (reason !== null && typeof reason === "object" &&
+          typeof reason.stack === "string" && typeof reason.message === "string") {
+        return (reason.name || "Error") + ": " + reason.message + "\n" + reason.stack;
+      }
+      if (reason === null) return "null";
+      if (reason === undefined) return "undefined";
+      if (typeof reason === "object") {
+        let json = null;
+        try { json = JSON.stringify(reason, (k, v) => (typeof v === "function" ? "[Function]" : v)); } catch (e) {}
+        const keys = Object.keys(reason).slice(0, 40).join(", ");
+        return "[non-Error rejection] keys: {" + keys + "}" + (json ? " " + json.slice(0, 4000) : "");
+      }
+      return String(reason);
+    } catch (e) { return "(rejection reason could not be described)"; }
+  }
+  function installRejectionTracker() {
+    const P = globalThis.Promise;
+    if (!P || P.__rbTracked) return;
+    // Push to a Ruby buffer AT REJECT TIME (normal JS context, a safe crossing) —
+    // NOT from the engine's rejection callback, where re-entering the VM is
+    // unsafe. The Ruby side pairs it with the detail-less report by recency.
+    const record = (reason) => {
+      try { __rb_record_rejection_detail(describeRejection(reason)); } catch (e) {}
+    };
+    const Tracked = function (executor) {
+      return Reflect.construct(P, [function (resolve, reject) {
+        executor(resolve, function (reason) { record(reason); return reject(reason); });
+      }], new.target || Tracked);
+    };
+    Tracked.prototype = P.prototype;
+    Object.setPrototypeOf(Tracked, P); // inherit statics + Symbol.species
+    const origReject = P.reject.bind(P);
+    Tracked.reject = function (reason) { record(reason); return origReject(reason); };
+    Tracked.__rbTracked = true;
+    globalThis.Promise = Tracked;
+  }
+
   // 1a: report the DOM interface chain of a host proxy, most-derived first
   // (e.g. ["HTMLDivElement","HTMLElement","Element","Node","EventTarget"]).
   // Returns null for non-proxies.
@@ -1436,6 +1484,8 @@ globalThis.__rbHost = (function () {
     // A host-PromiseValue deferred whose resolve runs the full §2.3 resolution
     // procedure — the Promises/A+ conformance adapter's primitive.
     makeHostDeferred,
+    // Opt-in rejection-detail capture (see installRejectionTracker).
+    installRejectionTracker,
     seedInterfaces, invokeLifecycle, attachStatics, exposeConstructorsOnWindow,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,

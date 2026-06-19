@@ -57,6 +57,7 @@ module Dommy
 
       def initialize(backend)
         @backend = backend
+        @crossing_counts = crossing_profile_enabled? ? new_crossing_counts : nil
         # The marshaller owns value conversion + the handle/callback identity
         # tables; the bridge keeps the engine ABI and lifecycle wiring.
         @codec = Marshaller.new(self)
@@ -64,6 +65,7 @@ module Dommy
         @custom_element_bridge = CustomElementBridge.new(self)
         @microtask_procs = {}
         @microtask_seq = 0
+        @rejection_details = [] # opt-in rejection-debug capture (see take_rejection_detail)
         install!
       end
 
@@ -164,7 +166,58 @@ module Dommy
         @codec.size
       end
 
+      # Snapshot bridge crossing counts, enabled with DOMMY_JS_BRIDGE_PROFILE=1.
+      # Counts are grouped by ABI function name, with a nested breakdown of the
+      # hottest interface/property or interface/method labels where available.
+      def crossing_counts(limit: nil)
+        return {} unless @crossing_counts
+
+        @crossing_counts.transform_values do |counts|
+          sorted = counts.sort_by { |(_key, count)| -count }
+          sorted = sorted.first(limit) if limit
+          sorted.to_h
+        end
+      end
+
+      def reset_crossing_counts
+        @crossing_counts = new_crossing_counts if @crossing_counts
+        self
+      end
+
+      # Drain the most-recent recorded rejection detail (paired by recency with the
+      # engine's detail-less "[object Object]" report). Nil when none recorded /
+      # the opt-in tracker (installRejectionTracker) isn't installed.
+      def take_rejection_detail
+        @rejection_details.pop
+      end
+
       private
+
+      def crossing_profile_enabled?
+        !ENV["DOMMY_JS_BRIDGE_PROFILE"].to_s.empty?
+      end
+
+      def new_crossing_counts
+        Hash.new { |h, k| h[k] = Hash.new(0) }
+      end
+
+      def count_crossing(abi_name, obj = nil, member = nil)
+        return unless @crossing_counts
+
+        @crossing_counts[abi_name.to_s]["__total__"] += 1
+        return unless member
+
+        @crossing_counts[abi_name.to_s][crossing_label(obj, member)] += 1
+      end
+
+      def crossing_label(obj, member)
+        return member.to_s unless obj
+
+        iface = obj ? DomInterfaces.info(obj)["name"] : nil
+        "#{iface || obj.class.name}##{member}"
+      rescue StandardError
+        "#{obj.class.name}##{member}"
+      end
 
       # Route Dommy's host-side microtasks (MutationObserver delivery, …) onto
       # the engine's native promise-job queue, so they interleave FIFO with JS
@@ -204,6 +257,7 @@ module Dommy
         @backend.define_host_function("__rb_host_get") do |handle, prop|
           dom_guard do
             obj = host(handle)
+            count_crossing(:__rb_host_get, obj, prop)
             wrap(obj.respond_to?(:__js_get__) ? obj.__js_get__(prop) : nil)
           end
         end
@@ -216,12 +270,14 @@ module Dommy
           # trap re-throws, rather than escaping as a raw Ruby error.
           dom_guard do
             obj = host(handle)
+            count_crossing(:__rb_host_set, obj, prop)
             obj.respond_to?(:__js_set__) ? dommy_handled?(obj.__js_set__(prop, unwrap(value))) : false
           end
         end
         @backend.define_host_function("__rb_host_call") do |handle, method, args|
           dom_guard do
             obj = host(handle)
+            count_crossing(:__rb_host_call, obj, method)
             obj.respond_to?(:__js_call__) ? wrap(obj.__js_call__(method, unwrap(args))) : nil
           end
         end
@@ -230,9 +286,11 @@ module Dommy
         # settle this promise, so the host chain WAITS for the thenable instead of
         # resolving immediately with an opaque ref (the HttpLink #95 reorder).
         @backend.define_host_function("__rb_new_host_promise") do
+          count_crossing(:__rb_new_host_promise)
           dom_guard { @codec.register(Dommy::PromiseValue.new(@window)) }
         end
         @backend.define_host_function("__rb_settle_host_promise") do |handle, fulfilled, value|
+          count_crossing(:__rb_settle_host_promise)
           dom_guard do
             promise = host(handle)
             fulfilled ? promise.fulfill(unwrap(value)) : promise.reject(unwrap(value))
@@ -243,6 +301,7 @@ module Dommy
         # chain, method names, and the custom element tag (if any).
         @backend.define_host_function("__rb_host_describe") do |handle|
           obj = host(handle)
+          count_crossing(:__rb_host_describe, obj)
           info = DomInterfaces.info(obj)
           info["methods"] = method_names(obj)
           # Mark JS-defined custom elements so makeProxy upgrades them on crossing.
@@ -255,6 +314,7 @@ module Dommy
         # mutations. Nil when the object has no named getter.
         @backend.define_host_function("__rb_named_props") do |handle|
           obj = host(handle)
+          count_crossing(:__rb_named_props, obj)
           obj.respond_to?(:__js_named_props__) ? Array(obj.__js_named_props__).map(&:to_s) : nil
         end
         # Named deleter (`delete el.dataset.foo`): true when the object handled
@@ -263,6 +323,7 @@ module Dommy
         @backend.define_host_function("__rb_host_delete") do |handle, prop|
           dom_guard do
             obj = host(handle)
+            count_crossing(:__rb_host_delete, obj, prop)
             obj.respond_to?(:__js_delete__) ? dommy_handled?(obj.__js_delete__(prop)) : false
           end
         end
@@ -272,14 +333,25 @@ module Dommy
       # microtask drain hook.
       def install_lifecycle_abi!
         @backend.define_host_function("__rb_release_handle") do |handle|
+          count_crossing(:__rb_release_handle)
           @codec.release(handle)
           nil
         end
         # Run a Ruby microtask previously registered by schedule_native_microtask,
         # invoked from the resolved-promise job scheduleMicrotask queued.
         @backend.define_host_function("__rb_run_microtask") do |id|
+          count_crossing(:__rb_run_microtask)
           callback = @microtask_procs.delete(id)
           callback&.call
+          nil
+        end
+        # Opt-in rejection diagnostics: __rbHost.installRejectionTracker (only run
+        # when asked) records a rich description of each promise rejection here, at
+        # reject time, so #take_rejection_detail can replace the engine's
+        # detail-less "[object Object]" unhandled-rejection report with the truth.
+        @backend.define_host_function("__rb_record_rejection_detail") do |detail|
+          @rejection_details.push(detail.to_s)
+          @rejection_details.shift if @rejection_details.size > 256
           nil
         end
       end
@@ -291,6 +363,7 @@ module Dommy
         # constructor — resolve the named constructor and build. Returns nil when
         # the interface isn't constructable, so the JS side throws.
         @backend.define_host_function("__rb_construct") do |name, args|
+          count_crossing(:__rb_construct, nil, name)
           dom_guard do
             ctor = @constructor_resolver.resolve(name)
             ctor ? wrap(ctor.__js_new__(unwrap(args))) : nil
@@ -299,10 +372,12 @@ module Dommy
         # Static/class methods on an interface constructor (URL.createObjectURL,
         # URL.parse, …): names to expose, and the dispatch.
         @backend.define_host_function("__rb_static_names") do |name|
+          count_crossing(:__rb_static_names, nil, name)
           ctor = @constructor_resolver.resolve(name)
           ctor.respond_to?(:__js_class_method_names__) ? ctor.__js_class_method_names__ : []
         end
         @backend.define_host_function("__rb_static_call") do |name, method, args|
+          count_crossing(:__rb_static_call, nil, "#{name}.#{method}")
           dom_guard do
             ctor = @constructor_resolver.resolve(name)
             ctor.respond_to?(:__js_call__) ? wrap(ctor.__js_call__(method, unwrap(args))) : nil
@@ -314,11 +389,13 @@ module Dommy
       def install_custom_elements_abi!
         # 1d: customElements.define(name, JSClass) wires a Dommy custom element.
         @backend.define_host_function("__rb_define_custom_element") do |name, observed|
+          count_crossing(:__rb_define_custom_element, nil, name)
           @custom_element_bridge.define(name, Array(observed))
           nil
         end
         # 1d: customElements.upgrade(root) — delegate to Dommy's registry.
         @backend.define_host_function("__rb_upgrade_custom_elements") do |handle|
+          count_crossing(:__rb_upgrade_custom_elements)
           @custom_element_bridge.upgrade(host(handle))
           nil
         end
