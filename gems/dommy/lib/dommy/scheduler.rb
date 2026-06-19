@@ -4,9 +4,17 @@ module Dommy
   # Deterministic host-side scheduler for timers, rAF, and microtasks.
   # Time advances only when the host explicitly calls `advance_time`.
   class Scheduler
-    Timer = Struct.new(:id, :kind, :callback, :due_at, :interval_ms, :active)
+    Timer = Struct.new(:id, :kind, :callback, :due_at, :interval_ms, :active, :nesting)
 
     FRAME_MS = 16
+
+    # HTML timer initialization steps: once a timer is nested deeper than 5, a
+    # sub-4ms timeout is clamped to 4ms. Besides matching browsers, this is what
+    # stops a self-rescheduling setTimeout(0) / setInterval(0) from spinning
+    # forever at the same virtual instant (the clamp pushes it into a future
+    # frame, so `advance_time(0)`'s due-now loop terminates).
+    MAX_NESTING_BEFORE_CLAMP = 5
+    MIN_NESTED_DELAY_MS = 4
 
     # requestIdleCallback has no real idle period here; the callback always
     # sees a fixed budget and didTimeout: false.
@@ -19,6 +27,9 @@ module Dommy
       @microtasks = []
       @native_microtask_scheduler = nil
       @external_inbox = Thread::Queue.new
+      # The nesting level of the timer task currently running (0 at top level);
+      # a timer scheduled while it runs nests one deeper. Drives the 4ms clamp.
+      @nesting_level = 0
     end
 
     attr_reader :now_ms
@@ -98,7 +109,9 @@ module Dommy
     def request_animation_frame(callback)
       frames = ((@now_ms / FRAME_MS) + 1) * FRAME_MS
       id = next_id
-      @timers[id] = Timer.new(id, :raf, callback, frames, nil, true)
+      # rAF is frame-aligned (never the same instant twice), so it needs no
+      # nesting clamp; nesting 0.
+      @timers[id] = Timer.new(id, :raf, callback, frames, nil, true, 0)
       id
     end
 
@@ -131,6 +144,17 @@ module Dommy
         CallableInvoker.invoke(callback, @now_ms)
       end
 
+      nil
+    end
+
+    # A WHATWG microtask checkpoint: drain the scheduler's own microtask queue
+    # AND the engine's promise-job queue (via the runtime hook). Host-side
+    # microtasks route onto the engine queue when a runtime is wired, so in that
+    # mode `@microtasks` is usually empty and the engine drain does the work; in
+    # vanilla CRuby the engine hook is absent and only `@microtasks` drains.
+    def perform_microtask_checkpoint
+      drain_microtasks
+      @microtask_checkpoint&.call
       nil
     end
 
@@ -178,9 +202,17 @@ module Dommy
 
     def register_timer(kind, callback, delay_ms, interval_ms)
       id = next_id
-      due_at = @now_ms + [delay_ms, 0].max
-      @timers[id] = Timer.new(id, kind, callback, due_at, interval_ms, true)
+      nesting = @nesting_level + 1
+      delay = clamp_nested_delay([delay_ms, 0].max, nesting)
+      due_at = @now_ms + delay
+      @timers[id] = Timer.new(id, kind, callback, due_at, interval_ms, true, nesting)
       id
+    end
+
+    # HTML timer initialization step: a timer nested deeper than 5 with a sub-4ms
+    # timeout is clamped to 4ms.
+    def clamp_nested_delay(delay, nesting)
+      nesting > MAX_NESTING_BEFORE_CLAMP && delay < MIN_NESTED_DELAY_MS ? MIN_NESTED_DELAY_MS : delay
     end
 
     def cancel_timer(id)
@@ -215,7 +247,12 @@ module Dommy
           raf_ran = true
         when :interval
           invoke_timer(timer)
-          timer.due_at = @now_ms + timer.interval_ms if timer.active
+          if timer.active
+            # Each interval iteration nests one deeper, so a setInterval(0) is
+            # clamped to 4ms once past the nesting threshold (HTML timer steps).
+            timer.nesting += 1
+            timer.due_at = @now_ms + clamp_nested_delay(timer.interval_ms, timer.nesting)
+          end
           perform_microtask_checkpoint
         when :idle
           @timers.delete(timer.id)
@@ -230,16 +267,6 @@ module Dommy
       perform_microtask_checkpoint if raf_ran
     end
 
-    # A WHATWG microtask checkpoint: drain the scheduler's own microtask queue
-    # AND the engine's promise-job queue (via the runtime hook). Host-side
-    # microtasks route onto the engine queue when a runtime is wired, so in that
-    # mode `@microtasks` is usually empty and the engine drain does the work; in
-    # vanilla CRuby the engine hook is absent and only `@microtasks` drains.
-    def perform_microtask_checkpoint
-      drain_microtasks
-      @microtask_checkpoint&.call
-      nil
-    end
 
     # Run a single timer's callback. A raised error is offered to
     # `timer_error_handler` (set by the JS runtime); if it swallows the error the
@@ -247,6 +274,10 @@ module Dommy
     # browsing continues. With no handler — or one that declines — the error
     # propagates, preserving the default crash-on-bug behavior.
     def invoke_timer(timer, *args)
+      # Run the callback at this timer's nesting level, so a timer it schedules
+      # nests one deeper (driving the 4ms clamp). Restored even if it throws.
+      prev_nesting = @nesting_level
+      @nesting_level = timer.nesting || 0
       CallableInvoker.invoke(timer.callback, *args)
     rescue StandardError => e
       raise unless @timer_error_handler&.call(e, timer)
@@ -254,6 +285,8 @@ module Dommy
       timer.active = false
       @timers.delete(timer.id)
       nil
+    ensure
+      @nesting_level = prev_nesting
     end
   end
 end
