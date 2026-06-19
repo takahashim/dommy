@@ -40,6 +40,10 @@ module Dommy
       ARRAY_BUFFER = "__rb_arraybuffer"
       # A host-raised DOMException/TypeError/RangeError, re-thrown JS-side.
       EXCEPTION = "__rb_exception__"
+      # A host-created native JS error (TypeError/RangeError) crossing as a VALUE
+      # — not thrown — so e.g. a promise rejected with it has a reason that is a
+      # real `instanceof TypeError`. Rehydrates to the error object itself.
+      ERROR_VALUE = "__rb_error_value"
       # An arbitrary host-thrown value, re-thrown JS-side verbatim.
       THROW = "__rb_throw__"
       # A callback whose JS invocation threw (the thrown value is carried here).

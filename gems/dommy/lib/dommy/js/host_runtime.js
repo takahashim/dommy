@@ -392,6 +392,63 @@ globalThis.__rbHost = (function () {
     return v === undefined ? { __rb_undefined: true } : dehydrate(v);
   }
 
+  // Dehydrate a value a host PromiseValue settles WITH (its fulfillment value or
+  // rejection reason). Unlike dehydrateTop — which flattens a plain `{}` to a
+  // Ruby Hash — this keeps every JS object/function as an opaque `__rb_js_ref`,
+  // so a value that merely passes JS → Ruby (the promise's slot) → JS round-trips
+  // with IDENTITY. Promises/A+ settles with sentinel objects compared by `===`;
+  // flattening them would make every `assert.strictEqual(value, sentinel)` fail.
+  // Host proxies still cross as their handle; primitives cross by value.
+  function dehydrateSettle(v) {
+    if (v === undefined) return { __rb_undefined: true };
+    if (v === null) return null;
+    const t = typeof v;
+    if (t === "object" || t === "function") {
+      if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+      return { __rb_js_ref: registerJsRef(v) };
+    }
+    return v;
+  }
+
+  // The Promises/A+ §2.3 "Promise Resolution Procedure" for a host PromiseValue
+  // (referenced by `handle`), run engine-side because adopting a JS thenable
+  // means calling its `then`. Resolving with a thenable (a native Promise, a
+  // host promise proxy, or any `{ then }`) ADOPTS it — taking its eventual
+  // state; resolving with a plain value fulfills. §2.3.1 self-resolution is a
+  // TypeError; §2.3.3.3.3 a thenable settles at most once; §2.3.3.3.4 a throwing
+  // `then` rejects.
+  function resolveHostPromise(handle, value, knownThen) {
+    if (isProxy(value) && proxyHandles.get(value) === handle) {
+      __rb_settle_host_promise(handle, false, dehydrateSettle(new TypeError("Chaining cycle detected for promise")));
+      return;
+    }
+    if (value !== null && (typeof value === "object" || typeof value === "function")) {
+      // §2.3.3.1 — `then` is retrieved exactly ONCE. A caller that already read it
+      // (dehydrateReturn, off a returned value) passes it as knownThen so a
+      // one-time `then` getter isn't consumed twice. Recursive resolutions (a
+      // thenable resolving with a fresh `y`) re-read, per [[Resolve]](promise, y).
+      let then = knownThen;
+      if (arguments.length < 3) {
+        try { then = value.then; } catch (e) {
+          __rb_settle_host_promise(handle, false, dehydrateSettle(e));
+          return;
+        }
+      }
+      if (typeof then === "function") {
+        let called = false;
+        try {
+          then.call(value,
+            (v) => { if (!called) { called = true; resolveHostPromise(handle, v); } },
+            (r) => { if (!called) { called = true; __rb_settle_host_promise(handle, false, dehydrateSettle(r)); } });
+        } catch (e) {
+          if (!called) { called = true; __rb_settle_host_promise(handle, false, dehydrateSettle(e)); }
+        }
+        return;
+      }
+    }
+    __rb_settle_host_promise(handle, true, dehydrateSettle(value));
+  }
+
   // A thenable returned from a callback (notably a Promise `.then` handler) is
   // ADOPTED into a host promise so the host chain WAITS for it (Promises/A+),
   // instead of crossing as an opaque ref the host machinery resolves with
@@ -400,18 +457,39 @@ globalThis.__rbHost = (function () {
   // plain values are unaffected. Used only for callback RETURN values, never for
   // arguments (a promise passed as an argument must not be resolved).
   function dehydrateReturn(v) {
-    if (v !== null && (typeof v === "object" || typeof v === "function") &&
-        !isProxy(v) && typeof v.then === "function") {
-      const handle = __rb_new_host_promise();
-      const settle = (ok, val) => __rb_settle_host_promise(handle, ok, dehydrateTop(val));
-      try {
-        v.then((val) => settle(true, val), (err) => settle(false, err));
-      } catch (e) {
-        settle(false, e);
+    if (v !== null && (typeof v === "object" || typeof v === "function") && !isProxy(v)) {
+      // Read `then` ONCE here (§2.3.3.1) and reuse it, so a one-time getter is not
+      // consumed by a separate type-probe before resolveHostPromise reads it.
+      let then;
+      try { then = v.then; } catch (e) {
+        // §2.3.3.2 — retrieving `then` threw: the chain rejects with the error.
+        const handle = __rb_new_host_promise();
+        __rb_settle_host_promise(handle, false, dehydrateSettle(e));
+        return { __rb_handle: handle };
       }
-      return { __rb_handle: handle };
+      if (typeof then === "function") {
+        const handle = __rb_new_host_promise();
+        resolveHostPromise(handle, v, then);
+        return { __rb_handle: handle };
+      }
+      // A non-thenable object (`then` absent or not callable, §2.3.3.4 / §2.3.4):
+      // it fulfills as itself — crossed identity-preserving so `x === value`
+      // holds downstream, rather than flattened to a Ruby Hash.
+      return dehydrateSettle(v);
     }
     return dehydrateTop(v);
+  }
+
+  // A `{ promise, resolve, reject }` deferred backed by a host PromiseValue,
+  // whose `resolve` runs the full §2.3 resolution procedure. The Promises/A+
+  // conformance adapter builds on this.
+  function makeHostDeferred() {
+    const handle = __rb_new_host_promise();
+    return {
+      promise: makeProxy(handle),
+      resolve: (value) => resolveHostPromise(handle, value),
+      reject: (reason) => __rb_settle_host_promise(handle, false, dehydrateSettle(reason)),
+    };
   }
 
   // Dehydrate a top-level call/constructor argument list (each arg via
@@ -451,6 +529,10 @@ globalThis.__rbHost = (function () {
     if (Array.isArray(v)) return v.map(rehydrate);
     if (v !== null && typeof v === "object") {
       if (v.__rb_exception__) throw makeHostError(v.__rb_exception__);
+      // A host-created native error crossing as a VALUE (a promise rejection
+      // reason that must be `instanceof TypeError`): build the real error and
+      // RETURN it (unlike __rb_exception__, which throws).
+      if (v.__rb_error_value) return makeHostError(v.__rb_error_value);
       // A host method that threw an arbitrary value (throwIfAborted's reason):
       // re-throw the rehydrated value verbatim.
       if ("__rb_throw__" in v) throw rehydrate(v.__rb_throw__);
@@ -1335,6 +1417,9 @@ globalThis.__rbHost = (function () {
     // `evaluate("undefined")` yields UNDEFINED on every engine, not just those
     // whose value marshalling distinguishes undefined from null.
     tag: dehydrateTop, interfaceOf,
+    // A host-PromiseValue deferred whose resolve runs the full §2.3 resolution
+    // procedure — the Promises/A+ conformance adapter's primitive.
+    makeHostDeferred,
     seedInterfaces, invokeLifecycle, attachStatics, exposeConstructorsOnWindow,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,

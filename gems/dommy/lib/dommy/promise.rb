@@ -138,7 +138,11 @@ module Dommy
     def settle(state, value)
       return self if settled?
 
-      if value.is_a?(PromiseValue)
+      # Only RESOLUTION adopts a promise — fulfilling with a host promise takes
+      # its eventual state (Promises/A+ §2.3.2). A rejection REASON is never
+      # resolved: `reject(aPromise)` rejects WITH that promise as the reason, so
+      # `then(null, r => r === aPromise)` holds (2.3.3.3.2 with a promise reason).
+      if state == :fulfilled && value.is_a?(PromiseValue)
         return adopt(value)
       end
 
@@ -185,15 +189,22 @@ module Dommy
 
     def run_handler(handler)
       callback = @state == :fulfilled ? handler.on_fulfilled : handler.on_rejected
-      if callback.nil?
+      unless callable?(callback)
+        # §2.2.7.3/.4: a non-function handler (`then(5)`, `then(null, {})`) passes
+        # the settled state straight through to the child, value/reason intact.
         propagate(handler.child)
         return
       end
 
-      result = CallableInvoker.invoke(callback, @value)
-      if result.is_a?(PromiseValue) && !result.equal?(handler.child)
-        # Adopt the returned thenable. The continuation procs return nil so their
-        # `self`-returning fulfill/reject don't get re-adopted (infinite chain).
+      result = invoke_handler(callback, @value)
+      if result.equal?(handler.child)
+        # §2.3.1: a handler returning its own promise is a cycle — reject with a
+        # TypeError rather than adopting itself forever.
+        handler.child.reject(Bridge::TypeError.new("Chaining cycle detected for promise"))
+      elsif result.is_a?(PromiseValue)
+        # Adopt the returned host promise. The continuation procs return nil so
+        # their `self`-returning fulfill/reject don't get re-adopted (infinite
+        # chain).
         result.__js_call__(
           "then",
           [
@@ -205,8 +216,29 @@ module Dommy
         handler.child.fulfill(result)
       end
 
+    rescue Bridge::ThrowValue => e
+      # §2.2.7.2: the handler threw — reject the child with the thrown value
+      # ITSELF (identity preserved across the bridge), not a wrapping ErrorValue.
+      handler.child.reject(e.value)
     rescue StandardError => e
       handler.child.reject(ErrorValue.new(e.message, name: e.class.to_s))
+    end
+
+    # A callable handler is a JS function (HostCallback) or a Ruby proc; a plain
+    # value (number, null, object) is not, and triggers §2.2.7.3/.4 passthrough.
+    def callable?(callback)
+      callback.respond_to?(:__js_call__) || callback.respond_to?(:call)
+    end
+
+    # Invoke a `.then` handler. A JS callback is invoked in RAISING mode so a
+    # thrown value re-raises as a Bridge::ThrowValue (§2.2.7.2) instead of being
+    # swallowed; a Ruby callable raises naturally.
+    def invoke_handler(callback, value)
+      if callback.respond_to?(:__js_call_with_raise__)
+        callback.__js_call_with_raise__([value])
+      else
+        CallableInvoker.invoke(callback, value)
+      end
     end
 
     def propagate(child)

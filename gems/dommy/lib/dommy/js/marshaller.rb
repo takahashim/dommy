@@ -59,6 +59,13 @@ module Dommy
         if value.is_a?(Dommy::Bridge::JSValue)
           return {WireTags::JS_REF => value.ref}
         end
+        # A host-created native error crossing as a VALUE (e.g. a promise's
+        # rejection reason that must be `instanceof TypeError`): rebuild the real
+        # JS error on the other side rather than flattening it to a plain object.
+        if value.is_a?(Dommy::Bridge::TypeError) || value.is_a?(Dommy::Bridge::RangeError)
+          name = value.is_a?(Dommy::Bridge::RangeError) ? "RangeError" : "TypeError"
+          return {WireTags::ERROR_VALUE => {"name" => name, "message" => value.message, "js_native" => true}}
+        end
         # A JS EventListener object wrapped on the way in returns as that same JS
         # object (so removeEventListener(el, this) reaches the right listener).
         if value.is_a?(HostEventListener)
