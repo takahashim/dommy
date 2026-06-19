@@ -18,6 +18,23 @@ class TestPerformance < Minitest::Test
     assert_in_delta(50.0, @perf.now - t1, 0.001)
   end
 
+  # Browser mode: performance.now() tracks REAL time, advancing even WITHOUT the
+  # scheduler — so a concurrent renderer (React) can see elapsed time mid-eval
+  # and yield, instead of rendering the whole tree in one timeout-blowing eval.
+  def test_now_tracks_real_time_in_browser_mode
+    ENV["DOMMY_REAL_TIME_PERFORMANCE"] = "1"
+    win = make_window
+    perf = win.__js_get__("performance")
+
+    t1 = perf.now
+    sleep 0.02
+    t2 = perf.now
+
+    assert_operator t2 - t1, :>=, 10, "now advanced with real time, no advance_time call"
+  ensure
+    ENV.delete("DOMMY_REAL_TIME_PERFORMANCE")
+  end
+
   def test_mark_and_get_entries_by_name
     @perf.mark("phase-1")
     entries = @perf.get_entries_by_name("phase-1")

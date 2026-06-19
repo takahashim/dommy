@@ -11,10 +11,26 @@ module Dommy
     def initialize(window)
       @window = window
       @entries = []
+      # In browser mode (dommynx sets DOMMY_REAL_TIME_PERFORMANCE) `now` tracks
+      # REAL wall-clock, not the deterministic scheduler's virtual clock. Virtual
+      # time only advances between tasks (in advance_time), so it is FROZEN inside
+      # a long synchronous task — and a concurrent renderer (React's scheduler)
+      # decides when to yield by watching performance.now() cross a ~5ms frame
+      # budget. With a frozen clock it never crosses, so React renders the entire
+      # fiber tree in ONE eval that overruns the eval timeout ("InternalError:
+      # interrupted"). A real clock lets it slice the work and yield (via
+      # MessageChannel), so each eval stays short. Off by default → tests keep the
+      # deterministic virtual clock.
+      @real_time = !ENV["DOMMY_REAL_TIME_PERFORMANCE"].to_s.empty?
+      @real_origin = nil
     end
 
     def now
-      @window.scheduler.now_ms.to_f
+      return @window.scheduler.now_ms.to_f unless @real_time
+
+      current = Process.clock_gettime(Process::CLOCK_MONOTONIC, :float_millisecond)
+      @real_origin ||= current
+      current - @real_origin
     end
 
     def mark(name, options = nil)
