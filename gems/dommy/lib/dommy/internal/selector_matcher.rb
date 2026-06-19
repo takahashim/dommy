@@ -72,10 +72,15 @@ module Dommy
         doc = document_of(root)
         return nil unless backend_root && doc
 
+        # The overwhelmingly common case is one selector (one pre-filter); skip the
+        # Array#any? block dispatch on every node for it.
+        single = prefilters.size == 1 ? prefilters.first : nil
+
         out = []
         catch(:done) do
           each_backend_descendant(backend_root) do |bnode|
-            next unless prefilters.any? { |pf| backend_passes?(bnode, pf) }
+            hit = single ? backend_passes?(bnode, single) : prefilters.any? { |pf| backend_passes?(bnode, pf) }
+            next unless hit
 
             element = doc.wrap_node(bnode)
             next unless element && matches?(element, selector_ast, scope: scope)
@@ -428,12 +433,24 @@ module Dommy
       # ----- backend pre-filter fast path (see #fast_query) -----
 
       # Every descendant ELEMENT of the backend node `bnode`, in document order,
-      # excluding `bnode` itself — walking lexbor nodes directly, no Dommy wrap.
+      # excluding `bnode` itself — walking lexbor nodes directly via the
+      # first-child / next-sibling chain (no Dommy wrap and, unlike
+      # `element_children`, no per-node NodeSet allocation, which dominated GC).
       def each_backend_descendant(bnode, &block)
-        bnode.element_children.each do |child|
+        child = bnode.first_element_child
+        while child
           block.call(child)
           each_backend_descendant(child, &block)
+          child = next_element_sibling(child)
         end
+      end
+
+      ELEMENT_NODE = 1
+
+      def next_element_sibling(node)
+        sib = node.next
+        sib = sib.next while sib && sib.node_type != ELEMENT_NODE
+        sib
       end
 
       # One [kind, value] pre-filter per complex selector — taken from its subject
