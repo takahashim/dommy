@@ -704,6 +704,14 @@ module Dommy
       class_tokens.include?(token.to_s)
     end
 
+    # DOMTokenList membership. Defined explicitly (rather than inheriting
+    # Enumerable#include?, which re-iterates via #each) so a class-selector match
+    # is a single Array#include? over the cached tokens — the hot path under a
+    # querySelector-heavy SPA.
+    def include?(token)
+      class_tokens.include?(token.to_s)
+    end
+
     def add(*tokens)
       update_tokens { |existing| existing | normalize_tokens(tokens) }
       nil
@@ -859,7 +867,17 @@ module Dommy
     # return the raw attribute. ASCII whitespace per the spec is space/tab/LF/FF/CR.
     def class_tokens
       raw = @element.__dommy_backend_node__[@attribute].to_s
-      raw.split(/[ \t\n\f\r]+/).reject(&:empty?).uniq
+      # Cache the parsed token list keyed by the raw attribute string: a class
+      # selector match re-reads this for every element on every querySelector,
+      # and the split/reject/uniq dominated heavy-SPA load profiles. The key is
+      # the raw value itself, so any change (add/remove/className=, or a direct
+      # backend mutation) yields a different key and transparently recomputes.
+      cached = @token_cache
+      return cached[1] if cached && cached[0] == raw
+
+      tokens = raw.split(/[ \t\n\f\r]+/).reject(&:empty?).uniq
+      @token_cache = [raw, tokens]
+      tokens
     end
 
     # DOMTokenList "update steps": serialize the (deduplicated) token set back to
