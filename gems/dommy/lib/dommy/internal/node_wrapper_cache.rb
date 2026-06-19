@@ -134,7 +134,12 @@ module Dommy
       def get_element_by_id(id)
         return nil if id.nil? || id.to_s.empty?
 
-        wrap(@document.backend_doc.at_css("##{id}"))
+        # getElementById matches the `id` attribute literally — it is NOT a CSS
+        # selector, so an id with selector-special characters (e.g. React's
+        # `useId` values like `:rjm:`) is valid and must still resolve. Escape it
+        # to a valid id-selector ident before handing it to the backend's CSS
+        # engine (a raw "##{id}" would be an invalid selector and raise).
+        wrap(@document.backend_doc.at_css("##{Dommy::CSSNamespace.escape(id)}"))
       end
 
       def get_elements_by_tag_name(name)

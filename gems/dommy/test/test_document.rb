@@ -189,4 +189,17 @@ class TestDocument < Minitest::Test
     assert_equal("hi", @doc.get_element_by_id("target").text_content)
     assert_nil(@doc.get_element_by_id("nope"))
   end
+
+  # getElementById matches the id attribute literally — it is NOT a CSS selector,
+  # so ids with selector-special characters must still resolve (a raw "##{id}"
+  # selector would be invalid and raise). React's useId emits exactly these
+  # colon ids (e.g. `:rjm:`), which libraries pass to getElementById.
+  def test_get_element_by_id_with_selector_special_characters
+    @doc.body.inner_html = %(<i id=":rjm:">react</i><b id="a.b#c">dots</b><u id="x:y">colon</u>)
+    assert_equal("react", @doc.get_element_by_id(":rjm:").text_content)
+    assert_equal("dots", @doc.get_element_by_id("a.b#c").text_content)
+    assert_equal("colon", @doc.get_element_by_id("x:y").text_content)
+    assert_nil(@doc.get_element_by_id("missing:id"))
+    assert_nil(@doc.get_element_by_id(""))
+  end
 end
