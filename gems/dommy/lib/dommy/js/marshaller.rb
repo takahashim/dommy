@@ -78,7 +78,7 @@ module Dommy
         # flattened to a plain JS array by the `when Array` branch below. Plain
         # Arrays (not bridgeable) still map element-wise.
         if value.is_a?(Array) && bridgeable?(value)
-          return {WireTags::HANDLE => @handles.register(value)}
+          return wrap_handle(value)
         end
 
         case value
@@ -92,11 +92,43 @@ module Dommy
           {WireTags::CALLBACK => value.id}
         else
           if bridgeable?(value)
-            {WireTags::HANDLE => @handles.register(value)}
+            wrap_handle(value)
           else
             value
           end
         end
+      end
+
+      # A handle wire value, tagged with the host object's interface name (and
+      # custom-element tag when applicable) so makeProxy can build the proxy from
+      # a cached per-interface descriptor and skip a `__rb_host_describe` round
+      # trip — the bridge's biggest avoidable cost when JS walks/creates many
+      # nodes (each new proxy otherwise describes, even for a shared interface).
+      def wrap_handle(value)
+        ref = {WireTags::HANDLE => @handles.register(value)}
+        if (name = interface_name(value))
+          ref[WireTags::INTERFACE] = name
+        end
+        if value.respond_to?(:__js_custom_element_name__) && (ce = value.__js_custom_element_name__)
+          ref[WireTags::CUSTOM_ELEMENT] = ce
+        end
+        ref
+      end
+
+      # The host object's interface name (chain.first), cached by class — the
+      # name->descriptor mapping is per-interface, so this lookup is the cheap
+      # half of avoiding the describe crossing.
+      def interface_name(value)
+        @interface_name_cache ||= {}
+        klass = value.class
+        return @interface_name_cache[klass] if @interface_name_cache.key?(klass)
+
+        @interface_name_cache[klass] =
+          begin
+            DomInterfaces.info(value)["name"]
+          rescue StandardError
+            nil
+          end
       end
 
       # A value crosses as a proxy if it implements any of the bridge ABI — not

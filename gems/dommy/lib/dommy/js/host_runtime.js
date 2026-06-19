@@ -547,7 +547,7 @@ globalThis.__rbHost = (function () {
       // A host byte buffer tagged as an ArrayBuffer (Response/Blob/FileReader/
       // XHR arrayBuffer) rehydrates to a bare ArrayBuffer.
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
-      if ("__rb_handle" in v) return makeProxy(v.__rb_handle);
+      if ("__rb_handle" in v) return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
       // An opaque JS-value reference round-tripping back from Ruby — restore the
       // exact original object (identity-preserving).
       if ("__rb_js_ref" in v) return jsRefs.get(v.__rb_js_ref);
@@ -599,7 +599,7 @@ globalThis.__rbHost = (function () {
       if ("__rb_js_ref" in v) return jsRefs.get(v.__rb_js_ref);
       if (v.__rb_bytes) return new Uint8Array(v.__rb_bytes);
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
-      if ("__rb_handle" in v) return makeProxy(v.__rb_handle);
+      if ("__rb_handle" in v) return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
       const out = {};
       for (const k of Object.keys(v)) out[k] = wasmUntag(v[k]);
       return out;
@@ -770,6 +770,11 @@ globalThis.__rbHost = (function () {
   // 2d: method name sets are per-interface (class), so cache them by interface
   // name and reuse across every proxy of that interface instead of rebuilding.
   const methodsByInterface = new Map();
+  // Full per-interface descriptor (name + prototype chain + method names) keyed
+  // by interface name. A handle that crosses tagged with its interface (see the
+  // marshaller) reuses this instead of a `__rb_host_describe` round trip; the
+  // describe path (untagged / first sighting of an interface) fills it.
+  const descByInterface = new Map();
   function protoForChain(chain, i) {
     const name = chain[i];
     const cached = protos.get(name);
@@ -1306,14 +1311,25 @@ globalThis.__rbHost = (function () {
     };
   }
 
-  function makeProxy(handle) {
+  function makeProxy(handle, iface, ce) {
     const ref = cache.get(handle);
     if (ref) {
       const existing = ref.deref();
       if (existing) return existing;
     }
-    // 2d: one host round trip describes the node (interface + methods + ce).
-    const desc = __rb_host_describe(handle);
+    // Reuse the cached per-interface descriptor when the handle crossed tagged
+    // with a known interface — skipping the describe round trip. Otherwise (no
+    // tag, or first sighting of this interface) describe once and cache it. The
+    // custom-element tag is per-instance, so it comes from the handle tag (the
+    // describe path falls back to the describe's own `ce`).
+    let desc = (iface != null) ? descByInterface.get(iface) : undefined;
+    let ceName = ce;
+    if (!desc) {
+      const d = __rb_host_describe(handle);
+      desc = { name: d.name, chain: d.chain, methods: d.methods };
+      if (d.name != null) descByInterface.set(d.name, desc);
+      if (ceName === undefined) ceName = d.ce;
+    }
     // 2d: method-name sets are per-interface; reuse across proxies of that type.
     let methods = methodsByInterface.get(desc.name);
     if (!methods) {
@@ -1346,7 +1362,7 @@ globalThis.__rbHost = (function () {
     finalizers.register(p, handle);
     // 1d: a Dommy-registered custom element node is upgraded to its JS class on
     // first crossing — so the constructor runs before any lifecycle callback.
-    if (desc.ce) upgradeElement(p, desc.ce);
+    if (ceName) upgradeElement(p, ceName);
     return p;
   }
 

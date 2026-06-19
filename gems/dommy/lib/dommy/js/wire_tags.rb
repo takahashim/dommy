@@ -17,6 +17,15 @@ module Dommy
       # A bridged Ruby object, referenced by its HandleTable id (becomes an ES
       # Proxy on the JS side).
       HANDLE = "__rb_handle"
+      # The host object's WebIDL interface name, carried alongside its handle so
+      # makeProxy can reuse a cached per-interface descriptor (prototype chain +
+      # method set) instead of a `__rb_host_describe` round trip per new proxy —
+      # the dominant overhead when JS traverses/builds many nodes.
+      INTERFACE = "__rb_if"
+      # The custom-element tag of a handle whose node is a registered custom
+      # element (so makeProxy upgrades it), carried per-instance since it is the
+      # one part of a describe that is NOT per-interface.
+      CUSTOM_ELEMENT = "__rb_ce"
       # A live JS function that crossed into Ruby, referenced by callback id.
       CALLBACK = "__rb_callback"
       # An opaque JS value referenced by its id in the JS-side `jsRefs` table
