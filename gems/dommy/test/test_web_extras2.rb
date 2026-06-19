@@ -281,8 +281,9 @@ class TestWorker < Minitest::Test
     received = nil
     w.add_event_listener("message", proc { |e| received = e.data })
     w.post_message("hello")
-    @win.scheduler.drain_microtasks
-    @win.scheduler.drain_microtasks
+    # Worker postMessage delivers via tasks; one turn fires the outbound task and
+    # the inbound reply task it schedules (both due now).
+    @win.scheduler.advance_time(0)
     assert_equal("echo: hello", received)
   end
 

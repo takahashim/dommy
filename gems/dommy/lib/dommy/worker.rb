@@ -35,10 +35,13 @@ module Dommy
       return if @terminated
 
       cloned = Dommy.structured_clone(data)
-      @window.scheduler.queue_microtask(
+      # The "post message" task source — a task, not a microtask (a real worker
+      # delivers across the agent boundary in a later event-loop turn).
+      @window.scheduler.set_timeout(
         proc do
           @worker_side_handlers.each { |h| invoke(h, [{"data" => cloned}]) }
-        end
+        end,
+        0
       )
 
       nil
@@ -63,10 +66,11 @@ module Dommy
     # Worker-side: deliver a message to the main-side `message` event.
     def __test_post_to_main__(data)
       cloned = Dommy.structured_clone(data)
-      @window.scheduler.queue_microtask(
+      @window.scheduler.set_timeout(
         proc do
           dispatch_event(MessageEvent.new("message", "data" => cloned))
-        end
+        end,
+        0
       )
 
       nil
