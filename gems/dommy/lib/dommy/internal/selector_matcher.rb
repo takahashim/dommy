@@ -16,15 +16,33 @@ module Dommy
         selector_ast.selectors.any? { |complex| matches_complex?(element, complex, scope: scope) }
       end
 
+      # querySelectorAll. The candidate set is exactly `root`'s descendants:
+      # querySelector(All) results are always descendants of the context node, so
+      # we walk only its subtree. (An element scope used to walk up to the document
+      # and back down, filtering every element by `root.contains?` — O(whole tree)
+      # instead of O(subtree).) `scope` is still threaded into #matches? so a
+      # `:scope`-relative selector resolves against the context; the matcher climbs
+      # to ancestors above `root` itself when a left-hand combinator needs them.
       def query(root, selector_ast, scope: nil)
         scope ||= default_scope(root)
-        root_for_walk = query_root(root, scope)
-        candidates = element_descendants(root_for_walk)
-        candidates = candidates.reject { |el| el.equal?(scope) } if scope && !root.is_a?(Document)
-        candidates.select do |element|
-          next false if scope && !in_scope?(element, scope)
-
+        element_descendants(root).select do |element|
           matches?(element, selector_ast, scope: scope)
+        end
+      end
+
+      # querySelector — the first element in document order that matches, or nil.
+      # Same candidate set and scoping as #query, but it stops at the first match
+      # rather than collecting every match and taking .first. A querySelector-heavy
+      # SPA spends much of its time here, and most queries either match early or
+      # are single-purpose, so short-circuiting the walk avoids touching (and
+      # matching against) the rest of the tree.
+      def query_first(root, selector_ast, scope: nil)
+        scope ||= default_scope(root)
+        catch(:found) do
+          each_descendant(root) do |element|
+            throw(:found, element) if matches?(element, selector_ast, scope: scope)
+          end
+          nil
         end
       end
 
@@ -335,38 +353,25 @@ module Dommy
         a.namespace_uri == b.namespace_uri && a.local_name == b.local_name
       end
 
-      # DOM Standard scope-match: candidates come from the receiver's
-      # *root* (document, fragment, or a detached top element), with the
-      # receiver as scoping root — so ancestors outside the receiver still
-      # satisfy left-hand compounds. Walking the parent chain (rather than
-      # jumping to owner_document) keeps fragment-rooted subtrees queryable.
-      def query_root(root, _scope)
-        return root if root.is_a?(Document) || root.is_a?(ShadowRoot) || root.is_a?(Fragment)
-
-        node = root
-        node = node.parent_node while node.respond_to?(:parent_node) && node.parent_node
-        node
-      end
-
       def default_scope(root)
         root if root.respond_to?(:__dommy_backend_node__) && !root.is_a?(Document)
       end
 
-      def in_scope?(element, scope)
-        return true if scope.nil? || scope.is_a?(Document)
-        return true if scope.equal?(element)
-        return scope.contains?(element) if scope.respond_to?(:contains?)
-
-        false
-      end
-
       def element_descendants(root)
         out = []
-        child_elements(root).each do |child|
-          out << child
-          out.concat(element_descendants(child))
-        end
+        each_descendant(root) { |element| out << element }
         out
+      end
+
+      # Yield every descendant element of `root` in document (pre-order) order,
+      # without materializing the full list — so a first-match walk (#query_first)
+      # can stop early. #element_descendants collects them when the whole set is
+      # needed (#query / querySelectorAll).
+      def each_descendant(root, &block)
+        child_elements(root).each do |child|
+          block.call(child)
+          each_descendant(child, &block)
+        end
       end
 
       def child_elements(root)

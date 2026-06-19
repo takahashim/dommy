@@ -88,7 +88,7 @@ module Dommy
       return nil if selector.nil?
 
       ast = Internal::SelectorParser.parse!(selector)
-      Internal::SelectorMatcher.query(self, ast, scope: self).first
+      Internal::SelectorMatcher.query_first(self, ast, scope: self)
     end
 
     def query_selector_all(selector)

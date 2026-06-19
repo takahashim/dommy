@@ -122,7 +122,7 @@ module Dommy
       def query_selector(selector)
         return nil if selector.nil?
         ast = Internal::SelectorParser.parse!(selector)
-        Internal::SelectorMatcher.query(@document, ast).first
+        Internal::SelectorMatcher.query_first(@document, ast)
       end
 
       def query_selector_all(selector)

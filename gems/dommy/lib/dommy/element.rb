@@ -60,7 +60,7 @@ module Dommy
     def query_selector(selector)
       return nil if selector.nil?
       ast = Internal::SelectorParser.parse!(selector)
-      Internal::SelectorMatcher.query(self, ast, scope: self).first
+      Internal::SelectorMatcher.query_first(self, ast, scope: self)
     end
 
     def query_selector_all(selector)
@@ -2786,7 +2786,7 @@ module Dommy
       # The empty string is not a valid selector (an explicit DOMString "" is a
       # SyntaxError; `null` coerces to "null" and is handled above as nil).
       ast = Internal::SelectorParser.parse!(selector)
-      Internal::SelectorMatcher.query(self, ast, scope: self).first
+      Internal::SelectorMatcher.query_first(self, ast, scope: self)
     end
 
     def query_selector_all(selector)
