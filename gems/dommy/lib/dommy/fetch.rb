@@ -67,6 +67,20 @@ module Dommy
     # `delay`. Used both for a synchronous entry and for an async one delivered
     # later on the page thread.
     def fulfill_from_entry(promise, entry, url, init)
+      # WHATWG: a fetch is resolved by a networking *task*, never inline during
+      # the fetch() call — so the initiating script runs to completion and its
+      # microtask checkpoint happens first. Defer the fulfillment onto the
+      # scheduler as a task so the synchronous data path gets the same event-loop
+      # semantics as the async DeferredResponse path. Without a scheduler (rare
+      # embedder), fall back to inline.
+      if (sched = @window.respond_to?(:scheduler) ? @window.scheduler : nil)
+        sched.set_timeout(proc { deliver_entry(promise, entry, url, init) }, 0)
+      else
+        deliver_entry(promise, entry, url, init)
+      end
+    end
+
+    def deliver_entry(promise, entry, url, init)
       if entry.nil?
         promise.fulfill(Response.new(@window, body: "not found", status: 404, status_text: "Not Found", type: "basic"))
         return

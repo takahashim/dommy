@@ -86,7 +86,7 @@ module Dommy
     # microtask drain — that's a sign that real-time work (e.g. a
     # `setTimeout`) needs to advance via `advance_time` first.
     def await
-      @window&.scheduler&.drain_microtasks
+      drive_until_settled
 
       case @state
       when :fulfilled
@@ -94,11 +94,28 @@ module Dommy
       when :rejected
         raise unwrap_rejection(@value)
       else
-        raise "Promise#await: still pending after microtask drain"
+        raise "Promise#await: still pending after draining the event loop"
       end
     end
 
     private
+
+    # Drive the event loop over the work that is ready NOW until this promise
+    # settles: `advance_time(0)` runs the microtask checkpoint plus every task
+    # already due (a fetch's setTimeout(0) delivery and anything it queues),
+    # WITHOUT moving the clock forward. A promise waiting on a real delay
+    # (setTimeout(100)) is left pending — that still needs an explicit
+    # `advance_time`, so #await reports it pending rather than silently jumping
+    # virtual time. Bounded against a self-rescheduling setTimeout(0).
+    def drive_until_settled
+      sched = @window&.scheduler
+      return unless sched
+
+      64.times do
+        sched.advance_time(0)
+        break unless @state == :pending && sched.next_due_timer_at == sched.now_ms
+      end
+    end
 
     def unwrap_rejection(value)
       case value
