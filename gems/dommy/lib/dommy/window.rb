@@ -447,6 +447,7 @@ module Dommy
         "MouseEvent" => Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) },
         "KeyboardEvent" => Bridge::Constructor.new { |args| KeyboardEvent.new(args[0], args[1]) },
         "PromiseRejectionEvent" => Bridge::Constructor.new { |args| PromiseRejectionEvent.new(args[0], args[1]) },
+        "ErrorEvent" => Bridge::Constructor.new { |args| ErrorEvent.new(args[0], args[1]) },
         "EventTarget" => Bridge::Constructor.new { |_args| StandaloneEventTarget.new },
         "Error" => Bridge::Constructor.new { |args| ErrorValue.new(args[0]) },
         # The host PromiseConstructor backs Ruby-side promises (fetch, the

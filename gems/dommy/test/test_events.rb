@@ -70,6 +70,25 @@ class TestEvents < Minitest::Test
     assert_equal({"n" => 42}, received)
   end
 
+  def test_error_event_fields_and_defaults
+    err = StandardError.new("boom")
+    ev = Dommy::ErrorEvent.new("error",
+      "message" => "boom", "filename" => "a.js", "lineno" => 5, "colno" => 3, "error" => err)
+    assert_equal("error", ev.__js_get__("type"))
+    assert_equal("boom", ev.__js_get__("message"))
+    assert_equal("a.js", ev.__js_get__("filename"))
+    assert_equal(5, ev.__js_get__("lineno"))
+    assert_equal(3, ev.__js_get__("colno"))
+    assert_same(err, ev.__js_get__("error"))
+    assert_kind_of(Dommy::Event, ev)
+
+    # Defaults: message/filename "", lineno/colno 0, error null.
+    bare = Dommy::ErrorEvent.new("error")
+    assert_equal("", bare.__js_get__("message"))
+    assert_equal(0, bare.__js_get__("lineno"))
+    assert_nil(bare.__js_get__("error"))
+  end
+
   def test_keyboard_event_modifiers
     ev = Dommy::KeyboardEvent.new("keydown", "key" => "Enter", "ctrlKey" => true)
     assert_equal("Enter", ev.__js_get__("key"))

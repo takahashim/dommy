@@ -604,6 +604,35 @@ module Dommy
     end
   end
 
+  # `ErrorEvent` — the event interface for an uncaught error (fired at
+  # `window.onerror`). Error-reporting code constructs it directly
+  # (`new ErrorEvent("error", { message, error, … })`); without the constructor
+  # that call is "not a function" and takes the whole app down before it renders
+  # (x.com's client bootstrap does exactly this).
+  class ErrorEvent < Event
+    attr_reader :message, :filename, :lineno, :colno, :error
+
+    def initialize(type, init = nil)
+      super
+      @message = read_init(init, "message") || ""
+      @filename = read_init(init, "filename") || ""
+      @lineno = read_init(init, "lineno") || 0
+      @colno = read_init(init, "colno") || 0
+      @error = read_init(init, "error")
+    end
+
+    def __js_get__(key)
+      case key
+      when "message" then @message
+      when "filename" then @filename
+      when "lineno" then @lineno
+      when "colno" then @colno
+      when "error" then @error
+      else super
+      end
+    end
+  end
+
   # `PromiseRejectionEvent` — fired as `unhandledrejection` / `rejectionhandled`
   # when a promise rejects with no handler (`event.promise` / `event.reason`).
   # Critically, its mere existence is what Promise feature-detection (core-js
