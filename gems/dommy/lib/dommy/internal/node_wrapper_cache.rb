@@ -247,13 +247,20 @@ module Dommy
           else
             namespace
           end
+        # A JS-defined custom element (`customElements.define(name, classExpr)`
+        # from page script) registers its JS constructor — a HostCallback — not a
+        # Ruby class, so we cannot `.new(@document, node)` it. Wrap such a node as
+        # its plain built-in element instead (its server-rendered light-DOM
+        # content still displays; the JS upgrade is simply not run). Only a Ruby
+        # class definition routes a custom Ruby wrapper + #construct.
         custom_klass = custom_element_class_for(node.name)
-        klass = custom_klass || Dommy.element_class_for(local_name || node.name, ns)
+        ruby_custom = custom_klass if custom_klass.is_a?(::Class)
+        klass = ruby_custom || Dommy.element_class_for(local_name || node.name, ns)
         instance = klass.new(@document, node)
 
         @wrappers[identity_key(node)] = instance
 
-        if custom_klass && instance.respond_to?(:construct)
+        if ruby_custom && instance.respond_to?(:construct)
           begin
             instance.construct
           rescue StandardError

@@ -219,4 +219,21 @@ class TestCustomElementUpgrade < Minitest::Test
     assert_equal(1, a.connected_count)
     assert_equal(1, b.connected_count)
   end
+
+  # A page's `customElements.define(name, classExpr)` registers a JS constructor
+  # (a HostCallback), not a Ruby class. Wrapping such an element — on the
+  # define-time upgrade and on a later query — must fall back to the built-in
+  # element (the SSR'd content still renders) rather than `.new`-ing the JS
+  # object, which used to crash whole-tree walks (e.g. github's web components).
+  def test_js_constructor_definition_falls_back_without_crashing
+    @doc.body.inner_html = "<x-widget>hello world</x-widget>"
+    js_constructor = Object.new # stand-in for a Dommy::Js::HostCallback
+    @registry.define("x-widget", js_constructor) # upgrade_existing must not crash
+
+    el = @doc.query_selector("x-widget") # wrapping during a query must not crash
+    refute_nil el
+    assert_kind_of Dommy::Element, el
+    refute_kind_of Dommy::Js::HostCallback, el if defined?(Dommy::Js::HostCallback)
+    assert_equal "hello world", el.text_content
+  end
 end
