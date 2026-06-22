@@ -143,3 +143,20 @@ class TestResponseConstructor < Minitest::Test
     assert_kind_of(Dommy::Bridge::Constructor, @win.__js_get__("Response"))
   end
 end
+
+# Set-Cookie is a forbidden response header (WHATWG): never exposed on a
+# fetch Response, and a multi-cookie newline-folded value must not crash
+# Response construction (regression: doubleclick's IDE+test_cookie crashed it).
+class TestResponseForbiddenHeaders < Minitest::Test
+  include DommyTestHelper
+
+  def test_set_cookie_is_stripped_and_does_not_crash
+    win = make_window
+    headers = {"content-type" => "text/html",
+               "set-cookie" => "IDE=x; path=/; Secure\ntest_cookie=1; path=/; Secure"}
+    resp = Dommy::Response.new(win, body: "ok", status: 200, headers: headers)
+    h = resp.__js_get__("headers")
+    assert_equal false, h.__js_call__("has", ["set-cookie"]), "Set-Cookie is not exposed to JS"
+    assert_equal "text/html", h.__js_call__("get", ["content-type"]), "other headers survive"
+  end
+end

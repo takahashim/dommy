@@ -233,9 +233,16 @@ module Dommy
       @mode = (opts["mode"] || opts[:mode] || "cors").to_s
       @cache = (opts["cache"] || opts[:cache] || "default").to_s
       @redirect = (opts["redirect"] || opts[:redirect] || "follow").to_s
+      # WHATWG: a Request ALWAYS has an associated signal (an AbortSignal). Use a
+      # provided signal when present (so `request.signal` is the caller's own
+      # controller signal — react-router add/removeEventListener's it directly),
+      # else a fresh, never-aborted one. Never undefined, or consumers that read
+      # `request.signal.removeEventListener` crash.
+      sig = opts["signal"] || opts[:signal]
+      @signal = sig.respond_to?(:__js_call__) ? sig : AbortSignal.new
     end
 
-    attr_reader :headers, :credentials, :mode, :cache, :redirect
+    attr_reader :headers, :credentials, :mode, :cache, :redirect, :signal
 
     def __js_get__(key)
       case key
@@ -255,6 +262,8 @@ module Dommy
         @cache
       when "redirect"
         @redirect
+      when "signal"
+        @signal
       else
         Bridge::ABSENT
       end
@@ -273,7 +282,8 @@ module Dommy
           "credentials" => @credentials,
           "mode" => @mode,
           "cache" => @cache,
-          "redirect" => @redirect
+          "redirect" => @redirect,
+          "signal" => @signal
         )
       end
     end
@@ -291,19 +301,36 @@ module Dommy
     # Redirect statuses accepted by `Response.redirect(url, status)`.
     REDIRECT_STATUSES = [301, 302, 303, 307, 308].freeze
 
+    # Forbidden response-header names (WHATWG Fetch): never exposed on a
+    # Response's Headers. `Set-Cookie` is handled by the network layer's cookie
+    # jar, not JS — and a real server often sends MULTIPLE Set-Cookie headers
+    # folded into one newline-joined value, which is an invalid Headers value and
+    # used to crash Response construction (e.g. doubleclick's IDE+test_cookie).
+    FORBIDDEN_RESPONSE_HEADERS = %w[set-cookie set-cookie2].freeze
+
     def initialize(window, body:, status: 200, status_text: "", headers: nil, url: "",
                    redirected: false, type: "default", has_body: true)
       @window = window
       @body = body.to_s
       @status = status
       @status_text = status_text.to_s
-      @headers = Headers.new(headers || {})
+      @headers = Headers.new(strip_forbidden_headers(headers))
       @url = url.to_s
       @redirected = redirected ? true : false
       @type = type
       @has_body = has_body ? true : false
       @body_used = false
       @body_stream = nil
+    end
+
+    # Drop forbidden response headers (Set-Cookie/Set-Cookie2) before they reach
+    # the Headers object. Only a Hash (the network path) carries them; a Headers
+    # or nil passes through unchanged.
+    def strip_forbidden_headers(headers)
+      return {} if headers.nil?
+      return headers unless headers.is_a?(Hash)
+
+      headers.reject { |name, _| FORBIDDEN_RESPONSE_HEADERS.include?(name.to_s.downcase) }
     end
 
     # WHATWG `new Response(body, init)`. Validates the status (200–599, else a

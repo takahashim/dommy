@@ -54,6 +54,35 @@ class TestRequest < Minitest::Test
     assert_equal("B", cloned.body)
   end
 
+  # WHATWG: a Request always has an AbortSignal, even when none is passed —
+  # `request.signal` must never be undefined. react-router reads
+  # `request.signal.removeEventListener(...)` and crashed when it was.
+  def test_request_always_has_a_signal
+    req = Dommy::Request.new("/x")
+    signal = req.__js_get__("signal")
+    refute_nil(signal)
+    refute_equal(Dommy::Bridge::ABSENT, signal)
+    assert_kind_of(Dommy::AbortSignal, signal)
+    assert_equal(false, signal.__js_get__("aborted"))
+    # The crashing access path must work (no-op remove on a fresh signal).
+    assert_nil(signal.__js_call__("removeEventListener", ["abort", proc {}]))
+  end
+
+  def test_provided_signal_is_exposed_verbatim
+    controller = Dommy::AbortController.new
+    sig = controller.__js_get__("signal")
+    req = Dommy::Request.new("/x", "signal" => sig)
+    assert_same(sig, req.__js_get__("signal"))
+  end
+
+  def test_clone_preserves_the_signal
+    controller = Dommy::AbortController.new
+    sig = controller.__js_get__("signal")
+    req = Dommy::Request.new("/x", "signal" => sig)
+    cloned = req.__js_call__("clone", [])
+    assert_same(sig, cloned.__js_get__("signal"))
+  end
+
   def test_window_exposes_request_constructor
     win = make_window
     ctor = win.__js_get__("Request")
