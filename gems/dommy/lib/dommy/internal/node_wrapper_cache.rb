@@ -20,11 +20,22 @@ module Dommy
       def wrap(node)
         return nil unless node
 
-        cached = @wrappers[identity_key(node)]
-        return cached if cached
+        key = identity_key(node)
+        cached = @wrappers[key]
+        # A hit is only trustworthy if the cached wrapper still describes the
+        # SAME kind of node as the one now at this identity key. The key is a
+        # backend pointer/object_id, and a backend MAY recycle a freed node's
+        # identity (Nokogiri reuses object_ids; Makiri reuses the lxb pointer of
+        # a *transient* node — e.g. a throwaway fragment parsed by
+        # `Parser.fragment` — once it's GC'd). When that happens the stale entry
+        # would hand back a wrapper of the wrong type (observed: a Fragment
+        # clone resolving to a cached TextNode). Validate cheaply via nodeType —
+        # compared against a static class→type map so we never dereference the
+        # cached wrapper's (possibly freed) backend node — and rebuild on a miss.
+        return cached if cached && cached_wrapper_live?(cached, node)
 
         wrapper = build_wrapper_for(node)
-        @wrappers[identity_key(node)] = wrapper if wrapper
+        @wrappers[key] = wrapper if wrapper
         wrapper
       end
 
@@ -121,12 +132,14 @@ module Dommy
 
       def query_selector(selector)
         return nil if selector.nil?
+
         ast = Internal::SelectorParser.parse!(selector)
         Internal::SelectorMatcher.query_first(@document, ast)
       end
 
       def query_selector_all(selector)
         return NodeList.new if selector.nil?
+
         ast = Internal::SelectorParser.parse!(selector)
         NodeList.new(Internal::SelectorMatcher.query(@document, ast))
       end
@@ -188,6 +201,30 @@ module Dommy
       end
 
       private
+
+      # Whether a cached wrapper still describes the node now at its identity
+      # key. A pure class→nodeType lookup: it must NOT dereference the wrapper's
+      # backend node, which may be a freed pointer after identity recycling.
+      # Unknown/exotic wrappers (Document, ShadowRoot, …) aren't produced by the
+      # fragment-parse paths that recycle identities, so we trust those entries
+      # rather than rebuild.
+      def cached_wrapper_live?(wrapper, node)
+        return true unless node.respond_to?(:node_type)
+
+        expected =
+          case wrapper
+          when Fragment then 11
+          when CDATASectionNode then 4 # subclass of TextNode — test first
+          when TextNode then 3
+          when CommentNode then 8
+          when ProcessingInstructionNode then 7
+          else
+            return true unless wrapper.is_a?(Element)
+
+            1
+          end
+        expected == node.node_type
+      end
 
       # DOM identity key for a backend node, delegated to the backend since
       # the right key differs: Nokogiri reuses one Ruby wrapper per C node
