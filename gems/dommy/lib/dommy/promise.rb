@@ -52,13 +52,15 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[then catch]
+    js_methods %w[then catch finally]
     def __js_call__(method, args)
       case method
       when "then"
         attach_then(args[0], args[1])
       when "catch"
         attach_then(nil, args[0])
+      when "finally"
+        attach_finally(args[0])
       else
         nil
       end
@@ -133,6 +135,39 @@ module Dommy
       @handlers << Handler.new(on_fulfilled, on_rejected, child)
       schedule_flush if settled?
       child
+    end
+
+    # ES2018 `finally(onFinally)` — run `onFinally` (no args) whichever way the
+    # promise settles, then PASS THROUGH the original value/reason. Equivalent to
+    # `then(v => P.resolve(onFinally()).then(() => v),
+    #       e => P.resolve(onFinally()).then(() => { throw e }))`:
+    # onFinally can't change the resolution value, but if it throws or returns a
+    # rejected promise that rejection wins, and a returned promise is awaited
+    # before passing through. A non-callable onFinally is a plain passthrough.
+    # `fetch(...).finally(hideSpinner)` is ubiquitous, so a missing `finally`
+    # crashes real bundles (hatena's ad/guide scripts hit exactly this).
+    def attach_finally(on_finally)
+      return attach_then(on_finally, on_finally) unless callable?(on_finally)
+
+      on_fulfilled = proc { |value| coerce_to_promise(call_finally(on_finally)).__js_call__("then", [proc { value }]) }
+      on_rejected = proc { |reason|
+        coerce_to_promise(call_finally(on_finally)).__js_call__("then", [proc { raise Bridge::ThrowValue.new(reason) }])
+      }
+      attach_then(on_fulfilled, on_rejected)
+    end
+
+    # Invoke onFinally with no arguments, in raising mode so a throw rejects the
+    # finally-chain (run_handler's rescue carries the thrown value through).
+    def call_finally(on_finally)
+      if on_finally.respond_to?(:__js_call_with_raise__)
+        on_finally.__js_call_with_raise__([])
+      else
+        on_finally.call
+      end
+    end
+
+    def coerce_to_promise(value)
+      value.is_a?(PromiseValue) ? value : self.class.resolve(@window, value)
     end
 
     def settle(state, value)

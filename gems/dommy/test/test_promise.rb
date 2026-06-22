@@ -26,6 +26,47 @@ class TestPromise < Minitest::Test
     assert_equal(["boom"], errs)
   end
 
+  # `finally` runs whichever way the promise settles and PASSES THROUGH the
+  # original value/reason — `fetch(...).finally(hideSpinner)` is everywhere, so a
+  # missing finally crashes real bundles.
+  def test_finally_runs_and_passes_the_value_through
+    seen = []
+    @ctor.__js_call__("resolve", [42])
+      .__js_call__("finally", [proc { seen << :ran }])
+      .__js_call__("then", [proc { |v| seen << [:then, v] }])
+    @win.scheduler.drain_microtasks
+    assert_equal([:ran, [:then, 42]], seen)
+  end
+
+  def test_finally_runs_and_passes_the_rejection_through
+    seen = []
+    @ctor.__js_call__("reject", ["boom"])
+      .__js_call__("finally", [proc { seen << :ran }])
+      .__js_call__("then", [proc { |v| seen << [:ok, v] }, proc { |e| seen << [:err, e] }])
+    @win.scheduler.drain_microtasks
+    assert_equal([:ran, [:err, "boom"]], seen)
+  end
+
+  def test_finally_callback_that_throws_rejects_the_chain
+    seen = []
+    @ctor.__js_call__("resolve", [1])
+      .__js_call__("finally", [proc { raise Dommy::Bridge::ThrowValue.new("ferr") }])
+      .__js_call__("then", [proc { |v| seen << [:ok, v] }, proc { |e| seen << [:err, e] }])
+    @win.scheduler.drain_microtasks
+    assert_equal([[:err, "ferr"]], seen)
+  end
+
+  def test_finally_waits_for_a_returned_promise_before_passing_through
+    order = []
+    deferred = @ctor.__js_call__("resolve", [nil])
+      .__js_call__("then", [proc { order << :finally_work; nil }])
+    @ctor.__js_call__("resolve", [7])
+      .__js_call__("finally", [proc { deferred }])
+      .__js_call__("then", [proc { |v| order << [:then, v] }])
+    @win.scheduler.drain_microtasks
+    assert_equal([:finally_work, [:then, 7]], order, "the returned promise settles before passthrough")
+  end
+
   def test_then_chain_propagates
     p = @ctor.__js_call__("resolve", [1])
     final = []
