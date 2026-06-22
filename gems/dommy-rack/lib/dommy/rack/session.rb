@@ -108,7 +108,9 @@ module Dommy
         @response_listeners = []
         @document_loaded_listeners = []
         @subresource_allowlist = []        # hosts allowed for cross-origin <script>/fetch/XHR
-        @blocked_subresource_hosts = []    # cross-origin hosts declined since the last reset
+        @blocked_subresource_hosts = []    # cross-origin hosts declined since the last reset (awaiting a decision)
+        @dropped_subresource_hosts = []    # hosts dropped by the denylist (deliberate; never prompted)
+        @subresource_host_blocker = nil    # embedder-supplied ->(host){bool} denylist (e.g. trackers)
         @js_runtime = build_js_runtime if javascript
         # Built last so it can subscribe to the (already-created) JS runtime's
         # console / js_error / script seams as well as the request/document seams.
@@ -197,6 +199,37 @@ module Dommy
       end
 
       def subresource_host_allowed?(host) = @subresource_allowlist.include?(host.to_s)
+
+      # An embedder-owned denylist predicate consulted before any subresource is
+      # fetched (even in `:open` mode). A text/headless client uses it to drop
+      # tracker/ad hosts it never renders — the host is recorded as blocked so a
+      # UI can still surface it. Generic mechanism only: the host set and the
+      # matching rule (exact / domain-suffix) live in the embedder.
+      attr_accessor :subresource_host_blocker
+
+      def subresource_host_blocked?(host)
+        blocker = @subresource_host_blocker
+        return false unless blocker
+
+        !!blocker.call(host.to_s)
+      end
+
+      # Hosts the denylist dropped this page. Distinct from
+      # blocked_subresource_hosts: a dropped host was refused on purpose (a
+      # tracker the embedder never wants), so the UI surfaces it but never offers
+      # to load it, whereas a blocked host is a cross-origin candidate awaiting a choice.
+      def dropped_subresource_hosts = @dropped_subresource_hosts.dup
+
+      def reset_dropped_subresource_hosts
+        @dropped_subresource_hosts.clear
+        self
+      end
+
+      # Internal: Resources records a denylist-dropped host here.
+      def __internal_record_dropped_subresource(host)
+        host = host.to_s
+        @dropped_subresource_hosts << host unless host.empty? || @dropped_subresource_hosts.include?(host)
+      end
 
       # Cross-origin hosts whose subresources were declined since the last reset,
       # so a UI can offer to allow them.

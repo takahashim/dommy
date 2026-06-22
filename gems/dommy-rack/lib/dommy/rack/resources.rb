@@ -117,6 +117,14 @@ module Dommy
       def served_target(method:, url:, headers:, body:)
         target = absolute_url(url)
         return nil unless target
+        # An embedder denylist (e.g. a text browser's tracker/ad blocklist) wins
+        # over every other rule — a denied host is never fetched, even in `:open`
+        # mode. It is recorded in the DROPPED bucket (deliberate, never prompted),
+        # not the blocked bucket (cross-origin candidates awaiting a decision).
+        if blocked_host?(target)
+          record_dropped(target)
+          return nil
+        end
         # `:open` sessions load any cross-origin subresource (browser parity); the
         # backend SSRF guard still blocks private hosts. Otherwise only same-origin
         # or an allowlisted host loads, and a declined host is recorded to prompt.
@@ -124,6 +132,11 @@ module Dommy
 
         record_blocked(target)
         nil
+      end
+
+      def blocked_host?(target)
+        host = host_of(target)
+        !host.nil? && @session.subresource_host_blocked?(host)
       end
 
       def to_resources_response(response)
@@ -165,6 +178,11 @@ module Dommy
       def record_blocked(target)
         host = host_of(target)
         @session.__internal_record_blocked_subresource(host) if host
+      end
+
+      def record_dropped(target)
+        host = host_of(target)
+        @session.__internal_record_dropped_subresource(host) if host
       end
 
       def host_of(target)
