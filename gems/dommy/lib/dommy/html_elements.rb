@@ -3270,7 +3270,14 @@ module Dommy
 
   class HTMLHtmlElement < HTMLElement
   end
+end
 
+# HTMLCanvasElement is a HTMLElement subclass kept in its own file (the canvas
+# 2D-context stub is sizeable); required here so the element map below resolves
+# the constant. Its runtime-only references (Blob, …) load with the rest.
+require_relative "html_canvas_element"
+
+module Dommy
   # Look up the subclass for a given HTML tag. Document#wrap_node
   # consults this map; defaults to plain Element.
   HTML_ELEMENT_CLASSES = {
@@ -3279,6 +3286,7 @@ module Dommy
     "input" => HTMLInputElement,
     "button" => HTMLButtonElement,
     "img" => HTMLImageElement,
+    "canvas" => HTMLCanvasElement,
     "script" => HTMLScriptElement,
     "link" => HTMLLinkElement,
     "select" => HTMLSelectElement,

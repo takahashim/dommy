@@ -35,7 +35,7 @@ module Dommy
       # `class HTMLxxxElement < HTMLElement` set in the dommy gem's html_elements.
       HTML_LEAF_INTERFACES = %w[
         HTMLAnchorElement HTMLAreaElement HTMLBaseElement HTMLBodyElement
-        HTMLBRElement HTMLButtonElement HTMLDataElement HTMLDetailsElement
+        HTMLBRElement HTMLButtonElement HTMLCanvasElement HTMLDataElement HTMLDetailsElement
         HTMLDialogElement HTMLDivElement HTMLEmbedElement HTMLFieldsetElement
         HTMLFormElement HTMLHeadElement HTMLHeadingElement HTMLHRElement
         HTMLHtmlElement HTMLIFrameElement HTMLImageElement HTMLInputElement
