@@ -81,3 +81,34 @@ class Dommy::Rack::TestCookieJar < Minitest::Test
     50.times { |i| assert_includes stored, "c#{i}=v#{i}", "cookie ##{i} survived the race" }
   end
 end
+class Dommy::Rack::TestCookieJarExport < Minitest::Test
+  def setup
+    @jar = Dommy::Rack::CookieJar.new
+  end
+
+  def test_export_import_round_trips_all_fields_including_host_only
+    @jar.set!("sid", "secret", domain: ".hatena.ne.jp", path: "/", http_only: true) # host_only: false (domain given)
+    @jar.set!("hostonly", "1", domain: nil, path: "/x") # host_only: true (no domain)
+    exported = @jar.export
+    assert_equal 2, exported.size
+
+    fresh = Dommy::Rack::CookieJar.new
+    fresh.import!(exported[0])
+    fresh.import!(exported[1])
+    by_name = fresh.all.to_h { |e| [e.name, e] }
+    assert_equal "secret", by_name["sid"].value
+    assert_equal false, by_name["sid"].host_only
+    assert_equal true, by_name["hostonly"].host_only
+    assert_equal "/x", by_name["hostonly"].path
+  end
+
+  def test_import_skips_an_expired_entry
+    @jar.import!(name: "dead", value: "x", domain: "example.org", path: "/", expires: Time.now - 60)
+    assert_empty @jar.all
+  end
+
+  def test_import_accepts_string_keys_too
+    @jar.import!("name" => "k", "value" => "v", "domain" => "example.org", "path" => "/")
+    assert_equal "v", @jar.get("k")
+  end
+end

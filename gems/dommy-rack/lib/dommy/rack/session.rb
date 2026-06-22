@@ -509,6 +509,11 @@ module Dommy
       def get_cookie(name) = @cookie_jar.get(name)
       def clear_cookies = @cookie_jar.clear
 
+      # Round-trip the whole jar (for a persistent cookie store): #export_cookies
+      # returns plain Hashes, #import_cookies restores them preserving host_only.
+      def export_cookies = @cookie_jar.export
+      def import_cookies(entries) = entries.each { |attrs| @cookie_jar.import!(attrs) }
+
       # --- Collaboration API used by Navigation ---
       # Public so Navigation can drive the session, but not part of the everyday
       # browsing API; prefer #visit / #get / #fetch etc.

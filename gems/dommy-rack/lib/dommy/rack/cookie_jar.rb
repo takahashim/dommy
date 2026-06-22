@@ -67,6 +67,29 @@ module Dommy
         @mutex.synchronize { @entries.reject { |e| expired?(e) } }
       end
 
+      # Every non-expired cookie as a plain Hash (name/value/domain/path/expires/
+      # secure/http_only/host_only) — enough to round-trip the jar to disk and
+      # back via #import! without losing host-only scoping. `expires` is a Time or
+      # nil; the caller serializes it.
+      def export
+        all.map(&:to_h)
+      end
+
+      # Restore a cookie from an #export Hash, preserving host_only exactly (unlike
+      # #set!, which infers it). Skips an already-expired entry. Symbol- or
+      # string-keyed Hashes both work, so a JSON round-trip is fine.
+      def import!(attrs)
+        h = attrs.transform_keys(&:to_sym)
+        entry = CookieEntry.new(
+          name: h[:name].to_s, value: h[:value].to_s,
+          domain: h[:domain].to_s, path: (h[:path] || "/"),
+          expires: h[:expires], secure: !!h[:secure],
+          http_only: !!h[:http_only], host_only: !!h[:host_only]
+        )
+        @mutex.synchronize { store_entry(entry) unless expired?(entry) }
+        nil
+      end
+
       # Build the Cookie request header value for the given URL, or "".
       def cookies_for(request_url)
         uri = URI.parse(request_url)
