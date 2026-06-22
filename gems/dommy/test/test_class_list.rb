@@ -59,4 +59,29 @@ class TestClassList < Minitest::Test
     @list.__js_call__("toggle", ["foo", false])
     refute(@list.__js_call__("contains", ["foo"]))
   end
+
+  def test_replace_present_token
+    assert_equal(true, @list.__js_call__("replace", ["foo", "baz"]))
+    assert_equal("baz bar", @el.class_name)
+  end
+
+  def test_replace_missing_token_is_noop
+    assert_equal(false, @list.__js_call__("replace", ["nope", "baz"]))
+    assert_equal("foo bar", @el.class_name)
+  end
+
+  # Regression: replace() must not mutate the cached token array in place. Doing
+  # so left @token_cache keyed by the old raw class string but holding the
+  # mutated tokens, so a second replace on the same element (with the same raw
+  # value) read stale tokens. The WPT sequence below produced "a d" instead of
+  # "a b" before the fix.
+  def test_replace_does_not_corrupt_token_cache_across_calls
+    @el.set_attribute("class", "a b c")
+    assert_equal(true, @list.__js_call__("replace", ["b", "d"]))
+    assert_equal("a d c", @el.class_name)
+
+    @el.set_attribute("class", "a b c")
+    assert_equal(true, @list.__js_call__("replace", ["c", "a"]))
+    assert_equal("a b", @el.class_name)
+  end
 end

@@ -737,8 +737,12 @@ module Dommy
       idx = tokens.index(old_s)
       return false unless idx
 
-      tokens[idx] = new_s
-      @element.set_attribute(@attribute, tokens.uniq.join(" "))
+      # class_tokens returns the cached token array; dup before mutating so the
+      # in-place assignment can't corrupt the cache (whose key is still the old
+      # raw attribute string, which would then hand stale tokens to later reads).
+      updated = tokens.dup
+      updated[idx] = new_s
+      @element.set_attribute(@attribute, updated.uniq.join(" "))
       true
     end
 
