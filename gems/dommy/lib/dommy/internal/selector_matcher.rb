@@ -76,6 +76,31 @@ module Dommy
         # Array#any? block dispatch on every node for it.
         single = prefilters.size == 1 ? prefilters.first : nil
 
+        # Index fast path: a single id/class/tag pre-filter looks its candidates up
+        # directly (O(matches)) instead of walking the whole (sub)tree per call —
+        # the dominant cost on a jQuery-heavy page (`$.find` → querySelectorAll).
+        # Works for an element scope too (jQuery `.find` is element-scoped): the
+        # index restricts candidates to the scope's pre-order interval. Falls
+        # through to the walk for an :attr pre-filter / multi-selector list / a
+        # scope the index doesn't know (candidates == nil).
+        if single && (index = doc.__internal_selector_index__)
+          scope_node = root.equal?(doc) ? nil : backend_root
+          candidates = index.candidates(single, scope_node)
+          if candidates
+            out = []
+            catch(:done) do
+              candidates.each do |bnode|
+                element = doc.wrap_node(bnode)
+                next unless element && matches?(element, selector_ast, scope: scope)
+
+                out << element
+                throw(:done) if first
+              end
+            end
+            return out
+          end
+        end
+
         out = []
         catch(:done) do
           each_backend_descendant(backend_root) do |bnode|
@@ -159,18 +184,53 @@ module Dommy
           # it as a descendant combinator).
           false
         else # :descendant
-          parent = current.parent_element
-          while parent
-            if matches_compound?(parent, compound, scope: scope) &&
+          match_descendant_left(current, compound, parts, index, scope: scope, anchor: anchor, leading: leading)
+        end
+      end
+
+      # The descendant combinator walks EVERY ancestor of `current`. Wrapping each
+      # one into a Dommy element (to run #matches_compound?) was the dominant cost
+      # on a jQuery-heavy page. So gate each ancestor by the left compound's static
+      # prefilter on the BACKEND node first — a superset, so #matches_compound? is
+      # still authoritative — and only wrap the ancestors that can possibly match.
+      # Prefilters the index can answer an ancestor existence query for.
+      INDEXABLE_ANCESTOR_KINDS = %i[id class type].freeze
+
+      def match_descendant_left(current, compound, parts, index, scope:, anchor:, leading:)
+        doc = current.owner_document
+        prefilter = prefilter_for(compound) # nil ⇒ no static gate, must wrap every ancestor
+
+        # Ask the index about `current`'s ancestors before walking them. For an
+        # indexable compound this is O(log):
+        #   - no ancestor even passes the (necessary) prefilter ⇒ the whole branch
+        #     fails, skip the walk entirely (the big win: candidates with no such
+        #     ancestor used to walk to the root for nothing);
+        #   - additionally, when this is the chain's LEFTMOST compound (index == 1,
+        #     no :has anchor) and it is EXACTLY a class/id (so the index match is
+        #     not just a superset), any matching ancestor completes the chain.
+        if doc && prefilter && INDEXABLE_ANCESTOR_KINDS.include?(prefilter[0]) &&
+           (sel_index = doc.__internal_selector_index__) &&
+           (enter = sel_index.enter_of(current.__dommy_backend_node__))
+          return false unless sel_index.any_ancestor?(prefilter, enter)
+          return true if index == 1 && anchor.nil? && exact_class_or_id_prefilter(compound)
+        end
+
+        backend = current.__dommy_backend_node__
+        backend = backend && backend.parent
+        while backend && doc
+          if backend.node_type == ELEMENT_NODE && (prefilter.nil? || backend_passes?(backend, prefilter))
+            parent = doc.wrap_node(backend)
+            if parent && matches_compound?(parent, compound, scope: scope) &&
                match_left_from(parent, parts, index - 1, scope: scope, anchor: anchor, leading: leading)
               return true
             end
-
-            parent = parent.parent_element
           end
-          false
+          backend = backend.parent
         end
+        false
       end
+
+      ELEMENT_NODE = 1
 
       # Does `leftmost` stand in `combinator` relation to the :has()
       # anchor? (The implied :scope at the head of a relative selector.)
@@ -211,11 +271,13 @@ module Dommy
 
         actual = element.local_name.to_s
         expected = type.name.to_s
-        if html_document?(element)
-          actual.downcase == expected.downcase
-        else
-          actual == expected
-        end
+        # Type selectors are ASCII case-insensitive in an HTML document, case-
+        # sensitive otherwise. `casecmp?` does that comparison WITHOUT allocating
+        # two downcased copies per call — and this runs once per element per
+        # compound, so on a big page (jQuery `.find()` hammering querySelectorAll)
+        # the old `downcase == downcase` was a top allocator (String#downcase +
+        # GC). `==` short-circuits the common exact-match case first.
+        actual == expected || (html_document?(element) && actual.casecmp?(expected))
       end
 
       # Namespace values the parser produces: nil (no prefix and no default
@@ -441,16 +503,11 @@ module Dommy
         while child
           block.call(child)
           each_backend_descendant(child, &block)
-          child = next_element_sibling(child)
+          # `next_element` is the backend's native (C) element-only sibling step;
+          # it skips intervening text/comment nodes in one call, where a Ruby
+          # `.next`-until-element loop cost ~6% of a heavy page's wall time.
+          child = child.next_element
         end
-      end
-
-      ELEMENT_NODE = 1
-
-      def next_element_sibling(node)
-        sib = node.next
-        sib = sib.next while sib && sib.node_type != ELEMENT_NODE
-        sib
       end
 
       # One [kind, value] pre-filter per complex selector — taken from its subject
@@ -466,10 +523,10 @@ module Dommy
         end
       end
 
-      # The most selective static check in `compound` (id > class > attribute);
-      # nil if it has none. Pseudo-classes/types are NOT used (the type's
-      # case/namespace rules and pseudo state are left to the authoritative
-      # #matches?), so a tag- or pseudo-only compound returns nil.
+      # The most selective static check in `compound` (id > class > attribute >
+      # type); nil if it has none (universal/pseudo-only subject). The exact
+      # case/namespace and pseudo state are still left to the authoritative
+      # #matches? — the prefilter only has to be a SUPERSET.
       def prefilter_for(compound)
         id = klass = attr = nil
         compound.subclass_selectors.each do |sub|
@@ -483,17 +540,41 @@ module Dommy
         return [:class, klass] if klass
         return [:attr, attr] if attr
 
+        # A concrete tag (`a`, `div span`) gates the backend walk by tag name —
+        # without it a type-only subject wraps EVERY element before matching,
+        # which dominated a jQuery-heavy page (`$.find('div a')`). Case/namespace
+        # exactness is matches?'s job, so this is a (case-insensitive) superset.
+        type = compound.type
+        return [:type, type.name.to_s] if type.is_a?(SelectorAST::TypeSelector) && !type.name.to_s.empty?
+
         nil
       end
 
+      # [:class|:id, value] when `compound` is EXACTLY one class or id selector
+      # (no type, no pseudo, nothing else), else nil. For such a compound the index
+      # lookup is an exact match — not just a superset — so an index "does an
+      # ancestor match?" answer can be trusted without re-running matches_compound?.
+      def exact_class_or_id_prefilter(compound)
+        return nil unless compound.type.nil? && compound.pseudo_element.nil?
+
+        subs = compound.subclass_selectors
+        return nil unless subs.size == 1
+
+        case subs.first
+        when SelectorAST::ClassSelector then [:class, subs.first.value]
+        when SelectorAST::IdSelector then [:id, subs.first.value]
+        end
+      end
+
       # Does the backend node satisfy a pre-filter? A SUPERSET test (presence /
-      # exact id / class token) — never a false negative, so #matches? can prune.
+      # exact id / class token / tag) — never a false negative, so #matches? can prune.
       def backend_passes?(bnode, prefilter)
         kind, value = prefilter
         case kind
         when :id then bnode["id"] == value
         when :class then class_attr_token?(bnode["class"], value)
         when :attr then !bnode[value].nil?
+        when :type then (name = bnode.name) && name.casecmp?(value)
         end
       end
 
@@ -547,8 +628,14 @@ module Dommy
         element.namespace_uri.nil? || element.namespace_uri == HTML_NS
       end
 
+      # Case-insensitive matching applies in an HTML document (text/html). Delegate
+      # to the document's own cheap flag (`@content_type == "text/html"`) instead
+      # of re-deriving it with `content_type.downcase.include?("html")` on every
+      # element — that string work showed up across millions of match calls. (It
+      # also fixes XHTML, which is genuinely case-sensitive.)
       def html_document?(element)
-        element.owner_document&.content_type.to_s.downcase.include?("html")
+        doc = element.owner_document
+        !doc.nil? && doc.html_document?
       end
 
       def enableable_element?(element)

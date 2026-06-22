@@ -10,9 +10,24 @@ module Dommy
       # document) from an explicit nil namespace passed by createElementNS.
       NAMESPACE_UNSET = Object.new.freeze
 
+      # Cap on distinct cached selectors before the query cache is cleared
+      # wholesale — a backstop against a page that generates unbounded unique
+      # selector strings; real pages reuse a small set (tens).
+      QUERY_CACHE_CAP = 512
+
       def initialize(document)
         @document = document
         @wrappers = {}
+        # Memoizes document-rooted CSS query results within a DOM generation.
+        # querySelector(All) over a large tree is a full descendant walk, yet a
+        # heavy page issues the SAME selector hundreds of times between mutations
+        # (measured ~87% repeats on a real site). `Document#style_generation`
+        # bumps on every childList / attribute / characterData mutation — and on
+        # focus / active-element changes too, so `:focus`-dependent selectors are
+        # invalidated correctly — so a result tagged with the generation it was
+        # computed in stays valid until the next mutation, then is recomputed
+        # lazily. Keyed by [kind, selector] => [generation, value].
+        @query_cache = {}
       end
 
       # Returns the wrapped node, creating and caching if needed.
@@ -133,15 +148,27 @@ module Dommy
       def query_selector(selector)
         return nil if selector.nil?
 
+        key = selector.to_s
+        hit = query_cache_get(:first, key)
+        return hit.first if hit # [result] tuple — distinguishes a cached nil match from a miss
+
         ast = Internal::SelectorParser.parse!(selector)
-        Internal::SelectorMatcher.query_first(@document, ast)
+        result = Internal::SelectorMatcher.query_first(@document, ast)
+        query_cache_set(:first, key, [result])
+        result
       end
 
       def query_selector_all(selector)
         return NodeList.new if selector.nil?
 
+        key = selector.to_s
+        hit = query_cache_get(:all, key)
+        return NodeList.new(hit) if hit # NodeList.new copies, so the cached array is never aliased
+
         ast = Internal::SelectorParser.parse!(selector)
-        NodeList.new(Internal::SelectorMatcher.query(@document, ast))
+        matches = Internal::SelectorMatcher.query(@document, ast)
+        query_cache_set(:all, key, matches)
+        NodeList.new(matches)
       end
 
       def get_element_by_id(id)
@@ -224,6 +251,22 @@ module Dommy
             1
           end
         expected == node.node_type
+      end
+
+      # The cached value for [kind, selector] if it was computed in the current
+      # DOM generation, else nil (a miss, or a stale entry the caller recomputes).
+      def query_cache_get(kind, selector)
+        entry = @query_cache[[kind, selector]]
+        return nil unless entry && entry[0] == @document.style_generation
+
+        entry[1]
+      end
+
+      # Store `value` for [kind, selector] tagged with the current generation,
+      # clearing the cache wholesale if it has grown past the cap.
+      def query_cache_set(kind, selector, value)
+        @query_cache.clear if @query_cache.size >= QUERY_CACHE_CAP
+        @query_cache[[kind, selector]] = [@document.style_generation, value]
       end
 
       # DOM identity key for a backend node, delegated to the backend since

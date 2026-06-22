@@ -221,6 +221,68 @@ module Dommy
       nil
     end
 
+    # A by-id/class/tag index of the backend element tree, memoized per DOM
+    # generation, for SelectorMatcher's document-scoped fast path (or nil to tell
+    # the caller to walk). Rebuilt lazily only after a mutation bumps
+    # style_generation, so it costs one tree walk per generation and pays off when
+    # several queries run before the next mutation.
+    #
+    # Adaptive bypass: if the index keeps getting invalidated after serving only a
+    # handful of queries (a mutation-between-every-query workload, where building
+    # it never pays back), stop building it and just walk — re-testing
+    # periodically. This keeps the worst case at walk speed rather than the ~15%
+    # regression an always-on index would add.
+    SELECTOR_INDEX_MIN_REUSE = 3   # queries an index must serve to have paid for its build
+    SELECTOR_INDEX_LOW_RUN_LIMIT = 8 # consecutive low-reuse generations before bypassing
+    SELECTOR_INDEX_RETEST_GAP = 64 # generations to wait before re-testing a bypass
+
+    def __internal_selector_index__
+      gen = style_generation
+      if @__sel_idx_gen != gen
+        if @__sel_idx
+          if @__sel_idx_served.to_i < SELECTOR_INDEX_MIN_REUSE
+            @__sel_idx_low = @__sel_idx_low.to_i + 1
+            @__sel_idx_bypass = true if @__sel_idx_low >= SELECTOR_INDEX_LOW_RUN_LIMIT
+          else
+            @__sel_idx_low = 0
+          end
+        end
+        if @__sel_idx_bypass && (@__sel_idx_retest = @__sel_idx_retest.to_i + 1) >= SELECTOR_INDEX_RETEST_GAP
+          @__sel_idx_bypass = false
+          @__sel_idx_low = 0
+          @__sel_idx_retest = 0
+        end
+        @__sel_idx = nil
+        @__sel_idx_served = 0
+        @__sel_idx_gen = gen
+      end
+      return nil if @__sel_idx_bypass
+
+      @__sel_idx ||= Internal::SelectorIndex.build(@backend_doc)
+      @__sel_idx_served += 1
+      @__sel_idx
+    end
+
+    # An element-scoped querySelector(All) result cache (the document-rooted one
+    # lives in NodeWrapperCache). jQuery `$(el).find(sel)` re-queries the same
+    # (element, selector) constantly between mutations; this memoizes the match
+    # set, keyed by [scope object_id, kind, selector] and tagged with the DOM
+    # generation, so a hit skips the whole combinator match. Capped, and a
+    # mutation (style_generation bump) makes every entry stale at once.
+    SCOPED_QUERY_CACHE_CAP = 4096
+
+    def __internal_scoped_query_get(key)
+      entry = (@__scoped_query_cache ||= {})[key]
+      entry && entry[0] == style_generation ? entry[1] : nil
+    end
+
+    def __internal_scoped_query_set(key, value)
+      cache = (@__scoped_query_cache ||= {})
+      cache.clear if cache.size >= SCOPED_QUERY_CACHE_CAP
+      cache[key] = [style_generation, value]
+      value
+    end
+
     # A host-supplied `->(url) { css_text_or_nil }` resolving @import URLs to
     # CSS (Dommy has no network of its own — same idea as <link> filling).
     # Setting it invalidates cached styles so the next cascade picks up imports.

@@ -2785,14 +2785,32 @@ module Dommy
       return nil if selector.nil?
       # The empty string is not a valid selector (an explicit DOMString "" is a
       # SyntaxError; `null` coerces to "null" and is handled above as nil).
+      sel = selector.to_s
+      doc = owner_document
+      key = [object_id, :first, sel]
+      if doc && (hit = doc.__internal_scoped_query_get(key))
+        return hit.first # [result] tuple — distinguishes a cached nil match from a miss
+      end
+
       ast = Internal::SelectorParser.parse!(selector)
-      Internal::SelectorMatcher.query_first(self, ast, scope: self)
+      result = Internal::SelectorMatcher.query_first(self, ast, scope: self)
+      doc&.__internal_scoped_query_set(key, [result])
+      result
     end
 
     def query_selector_all(selector)
       return NodeList.new if selector.nil?
+      sel = selector.to_s
+      doc = owner_document
+      key = [object_id, :all, sel]
+      if doc && (hit = doc.__internal_scoped_query_get(key))
+        return NodeList.new(hit) # NodeList.new copies, so the cached array is never aliased
+      end
+
       ast = Internal::SelectorParser.parse!(selector)
-      NodeList.new(Internal::SelectorMatcher.query(self, ast, scope: self))
+      matches = Internal::SelectorMatcher.query(self, ast, scope: self)
+      doc&.__internal_scoped_query_set(key, matches)
+      NodeList.new(matches)
     end
 
     # XPath queries scoped to this element, returning wrapped nodes.
