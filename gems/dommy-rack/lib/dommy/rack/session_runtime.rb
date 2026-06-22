@@ -108,6 +108,14 @@ module Dommy
       # gone): dispose all, then eagerly build the new top realm so its
       # window / fetch bridge are live before any script runs.
       def on_page_load(window)
+        # Scope js_errors / console to the page being loaded — a browser's console
+        # clears on navigation. Cleared BEFORE the new realm boots so this page's
+        # own boot errors are retained. (An embedder that wants a running history
+        # keeps its own log; e.g. dommynx drains each page's output into its
+        # activity log before the next navigation.) Cleared in place so the Trace's
+        # separate live feed is unaffected.
+        @js_errors.clear
+        @console.clear
         dispose_all
         # Announce the document BEFORE booting its scripts so a subscriber (the
         # Trace) records the `:document` marker ahead of the `:script` entries
