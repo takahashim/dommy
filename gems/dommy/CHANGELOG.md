@@ -1,5 +1,101 @@
 # Changelog
 
+## 0.9.0 — 2026-06-22
+
+The major release that brings JavaScript to Dommy. A new engine-agnostic JS
+runtime and JS↔Ruby DOM bridge (with `dommy-js-quickjs` as the first backend)
+sit on a WHATWG event loop — microtasks, timers, async fetch/XHR, Promises/A+,
+Workers, and `postMessage`. Alongside it: a from-scratch CSS cascade and
+computed-style engine, a Playwright-compatible accessibility tree, and a switch
+of the parser backend to Makiri (Lexbor, no libxml2).
+
+### Added
+
+#### JavaScript — runtime & bridge
+- An engine-agnostic JS runtime host layer: a `Dommy::Js::Runtime` port contract plus a backend registry (`register_runtime` / `default_runtime` / `build_runtime`); the core gem runs no JS itself and raises a clear error when no backend is registered. A backend gem (`dommy-js-quickjs`) plugs in underneath.
+- The engine-agnostic JS↔Ruby DOM bridge moved into core: marshalling, the tagged-value wire protocol, the JS-handle table, WebIDL interface derivation, reverse construction (`new Event(...)`), and `customElements.define` wiring.
+- `Dommy::Browser`, a standalone JS-capable test browser, plus script-boot orchestration (import maps, module loading).
+- JS-runtime integration seams: a page-load hook, a fetch handler, and a time pump.
+- Legacy named constructors `Image` / `Audio` / `Option`.
+- Bridge diagnostics: a crossing-count profiler and rejection-detail capture.
+
+#### JavaScript — event loop & scheduler
+- An async-network foundation: a scheduler inbox and deferred `fetch` (resolved as a networking task rather than inline).
+- A microtask checkpoint after each task, per the WHATWG event loop.
+- Deeply-nested timers clamp to 4 ms (HTML timer steps).
+- Real-time tracking in browser mode so concurrent renders can yield.
+
+#### JavaScript — Promises
+- `Promise.prototype.finally` (ES2018).
+- A native `window.Promise` plus `PromiseRejectionEvent`.
+
+#### JavaScript — scripts & modules
+- Execution of dynamically-inserted external `<script src>`, run asynchronously; inserted-script `load` / `error` events fire asynchronously.
+- Module scripts deferred until after parser-blocking classic scripts.
+
+#### JavaScript — async networking (fetch / XHR / streams)
+- `XMLHttpRequest` resolves a deferred (async) response.
+- `data:` URIs resolve in `fetch` / `XMLHttpRequest`.
+- `ReadableStream` is async-iterable (`Symbol.asyncIterator`).
+
+#### JavaScript — workers, messaging & window globals
+- `window.alert` / `confirm` / `prompt` / `reportError` / `getSelection` / `postMessage`; `postMessage` and Worker messages deliver via a task (not a microtask).
+- `window.btoa` / `atob`.
+- `navigator.hardwareConcurrency` / `maxTouchPoints` / `sendBeacon`.
+- `window.screen` (`Screen` + `ScreenOrientation`).
+- The `ErrorEvent` interface.
+- `window.console` / `Object` / `Array` / `JSON` are the native engine globals.
+
+#### CSS — cascade & computed styles
+- A full CSS cascade and `getComputedStyle` engine: UA + `<style>` + inline precedence with `!important` levels, CSS-wide keywords (incl. `revert`), inheritance/initial defaulting, and font-size-first computation so `em` / `rem` / `%` resolve to px without layout.
+- `:visible` is now stylesheet-aware (detects class-driven `display:none` and inherited `visibility:hidden`); `:focus` / `:checked` / `:hover` / `:target` pseudo-classes; broadened selector matching (namespaces, `:visited`, `:lang`).
+- Custom properties and `var()`; viewport environment and media queries (`MediaList`).
+- CSSOM rules wired to the parser; `document.styleSheets` populated; `<link rel=stylesheet>` and `@import` sheets fetched and applied.
+- `@layer` cascade-layer ordering, `@scope` (scoped styling + proximity), `@supports` / `CSS.supports()`, `@namespace`, pseudo-element rules, Shadow DOM CSS scoping, and CSS counters for generated content.
+- `currentColor` resolution, the css-color-4 `none` keyword, `calc()` / `min()` / `max()` / `clamp()` in computed values, percentage line-height → px, and the border / flex / list-style / outline / place shorthands.
+
+#### Accessibility (a11y)
+- `Element#computed_role` (WAI-ARIA computed role) and `Element#computed_label` (accessible name), with `::before` / `::after` generated content folded into the name, plus `#computed_description`.
+- An accessibility tree (`#accessibility_tree` / `#aria_tree`) and a Playwright-compatible ARIA snapshot (`#aria_snapshot`).
+- Role-based queries: `find_by_role` / `all_by_role` / `has_role?`.
+
+#### DOM — nodes & interfaces
+- Passive listeners, `<details>` toggle, transient `MutationObserver`s, in-tree script execution, and the `readyState` lifecycle.
+- `assignedSlot`, composed `getRootNode`, shadow-root mutations, and eager `<template>` migration.
+- `new Text()` / `new Comment()` / `new DocumentFragment()` constructors; `Range#createContextualFragment`.
+- Checkbox/radio click activation behaviour, `indeterminate`, and radio groups.
+- `HTMLCanvasElement` with a 2D-context stub.
+- `ProcessingInstruction` as a real backend-backed node; `new Document()` / `createDocument` backed by a real XML document.
+- `DOMImplementation#hasFeature`, the WHATWG XML serialization algorithm for `XMLSerializer`, and `Event#immediatePropagationStopped`.
+- Opt-in approximate geometry for `getBoundingClientRect` et al.
+
+#### Interaction & browser layer
+- A shared `Dommy::Interaction` layer with event synthesis; a unified `Resources` interface.
+- `Session#visit` settles the page by default (`settle:` option); a `javascript:` session option.
+- `text:` filter on `find` / `all`, `Regexp` support in `has_text?`, and `has_css?(text:)`.
+
+### Changed
+- **Backend:** Makiri (Lexbor, no libxml2) replaces nokolexbor and is now the default backend; the Nokogiri dependency is removed (Makiri only). Adopts Makiri's HTML/XML document split, with `DOMParser` XML routed to an XML document and CDATA wired through.
+- **Dependency:** requires `makiri >= 0.5.1` (for the compiled-selector cache).
+- Absent DOM properties now read as JS `undefined` (not `null`) for feature detection.
+- A runaway timer callback no longer crashes the runtime (timeout interrupt).
+
+#### Performance
+- Index + cache for the `querySelector` hot path on large DOMs; pre-filtering of `querySelectorAll` candidates on the backend tree; querySelector subtree scoping and a sibling-chain fast path.
+- `classList` token caching to speed up class-selector matching.
+- CSSOM rule text scanned over bytes, not UTF-8 characters.
+- The bridge caches the interface descriptor so new proxies skip `__rb_host_describe`.
+
+### Fixed
+- **Promises:** the host promise value is now Promises/A+ conformant, including adopting a thenable returned from a `.then` callback.
+- **Events:** a throwing event listener (and a throwing observer callback) is isolated so it cannot escape dispatch; a blank `<iframe>` gets a real nested document and fires its `load` event asynchronously.
+- **DOM:** `getElementById` matches the id literally (not as a CSS selector); a fragment-parsed `<script>` never executes; pre-insertion validity and WebIDL `Node` coercion on tree mutation; `compareDocumentPosition()`; `ol.start` / `li.value` use HTML integer parsing; correct `MutationObserver` `childList` records for fragments / `normalize` / `splitText` / `replaceChild`; `createElementNS` validation; a cached wrapper is rebuilt when the backend recycles a node identity; JS-defined custom elements no longer crash on wrap.
+- **Fetch:** `Request#signal` is always exposed and forbidden response headers are stripped; fetch/XHR request URLs resolve against the document base.
+- **Backend:** cross-document moves and template cloning made backend-agnostic for Makiri; case-sensitive `*AttributeNS` getters; element namespace derived from Lexbor.
+- **Traversal:** a `NodeFilter`'s thrown value propagates out of the traversal, with a re-entrancy guard on the active flag.
+- **CSS:** corrected selector matching, `var()` ordering, and CSSOM wiring per spec review; empty-substring attribute match and hsl/modern-rgb colors; custom-property cycle detection by SCC; `CSSStyleSheet` `addRule` / `removeRule` validation; an unset style property reads as `""` over the JS bridge.
+- **Range:** `deleteContents` implemented per spec with a corrected boundary-point comparison.
+
 ## 0.8.1 — 2026-05-31
 
 ### Changed

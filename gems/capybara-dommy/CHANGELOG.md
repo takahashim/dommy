@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0 — 2026-06-22
+
+Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.9.0.
+No functional changes to capybara-dommy itself; it inherits dommy 0.9.0's CSS
+cascade, computed styles, and accessibility tree, and now drives check/choose
+through native click activation.
+
 ## 0.8.0 — 2026-05-31
 
 Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.8.0.
