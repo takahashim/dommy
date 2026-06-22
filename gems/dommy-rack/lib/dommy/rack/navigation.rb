@@ -10,6 +10,8 @@ module Dommy
     # apply_navigation_response / current_url).
     class Navigation
       KEEP_METHOD_STATUSES = [307, 308].freeze
+      # Verbs whose params belong in the URL query (vs a request body).
+      QUERY_METHODS = %w[GET HEAD].freeze
 
       def initialize(session, config)
         @session = session
@@ -28,6 +30,17 @@ module Dommy
         url_or_path.to_s
       end
 
+      # Merge ordered [name, value] params into `url`'s query, preserving any
+      # existing query and keeping a fragment last (browser address-bar form).
+      def append_query(url, params)
+        encoded = URI.encode_www_form(params)
+        return url if encoded.empty?
+
+        base, hash, fragment = url.to_s.partition("#")
+        sep = base.include?("?") ? "&" : "?"
+        "#{base}#{sep}#{encoded}#{hash}#{fragment}"
+      end
+
       def check_same_origin!(url)
         return unless @config.enforce_same_origin
         return if same_origin?(url, @config.default_host)
@@ -42,6 +55,15 @@ module Dommy
 
         verb = method.to_s.upcase
         target = resolve_url(url, @session.current_url)
+        # A GET-style navigation carries its data in the URL: fold params into the
+        # query so current_url (the address the user sees, and reloads) reflects
+        # what was submitted — exactly what a browser shows after a GET form. POST
+        # keeps params as the request body. (params and body are mutually
+        # exclusive, so a GET never has a body to conflict with.)
+        if params && QUERY_METHODS.include?(verb)
+          target = append_query(target, params)
+          params = nil
+        end
         check_same_origin!(target)
 
         response, final_url = run(method: verb, url: target, params: params, body: body, headers: headers)
