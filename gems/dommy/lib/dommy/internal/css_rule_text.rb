@@ -17,17 +17,27 @@ module Dommy
       # Top-level rule slices in source order, each stripped of surrounding
       # whitespace. Block rules (`sel { ... }`, `@media ... { ... }`) span to
       # their matching `}`; statement at-rules (`@import ...;`) span to `;`.
+      #
+      # Scans over the BINARY bytes, not the UTF-8 characters: every byte we
+      # branch on ({ } " ' / * ; \\ and ASCII whitespace) is 7-bit, and a UTF-8
+      # multibyte sequence is wholly bytes >= 0x80 — none of which collide with
+      # those, so the structure is read identically while `bytes[i]` stays O(1)
+      # (UTF-8 `String#[i]` is O(i), making the whole scan O(n^2) — the dominant
+      # cost on a large stylesheet). Slice boundaries always land on a 7-bit byte
+      # (a delimiter) or a UTF-8 lead byte (the first non-space of a prelude), so
+      # each byteslice is a whole-character substring; re-tag it UTF-8 on the way
+      # out so the verbatim rule text round-trips unchanged.
       def split_rules(text)
-        text = text.to_s
+        bytes = text.to_s.b
         rules = []
         start = nil
         depth = 0
         string = nil
         i = 0
-        len = text.length
+        len = bytes.length
 
         while i < len
-          ch = text[i]
+          ch = bytes[i]
 
           if string
             if ch == "\\"
@@ -39,8 +49,8 @@ module Dommy
             next
           end
 
-          if ch == "/" && text[i + 1] == "*"
-            close = text.index("*/", i + 2)
+          if ch == "/" && bytes[i + 1] == "*"
+            close = bytes.index("*/", i + 2)
             i = (close || len - 2) + 2
             next
           end
@@ -55,12 +65,12 @@ module Dommy
           when "}"
             depth -= 1 if depth.positive?
             if depth.zero? && start
-              rules << text[start..i]
+              rules << bytes[start..i]
               start = nil
             end
           when ";"
             if depth.zero? && start
-              rules << text[start..i]
+              rules << bytes[start..i]
               start = nil
             end
           else
@@ -70,21 +80,26 @@ module Dommy
           i += 1
         end
 
-        rules << text[start..] if start
-        rules.map(&:strip).reject(&:empty?)
+        rules << bytes[start..] if start
+        rules.map { |slice| slice.force_encoding(Encoding::UTF_8).strip }.reject(&:empty?)
       end
 
       # [prelude, body] for one rule slice. `body` is the text between the
       # outermost braces, or nil for a braceless statement at-rule. `prelude`
       # is the selector list (style rule) or the at-rule keyword + condition.
+      #
+      # Walks the BINARY bytes for the same reason as #split_rules: the brace
+      # scan is O(1) per byte instead of O(i) per UTF-8 character. Brace indices
+      # land on the 7-bit `{`/`}`, so every byteslice is a whole-character
+      # substring; re-tag the pieces UTF-8.
       def split_rule(text)
-        text = text.to_s
-        brace = top_level_brace(text)
-        return [text.sub(/;\s*\z/, "").strip, nil] unless brace
+        bytes = text.to_s.b
+        brace = top_level_brace(bytes)
+        return [bytes.force_encoding(Encoding::UTF_8).sub(/;\s*\z/, "").strip, nil] unless brace
 
-        prelude = text[0...brace].strip
-        close = matching_brace(text, brace)
-        body = text[(brace + 1)...(close || text.length)].to_s
+        prelude = bytes[0...brace].force_encoding(Encoding::UTF_8).strip
+        close = matching_brace(bytes, brace)
+        body = bytes[(brace + 1)...(close || bytes.length)].to_s.force_encoding(Encoding::UTF_8)
         [prelude, body]
       end
 
