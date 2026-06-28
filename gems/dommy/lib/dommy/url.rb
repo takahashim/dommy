@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require "uri"
-require "cgi"
+require "cgi/escape"
 require_relative "internal/url_parser"
 
 module Dommy
