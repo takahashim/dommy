@@ -2047,6 +2047,19 @@ module Dommy
       Backend.attribute_nodes(@__node__).map(&:name)
     end
 
+    # A plain {name => value} snapshot of ALL attributes, for the JS bridge's
+    # per-proxy attribute cache (see host_runtime.js): one crossing answers
+    # every subsequent getAttribute/hasAttribute until the DOM epoch moves.
+    # nil for an element whose attribute lookups are case-SENSITIVE (foreign
+    # namespace) — the JS side then keeps the per-call bridge path. Keys are
+    # as stored (already lowercased for HTML elements), so a JS-side
+    # `name.toLowerCase()` lookup matches get_attribute's normalize_attr_key.
+    def __js_attribute_snapshot__
+      return nil if case_sensitive_attribute_names?
+
+      Backend.attribute_nodes(@__node__).to_h { |a| [a.name, a.value.to_s] }
+    end
+
     # No real layout engine. By default geometry getters return zeroed rects;
     # when the window opts into approximate geometry (window.approximate_layout)
     # they return non-zero estimates from a cheap pseudo-layout so a site that

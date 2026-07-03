@@ -204,6 +204,7 @@ globalThis.__rbHost = (function () {
   // listener. The live function (closure intact) is invoked; tagged args
   // (e.g. an Event handle) are rehydrated to proxies first.
   function invokeCallback(id, args, thisArg) {
+    bumpDomEpoch(); // Ruby ran (and may have mutated the DOM) since the last JS entry
     const fn = callbacks.get(id);
     if (!fn) return undefined;
     // A null/absent thisArg keeps the historical undefined receiver; a tagged
@@ -230,7 +231,9 @@ globalThis.__rbHost = (function () {
   // queue, so a Dommy Ruby microtask (e.g. MutationObserver delivery) runs in
   // FIFO order with JS `await`/Promise reactions rather than on a separate pass.
   function scheduleMicrotask(id) {
-    Promise.resolve().then(() => { __rb_run_microtask(id); });
+    // The host microtask runs Ruby (MutationObserver delivery etc.), which may
+    // mutate the DOM — invalidate attribute snapshots once it returns.
+    Promise.resolve().then(() => { __rb_run_microtask(id); bumpDomEpoch(); });
   }
 
   // Replace unpaired UTF-16 surrogates with U+FFFD. Ruby strings can't hold lone
@@ -357,6 +360,7 @@ globalThis.__rbHost = (function () {
   // Invokes handleEvent with the object itself as `this`; the tagged event is
   // rehydrated to a proxy first.
   function invokeJsRefHandleEvent(ref, event) {
+    bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const o = jsRefs.get(ref);
     if (!o || typeof o.handleEvent !== "function") return undefined;
     return dehydrateTop(o.handleEvent(rehydrate(event)));
@@ -367,6 +371,7 @@ globalThis.__rbHost = (function () {
   // called with `this` = the filter; a thrown value (from the getter or the
   // call) is tagged so the Ruby side can re-throw it out of the traversal.
   function invokeJsRefAcceptNode(ref, node) {
+    bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const o = jsRefs.get(ref);
     if (!o) return undefined;
     try {
@@ -635,6 +640,7 @@ globalThis.__rbHost = (function () {
   // completion value is voided so a trailing expression never trips the
   // unawaited-Promise guard.
   function runScript(src) {
+    bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const body = String(src);
     const strict = /^\s*(["'])use strict\1/.test(body);
     if (!strict && typeof globalThis.window !== "undefined" && globalThis.window !== globalThis) {
@@ -1099,10 +1105,85 @@ globalThis.__rbHost = (function () {
   // invalidation concern.
   const CONST_NODE_PROPS = new Set(["nodeType", "nodeName", "localName", "tagName"]);
 
+  // ===== DOM epoch (attribute-cache invalidation) =====
+  //
+  // Element proxies cache their full attribute map (fetched in ONE crossing
+  // via __rb_host_attrs) and answer getAttribute/hasAttribute locally while
+  // the DOM is provably unchanged. "Provably unchanged" is tracked by a single
+  // counter: any event that could mutate the DOM bumps it, and a bumped epoch
+  // lazily invalidates every proxy's snapshot. Bump sites:
+  //
+  //   * a proxy method call NOT known to be read-only (setAttribute,
+  //     appendChild, classList.add via the DOMTokenList proxy, …) — bumped
+  //     before AND after, so a reentrant callback during the Ruby call
+  //     (attributeChangedCallback) never reads a stale snapshot
+  //   * a proxy property write / named delete (__rb_host_set / __rb_host_delete)
+  //   * every Ruby -> JS entry (invokeCallback / invokeLifecycle /
+  //     invokeJsRefHandleEvent / invokeJsRefAcceptNode / runScript, and after
+  //     a host microtask ran Ruby) — between JS runs, Ruby test code may have
+  //     mutated the DOM directly
+  //
+  // Reads can only happen while JS executes, and JS executes only between
+  // those bump sites, so a snapshot taken at epoch N is valid for every read
+  // at epoch N. The cost of over-bumping is a refetch (one crossing), never a
+  // stale answer.
+  let domEpoch = 0;
+  function bumpDomEpoch() { domEpoch += 1; }
+
+  // Proxy methods that never mutate the DOM (pure queries / listener
+  // registration), so calling them does NOT bump the epoch. Anything not
+  // listed is treated as potentially mutating — correctness over cache hits.
+  const NON_MUTATING_METHODS = new Set([
+    "getAttribute", "getAttributeNS", "getAttributeNames", "getAttributeNode",
+    "hasAttribute", "hasAttributeNS", "hasAttributes",
+    "matches", "closest", "contains", "isEqualNode", "isSameNode",
+    "querySelector", "querySelectorAll",
+    "getElementsByTagName", "getElementsByTagNameNS", "getElementsByClassName",
+    "getElementById", "getRootNode", "compareDocumentPosition",
+    "getBoundingClientRect", "getClientRects", "checkVisibility",
+    "item", "namedItem", "getPropertyValue", "getPropertyPriority",
+    "addEventListener", "removeEventListener",
+    "observe", "unobserve", "disconnect", "takeRecords",
+  ]);
+
   function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain) {
     // Cached constant-prop values (CONST_NODE_PROPS) for a Node proxy; null
     // for non-Node interfaces so the cache check stays out of their get path.
     const constCache = nodeChain ? new Map() : null;
+    // The element's attribute snapshot for the current DOM epoch:
+    //   undefined -> not fetched this epoch;  null -> permanently uncacheable
+    //   (not an element / case-sensitive foreign-namespace lookups);
+    //   object    -> {name: value}, valid while attrsEpoch === domEpoch.
+    let attrsCache;
+    let attrsEpoch = -1;
+    const attrsSnapshot = () => {
+      if (attrsCache === null) return null;
+      if (attrsCache === undefined || attrsEpoch !== domEpoch) {
+        // A host that registered only part of the ABI (a bare-bones harness)
+        // may lack __rb_host_attrs — then this proxy is permanently uncached.
+        const snap = (typeof globalThis.__rb_host_attrs === "function")
+          ? __rb_host_attrs(handle) : null;
+        attrsCache = (snap !== null && typeof snap === "object") ? snap : null;
+        attrsEpoch = domEpoch;
+      }
+      return attrsCache;
+    };
+    // A cached-attribute read: answers from the snapshot when one is
+    // available, else falls back to a normal bridge call. Lookup lowercases
+    // the argument — snapshots exist only for elements whose Ruby-side lookup
+    // is case-insensitive, so this matches get_attribute exactly. "__proto__"
+    // is excluded (a snapshot object can't represent it as a data property).
+    const cachedAttrRead = (method, name) => {
+      let attrs = null;
+      let key;
+      if (typeof name === "string") {
+        key = name.toLowerCase();
+        if (key !== "__proto__") attrs = attrsSnapshot();
+      }
+      if (attrs === null) return rehydrate(__rb_host_call(handle, method, dehydrateArgs([name])));
+      if (method === "hasAttribute") return Object.hasOwn(attrs, key);
+      return Object.hasOwn(attrs, key) ? attrs[key] : null;
+    };
     // The live length of an array-like collection (NodeList/HTMLCollection/…),
     // so indexed own-property reflection (hasOwnProperty / Object.keys / spread)
     // tracks the current children. 0 for non-collections.
@@ -1133,8 +1214,22 @@ globalThis.__rbHost = (function () {
                 if (args.length >= 3) args[2] = flattenListenerOptions(prop, args[2]);
                 return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
               };
-            } else {
+            } else if (nodeChain && (prop === "getAttribute" || prop === "hasAttribute")) {
+              fn = (name) => cachedAttrRead(prop, name);
+            } else if (NON_MUTATING_METHODS.has(prop)) {
               fn = (...args) => rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+            } else {
+              // Potentially mutating: bump the epoch before (a reentrant
+              // callback during the call must not read stale snapshots) and
+              // after (the call's own mutations invalidate later reads).
+              fn = (...args) => {
+                bumpDomEpoch();
+                try {
+                  return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+                } finally {
+                  bumpDomEpoch();
+                }
+              };
             }
             methodCache.set(prop, fn);
           }
@@ -1207,7 +1302,11 @@ globalThis.__rbHost = (function () {
         // (null → "", else ToString — so `innerHTML = 42` / `{toString…}` work and
         // a toString that throws propagates) before the value crosses into Ruby.
         if (NULL_TO_EMPTY_STRING_SETTERS.has(prop)) value = value === null ? "" : String(value);
+        // A host property write may mutate the DOM (id/className/innerHTML/
+        // style.color/dataset.x/…): invalidate attribute snapshots around it.
+        bumpDomEpoch();
         const handled = __rb_host_set(handle, prop, dehydrateTop(value));
+        bumpDomEpoch();
         // A throwing setter comes back as a tagged exception — re-throw it.
         if (handled && typeof handled === "object" && handled.__rb_exception__) {
           throw makeHostError(handled.__rb_exception__);
@@ -1267,7 +1366,9 @@ globalThis.__rbHost = (function () {
         if (isIndexInRange(prop)) return false;
         if (named && typeof prop === "string") {
           if (named.writable) {
-            // Named deleter (dataset): remove the backing attribute.
+            // Named deleter (dataset): remove the backing attribute — a DOM
+            // mutation, so invalidate attribute snapshots.
+            bumpDomEpoch();
             if (rehydrate(__rb_host_delete(handle, prop))) return true;
           } else if (isNamedKey(prop)) {
             return false; // read-only named property cannot be deleted
@@ -1403,6 +1504,7 @@ globalThis.__rbHost = (function () {
   // Ruby calls this when a registered custom element fires a lifecycle reaction.
   // makeProxy upgrades on first crossing, so the constructor has already run.
   function invokeLifecycle(handle, callback, args) {
+    bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const p = makeProxy(handle);
     const fn = p[callback];
     if (typeof fn !== "function") return undefined;
@@ -1497,6 +1599,7 @@ globalThis.__rbHost = (function () {
 
   return {
     makeProxy, invokeCallback, invokeJsRefHandleEvent, invokeJsRefAcceptNode, runScript, scheduleMicrotask,
+    bumpDomEpoch,
     // `tag` is the public top-level dehydrate (used by engine gems' eval_tagged
     // for evaluate() results): it tags a top-level `undefined` so
     // `evaluate("undefined")` yields UNDEFINED on every engine, not just those

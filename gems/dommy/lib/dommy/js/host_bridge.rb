@@ -308,6 +308,17 @@ module Dommy
           info["ce"] = obj.__js_custom_element_name__ if obj.respond_to?(:__js_custom_element_name__)
           info
         end
+        # One-shot attribute snapshot for the JS-side attribute cache: a plain
+        # {qualified_name => value} Hash (an element with case-insensitive
+        # attribute lookups), or nil (anything else — the JS side keeps the
+        # per-call path). Staleness is the JS side's concern (the DOM epoch).
+        @backend.define_host_function("__rb_host_attrs") do |handle|
+          dom_guard do
+            obj = host(handle)
+            count_crossing(:__rb_host_attrs, obj)
+            obj.respond_to?(:__js_attribute_snapshot__) ? obj.__js_attribute_snapshot__ : nil
+          end
+        end
         # WebIDL "supported property names" for a legacy platform object (a live
         # array-like/maplike collection): the current ordered named-property
         # keys. Queried per ownKeys / getOwnPropertyDescriptor so it tracks DOM
