@@ -1,13 +1,14 @@
 # frozen_string_literal: true
 
-require "cgi/escape"
 require "erb"
 require "base64"
+
+require_relative "url_parser"
 
 module Dommy
   module Internal
     # Stateless global functions exposed on the JS global (Window) that don't
-    # depend on any window state. Kept here so Window doesn't carry the cgi/erb
+    # depend on any window state. Kept here so Window doesn't carry the erb
     # dependency just for URI component encoding.
     module GlobalFunctions
       module_function
@@ -19,8 +20,11 @@ module Dommy
         ERB::Util.url_encode(value.to_s)
       end
 
+      # JS `decodeURIComponent`: percent-decode only — unlike form-urlencoded
+      # decoding, "+" stays a literal "+". Malformed UTF-8 becomes U+FFFD
+      # (a real engine throws URIError; nothing downstream relies on that).
       def decode_uri_component(value)
-        CGI.unescape(value.to_s)
+        UrlParser.percent_decode(value.to_s).force_encoding(Encoding::UTF_8).scrub("\u{FFFD}")
       end
 
       # JS `btoa`: base64-encode a binary (Latin1) string. Each code unit must be

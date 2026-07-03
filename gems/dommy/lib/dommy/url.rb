@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "uri"
-require "cgi/escape"
 require_relative "internal/url_parser"
 
 module Dommy
@@ -550,8 +549,11 @@ module Dommy
       end
     end
 
+    # WHATWG urlencoded decode: "+" is a space (before percent-decoding, so a
+    # %2B survives as a literal "+"), then UTF-8 decode without BOM (malformed
+    # sequences become U+FFFD — the result is a USVString).
     def decode(str)
-      CGI.unescape(str)
+      Internal::UrlParser.percent_decode(str.tr("+", " ")).force_encoding(Encoding::UTF_8).scrub("\u{FFFD}")
     end
 
     # WHATWG application/x-www-form-urlencoded serializer: byte-encode, keeping
