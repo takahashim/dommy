@@ -121,6 +121,28 @@ module Dommy
         true
       end
 
+      # Show composition state `update` in a text-entry field (value becomes
+      # base + update) with the insertCompositionText beforeinput/input pair.
+      # No beforeinput veto: composition inputs are not cancelable (spec).
+      # Same return contract as #insert_text.
+      def set_composition_text(element, base, update)
+        return false unless text_entry_field?(element)
+
+        element.value = base + update
+        EventSynthesis.composition_input(element, update)
+        true
+      end
+
+      # Cancel a composition: restore the field's pre-composition value and
+      # fire a deleteCompositionText input. Same return contract.
+      def cancel_composition_text(element, base)
+        return false unless text_entry_field?(element)
+
+        element.value = base
+        EventSynthesis.input(element, nil, "deleteCompositionText")
+        true
+      end
+
       private
 
       def toggle(box, checked)

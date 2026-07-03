@@ -78,6 +78,7 @@ module Dommy
         %w[CloseEvent Event],
         %w[MouseEvent Event],
         %w[KeyboardEvent Event],
+        %w[CompositionEvent Event],
         %w[PromiseRejectionEvent Event],
         %w[ErrorEvent Event],
         %w[DOMException],

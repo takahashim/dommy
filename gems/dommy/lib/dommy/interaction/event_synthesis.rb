@@ -78,8 +78,8 @@ module Dommy
       # keydown is cancelable: a prevented keydown suppresses the key's
       # default action (typing, implicit submission). Returns whether it was
       # prevented, like #click.
-      def keydown(element, key, code)
-        event = Dommy::KeyboardEvent.new("keydown", key_init(key, code))
+      def keydown(element, key, code, extra = nil)
+        event = Dommy::KeyboardEvent.new("keydown", key_init(key, code, extra))
         element.dispatch_event(event)
         event.default_prevented?
       end
@@ -93,8 +93,34 @@ module Dommy
         event.default_prevented?
       end
 
-      def keyup(element, key, code)
-        dispatch(element, Dommy::KeyboardEvent.new("keyup", key_init(key, code)))
+      def keyup(element, key, code, extra = nil)
+        dispatch(element, Dommy::KeyboardEvent.new("keyup", key_init(key, code, extra)))
+      end
+
+      # IME composition events. compositionstart is cancelable per spec;
+      # update / end are not.
+      def compositionstart(element, data = "")
+        dispatch(element, Dommy::CompositionEvent.new("compositionstart", BUBBLES.merge("data" => data)))
+      end
+
+      def compositionupdate(element, data)
+        dispatch(element, Dommy::CompositionEvent.new("compositionupdate",
+          "bubbles" => true, "composed" => true, "data" => data))
+      end
+
+      def compositionend(element, data)
+        dispatch(element, Dommy::CompositionEvent.new("compositionend",
+          "bubbles" => true, "composed" => true, "data" => data))
+      end
+
+      # The input pair during composition: beforeinput then input, both with
+      # inputType insertCompositionText and isComposing true. Unlike ordinary
+      # typing, the composition beforeinput is NOT cancelable (spec).
+      def composition_input(element, data)
+        init = {"bubbles" => true, "composed" => true,
+                "data" => data, "inputType" => "insertCompositionText", "isComposing" => true}
+        dispatch(element, Dommy::InputEvent.new("beforeinput", init))
+        dispatch(element, Dommy::InputEvent.new("input", init))
       end
 
       # beforeinput precedes the value mutation and is cancelable (the input
@@ -119,8 +145,9 @@ module Dommy
         end
       end
 
-      def key_init(key, code)
-        BUBBLES.merge("key" => key, "code" => code)
+      def key_init(key, code, extra = nil)
+        init = BUBBLES.merge("key" => key, "code" => code)
+        extra ? init.merge(extra) : init
       end
 
       def mouse_init

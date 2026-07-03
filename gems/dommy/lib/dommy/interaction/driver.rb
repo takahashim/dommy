@@ -185,6 +185,62 @@ module Dommy
         element
       end
 
+      # Compose text through an IME, with the canonical (Chrome-like) event
+      # sequence an input method produces. `updates` are the visible
+      # composition states (e.g. ["に", "にほんご"] while converting to
+      # 日本語); each dispatches a `Process` keydown (keyCode 229),
+      # compositionupdate, the insertCompositionText beforeinput/input pair
+      # (`isComposing: true`, the field's value shows the composing text),
+      # and keyup. `commit: true` (default) then fires compositionend with
+      # `text` and leaves it in the field; `commit: false` cancels the
+      # composition, restoring the field's prior value.
+      #
+      #   browser.ime_input "#q", "日本語", updates: ["に", "にほんご"]
+      #   browser.ime_input "#q", "", updates: ["に"], commit: false
+      #
+      # A block runs after each composition state (with the update string),
+      # so a test can let virtual time pass mid-composition — e.g. prove a
+      # debounced handler that guards on `event.isComposing` stays quiet
+      # while the user pauses to pick a conversion candidate:
+      #
+      #   browser.ime_input "#q", "日本語", updates: ["に", "にほんご"] do
+      #     browser.advance_time(400)  # longer than the debounce
+      #   end
+      #
+      # Handlers that guard on `event.isComposing` (deferring work until
+      # compositionend) therefore behave exactly as they would under a real
+      # IME — something a real-browser test cannot drive deterministically.
+      def ime_input(selector, text, updates: nil, commit: true)
+        element = find(selector)
+        EventSynthesis.focus(element)
+        text = text.to_s
+        updates = Array(updates || (text.empty? ? [] : [text])).map(&:to_s)
+        base = element.respond_to?(:value) ? element.value.to_s : ""
+
+        EventSynthesis.keydown(element, "Process", "", {"keyCode" => 229})
+        EventSynthesis.compositionstart(element)
+        updates.each_with_index do |update, i|
+          EventSynthesis.keydown(element, "Process", "", {"keyCode" => 229, "isComposing" => true}) if i.positive?
+          EventSynthesis.compositionupdate(element, update)
+          field_interactor.set_composition_text(element, base, update)
+          EventSynthesis.keyup(element, "Process", "", {"isComposing" => true})
+          yield update if block_given?
+        end
+
+        if commit
+          unless text == updates.last
+            EventSynthesis.compositionupdate(element, text)
+            field_interactor.set_composition_text(element, base, text)
+          end
+          EventSynthesis.compositionend(element, text)
+        else
+          field_interactor.cancel_composition_text(element, base)
+          EventSynthesis.compositionend(element, "")
+        end
+        after_interaction
+        element
+      end
+
       # --- Matchers ---
 
       # True when an element matches `selector` in scope. `text:` keeps only

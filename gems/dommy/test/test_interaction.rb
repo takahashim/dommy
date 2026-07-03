@@ -318,4 +318,78 @@ class TestInteraction < Minitest::Test
     assert_equal 1, e.__js_get__("location")
     assert_equal false, e.__js_get__("isComposing")
   end
+
+  # --- Driver#ime_input ---
+
+  def test_ime_input_full_sequence_and_value
+    b = sendkeys_browser("<input id='q' value='x'>")
+    field = b.find("#q")
+    seen = []
+    %w[keydown compositionstart compositionupdate beforeinput input compositionend keyup].each do |type|
+      field.add_event_listener(type, ->(e) { seen << e.type })
+    end
+    values = []
+    field.add_event_listener("input", ->(_e) { values << field.value })
+
+    b.ime_input("#q", "日本語", updates: ["に", "にほんご"])
+
+    assert_equal "x日本語", field.value
+    assert_equal ["xに", "xにほんご", "x日本語"], values
+    assert_equal %w[
+      keydown compositionstart
+      compositionupdate beforeinput input keyup
+      keydown compositionupdate beforeinput input keyup
+      compositionupdate beforeinput input
+      compositionend
+    ], seen
+  end
+
+  def test_ime_input_event_details
+    b = sendkeys_browser("<input id='q'>")
+    field = b.find("#q")
+    details = []
+    field.add_event_listener("keydown", ->(e) {
+      details << [:keydown, e.__js_get__("key"), e.__js_get__("keyCode"), e.__js_get__("isComposing")]
+    })
+    field.add_event_listener("input", ->(e) {
+      details << [:input, e.__js_get__("inputType"), e.__js_get__("isComposing"), e.__js_get__("data")]
+    })
+    field.add_event_listener("compositionend", ->(e) { details << [:end, e.__js_get__("data")] })
+
+    b.ime_input("#q", "日本語", updates: ["に"])
+
+    assert_equal [
+      [:keydown, "Process", 229, false],
+      [:input, "insertCompositionText", true, "に"],
+      [:input, "insertCompositionText", true, "日本語"],
+      [:end, "日本語"],
+    ], details
+  end
+
+  def test_ime_input_cancel_restores_value
+    b = sendkeys_browser("<input id='q' value='x'>")
+    field = b.find("#q")
+    seen = []
+    field.add_event_listener("input", ->(e) { seen << [e.__js_get__("inputType"), field.value] })
+    ends = []
+    field.add_event_listener("compositionend", ->(e) { ends << e.__js_get__("data") })
+
+    b.ime_input("#q", "", updates: ["に"], commit: false)
+
+    assert_equal "x", field.value
+    assert_equal [["insertCompositionText", "xに"], ["deleteCompositionText", "x"]], seen
+    assert_equal [""], ends
+  end
+
+  def test_ime_input_defaults_updates_to_the_committed_text
+    b = sendkeys_browser("<input id='q'>")
+    field = b.find("#q")
+    updates = []
+    field.add_event_listener("compositionupdate", ->(e) { updates << e.__js_get__("data") })
+
+    b.ime_input("#q", "日本語")
+
+    assert_equal ["日本語"], updates
+    assert_equal "日本語", field.value
+  end
 end
