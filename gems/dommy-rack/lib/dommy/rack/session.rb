@@ -763,10 +763,10 @@ module Dommy
       # A <button> defaults to type=submit; an <input> submits only for
       # type=submit or type=image.
       def submit_button?(button)
-        if button.tag_name == "BUTTON"
-          button.type == "submit"
-        else
-          %w[submit image].include?(button.type)
+        case button.tag_name
+        when "BUTTON" then button.type == "submit"
+        when "INPUT" then %w[submit image].include?(button.type)
+        else false
         end
       end
 
