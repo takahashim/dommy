@@ -89,7 +89,7 @@ module Dommy
         return unless browser_started?
 
         pending = browser.js_errors[(@dommy_browser_acked || 0)..] || []
-        browser.dispose_js
+        browser.dispose
         @dommy_browser = nil
         return if @dommy_allow_js_errors || pending.empty?
 

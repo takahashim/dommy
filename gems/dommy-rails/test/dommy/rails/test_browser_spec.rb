@@ -18,7 +18,7 @@ class TestBrowserSpec < Minitest::Test
       @disposed = false
     end
 
-    def dispose_js = @disposed = true
+    def dispose = @disposed = true
   end
 
   # A host that mixes in BrowserSpec but supplies a stub browser (so it never
@@ -85,7 +85,7 @@ class TestBrowserSpec < Minitest::Test
       @disposed = false
     end
 
-    def dispose_js = @disposed = true
+    def dispose = @disposed = true
     def trace = Trace.new({url: "/x", title: "X"})
     def html = "<html><body>page</body></html>"
     def text = "page"

@@ -32,6 +32,14 @@ module Dommy
     # (dommynx) turns it on so sites that bail on all-zero rects can proceed.
     attr_accessor :approximate_layout
 
+    # Optional WebSocket transport factory (a host seam, like the document's
+    # external_script_runner): `->(ws, url, protocols) -> transport | nil`.
+    # A returned transport owns the connection — WebSocket#send / #close
+    # delegate to it, and it reports lifecycle back through the
+    # __transport_*__ callbacks (on the page thread). nil falls back to the
+    # in-memory stub (auto-open + __test_simulate_*__ seams).
+    attr_accessor :websocket_connector
+
     def initialize(host = nil, backend_doc: nil)
       @host = host
       @scheduler = Scheduler.new

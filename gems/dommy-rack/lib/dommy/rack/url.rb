@@ -43,6 +43,18 @@ module Dommy
       def escape_non_ascii(str)
         str.b.gsub(/[^\x00-\x7F]/n) { |byte| format("%%%02X", byte.unpack1("C")) }
       end
+
+      # `host` or `host:port`, omitting a default port (the `Host` header /
+      # tuple-origin serialization rule shared by HTTP and WebSocket).
+      def http_host(uri)
+        uri.port == uri.default_port ? uri.host : "#{uri.host}:#{uri.port}"
+      end
+
+      # `scheme://host[:port]`, the tuple origin for `uri` (used for the
+      # `Origin` header a same-origin WebSocket connection presents).
+      def origin(uri)
+        "#{uri.scheme}://#{http_host(uri)}"
+      end
     end
   end
 end

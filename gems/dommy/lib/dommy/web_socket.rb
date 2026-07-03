@@ -43,7 +43,14 @@ module Dommy
       @sent_messages = []
       @inline_handlers = {}
 
-      # Auto-open via microtask unless tests disable.
+      # A host-installed connector (Dommy::Rack wires real in-process
+      # connections through it) owns the connection when it returns a
+      # transport; otherwise fall back to the in-memory stub, which
+      # auto-opens via microtask unless tests disable.
+      connector = window.respond_to?(:websocket_connector) ? window.websocket_connector : nil
+      @transport = connector&.call(self, @url, @requested_protocols)
+      return if @transport
+
       auto_open = window.globals["__ws_auto_open__"]
       @window.scheduler.queue_microtask(proc { __test_simulate_open__ }) unless auto_open == false
     end
@@ -62,6 +69,7 @@ module Dommy
       return if @ready_state != OPEN # CLOSING/CLOSED silently discard (buffered)
 
       @sent_messages << data
+      @transport&.send_text(data.to_s)
       nil
     end
 
@@ -82,8 +90,43 @@ module Dommy
       @ready_state = CLOSING
       final_code = code.nil? ? 1005 : code.to_i
       final_reason = reason.to_s
-      @window.scheduler.queue_microtask(proc { __test_simulate_close__(final_code, final_reason) })
+      if @transport
+        # The transport completes the closing handshake and reports back via
+        # __transport_closed__ (which fires the close event).
+        @transport.close(final_code, final_reason)
+      else
+        @window.scheduler.queue_microtask(proc { __test_simulate_close__(final_code, final_reason) })
+      end
       nil
+    end
+
+    # --- Transport callbacks ---------------------------------------
+    # A connector-provided transport reports the connection lifecycle through
+    # these, ON THE PAGE THREAD (a threaded transport marshals via
+    # scheduler.post_external). They share the state machine with the test
+    # seams so stub-driven and transport-driven sockets behave identically.
+
+    def __transport_open__(protocol = nil)
+      @protocol = protocol.to_s unless protocol.nil?
+      return if @ready_state != CONNECTING
+
+      @ready_state = OPEN
+      @protocol = @requested_protocols.first || "" if @protocol.empty? && protocol.nil?
+      dispatch_event(Event.new("open"))
+    end
+
+    def __transport_message__(data)
+      __test_simulate_message__(data)
+    end
+
+    def __transport_closed__(code = 1000, reason = "", was_clean: true)
+      return if @ready_state == CLOSED
+
+      __test_simulate_close__(code, reason, was_clean: was_clean)
+    end
+
+    def __transport_error__
+      __test_simulate_error__
     end
 
     # --- Test seams ------------------------------------------------

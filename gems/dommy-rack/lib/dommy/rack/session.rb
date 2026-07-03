@@ -156,10 +156,39 @@ module Dommy
       def js_errors = @js_runtime ? @js_runtime.js_errors : []
       def console = @js_runtime ? @js_runtime.console : []
 
-      # Dispose the JS runtime(s). Safe to call when JS is disabled.
+      # Full session teardown: the JS runtime(s) plus any live WebSocket
+      # transports. Safe to call when JS is disabled, and repeatedly.
+      def dispose
+        Array(@live_websocket_transports).each(&:dispose)
+        @live_websocket_transports = nil
+        dispose_js
+      end
+
+      # Dispose the JS runtime(s) only. Safe to call when JS is disabled.
       def dispose_js
         @js_runtime&.dispose
         @js_runtime = nil
+      end
+
+      # Factory for the window's websocket_connector seam (installed per
+      # realm by SessionRuntime): a same-origin `new WebSocket(url)` connects
+      # to the Rack app itself over rack.hijack (see WebSocketTransport), so
+      # ActionCable-backed features (Turbo Streams broadcasts, …) work
+      # in-process. A cross-origin URL returns nil, leaving the WebSocket on
+      # its in-memory stub.
+      def __internal_websocket_connector(window)
+        lambda do |ws, url, _protocols|
+          base = @current_url || default_host
+          target = WebSocketTransport.rack_target(url, base: base)
+          next nil unless target
+
+          transport = WebSocketTransport.new(
+            app: @app, ws: ws, scheduler: window.scheduler, url: target,
+            origin: Url.origin(target), cookie_string: @cookie_jar.cookies_for(target.to_s)
+          )
+          (@live_websocket_transports ||= []) << transport
+          transport
+        end
       end
 
       # --- Config readers used by collaborators ---

@@ -140,6 +140,9 @@ module Dommy
           window.globals["__fetch_handler__"] = ::Dommy::Resources::FetchHandler.new(
             resources, executor: @session.network_executor, scheduler: window.scheduler
           )
+          # Same-origin WebSockets connect to the Rack app itself (ActionCable
+          # et al.); cross-origin ones keep the in-memory stub.
+          window.websocket_connector = @session.__internal_websocket_connector(window)
           # Dynamically-inserted `<script src>` (webpack/Vite on-demand chunks)
           # fetch + run through the same resources adapter, after boot.
           doc.external_script_runner = lambda do |element, src|
