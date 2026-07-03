@@ -714,19 +714,59 @@ module Dommy
   end
 
   class KeyboardEvent < Event
+    js_methods %w[getModifierState]
+
+    # Legacy keyCode values for non-printable keys (UI Events "keyCode"
+    # informative mapping) — jQuery-era code still branches on these.
+    LEGACY_KEY_CODES = {
+      "Backspace" => 8, "Tab" => 9, "Enter" => 13, "Shift" => 16,
+      "Control" => 17, "Alt" => 18, "CapsLock" => 20, "Escape" => 27,
+      " " => 32, "PageUp" => 33, "PageDown" => 34, "End" => 35, "Home" => 36,
+      "ArrowLeft" => 37, "ArrowUp" => 38, "ArrowRight" => 39, "ArrowDown" => 40,
+      "Delete" => 46, "Meta" => 91,
+    }.freeze
+
     def initialize(type, init = nil)
       super
       @key = read_init(init, "key").to_s
+      @code = read_init(init, "code").to_s
       @ctrl_key = !!read_init(init, "ctrlKey")
       @shift_key = !!read_init(init, "shiftKey")
       @alt_key = !!read_init(init, "altKey")
       @meta_key = !!read_init(init, "metaKey")
+      @repeat = !!read_init(init, "repeat")
+      @location = (read_init(init, "location") || 0).to_i
+      @is_composing = !!read_init(init, "isComposing")
+      @key_code = read_init(init, "keyCode")
+      @char_code = read_init(init, "charCode")
+    end
+
+    # Legacy keyCode: explicit init wins; a printable keypress reports the
+    # character code (Chrome parity), a printable keydown/keyup the upcased
+    # character; named keys use the legacy table.
+    def key_code
+      return @key_code.to_i if @key_code
+
+      if printable_key?
+        type == "keypress" ? @key.ord : @key.upcase(:ascii).ord
+      else
+        LEGACY_KEY_CODES[@key] || 0
+      end
+    end
+
+    # Legacy charCode: nonzero only on a printable keypress.
+    def char_code
+      return @char_code.to_i if @char_code
+
+      type == "keypress" && printable_key? ? @key.ord : 0
     end
 
     def __js_get__(key)
       case key
       when "key"
         @key
+      when "code"
+        @code
       when "ctrlKey"
         @ctrl_key
       when "shiftKey"
@@ -735,9 +775,42 @@ module Dommy
         @alt_key
       when "metaKey"
         @meta_key
+      when "repeat"
+        @repeat
+      when "location"
+        @location
+      when "isComposing"
+        @is_composing
+      when "keyCode"
+        key_code
+      when "charCode"
+        char_code
+      when "which"
+        key_code.zero? ? char_code : key_code
       else
         super
       end
+    end
+
+    def __js_call__(method, args)
+      case method
+      when "getModifierState"
+        case (args || []).first.to_s
+        when "Shift" then @shift_key
+        when "Control" then @ctrl_key
+        when "Alt" then @alt_key
+        when "Meta" then @meta_key
+        else false
+        end
+      else
+        super
+      end
+    end
+
+    private
+
+    def printable_key?
+      @key.length == 1
     end
   end
 

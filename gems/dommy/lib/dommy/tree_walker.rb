@@ -312,39 +312,6 @@ module Dommy
       end
     end
 
-    def first_descendant_or_following(node)
-      child = first_wrapped_child(node)
-      return child if child
-
-      following_skip_subtree(node)
-    end
-
-    def following_skip_subtree(node)
-      current = node
-      while current && current != @root
-        sib = next_sibling_wrapped(current)
-        return sib if sib
-
-        current = wrapped_parent(current)
-      end
-
-      nil
-    end
-
-    def preceding(node)
-      sib = previous_sibling_wrapped(node)
-      if sib
-        node = sib
-        while (last = last_wrapped_child(node))
-          node = last
-        end
-
-        return node
-      end
-
-      wrapped_parent(node)
-    end
-
     def reachable_from_root?(node)
       current = node
       while current

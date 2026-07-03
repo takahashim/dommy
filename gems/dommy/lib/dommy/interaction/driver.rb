@@ -165,6 +165,26 @@ module Dommy
         result
       end
 
+      # Type into the element matching `selector` (focusing it first). Each
+      # key is a Symbol for a named key (:enter, :arrow_down, :escape, … see
+      # EventSynthesis::NAMED_KEYS) or a String typed character by character
+      # (keydown -> keypress -> beforeinput -> insertion + input -> keyup).
+      # Default actions mirror a browser's: characters insert into a text
+      # field, Backspace deletes, Enter inserts a newline in a textarea and
+      # triggers the owning form's implicit submission elsewhere. Preventing
+      # keydown / keypress / beforeinput suppresses the default action, so
+      # SPA keyboard handlers behave as they would in a browser.
+      #
+      #   browser.send_keys "#q", :arrow_down, :enter
+      #   browser.send_keys "#q", "hello"
+      def send_keys(selector, *keys)
+        element = find(selector)
+        EventSynthesis.focus(element)
+        keys.each { |key| dispatch_send_key(element, key) }
+        after_interaction
+        element
+      end
+
       # --- Matchers ---
 
       # True when an element matches `selector` in scope. `text:` keeps only
@@ -202,12 +222,82 @@ module Dommy
       # Real navigation on an un-prevented submit is a host (Session) concern;
       # here we only surface the event so SPA handlers run.
       def submit_owning_form(element)
-        return unless respond_to?(:submit_button?, true) && submit_button?(element)
+        return unless submit_button_element?(element)
 
         form = finder.form_for(element)
         return unless form
 
         form.dispatch_event(Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true))
+      end
+
+      # The includer (Browser / Rack::Session) may define the actual rule for
+      # "is this a submit button"; treat none as present otherwise.
+      def submit_button_element?(element)
+        respond_to?(:submit_button?, true) && submit_button?(element)
+      end
+
+      # The form's first submit button in tree order (the one Enter's
+      # implicit-submission default action would activate), or nil for a
+      # buttonless form. Reuses #submit_button_element? so this agrees with
+      # #submit_owning_form on what counts as a submit button.
+      def default_submit_button(form)
+        form.query_selector_all("button, input").find { |el| submit_button_element?(el) }
+      end
+
+      # --- send_keys internals ---
+
+      def dispatch_send_key(element, key)
+        case key
+        when Symbol
+          named = EventSynthesis::NAMED_KEYS[key] ||
+                  raise(ArgumentError, "unknown key #{key.inspect} (known: #{EventSynthesis::NAMED_KEYS.keys.join(", ")})")
+          send_named_key(element, key, named[0], named[1])
+        when String
+          key.each_char { |char| send_character(element, char) }
+        else
+          raise ArgumentError, "send_keys takes Symbols (named keys) or Strings (typed text), got #{key.inspect}"
+        end
+      end
+
+      def send_named_key(element, name, key, code)
+        unless EventSynthesis.keydown(element, key, code)
+          case name
+          when :enter then enter_default_action(element)
+          when :space then typed_character_default_action(element, " ", "Space")
+          when :backspace then field_interactor.backspace(element)
+          end
+        end
+        EventSynthesis.keyup(element, key, code)
+      end
+
+      def send_character(element, char)
+        code = EventSynthesis.char_code(char)
+        typed_character_default_action(element, char, code) unless EventSynthesis.keydown(element, char, code)
+        EventSynthesis.keyup(element, char, code)
+      end
+
+      # An un-prevented printable keydown fires keypress; an un-prevented
+      # keypress inserts the character (beforeinput -> value -> input).
+      def typed_character_default_action(element, char, code)
+        return if EventSynthesis.keypress(element, char, code)
+
+        field_interactor.insert_text(element, char)
+      end
+
+      # Enter's default action: newline in a textarea; elsewhere the owning
+      # form's implicit submission — click the form's default (first) submit
+      # button so its handlers run, or dispatch a cancelable submit event
+      # directly when the form has no submit button (HTML implicit submission).
+      def enter_default_action(element)
+        return field_interactor.insert_text(element, "\n") if element.local_name == "textarea"
+        return unless element.respond_to?(:form) && (form = element.form)
+
+        submitter = default_submit_button(form)
+        if submitter
+          submit_owning_form(submitter) unless EventSynthesis.click(submitter)
+        else
+          form.dispatch_event(Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true))
+        end
       end
 
       # "no element with role …" plus the roles that WERE present (the most

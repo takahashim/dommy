@@ -83,6 +83,44 @@ module Dommy
         select_el
       end
 
+      TEXT_ENTRY_INPUT_TYPES = %w[text search email url tel password number].freeze
+
+      def text_entry_field?(element)
+        return true if element.local_name == "textarea"
+        return false unless element.local_name == "input"
+
+        type = (element.get_attribute("type") || "text").downcase
+        TEXT_ENTRY_INPUT_TYPES.include?(type)
+      end
+
+      # Append `text` to a text-entry field's value (no caret/selection model:
+      # insertion is at the end), firing cancelable beforeinput then input.
+      # Returns whether the field accepted the insertion (false for a
+      # non-text-entry field or a prevented beforeinput) — used by Driver's
+      # send_keys to decide whether a key's default action ran.
+      def insert_text(element, text)
+        return false unless text_entry_field?(element)
+        return false if EventSynthesis.beforeinput(element, text, "insertText")
+
+        element.value = element.value.to_s + text
+        EventSynthesis.input(element, text)
+        true
+      end
+
+      # Delete the last character of a text-entry field's value. Same return
+      # contract as #insert_text.
+      def backspace(element)
+        return false unless text_entry_field?(element)
+
+        value = element.value.to_s
+        return false if value.empty?
+        return false if EventSynthesis.beforeinput(element, nil, "deleteContentBackward")
+
+        element.value = value[0...-1]
+        EventSynthesis.input(element, nil, "deleteContentBackward")
+        true
+      end
+
       private
 
       def toggle(box, checked)

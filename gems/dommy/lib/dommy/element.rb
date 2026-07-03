@@ -1755,16 +1755,31 @@ module Dommy
 
     alias connected? is_connected?
 
-    # `focus()` / `blur()` — Dommy has no layout / real focus, but
-    # tests rely on `document.activeElement` updating. Track the most
-    # recently focused element on the document.
+    # `focus()` — the HTML focusing steps, minus layout: Dommy treats any
+    # element as focusable (except a disabled form control), then updates
+    # document.activeElement AND fires the focus-change events a real
+    # browser would — blur/focusout on the previously focused element, then
+    # focus/focusin here, with relatedTarget linking the two. JS calling
+    # `input.focus()` therefore triggers the same focus handlers a user's
+    # click/tab would; already-focused and disabled targets are no-ops.
     def focus
+      return nil if disabled_form_control?
+      return nil if @document.__internal_focused_element__.equal?(self)
+
+      previous = @document.__internal_focused_element__
+      fire_focus_out(previous, self) if previous
       @document.__internal_set_active_element__(self)
+      dispatch_event(Dommy::FocusEvent.new("focus", "composed" => true, "relatedTarget" => previous))
+      dispatch_event(Dommy::FocusEvent.new("focusin",
+        "bubbles" => true, "composed" => true, "relatedTarget" => previous))
       nil
     end
 
     def blur
+      return nil unless @document.__internal_focused_element__.equal?(self)
+
       @document.__internal_set_active_element__(nil)
+      fire_focus_out(self, nil)
       nil
     end
 
@@ -2934,6 +2949,21 @@ module Dommy
 
     # ---- Internal helpers (single private section) ----
     private
+
+    # blur (at the element) then focusout (bubbling), per UI Events order.
+    def fire_focus_out(element, new_target)
+      element.dispatch_event(Dommy::FocusEvent.new("blur", "composed" => true, "relatedTarget" => new_target))
+      element.dispatch_event(Dommy::FocusEvent.new("focusout",
+        "bubbles" => true, "composed" => true, "relatedTarget" => new_target))
+      nil
+    end
+
+    # A disabled form control cannot be focused (HTML focusability). Other
+    # elements are all treated as focusable — no layout means no visibility /
+    # tabindex modelling.
+    def disabled_form_control?
+      %w[input button select textarea].include?(local_name) && has_attribute?("disabled")
+    end
 
     def attribute_signature
       Backend.attribute_nodes(@__node__).map { |a| [a.name, a.value] }.sort

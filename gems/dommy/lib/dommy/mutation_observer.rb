@@ -109,15 +109,14 @@ module Dommy
     # Returns the entry with options (attributes, attributeFilter, etc.)
     # or nil if target doesn't match any observed scope.
     def find_matching_entry(target_wrapped)
-      matcher = Internal::ObserverMatcher.new
       entry = @observed.find do |e|
         observed_wrapped = e[:target]
         next false unless observed_wrapped
 
         if observed_wrapped.is_a?(Document)
-          matcher.matches_document?(target_wrapped, subtree: e[:subtree])
+          Internal::ObserverMatcher.matches_document?(target_wrapped, subtree: e[:subtree])
         else
-          matcher.matches?(observed_wrapped, target_wrapped, subtree: e[:subtree])
+          Internal::ObserverMatcher.matches?(observed_wrapped, target_wrapped, subtree: e[:subtree])
         end
       end
       return entry if entry
@@ -126,7 +125,7 @@ module Dommy
       # (now-detached) descendants, with the source registration's options.
       transient = @transients.find do |t|
         root = t[:root]
-        root && (root.equal?(target_wrapped) || matcher.matches?(root, target_wrapped, subtree: true))
+        root && (root.equal?(target_wrapped) || Internal::ObserverMatcher.matches?(root, target_wrapped, subtree: true))
       end
       transient && transient[:source]
     end

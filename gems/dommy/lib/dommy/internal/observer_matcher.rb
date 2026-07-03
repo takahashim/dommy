@@ -4,9 +4,8 @@ module Dommy
   module Internal
     # Matches a mutation target against an observed node based on observer options.
     # Works exclusively with wrapped DOM nodes (not Nokogiri internals).
-    class ObserverMatcher
-      def initialize
-      end
+    module ObserverMatcher
+      module_function
 
       # Does this observer's target scope match the mutation target?
       # Returns true if:
@@ -20,11 +19,10 @@ module Dommy
         observed_wrapped.contains?(target_wrapped)
       end
 
-      # Special case: Document observation
-      # Matches if subtree=false (never) or target is in document (always)
-      def matches_document?(target_wrapped, subtree:)
-        return true if subtree
-        false
+      # Special case: Document observation. Matches iff subtree=true
+      # (a plain target==observed match never applies to a Document).
+      def matches_document?(_target_wrapped, subtree:)
+        subtree
       end
     end
   end

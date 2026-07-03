@@ -11,7 +11,7 @@ class TestObserverMatcher < Minitest::Test
     @outer = @doc.get_element_by_id("outer")
     @middle = @doc.get_element_by_id("middle")
     @inner = @doc.get_element_by_id("inner")
-    @matcher = Dommy::Internal::ObserverMatcher.new
+    @matcher = Dommy::Internal::ObserverMatcher
   end
 
   def test_matches_exact_target
