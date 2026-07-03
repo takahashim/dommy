@@ -1090,7 +1090,19 @@ globalThis.__rbHost = (function () {
     return typeof prop === "string" && /^(0|[1-9][0-9]*)$/.test(prop);
   }
 
-  function makeHandler(handle, methods, methodCache, arrayLike, named) {
+  // Node properties that are constant for the node's lifetime (DOM spec:
+  // readonly, fixed at creation), so a Node-chain proxy may answer them from a
+  // per-proxy cache instead of a bridge round trip. These are the hottest
+  // reads in framework scans (Turbo's PageSnapshot classifies every element
+  // by localName; Stimulus checks nodeType per mutation record), so caching
+  // them removes a large share of `__rb_host_get` traffic with no
+  // invalidation concern.
+  const CONST_NODE_PROPS = new Set(["nodeType", "nodeName", "localName", "tagName"]);
+
+  function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain) {
+    // Cached constant-prop values (CONST_NODE_PROPS) for a Node proxy; null
+    // for non-Node interfaces so the cache check stays out of their get path.
+    const constCache = nodeChain ? new Map() : null;
     // The live length of an array-like collection (NodeList/HTMLCollection/…),
     // so indexed own-property reflection (hasOwnProperty / Object.keys / spread)
     // tracks the current children. 0 for non-collections.
@@ -1128,6 +1140,7 @@ globalThis.__rbHost = (function () {
           }
           return fn;
         }
+        if (constCache !== null && constCache.has(prop)) return constCache.get(prop);
         const raw = __rb_host_get(handle, prop);
         // The host signals a genuinely-absent property with the ABSENT tag (value
         // is `undefined`); a present-but-null property is bare nil (→ JS null).
@@ -1135,6 +1148,12 @@ globalThis.__rbHost = (function () {
         // the global / collection fallbacks below — NOT a real null value.
         const isAbsent = raw !== null && typeof raw === "object" && raw.__rb_absent === true;
         const v = rehydrate(raw);
+        // Cache only a concrete primitive answer (a real node's constant); an
+        // absent/null result keeps taking the fallback paths below uncached.
+        if (constCache !== null && !isAbsent && CONST_NODE_PROPS.has(prop) &&
+            (typeof v === "string" || typeof v === "number")) {
+          constCache.set(prop, v);
+        }
         const hostHasNoValue = isAbsent || v === null;
         if (v == null && (prop in t)) return Reflect.get(t, prop, receiver);
         // The global window: a name the host doesn't resolve falls back to a JS
@@ -1301,6 +1320,7 @@ globalThis.__rbHost = (function () {
         // from one that is present-but-undefined (it returns the UNDEFINED
         // sentinel, tagged `__rb_undefined`) — e.g. AbortSignal's `reason`
         // before abort — so report the latter present (`"reason" in signal`).
+        if (constCache !== null && constCache.has(prop)) return true;
         const raw = __rb_host_get(handle, prop);
         // A genuinely-absent property (ABSENT tag) reports MISSING; a
         // present-but-undefined one (UNDEFINED tag) reports present.
@@ -1356,7 +1376,8 @@ globalThis.__rbHost = (function () {
     }
     // 2c: memoize method functions per proxy so `el.foo === el.foo`.
     const p = new Proxy(target, makeHandler(handle, methods, new Map(),
-      ARRAY_LIKE_COLLECTIONS.has(desc.name), NAMED_PROP_COLLECTIONS.get(desc.name) || null));
+      ARRAY_LIKE_COLLECTIONS.has(desc.name), NAMED_PROP_COLLECTIONS.get(desc.name) || null,
+      !!(desc.chain && desc.chain.indexOf("Node") !== -1)));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
     finalizers.register(p, handle);
