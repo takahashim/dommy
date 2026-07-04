@@ -28,10 +28,12 @@ module Capybara
                      default_host: nil,
                      follow_redirects: nil,
                      max_redirects: nil,
-                     visibility: nil)
+                     visibility: nil,
+                     javascript: nil)
         super()
         config = Capybara::Dommy.configuration
         @app = app
+        @javascript = javascript.nil? ? config.javascript : javascript
         @visibility = visibility || config.visibility
         unless VISIBILITY_MODES.include?(@visibility)
           raise ArgumentError,
@@ -46,6 +48,24 @@ module Capybara
           # hosts (e.g. app_host / multi-server specs), so don't enforce origin.
           enforce_same_origin: false
         }
+        @session_options[:javascript] = true if @javascript
+        # A JS session needs the virtual clock pumped inside Capybara's
+        # synchronize loop, so waiting expectations converge on timer/fetch
+        # driven updates. A host-installed pump (the documented seam) wins.
+        @time_pump ||= -> { @rack_session&.advance_time(16) } if @javascript
+      end
+
+      # Whether this driver runs page JavaScript (`javascript: true`, backed by
+      # a `Dommy::Rack::Session.new(app, javascript: true)`). Node interactions
+      # then dispatch real DOM events (Turbo/Stimulus handlers run) instead of
+      # the HTML-only fast paths.
+      def javascript? = @javascript
+
+      # Drain the JS runtime after an interaction's events (promise reactions
+      # settle before the next Capybara step). No-op without JavaScript.
+      def drain_js
+        rack_session.after_interaction if @javascript
+        nil
       end
 
       # The dommy-rack session. Named `rack_session` to avoid colliding with
@@ -179,6 +199,7 @@ module Capybara
       # --- Lifecycle ---
 
       def reset!
+        @rack_session&.dispose_js if @javascript
         @rack_session = nil
         @frame_stack = []
       end
@@ -200,12 +221,18 @@ module Capybara
       # When raise_on_unsupported_js is false these become no-ops, so tests
       # that incidentally call them don't fail.
 
-      def execute_script(_script, *_args)
-        unsupported_js!("execute_script")
+      def execute_script(script, *args)
+        return unsupported_js!("execute_script") unless @javascript
+        raise ArgumentError, "script arguments are not supported" unless args.empty?
+
+        rack_session.execute_script(script)
       end
 
-      def evaluate_script(_script, *_args)
-        unsupported_js!("evaluate_script")
+      def evaluate_script(script, *args)
+        return unsupported_js!("evaluate_script") unless @javascript
+        raise ArgumentError, "script arguments are not supported" unless args.empty?
+
+        rack_session.evaluate_script(script)
       end
 
       def evaluate_async_script(_script, *_args)

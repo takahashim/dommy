@@ -178,7 +178,12 @@ module Dommy
       #   browser.send_keys "#q", :arrow_down, :enter
       #   browser.send_keys "#q", "hello"
       def send_keys(selector, *keys)
-        element = find(selector)
+        send_keys_to(find(selector), *keys)
+      end
+
+      # Element-based variant of #send_keys, for hosts that already hold the
+      # element (capybara-dommy's Node#send_keys). Same semantics.
+      def send_keys_to(element, *keys)
         EventSynthesis.focus(element)
         keys.each { |key| dispatch_send_key(element, key) }
         after_interaction

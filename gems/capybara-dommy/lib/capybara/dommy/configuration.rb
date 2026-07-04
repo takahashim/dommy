@@ -6,7 +6,7 @@ module Capybara
     # when a keyword argument is omitted.
     class Configuration
       attr_accessor :default_host, :follow_redirects, :max_redirects, :visibility,
-                    :raise_on_unsupported_js
+                    :raise_on_unsupported_js, :javascript
 
       def initialize
         @default_host = "http://example.org"
@@ -14,6 +14,7 @@ module Capybara
         @max_redirects = 5
         @visibility = :html
         @raise_on_unsupported_js = true
+        @javascript = false
       end
     end
 

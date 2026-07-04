@@ -107,6 +107,12 @@ module Capybara
       # Capybara's non-JS send_keys specs use. Key *events* are not dispatched
       # (nothing here can observe them without JavaScript).
       def send_keys(*args)
+        # Under JavaScript, dispatch real keyboard events (keydown/keypress/
+        # input/keyup with browser default actions) through the dommy driver,
+        # so keyboard handlers (arrow navigation, Enter selection) run.
+        # Key chords ([:shift, "o"]) are not supported on this path.
+        return driver.rack_session.send_keys_to(native, *args) if driver.javascript?
+
         return unless native.respond_to?(:value=)
 
         state = {chars: native.value.to_s.chars, caret: native.value.to_s.length, shift: false}
@@ -136,6 +142,8 @@ module Capybara
       # --- Interaction ---
 
       def click(_keys = [], **_options)
+        return js_click if driver.javascript?
+
         if link?
           click_link_node
         elsif submits?
@@ -171,6 +179,7 @@ module Capybara
         select_el = select_node
         deselect_all(select_el) unless select_el&.multiple
         native.selected = true
+        notify_select_changed(select_el)
       end
 
       def unselect_option
@@ -257,6 +266,49 @@ module Capybara
       # javascript: links are no-ops in Capybara (a policy decision); every
       # other link delegates to dommy-rack, which handles fragment / same-page
       # / blank-href semantics and raises on genuinely unsupported schemes.
+      # A JavaScript click: dispatch the full pointer/mouse/click sequence
+      # (Stimulus actions, Turbo's link/submit interception run like in a
+      # browser), then perform the un-prevented default action ourselves —
+      # link navigation, or the form submission algorithm (a cancelable
+      # submit event, then the real submission if nothing canceled it;
+      # Turbo cancels and takes over). Checkbox/radio toggling already ran
+      # as the click event's activation behavior.
+      def js_click
+        prevented = ::Dommy::Interaction::EventSynthesis.click(native)
+        unless prevented
+          if link?
+            click_link_node
+          elsif submits?
+            js_submit
+          elsif tag_name == "label"
+            click_label
+          elsif (details = native.closest("details"))
+            toggle_details(details)
+          end
+        end
+        driver.drain_js
+        nil
+      end
+
+      def js_submit
+        form = form_for(native)
+        return unless form
+
+        event = ::Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true)
+        form.dispatch_event(event)
+        driver.submit_form(form, submitter: native) unless event.default_prevented?
+      end
+
+      # Selecting an option through the UI fires input + change on the select
+      # (under JavaScript; nothing listens without it).
+      def notify_select_changed(select_el)
+        return unless driver.javascript? && select_el
+
+        ::Dommy::Interaction::EventSynthesis.input(select_el)
+        ::Dommy::Interaction::EventSynthesis.change(select_el)
+        driver.drain_js
+      end
+
       def click_link_node
         scheme = native.get_attribute("href").to_s.split(":", 2).first.to_s.downcase
         return if scheme == "javascript"
@@ -303,11 +355,28 @@ module Capybara
         # There is no submitter button in this case.
         form = single_field_form
         if input_field? && string.end_with?("\n") && form
-          native.value = string.chomp
+          write_text(string.chomp)
           driver.submit_form(form, submitter: nil)
         else
-          native.value = string
+          write_text(string)
         end
+      end
+
+      # Set a text field's value. Under JavaScript this types like a user:
+      # focus, value, then input + change events, so Stimulus/React handlers
+      # observe the edit; the JS-less driver keeps the bare value write
+      # (nothing listens).
+      def write_text(string)
+        unless driver.javascript?
+          native.value = string
+          return
+        end
+
+        ::Dommy::Interaction::EventSynthesis.focus(native)
+        native.value = string
+        ::Dommy::Interaction::EventSynthesis.input(native, string)
+        ::Dommy::Interaction::EventSynthesis.change(native)
+        driver.drain_js
       end
 
       def single_field_form
