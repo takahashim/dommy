@@ -75,6 +75,7 @@ module Capybara
       def rack_session
         host = effective_host
         if @rack_session.nil? || @rack_session_host != host
+          @rack_session&.dispose
           @rack_session = ::Dommy::Rack::Session.new(@app, **@session_options.merge(default_host: host))
           @rack_session_host = host
         end
@@ -199,7 +200,7 @@ module Capybara
       # --- Lifecycle ---
 
       def reset!
-        @rack_session&.dispose_js if @javascript
+        @rack_session&.dispose
         @rack_session = nil
         @frame_stack = []
       end
