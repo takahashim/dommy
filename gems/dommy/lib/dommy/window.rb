@@ -23,7 +23,7 @@ module Dommy
   class Window
     include EventTarget
 
-    attr_reader :document, :scheduler, :location, :globals, :custom_elements, :navigator
+    attr_reader :document, :scheduler, :location, :globals, :custom_elements, :navigator, :history
 
     # Opt into best-effort geometry: when true, getBoundingClientRect / client* /
     # offset* return non-zero estimates from a cheap pseudo-layout (viewport width

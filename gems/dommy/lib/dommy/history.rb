@@ -9,6 +9,10 @@ module Dommy
     def initialize(window, location)
       @window = window
       @location = location
+      # Host (embedding session) seam: called with (:push | :replace |
+      # :traverse, url) after each history operation, so a session can keep
+      # its own navigation history and current URL in step with the page's
+      # same-document entries (Turbo Drive's pushState navigations).
       # Each entry records the full href it navigated to, so back/forward can
       # restore Location to it (and fire popstate) — a restoration that
       # framework routers like Turbo's depend on to swap the cached snapshot.
@@ -46,6 +50,17 @@ module Dommy
 
     include Bridge::Methods
     js_methods %w[pushState replaceState back forward go]
+    attr_accessor :__internal_on_change__
+
+    # The current entry index / traversal API for the host session, used to
+    # mirror joint back/forward. go_to targets an absolute entry index (a
+    # previously observed __internal_index__); already there is a no-op, so
+    # no spurious popstate fires.
+    def __internal_index__ = @cursor
+    def __internal_go_to__(index)
+      go(index - @cursor) unless index == @cursor
+    end
+
     def __js_call__(method, args)
       case method
       when "pushState"
@@ -72,12 +87,14 @@ module Dommy
       # affect history.state.
       @stack << {state: Dommy.structured_clone(state), url: @location.href}
       @cursor = @stack.size - 1
+      __internal_on_change__&.call(:push, @location.href)
     end
 
     def replace(state, url)
       resolved = resolve_url!(url)
       @location.__internal_set_url__(resolved) if resolved
       @stack[@cursor] = {state: Dommy.structured_clone(state), url: @location.href}
+      __internal_on_change__&.call(:replace, @location.href)
     end
 
     # WHATWG "URL and history update steps": resolve the given URL against the
@@ -111,8 +128,11 @@ module Dommy
       entry = @stack[@cursor]
       # Restore Location to the target entry's URL BEFORE firing popstate, so a
       # listener that reads `location` (Turbo's restoration visit, the WHATWG
-      # traversal steps) sees the destination, not the page we came from.
+      # traversal steps) sees the destination, not the page we came from. The
+      # host is notified before popstate too, so a handler's requests resolve
+      # against the destination URL.
       @location.__internal_set_url__(entry[:url]) if entry[:url]
+      __internal_on_change__&.call(:traverse, entry[:url])
       @window.fire_popstate(entry[:state])
     end
   end

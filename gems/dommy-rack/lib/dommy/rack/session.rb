@@ -302,14 +302,18 @@ module Dommy
         response
       end
 
+      # Traverse the joint history like a browser's back button: a
+      # same-document target within the LIVE page (a Turbo Drive pushState
+      # entry) moves window.history and fires popstate — Turbo's restoration
+      # visit runs, no full request; a target across a document boundary
+      # re-requests the URL. Returns the destination URL, or nil at the edge.
+      # A JS session may need `settle` afterwards for the restoration fetch.
       def back
-        url = @history.back
-        @navigation.revisit(url) if url
+        traverse_history(:back)
       end
 
       def forward
-        url = @history.forward
-        @navigation.revisit(url) if url
+        traverse_history(:forward)
       end
 
       # --- Basic request API (navigates, updating page state) ---
@@ -611,6 +615,27 @@ module Dommy
         )
       end
 
+      # One step of the joint back/forward traversal (see #back).
+      def traverse_history(direction)
+        target = direction == :back ? @history.back : @history.forward
+        return nil unless target
+
+        if target.window&.equal?(@current_window) && target.windex
+          begin
+            @history_traversing = true
+            @current_window.history.__internal_go_to__(target.windex)
+          ensure
+            @history_traversing = false
+          end
+          @current_url = target.url
+          @js_runtime&.drain
+        else
+          @navigation.revisit(target.url)
+        end
+        target.url
+      end
+      private :traverse_history
+
       # Build a worker-safe thunk that fetches `target` (already absolute) and
       # returns the Response, for the async-network path. Called on the page
       # thread: it enforces same-origin and captures a header snapshot here, then
@@ -641,9 +666,46 @@ module Dommy
           # DOMContentLoaded) run, so CSS-driven computed styles and :visible
           # are correct from the first observation.
           install_stylesheet_loading(@current_window) if load_stylesheets?
+          # The history entry exists and the window-history sync is live
+          # BEFORE scripts boot: Turbo's replaceState-on-start then lands on
+          # THIS entry, and its pushState navigations append after it.
+          windex = @current_window.history.__internal_index__
+          if push_history
+            @history.push(final_url, window: @current_window, windex: windex)
+          else
+            # A revisit re-loaded this URL into a fresh document: re-bind the
+            # existing entry so traversal sync matches the live window.
+            @history.rebind_current(window: @current_window, windex: windex)
+          end
+          install_history_sync(@current_window)
           @document_loaded_listeners.each { |cb| cb.call(@current_window) }
+        elsif push_history
+          @history.push(final_url)
         end
-        @history.push(final_url) if push_history
+      end
+
+      # Mirror the page's same-document history operations (Turbo Drive's
+      # pushState navigations, JS history.back()) into the session: the joint
+      # history gains/updates entries and current_url follows, so
+      # `browser.current_path` and `browser.back` see what a browser's URL
+      # bar and back button would. Guarded against echo while the session
+      # itself drives a traversal, and against a stale window — a retained
+      # handle to a navigated-away page must not touch the session's state.
+      def install_history_sync(window)
+        window.history.__internal_on_change__ = lambda do |kind, url|
+          next if @history_traversing
+          next unless window.equal?(@current_window)
+
+          @current_url = url
+          case kind
+          when :push
+            @history.push(url, window: window, windex: window.history.__internal_index__)
+          when :replace
+            @history.replace_current_url(url)
+          when :traverse
+            @history.sync_to(window, window.history.__internal_index__)
+          end
+        end
       end
 
       # Wire same-origin CSS loading for a freshly installed document: fill
