@@ -79,6 +79,42 @@ module Dommy
     end
   end
 
+  # `RadioNodeList` — a NodeList a form's named getter returns when a name
+  # matches more than one control. Adds `value`: the value of the checked radio
+  # button in the list (or "" if none), and a setter that checks the radio whose
+  # value matches.
+  class RadioNodeList < NodeList
+    def value
+      radio = find { |el| radio_button?(el) && el.checked }
+      radio ? radio.value.to_s : ""
+    end
+
+    def value=(new_value)
+      target = find { |el| radio_button?(el) && el.value.to_s == new_value.to_s }
+      each { |el| el.checked = false if radio_button?(el) }
+      target.checked = true if target
+      new_value
+    end
+
+    def __js_get__(key)
+      return value if key == "value"
+
+      super
+    end
+
+    def __js_set__(key, v)
+      return self.value = v if key == "value"
+
+      super
+    end
+
+    private
+
+    def radio_button?(el)
+      el.respond_to?(:type) && el.type.to_s.casecmp?("radio")
+    end
+  end
+
   # `LiveNodeList` — like NodeList, but re-evaluates its source on
   # every access. Returned by APIs whose spec says "live" — e.g.
   # `Node.childNodes`. The constructor takes a block that yields the

@@ -49,8 +49,8 @@ globalThis.__rbHost = (function () {
   // way NodeList does) need Symbol.iterator so for-of / spread work. They expose
   // length + integer indices through the ABI, so the iterator walks those.
   const ARRAY_LIKE_COLLECTIONS = new Set([
-    "HTMLCollection", "NodeList", "DOMTokenList", "NamedNodeMap", "DOMStringList",
-    "FileList", "CSSRuleList", "StyleSheetList", "DataTransferItemList", "MediaList"
+    "HTMLCollection", "HTMLFormControlsCollection", "NodeList", "DOMTokenList", "NamedNodeMap",
+    "DOMStringList", "FileList", "CSSRuleList", "StyleSheetList", "DataTransferItemList", "MediaList"
   ]);
   // Map-like collections iterated as [key, value] pairs via .entries().
   const ENTRIES_ITERABLES = new Set(["URLSearchParams", "FormData", "Headers"]);
@@ -65,6 +65,7 @@ globalThis.__rbHost = (function () {
   // read-only — `coll[name] = x` / `delete coll[name]` reject in strict mode).
   const NAMED_PROP_COLLECTIONS = new Map([
     ["HTMLCollection", { enumerable: false, writable: false }],
+    ["HTMLFormControlsCollection", { enumerable: false, writable: false }],
     ["HTMLOptionsCollection", { enumerable: false, writable: false }],
     ["NamedNodeMap", { enumerable: false, writable: false }],
     ["DOMStringMap", { enumerable: true, writable: true }],

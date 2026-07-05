@@ -109,7 +109,8 @@ module Dommy
         %w[CSSStyleSheet StyleSheet], %w[StyleSheet],
         # Collection interfaces, seeded so `result instanceof NodeList` /
         # `instanceof HTMLCollection` resolve (querySelectorAll, children, …).
-        %w[NodeList], %w[HTMLCollection],
+        %w[NodeList], %w[HTMLCollection], %w[RadioNodeList NodeList],
+        %w[HTMLFormControlsCollection HTMLCollection],
         # Traversal: NodeFilter exposes only [Constant]s (NodeFilter.SHOW_ELEMENT,
         # .FILTER_ACCEPT, …); TreeWalker/NodeIterator are instances.
         %w[NodeFilter], %w[TreeWalker], %w[NodeIterator],

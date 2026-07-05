@@ -130,7 +130,7 @@ module Dommy
     # so the live collection is the [SameObject] each access returns.
     def elements
       el = self
-      @elements ||= HTMLCollection.new do
+      @elements ||= HTMLFormControlsCollection.new do
         el.__dommy_backend_node__.css("input, select, textarea, button, output, fieldset").filter_map do |n|
           wrapped = el.document.wrap_node(n)
           next if wrapped.respond_to?(:type) && wrapped.tag_name.to_s.casecmp?("input") && wrapped.type.to_s.casecmp?("image")
@@ -208,7 +208,7 @@ module Dommy
         length
       else
         named = named_controls[key.to_s]
-        return named.length == 1 ? named.first : NodeList.new(named) if named && !named.empty?
+        return named.length == 1 ? named.first : RadioNodeList.new(named) if named && !named.empty?
 
         super
       end

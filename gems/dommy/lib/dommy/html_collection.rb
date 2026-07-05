@@ -157,6 +157,26 @@ module Dommy
     end
   end
 
+  # `HTMLFormControlsCollection` — a form's `elements`. Like HTMLCollection but
+  # its named getter returns a RadioNodeList when a name/id matches more than one
+  # control (e.g. a radio group), and the single control otherwise.
+  class HTMLFormControlsCollection < HTMLCollection
+    def named_item(name)
+      key = name.to_s
+      return nil if key.empty?
+
+      matches = to_a.select do |el|
+        next false unless el.respond_to?(:__dommy_backend_node__)
+
+        node = el.__dommy_backend_node__
+        node["id"].to_s == key || node["name"].to_s == key
+      end
+      return nil if matches.empty?
+
+      matches.length == 1 ? matches.first : RadioNodeList.new(matches)
+    end
+  end
+
   # `HTMLOptionsCollection` — specialized `<select>.options` collection.
   # Adds `add(option, before?)`, `remove(index)`, the `selectedIndex`
   # getter/setter, and a `length=` setter that truncates or extends.
