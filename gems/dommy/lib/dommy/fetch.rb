@@ -143,18 +143,67 @@ module Dommy
     # pipeline (and the `__last_init__` globals) sees a uniform shape.
     # When the body is a Blob/File, fill in `Content-Type` from the
     # blob's type unless the caller already provided a header for it.
+    # A default User-Agent — real browsers always send one; tests assert its
+    # presence, not its value.
+    USER_AGENT = "Mozilla/5.0 (Dommy)"
+
     def normalize_init(init)
-      return init unless init.is_a?(Hash)
-
-      h = init.transform_keys(&:to_s)
-      body = h["body"]
-      return h unless body.is_a?(Blob)
-
-      headers = (h["headers"] || {}).dup
-      content_type_set = headers.any? { |k, _| k.to_s.downcase == "content-type" }
-      headers["Content-Type"] = body.type if !content_type_set && !body.type.empty?
-      h["headers"] = headers
+      h = init.is_a?(Hash) ? init.transform_keys(&:to_s) : {}
+      method = (h["method"] || "GET").to_s.upcase
+      h["headers"] = request_headers(h["headers"], h["body"], method)
       h
+    end
+
+    # The request's header set as a plain Hash (case preserved): the caller's
+    # headers (record / sequence of pairs / Headers) plus the defaults a browser
+    # adds — Accept, Accept-Language, User-Agent, and, for a body-bearing method,
+    # Origin and Content-Length; a Content-Type is derived from an extractable
+    # body when the caller set none. So a resolver / endpoint (and the
+    # __last_init__ diagnostic) sees the actual request headers. Names are
+    # case-insensitive, so a default is added only when absent under any casing.
+    def request_headers(raw, body, method)
+      headers = normalize_header_record(raw)
+      bytes, default_ct = body.nil? ? ["", nil] : Response.extract_body(body)
+      headers["Accept"] = "*/*" unless header?(headers, "accept")
+      headers["Accept-Language"] = "en-US,en;q=0.9" unless header?(headers, "accept-language")
+      headers["User-Agent"] = USER_AGENT unless header?(headers, "user-agent")
+      headers["Content-Type"] = default_ct if default_ct && !header?(headers, "content-type")
+      # Fetch adds Origin + Content-Length for methods that carry a body (i.e.
+      # anything but GET/HEAD); a bodyless such request still sends Content-Length: 0.
+      unless %w[GET HEAD].include?(method)
+        headers["Origin"] = request_origin unless header?(headers, "origin")
+        # Content-Length: the body's byte length; a null body still sends 0, but
+        # only for POST/PUT (not arbitrary methods), per Fetch's "extract body".
+        unless header?(headers, "content-length")
+          if !body.nil?
+            headers["Content-Length"] = bytes.bytesize.to_s
+          elsif %w[POST PUT].include?(method)
+            headers["Content-Length"] = "0"
+          end
+        end
+      end
+      headers
+    end
+
+    def request_origin
+      @window.location.__js_get__("origin").to_s
+    rescue StandardError
+      ""
+    end
+
+    # A header record from a Hash, a sequence of [name, value] pairs, or a
+    # Headers, as a plain Hash with string keys (original case preserved).
+    def normalize_header_record(raw)
+      case raw
+      when Headers then raw.to_h
+      when Array then raw.each_with_object({}) { |pair, h| h[pair[0].to_s] = pair[1].to_s if pair.is_a?(Array) }
+      when Hash then raw.transform_keys(&:to_s)
+      else {}
+      end
+    end
+
+    def header?(headers, name)
+      headers.keys.any? { |k| k.to_s.casecmp?(name) }
     end
 
     # Diagnostic only (DOMMY_FETCH_DEBUG=<file>): append a record of what the
