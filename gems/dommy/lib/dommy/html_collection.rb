@@ -112,9 +112,11 @@ module Dommy
         item(key)
       else
         s = key.to_s
-        if s.match?(/\A\d+\z/) && s.to_i < 4_294_967_295
-          # A valid array index (0 ≤ n < 2^32-1) is a pure indexed lookup — out
-          # of range yields nil (→ undefined), never a named fallback.
+        if s.match?(/\A\d+\z/) && s.to_i < 4_294_967_295 && s == s.to_i.to_s
+          # A valid array index is the CANONICAL decimal of 0 ≤ n < 2^32-1 (no
+          # leading zeros: "03" is NOT an index, it is a named key). A pure
+          # indexed lookup — out of range yields nil (→ undefined), no named
+          # fallback.
           item(s.to_i)
         else
           # Non-array-index strings (negative, ≥ 2^32-1, or names) use the named
@@ -165,15 +167,24 @@ module Dommy
       key = name.to_s
       return nil if key.empty?
 
-      matches = to_a.select do |el|
+      matches = controls_named(key)
+      return nil if matches.empty?
+      return matches.first if matches.length == 1
+
+      # A live RadioNodeList: a reference held across a DOM mutation reflects the
+      # updated group (per spec the named getter returns a live NodeList).
+      coll = self
+      RadioNodeList.new(matches) { coll.controls_named(key) }
+    end
+
+    # The controls in this collection whose id or name equals `key`, in order.
+    def controls_named(key)
+      to_a.select do |el|
         next false unless el.respond_to?(:__dommy_backend_node__)
 
         node = el.__dommy_backend_node__
         node["id"].to_s == key || node["name"].to_s == key
       end
-      return nil if matches.empty?
-
-      matches.length == 1 ? matches.first : RadioNodeList.new(matches)
     end
   end
 

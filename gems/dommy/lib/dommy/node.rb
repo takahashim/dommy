@@ -84,12 +84,50 @@ module Dommy
   # button in the list (or "" if none), and a setter that checks the radio whose
   # value matches.
   class RadioNodeList < NodeList
+    # An optional `&compute` block makes the list LIVE: it re-evaluates the
+    # membership on every DOM-shape read, so a reference held across a mutation
+    # (e.g. removing a control from the group) reflects the change — matching the
+    # form named getter's live RadioNodeList. Without a block it is a snapshot.
+    def initialize(*args, &compute)
+      @compute = compute
+      super(*args)
+    end
+
+    # Refresh the backing storage from the live source, if any. Returns self so
+    # it can prefix the Array reads below.
+    def __refresh__
+      replace(@compute.call || []) if @compute
+      self
+    end
+
+    def length
+      __refresh__
+      super
+    end
+
+    def item(index)
+      __refresh__
+      super
+    end
+
+    def [](index)
+      __refresh__
+      super
+    end
+
+    def each(&block)
+      __refresh__
+      super
+    end
+
     def value
+      __refresh__
       radio = find { |el| radio_button?(el) && el.checked }
       radio ? radio.value.to_s : ""
     end
 
     def value=(new_value)
+      __refresh__
       target = find { |el| radio_button?(el) && el.value.to_s == new_value.to_s }
       each { |el| el.checked = false if radio_button?(el) }
       target.checked = true if target

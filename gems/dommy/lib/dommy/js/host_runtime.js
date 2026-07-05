@@ -49,8 +49,9 @@ globalThis.__rbHost = (function () {
   // way NodeList does) need Symbol.iterator so for-of / spread work. They expose
   // length + integer indices through the ABI, so the iterator walks those.
   const ARRAY_LIKE_COLLECTIONS = new Set([
-    "HTMLCollection", "HTMLFormControlsCollection", "NodeList", "DOMTokenList", "NamedNodeMap",
-    "DOMStringList", "FileList", "CSSRuleList", "StyleSheetList", "DataTransferItemList", "MediaList"
+    "HTMLCollection", "HTMLFormControlsCollection", "NodeList", "RadioNodeList", "DOMTokenList",
+    "NamedNodeMap", "DOMStringList", "FileList", "CSSRuleList", "StyleSheetList",
+    "DataTransferItemList", "MediaList"
   ]);
   // Map-like collections iterated as [key, value] pairs via .entries().
   const ENTRIES_ITERABLES = new Set(["URLSearchParams", "FormData", "Headers"]);
@@ -66,6 +67,10 @@ globalThis.__rbHost = (function () {
   const NAMED_PROP_COLLECTIONS = new Map([
     ["HTMLCollection", { enumerable: false, writable: false }],
     ["HTMLFormControlsCollection", { enumerable: false, writable: false }],
+    // HTMLFormElement is [LegacyOverrideBuiltIns]: a named control shadows the
+    // form's own prototype members (`form.submit`, `form.action`, `form.length`
+    // return the matching control), so its named props resolve BEFORE the chain.
+    ["HTMLFormElement", { enumerable: false, writable: false, overrideBuiltins: true }],
     ["HTMLOptionsCollection", { enumerable: false, writable: false }],
     ["NamedNodeMap", { enumerable: false, writable: false }],
     ["DOMStringMap", { enumerable: true, writable: true }],
@@ -1396,6 +1401,9 @@ globalThis.__rbHost = (function () {
     // `Storage.prototype.foo = x` hides the stored "foo" from `storage.foo`
     // while `storage.getItem("foo")` still returns it.
     const namedShadowedByProto = (t, prop) => {
+      // [LegacyOverrideBuiltIns]: named props are NOT shadowed by the prototype
+      // chain (only by an own expando, checked separately before this).
+      if (named && named.overrideBuiltins) return false;
       const proto = Object.getPrototypeOf(t);
       return proto != null && (prop in proto);
     };
@@ -1404,6 +1412,12 @@ globalThis.__rbHost = (function () {
         if (prop === HKEY) return handle;
         if (typeof prop === "symbol") return Reflect.get(t, prop, receiver);
         if (Object.hasOwn(t, prop)) return Reflect.get(t, prop, receiver);
+        // [LegacyOverrideBuiltIns] (HTMLFormElement): a named control shadows the
+        // prototype's methods AND accessors, so resolve it before either. An own
+        // expando (checked above) still wins.
+        if (named && named.overrideBuiltins && typeof prop === "string" && isNamedKey(prop)) {
+          return rehydrate(__rb_host_get(handle, prop));
+        }
         if (methods.has(prop)) {
           let fn = methodCache.get(prop);
           if (!fn) {

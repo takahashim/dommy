@@ -126,18 +126,39 @@ module Dommy
     # input/select/textarea/button/output/fieldset). Returned as a
     # live HTMLCollection so listening to `submit`/`reset` and
     # adding fields between accesses works as expected.
-    # `form.elements` — the listed controls, excluding input type=image. Memoized
-    # so the live collection is the [SameObject] each access returns.
+    # `form.elements` — the listed controls owned by this form, in document tree
+    # order, excluding input type=image. Membership follows the WHATWG form-owner
+    # algorithm (a `form` content attribute overrides DOM nesting), NOT plain
+    # descendant containment, so controls associated via `form=id` are included
+    # and a control in a nested inner form is excluded. Memoized so the live
+    # collection is the [SameObject] each access returns.
+    LISTED_CONTROL_SELECTOR = "input, select, textarea, button, output, fieldset, object"
+
     def elements
       el = self
       @elements ||= HTMLFormControlsCollection.new do
-        el.__dommy_backend_node__.css("input, select, textarea, button, output, fieldset").filter_map do |n|
-          wrapped = el.document.wrap_node(n)
-          next if wrapped.respond_to?(:type) && wrapped.tag_name.to_s.casecmp?("input") && wrapped.type.to_s.casecmp?("image")
+        el.document.query_selector_all(LISTED_CONTROL_SELECTOR).select do |c|
+          next false if c.tag_name.to_s.casecmp?("input") && c.respond_to?(:type) && c.type.to_s.casecmp?("image")
 
-          wrapped
+          el.__owns_control__(c)
         end
       end
+    end
+
+    # The form owner of a listed control, per WHATWG: when the control carries a
+    # `form` content attribute, its owner is the form element with that id (or
+    # nothing, if the id resolves to a non-form / nothing); otherwise it is the
+    # nearest ancestor form element.
+    def __owns_control__(control)
+      form_id = control.__dommy_backend_node__["form"].to_s
+      owner =
+        if form_id.empty?
+          control.closest("form")
+        else
+          target = control.document.get_element_by_id(form_id)
+          (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
+        end
+      !owner.nil? && owner.__dommy_backend_node__.equal?(__dommy_backend_node__)
     end
 
     def length
@@ -201,17 +222,31 @@ module Dommy
     end
 
     def __js_get__(key)
+      # HTMLFormElement is [LegacyOverrideBuiltIns]: a control whose name/id
+      # matches a builtin (`elements`, `length`, `submit`, `action`, …) shadows
+      # that builtin. So the named getter is consulted BEFORE the builtins.
+      named = named_controls[key.to_s]
+      return __named_getter_result__(key.to_s, named) if named && !named.empty?
+
       case key
       when "elements"
         elements
       when "length"
         length
       else
-        named = named_controls[key.to_s]
-        return named.length == 1 ? named.first : RadioNodeList.new(named) if named && !named.empty?
-
         super
       end
+    end
+
+    # A single matching control is returned directly; multiple matches yield a
+    # RadioNodeList. The list is memoized per name and refreshed in place so
+    # repeated named-getter reads return the [SameObject] (WebIDL requires
+    # `form.d === form.d`), while still reflecting live membership.
+    def __named_getter_result__(name, matches)
+      return matches.first if matches.length == 1
+
+      form = self
+      (@__radio_lists ||= {})[name] ||= RadioNodeList.new { form.named_controls[name] || [] }
     end
 
     # WebIDL named getter: the form's supported property names are the name/id
