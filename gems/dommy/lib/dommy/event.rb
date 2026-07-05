@@ -584,6 +584,25 @@ module Dommy
     end
   end
 
+  # ToggleEvent — fired at a `<details>` (and other poppable elements) when it
+  # opens/closes, exposing the transition via `oldState` / `newState`
+  # ("open"/"closed"). A plain Event subclass.
+  class ToggleEvent < Event
+    def initialize(type, init = nil)
+      super
+      @old_state = read_init(init, "oldState").to_s
+      @new_state = read_init(init, "newState").to_s
+    end
+
+    def __js_get__(key)
+      case key
+      when "oldState" then @old_state
+      when "newState" then @new_state
+      else super
+      end
+    end
+  end
+
   # PopStateEvent — fired on history back/forward. Exposes the history entry's
   # serialized state via `event.state` (the spec property; framework routers like
   # Turbo read `event.state.turbo` to recognise their own navigations and restore

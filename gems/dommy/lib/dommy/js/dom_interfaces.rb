@@ -84,6 +84,7 @@ module Dommy
         %w[KeyboardEvent Event],
         %w[CompositionEvent Event],
         %w[PromiseRejectionEvent Event],
+        %w[ToggleEvent Event],
         %w[ErrorEvent Event],
         %w[DOMException],
         # Window-exposed constructors that frameworks call bare (new X(...)).

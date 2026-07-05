@@ -2122,8 +2122,31 @@ module Dommy
     def with_toggle_on_open_change
       was = open
       result = yield
-      dispatch_event(Event.new("toggle", "bubbles" => false, "cancelable" => false)) if open != was
+      queue_toggle_event(was, open) if open != was
       result
+    end
+
+    # WHATWG "queue a details toggle event task": the trusted ToggleEvent fires
+    # asynchronously, and rapid changes coalesce into ONE event whose oldState is
+    # the state before the first change and newState the state after the last.
+    def queue_toggle_event(old_open, new_open)
+      if @__toggle_pending
+        @__toggle_new = new_open ? "open" : "closed"
+        return
+      end
+
+      @__toggle_pending = true
+      @__toggle_old = old_open ? "open" : "closed"
+      @__toggle_new = new_open ? "open" : "closed"
+      fire = proc do
+        @__toggle_pending = false
+        evt = ToggleEvent.new("toggle",
+          "oldState" => @__toggle_old, "newState" => @__toggle_new,
+          "bubbles" => false, "cancelable" => false)
+        dispatch_event(evt.__internal_mark_trusted__)
+      end
+      scheduler = @document.respond_to?(:default_view) && @document.default_view&.scheduler
+      scheduler ? scheduler.set_timeout(fire, 0) : fire.call
     end
   end
 

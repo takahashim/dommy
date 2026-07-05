@@ -90,18 +90,23 @@ class TestHTMLDetailsElement < Minitest::Test
   end
 
   def test_open_change_fires_toggle_event
+    # Per spec the toggle event is dispatched asynchronously (queued as a task),
+    # so drain the scheduler before asserting.
     fired = false
     @details.add_event_listener("toggle", proc { fired = true })
     @details.open = true
+    @win.scheduler.advance_time(0)
     assert(fired)
   end
 
   def test_toggle_idempotent_does_not_fire
     @details.open = true
+    @win.scheduler.advance_time(0)
     fired = 0
     @details.add_event_listener("toggle", proc { fired += 1 })
     # same value
     @details.open = true
+    @win.scheduler.advance_time(0)
     assert_equal(0, fired)
   end
 end
