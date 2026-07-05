@@ -947,25 +947,38 @@ globalThis.__rbHost = (function () {
         define("forEach", A.forEach);
       }
     } else if (ENTRIES_ITERABLES.has(name)) {
-      // A LIVE entries iterator: re-read entries() at each step (indexed by a
-      // running cursor) so a mutation mid-loop is observed — e.g. URLSearchParams
+      // A LIVE iterator: re-read entries() at each step (indexed by a running
+      // cursor) so a mutation mid-loop is observed — e.g. URLSearchParams
       // `for (const e of params) { params.delete(...) }` must see the new state.
-      Object.defineProperty(proto, Symbol.iterator, {
-        value: function () {
-          let i = 0;
-          const self = this;
-          const it = {
-            next() {
-              const entries = self.entries();
-              if (i >= entries.length) return { value: undefined, done: true };
-              return { value: entries[i++], done: false };
-            },
-          };
-          it[Symbol.iterator] = function () { return this; };
-          return it;
-        },
-        configurable: true, writable: true
+      // entries()/keys()/values()/@@iterator each return such an iterator (the
+      // WebIDL maplike contract) — a `for…of` and a direct `.entries().next()`
+      // both work — rather than a plain Array. keys/values project the pair.
+      // Read the raw [name, value] pairs straight from the host — NOT via
+      // `self.entries()`, which is now this same iterator-returning override.
+      const rawEntries = (self) => {
+        const r = rehydrate(__rb_host_call(self[HKEY], "entries", dehydrateArgs([])));
+        return Array.isArray(r) ? r : [];
+      };
+      const liveIterator = (self, project) => {
+        let i = 0;
+        const it = {
+          next() {
+            const entries = rawEntries(self);
+            if (i >= entries.length) return { value: undefined, done: true };
+            return { value: project(entries[i++]), done: false };
+          },
+        };
+        it[Symbol.iterator] = function () { return this; };
+        return it;
+      };
+      const defineIter = (key, project) => Object.defineProperty(proto, key, {
+        value: function () { return liveIterator(this, project); },
+        configurable: true, writable: true,
       });
+      defineIter(Symbol.iterator, (e) => e);
+      defineIter("entries", (e) => e);
+      defineIter("keys", (e) => e[0]);
+      defineIter("values", (e) => e[1]);
     }
     if (name === "TextEncoder") {
       // encodeInto mutates the destination Uint8Array in place, so it must run
@@ -1671,6 +1684,13 @@ globalThis.__rbHost = (function () {
     let methods = methodsByInterface.get(desc.name);
     if (!methods) {
       methods = new Set(desc.methods);
+      // The maplike iterator methods are served as live iterators from the
+      // prototype (see ENTRIES_ITERABLES), so drop the Ruby array-returning
+      // versions from the method set — otherwise `entries()` would return an
+      // Array (no `.next()`) instead of an iterator.
+      if (ENTRIES_ITERABLES.has(desc.name)) {
+        for (const m of ["entries", "keys", "values"]) methods.delete(m);
+      }
       methodsByInterface.set(desc.name, methods);
     }
     const target = (desc.chain && desc.chain.length)
