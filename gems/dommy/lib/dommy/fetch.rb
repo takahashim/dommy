@@ -38,6 +38,11 @@ module Dommy
       # URL (no per-handler resolution).
       url = @window.__internal_resolve_url__(args[0].to_s)
       init = normalize_init(args[1] || {})
+      # A cross-origin request always carries an Origin header (even for GET,
+      # which normalize_init omits it for same-origin GETs).
+      if cross_origin?(url) && !header?(init["headers"], "origin")
+        init["headers"]["Origin"] = request_origin
+      end
 
       # `js_eval`'s JS installer increments these globals; mirror so
       # specs that probe `__fetch_count__` / `__last_url__` / etc.
@@ -141,13 +146,45 @@ module Dommy
         when "no-cors"
           return deliver_task { promise.fulfill(opaque_response) }
         when "cors"
+          credentialed = credentialed?(init)
           acao = header_value(entry["headers"], "access-control-allow-origin")
-          return deliver_task { promise.reject(fetch_type_error) } unless acao == "*" || acao == request_origin
+          acac = header_value(entry["headers"], "access-control-allow-credentials")
+          ok = if credentialed
+            # A credentialed response must name the exact origin (never `*`) and
+            # grant credentials.
+            acao == request_origin && acac == "true"
+          else
+            acao == "*" || acao == request_origin
+          end
+          return deliver_task { promise.reject(fetch_type_error) } unless ok
 
-          entry = entry.merge("type" => "cors")
+          entry = entry.merge("type" => "cors", "headers" => cors_filter_headers(entry["headers"], credentialed))
         end
       end
       fulfill_from_entry(promise, mark_redirected(entry, redirected), url, init)
+    end
+
+    # CORS-safelisted response header names — always exposed on a cors response.
+    CORS_SAFELISTED_RESPONSE_HEADERS =
+      %w[cache-control content-language content-length content-type expires last-modified pragma].freeze
+
+    # Filter a cors response's headers to what CORS exposes: the safelisted
+    # response headers plus any named in Access-Control-Expose-Headers (`*`
+    # exposes everything). The CORS protocol headers themselves are dropped.
+    def cors_filter_headers(headers, credentialed = false)
+      return {} unless headers.is_a?(Hash)
+
+      exposed = (header_value(headers, "access-control-expose-headers") || "").split(",").map { |h| h.strip.downcase }
+      # The `*` wildcard does not apply to a credentialed response.
+      wildcard = !credentialed && exposed.include?("*")
+      headers.select do |name, _|
+        n = name.to_s.downcase
+        wildcard || CORS_SAFELISTED_RESPONSE_HEADERS.include?(n) || exposed.include?(n)
+      end
+    end
+
+    def credentialed?(init)
+      (init["credentials"] || "same-origin").to_s == "include"
     end
 
     # An opaque response for a no-cors cross-origin fetch: status 0, no headers
@@ -398,26 +435,34 @@ module Dommy
       entry = resolve_entry(url, {"method" => "OPTIONS", "headers" => options_headers})
       return false unless entry.is_a?(Hash) && (200..299).cover?((entry["status"] || 200).to_i)
 
+      credentialed = credentialed?(init)
       acao = header_value(entry["headers"], "access-control-allow-origin")
-      return false unless acao == "*" || acao == request_origin
-      return false unless cors_method_allowed?(entry, method)
+      if credentialed
+        return false unless acao == request_origin
+        return false unless header_value(entry["headers"], "access-control-allow-credentials") == "true"
+      else
+        return false unless acao == "*" || acao == request_origin
+      end
+      return false unless cors_method_allowed?(entry, method, credentialed)
 
-      cors_headers_allowed?(entry, acrh)
+      cors_headers_allowed?(entry, acrh, credentialed)
     end
 
-    def cors_method_allowed?(entry, method)
+    def cors_method_allowed?(entry, method, credentialed)
       return true if CORS_SAFELISTED_METHODS.include?(method)
 
       allowed = (header_value(entry["headers"], "access-control-allow-methods") || "").split(",").map { |m| m.strip.upcase }
-      allowed.include?(method) || allowed.include?("*")
+      # `*` does not apply to a credentialed request.
+      allowed.include?(method) || (!credentialed && allowed.include?("*"))
     end
 
-    def cors_headers_allowed?(entry, acrh)
+    def cors_headers_allowed?(entry, acrh, credentialed)
       return true if acrh.empty?
 
       allowed = (header_value(entry["headers"], "access-control-allow-headers") || "").split(",").map { |h| h.strip.downcase }
-      wildcard = allowed.include?("*")
-      # `authorization` is never covered by the `*` wildcard.
+      # `*` covers all header names except `authorization`, and not at all for a
+      # credentialed request.
+      wildcard = !credentialed && allowed.include?("*")
       acrh.all? { |h| allowed.include?(h) || (wildcard && h != "authorization") }
     end
 
