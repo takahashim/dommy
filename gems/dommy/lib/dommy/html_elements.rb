@@ -1626,6 +1626,13 @@ module Dommy
       ValidityState.new
     end
 
+    # A fieldset is "barred from constraint validation": it never participates,
+    # so willValidate is always false and checkValidity/reportValidity are no-ops
+    # that report success.
+    def will_validate
+      false
+    end
+
     def check_validity
       true
     end
@@ -1644,6 +1651,20 @@ module Dommy
         elements
       when "validity"
         validity
+      when "willValidate"
+        will_validate
+      else
+        super
+      end
+    end
+
+    js_methods %w[checkValidity reportValidity]
+    def __js_call__(method, args)
+      case method
+      when "checkValidity"
+        check_validity
+      when "reportValidity"
+        report_validity
       else
         super
       end
