@@ -96,6 +96,13 @@ module Dommy
       end
 
       @request_body = body
+      # WHATWG "extract a body": normalize the body (string / ArrayBuffer /
+      # TypedArray / Blob / URLSearchParams / FormData) to bytes once, and default
+      # the Content-Type from that extraction unless the author set one.
+      @request_body_bytes, default_ct = body.nil? ? [nil, nil] : Response.extract_body(body)
+      if default_ct && @request_headers.none? { |k, _| k.to_s.casecmp?("content-type") }
+        @request_headers["Content-Type"] = default_ct
+      end
       @sent = true
       @generation += 1
       gen = @generation
@@ -342,7 +349,7 @@ module Dommy
       if handler.respond_to?(:call)
         entry = handler.call(
           @url,
-          {"method" => @method, "headers" => @request_headers, "body" => @request_body&.to_s}
+          {"method" => @method, "headers" => @request_headers, "body" => @request_body_bytes}
         )
         return entry if entry
       end
