@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+- The browser-spec teardown disposes the whole session (`dispose`), not just the JS runtime, so WebSocket transports opened by a spec are closed too.
+
+### Build
+- `bundler/gem_tasks` is loaded in the Rakefile so `rake release` works.
+
 ## 0.9.0 — 2026-06-22
 
 Initial release.

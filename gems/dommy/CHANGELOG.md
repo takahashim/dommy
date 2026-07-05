@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+- **Keyboard interaction:** `Driver#send_keys` types named keys (`:enter`, `:arrow_down`, …) or strings through the full browser event sequence — cancelable `keydown` / `keypress` / `beforeinput`, character insertion, `input`, `keyup` — with browser default actions (typing into text fields, Backspace deletion, Enter's implicit form submission / textarea newline).
+- **IME composition:** `Driver#ime_input` drives the canonical composition sequence (`Process` keydowns with keyCode 229, `compositionstart` / `update` / `end`, non-cancelable `insertCompositionText` input pairs with `isComposing: true`), with commit / cancel and a per-update block for passing virtual time mid-composition. `CompositionEvent` is exposed to JS realms.
+- **Focus semantics:** `Element#focus` / `#blur` run the real focusing steps — `document.activeElement` moves, and `blur` / `focusout` fire on the previously focused element before `focus` / `focusin` (with `relatedTarget`), skipping already-focused and disabled targets.
+- **KeyboardEvent legacy surface:** `keyCode` / `charCode` / `which`, plus `code`, `repeat`, `location`, `isComposing`, and `getModifierState`.
+- **WebSocket transport seam:** `Window#websocket_connector` lets a host own a `new WebSocket(url)` connection through `__transport_*__` lifecycle callbacks (dommy-rack connects same-origin sockets to the Rack app); unhandled URLs keep the in-memory stub.
+- **History host seam:** `History` notifies a host of `pushState` / `replaceState` / traversal (with an absolute-index traversal API), so an embedding session can mirror same-document navigation; `Window#history` is now a public reader.
+
+### Fixed
+- URL / form decoding no longer depends on stdlib CGI: `URLSearchParams` and `decodeURIComponent` use the in-house WHATWG percent-decoder. Fixes a `NameError` on Ruby 3.3 (with `cgi/escape` under Ruby 4.0), and `decodeURIComponent` now correctly leaves `+` literal.
+- `encodeURIComponent` keeps the full JS unreserved set (`- _ . ! ~ * ' ( )`) literal; `ERB::Util.url_encode` (the previous implementation) percent-encoded `! ~ * ' ( )`.
+
+### Performance
+- Constant Node properties (nodeType, tagName, …) are cached per JS proxy, cutting host bridge crossings.
+- Element attribute snapshots are cached with DOM-epoch invalidation.
+
 ## 0.9.0 — 2026-06-22
 
 The major release that brings JavaScript to Dommy. A new engine-agnostic JS
