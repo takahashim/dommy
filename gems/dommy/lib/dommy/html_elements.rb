@@ -126,16 +126,17 @@ module Dommy
     # input/select/textarea/button/output/fieldset). Returned as a
     # live HTMLCollection so listening to `submit`/`reset` and
     # adding fields between accesses works as expected.
+    # `form.elements` — the listed controls, excluding input type=image. Memoized
+    # so the live collection is the [SameObject] each access returns.
     def elements
       el = self
-      HTMLCollection.new do
-        el
-          .__dommy_backend_node__
-          .css("input, select, textarea, button, output, fieldset")
-          .map do |n|
-            el.document.wrap_node(n)
-          end
-          .compact
+      @elements ||= HTMLCollection.new do
+        el.__dommy_backend_node__.css("input, select, textarea, button, output, fieldset").filter_map do |n|
+          wrapped = el.document.wrap_node(n)
+          next if wrapped.respond_to?(:type) && wrapped.tag_name.to_s.casecmp?("input") && wrapped.type.to_s.casecmp?("image")
+
+          wrapped
+        end
       end
     end
 
