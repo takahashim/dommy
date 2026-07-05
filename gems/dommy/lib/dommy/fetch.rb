@@ -125,6 +125,9 @@ module Dommy
     # fetchable http(s) URL — an invalid URL, or a data:/other scheme (following a
     # redirect to those is a network error).
     def redirect_target(current, location)
+      # An empty Location value is a network error (not a self-redirect).
+      return nil if location.to_s.strip.empty?
+
       target = URI.join(current, location).to_s
       scheme = URI.parse(target).scheme&.downcase
       %w[http https].include?(scheme) ? target : nil
