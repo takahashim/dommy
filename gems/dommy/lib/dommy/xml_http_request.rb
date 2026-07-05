@@ -89,7 +89,11 @@ module Dommy
     alias setRequestHeader set_request_header
 
     def send(body = nil)
-      raise Error, "send called before open" if @ready_state != OPENED
+      # WHATWG: send() throws InvalidStateError unless the state is OPENED and the
+      # send() flag is unset (so a second send() before the request settles fails).
+      if @ready_state != OPENED || @sent
+        raise DOMException::InvalidStateError, "send() requires the OPENED state and an unsent request"
+      end
 
       @request_body = body
       @sent = true
@@ -421,7 +425,9 @@ module Dommy
         body
       when "json"
         begin
-          JSON.parse(body)
+          # WHATWG "parse JSON from bytes": UTF-8 decode (dropping a leading BOM)
+          # before JSON.parse; an invalid parse yields null.
+          JSON.parse(Response.utf8_decode(body))
         rescue JSON::ParserError
           nil
         end
