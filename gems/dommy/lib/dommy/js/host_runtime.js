@@ -149,11 +149,23 @@ globalThis.__rbHost = (function () {
   // prototype, so `XMLHttpRequest.DONE` and `xhr.DONE` both resolve).
   const XHR_CONSTANTS = { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 };
 
+  // DOMException legacy code [Constant]s — `e.INVALID_STATE_ERR` etc. equal the
+  // numeric `e.code` a test compares against.
+  const DOMEXCEPTION_CONSTANTS = {
+    INDEX_SIZE_ERR: 1, DOMSTRING_SIZE_ERR: 2, HIERARCHY_REQUEST_ERR: 3, WRONG_DOCUMENT_ERR: 4,
+    INVALID_CHARACTER_ERR: 5, NO_DATA_ALLOWED_ERR: 6, NO_MODIFICATION_ALLOWED_ERR: 7, NOT_FOUND_ERR: 8,
+    NOT_SUPPORTED_ERR: 9, INUSE_ATTRIBUTE_ERR: 10, INVALID_STATE_ERR: 11, SYNTAX_ERR: 12,
+    INVALID_MODIFICATION_ERR: 13, NAMESPACE_ERR: 14, INVALID_ACCESS_ERR: 15, VALIDATION_ERR: 16,
+    TYPE_MISMATCH_ERR: 17, SECURITY_ERR: 18, NETWORK_ERR: 19, ABORT_ERR: 20, URL_MISMATCH_ERR: 21,
+    QUOTA_EXCEEDED_ERR: 22, TIMEOUT_ERR: 23, INVALID_NODE_TYPE_ERR: 24, DATA_CLONE_ERR: 25,
+  };
+
   // Interface name -> its [Constant]s (placed on both the interface object and
   // its prototype; instances inherit via the proxy get `prop in target` path).
   const INTERFACE_CONSTANTS = {
     Node: NODE_CONSTANTS, Event: EVENT_CONSTANTS, NodeFilter: NODEFILTER_CONSTANTS,
-    WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS, XMLHttpRequest: XHR_CONSTANTS
+    WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS, XMLHttpRequest: XHR_CONSTANTS,
+    DOMException: DOMEXCEPTION_CONSTANTS
   };
 
   // 1d: custom elements. ceRegistry maps a tag name to its JS constructor;
@@ -1063,7 +1075,12 @@ globalThis.__rbHost = (function () {
           configurable: true,
           enumerable: true,
           get() { return rehydrate(__rb_host_get(this[HKEY], field)); },
-          set(v) { __rb_host_set(this[HKEY], field, dehydrateTop(v)); },
+          set(v) {
+            const r = __rb_host_set(this[HKEY], field, dehydrateTop(v));
+            // Propagate a throwing host setter (e.g. a file input's value=)
+            // rather than swallowing it, as the general set trap does.
+            if (r && typeof r === "object" && r.__rb_exception__) throw makeHostError(r.__rb_exception__);
+          },
         });
       }
     }

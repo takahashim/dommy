@@ -248,11 +248,21 @@ module Dommy
     # separately thereafter — matching browser semantics where the
     # `value` IDL attribute can drift from the `value` content attr.
     def value
-      sanitize_value(@__value.nil? ? reflected_string("value") : @__value)
+      raw = @__value.nil? ? reflected_string("value") : @__value
+      # checkbox/radio use the "default/on" value mode: with no value content
+      # attribute (and no assigned value) the IDL value is "on".
+      return "on" if raw.to_s.empty? && !@__node__.key?("value") && %w[checkbox radio].include?(type)
+
+      sanitize_value(raw)
     end
 
     def value=(v)
       raw = v.to_s
+      # WHATWG: a file input's value IDL setter throws unless set to the empty
+      # string (which clears the selection).
+      if type == "file" && !raw.empty?
+        raise DOMException::InvalidStateError, "a file input's value may only be set to the empty string"
+      end
       @__raw_value = raw
       @__value = raw
     end
