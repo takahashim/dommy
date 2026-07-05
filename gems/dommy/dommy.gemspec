@@ -23,9 +23,8 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb", "lib/**/*.js", "README.md"]
   spec.require_paths = ["lib"]
 
-  # Default HTML parser backend. 0.5.1 added the compiled-selector cache that the
-  # querySelector-heavy hot path relies on.
-  spec.add_dependency "makiri", ">= 0.5.1", "< 1.0"
-  # base64 left the default gems in Ruby 3.4 (used for window.btoa / atob).
+  # Default HTML parser backend.
+  spec.add_dependency "makiri", ">= 0.6.0"
+  # used for window.btoa / atob
   spec.add_dependency "base64"
 end
