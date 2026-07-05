@@ -427,6 +427,8 @@ module Dommy
     end
 
     def labels
+      # A hidden input is not a labelable element, so it has no labels list.
+      return nil if type == "hidden"
       return [] if id.empty?
 
       @document.query_selector_all("label[for='#{id}']")
@@ -1498,10 +1500,23 @@ module Dommy
     def control
       target = html_for
       if !target.empty?
-        @document.get_element_by_id(target)
+        el = @document.get_element_by_id(target)
+        el if el && labelable_control?(el)
       else
-        query_selector("input, select, textarea, button, output, meter, progress")
+        # The first labelable descendant in tree order (a hidden input, being
+        # non-labelable, is skipped).
+        query_selector_all("button, input, meter, output, progress, select, textarea")
+          .to_a.find { |c| labelable_control?(c) }
       end
+    end
+
+    # Labelable elements: button, input (except type=hidden), meter, output,
+    # progress, select, textarea.
+    def labelable_control?(el)
+      tag = el.tag_name.to_s.downcase
+      return el.type.to_s.downcase != "hidden" if tag == "input"
+
+      %w[button meter output progress select textarea].include?(tag)
     end
 
     def form
