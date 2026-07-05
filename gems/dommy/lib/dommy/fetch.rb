@@ -56,12 +56,113 @@ module Dommy
       if result.respond_to?(:on_complete)
         result.on_complete { |entry| fulfill_from_entry(promise, entry, url, init) }
       else
-        fulfill_from_entry(promise, result, url, init)
+        settle_with_redirects(promise, url, init, result)
       end
       promise
     end
 
     private
+
+    REDIRECT_STATUSES = [301, 302, 303, 307, 308].freeze
+    MAX_REDIRECTS = 20
+
+    # Follow redirects on the SYNCHRONOUS resolve path (endpoints / stubs resolve
+    # inline). Honors the request's redirect mode: "follow" chases a 3xx that
+    # carries a valid http(s) Location — up to MAX_REDIRECTS, marking the result
+    # `redirected` — "manual" yields an opaqueredirect, "error" rejects. A 3xx
+    # with no Location, or any non-3xx, is the final response.
+    def settle_with_redirects(promise, url, init, entry)
+      mode = (init["redirect"] || "follow").to_s
+      current = url
+      redirected = false
+      hops = 0
+      loop do
+        status = (entry.is_a?(Hash) ? entry["status"] : nil).to_i
+        unless REDIRECT_STATUSES.include?(status)
+          return fulfill_from_entry(promise, mark_redirected(entry, redirected), current, init)
+        end
+
+        case mode
+        when "manual" then return deliver_task { promise.fulfill(opaqueredirect_response) }
+        when "error" then return deliver_task { promise.reject(fetch_type_error) }
+        end
+
+        location = header_value(entry["headers"], "location")
+        # A 3xx with no Location is not a redirect to follow — it is the response.
+        return fulfill_from_entry(promise, mark_redirected(entry, redirected), current, init) if location.nil?
+
+        hops += 1
+        return deliver_task { promise.reject(fetch_type_error) } if hops > MAX_REDIRECTS
+
+        target = redirect_target(current, location)
+        return deliver_task { promise.reject(fetch_type_error) } if target.nil?
+
+        current = target
+        redirected = true
+        init = redirect_init(init, status)
+        entry = resolve_entry(current, init)
+        if entry.respond_to?(:on_complete)
+          captured = current
+          captured_init = init
+          return entry.on_complete { |e| fulfill_from_entry(promise, mark_redirected(e, true), captured, captured_init) }
+        end
+      end
+    end
+
+    def header_value(headers, name)
+      return nil unless headers.is_a?(Hash)
+
+      headers.find { |k, _| k.to_s.casecmp?(name) }&.last
+    end
+
+    def mark_redirected(entry, redirected)
+      return entry unless redirected && entry.is_a?(Hash)
+
+      entry.merge("redirected" => true)
+    end
+
+    # A redirect target resolved against the current URL, or nil when it is not a
+    # fetchable http(s) URL — an invalid URL, or a data:/other scheme (following a
+    # redirect to those is a network error).
+    def redirect_target(current, location)
+      target = URI.join(current, location).to_s
+      scheme = URI.parse(target).scheme&.downcase
+      %w[http https].include?(scheme) ? target : nil
+    rescue URI::Error
+      nil
+    end
+
+    # Per Fetch: a 303 (and a 301/302 on POST) switches the method to GET and
+    # drops the body; 307/308 preserve them.
+    def redirect_init(init, status)
+      method = (init["method"] || "GET").to_s.upcase
+      return init unless status == 303 || ([301, 302].include?(status) && method == "POST")
+
+      init.merge("method" => "GET").tap { |h| h.delete("body") }
+    end
+
+    def opaqueredirect_response
+      Response.new(@window, body: "", status: 0, status_text: "", headers: {},
+        url: "", redirected: false, type: "opaqueredirect", has_body: false)
+    end
+
+    # A Bridge::TypeError (not a plain ErrorValue) so the rejection reason crosses
+    # as a real JS `TypeError` — `promise_rejects_js`/`assert_throws_js` check
+    # `instanceof TypeError`, which a flattened {name,message} object would fail.
+    def fetch_type_error
+      Bridge::TypeError.new("Failed to fetch")
+    end
+
+    # Run work as a networking task on the event loop, matching fulfill_from_entry
+    # (so a fetch settles after the initiating script's microtask checkpoint).
+    def deliver_task(&blk)
+      if (sched = @window.respond_to?(:scheduler) ? @window.scheduler : nil)
+        sched.set_timeout(proc(&blk), 0)
+      else
+        blk.call
+      end
+      nil
+    end
 
     # Resolve `promise` from a response entry (nil -> 404), honoring a simulated
     # `delay`. Used both for a synchronous entry and for an async one delivered
