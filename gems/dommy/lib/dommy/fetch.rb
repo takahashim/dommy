@@ -54,6 +54,12 @@ module Dommy
         deliver_task { promise.reject(fetch_type_error) }
         return promise
       end
+      # A non-simple cross-origin cors request is preceded by a CORS preflight
+      # (OPTIONS); a failed preflight is a network error before the real request.
+      if needs_preflight?(url, init) && !preflight_ok?(url, init)
+        deliver_task { promise.reject(fetch_type_error) }
+        return promise
+      end
       result = resolve_entry(url, init)
       # A handler may answer asynchronously (live network off-thread): it returns
       # a deferred whose response arrives later and is applied on the page thread
@@ -340,6 +346,82 @@ module Dommy
     rescue StandardError
       ""
     end
+
+    CORS_SAFELISTED_METHODS = %w[GET HEAD POST].freeze
+    CORS_SAFELISTED_HEADERS = %w[accept accept-language content-language].freeze
+    # Browser-controlled request headers that never count toward the preflight's
+    # Access-Control-Request-Headers.
+    CORS_BROWSER_HEADERS = %w[user-agent origin content-length host connection referer accept-encoding].freeze
+    CORS_SAFE_CONTENT_TYPES = ["application/x-www-form-urlencoded", "multipart/form-data", "text/plain"].freeze
+
+    # A cross-origin cors request needs a preflight when it uses a non-safelisted
+    # method or carries a non-safelisted header.
+    def needs_preflight?(url, init)
+      return false unless (init["mode"] || "cors").to_s == "cors" && cross_origin?(url)
+
+      method = (init["method"] || "GET").to_s.upcase
+      !CORS_SAFELISTED_METHODS.include?(method) || !cors_unsafe_headers(init["headers"]).empty?
+    end
+
+    # Sorted, lowercased names of the request headers a preflight must ask
+    # permission for (everything not CORS-safelisted or browser-controlled;
+    # Content-Type only when its value is not safelisted).
+    def cors_unsafe_headers(headers)
+      (headers || {}).filter_map do |name, value|
+        n = name.to_s.downcase
+        if n == "content-type"
+          safe_content_type?(value) ? nil : n
+        elsif CORS_SAFELISTED_HEADERS.include?(n) || CORS_BROWSER_HEADERS.include?(n)
+          nil
+        else
+          n
+        end
+      end.uniq.sort
+    end
+
+    def safe_content_type?(value)
+      CORS_SAFE_CONTENT_TYPES.include?(value.to_s.split(";").first.to_s.strip.downcase)
+    end
+
+    # Run the CORS preflight (an OPTIONS carrying Access-Control-Request-Method /
+    # -Headers) and check the response grants the method and each requested
+    # header for the origin. Returns whether the real request may proceed.
+    def preflight_ok?(url, init)
+      method = (init["method"] || "GET").to_s.upcase
+      acrh = cors_unsafe_headers(init["headers"])
+      options_headers = {
+        "Accept" => "*/*", "Origin" => request_origin,
+        "Access-Control-Request-Method" => method,
+      }
+      options_headers["Access-Control-Request-Headers"] = acrh.join(",") unless acrh.empty?
+
+      entry = resolve_entry(url, {"method" => "OPTIONS", "headers" => options_headers})
+      return false unless entry.is_a?(Hash) && (200..299).cover?((entry["status"] || 200).to_i)
+
+      acao = header_value(entry["headers"], "access-control-allow-origin")
+      return false unless acao == "*" || acao == request_origin
+      return false unless cors_method_allowed?(entry, method)
+
+      cors_headers_allowed?(entry, acrh)
+    end
+
+    def cors_method_allowed?(entry, method)
+      return true if CORS_SAFELISTED_METHODS.include?(method)
+
+      allowed = (header_value(entry["headers"], "access-control-allow-methods") || "").split(",").map { |m| m.strip.upcase }
+      allowed.include?(method) || allowed.include?("*")
+    end
+
+    def cors_headers_allowed?(entry, acrh)
+      return true if acrh.empty?
+
+      allowed = (header_value(entry["headers"], "access-control-allow-headers") || "").split(",").map { |h| h.strip.downcase }
+      wildcard = allowed.include?("*")
+      # `authorization` is never covered by the `*` wildcard.
+      acrh.all? { |h| allowed.include?(h) || (wildcard && h != "authorization") }
+    end
+
+    # Whether `url`'s origin differs from the document's. A non-absolute URL (no
 
     # Whether `url`'s origin differs from the document's. A non-absolute URL (no
     # scheme/host) is same-origin (already resolved against the document base).
