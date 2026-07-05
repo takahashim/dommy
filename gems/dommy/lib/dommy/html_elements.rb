@@ -1167,14 +1167,30 @@ module Dommy
     end
 
     def text
-      # WHATWG: the text steps strip and collapse ASCII whitespace over the
-      # concatenated descendant text.
-      text_content.gsub(/[\t\n\f\r ]+/, " ").strip
+      # WHATWG: strip-and-collapse ASCII whitespace over the concatenated Text
+      # node descendants — excluding any inside a script (HTML or SVG) element.
+      parts = []
+      collect_option_text(@__node__, parts)
+      parts.join.gsub(/[\t\n\f\r ]+/, " ").strip
     end
 
     def text=(v)
       self.text_content = v
     end
+
+    private
+
+    def collect_option_text(node, parts)
+      node.children.each do |child|
+        if child.text?
+          parts << child.content
+        elsif child.element? && child.name.to_s.downcase != "script"
+          collect_option_text(child, parts)
+        end
+      end
+    end
+
+    public
 
     def form
       closest("form")
