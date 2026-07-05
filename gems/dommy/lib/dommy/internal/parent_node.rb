@@ -37,7 +37,10 @@ module Dommy
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
         anchor = @__node__.children.first
         if anchor
-          nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
+          # Insert each node before the (fixed) original first child in order:
+          # forward iteration keeps document order (n1, n2, … then the old first
+          # child). Reversing here would emit them backwards.
+          nodes.each { |n| anchor.add_previous_sibling(n) }
         else
           nodes.each { |n| @__node__.add_child(n) }
         end
