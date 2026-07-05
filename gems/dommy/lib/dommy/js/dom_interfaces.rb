@@ -97,6 +97,10 @@ module Dommy
         %w[Notification], %w[Worker], %w[DataTransfer],
         %w[ReadableStream], %w[WritableStream], %w[TransformStream],
         %w[Range],
+        # Web Storage: seeded so `localStorage instanceof Storage` resolves and
+        # `Storage.prototype` exists (a global constructor, construction routes
+        # to the window / throws like the browser's illegal constructor).
+        %w[Storage],
         # CSSOM stylesheet interfaces. Seeded so `style instanceof CSSStyleSheet`
         # resolves: Lit's css-tag runs that check while deciding whether to use
         # constructable stylesheets; with the interface present but

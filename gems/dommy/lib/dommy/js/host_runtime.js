@@ -68,6 +68,10 @@ globalThis.__rbHost = (function () {
     ["HTMLOptionsCollection", { enumerable: false, writable: false }],
     ["NamedNodeMap", { enumerable: false, writable: false }],
     ["DOMStringMap", { enumerable: true, writable: true }],
+    // Storage (localStorage/sessionStorage): named getter/setter/deleter, keys
+    // enumerable; the named setter takes a DOMString value (ToString-coerced
+    // JS-side below, like DOMStringMap).
+    ["Storage", { enumerable: true, writable: true }],
   ]);
 
   // [LegacyNullToEmptyString] DOMString setters: null becomes "", any other
@@ -729,7 +733,84 @@ globalThis.__rbHost = (function () {
   // unrelated getters (a stray `sweet`/`dummy`) are never invoked and a member's
   // boolean coercion follows JS, not Ruby, truthiness. Other interfaces pass
   // through untouched.
+  // WebIDL `sequence<BlobPart>` conversion for the Blob/File constructors, run
+  // JS-side because it is unrepresentable once flattened into Ruby: a primitive
+  // string throws but a String object iterates; a plain object with @@iterator
+  // is a sequence; typed arrays / ArrayBuffers become bytes. Each BlobPart is
+  // reduced to what Ruby's collect_bytes understands (a byte Array, a Blob, or a
+  // USVString), so Ruby never has to re-derive the type.
+  function coerceBlobParts(v, name) {
+    if (v === undefined) return [];
+    if (v === null || typeof v !== "object") {
+      throw new TypeError("Failed to construct '" + name +
+        "': The provided value cannot be converted to a sequence.");
+    }
+    if (typeof v[Symbol.iterator] !== "function") {
+      throw new TypeError("Failed to construct '" + name +
+        "': The object must have a callable @@iterator property.");
+    }
+    const out = [];
+    for (const part of v) out.push(coerceBlobPart(part));
+    return out;
+  }
+  function coerceBlobPart(part) {
+    if (part instanceof ArrayBuffer) return Array.from(new Uint8Array(part));
+    if (ArrayBuffer.isView(part)) {
+      return Array.from(new Uint8Array(part.buffer, part.byteOffset, part.byteLength));
+    }
+    if (typeof globalThis.Blob === "function" && part instanceof globalThis.Blob) return part;
+    return String(part); // USVString: a throwing toString propagates
+  }
+  // BlobPropertyBag: reads `endings` (a required-valid EndingType enum — an
+  // invalid value or a throwing getter surfaces here) and `type`.
+  function coerceBlobOptions(init, name) {
+    let endings = "transparent";
+    let type = "";
+    let lastModified;
+    if (init !== undefined && init !== null) {
+      if (typeof init !== "object" && typeof init !== "function") {
+        throw new TypeError("Failed to construct '" + name + "': options is not an object.");
+      }
+      const e = init.endings; // getter may throw → propagate
+      if (e !== undefined) {
+        if (e !== "transparent" && e !== "native") {
+          throw new TypeError("Failed to construct '" + name +
+            "': The provided value '" + String(e) + "' is not a valid enum value of type EndingType.");
+        }
+        endings = e;
+      }
+      if (init.type !== undefined) {
+        type = String(init.type);
+        // A type with any code point outside U+0020..U+007E is discarded (→ "");
+        // Ruby lowercases the rest.
+        if (/[^ -~]/.test(type)) type = "";
+      }
+      if (init.lastModified !== undefined) lastModified = init.lastModified;
+    }
+    return { endings, type, lastModified };
+  }
+
   function coerceConstructorArgs(name, args) {
+    if (name === "Blob" || name === "File") {
+      const isFile = name === "File";
+      const parts = coerceBlobParts(args[0], name);
+      const options = coerceBlobOptions(isFile ? args[2] : args[1], name);
+      // "native" line endings normalize to the platform newline (LF here); only
+      // string parts are affected.
+      const norm = options.endings === "native"
+        ? parts.map((p) => (typeof p === "string" ? p.replace(/\r\n|\r|\n/g, "\n") : p))
+        : parts;
+      if (isFile) {
+        if (args.length < 2) {
+          throw new TypeError("Failed to construct 'File': 2 arguments required, but only " +
+            args.length + " present.");
+        }
+        const opts = { type: options.type };
+        if (options.lastModified !== undefined) opts.lastModified = options.lastModified;
+        return [norm, String(args[1]), opts];
+      }
+      return [norm, { type: options.type }];
+    }
     if (name === "URLSearchParams") {
       // Per spec a non-string iterable init (another URLSearchParams, a Map, an
       // object with a custom @@iterator) is a *sequence* of pairs — materialize
@@ -1247,6 +1328,16 @@ globalThis.__rbHost = (function () {
     };
     const isIndexInRange = (prop) => arrayLike && isArrayIndex(prop) && Number(prop) < liveLength();
     const isNamedKey = (prop) => named && typeof prop === "string" && namedKeys().indexOf(prop) !== -1;
+    // WebIDL named-property visibility: a named property is EXPOSED (reachable
+    // via property access / enumeration) only when it is not shadowed by an own
+    // expando or — absent [LegacyOverrideBuiltIns], which none of our named
+    // collections declare — a property anywhere on the prototype chain. So
+    // `Storage.prototype.foo = x` hides the stored "foo" from `storage.foo`
+    // while `storage.getItem("foo")` still returns it.
+    const namedShadowedByProto = (t, prop) => {
+      const proto = Object.getPrototypeOf(t);
+      return proto != null && (prop in proto);
+    };
     return {
       get(t, prop, receiver) {
         if (prop === HKEY) return handle;
@@ -1280,6 +1371,11 @@ globalThis.__rbHost = (function () {
             methodCache.set(prop, fn);
           }
           return fn;
+        }
+        // A named-collection key shadowed by the prototype chain resolves to the
+        // prototype value, not the stored named property (no LegacyOverrideBuiltIns).
+        if (named && !arrayLike && typeof prop === "string" && namedShadowedByProto(t, prop)) {
+          return Reflect.get(t, prop, receiver);
         }
         if (constCache !== null && constCache.has(prop)) return constCache.get(prop);
         // Reflected string attribute (id/className/slot): answer from the
@@ -1344,7 +1440,12 @@ globalThis.__rbHost = (function () {
           if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
           return true;
         }
-        if (settersOf(Object.getPrototypeOf(t)).has(prop)) {
+        // A writable named collection (Storage/DOMStringMap) routes every string
+        // assignment through its named setter, which takes precedence over a
+        // prototype accessor — so `storage.x = v` never invokes a `Storage.prototype`
+        // setter. Other objects defer to a matching prototype setter as usual.
+        if (!(named && named.writable && typeof prop === "string") &&
+            settersOf(Object.getPrototypeOf(t)).has(prop)) {
           Reflect.set(t, prop, value, receiver);
           return true;
         }
@@ -1373,6 +1474,11 @@ globalThis.__rbHost = (function () {
         // (null → "", else ToString — so `innerHTML = 42` / `{toString…}` work and
         // a toString that throws propagates) before the value crosses into Ruby.
         if (NULL_TO_EMPTY_STRING_SETTERS.has(prop)) value = value === null ? "" : String(value);
+        // A writable named property (Storage/DOMStringMap) has a DOMString named
+        // setter: ToString-coerce the value JS-side (so `storage.x = 42` stores
+        // "42", `= null` stores "null", and a `{toString}` object's throwing
+        // toString propagates) before it crosses into Ruby.
+        if (named && named.writable && typeof prop === "string") value = String(value);
         // A host property write may mutate the DOM (id/className/innerHTML/
         // style.color/dataset.x/…): invalidate attribute snapshots around it.
         bumpDomEpoch();
@@ -1413,7 +1519,7 @@ globalThis.__rbHost = (function () {
             writable: false, enumerable: true, configurable: true,
           };
         }
-        if (isNamedKey(prop)) {
+        if (isNamedKey(prop) && !namedShadowedByProto(t, prop)) {
           return {
             value: rehydrate(__rb_host_get(handle, prop)),
             writable: named.writable, enumerable: named.enumerable, configurable: true,
@@ -1425,6 +1531,17 @@ globalThis.__rbHost = (function () {
         // Cannot redefine a live indexed or read-only named property.
         if (arrayLike && isArrayIndex(prop)) return false;
         if (named && !named.writable && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
+        // A writable named collection (Storage/DOMStringMap) has a named setter:
+        // `Object.defineProperty(storage, k, {value})` routes to it (ToString-
+        // coerced) rather than planting a JS expando that the named getter can't
+        // see. Only for a plain data descriptor targeting a non-own property.
+        if (named && named.writable && typeof prop === "string" && !Object.hasOwn(t, prop) &&
+            desc && !desc.get && !desc.set && ("value" in desc)) {
+          bumpDomEpoch();
+          __rb_host_set(handle, prop, dehydrateTop(String(desc.value)));
+          bumpDomEpoch();
+          return true;
+        }
         return Reflect.defineProperty(t, prop, desc);
       },
       deleteProperty(t, prop) {
@@ -1453,7 +1570,9 @@ globalThis.__rbHost = (function () {
         const n = arrayLike ? liveLength() : 0;
         const result = [];
         for (let i = 0; i < n; i++) result.push(String(i));
-        for (const nm of namedKeys()) if (result.indexOf(nm) === -1) result.push(nm);
+        for (const nm of namedKeys()) {
+          if (result.indexOf(nm) === -1 && !namedShadowedByProto(t, nm)) result.push(nm);
+        }
         // Then expandos / symbols that don't collide with an index or named key.
         for (const k of keys) {
           if (typeof k !== "symbol" && isArrayIndex(k) && Number(k) < n) continue;
@@ -1547,12 +1666,27 @@ globalThis.__rbHost = (function () {
       }
     }
     // 2c: memoize method functions per proxy so `el.foo === el.foo`.
+    const isNode = !!(desc.chain && desc.chain.indexOf("Node") !== -1);
     const p = new Proxy(target, makeHandler(handle, methods, new Map(),
       ARRAY_LIKE_COLLECTIONS.has(desc.name), NAMED_PROP_COLLECTIONS.get(desc.name) || null,
-      !!(desc.chain && desc.chain.indexOf("Node") !== -1)));
+      isNode));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
-    finalizers.register(p, handle);
+    // A DOM node's JS wrapper must be STABLE for the node's lifetime, exactly as
+    // in a browser (same node -> the same object every time). Otherwise an
+    // unretained node proxy — one JS holds only as a WeakMap/WeakSet KEY, not a
+    // strong reference — can be GC'd and re-created as a DIFFERENT object on the
+    // next access, silently breaking identity-keyed bookkeeping that real
+    // frameworks rely on (Stimulus's deprecation Guide, React's fiber map, event
+    // delegation, per-element memoization). So pin node proxies strongly (like an
+    // expando-bearing proxy) instead of caching them only weakly. Residency is
+    // bounded by the distinct nodes touched — the same set the Ruby-side wrapper
+    // cache already retains. Non-node proxies stay weak + finalizer-released.
+    if (isNode) {
+      pinned.set(handle, p);
+    } else {
+      finalizers.register(p, handle);
+    }
     // 1d: a Dommy-registered custom element node is upgraded to its JS class on
     // first crossing — so the constructor runs before any lifecycle callback.
     if (ceName) upgradeElement(p, ceName);

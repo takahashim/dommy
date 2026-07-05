@@ -21,19 +21,26 @@ module Dommy
     # Promises (they need a scheduler). A window-less Blob falls back to a
     # synchronous result, which `await` still handles.
     def initialize(parts = [], options = {}, window = nil)
+      # WebIDL: an omitted / `undefined` blobParts argument defaults to an empty
+      # sequence (`new Blob()` / `new Blob(undefined)` is a zero-length Blob), so
+      # it must not be coerced to the string "undefined".
+      parts = [] if parts.nil? || (defined?(Bridge::UNDEFINED) && parts.equal?(Bridge::UNDEFINED))
       parts = [parts] unless parts.is_a?(Array)
       @data = collect_bytes(parts)
       @size = @data.bytesize
-      raw_type = options["type"] || options[:type] || ""
-      @type = raw_type.to_s.downcase
+      raw_type = (options["type"] || options[:type] || "").to_s
+      # A type string with any code point outside U+0020..U+007E is discarded
+      # (→ ""); otherwise it is ASCII-lowercased (FileAPI "parse a MIME type"
+      # gate, applied to both the constructor and slice's contentType).
+      @type = raw_type.match?(/[^ -~]/) ? "" : raw_type.downcase
       @window = window
     end
 
     # Return a new Blob over a byte range of this one.
     # Negative indices are treated as offsets from the end (per spec).
     def slice(start = 0, last = @size, content_type = "")
-      s = clamp_index(start.to_i, @size)
-      e = clamp_index(last.to_i, @size)
+      s = clamp_index(clamp_long_long(start), @size)
+      e = clamp_index(clamp_long_long(last), @size)
       e = s if e < s
       Blob.new([@data.byteslice(s, e - s) || ""], {"type" => content_type.to_s}, @window)
     end
@@ -49,6 +56,13 @@ module Dommy
     # array). The DOM spec returns a Promise<ArrayBuffer>; Dommy is synchronous.
     def array_buffer
       Bridge::ArrayBuffer.new(@data.bytes)
+    end
+
+    # Read the bytes as a Uint8Array (the spec return type). The DOM spec returns
+    # a Promise<Uint8Array>; Dommy is synchronous. `Bridge::Bytes` crosses the JS
+    # boundary as a Uint8Array (vs `ArrayBuffer` for #array_buffer).
+    def bytes
+      Bridge::Bytes.new(@data.bytes)
     end
 
     # Raw binary bytes (Ruby ASCII-8BIT string). Used by FormData /
@@ -71,17 +85,30 @@ module Dommy
     # Methods routed through __js_call__ (keep in sync with its when-arms).
     # File < Blob inherits these (it adds only properties).
     include Bridge::Methods
-    js_methods %w[slice text arrayBuffer]
+    js_methods %w[slice text arrayBuffer bytes]
     def __js_call__(method, args)
       case method
       when "slice"
-        slice(args[0] || 0, args[1] || @size, args[2] || "")
+        # An omitted / `undefined` start|end uses the default (0 / size); map
+        # UNDEFINED to nil so the `|| default` fallbacks apply (a bare UNDEFINED
+        # is truthy and has no #to_i). contentType is a plain DOMString: omitted
+        # / undefined → "" (default), but an explicit JS null coerces to "null".
+        a = args.map { |v| v.equal?(Bridge::UNDEFINED) ? nil : v }
+        ctype = if args.length < 3 || args[2].equal?(Bridge::UNDEFINED)
+          ""
+        else
+          args[2].nil? ? "null" : args[2].to_s
+        end
+        slice(a[0] || 0, a[1] || @size, ctype)
       when "text"
         # WHATWG: Blob.text() returns a Promise<string>.
         promise_or_value(text)
       when "arrayBuffer"
         # WHATWG: Blob.arrayBuffer() returns a Promise<ArrayBuffer>.
         promise_or_value(array_buffer)
+      when "bytes"
+        # WHATWG: Blob.bytes() returns a Promise<Uint8Array>.
+        promise_or_value(bytes)
       end
     end
 
@@ -114,6 +141,21 @@ module Dommy
     def clamp_index(idx, length)
       idx = length + idx if idx.negative?
       idx.clamp(0, length)
+    end
+
+    # WebIDL `[Clamp] long long` conversion of a slice bound: a fractional value
+    # rounds to the nearest integer, ties to even (banker's rounding) — so
+    # `slice(1.5)` starts at 2 and `slice(3.5)` at 4, per the [Clamp] extended
+    # attribute on Blob.slice.
+    def clamp_long_long(value)
+      return value if value.is_a?(Integer)
+
+      f = value.to_f
+      return 0 if f.nan?
+
+      f.round(half: :even)
+    rescue StandardError
+      0
     end
   end
 
