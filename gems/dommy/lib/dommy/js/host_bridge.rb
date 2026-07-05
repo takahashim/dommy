@@ -410,6 +410,16 @@ module Dommy
           @custom_element_bridge.upgrade(host(handle))
           nil
         end
+        # 1d: direct `new MyElement()` — mint the backing Dommy element for a
+        # registered tag so the HTMLElement constructor has an element to adopt.
+        # Returns nil when the tag isn't defined (JS then throws Illegal constructor).
+        @backend.define_host_function("__rb_create_custom_element") do |name|
+          count_crossing(:__rb_create_custom_element, nil, name)
+          dom_guard do
+            el = @custom_element_bridge.create(name)
+            el ? wrap(el) : nil
+          end
+        end
       end
 
       # Run the JS half of the bridge and seed the interface prototypes. Must run

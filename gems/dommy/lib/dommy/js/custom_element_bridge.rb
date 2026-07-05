@@ -36,6 +36,17 @@ module Dommy
         nil
       end
 
+      # Direct `new MyElement()`: create a fresh, unattached backing element for a
+      # registered tag (its ownerDocument is the window's document). The JS ctor
+      # is already running, so the element must NOT be re-upgraded — the bridge
+      # crosses it with upgrade suppressed. Returns nil when the tag is undefined.
+      def create(name)
+        return unless @window.respond_to?(:custom_elements)
+        return unless @window.custom_elements.get(name.to_s)
+
+        @window.document.create_element(name.to_s)
+      end
+
       private
 
       # A Dommy custom element class for `name` whose reactions forward to the JS

@@ -885,6 +885,32 @@ globalThis.__rbHost = (function () {
         Object.setPrototypeOf(el, nt.prototype);
         return el;
       }
+      // 1d: direct `new MyElement()` (no queued upgrade) — the HTMLElement
+      // constructor algorithm. When new.target is a registered custom element
+      // constructor, mint its backing Dommy element now (autonomous custom
+      // element construction), adopt the proxy WITHOUT re-running this ctor, and
+      // stamp it with the derived prototype. An unregistered new.target (bare
+      // `new HTMLElement()` / an unregistered subclass) falls through to Ruby,
+      // which returns null → "Illegal constructor", per spec.
+      // Autonomous custom element construction runs only in the HTMLElement base
+      // ctor: an element's super() chain reaches here iff it `extends HTMLElement`.
+      // A class that extends a built-in interface instead (HTMLParagraphElement,
+      // HTMLButtonElement, …) reaches THAT ctor's name, misses this branch, and
+      // falls through to Ruby → TypeError (Dommy has no customized built-ins).
+      // `nt !== ctor` additionally rejects `new HTMLElement()` itself (even when
+      // HTMLElement was passed to customElements.define): only a user subclass as
+      // new.target may construct.
+      if (name === "HTMLElement" && nt !== ctor) {
+        const ceName = ceNameForCtor(nt);
+        if (ceName !== undefined) {
+          const wire = __rb_create_custom_element(ceName);
+          if (wire && typeof wire === "object" && "__rb_handle" in wire) {
+            const p = makeProxy(wire.__rb_handle, wire.__rb_if, wire.__rb_ce, true);
+            Object.setPrototypeOf(p, nt.prototype);
+            return p;
+          }
+        }
+      }
       return constructInterface(name, args);
     };
     Object.defineProperty(ctor, "name", { value: name, configurable: true });
@@ -1622,7 +1648,7 @@ globalThis.__rbHost = (function () {
     };
   }
 
-  function makeProxy(handle, iface, ce) {
+  function makeProxy(handle, iface, ce, suppressUpgrade) {
     const ref = cache.get(handle);
     if (ref) {
       const existing = ref.deref();
@@ -1689,7 +1715,9 @@ globalThis.__rbHost = (function () {
     }
     // 1d: a Dommy-registered custom element node is upgraded to its JS class on
     // first crossing — so the constructor runs before any lifecycle callback.
-    if (ceName) upgradeElement(p, ceName);
+    // Suppressed when the proxy IS the return value of an in-flight direct
+    // construction (`new MyElement()`), whose ctor is already on the stack.
+    if (ceName && !suppressUpgrade) upgradeElement(p, ceName);
     return p;
   }
 
@@ -1698,6 +1726,14 @@ globalThis.__rbHost = (function () {
   // Run a JS custom element's constructor against an existing Dommy-backed proxy
   // (the construction-stack adoption proven by the Step 0 spike), making the
   // proxy an instance of the registered class with its constructor side effects.
+  // Reverse of ceRegistry: the registered tag name for a constructor (the
+  // active new.target of a direct `new MyElement()`), or undefined. Iterates —
+  // a page defines a handful of elements, so a map's bookkeeping isn't worth it.
+  function ceNameForCtor(ctor) {
+    for (const [name, c] of ceRegistry) if (c === ctor) return name;
+    return undefined;
+  }
+
   function upgradeElement(proxy, name) {
     const ctor = ceRegistry.get(name);
     if (!ctor) return;
