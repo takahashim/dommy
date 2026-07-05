@@ -36,4 +36,32 @@ class TestGlobalFunctions < Minitest::Test
     assert_raises(Dommy::DOMException::InvalidCharacterError) { G.atob("@@@@") }
     assert_raises(Dommy::DOMException::InvalidCharacterError) { G.atob("aGk=x") }
   end
+
+  def test_encode_uri_component
+    assert_equal "a%20b", G.encode_uri_component("a b")
+    assert_equal "%E3%81%82", G.encode_uri_component("あ")
+    # The JS unreserved set stays literal (notably * ' ( ) ! ~).
+    assert_equal "-_.!~*'()", G.encode_uri_component("-_.!~*'()")
+  end
+
+  def test_decode_uri_component_decodes_percent_sequences
+    assert_equal "a b", G.decode_uri_component("a%20b")
+    assert_equal "あ", G.decode_uri_component("%E3%81%82")
+  end
+
+  def test_decode_uri_component_keeps_plus_literal
+    # Unlike form-urlencoded decoding, decodeURIComponent must NOT turn "+"
+    # into a space (JS: decodeURIComponent("a+b") === "a+b").
+    assert_equal "a+b c", G.decode_uri_component("a+b%20c")
+    assert_equal "1+2", G.decode_uri_component("1%2B2")
+  end
+
+  def test_decode_uri_component_replaces_malformed_utf8
+    assert_equal "\u{FFFD}\u{FFFD}", G.decode_uri_component("%FF%FE")
+  end
+
+  def test_encode_decode_uri_component_round_trip
+    original = "日本語 & symbols +?=/#"
+    assert_equal original, G.decode_uri_component(G.encode_uri_component(original))
+  end
 end

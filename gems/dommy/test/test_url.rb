@@ -368,6 +368,18 @@ class TestURLSearchParams < Minitest::Test
     assert_equal(["v", "w"], p.get_all("k"))
   end
 
+  def test_parse_decodes_plus_as_space_and_percent_2b_as_plus
+    p = Dommy::URLSearchParams.new("a=x+y&b=1%2B2")
+    assert_equal("x y", p.get("a"))
+    assert_equal("1+2", p.get("b"))
+  end
+
+  def test_parse_decodes_utf8_and_replaces_malformed_sequences
+    p = Dommy::URLSearchParams.new("jp=%E3%81%82&bad=%FF%FE")
+    assert_equal("あ", p.get("jp"))
+    assert_equal("\u{FFFD}\u{FFFD}", p.get("bad"))
+  end
+
   def test_parse_hash
     p = Dommy::URLSearchParams.new({"a" => "1"})
     assert_equal("1", p.get("a"))

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "erb"
 require "base64"
 
 require_relative "url_parser"
@@ -8,16 +7,16 @@ require_relative "url_parser"
 module Dommy
   module Internal
     # Stateless global functions exposed on the JS global (Window) that don't
-    # depend on any window state. Kept here so Window doesn't carry the erb
-    # dependency just for URI component encoding.
+    # depend on any window state.
     module GlobalFunctions
       module_function
 
-      # JS `encodeURIComponent`: percent-encode everything except
-      # `A-Za-z0-9 - _ . ! ~ * ' ( )`. `ERB::Util.url_encode` matches this,
-      # unlike `CGI.escape` (which uses `+` for space).
+      # JS `encodeURIComponent`: UTF-8 percent-encode everything except the
+      # unreserved marks `A-Za-z0-9 - _ . ! ~ * ' ( )`. (Neither
+      # `ERB::Util.url_encode` nor `CGI.escape` matches this set — the former
+      # encodes `!~*'()`, the latter uses `+` for space.)
       def encode_uri_component(value)
-        ERB::Util.url_encode(value.to_s)
+        value.to_s.b.gsub(/[^A-Za-z0-9\-_.!~*'()]/n) { |c| format("%%%02X", c.ord) }
       end
 
       # JS `decodeURIComponent`: percent-decode only — unlike form-urlencoded
