@@ -1139,7 +1139,7 @@ module Dommy
 
   # `<option>` — value, label, selected, disabled, text, index, form.
   class HTMLOptionElement < HTMLElement
-    reflect_boolean :selected, :disabled
+    reflect_boolean :disabled
     def value
       # Per spec, value defaults to the option's `text` (strip-and-collapsed)
       # when the `value` content attribute is absent.
@@ -1158,12 +1158,25 @@ module Dommy
       set_reflected_string("label", v)
     end
 
+    # `defaultSelected` reflects the `selected` content attribute.
     def default_selected
-      selected
+      reflected_boolean("selected")
     end
 
     def default_selected=(v)
-      self.selected = v
+      set_reflected_boolean("selected", v)
+    end
+
+    # `selected` is the selectedness state: it follows defaultSelected until the
+    # setter (or a selection) makes it dirty, after which it holds the set value
+    # independently of the attribute.
+    def selected
+      @selectedness_dirty ? @selectedness : default_selected
+    end
+
+    def selected=(value)
+      @selectedness = !!value
+      @selectedness_dirty = true
     end
 
     def text
@@ -1212,6 +1225,8 @@ module Dommy
         label
       when "defaultSelected"
         default_selected
+      when "selected"
+        selected
       when "text"
         text
       when "form"
@@ -1229,8 +1244,10 @@ module Dommy
         self.value = v
       when "label"
         self.label = v
-      when "selected", "defaultSelected"
+      when "selected"
         self.selected = v
+      when "defaultSelected"
+        self.default_selected = v
       when "text"
         self.text = v
       else
@@ -1282,13 +1299,45 @@ module Dommy
       set_reflected_string("cols", v.to_s)
     end
 
+    # `maxLength` / `minLength` reflect a "limited to only non-negative numbers"
+    # long: a missing / negative / non-numeric content attribute is -1.
     def max_length
-      (@__node__["maxlength"] || "-1").to_i
+      parse_non_negative_reflected("maxlength")
     end
 
     def min_length
-      (@__node__["minlength"] || "-1").to_i
+      parse_non_negative_reflected("minlength")
     end
+
+    def max_length=(value)
+      set_non_negative_reflected("maxlength", value)
+    end
+
+    def min_length=(value)
+      set_non_negative_reflected("minlength", value)
+    end
+
+    private
+
+    def parse_non_negative_reflected(attr)
+      raw = @__node__[attr]
+      return -1 if raw.nil?
+      # HTML "rules for parsing non-negative integers": leading ASCII whitespace,
+      # then digits; anything else (a sign, letters) is an error → -1.
+      m = raw.to_s.match(/\A[\t\n\f\r ]*(\d+)/)
+      m ? m[1].to_i : -1
+    end
+
+    # WHATWG: assigning a negative value to a non-negative reflected long is an
+    # IndexSizeError; otherwise reflect it.
+    def set_non_negative_reflected(attr, value)
+      n = value.to_i
+      raise DOMException::IndexSizeError, "#{attr} must be non-negative" if n.negative?
+
+      set_reflected_string(attr, n.to_s)
+    end
+
+    public
 
     def text_length
       value.length
@@ -1398,9 +1447,9 @@ module Dommy
       when "cols"
         self.cols = v
       when "maxLength"
-        set_reflected_string("maxlength", v.to_s)
+        self.max_length = v
       when "minLength"
-        set_reflected_string("minlength", v.to_s)
+        self.min_length = v
       else
         super
       end

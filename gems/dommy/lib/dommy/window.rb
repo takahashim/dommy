@@ -579,10 +579,15 @@ module Dommy
           audio
         },
         "Option" => Bridge::Constructor.new { |args|
+          # new Option(text, value, defaultSelected, selected). A null/undefined
+          # text or value is absent; defaultSelected sets the `selected` content
+          # attribute; selected (4th arg) sets the selectedness directly.
+          present = ->(v) { !v.nil? && !(defined?(Bridge::UNDEFINED) && v.equal?(Bridge::UNDEFINED)) }
           opt = win.document.create_element("option")
-          opt.text = args[0].to_s unless args[0].nil? || args[0].to_s.empty?
-          opt.value = args[1].to_s if args.length >= 2 && !args[1].nil?
-          opt.selected = true if args[2] || args[3] # defaultSelected / selectedness
+          opt.text = args[0].to_s if present.call(args[0]) && !args[0].to_s.empty?
+          opt.value = args[1].to_s if args.length >= 2 && present.call(args[1])
+          opt.default_selected = true if args[2]
+          opt.selected = !!args[3]
           opt
         },
       }
