@@ -26,6 +26,12 @@ module Dommy
       def all
         @observers.dup
       end
+
+      # True when at least one observer is registered — a cheap gate so a
+      # mutation with no observers skips building MutationRecords entirely.
+      def any?
+        !@observers.empty?
+      end
     end
   end
 end

@@ -82,8 +82,8 @@ module Dommy
         self.class.js_bridge.invoke_lifecycle(self, "adoptedCallback", [])
       end
 
-      def attribute_changed_callback(attr, old_value, new_value)
-        self.class.js_bridge.invoke_lifecycle(self, "attributeChangedCallback", [attr, old_value, new_value])
+      def attribute_changed_callback(attr, old_value, new_value, namespace = nil)
+        self.class.js_bridge.invoke_lifecycle(self, "attributeChangedCallback", [attr, old_value, new_value, namespace])
       end
     end
   end

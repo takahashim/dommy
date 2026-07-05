@@ -144,14 +144,23 @@ module Dommy
         nk.children.each { |c| notify_disconnected_subtree(c) } if nk.respond_to?(:children)
       end
 
-      def notify_attribute_changed(element, name, old_value, new_value)
+      def notify_attribute_changed(element, name, old_value, new_value, namespace = nil)
         return unless element&.respond_to?(:attribute_changed_callback)
 
         klass = element.class
         return unless klass.respond_to?(:observed_attributes)
         return unless klass.observed_attributes.include?(name.to_s.downcase)
 
-        element.attribute_changed_callback(name, old_value, new_value)
+        # attributeChangedCallback's 4th arg is the attribute's namespace (null
+        # for a plain HTML attribute). Pass it only to callbacks that accept it
+        # (the JS bridge, or a 4-arg Ruby callback) so existing 3-arg Ruby custom
+        # elements keep working.
+        cb = element.method(:attribute_changed_callback)
+        if cb.arity.negative? || cb.arity >= 4
+          element.attribute_changed_callback(name, old_value, new_value, namespace)
+        else
+          element.attribute_changed_callback(name, old_value, new_value)
+        end
       rescue StandardError
         nil
       end
@@ -169,12 +178,23 @@ module Dommy
         return nil unless target
         return nil if added_nodes.empty? && removed_nodes.empty?
 
+        # Custom Element connected/disconnected callbacks, script execution, and
+        # blank-iframe load all require the subtree to be connected to the
+        # document (the script/iframe paths already check is_connected?, and
+        # connectedCallback fires only when connected). So skip the O(subtree)
+        # walk for mutations within a still-detached tree — the common case
+        # during bulk DOM construction, where nothing in the walk can fire.
+        if !target.respond_to?(:is_connected?) || target.is_connected?
+          added_nodes.each { |nk| notify_connected_subtree(nk) }
+          removed_nodes.each { |nk| notify_disconnected_subtree(nk) }
+        end
+
+        # MutationRecords are only needed when something is observing; skip the
+        # eager wrapping + record entirely when no observer is registered.
+        return nil unless @observer_manager.any?
+
         wrapped_added = added_nodes.map { |node| @document.wrap_node(node) }.compact
         wrapped_removed = removed_nodes.map { |node| @document.wrap_node(node) }.compact
-
-        # Fire Custom Element lifecycle callbacks (synchronous, before MutationObserver microtask)
-        added_nodes.each { |nk| notify_connected_subtree(nk) }
-        removed_nodes.each { |nk| notify_disconnected_subtree(nk) }
 
         # Capture previousSibling / nextSibling (the position within target)
         prev_w = previous_sibling
@@ -223,7 +243,7 @@ module Dommy
         new_value = target_node[attr]
 
         # Custom Element attributeChangedCallback (synchronous)
-        notify_attribute_changed(target, attr, old_value, new_value)
+        notify_attribute_changed(target, attr, old_value, new_value, namespace)
 
         @observer_manager.observers_matching(target).each do |observer|
           entry = observer.find_matching_entry(target)
