@@ -301,10 +301,10 @@ module Dommy
           @window
         )
       when "text"
-        consume_body { immediate(@body_bytes) }
+        consume_body { immediate(Response.utf8_decode(@body_bytes)) }
       when "json"
         consume_body do
-          immediate(JSON.parse(@body_bytes))
+          immediate(JSON.parse(Response.utf8_decode(@body_bytes)))
         rescue JSON::ParserError => e
           rejected(ErrorValue.new("JSON parse: #{e.message}"))
         end
@@ -508,6 +508,17 @@ module Dommy
       end
     end
 
+    # WHATWG "UTF-8 decode" for a body's text(): interpret the raw bytes as
+    # UTF-8, replacing any ill-formed sequence with U+FFFD, and drop a single
+    # leading byte-order mark (U+FEFF). Well-formed UTF-8 (the common case) is
+    # returned unchanged. Used by both Request and Response text().
+    def self.utf8_decode(bytes)
+      s = bytes.to_s.dup.force_encoding(Encoding::UTF_8)
+      s = s.scrub("\u{FFFD}") unless s.valid_encoding?
+      s = s[1..] if s.start_with?("\u{FEFF}")
+      s
+    end
+
     # WHATWG "extract a body": map a body source to `[byte_string,
     # default_content_type_or_nil]`. The default Content-Type is applied only
     # when the caller supplied none.
@@ -595,7 +606,7 @@ module Dommy
     def __js_call__(method, _args)
       case method
       when "text"
-        consume_body { immediate(@body) }
+        consume_body { immediate(Response.utf8_decode(@body)) }
       when "json"
         consume_body do
           immediate(JSON.parse(scrub_lone_surrogates(@body)))
