@@ -48,6 +48,12 @@ module Dommy
       @window.globals["__last_body__"] = init["body"] if init.is_a?(Hash)
 
       promise = PromiseValue.new(@window)
+      # `mode: "same-origin"` forbids a cross-origin request — it is a network
+      # error before any fetch happens.
+      if (init["mode"] || "cors").to_s == "same-origin" && cross_origin?(url)
+        deliver_task { promise.reject(fetch_type_error) }
+        return promise
+      end
       result = resolve_entry(url, init)
       # A handler may answer asynchronously (live network off-thread): it returns
       # a deferred whose response arrives later and is applied on the page thread
@@ -96,6 +102,10 @@ module Dommy
 
         target = redirect_target(current, location)
         return deliver_task { promise.reject(fetch_type_error) } if target.nil?
+        # A same-origin request may not be redirected across origins.
+        if (init["mode"] || "cors").to_s == "same-origin" && cross_origin?(target)
+          return deliver_task { promise.reject(fetch_type_error) }
+        end
 
         current = target
         redirected = true
@@ -293,6 +303,24 @@ module Dommy
       @window.location.__js_get__("origin").to_s
     rescue StandardError
       ""
+    end
+
+    # Whether `url`'s origin differs from the document's. A non-absolute URL (no
+    # scheme/host) is same-origin (already resolved against the document base).
+    def cross_origin?(url)
+      other = origin_of(url)
+      !other.nil? && other != request_origin
+    end
+
+    def origin_of(url)
+      u = URI.parse(url.to_s)
+      return nil unless u.scheme && u.host
+
+      default = u.scheme == "https" ? 443 : 80
+      port = u.port && u.port != default ? ":#{u.port}" : ""
+      "#{u.scheme}://#{u.host}#{port}"
+    rescue URI::Error
+      nil
     end
 
     # A header record from a Hash, a sequence of [name, value] pairs, or a
