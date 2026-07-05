@@ -1105,6 +1105,37 @@ globalThis.__rbHost = (function () {
   // invalidation concern.
   const CONST_NODE_PROPS = new Set(["nodeType", "nodeName", "localName", "tagName"]);
 
+  // IDL reflected string attributes that return the content attribute value
+  // verbatim ("" when absent): the property name -> its content attribute. These
+  // are answerable from the element's attribute snapshot (the same cache
+  // getAttribute uses), so a framework's per-element id/className scan (Turbo's
+  // PageSnapshot, Stimulus's targets) needs no bridge crossing. Only pure
+  // reflections whose Ruby getter is exactly `node[attr].to_s` are listed —
+  // properties with coercion/defaults (dir, tabIndex, booleans) are NOT.
+  const REFLECTED_STRING_ATTRS = new Map([
+    ["id", "id"], ["className", "class"], ["slot", "slot"],
+  ]);
+
+  // Node properties that are stable WITHIN a DOM epoch (they change only via a
+  // DOM mutation, which bumps the epoch) but are not lifetime-constant like
+  // CONST_NODE_PROPS. Tree-walk loops read these repeatedly, and each read is a
+  // full crossing + result-proxy rehydrate (measured: nextSibling ~10us,
+  // parentNode ~2.5us). Caching them per-epoch collapses a walk's repeated reads
+  // to one crossing each. All return a node/null/number/string — no value here
+  // needs the get-trap fallback paths (global-window / collection).
+  const STABLE_EPOCH_NODE_PROPS = new Set([
+    "parentNode", "parentElement", "ownerDocument",
+    "firstChild", "lastChild", "nextSibling", "previousSibling",
+    "firstElementChild", "lastElementChild",
+    "nextElementSibling", "previousElementSibling",
+    "childElementCount", "textContent",
+    // Live collections: the NodeList/HTMLCollection object is stable (its
+    // contents track mutations, but the read returns the same live proxy), so
+    // caching the proxy per-epoch avoids re-crossing to fetch it on every
+    // `.childNodes`/`.children` access in a walk.
+    "childNodes", "children",
+  ]);
+
   // ===== DOM epoch (attribute-cache invalidation) =====
   //
   // Element proxies cache their full attribute map (fetched in ONE crossing
@@ -1150,6 +1181,13 @@ globalThis.__rbHost = (function () {
     // Cached constant-prop values (CONST_NODE_PROPS) for a Node proxy; null
     // for non-Node interfaces so the cache check stays out of their get path.
     const constCache = nodeChain ? new Map() : null;
+    // Reflected-attribute map, only for Node proxies (elements have the
+    // snapshot; other node kinds return null from attrsSnapshot and fall back).
+    const reflectAttrs = nodeChain ? REFLECTED_STRING_ATTRS : null;
+    // Per-epoch cache of stable node props (STABLE_EPOCH_NODE_PROPS). Rebuilt
+    // whenever the epoch moves; only used for Node proxies.
+    let epochProps = null;
+    let epochPropsEpoch = -1;
     // The element's attribute snapshot for the current DOM epoch:
     //   undefined -> not fetched this epoch;  null -> permanently uncacheable
     //   (not an element / case-sensitive foreign-namespace lookups);
@@ -1187,10 +1225,18 @@ globalThis.__rbHost = (function () {
     // The live length of an array-like collection (NodeList/HTMLCollection/…),
     // so indexed own-property reflection (hasOwnProperty / Object.keys / spread)
     // tracks the current children. 0 for non-collections.
+    // Epoch-cached: a collection's length changes only via a DOM mutation
+    // (which bumps the epoch), so within an epoch it is fetched once and reused
+    // for every `.length` read and index-range check.
+    let liveLenCache = 0;
+    let liveLenEpoch = -1;
     const liveLength = () => {
       if (!arrayLike) return 0;
+      if (liveLenEpoch === domEpoch) return liveLenCache;
       const n = rehydrate(__rb_host_get(handle, "length"));
-      return typeof n === "number" && n >= 0 ? n : 0;
+      liveLenCache = typeof n === "number" && n >= 0 ? n : 0;
+      liveLenEpoch = domEpoch;
+      return liveLenCache;
     };
     // The live WebIDL "supported property names" (named getter keys), re-queried
     // each call so it tracks DOM mutations; [] when there is no named getter.
@@ -1236,6 +1282,31 @@ globalThis.__rbHost = (function () {
           return fn;
         }
         if (constCache !== null && constCache.has(prop)) return constCache.get(prop);
+        // Reflected string attribute (id/className/slot): answer from the
+        // element's attribute snapshot, no crossing. Only when a snapshot is
+        // available (HTML elements) — non-elements / foreign-namespace get null
+        // and fall through to the host, preserving e.g. `document.title`.
+        if (reflectAttrs !== null && typeof prop === "string") {
+          const attrKey = reflectAttrs.get(prop);
+          if (attrKey !== undefined) {
+            const attrs = attrsSnapshot();
+            if (attrs !== null) return Object.hasOwn(attrs, attrKey) ? attrs[attrKey] : "";
+          }
+        }
+        // Stable-within-epoch node prop (parentNode/nextSibling/textContent/…):
+        // answer from a per-epoch cache so a tree-walk's repeated reads cross
+        // once, not once per iteration. The epoch bumps on any mutation or
+        // Ruby -> JS entry, so a cached value is never stale.
+        if (nodeChain && STABLE_EPOCH_NODE_PROPS.has(prop)) {
+          if (epochPropsEpoch !== domEpoch) { epochProps = new Map(); epochPropsEpoch = domEpoch; }
+          if (epochProps.has(prop)) return epochProps.get(prop);
+          const val = rehydrate(__rb_host_get(handle, prop));
+          epochProps.set(prop, val);
+          return val;
+        }
+        // A collection's `.length` is the epoch-cached live count — the same
+        // value index-range checks use, fetched once per epoch not per read.
+        if (arrayLike && prop === "length") return liveLength();
         const raw = __rb_host_get(handle, prop);
         // The host signals a genuinely-absent property with the ABSENT tag (value
         // is `undefined`); a present-but-null property is bare nil (→ JS null).
