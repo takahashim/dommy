@@ -1141,9 +1141,9 @@ module Dommy
   class HTMLOptionElement < HTMLElement
     reflect_boolean :selected, :disabled
     def value
-      # Per spec, value defaults to text content if the `value`
-      # attribute is absent.
-      @__node__.key?("value") ? @__node__["value"].to_s : text_content
+      # Per spec, value defaults to the option's `text` (strip-and-collapsed)
+      # when the `value` content attribute is absent.
+      @__node__.key?("value") ? @__node__["value"].to_s : text
     end
 
     def value=(v)
@@ -1151,7 +1151,7 @@ module Dommy
     end
 
     def label
-      @__node__.key?("label") ? @__node__["label"].to_s : text_content
+      @__node__.key?("label") ? @__node__["label"].to_s : text
     end
 
     def label=(v)
@@ -1167,7 +1167,9 @@ module Dommy
     end
 
     def text
-      text_content
+      # WHATWG: the text steps strip and collapse ASCII whitespace over the
+      # concatenated descendant text.
+      text_content.gsub(/[\t\n\f\r ]+/, " ").strip
     end
 
     def text=(v)
@@ -3030,7 +3032,21 @@ module Dommy
   # `createElement("col") instanceof HTMLTableColElement` (and cloneNode
   # identity) holds. `col`/`colgroup` share HTMLTableColElement per spec.
   class HTMLTableColElement < HTMLElement; end
-  class HTMLDataListElement < HTMLElement; end
+  class HTMLDataListElement < HTMLElement
+    # `options` — the <option> descendants, as a live HTMLCollection.
+    def options
+      el = self
+      HTMLCollection.new do
+        el.__dommy_backend_node__.css("option").map { |n| el.document.wrap_node(n) }.compact
+      end
+    end
+
+    def __js_get__(key)
+      return options if key == "options"
+
+      super
+    end
+  end
   class HTMLDirectoryElement < HTMLElement; end
   class HTMLDListElement < HTMLElement; end
   class HTMLFontElement < HTMLElement
