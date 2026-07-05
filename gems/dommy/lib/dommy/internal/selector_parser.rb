@@ -12,7 +12,8 @@ module Dommy
     # exactly the inputs the spec requires — cases Nokogiri's CSS parser silently
     # accepts (`[*=test]`, `div % p`, `..x`) or rejects with the wrong error.
     #
-    # This only VALIDATES; matching is still delegated to the backend. It is a
+    # `parse!` returns the AST that `SelectorMatcher` matches against (it both
+    # validates and is the matcher's front end). It is a
     # hand-written tokenizer + recursive-descent parser covering the productions
     # the Selectors spec (and the WPT corpus) exercise: selector lists,
     # combinators, type/universal selectors with namespace prefixes, id/class,
@@ -39,6 +40,17 @@ module Dommy
       IDENT_FUNCTIONS = %w[lang dir].to_set.freeze
       NESTED_SELECTOR_FUNCTIONS = %w[host host-context current].to_set.freeze
 
+      # A parsed AST is a pure function of (selector string, namespaces) and never
+      # goes stale as the DOM mutates (unlike the query-result caches, which tag
+      # entries with style_generation). So memoize globally: `matches?` / `closest`
+      # re-parse on every call, and query* re-parse on every cache miss (i.e. after
+      # any mutation), so the same handful of selectors are otherwise re-parsed
+      # constantly. Bounded via the same "clear at cap" idiom as the query caches.
+      # Lock-free plain Hash: `parse!` is pure Ruby (never releases the GVL), so a
+      # read/write is atomic under the GVL — a benign duplicate parse is the worst
+      # a race can cause, matching the existing per-document caches.
+      AST_CACHE_CAP = 2048
+
       module_function
 
       # `namespaces` maps a prefix String to its URI (with the symbol key
@@ -46,9 +58,32 @@ module Dommy
       # stylesheet that declared `@namespace`. nil/empty (the DOM querySelector
       # path) keeps any named prefix undeclared — a SyntaxError, as before.
       def parse!(selector, namespaces: nil)
-        new_parser(selector.to_s, namespaces).parse_selector_list!
-      rescue InvalidSelector => e
-        raise ::Dommy::DOMException::SyntaxError, "'#{selector}' is not a valid selector: #{e.message}"
+        key = [selector.to_s, namespaces]
+        cache = (@ast_cache ||= {})
+        if cache.key?(key)
+          cached = cache[key]
+          # An invalid selector is memoized as its SyntaxError so a repeat still
+          # throws (the message embeds the selector, so re-raising is exact).
+          raise cached if cached.is_a?(::Dommy::DOMException::SyntaxError)
+
+          return cached
+        end
+
+        ast =
+          begin
+            new_parser(selector.to_s, namespaces).parse_selector_list!
+          rescue InvalidSelector => e
+            error = ::Dommy::DOMException::SyntaxError.new("'#{selector}' is not a valid selector: #{e.message}")
+            ast_cache_store(cache, key, error)
+            raise error
+          end
+        ast_cache_store(cache, key, ast)
+        ast
+      end
+
+      def ast_cache_store(cache, key, value)
+        cache.clear if cache.size >= AST_CACHE_CAP
+        cache[key] = value
       end
 
       # Validate `selector`; raise DOMException::SyntaxError if it is not a valid

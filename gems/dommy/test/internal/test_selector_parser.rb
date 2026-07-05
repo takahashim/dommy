@@ -113,6 +113,21 @@ class TestSelectorParser < Minitest::Test
     assert_equal [0, 2, 0], ast.specificity.to_a
   end
 
+  # The AST cache must memoize failures too: a previously-seen invalid selector
+  # still throws on repeat (not silently return a cached success/nil).
+  def test_invalid_selector_still_raises_when_cached
+    2.times do
+      assert_raises(Dommy::DOMException::SyntaxError) { SP.parse!("div % p") }
+    end
+  end
+
+  # A repeated valid parse returns an equivalent AST (cache hit path).
+  def test_repeated_valid_parse_is_consistent
+    first = SP.parse!("input:checked + label")
+    second = SP.parse!("input:checked + label")
+    assert_equal first.specificity.to_a, second.specificity.to_a
+  end
+
   def test_is_and_where_are_forgiving
     assert SP.valid?(":is(.x, :unknown)")
     assert SP.valid?(":where(.x, :unknown)")
