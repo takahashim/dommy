@@ -85,7 +85,7 @@ module Dommy
       loop do
         status = (entry.is_a?(Hash) ? entry["status"] : nil).to_i
         unless REDIRECT_STATUSES.include?(status)
-          return fulfill_from_entry(promise, mark_redirected(entry, redirected), current, init)
+          return deliver_final(promise, mark_redirected(entry, redirected), current, init)
         end
 
         case mode
@@ -95,7 +95,7 @@ module Dommy
 
         location = header_value(entry["headers"], "location")
         # A 3xx with no Location is not a redirect to follow — it is the response.
-        return fulfill_from_entry(promise, mark_redirected(entry, redirected), current, init) if location.nil?
+        return deliver_final(promise, mark_redirected(entry, redirected), current, init) if location.nil?
 
         hops += 1
         return deliver_task { promise.reject(fetch_type_error) } if hops > MAX_REDIRECTS
@@ -117,6 +117,34 @@ module Dommy
           return entry.on_complete { |e| fulfill_from_entry(promise, mark_redirected(e, true), captured, captured_init) }
         end
       end
+    end
+
+    # Deliver the final response, applying the CORS filtering a cross-origin
+    # fetch requires by request mode: "no-cors" yields an opaque response;
+    # "cors" (the default) demands the response allow the origin via
+    # Access-Control-Allow-Origin (else a network error) and tags it a cors
+    # response; a same-origin response passes through as basic.
+    def deliver_final(promise, entry, url, init, redirected = false)
+      mode = (init["mode"] || "cors").to_s
+      if entry.is_a?(Hash) && cross_origin?(url)
+        case mode
+        when "no-cors"
+          return deliver_task { promise.fulfill(opaque_response) }
+        when "cors"
+          acao = header_value(entry["headers"], "access-control-allow-origin")
+          return deliver_task { promise.reject(fetch_type_error) } unless acao == "*" || acao == request_origin
+
+          entry = entry.merge("type" => "cors")
+        end
+      end
+      fulfill_from_entry(promise, mark_redirected(entry, redirected), url, init)
+    end
+
+    # An opaque response for a no-cors cross-origin fetch: status 0, no headers
+    # or body exposed, type "opaque".
+    def opaque_response
+      Response.new(@window, body: "", status: 0, status_text: "", headers: {},
+        url: "", redirected: false, type: "opaque", has_body: false)
     end
 
     def header_value(headers, name)
@@ -219,7 +247,7 @@ module Dommy
       else
         promise.fulfill(
           Response.new(@window, body: body, status: status, status_text: status_text,
-            headers: headers, url: response_url, redirected: redirected, type: "basic")
+            headers: headers, url: response_url, redirected: redirected, type: entry["type"] || "basic")
         )
       end
     end
