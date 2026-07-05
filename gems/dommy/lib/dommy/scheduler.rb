@@ -30,6 +30,15 @@ module Dommy
       # The nesting level of the timer task currently running (0 at top level);
       # a timer scheduled while it runs nests one deeper. Drives the 4ms clamp.
       @nesting_level = 0
+      # Opt-in: run a microtask checkpoint after EACH animation-frame callback
+      # rather than once after the whole frame's batch. Off by default (WHATWG
+      # batches the frame's rAF callbacks under a single checkpoint). A test
+      # harness that drives async frameworks enables it so a framework whose
+      # rAF-scheduled promise chain (Turbo's stream render -> self-removal) must
+      # settle before another same-frame rAF callback (the test's own
+      # `await nextAnimationFrame()` assertion) observes the result — matching the
+      # ordering a real browser's inter-frame timing produces in practice.
+      @raf_checkpoint_each = false
     end
 
     attr_reader :now_ms
@@ -88,6 +97,10 @@ module Dommy
     # that relies on the per-task checkpoint. Absent in vanilla CRuby use (then a
     # checkpoint drains only `@microtasks`).
     attr_accessor :microtask_checkpoint
+
+    # See @raf_checkpoint_each: opt-in per-callback microtask checkpointing for
+    # animation frames (test harnesses driving async frameworks).
+    attr_accessor :raf_checkpoint_each
 
     def set_timeout(callback, delay_ms)
       register_timer(:timeout, callback, delay_ms.to_i, nil)
@@ -245,6 +258,9 @@ module Dommy
           @timers.delete(timer.id)
           invoke_timer(timer, @now_ms.to_f)
           raf_ran = true
+          # Opt-in (test harness): settle this callback's microtask chain before
+          # the next same-frame rAF callback runs (see @raf_checkpoint_each).
+          perform_microtask_checkpoint if @raf_checkpoint_each
         when :interval
           invoke_timer(timer)
           if timer.active
