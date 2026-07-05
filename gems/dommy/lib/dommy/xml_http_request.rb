@@ -119,7 +119,10 @@ module Dommy
       return unless active?(gen)
 
       if entry.nil?
-        deliver(body: "not found", status: 404, status_text: "Not Found", headers: {})
+        # WHATWG: an async request's response is delivered by a network task, not
+        # inline during send() — so readystatechange fires after send() returns.
+        miss = proc { deliver(body: "not found", status: 404, status_text: "Not Found", headers: {}) if active?(gen) }
+        @async ? @window.scheduler.queue_microtask(miss) : miss.call
         return
       end
 
@@ -221,6 +224,16 @@ module Dommy
     def __js_set__(key, value)
       case key
       when "responseType"
+        # WHATWG: setting responseType on a synchronous request in a Window, or
+        # once the request is loading/done, is an InvalidStateError.
+        if @window && !@async
+          raise DOMException::InvalidStateError,
+                "responseType cannot be set on a synchronous XMLHttpRequest in a document"
+        end
+        if @ready_state == LOADING || @ready_state == DONE
+          raise DOMException::InvalidStateError,
+                "responseType cannot be set when the request state is loading or done"
+        end
         @response_type = value.to_s
       when "timeout"
         @timeout = value.to_i

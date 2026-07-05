@@ -145,11 +145,15 @@ globalThis.__rbHost = (function () {
   // Range.compareBoundaryPoints `how` [Constant]s (interface object + prototype).
   const RANGE_CONSTANTS = { START_TO_START: 0, START_TO_END: 1, END_TO_END: 2, END_TO_START: 3 };
 
+  // XMLHttpRequest readyState [Constant]s (on both the interface object and its
+  // prototype, so `XMLHttpRequest.DONE` and `xhr.DONE` both resolve).
+  const XHR_CONSTANTS = { UNSENT: 0, OPENED: 1, HEADERS_RECEIVED: 2, LOADING: 3, DONE: 4 };
+
   // Interface name -> its [Constant]s (placed on both the interface object and
   // its prototype; instances inherit via the proxy get `prop in target` path).
   const INTERFACE_CONSTANTS = {
     Node: NODE_CONSTANTS, Event: EVENT_CONSTANTS, NodeFilter: NODEFILTER_CONSTANTS,
-    WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS
+    WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS, XMLHttpRequest: XHR_CONSTANTS
   };
 
   // 1d: custom elements. ceRegistry maps a tag name to its JS constructor;
