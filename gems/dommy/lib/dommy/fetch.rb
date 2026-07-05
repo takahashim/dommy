@@ -124,9 +124,13 @@ module Dommy
     # "cors" (the default) demands the response allow the origin via
     # Access-Control-Allow-Origin (else a network error) and tags it a cors
     # response; a same-origin response passes through as basic.
+    # Marks an entry that came from a test stub / data: URL — exempt from the
+    # cross-origin CORS filtering that only models a real network + server.
+    CORS_EXEMPT = "__cors_exempt"
+
     def deliver_final(promise, entry, url, init, redirected = false)
       mode = (init["mode"] || "cors").to_s
-      if entry.is_a?(Hash) && cross_origin?(url)
+      if entry.is_a?(Hash) && !entry[CORS_EXEMPT] && cross_origin?(url)
         case mode
         when "no-cors"
           return deliver_task { promise.fulfill(opaque_response) }
@@ -262,7 +266,7 @@ module Dommy
     def resolve_entry(url, init)
       if (decoded = DataUri.parse(url))
         return {"body" => decoded[:body], "status" => 200, "statusText" => "OK",
-                "contentType" => decoded[:content_type]}
+                "contentType" => decoded[:content_type], CORS_EXEMPT => true}
       end
 
       handler = @window.globals["__fetch_handler__"]
@@ -277,8 +281,12 @@ module Dommy
       return nil unless stub_map.is_a?(Hash)
 
       # The URL is now absolute; a stub keyed by a path ("/api") still matches
-      # its resolved form ("http://host/api").
-      stub_map[url] || stub_map[@window.__internal_url_path__(url)]
+      # its resolved form ("http://host/api"). A stub / data: response is the
+      # test's explicit intent, so it is exempt from cross-origin CORS filtering
+      # (which only models what a real network + server enforce, per the
+      # __fetch_handler__ path).
+      entry = stub_map[url] || stub_map[@window.__internal_url_path__(url)]
+      entry && entry.merge(CORS_EXEMPT => true)
     end
 
     # Coerce `init` into a Hash with string keys so the rest of the
