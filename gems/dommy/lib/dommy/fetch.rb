@@ -222,13 +222,25 @@ module Dommy
   class Request
     attr_reader :url, :method, :body
 
-    def initialize(url, init = nil)
+    def initialize(url, init = nil, window = nil)
       opts = init.is_a?(Hash) ? init : {}
+      @window = window
       @url = url.to_s
       @method = (opts["method"] || opts[:method] || "GET").to_s.upcase
       @body = opts["body"] || opts[:body]
       raw_headers = opts["headers"] || opts[:headers] || {}
       @headers = Headers.new(raw_headers)
+      # WHATWG "extract a body": normalize the body source to a byte string once
+      # (shared with Response), so the Body consume methods (text/arrayBuffer/…)
+      # read from it. A default Content-Type from the extraction is applied only
+      # when the caller supplied none.
+      unless @body.nil?
+        @body_bytes, default_ct = Response.extract_body(@body)
+        if default_ct && !@headers.__js_call__("has", ["content-type"])
+          @headers.__js_call__("set", ["content-type", default_ct])
+        end
+      end
+      @body_bytes ||= ""
       @credentials = (opts["credentials"] || opts[:credentials] || "same-origin").to_s
       @mode = (opts["mode"] || opts[:mode] || "cors").to_s
       @cache = (opts["cache"] || opts[:cache] || "default").to_s
@@ -270,22 +282,61 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[clone]
+    js_methods %w[clone text json arrayBuffer blob bytes]
     def __js_call__(method, _args)
       case method
       when "clone"
         Request.new(
           @url,
-          "method" => @method,
-          "body" => @body,
-          "headers" => @headers.to_h,
-          "credentials" => @credentials,
-          "mode" => @mode,
-          "cache" => @cache,
-          "redirect" => @redirect,
-          "signal" => @signal
+          {
+            "method" => @method,
+            "body" => @body,
+            "headers" => @headers.to_h,
+            "credentials" => @credentials,
+            "mode" => @mode,
+            "cache" => @cache,
+            "redirect" => @redirect,
+            "signal" => @signal
+          },
+          @window
         )
+      when "text"
+        consume_body { immediate(@body_bytes) }
+      when "json"
+        consume_body do
+          immediate(JSON.parse(@body_bytes))
+        rescue JSON::ParserError => e
+          rejected(ErrorValue.new("JSON parse: #{e.message}"))
+        end
+      when "arrayBuffer"
+        consume_body { immediate(Bridge::ArrayBuffer.new(@body_bytes.bytes)) }
+      when "bytes"
+        consume_body { immediate(Bridge::Bytes.new(@body_bytes.bytes)) }
+      when "blob"
+        ct = @headers.__js_call__("get", ["content-type"]) || ""
+        consume_body { immediate(Blob.new([@body_bytes], {"type" => ct}, @window)) }
       end
+    end
+
+    private
+
+    # WHATWG Body: the body can be consumed once. A second consume rejects rather
+    # than throwing synchronously.
+    def consume_body
+      if @body_used
+        return rejected(ErrorValue.new("Failed to read body: body stream already read", name: "TypeError"))
+      end
+
+      @body_used = true
+      yield
+    end
+
+    def immediate(value)
+      @window ? PromiseValue.resolve(@window, value) : value
+    end
+
+    def rejected(value)
+      @window ? PromiseValue.reject(@window, value) : value
     end
   end
 

@@ -542,7 +542,7 @@ module Dommy
         "IntersectionObserver" => Bridge::Constructor.new { |args| IntersectionObserver.new(args[0], args[1]) },
         "ResizeObserver" => Bridge::Constructor.new { |args| ResizeObserver.new(args[0]) },
         "PerformanceObserver" => Bridge::Constructor.new { |args| PerformanceObserver.new(args[0]) },
-        "Request" => Bridge::Constructor.new { |args| Request.new(args[0], args[1]) },
+        "Request" => Bridge::Constructor.new { |args| Request.new(args[0], args[1], win) },
         "XMLHttpRequest" => Bridge::Constructor.new { |_args| XMLHttpRequest.new(win) },
         "FileReader" => Bridge::Constructor.new { |_args| FileReader.new(win) },
         "MessageChannel" => Bridge::Constructor.new { |_args| MessageChannel.new(win) },
