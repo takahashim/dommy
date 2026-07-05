@@ -1084,7 +1084,7 @@ module Dommy
       getElementsByClassName getElementsByTagName getElementsByTagNameNS getElementsByName createAttribute
       createAttributeNS createTreeWalker createNodeIterator createRange createEvent importNode
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
-      removeEventListener dispatchEvent write writeln open close isEqualNode appendChild
+      removeEventListener dispatchEvent write writeln open close isEqualNode isSameNode appendChild
       hasChildNodes contains append prepend replaceChildren removeChild insertBefore replaceChild
       cloneNode normalize compareDocumentPosition getRootNode
     ]
@@ -1104,6 +1104,8 @@ module Dommy
         contains?(args[0])
       when "isEqualNode"
         is_equal_node(args[0])
+      when "isSameNode"
+        is_same_node(args[0])
       when "appendChild"
         append_child(args[0])
       when "append"

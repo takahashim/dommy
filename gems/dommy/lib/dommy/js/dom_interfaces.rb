@@ -16,6 +16,7 @@ module Dommy
       NAME_OVERRIDES = {
         "TextNode" => "Text",
         "CommentNode" => "Comment",
+        "ProcessingInstructionNode" => "ProcessingInstruction",
         "CharacterDataNode" => "CharacterData",
         "Fragment" => "DocumentFragment",
         "ClassList" => "DOMTokenList",
@@ -36,7 +37,9 @@ module Dommy
       HTML_LEAF_INTERFACES = %w[
         HTMLAnchorElement HTMLAreaElement HTMLBaseElement HTMLBodyElement
         HTMLBRElement HTMLButtonElement HTMLCanvasElement HTMLDataElement HTMLDetailsElement
-        HTMLDialogElement HTMLDivElement HTMLEmbedElement HTMLFieldsetElement
+        HTMLDialogElement HTMLDirectoryElement HTMLDivElement HTMLDListElement
+        HTMLDataListElement HTMLEmbedElement HTMLFieldSetElement HTMLFontElement
+        HTMLFrameElement HTMLFrameSetElement HTMLParamElement HTMLTableColElement
         HTMLFormElement HTMLHeadElement HTMLHeadingElement HTMLHRElement
         HTMLHtmlElement HTMLIFrameElement HTMLImageElement HTMLInputElement
         HTMLLabelElement HTMLLegendElement HTMLLIElement HTMLLinkElement
@@ -63,6 +66,7 @@ module Dommy
         %w[CharacterData Node EventTarget],
         %w[Text CharacterData Node EventTarget],
         %w[Comment CharacterData Node EventTarget],
+        %w[ProcessingInstruction CharacterData Node EventTarget],
         %w[Document Node EventTarget],
         %w[DocumentFragment Node EventTarget],
         # ShadowRoot is a DocumentFragment subclass; seeded so bare `node

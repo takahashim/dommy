@@ -254,7 +254,7 @@ class TestHTMLFieldsetElement < Minitest::Test
   end
 
   def test_class_dispatch
-    assert_kind_of(Dommy::HTMLFieldsetElement, @fs)
+    assert_kind_of(Dommy::HTMLFieldSetElement, @fs)
   end
 
   def test_name_attr

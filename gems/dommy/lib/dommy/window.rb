@@ -31,6 +31,19 @@ module Dommy
     # contract (and the tests asserting 0) is unchanged; a browser front end
     # (dommynx) turns it on so sites that bail on all-zero rects can proceed.
     attr_accessor :approximate_layout
+    # The `<iframe>`/frame element hosting this window's browsing context (nil for
+    # a top-level window). Lets rendering-dependent code (getComputedStyle) tell
+    # whether this document is inside a non-rendered frame.
+    attr_accessor :frame_element
+
+    # The child browsing contexts' windows, in document order — one per `<iframe>`
+    # (nil for a frame whose content document isn't wired). Backs `window[i]` /
+    # `window.frames[i]`.
+    def frame_windows
+      @document.query_selector_all("iframe").map do |frame|
+        frame.respond_to?(:content_window) ? frame.content_window : nil
+      end
+    end
 
     # Optional WebSocket transport factory (a host seam, like the document's
     # external_script_runner): `->(ws, url, protocols) -> transport | nil`.
@@ -144,6 +157,11 @@ module Dommy
         # not-supported path instead of dereferencing null. An explicitly-set
         # value still wins.
         @globals.key?("event") ? @globals["event"] : Bridge::UNDEFINED
+      when /\A\d+\z/
+        # `window[i]` / `window.frames[i]` — the i-th child browsing context's
+        # window (the i-th `<iframe>`'s contentWindow), or ABSENT past the end.
+        frame = frame_windows[key.to_i]
+        frame.nil? ? Bridge::ABSENT : frame
       else
         # A stashed global wins (even if its value is nil/null); a key never set
         # is genuinely absent → ABSENT so JS sees `undefined` and `"x" in window`
@@ -411,8 +429,27 @@ module Dommy
       value = args[0]
       return "" if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
       return "null" if value.nil?
+      # WebIDL ToString of an object: a crossed plain JS object arrives as a Hash;
+      # run ToPrimitive(String) — its own `toString` then `valueOf` callback — so
+      # `new Comment({toString: () => "x"})` yields "x" (and the second ctor
+      # argument is never looked at, since only args[0] is coerced).
+      return webidl_object_to_string(value) if value.is_a?(Hash)
 
       value.to_s
+    end
+
+    # ToPrimitive(object, String): invoke `toString`, then `valueOf`, using the
+    # first that returns a primitive. A crossed JS function is a HostCallback
+    # (invoked via `__js_call__("call", ...)`). Falls back to "[object Object]".
+    def webidl_object_to_string(hash)
+      %w[toString valueOf].each do |name|
+        cb = hash[name]
+        next unless cb.respond_to?(:__js_call__)
+
+        result = cb.__js_call__("call", [])
+        return result.to_s unless result.is_a?(Hash)
+      end
+      "[object Object]"
     end
 
     # Build the JS-global constructor map. Blocks are lazy (run at `new X()`

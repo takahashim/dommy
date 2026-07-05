@@ -36,9 +36,9 @@ module Dommy
         def computed_style(element, pseudo_element: nil)
           document = element.owner_document
           return {}.freeze unless document
-          # CSSOM: an element outside the flat tree has no computed style —
+          # CSSOM: an element that is not rendered has no computed style —
           # browsers return empty strings for every property.
-          return {}.freeze if element.respond_to?(:is_connected?) && !element.is_connected?
+          return {}.freeze if not_rendered?(element)
 
           cache = style_cache(document)
           if pseudo_element
@@ -48,6 +48,48 @@ module Dommy
           else
             cache[:computed][element] ||= compute(element, document).freeze
           end
+        end
+
+        # An element is "not rendered" (and thus has an empty computed style, per
+        # CSSOM getComputedStyle) when it is disconnected, outside the flat tree
+        # (an unslotted light child of a shadow host), or inside a non-rendered
+        # frame (a `display:none` / disconnected `<iframe>`).
+        def not_rendered?(element)
+          return true if element.respond_to?(:is_connected?) && !element.is_connected?
+          return true if outside_flat_tree?(element)
+
+          in_non_rendered_frame?(element)
+        end
+
+        # Walk flat-tree parents: a light child of a shadow host is in the flat
+        # tree only if assigned to a slot, so an unslotted one (and its subtree)
+        # is outside it.
+        def outside_flat_tree?(element)
+          node = element
+          while node.respond_to?(:parent_element) && (host = node.parent_element)
+            if host.respond_to?(:shadow_root) && host.shadow_root &&
+               node.respond_to?(:assigned_slot) && node.assigned_slot.nil?
+              return true
+            end
+
+            node = host
+          end
+          false
+        end
+
+        # Follow the frame chain up to the top document; the element is not
+        # rendered if any hosting frame is disconnected or `display:none`.
+        def in_non_rendered_frame?(element)
+          doc = element.owner_document
+          seen = 0
+          while doc && (view = (doc.default_view if doc.respond_to?(:default_view))) &&
+                (frame = view.frame_element) && (seen += 1) < 64
+            return true if frame.respond_to?(:is_connected?) && !frame.is_connected?
+            return true if computed_style(frame)["display"] == "none"
+
+            doc = frame.owner_document
+          end
+          false
         end
 
         # Cheap per-generation gate used by visibility checks: does the

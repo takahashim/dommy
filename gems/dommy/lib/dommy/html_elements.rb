@@ -1445,7 +1445,7 @@ module Dommy
 
   # `<fieldset>` — disabled-state-propagating wrapper; exposes
   # `elements` collection like form.
-  class HTMLFieldsetElement < HTMLElement
+  class HTMLFieldSetElement < HTMLElement
     reflect_string :name
     reflect_boolean :disabled
     def type
@@ -2919,6 +2919,10 @@ module Dommy
 
     def __internal_set_content_document__(doc)
       @content_document = doc
+      # Back-link the nested window to its hosting frame, so getComputedStyle can
+      # detect content inside a non-rendered (display:none / disconnected) frame.
+      view = doc.respond_to?(:default_view) ? doc.default_view : nil
+      view.frame_element = self if view.respond_to?(:frame_element=)
     end
 
     def content_window
@@ -3019,6 +3023,23 @@ module Dommy
 
   class HTMLDataElement < HTMLElement
     reflect_string :value
+  end
+
+  # Element interfaces that are otherwise plain HTMLElement subclasses — their
+  # own IDL adds little beyond the base, but they must be distinct types so
+  # `createElement("col") instanceof HTMLTableColElement` (and cloneNode
+  # identity) holds. `col`/`colgroup` share HTMLTableColElement per spec.
+  class HTMLTableColElement < HTMLElement; end
+  class HTMLDataListElement < HTMLElement; end
+  class HTMLDirectoryElement < HTMLElement; end
+  class HTMLDListElement < HTMLElement; end
+  class HTMLFontElement < HTMLElement
+    reflect_string :color, :face, :size
+  end
+  class HTMLFrameElement < HTMLElement; end
+  class HTMLFrameSetElement < HTMLElement; end
+  class HTMLParamElement < HTMLElement
+    reflect_string :name, :value
   end
 
   class HTMLAreaElement < HTMLElement
@@ -3294,7 +3315,7 @@ module Dommy
     "optgroup" => HTMLOptGroupElement,
     "textarea" => HTMLTextAreaElement,
     "label" => HTMLLabelElement,
-    "fieldset" => HTMLFieldsetElement,
+    "fieldset" => HTMLFieldSetElement,
     "output" => HTMLOutputElement,
     "legend" => HTMLLegendElement,
     "slot" => HTMLSlotElement,
@@ -3348,7 +3369,16 @@ module Dommy
     "pre" => HTMLPreElement,
     "body" => HTMLBodyElement,
     "head" => HTMLHeadElement,
-    "html" => HTMLHtmlElement
+    "html" => HTMLHtmlElement,
+    "col" => HTMLTableColElement,
+    "colgroup" => HTMLTableColElement,
+    "datalist" => HTMLDataListElement,
+    "dir" => HTMLDirectoryElement,
+    "dl" => HTMLDListElement,
+    "font" => HTMLFontElement,
+    "frame" => HTMLFrameElement,
+    "frameset" => HTMLFrameSetElement,
+    "param" => HTMLParamElement
   }.freeze
 
   SVG_NAMESPACE_URI = "http://www.w3.org/2000/svg"
