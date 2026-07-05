@@ -28,12 +28,13 @@ class TestShadowRootBasics < Minitest::Test
   end
 
   def test_attach_shadow_invalid_mode_raises
-    assert_raises(Dommy::DOMException::SyntaxError) { @host.attach_shadow({"mode" => "halfway"}) }
+    # `mode` is a WebIDL enum → an invalid value throws TypeError, not a DOMException.
+    assert_raises(TypeError) { @host.attach_shadow({"mode" => "halfway"}) }
   end
 
   def test_attach_shadow_twice_raises
     @host.attach_shadow({"mode" => "open"})
-    assert_raises(Dommy::DOMException::InvalidStateError) { @host.attach_shadow({"mode" => "open"}) }
+    assert_raises(Dommy::DOMException::NotSupportedError) { @host.attach_shadow({"mode" => "open"}) }
   end
 
   def test_shadow_root_returns_open_root

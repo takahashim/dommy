@@ -1820,14 +1820,16 @@ module Dommy
         raise DOMException::NotSupportedError, "<#{tag}> cannot host a shadow root"
       end
 
-      raise DOMException::InvalidStateError, "Shadow root already attached" if @__shadow_root
+      raise DOMException::NotSupportedError, "Shadow root already attached" if @__shadow_root
 
       opts = options.is_a?(Hash) ? options : {}
       mode_raw = opts.key?("mode") ? opts["mode"] : opts[:mode]
       raise TypeError, "attachShadow init dictionary requires 'mode'" if mode_raw.nil?
 
+      # `mode` is a WebIDL enum (ShadowRootMode); a value that isn't "open"/
+      # "closed" fails enum conversion → TypeError, not a DOMException.
       mode = mode_raw.to_s
-      raise DOMException::SyntaxError, "mode must be 'open' or 'closed'" unless %w[open closed].include?(mode)
+      raise TypeError, "mode must be 'open' or 'closed'" unless %w[open closed].include?(mode)
 
       @__shadow_root = ShadowRoot.new(
         self,
@@ -2210,6 +2212,11 @@ module Dommy
         @__node__.parent && @document.wrap_node(@__node__.parent)
       when "textContent"
         @__node__.text
+      when "nodeValue"
+        # Per DOM, an Element's nodeValue is always null (only CharacterData /
+        # Attr carry a value). Without this it fell through to ABSENT → JS
+        # `undefined`, which fails `assert_equals(el.nodeValue, null)`.
+        nil
       when "innerHTML"
         inner_html
       when "outerHTML"

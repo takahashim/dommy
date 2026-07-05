@@ -76,13 +76,14 @@ class TestWPTShadowAttach < Minitest::Test
 
   # ---- attachShadow errors ----
 
-  def test_attachShadow_invalid_mode_raises_SyntaxError
-    assert_raises(Dommy::DOMException::SyntaxError) { @host.attach_shadow({"mode" => "wrong"}) }
+  def test_attachShadow_invalid_mode_raises_TypeError
+    # ShadowRootMode is a WebIDL enum; an invalid value throws TypeError.
+    assert_raises(TypeError) { @host.attach_shadow({"mode" => "wrong"}) }
   end
 
-  def test_attachShadow_twice_raises_InvalidStateError
+  def test_attachShadow_twice_raises_NotSupportedError
     @host.attach_shadow({"mode" => "open"})
-    assert_raises(Dommy::DOMException::InvalidStateError) { @host.attach_shadow({"mode" => "open"}) }
+    assert_raises(Dommy::DOMException::NotSupportedError) { @host.attach_shadow({"mode" => "open"}) }
   end
 
   # ---- shadowRoot accessor ----

@@ -48,17 +48,18 @@ class TestDOMExceptionThrowSites < Minitest::Test
     @doc = @win.document
   end
 
-  def test_attach_shadow_invalid_mode_raises_syntax_error
+  def test_attach_shadow_invalid_mode_raises_type_error
     host = @doc.get_element_by_id("h")
-    assert_raises(Dommy::DOMException::SyntaxError) do
+    # ShadowRootMode is a WebIDL enum → an invalid value throws TypeError.
+    assert_raises(TypeError) do
       host.attach_shadow({"mode" => "foo"})
     end
   end
 
-  def test_attach_shadow_twice_raises_invalid_state
+  def test_attach_shadow_twice_raises_not_supported
     host = @doc.get_element_by_id("h")
     host.attach_shadow({"mode" => "open"})
-    assert_raises(Dommy::DOMException::InvalidStateError) { host.attach_shadow({"mode" => "open"}) }
+    assert_raises(Dommy::DOMException::NotSupportedError) { host.attach_shadow({"mode" => "open"}) }
   end
 
   def test_custom_elements_invalid_name_raises_syntax
@@ -132,7 +133,8 @@ class TestDOMExceptionThrowSites < Minitest::Test
   def test_rescue_dom_exception_catches_all_named
     raised = nil
     begin
-      @doc.get_element_by_id("h").attach_shadow({"mode" => "bogus"})
+      # An invalid selector raises DOMException::SyntaxError (a named subclass).
+      @doc.get_element_by_id("h").query_selector("div % p")
     rescue Dommy::DOMException => e
       raised = e
     end
