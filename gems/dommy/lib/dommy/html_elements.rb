@@ -206,8 +206,33 @@ module Dommy
       when "length"
         length
       else
+        named = named_controls[key.to_s]
+        return named.length == 1 ? named.first : NodeList.new(named) if named && !named.empty?
+
         super
       end
+    end
+
+    # WebIDL named getter: the form's supported property names are the name/id
+    # of each of its listed controls.
+    def __js_named_props__
+      named_controls.keys
+    end
+
+    # name/id -> [controls], for the named getter (a name matching more than one
+    # control yields a RadioNodeList-like NodeList).
+    def named_controls
+      map = ::Hash.new { |h, k| h[k] = [] }
+      elements.each do |el|
+        next unless el.respond_to?(:__dommy_backend_node__)
+
+        node = el.__dommy_backend_node__
+        name = node["name"].to_s
+        map[name] << el unless name.empty?
+        id = node["id"].to_s
+        map[id] << el unless id.empty? || id == name
+      end
+      map
     end
 
     js_methods %w[submit reset requestSubmit checkValidity reportValidity]
