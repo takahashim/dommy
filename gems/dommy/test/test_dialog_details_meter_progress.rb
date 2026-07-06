@@ -43,10 +43,12 @@ class TestHTMLDialogElement < Minitest::Test
   end
 
   def test_close_fires_close_event
+    # Per spec the close event is queued (async), so drain the scheduler.
     @dialog.show
     fired = false
     @dialog.add_event_listener("close", proc { fired = true })
     @dialog.close
+    @win.scheduler.advance_time(0)
     assert(fired)
   end
 

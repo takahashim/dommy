@@ -131,9 +131,9 @@ module Dommy
         end
 
         if entry.passive?
-          event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event) }
+          event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
         else
-          invoke_listener_isolated(entry.listener, event)
+          invoke_listener_isolated(entry.listener, event, self)
         end
 
         break if event.immediate_propagation_stopped?
@@ -152,8 +152,8 @@ module Dommy
     # engine/Ruby-version-dependent — on some QuickJS/Ruby combinations a JS
     # listener's throw surfaces as a Ruby exception here — so guard the
     # host-initiated path too, mirroring MutationObserver#flush.
-    def invoke_listener_isolated(listener, event)
-      CallableInvoker.invoke_listener(listener, event)
+    def invoke_listener_isolated(listener, event, current_target = nil)
+      CallableInvoker.invoke_listener(listener, event, current_target)
     rescue StandardError => e
       __dommy_dump_event_failure__(event, listener, e) if ENV["DOMMY_EVENT_DEBUG"]
       nil

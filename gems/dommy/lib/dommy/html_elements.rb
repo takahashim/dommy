@@ -2211,15 +2211,34 @@ module Dommy
       nil
     end
 
+    # `showModal()` requires the dialog to be connected and not already open;
+    # otherwise it throws InvalidStateError. (Dommy has no top layer, so the
+    # modal itself is functionally the same as show.)
     def show_modal
+      if has_attribute?("open")
+        raise DOMException::InvalidStateError, "showModal() called on an open dialog"
+      end
+      unless is_connected?
+        raise DOMException::InvalidStateError, "showModal() called on a dialog not connected to a document"
+      end
+
       self.open = true
       nil
     end
 
+    # `close(returnValue?)`: abort if the dialog isn't open; otherwise clear the
+    # open attribute, optionally set returnValue, and QUEUE (async) a trusted,
+    # non-bubbling `close` event.
     def close(value = nil)
+      return nil unless has_attribute?("open")
+
       self.open = false
       @return_value = value.to_s unless value.nil?
-      dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false))
+      fire = proc do
+        dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
+      end
+      scheduler = @document.respond_to?(:default_view) && @document.default_view&.scheduler
+      scheduler ? scheduler.set_timeout(fire, 0) : fire.call
       nil
     end
 
