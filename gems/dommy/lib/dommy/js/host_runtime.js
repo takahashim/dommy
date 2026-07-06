@@ -49,10 +49,14 @@ globalThis.__rbHost = (function () {
   // way NodeList does) need Symbol.iterator so for-of / spread work. They expose
   // length + integer indices through the ABI, so the iterator walks those.
   const ARRAY_LIKE_COLLECTIONS = new Set([
-    "HTMLCollection", "HTMLFormControlsCollection", "NodeList", "RadioNodeList", "DOMTokenList",
-    "NamedNodeMap", "DOMStringList", "FileList", "CSSRuleList", "StyleSheetList",
-    "DataTransferItemList", "MediaList"
+    "HTMLCollection", "HTMLFormControlsCollection", "HTMLOptionsCollection", "NodeList",
+    "RadioNodeList", "DOMTokenList", "NamedNodeMap", "DOMStringList", "FileList", "CSSRuleList",
+    "StyleSheetList", "DataTransferItemList", "MediaList", "HTMLSelectElement"
   ]);
+  // Legacy platform objects with a WebIDL indexed property SETTER: `obj[i] = v`
+  // routes to the host (Ruby __js_set__ with the index) instead of being a
+  // no-op. HTMLSelectElement / HTMLOptionsCollection add/replace/remove options.
+  const INDEXED_SETTER_INTERFACES = new Set(["HTMLSelectElement", "HTMLOptionsCollection"]);
   // Map-like collections iterated as [key, value] pairs via .entries().
   const ENTRIES_ITERABLES = new Set(["URLSearchParams", "FormData", "Headers"]);
 
@@ -1324,7 +1328,7 @@ globalThis.__rbHost = (function () {
     "observe", "unobserve", "disconnect", "takeRecords",
   ]);
 
-  function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain) {
+  function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain, indexedSetter) {
     // Cached constant-prop values (CONST_NODE_PROPS) for a Node proxy; null
     // for non-Node interfaces so the cache check stays out of their get path.
     const constCache = nodeChain ? new Map() : null;
@@ -1526,8 +1530,11 @@ globalThis.__rbHost = (function () {
         }
         // Legacy platform object with NO indexed setter: an array-index
         // assignment never becomes an expando — it is a no-op (sloppy) /
-        // TypeError (strict), so the trap returns false.
-        if (arrayLike && isArrayIndex(prop)) return false;
+        // TypeError (strict), so the trap returns false. Objects WITH an indexed
+        // setter (HTMLSelectElement/HTMLOptionsCollection) instead fall through
+        // to the host set below, which runs the WebIDL "set an indexed property"
+        // algorithm (add / replace / remove option).
+        if (arrayLike && isArrayIndex(prop) && !indexedSetter) return false;
         // A read-only named property (HTMLCollection/NamedNodeMap) likewise
         // rejects — unless an own expando already shadows it (then update it).
         if (named && !named.writable && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
@@ -1751,7 +1758,7 @@ globalThis.__rbHost = (function () {
     const isNode = !!(desc.chain && desc.chain.indexOf("Node") !== -1);
     const p = new Proxy(target, makeHandler(handle, methods, new Map(),
       ARRAY_LIKE_COLLECTIONS.has(desc.name), NAMED_PROP_COLLECTIONS.get(desc.name) || null,
-      isNode));
+      isNode, INDEXED_SETTER_INTERFACES.has(desc.name)));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
     // A DOM node's JS wrapper must be STABLE for the node's lifetime, exactly as

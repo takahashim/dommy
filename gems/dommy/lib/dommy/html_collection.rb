@@ -229,6 +229,29 @@ module Dommy
       nil
     end
 
+    # WebIDL "set an indexed property" for HTMLOptionsCollection:
+    #   * a null value removes the option at `index`
+    #   * otherwise, an in-range index replaces that option; an index at or past
+    #     the end appends (padding with blank options for any gap).
+    def __set_indexed__(index, option)
+      i = index.to_i
+      if option.nil?
+        remove(i)
+        return nil
+      end
+      return nil unless option.respond_to?(:__dommy_backend_node__)
+
+      current = to_a
+      if i < current.length
+        @owner.insert_before(option, current[i])
+        current[i].remove
+      else
+        (i - current.length).times { @owner.append_child(@owner.document.create_element("option")) }
+        @owner.append_child(option)
+      end
+      nil
+    end
+
     def selected_index
       @owner.selected_index
     end
@@ -268,6 +291,9 @@ module Dommy
       when "length"
         self.length = value
       else
+        # Indexed property setter: `options[i] = option | null`.
+        return __set_indexed__(key.to_i, value) if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A\d+\z/))
+
         return Bridge::UNHANDLED
       end
 

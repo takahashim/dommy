@@ -16,6 +16,22 @@ module Dommy
       false
     end
 
+    # The `labels` NodeList for a labelable control: every <label> in the
+    # document whose labeled `control` resolves to this element — via an explicit
+    # `for=` reference OR by wrapping it as the label's first labelable
+    # descendant (so nested/ancestor labels count). Shared by button, input,
+    # meter, output, progress, select, and textarea.
+    def labels_node_list
+      me = __dommy_backend_node__
+      matched = @document.query_selector_all("label").select do |label|
+        next false unless label.respond_to?(:control)
+
+        c = label.control
+        c.respond_to?(:__dommy_backend_node__) && c.__dommy_backend_node__.equal?(me)
+      end
+      NodeList.new(matched)
+    end
+
     private
 
     # HTML "rules for parsing integers": optional leading ASCII whitespace, an
@@ -490,9 +506,8 @@ module Dommy
     def labels
       # A hidden input is not a labelable element, so it has no labels list.
       return nil if type == "hidden"
-      return [] if id.empty?
 
-      @document.query_selector_all("label[for='#{id}']")
+      labels_node_list
     end
 
     # Closest enclosing form (or nil if detached / not in a form).
@@ -640,7 +655,7 @@ module Dommy
   # `<button>` — type defaults to "submit" per spec.
   class HTMLButtonElement < HTMLElement
     reflect_string :name, form_action: "formaction", form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
-    reflect_boolean form_no_validate: "formnovalidate"
+    reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
     def type
       raw = @__node__["type"].to_s.downcase
       %w[submit reset button].include?(raw) ? raw : "submit"
@@ -655,9 +670,7 @@ module Dommy
     end
 
     def labels
-      return [] if id.empty?
-
-      @document.query_selector_all("label[for='#{id}']")
+      labels_node_list
     end
 
     def validity
@@ -709,6 +722,20 @@ module Dommy
       case key
       when "type"
         set_reflected_string("type", value)
+      else
+        super
+      end
+    end
+
+    js_methods %w[checkValidity reportValidity setCustomValidity]
+    def __js_call__(method, args)
+      case method
+      when "checkValidity"
+        check_validity
+      when "reportValidity"
+        report_validity
+      when "setCustomValidity"
+        set_custom_validity(args[0])
       else
         super
       end
@@ -1425,9 +1452,7 @@ module Dommy
     end
 
     def labels
-      return [] if id.empty?
-
-      @document.query_selector_all("label[for='#{id}']")
+      labels_node_list
     end
 
     # No real selection — same stub story as input.
@@ -1674,20 +1699,34 @@ module Dommy
   # `<output>` — calculation result element.
   class HTMLOutputElement < HTMLElement
     reflect_string :name
+
+    # `value` is always the descendant text content. `defaultValue` tracks a
+    # separate "default value override": while the value mode flag is "default"
+    # the two coincide (setting either updates the text), but once `value=` flips
+    # the flag to "value" they diverge — the override is frozen and further
+    # `defaultValue=` no longer touches the text content.
     def value
       text_content
     end
 
     def value=(v)
-      self.text_content = v
+      if @__value_mode != :value
+        @__default_override = text_content
+        @__value_mode = :value
+      end
+      self.text_content = v.to_s
     end
 
     def default_value
-      text_content
+      @__value_mode == :value ? @__default_override.to_s : text_content
     end
 
     def default_value=(v)
-      self.text_content = v
+      if @__value_mode == :value
+        @__default_override = v.to_s
+      else
+        self.text_content = v.to_s
+      end
     end
 
     # `for` attribute is a space-separated list of IDs.
@@ -1700,17 +1739,26 @@ module Dommy
     end
 
     def labels
-      return [] if id.empty?
-
-      @document.query_selector_all("label[for='#{id}']")
+      labels_node_list
     end
 
     def type
       "output"
     end
 
+    # An output has a validity state (customError is settable) but is barred
+    # from constraint validation: willValidate is false, validationMessage is
+    # always empty, and check/reportValidity always succeed.
     def validity
-      ValidityState.new
+      @__validity ||= ValidityState.new(self)
+    end
+
+    def will_validate
+      false
+    end
+
+    def validation_message
+      ""
     end
 
     def check_validity
@@ -1719,6 +1767,11 @@ module Dommy
 
     def report_validity
       true
+    end
+
+    def set_custom_validity(msg)
+      @custom_validity_message = msg.to_s
+      nil
     end
 
     def __js_get__(key)
@@ -1735,6 +1788,10 @@ module Dommy
         labels
       when "validity"
         validity
+      when "willValidate"
+        will_validate
+      when "validationMessage"
+        validation_message
       when "htmlFor"
         # `output.htmlFor` is a DOMTokenList (unlike `label.htmlFor`, a string).
         reflected_token_list("htmlFor", "for")
@@ -1751,6 +1808,20 @@ module Dommy
         self.default_value = v
       when "htmlFor"
         set_reflected_string("for", v)
+      else
+        super
+      end
+    end
+
+    js_methods %w[checkValidity reportValidity setCustomValidity]
+    def __js_call__(method, args)
+      case method
+      when "checkValidity"
+        check_validity
+      when "reportValidity"
+        report_validity
+      when "setCustomValidity"
+        set_custom_validity(args[0])
       else
         super
       end
@@ -1905,6 +1976,17 @@ module Dommy
       options.size
     end
 
+    # `select.length = n` resizes the options list (delegates to the collection):
+    # shrinks by removing trailing options, grows by appending blank ones.
+    def length=(n)
+      options.length = n
+    end
+
+    # `select.namedItem(name)` — the first option whose id or name matches.
+    def named_item(name)
+      options.named_item(name)
+    end
+
     def form
       closest("form")
     end
@@ -2039,6 +2121,10 @@ module Dommy
       when "validationMessage"
         validation_message
       else
+        # Indexed getter: `select[i]` is the option at index i (WebIDL).
+        return item(key) if key.is_a?(Integer)
+        return item(key.to_i) if key.is_a?(String) && key.match?(/\A\d+\z/)
+
         super
       end
     end
@@ -2049,16 +2135,24 @@ module Dommy
         self.value = val
       when "selectedIndex"
         self.selected_index = val
+      when "length"
+        self.length = val
       else
+        # Indexed setter: `select[i] = option` delegates to the options
+        # collection's WebIDL "set an indexed property" algorithm.
+        return options.__set_indexed__(key.to_i, val) if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A\d+\z/))
+
         super
       end
     end
 
-    js_methods %w[item add checkValidity reportValidity setCustomValidity]
+    js_methods %w[item namedItem add checkValidity reportValidity setCustomValidity]
     def __js_call__(method, args)
       case method
       when "item"
         item(args[0])
+      when "namedItem"
+        named_item(args[0])
       when "add"
         add(args[0], args[1])
       when "checkValidity"
