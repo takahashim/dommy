@@ -788,7 +788,9 @@ module Dommy
     end
 
     def datetime_local_string_to_ms(s)
-      m = /\A(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/.match(s.strip)
+      # The date/time separator may be "T" or a space (the "parse a local date
+      # and time string" algorithm accepts both).
+      m = /\A(\d{4,})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/.match(s.strip)
       return ::Float::NAN unless m
 
       y, mo, d, h, mi, se = m[1].to_i, m[2].to_i, m[3].to_i, m[4].to_i, m[5].to_i, m[6].to_i
@@ -939,6 +941,30 @@ module Dommy
       else
         raise DOMException::InvalidStateError, "valueAsNumber is not applicable to input type '#{type}'"
       end
+    end
+
+    # Numeric-domain accessors shared with constraint validation (rangeUnderflow
+    # / rangeOverflow / stepMismatch), all in valueAsNumber units.
+    def min_as_number
+      step_boundary("min")
+    end
+
+    def max_as_number
+      step_boundary("max")
+    end
+
+    # The allowed value step in valueAsNumber units, or nil for step="any" / a
+    # type with no stepping.
+    def allowed_value_step
+      return nil unless numeric_value_type?
+
+      step = step_base_value
+      step.nil? ? nil : step * step_scale_factor
+    end
+
+    # The step base for validation: the min boundary if present, else 0.
+    def validation_step_base
+      min_as_number || 0.0
     end
 
     # `stepUp(n)` / `stepDown(n)` add/subtract n steps to the current number. The
@@ -1438,7 +1464,18 @@ module Dommy
 
     # ---- Computed flags ----
 
+    # A control that is disabled or readonly is barred from constraint
+    # validation — none of the "suffering from" flags apply.
+    def host_barred?
+      return false unless @host
+
+      disabled = host_attr_present?("disabled")
+      readonly = @host.respond_to?(:readonly) ? @host.readonly : host_attr_present?("readonly")
+      disabled || readonly
+    end
+
     def value_missing
+      return false if host_barred?
       return false unless @host && host_attr_present?("required")
 
       case host_type
@@ -1453,7 +1490,13 @@ module Dommy
           !host_checked?
         end
       else
-        host_value.to_s.empty?
+        # A date/number type with an unparseable value has no value (its
+        # sanitized value is empty), so it counts as missing.
+        if @host.respond_to?(:numeric_value_type?) && @host.send(:numeric_value_type?)
+          @host.value_as_number.nan?
+        else
+          host_value.to_s.empty?
+        end
       end
     end
 
@@ -1515,38 +1558,34 @@ module Dommy
     def range_underflow
       return false unless numeric_host?
 
-      min = host_attr_value("min").to_s
-      return false if min.empty?
+      min = @host.min_as_number
+      return false if min.nil?
 
-      num = numeric_value
-      num && num < min.to_f
+      num = @host.value_as_number
+      !num.nan? && num < min
     end
 
     def range_overflow
       return false unless numeric_host?
 
-      max = host_attr_value("max").to_s
-      return false if max.empty?
+      max = @host.max_as_number
+      return false if max.nil?
 
-      num = numeric_value
-      num && num > max.to_f
+      num = @host.value_as_number
+      !num.nan? && num > max
     end
 
     def step_mismatch
       return false unless numeric_host?
 
-      step = host_attr_value("step").to_s
-      return false if step.empty? || step == "any"
+      step = @host.allowed_value_step
+      return false if step.nil?
 
-      step_n = step.to_f
-      return false if step_n <= 0
+      num = @host.value_as_number
+      return false if num.nan?
 
-      num = numeric_value
-      return false unless num
-
-      base = host_attr_value("min").to_s
-      base_n = base.empty? ? 0.0 : base.to_f
-      ((num - base_n) / step_n - ((num - base_n) / step_n).round).abs > 1e-9
+      ratio = (num - @host.validation_step_base) / step
+      (ratio - ratio.round).abs > 1e-7
     end
 
     # `badInput` flags input that the user agent couldn't convert to
@@ -1664,7 +1703,8 @@ module Dommy
     end
 
     def numeric_host?
-      @host.is_a?(HTMLInputElement) && %w[number range].include?(host_type)
+      @host.is_a?(HTMLInputElement) && @host.respond_to?(:numeric_value_type?) &&
+        @host.send(:numeric_value_type?)
     end
 
     def numeric_value
