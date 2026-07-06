@@ -89,6 +89,15 @@ module Dommy
       uri.scheme && uri.host ? "#{uri.scheme}://#{uri.host}#{port_suffix}" : ""
     end
 
+    # `a.text` is an alias for the element's descendant text content.
+    def text
+      text_content
+    end
+
+    def text=(v)
+      self.text_content = v.to_s
+    end
+
     def __js_get__(key)
       case key
       when "hash"
@@ -107,6 +116,17 @@ module Dommy
         port
       when "origin"
         origin
+      when "text"
+        text
+      else
+        super
+      end
+    end
+
+    def __js_set__(key, value)
+      case key
+      when "text"
+        self.text = value
       else
         super
       end
