@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "date"
+
 module Dommy
   # Base for specialized HTMLElement subclasses. Inherits reflection
   # helpers from Internal::ReflectedAttributes (also shared with
@@ -650,12 +652,303 @@ module Dommy
       %w[forward backward].include?(d) ? d : "none"
     end
 
-    def step_up(_n = 1)
+    # Input types whose value has a numeric representation (valueAsNumber /
+    # stepUp / stepDown apply).
+    def numeric_value_type?
+      %w[number range date month week time datetime-local].include?(type)
+    end
+
+    def range_min
+      Float(@__node__["min"].to_s) rescue 0.0
+    end
+
+    def range_max
+      Float(@__node__["max"].to_s) rescue 100.0
+    end
+
+    # A range with no (valid) value defaults to the midpoint of its range, or the
+    # minimum when the maximum is below it.
+    def default_range_value(lo, hi)
+      hi < lo ? lo : lo + (hi - lo) / 2.0
+    end
+
+    # The declared step (default 1 for number, 1 for range); "any" disables
+    # stepping (returns nil).
+    def step_base_value
+      raw = @__node__["step"].to_s.strip
+      return nil if raw.casecmp?("any")
+
+      s = (Float(raw) rescue nil)
+      s && s > 0 ? s : default_step
+    end
+
+    # stepUp/stepDown throw when the type has no allowed value step: a type with
+    # no number representation, or step="any". Otherwise the value moves by
+    # `count` steps (in valueAsNumber units), clamped/aligned to the min & max.
+    def apply_step(count)
+      unless numeric_value_type?
+        raise DOMException::InvalidStateError, "stepUp/stepDown is not applicable to input type '#{type}'"
+      end
+
+      step = step_base_value
+      if step.nil?
+        raise DOMException::InvalidStateError, "stepUp/stepDown is not allowed when step is 'any'"
+      end
+      return if count.zero?
+
+      allowed = step * step_scale_factor
+      mn = step_boundary("min")
+      mx = step_boundary("max")
+      # A min above the max means no in-range value exists — do nothing.
+      return if mn && mx && mn > mx
+
+      before = value_as_number
+      base = before.nan? ? (mn || 0.0) : before
+      result = base + count * allowed
+
+      step_base = mn || 0.0
+      result = mx - (mx - step_base) % allowed if mx && result > mx
+      result = mn + (step_base - mn) % allowed if mn && result < mn
+
+      # Clamping must never move the value against the step direction (e.g. a
+      # stepDown on a value already below min must not jump UP to min).
+      unless before.nan?
+        return if count.positive? && result < before
+        return if count.negative? && result > before
+      end
+
+      self.value_as_number = result
       nil
     end
 
-    def step_down(_n = 1)
-      nil
+    # The scale that turns one declared step into valueAsNumber units (ms for the
+    # date/time types, natural units for number/range/month).
+    def step_scale_factor
+      case type
+      when "date" then 86_400_000
+      when "week" then 604_800_000
+      when "time", "datetime-local" then 1000
+      else 1
+      end
+    end
+
+    # The default allowed step (in the type's own step units) when `step` is
+    # absent or invalid: 60 (seconds) for time/datetime-local, 1 otherwise.
+    def default_step
+      %w[time datetime-local].include?(type) ? 60.0 : 1.0
+    end
+
+    # The `min`/`max` boundary as a valueAsNumber, or nil when absent/unparseable.
+    def step_boundary(attr)
+      raw = @__node__[attr].to_s.strip
+      return nil if raw.empty?
+
+      case type
+      when "number", "range" then (Float(raw) rescue nil)
+      when "date" then nan_to_nil(date_string_to_ms(raw))
+      when "time" then nan_to_nil(time_string_to_ms(raw))
+      when "datetime-local" then nan_to_nil(datetime_local_string_to_ms(raw))
+      when "month" then nan_to_nil(month_string_to_number(raw))
+      when "week" then nan_to_nil(week_string_to_ms(raw))
+      end
+    end
+
+    def nan_to_nil(n)
+      n.nan? ? nil : n
+    end
+
+    # JS Number-to-string: an integral value drops the trailing ".0".
+    def number_to_string(n)
+      return "" if n.nan?
+
+      n == n.to_i ? n.to_i.to_s : n.to_s
+    end
+
+    # --- Date/time "convert a string to a number" algorithms (all UTC) --------
+
+    def date_string_to_ms(s)
+      m = /\A(\d{4,})-(\d{2})-(\d{2})\z/.match(s.strip)
+      return ::Float::NAN unless m
+
+      y, mo, d = m[1].to_i, m[2].to_i, m[3].to_i
+      return ::Float::NAN if y < 1 || !::Date.valid_date?(y, mo, d)
+
+      ::Time.utc(y, mo, d).to_i * 1000.0
+    end
+
+    def time_string_to_ms(s)
+      m = /\A(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/.match(s.strip)
+      return ::Float::NAN unless m
+
+      h, mi, se = m[1].to_i, m[2].to_i, m[3].to_i
+      return ::Float::NAN if h > 23 || mi > 59 || se > 59
+
+      frac = m[4] ? m[4].ljust(3, "0").to_i : 0
+      ((h * 3600 + mi * 60 + se) * 1000 + frac).to_f
+    end
+
+    def datetime_local_string_to_ms(s)
+      m = /\A(\d{4,})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/.match(s.strip)
+      return ::Float::NAN unless m
+
+      y, mo, d, h, mi, se = m[1].to_i, m[2].to_i, m[3].to_i, m[4].to_i, m[5].to_i, m[6].to_i
+      return ::Float::NAN if y < 1 || !::Date.valid_date?(y, mo, d) || h > 23 || mi > 59 || se > 59
+
+      frac = m[7] ? m[7].ljust(3, "0").to_i : 0
+      (::Time.utc(y, mo, d, h, mi, se).to_i * 1000 + frac).to_f
+    end
+
+    def month_string_to_number(s)
+      m = /\A(\d{4,})-(\d{2})\z/.match(s.strip)
+      return ::Float::NAN unless m
+
+      y, mo = m[1].to_i, m[2].to_i
+      return ::Float::NAN if y < 1 || mo < 1 || mo > 12
+
+      ((y - 1970) * 12 + (mo - 1)).to_f
+    end
+
+    def week_string_to_ms(s)
+      m = /\A(\d{4,})-W(\d{2})\z/.match(s.strip)
+      return ::Float::NAN unless m
+
+      y, w = m[1].to_i, m[2].to_i
+      return ::Float::NAN if y < 1 || w < 1
+
+      # Date.commercial raises for a week beyond the ISO year's 52/53 weeks.
+      d = ::Date.commercial(y, w, 1)
+      ::Time.utc(d.year, d.month, d.day).to_i * 1000.0
+    rescue ::ArgumentError
+      ::Float::NAN
+    end
+
+    # --- Inverse: "convert a number to a string" for the date/time types -------
+
+    def utc_time_from_ms(ms)
+      ::Time.at(ms / 1000.0).utc
+    end
+
+    def ms_to_date_string(ms)
+      return "" if ms.nan?
+
+      t = utc_time_from_ms(ms)
+      format("%04d-%02d-%02d", t.year, t.month, t.day)
+    rescue ::RangeError, ::ArgumentError, ::FloatDomainError
+      ""
+    end
+
+    def ms_to_time_string(ms)
+      return "" if ms.nan?
+
+      v = (ms % 86_400_000).to_i
+      h = v / 3_600_000
+      mi = (v % 3_600_000) / 60_000
+      se = (v % 60_000) / 1000
+      frac = v % 1000
+      if se.zero? && frac.zero?
+        format("%02d:%02d", h, mi)
+      elsif frac.zero?
+        format("%02d:%02d:%02d", h, mi, se)
+      else
+        format("%02d:%02d:%02d.%03d", h, mi, se, frac)
+      end
+    end
+
+    def ms_to_datetime_local_string(ms)
+      return "" if ms.nan?
+
+      t = utc_time_from_ms(ms)
+      return "" if t.year < 1 || t.year > 9999
+
+      base = format("%04d-%02d-%02dT%02d:%02d", t.year, t.month, t.day, t.hour, t.min)
+      frac = (ms % 1000).to_i
+      if t.sec.zero? && frac.zero?
+        base
+      elsif frac.zero?
+        base + format(":%02d", t.sec)
+      else
+        base + format(":%02d.%03d", t.sec, frac)
+      end
+    rescue ::RangeError, ::ArgumentError, ::FloatDomainError
+      ""
+    end
+
+    def number_to_month_string(n)
+      return "" if n.nan?
+
+      months = n.to_i
+      y = 1970 + (months.fdiv(12).floor)
+      mo = months % 12
+      format("%04d-%02d", y, mo + 1)
+    end
+
+    def ms_to_week_string(ms)
+      return "" if ms.nan?
+
+      t = utc_time_from_ms(ms)
+      d = ::Date.new(t.year, t.month, t.day)
+      format("%04d-W%02d", d.cwyear, d.cweek)
+    rescue ::RangeError, ::ArgumentError, ::FloatDomainError
+      ""
+    end
+
+    # `valueAsNumber` — the control's value as a number, per the type's
+    # "convert a string to a number" algorithm (NaN when the type has no number
+    # representation or the value doesn't parse). number/range are plain floats;
+    # range additionally defaults to its midpoint and clamps to [min, max].
+    def value_as_number
+      case type
+      when "number"
+        Float(value.to_s.strip) rescue ::Float::NAN
+      when "range"
+        n = (Float(value.to_s.strip) rescue nil)
+        lo = range_min
+        hi = range_max
+        n = default_range_value(lo, hi) if n.nil?
+        n.clamp(lo, hi)
+      when "date"
+        date_string_to_ms(value.to_s)
+      when "time"
+        time_string_to_ms(value.to_s)
+      when "datetime-local"
+        datetime_local_string_to_ms(value.to_s)
+      when "month"
+        month_string_to_number(value.to_s)
+      when "week"
+        week_string_to_ms(value.to_s)
+      else
+        ::Float::NAN
+      end
+    end
+
+    def value_as_number=(n)
+      f = n.to_f
+      case type
+      when "number", "range"
+        self.value = f.nan? ? "" : number_to_string(f)
+      when "date"
+        self.value = ms_to_date_string(f)
+      when "time"
+        self.value = ms_to_time_string(f)
+      when "datetime-local"
+        self.value = ms_to_datetime_local_string(f)
+      when "month"
+        self.value = number_to_month_string(f)
+      when "week"
+        self.value = ms_to_week_string(f)
+      else
+        raise DOMException::InvalidStateError, "valueAsNumber is not applicable to input type '#{type}'"
+      end
+    end
+
+    # `stepUp(n)` / `stepDown(n)` add/subtract n steps to the current number. The
+    # WebIDL default for n is 1 (a missing/undefined arg crosses as nil).
+    def step_up(n = 1)
+      apply_step((n || 1).to_i)
+    end
+
+    def step_down(n = 1)
+      apply_step(-(n || 1).to_i)
     end
 
     def validity
@@ -730,6 +1023,8 @@ module Dommy
         selection_end
       when "selectionDirection"
         selection_direction
+      when "valueAsNumber"
+        value_as_number
       else
         super
       end
@@ -741,6 +1036,8 @@ module Dommy
         set_reflected_string("type", value)
       when "value"
         self.value = value
+      when "valueAsNumber"
+        self.value_as_number = value
       when "selectionStart"
         self.selection_start = value
       when "selectionEnd"
