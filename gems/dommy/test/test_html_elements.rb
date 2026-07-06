@@ -170,9 +170,23 @@ class TestHTMLInputElement < Minitest::Test
     refute(@input.check_validity)
   end
 
-  def test_select_stub_does_not_crash
+  def test_selection_on_type_without_support
+    # An email input has no text selection: select() is a silent no-op, but the
+    # selection getters are null and setSelectionRange throws (per spec).
     assert_nil(@input.select)
-    assert_nil(@input.set_selection_range(0, 3))
+    assert_nil(@input.selection_start)
+    assert_raises(Dommy::DOMException::InvalidStateError) { @input.set_selection_range(0, 3) }
+  end
+
+  def test_selection_on_text_input
+    text = @doc.create_element("input")
+    text.value = "hello"
+    text.set_selection_range(1, 3)
+    assert_equal(1, text.selection_start)
+    assert_equal(3, text.selection_end)
+    text.select
+    assert_equal(0, text.selection_start)
+    assert_equal(5, text.selection_end)
   end
 end
 

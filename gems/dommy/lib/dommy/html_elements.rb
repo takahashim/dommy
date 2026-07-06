@@ -511,19 +511,32 @@ module Dommy
       @document&.__internal_bump_style_generation__
     end
 
-    # The radio button group: radios sharing this element's non-empty name and
-    # form owner (or, with no form, no form either). Orphan-tree grouping for
-    # detached radios is not modeled.
+    # Two controls share a form owner when both are formless, or both point at
+    # the same form element (compared by backend node identity).
+    def same_form_owner?(a, b)
+      return b.nil? if a.nil?
+      return false if b.nil?
+
+      a.__dommy_backend_node__.equal?(b.__dommy_backend_node__)
+    end
+
+    # The radio button group: radios in the SAME tree (root node — so an orphan
+    # subtree groups too) that share this element's non-empty name and form
+    # owner (two radios with no form owner still group, as long as they share a
+    # tree and name).
     def radio_group_members
       group_name = get_attribute("name").to_s
       return [self] if group_name.empty?
 
-      owner_form = form
-      scope = owner_form || @document
-      return [self] unless scope.respond_to?(:query_selector_all)
+      owner = form_owner
+      root = get_root_node
+      return [self] unless root.respond_to?(:query_selector_all)
 
-      scope.query_selector_all("input[type='radio']").to_a.select do |radio|
-        radio.get_attribute("name").to_s == group_name && radio.form.equal?(owner_form)
+      root.query_selector_all("input[type='radio']").to_a.select do |radio|
+        next false unless radio.respond_to?(:form_owner)
+        next false unless radio.get_attribute("name").to_s == group_name
+
+        same_form_owner?(owner, radio.form_owner)
       end
     end
 
@@ -534,22 +547,107 @@ module Dommy
       labels_node_list
     end
 
-    # Closest enclosing form (or nil if detached / not in a form).
+    # The form owner (WebIDL `input.form`): the form referenced by a `form=`
+    # content attribute (when it resolves to a form element), otherwise the
+    # nearest ancestor form.
     def form
+      form_owner
+    end
+
+    def form_owner
+      form_id = get_attribute("form").to_s
+      unless form_id.empty?
+        target = @document.get_element_by_id(form_id)
+        return (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
+      end
+
       closest("form")
     end
 
-    # No real text selection; method stubs let callers proceed.
+    # Only these input types expose a variable-length text selection; the rest
+    # return null for the selection attributes and throw on the setters/methods.
+    SELECTION_TYPES = %w[text search url tel password].freeze
+
+    def supports_selection?
+      SELECTION_TYPES.include?(type)
+    end
+
+    def selection_start
+      return nil unless supports_selection?
+
+      @__selection_start ||= value.to_s.length
+    end
+
+    def selection_start=(v)
+      require_selection!
+      @__selection_start = clamp_selection_index(v)
+    end
+
+    def selection_end
+      return nil unless supports_selection?
+
+      @__selection_end ||= value.to_s.length
+    end
+
+    def selection_end=(v)
+      require_selection!
+      @__selection_end = clamp_selection_index(v)
+    end
+
+    def selection_direction
+      return nil unless supports_selection?
+
+      @__selection_direction || "none"
+    end
+
+    def selection_direction=(v)
+      require_selection!
+      @__selection_direction = normalize_selection_direction(v)
+    end
+
+    # `select()` selects the whole control on a text control; on any other type
+    # it is a silent no-op (it does NOT throw).
     def select
+      return nil unless supports_selection?
+
+      @__selection_start = 0
+      @__selection_end = value.to_s.length
+      @__selection_direction = "none"
       nil
     end
 
-    def set_selection_range(_start, _end, _direction = nil)
+    def set_selection_range(start, finish, direction = nil)
+      require_selection!
+      len = value.to_s.length
+      e = clamp_selection_index(finish, len)
+      s = [clamp_selection_index(start, len), e].min
+      @__selection_start = s
+      @__selection_end = e
+      @__selection_direction = normalize_selection_direction(direction)
       nil
     end
 
     def set_range_text(_replacement, *_)
+      require_selection!
       nil
+    end
+
+    # Raise on the selection setters/methods for a type that has no text
+    # selection (email, number, checkbox, …).
+    def require_selection!
+      return if supports_selection?
+
+      raise DOMException::InvalidStateError, "The input element's type ('#{type}') does not support selection."
+    end
+
+    def clamp_selection_index(v, len = value.to_s.length)
+      n = v.to_i
+      n.negative? ? 0 : [n, len].min
+    end
+
+    def normalize_selection_direction(v)
+      d = v.to_s
+      %w[forward backward].include?(d) ? d : "none"
     end
 
     def step_up(_n = 1)
@@ -626,6 +724,12 @@ module Dommy
         validation_message
       when "files"
         files
+      when "selectionStart"
+        selection_start
+      when "selectionEnd"
+        selection_end
+      when "selectionDirection"
+        selection_direction
       else
         super
       end
@@ -637,6 +741,12 @@ module Dommy
         set_reflected_string("type", value)
       when "value"
         self.value = value
+      when "selectionStart"
+        self.selection_start = value
+      when "selectionEnd"
+        self.selection_end = value
+      when "selectionDirection"
+        self.selection_direction = value
       when "checked"
         self.checked = value
       when "indeterminate"
@@ -1035,8 +1145,16 @@ module Dommy
       return false unless @host && host_attr_present?("required")
 
       case host_type
-      when "checkbox", "radio"
-        !host_attr_present?("checked")
+      when "checkbox"
+        !host_checked?
+      when "radio"
+        # A required radio is missing only when NO member of its group (same
+        # name/form owner/tree) is checked — using runtime checkedness.
+        if @host.respond_to?(:radio_group_members)
+          @host.radio_group_members.none? { |r| r.respond_to?(:checked) ? r.checked : false }
+        else
+          !host_checked?
+        end
       else
         host_value.to_s.empty?
       end
@@ -1228,6 +1346,12 @@ module Dommy
       return false unless @host
 
       @host.__dommy_backend_node__.key?(name.to_s)
+    end
+
+    # Runtime checkedness of a checkbox/radio host (the `.checked` IDL state,
+    # which can drift from the `checked` content attribute).
+    def host_checked?
+      @host.respond_to?(:checked) ? @host.checked : host_attr_present?("checked")
     end
 
     def host_type
