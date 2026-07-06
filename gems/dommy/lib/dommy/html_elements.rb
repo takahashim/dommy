@@ -20,16 +20,20 @@ module Dommy
     # document whose labeled `control` resolves to this element — via an explicit
     # `for=` reference OR by wrapping it as the label's first labelable
     # descendant (so nested/ancestor labels count). Shared by button, input,
-    # meter, output, progress, select, and textarea.
+    # meter, output, progress, select, and textarea. Live, so a retained
+    # reference reflects later DOM/type changes (e.g. an input turning `hidden`
+    # drops out of its labels). Memoized so it is the [SameObject] across reads.
     def labels_node_list
-      me = __dommy_backend_node__
-      matched = @document.query_selector_all("label").select do |label|
-        next false unless label.respond_to?(:control)
+      el = self
+      @__labels_node_list ||= LiveNodeList.new do
+        me = el.__dommy_backend_node__
+        el.document.query_selector_all("label").select do |label|
+          next false unless label.respond_to?(:control)
 
-        c = label.control
-        c.respond_to?(:__dommy_backend_node__) && c.__dommy_backend_node__.equal?(me)
+          c = label.control
+          c.respond_to?(:__dommy_backend_node__) && c.__dommy_backend_node__.equal?(me)
+        end
       end
-      NodeList.new(matched)
     end
 
     private
