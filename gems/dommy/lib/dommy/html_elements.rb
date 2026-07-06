@@ -3284,8 +3284,10 @@ module Dommy
       delete_caption
       return if new_caption.nil?
 
-      first = @__node__.children.first
-      first ? first.add_previous_sibling(new_caption.__dommy_backend_node__) : @__node__.add_child(new_caption.__dommy_backend_node__)
+      # Route through the validated insertion so a cycle (the caption already
+      # containing this table) raises HierarchyRequestError and a caption from
+      # another document is adopted, rather than corrupting the tree.
+      insert_before(new_caption, first_child)
     end
 
     def t_head
@@ -3308,19 +3310,33 @@ module Dommy
     def rows
       el = self
       HTMLCollection.new do
-        ordered = []
-        kids = el.__dommy_backend_node__.element_children.select { |n| el.__html_namespace_node__(n) }
-        head = kids.find { |n| n.name == "thead" }
-        bodies = kids.select { |n| n.name == "tbody" }
-        direct = kids.select { |n| n.name == "tr" }
-        foot = kids.find { |n| n.name == "tfoot" }
-        [head, *bodies, foot].compact.each do |sec|
-          sec.element_children.select { |n| n.name == "tr" && el.__html_namespace_node__(n) }.each { |n| ordered << n }
-        end
+        # Per spec: thead rows first, then the tr children of the table and of
+        # tbody sections IN TREE ORDER (a direct <tr> and a <tbody>'s rows
+        # interleave by document position), then tfoot rows.
+        head_rows = []
+        body_rows = []
+        foot_rows = []
+        el.__dommy_backend_node__.element_children.each do |n|
+          next unless el.__html_namespace_node__(n)
 
-        direct.each { |n| ordered << n }
-        ordered.map { |n| el.document.wrap_node(n) }.compact
+          case n.name
+          when "thead"
+            el.__tr_children__(n).each { |c| head_rows << c }
+          when "tfoot"
+            el.__tr_children__(n).each { |c| foot_rows << c }
+          when "tbody"
+            el.__tr_children__(n).each { |c| body_rows << c }
+          when "tr"
+            body_rows << n
+          end
+        end
+        (head_rows + body_rows + foot_rows).map { |n| el.document.wrap_node(n) }.compact
       end
+    end
+
+    # The HTML-namespaced <tr> element children of a section node.
+    def __tr_children__(section)
+      section.element_children.select { |n| n.name == "tr" && __html_namespace_node__(n) }
     end
 
     # The first HTML-namespaced element child with the given local name (a
@@ -3461,17 +3477,13 @@ module Dommy
       end
 
       first_html_child(local)&.remove
-      node = value.__dommy_backend_node__
+      # A validated insertion (cycle → HierarchyRequestError, cross-document →
+      # adopt). thead goes just after any caption; tfoot is appended last.
       if local == "thead"
-        anchor = caption&.__dommy_backend_node__
-        if anchor
-          anchor.add_next_sibling(node)
-        else
-          first = @__node__.children.first
-          first ? first.add_previous_sibling(node) : @__node__.add_child(node)
-        end
+        cap = caption
+        insert_before(value, cap ? cap.next_sibling : first_child)
       else
-        @__node__.add_child(node)
+        append_child(value)
       end
       value
     end
