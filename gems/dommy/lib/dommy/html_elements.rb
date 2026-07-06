@@ -3269,36 +3269,39 @@ module Dommy
   # tbody elements. `insertRow(-1)` appends to the last tbody (or
   # creates one); `deleteRow` works against the merged `rows` list.
   class HTMLTableElement < HTMLElement
+    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+
     # Own __js_call__ methods, on top of Element's.
     def caption
-      @__node__.element_children.find { |n| n.name == "caption" }&.then { |n| @document.wrap_node(n) }
+      first_html_child("caption")
     end
 
     def caption=(new_caption)
+      if !new_caption.nil? && !new_caption.is_a?(HTMLTableCaptionElement)
+        raise Bridge::TypeError, "table.caption must be an HTMLTableCaptionElement or null"
+      end
+
       delete_caption
-      return unless new_caption.respond_to?(:__dommy_backend_node__)
+      return if new_caption.nil?
 
       first = @__node__.children.first
       first ? first.add_previous_sibling(new_caption.__dommy_backend_node__) : @__node__.add_child(new_caption.__dommy_backend_node__)
     end
 
     def t_head
-      @__node__.element_children.find { |n| n.name == "thead" }&.then { |n| @document.wrap_node(n) }
+      first_html_child("thead")
     end
 
     def t_foot
-      @__node__.element_children.find { |n| n.name == "tfoot" }&.then { |n| @document.wrap_node(n) }
+      first_html_child("tfoot")
     end
 
     def t_bodies
       el = self
       HTMLCollection.new do
-        el
-          .__dommy_backend_node__
-          .element_children
-          .select { |n| n.name == "tbody" }
-          .map { |n| el.document.wrap_node(n) }
-          .compact
+        el.__dommy_backend_node__.element_children
+          .select { |n| n.name == "tbody" && el.__html_namespace_node__(n) }
+          .map { |n| el.document.wrap_node(n) }.compact
       end
     end
 
@@ -3306,17 +3309,31 @@ module Dommy
       el = self
       HTMLCollection.new do
         ordered = []
-        head = el.__dommy_backend_node__.element_children.find { |n| n.name == "thead" }
-        bodies = el.__dommy_backend_node__.element_children.select { |n| n.name == "tbody" }
-        direct = el.__dommy_backend_node__.element_children.select { |n| n.name == "tr" }
-        foot = el.__dommy_backend_node__.element_children.find { |n| n.name == "tfoot" }
+        kids = el.__dommy_backend_node__.element_children.select { |n| el.__html_namespace_node__(n) }
+        head = kids.find { |n| n.name == "thead" }
+        bodies = kids.select { |n| n.name == "tbody" }
+        direct = kids.select { |n| n.name == "tr" }
+        foot = kids.find { |n| n.name == "tfoot" }
         [head, *bodies, foot].compact.each do |sec|
-          sec.element_children.select { |n| n.name == "tr" }.each { |n| ordered << n }
+          sec.element_children.select { |n| n.name == "tr" && el.__html_namespace_node__(n) }.each { |n| ordered << n }
         end
 
         direct.each { |n| ordered << n }
         ordered.map { |n| el.document.wrap_node(n) }.compact
       end
+    end
+
+    # The first HTML-namespaced element child with the given local name (a
+    # same-name element in another namespace, e.g. SVG's <caption>, is skipped).
+    def first_html_child(local)
+      node = @__node__.element_children.find { |n| n.name == local && __html_namespace_node__(n) }
+      node && @document.wrap_node(node)
+    end
+
+    # Whether a raw backend node is in the HTML namespace.
+    def __html_namespace_node__(node)
+      el = @document.wrap_node(node)
+      !el.respond_to?(:namespace_uri) || el.namespace_uri.nil? || el.namespace_uri == HTML_NAMESPACE
     end
 
     def create_caption
@@ -3410,8 +3427,53 @@ module Dommy
     end
 
     def delete_row(index)
-      rows[index.to_i]&.remove
+      list = rows.to_a
+      i = index.to_i
+      raise DOMException::IndexSizeError, "deleteRow index #{i} out of range" if i < -1 || i >= list.size
+
+      target = i == -1 ? list.last : list[i]
+      target&.remove
       nil
+    end
+
+    # `table.tHead = x` / `table.tFoot = x`: x must be a matching section element
+    # (or null). It replaces the existing one at the spec position.
+    def t_head=(value)
+      set_table_section("thead", value)
+    end
+
+    def t_foot=(value)
+      set_table_section("tfoot", value)
+    end
+
+    def set_table_section(local, value)
+      if value.nil?
+        first_html_child(local)&.remove
+        return
+      end
+      # A non-section value fails the WebIDL type check (TypeError); a section of
+      # the wrong local name fails the spec's algorithm (HierarchyRequestError).
+      unless value.is_a?(HTMLTableSectionElement)
+        raise Bridge::TypeError, "table.#{local} must be an HTMLTableSectionElement or null"
+      end
+      unless value.tag_name.to_s.casecmp?(local)
+        raise DOMException::HierarchyRequestError, "table.#{local} must be a <#{local}> element"
+      end
+
+      first_html_child(local)&.remove
+      node = value.__dommy_backend_node__
+      if local == "thead"
+        anchor = caption&.__dommy_backend_node__
+        if anchor
+          anchor.add_next_sibling(node)
+        else
+          first = @__node__.children.first
+          first ? first.add_previous_sibling(node) : @__node__.add_child(node)
+        end
+      else
+        @__node__.add_child(node)
+      end
+      value
     end
 
     def __js_get__(key)
@@ -3435,6 +3497,10 @@ module Dommy
       case key
       when "caption"
         self.caption = value
+      when "tHead"
+        self.t_head = value
+      when "tFoot"
+        self.t_foot = value
       else
         super
       end
@@ -3450,18 +3516,22 @@ module Dommy
         insert_row(args[0] || -1)
       when "deleteRow"
         delete_row(args[0])
+        Bridge::UNDEFINED
       when "createCaption"
         create_caption
       when "deleteCaption"
         delete_caption
+        Bridge::UNDEFINED
       when "createTHead"
         create_t_head
       when "deleteTHead"
         delete_t_head
+        Bridge::UNDEFINED
       when "createTFoot"
         create_t_foot
       when "deleteTFoot"
         delete_t_foot
+        Bridge::UNDEFINED
       when "createTBody"
         create_t_body
       else
