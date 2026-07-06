@@ -2308,58 +2308,59 @@ module Dommy
   # plus `low` / `high` / `optimum`. All numeric; `labels` via the
   # standard `<label for="...">` association.
   class HTMLMeterElement < HTMLElement
-    def value
-      numeric_attr("value", 0.0)
-    end
-
-    def value=(v)
-      set_reflected_string("value", v.to_s)
-    end
-
+    # The IDL getters return the WHATWG "actual" values, constrained in order:
+    # min → max (≥min) → value (∈[min,max]) → low (∈[min,max]) →
+    # high (∈[low,max]) → optimum (∈[min,max]).
     def min
       numeric_attr("min", 0.0)
     end
 
     def min=(v)
-      set_reflected_string("min", v.to_s)
+      set_reflected_string("min", format_double(restricted_double(v)))
     end
 
     def max
-      numeric_attr("max", 1.0)
+      [numeric_attr("max", 1.0), min].max
     end
 
     def max=(v)
-      set_reflected_string("max", v.to_s)
+      set_reflected_string("max", format_double(restricted_double(v)))
+    end
+
+    def value
+      clamp(numeric_attr("value", 0.0), min, max)
+    end
+
+    def value=(v)
+      set_reflected_string("value", format_double(restricted_double(v)))
     end
 
     def low
-      numeric_attr("low", min)
+      clamp(numeric_attr("low", min), min, max)
     end
 
     def low=(v)
-      set_reflected_string("low", v.to_s)
+      set_reflected_string("low", format_double(restricted_double(v)))
     end
 
     def high
-      numeric_attr("high", max)
+      clamp(numeric_attr("high", max), low, max)
     end
 
     def high=(v)
-      set_reflected_string("high", v.to_s)
+      set_reflected_string("high", format_double(restricted_double(v)))
     end
 
     def optimum
-      numeric_attr("optimum", (min + max) / 2.0)
+      clamp(numeric_attr("optimum", (min + max) / 2.0), min, max)
     end
 
     def optimum=(v)
-      set_reflected_string("optimum", v.to_s)
+      set_reflected_string("optimum", format_double(restricted_double(v)))
     end
 
     def labels
-      return [] if id.empty?
-
-      @document.query_selector_all("label[for='#{id}']")
+      labels_node_list
     end
 
     def __js_get__(key)
@@ -2385,10 +2386,13 @@ module Dommy
 
     def __js_set__(key, v)
       case key
-      when "value", "min", "max", "low", "high", "optimum"
-        set_reflected_string(key, v.to_s)
-      else
-        super
+      when "value" then self.value = v
+      when "min" then self.min = v
+      when "max" then self.max = v
+      when "low" then self.low = v
+      when "high" then self.high = v
+      when "optimum" then self.optimum = v
+      else super
       end
     end
 
@@ -2398,17 +2402,54 @@ module Dommy
       raw = @__node__[name].to_s
       raw.empty? ? default : Float(raw) rescue default
     end
+
+    def clamp(v, lo, hi)
+      return lo if v < lo
+      return hi if v > hi
+
+      v
+    end
+
+    # WebIDL `double` conversion (ToNumber) for the meter's IDL setters: a value
+    # that coerces to NaN/±Infinity — e.g. `meter.value = "foobar"` — is a
+    # restricted double and throws a TypeError.
+    def restricted_double(v)
+      n =
+        case v
+        when Numeric then v.to_f
+        when nil then 0.0
+        when true then 1.0
+        when false then 0.0
+        when String then (v.strip.empty? ? 0.0 : (Float(v.strip) rescue ::Float::NAN))
+        else ::Float::NAN
+        end
+      raise Bridge::TypeError, "The provided double value is non-finite." if n.nan? || n.infinite?
+
+      n
+    end
+
+    # The "best representation" of a double for a reflected content attribute:
+    # an integral value loses its trailing ".0".
+    def format_double(n)
+      n == n.to_i ? n.to_i.to_s : n.to_s
+    end
   end
 
   # `<progress>` — `value` and `max` (default max=1). `position`
   # returns `value / max` for a "determinate" progress bar, or -1
   # when no value is set ("indeterminate").
   class HTMLProgressElement < HTMLElement
+    # A progress bar is "determinate" iff it has a parseable `value` content
+    # attribute; otherwise it is "indeterminate" (position -1). The `value` IDL
+    # getter always returns a number: 0 when indeterminate/invalid, else the
+    # value clamped to [0, max].
     def value
       raw = @__node__["value"].to_s
-      raw.empty? ? nil : Float(raw)
-    rescue ArgumentError
-      nil
+      return 0.0 if raw.empty?
+
+      v = Float(raw) rescue 0.0
+      v = 0.0 if v < 0
+      [v, max].min
     end
 
     def value=(v)
@@ -2417,27 +2458,28 @@ module Dommy
 
     def max
       raw = @__node__["max"].to_s
-      raw.empty? ? 1.0 : (Float(raw) rescue 1.0)
+      m = raw.empty? ? 1.0 : (Float(raw) rescue 1.0)
+      # A `max` not greater than zero is invalid; the default (1) applies.
+      m > 0 ? m : 1.0
     end
 
+    # The `max` IDL attribute is limited to numbers greater than zero: a setter
+    # value that isn't is ignored (the content attribute is left unchanged).
     def max=(v)
-      set_reflected_string("max", v.to_s)
+      f = Float(v) rescue nil
+      set_reflected_string("max", v.to_s) if f && f > 0
     end
 
-    # `position` = value/max for determinate progress; -1 if value
-    # was never set (indeterminate).
+    # `position` = value/max for a determinate bar; -1 for an indeterminate one
+    # (no parseable value content attribute).
     def position
-      v = value
-      return -1.0 if v.nil?
+      return -1.0 unless determinate?
 
-      m = max
-      m <= 0 ? 1.0 : (v / m)
+      value / max
     end
 
     def labels
-      return [] if id.empty?
-
-      @document.query_selector_all("label[for='#{id}']")
+      labels_node_list
     end
 
     def __js_get__(key)
@@ -2457,11 +2499,23 @@ module Dommy
 
     def __js_set__(key, v)
       case key
-      when "value", "max"
-        set_reflected_string(key, v.to_s)
+      when "value"
+        self.value = v
+      when "max"
+        self.max = v
       else
         super
       end
+    end
+
+    private
+
+    # Determinate iff the `value` content attribute is present and parseable.
+    def determinate?
+      raw = @__node__["value"].to_s
+      return false if raw.empty?
+
+      !!(Float(raw) rescue nil)
     end
   end
 

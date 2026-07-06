@@ -169,8 +169,9 @@ class TestHTMLProgressElement < Minitest::Test
 
   def test_indeterminate_position_when_no_value
     bare = @win.document.create_element("progress")
+    # Indeterminate: position is -1, but the value IDL getter is 0 (per spec).
     assert_equal(-1.0, bare.position)
-    assert_nil(bare.value)
+    assert_equal(0.0, bare.value)
   end
 
   def test_default_max_is_one
