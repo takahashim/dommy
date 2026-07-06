@@ -987,6 +987,8 @@ module Dommy
       return false if reflected_boolean("disabled")
       return false if reflected_boolean("readonly")
       return false if %w[hidden button submit reset image].include?(type)
+      # A control with a datalist ancestor is barred from constraint validation.
+      return false unless closest("datalist").nil?
 
       true
     end
@@ -1736,9 +1738,10 @@ module Dommy
   class HTMLOptionElement < HTMLElement
     reflect_boolean :disabled
     def value
-      # Per spec, value defaults to the option's `text` (strip-and-collapsed)
-      # when the `value` content attribute is absent.
-      @__node__.key?("value") ? @__node__["value"].to_s : text
+      # `value`/`label` reflect the NO-namespace content attribute (a same-named
+      # attribute in another namespace, via setAttributeNS, does not count);
+      # both default to the option's `text` when their attribute is absent.
+      has_attribute_ns?(nil, "value") ? get_attribute_ns(nil, "value").to_s : text
     end
 
     def value=(v)
@@ -1746,7 +1749,7 @@ module Dommy
     end
 
     def label
-      @__node__.key?("label") ? @__node__["label"].to_s : text
+      has_attribute_ns?(nil, "label") ? get_attribute_ns(nil, "label").to_s : text
     end
 
     def label=(v)
@@ -1762,16 +1765,42 @@ module Dommy
       set_reflected_boolean("selected", v)
     end
 
-    # `selected` is the selectedness state: it follows defaultSelected until the
-    # setter (or a selection) makes it dirty, after which it holds the set value
-    # independently of the attribute.
+    # `selected` is the selectedness state. It is a distinct boolean (the IDL
+    # getter returns it directly), initialised from defaultSelected. While the
+    # dirtiness flag is false, adding/removing the `selected` content attribute
+    # re-syncs selectedness to it; the IDL setter makes it dirty so it then holds
+    # its value independently of the attribute.
     def selected
-      @selectedness_dirty ? @selectedness : default_selected
+      @selectedness = default_selected if @selectedness.nil?
+      @selectedness
     end
 
     def selected=(value)
       @selectedness = !!value
       @selectedness_dirty = true
+    end
+
+    # Set selectedness WITHOUT marking it dirty (the Option constructor's step).
+    def __internal_set_selectedness__(value)
+      @selectedness = !!value
+    end
+
+    # Keep the `selected` content attribute and selectedness in sync (while not
+    # dirty) by hooking the attribute mutators, the way <details> tracks `open`.
+    def set_attribute(name, value)
+      result = super
+      sync_selectedness_from_attribute if name.to_s.casecmp?("selected")
+      result
+    end
+
+    def remove_attribute(name)
+      result = super
+      sync_selectedness_from_attribute if name.to_s.casecmp?("selected")
+      result
+    end
+
+    def sync_selectedness_from_attribute
+      @selectedness = default_selected unless @selectedness_dirty
     end
 
     def text
@@ -1792,10 +1821,24 @@ module Dommy
       node.children.each do |child|
         if child.text?
           parts << child.content
-        elsif child.element? && child.name.to_s.downcase != "script"
+        elsif child.element? && !excluded_from_option_text?(child)
           collect_option_text(child, parts)
         end
       end
+    end
+
+    # Per spec, option.text skips the descendants of an HTML/SVG `script` and an
+    # HTML `style` element — but NOT a same-named element in another namespace
+    # (a MathML or null-namespace `<script>` still contributes its text).
+    def excluded_from_option_text?(node)
+      name = node.name.to_s.downcase
+      return false unless %w[script style].include?(name)
+
+      el = @document.wrap_node(node)
+      ns = el.respond_to?(:namespace_uri) ? el.namespace_uri : nil
+      html = "http://www.w3.org/1999/xhtml"
+      svg = "http://www.w3.org/2000/svg"
+      name == "script" ? [html, svg].include?(ns) : ns == html
     end
 
     public
@@ -1968,7 +2011,7 @@ module Dommy
     end
 
     def will_validate
-      !reflected_boolean("disabled") && !reflected_boolean("readonly")
+      !reflected_boolean("disabled") && !reflected_boolean("readonly") && closest("datalist").nil?
     end
 
     def validation_message
@@ -2563,7 +2606,7 @@ module Dommy
     end
 
     def will_validate
-      !reflected_boolean("disabled")
+      !reflected_boolean("disabled") && closest("datalist").nil?
     end
 
     def validation_message

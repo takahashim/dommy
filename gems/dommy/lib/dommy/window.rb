@@ -583,11 +583,22 @@ module Dommy
           # text or value is absent; defaultSelected sets the `selected` content
           # attribute; selected (4th arg) sets the selectedness directly.
           present = ->(v) { !v.nil? && !(defined?(Bridge::UNDEFINED) && v.equal?(Bridge::UNDEFINED)) }
+          # WebIDL `boolean` conversion (JS truthiness): false / 0 / "" / null /
+          # undefined / NaN are falsy — the rest (incl. "0", {}, []) are truthy.
+          truthy = lambda do |v|
+            return false unless present.call(v)
+            return false if v == false || v == 0 || v == "" # rubocop:disable Lint/BooleanSymbol
+            return false if v.respond_to?(:nan?) && v.nan?
+
+            true
+          end
           opt = win.document.create_element("option")
           opt.text = args[0].to_s if present.call(args[0]) && !args[0].to_s.empty?
           opt.value = args[1].to_s if args.length >= 2 && present.call(args[1])
-          opt.default_selected = true if args[2]
-          opt.selected = !!args[3]
+          # defaultSelected sets the `selected` content attribute; then the 4th
+          # argument sets selectedness (without dirtying it), per the constructor.
+          opt.default_selected = true if truthy.call(args[2])
+          opt.__internal_set_selectedness__(truthy.call(args[3]))
           opt
         },
       }
