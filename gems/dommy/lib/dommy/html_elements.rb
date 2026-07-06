@@ -2282,6 +2282,8 @@ module Dommy
   # `details.toggleAttribute("open")` fire toggle, which Stimulus's `:open`
   # action option relies on.
   class HTMLDetailsElement < HTMLElement
+    reflect_string :name
+
     def open
       reflected_boolean("open")
     end
@@ -2291,7 +2293,11 @@ module Dommy
     end
 
     def set_attribute(name, value)
-      with_toggle_on_open_change { super }
+      result = with_toggle_on_open_change { super }
+      # Re-point this element to a new exclusive group: if it is open, close the
+      # other open members of the group it just joined.
+      enforce_group_exclusivity if name.to_s.casecmp?("name") && open
+      result
     end
 
     def remove_attribute(name)
@@ -2315,8 +2321,32 @@ module Dommy
     def with_toggle_on_open_change
       was = open
       result = yield
-      queue_toggle_event(was, open) if open != was
+      if open != was
+        # Opening a named details closes the other open members of its exclusive
+        # group (same `name`, same tree scope) before its own toggle is queued.
+        enforce_group_exclusivity if open
+        queue_toggle_event(was, open)
+      end
       result
+    end
+
+    # WHATWG details name-group exclusivity: at most one details per (name, tree)
+    # may be open. When this element opens, remove `open` from every other open
+    # details in the same tree that shares its non-empty name.
+    def enforce_group_exclusivity
+      group = @__node__["name"].to_s
+      return if group.empty?
+
+      root = get_root_node
+      return unless root.respond_to?(:query_selector_all)
+
+      root.query_selector_all("details").each do |other|
+        next unless other.respond_to?(:__dommy_backend_node__)
+        next if other.__dommy_backend_node__.equal?(__dommy_backend_node__)
+        next unless other.__dommy_backend_node__["name"].to_s == group
+
+        other.open = false if other.respond_to?(:open) && other.open
+      end
     end
 
     # WHATWG "queue a details toggle event task": the trusted ToggleEvent fires
