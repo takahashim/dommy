@@ -1455,7 +1455,8 @@ module Dommy
     ]
       .freeze
 
-    EMAIL_RE = /\A[^@\s]+@[^@\s]+\.[^@\s]+\z/
+    # The exact WHATWG "valid email address" production.
+    EMAIL_RE = %r{\A[a-zA-Z0-9.!\#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\z}
     URL_SCHEMES = %w[http:// https:// ftp://].freeze
 
     def initialize(host = nil)
@@ -1508,7 +1509,12 @@ module Dommy
 
       case host_type
       when "email"
-        !v.match?(EMAIL_RE)
+        # A `multiple` email is a comma-separated list; every part must be valid.
+        if host_attr_present?("multiple")
+          v.split(",", -1).any? { |part| !part.strip.match?(EMAIL_RE) }
+        else
+          !v.match?(EMAIL_RE)
+        end
       when "url"
         URL_SCHEMES.none? { |s| v.start_with?(s) }
       else
@@ -1525,6 +1531,10 @@ module Dommy
       v = host_value.to_s
       return false if v.empty?
 
+      # The pattern must be a valid regex ON ITS OWN — validate it before
+      # anchoring, so an unbalanced `a)(b` (which the `(?:…)` wrapper would
+      # otherwise balance) is correctly discarded rather than silently matched.
+      Regexp.new(pat)
       !Regexp.new("\\A(?:#{pat})\\z").match?(v)
     rescue RegexpError
       false
