@@ -1785,6 +1785,13 @@ module Dommy
       @selectedness = !!value
     end
 
+    # Whether selectedness was set via the IDL setter (property), as opposed to
+    # only the content attribute — a single-select shows the most recently
+    # property-selected option in preference to an attribute-selected one.
+    def __selectedness_dirty__
+      @selectedness_dirty || false
+    end
+
     # Keep the `selected` content attribute and selectedness in sync (while not
     # dirty) by hooking the attribute mutators, the way <details> tracks `open`.
     def set_attribute(name, value)
@@ -2500,14 +2507,7 @@ module Dommy
     # back to the first option for non-multiple selects.
     def selected_options
       el = self
-      HTMLCollection.new do
-        opts = el.__dommy_backend_node__.css("option").map { |n| el.document.wrap_node(n) }.compact
-        chosen = opts.select { |o| o.__dommy_backend_node__.key?("selected") }
-        next chosen unless chosen.empty?
-        next [] if el.multiple
-
-        opts.first ? [opts.first] : []
-      end
+      @selected_options ||= HTMLCollection.new { el.__display_selected__ }
     end
 
     def length
@@ -2529,40 +2529,50 @@ module Dommy
       closest("form")
     end
 
-    # `selectedIndex` — first option with `selected`, or 0 if none and
-    # not multiple, or -1 if multiple and none.
-    def selected_index
-      opts = options
-      idx = opts.find_index { |o| o.__dommy_backend_node__.key?("selected") }
-      return idx if idx
-
-      multiple ? -1 : (opts.empty? ? -1 : 0)
-    end
-
-    def selected_index=(i)
-      opts = options
-      opts.each_with_index do |o, idx|
-        if idx == i.to_i
-          o.set_attribute("selected", "")
-        elsif o.__dommy_backend_node__.key?("selected")
-          o.remove_attribute("selected")
-        end
+    # The option(s) that display as selected, applying the selectedness rules at
+    # read time: a single-select shows the LAST option whose selectedness is
+    # true (last-selected wins), or — if none is — its first option ("ask for
+    # reset"); a multiple select shows every selected option (or none).
+    def __display_selected__
+      opts = options.to_a
+      chosen = opts.select { |o| o.respond_to?(:selected) && o.selected }
+      if multiple
+        chosen
+      elsif !chosen.empty?
+        # Single-select: the most recently property-selected option wins over an
+        # attribute-selected one; otherwise the last selected in document order.
+        dirty = chosen.select { |o| o.respond_to?(:__selectedness_dirty__) && o.__selectedness_dirty__ }
+        [(dirty.empty? ? chosen : dirty).last]
+      elsif !opts.empty?
+        [opts.first]
+      else
+        []
       end
     end
 
-    # `value` of the select = value of the selected option, or "".
+    def selected_index
+      opts = options.to_a
+      sel = __display_selected__.first
+      return -1 unless sel
+
+      opts.find_index { |o| o.__dommy_backend_node__.equal?(sel.__dommy_backend_node__) } || -1
+    end
+
+    def selected_index=(i)
+      options.to_a.each_with_index { |o, idx| o.selected = (idx == i.to_i) }
+    end
+
+    # `value` of the select = value of the (displayed) selected option, or "".
     def value
-      opts = options
-      sel = opts.find { |o| o.__dommy_backend_node__.key?("selected") } || opts.first
-      sel ? (sel.__dommy_backend_node__["value"] || sel.text_content).to_s : ""
+      sel = __display_selected__.first
+      sel ? sel.value.to_s : ""
     end
 
     def value=(new_value)
-      target = options.find { |o| (o.__dommy_backend_node__["value"] || o.text_content).to_s == new_value.to_s }
-      return unless target
-
-      options.each { |o| o.remove_attribute("selected") if o.__dommy_backend_node__.key?("selected") }
-      target.set_attribute("selected", "")
+      opts = options.to_a
+      target = opts.find { |o| o.value.to_s == new_value.to_s }
+      opts.each { |o| o.selected = false }
+      target.selected = true if target
     end
 
     # `select.item(i)` — returns the option at index i.
@@ -2646,6 +2656,8 @@ module Dommy
         size
       when "selectedIndex"
         selected_index
+      when "selectedOptions"
+        selected_options
       when "form"
         form
       when "labels"

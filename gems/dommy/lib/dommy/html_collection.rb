@@ -200,24 +200,25 @@ module Dommy
       @owner = owner
     end
 
-    # Append (or insert before `before`) an option element. `before`
-    # accepts either another option (insert before that node) or an
-    # integer index. Strings/`null` append.
+    # Append (or insert before `before`) an option element. `before` accepts
+    # another element (insert before it) or an integer index. Strings/`null`
+    # append. The insertion happens in the REFERENCE's parent — which may be an
+    # `<optgroup>` — not always the select itself.
     def add(option, before = nil)
       return nil unless option.respond_to?(:__dommy_backend_node__)
 
-      case before
-      when nil
-        @owner.append_child(option)
-      when Integer
-        anchor = item(before)
-        anchor ? @owner.insert_before(option, anchor) : @owner.append_child(option)
-      else
-        if before.respond_to?(:__dommy_backend_node__)
-          @owner.insert_before(option, before)
-        else
-          @owner.append_child(option)
+      reference =
+        case before
+        when nil then nil
+        when Integer then item(before)
+        else before.respond_to?(:__dommy_backend_node__) ? before : nil
         end
+
+      parent = reference&.parent_node
+      if reference && parent.respond_to?(:insert_before)
+        parent.insert_before(option, reference)
+      else
+        @owner.append_child(option)
       end
 
       nil
