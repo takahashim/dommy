@@ -104,6 +104,9 @@ globalThis.__rbHost = (function () {
   const READONLY_ATTRS = {
     TreeWalker: ["root", "whatToShow", "filter"],
     NodeIterator: ["root", "whatToShow", "filter", "referenceNode", "pointerBeforeReferenceNode"],
+    // `template.content` is a [SameObject] readonly attribute — assert_readonly
+    // walks the prototype chain expecting a getter with no setter.
+    HTMLTemplateElement: ["content"],
   };
 
   // [LegacyUnforgeable] attributes are own accessor properties on EACH instance
