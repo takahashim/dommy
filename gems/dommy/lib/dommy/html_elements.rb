@@ -3137,51 +3137,67 @@ module Dommy
   # `rowIndex` walks the enclosing table; `sectionRowIndex` walks
   # the enclosing thead/tbody/tfoot.
   class HTMLTableRowElement < HTMLElement
+    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+
     # Own __js_call__ methods, on top of Element's.
     def cells
       el = self
       HTMLCollection.new do
-        el
-          .__dommy_backend_node__
-          .element_children
-          .select { |n| %w[td th].include?(n.name) }
-          .map { |n| el.document.wrap_node(n) }
-          .compact
+        el.__dommy_backend_node__.element_children
+          .select { |n| %w[td th].include?(n.name) && el.__html_ns_node__(n) }
+          .map { |n| el.document.wrap_node(n) }.compact
       end
     end
 
     def row_index
       table = closest("table")
-      return -1 unless table
+      # Only an HTML <table> exposes a rows collection; a foreign (namespaced)
+      # <table> ancestor doesn't make this row a table row.
+      return -1 unless table.is_a?(HTMLTableElement)
 
       table.rows.find_index { |r| r.__dommy_backend_node__ == @__node__ } || -1
     end
 
     def section_row_index
-      section = @__node__.parent
-      return -1 unless section && section.element? && %w[thead tbody tfoot].include?(section.name)
+      parent = @__node__.parent
+      return -1 unless parent && parent.element? && __html_ns_node__(parent) &&
+                       %w[table thead tbody tfoot].include?(parent.name)
 
-      section.element_children.select { |n| n.name == "tr" }.find_index { |n| n == @__node__ } || -1
+      parent.element_children
+        .select { |n| n.name == "tr" && __html_ns_node__(n) }
+        .find_index { |n| n == @__node__ } || -1
     end
 
-    # `insertCell(index)` — adds a `<td>` at the given index
-    # (defaults to end). Returns the new cell.
+    # `insertCell(index)` — adds a `<td>` at the given index (defaults to end).
+    # index < −1 or > cells.length throws IndexSizeError. Returns the new cell.
     def insert_cell(index = -1)
+      list = cells.to_a
+      i = index.nil? ? -1 : index.to_i
+      raise DOMException::IndexSizeError, "insertCell index #{i} out of range" if i < -1 || i > list.size
+
       cell = @document.create_element("td")
-      list = cells
-      if index.to_i == -1 || index.to_i >= list.size
+      if i == -1 || i == list.size
         append_child(cell)
       else
-        insert_before(cell, list[index.to_i])
+        insert_before(cell, list[i])
       end
 
       cell
     end
 
     def delete_cell(index)
-      target = cells[index.to_i]
+      list = cells.to_a
+      i = index.to_i
+      raise DOMException::IndexSizeError, "deleteCell index #{i} out of range" if i < -1 || i >= list.size
+
+      target = i == -1 ? list.last : list[i]
       target&.remove
       nil
+    end
+
+    def __html_ns_node__(node)
+      el = @document.wrap_node(node)
+      !el.respond_to?(:namespace_uri) || el.namespace_uri == HTML_NAMESPACE
     end
 
     def __js_get__(key)
@@ -3214,33 +3230,45 @@ module Dommy
   # collection + insertRow / deleteRow.
   class HTMLTableSectionElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
+    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+
     def rows
       el = self
       HTMLCollection.new do
-        el
-          .__dommy_backend_node__
-          .element_children
-          .select { |n| n.name == "tr" }
-          .map { |n| el.document.wrap_node(n) }
-          .compact
+        el.__dommy_backend_node__.element_children
+          .select { |n| n.name == "tr" && el.__html_ns_node__(n) }
+          .map { |n| el.document.wrap_node(n) }.compact
       end
     end
 
     def insert_row(index = -1)
+      list = rows.to_a
+      i = index.nil? ? -1 : index.to_i
+      raise DOMException::IndexSizeError, "insertRow index #{i} out of range" if i < -1 || i > list.size
+
       tr = @document.create_element("tr")
-      list = rows
-      if index.to_i == -1 || index.to_i >= list.size
+      if i == -1 || i == list.size
         append_child(tr)
       else
-        insert_before(tr, list[index.to_i])
+        insert_before(tr, list[i])
       end
 
       tr
     end
 
     def delete_row(index)
-      rows[index.to_i]&.remove
+      list = rows.to_a
+      i = index.to_i
+      raise DOMException::IndexSizeError, "deleteRow index #{i} out of range" if i < -1 || i >= list.size
+
+      target = i == -1 ? list.last : list[i]
+      target&.remove
       nil
+    end
+
+    def __html_ns_node__(node)
+      el = @document.wrap_node(node)
+      !el.respond_to?(:namespace_uri) || el.namespace_uri == HTML_NAMESPACE
     end
 
     def __js_get__(key)
@@ -3349,7 +3377,7 @@ module Dommy
     # Whether a raw backend node is in the HTML namespace.
     def __html_namespace_node__(node)
       el = @document.wrap_node(node)
-      !el.respond_to?(:namespace_uri) || el.namespace_uri.nil? || el.namespace_uri == HTML_NAMESPACE
+      !el.respond_to?(:namespace_uri) || el.namespace_uri == HTML_NAMESPACE
     end
 
     def create_caption
