@@ -94,14 +94,16 @@ class TestValidityStateFull < Minitest::Test
 
   # ---- tooLong / tooShort ----
 
+  # tooLong / tooShort only fire when the value was changed by a USER EDIT (per
+  # spec); a value set via attribute/script never triggers them.
   def test_too_long
     el = input_with_attrs(maxlength: "5", value: "123456")
-    assert(el.validity.too_long)
+    refute(el.validity.too_long)
   end
 
   def test_too_short
     el = input_with_attrs(minlength: "5", value: "abc")
-    assert(el.validity.too_short)
+    refute(el.validity.too_short)
   end
 
   def test_too_short_false_for_empty

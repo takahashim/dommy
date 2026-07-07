@@ -1542,29 +1542,16 @@ module Dommy
       false
     end
 
+    # tooLong / tooShort apply ONLY when the value was last changed by a USER
+    # EDIT (not a script assignment), per the WHATWG "suffering from being too
+    # long/short" definitions. Dommy has no interactive text entry, so a value is
+    # never user-edited and these constraints never fire.
     def too_long
-      return false unless @host
-
-      max = host_attr_value("maxlength").to_s
-      return false if max.empty?
-
-      max_n = max.to_i
-      return false if max_n < 0
-
-      host_value.to_s.length > max_n
+      false
     end
 
     def too_short
-      return false unless @host
-
-      min = host_attr_value("minlength").to_s
-      return false if min.empty?
-
-      min_n = min.to_i
-      return false if min_n < 0
-
-      v = host_value.to_s
-      !v.empty? && v.length < min_n
+      false
     end
 
     def range_underflow
