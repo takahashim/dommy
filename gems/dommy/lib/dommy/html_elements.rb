@@ -978,7 +978,12 @@ module Dommy
 
     # The step base for validation: the min boundary if present, else 0.
     def validation_step_base
-      min_as_number || 0.0
+      return min_as_number if min_as_number
+
+      # The default step base is 0 for most types, but a `week` control aligns to
+      # the Monday of 1970-W01 (the epoch is mid-week), so an unmatched default
+      # base would report every whole week as a step mismatch.
+      type == "week" ? week_string_to_ms("1970-W01") : 0.0
     end
 
     # `stepUp(n)` / `stepDown(n)` add/subtract n steps to the current number. The
@@ -1589,7 +1594,14 @@ module Dommy
       return false if min.nil?
 
       num = @host.value_as_number
-      !num.nan? && num < min
+      return false if num.nan?
+      # A `time` control has a periodic domain: min > max means a REVERSED range
+      # whose accepted values are `>= min` OR `<= max`, so both underflow and
+      # overflow hold for a value in the excluded gap (max, min).
+      max = @host.max_as_number
+      return num > max && num < min if reversed_range?(min, max)
+
+      num < min
     end
 
     def range_overflow
@@ -1599,7 +1611,16 @@ module Dommy
       return false if max.nil?
 
       num = @host.value_as_number
-      !num.nan? && num > max
+      return false if num.nan?
+      min = @host.min_as_number
+      return num > max && num < min if reversed_range?(min, max)
+
+      num > max
+    end
+
+    # A reversed range only exists for the periodic `time` domain with min > max.
+    def reversed_range?(min, max)
+      host_type == "time" && min && max && min > max
     end
 
     def step_mismatch
