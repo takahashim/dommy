@@ -27,9 +27,11 @@ class TestLocationHistory < Minitest::Test
 
   def test_hash_change_fires_event
     fired = []
-    @win.add_event_listener("hashchange") { |e| fired << e.__js_get__("detail") }
+    # hashchange is a HashChangeEvent exposing full old/new document URLs.
+    @win.add_event_listener("hashchange") { |e| fired << [e.__js_get__("oldURL"), e.__js_get__("newURL")] }
     @loc.__js_set__("hash", "section2")
-    refute_empty(fired)
+    assert_equal(1, fired.size)
+    assert_match(%r{#section2\z}, fired.first[1])
     assert_equal("#section2", @loc.__js_get__("hash"))
   end
 

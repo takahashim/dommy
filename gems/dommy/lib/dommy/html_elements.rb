@@ -54,7 +54,33 @@ module Dommy
 
   # `<a>` — exposes URL-component getters/setters via the `href`
   # attribute, plus reflected `target` / `download` / `rel` / `type`.
+  # Follow-the-hyperlink activation behavior shared by <a> and <area>. A
+  # non-canceled click on a hyperlink (with an href, no download attribute)
+  # navigates to its resolved URL: a same-document fragment change fires
+  # hashchange and updates :target; anything else is handed to the navigation
+  # delegate (which performs the real navigation, or records it by default).
+  module HyperlinkActivation
+    def activation_target?
+      has_attribute?("href")
+    end
+
+    def activation_behavior(_event)
+      return unless has_attribute?("href")
+      # download turns the click into a save, not a navigation — out of scope.
+      return if has_attribute?("download")
+
+      target = anchor_href
+      win = @document&.default_view
+      return if target.to_s.empty? || win.nil? || win.location.nil?
+
+      # A cross-document link hands off to the delegate without pre-mutating the
+      # location; a same-document fragment still updates the hash + :target.
+      win.location.__internal_navigate_to__(target, source: :link, sync_cross_doc: false)
+    end
+  end
+
   class HTMLAnchorElement < HTMLElement
+    include HyperlinkActivation
     reflect_string :target, :download, :rel, :hreflang, :type
     # URL-decomposition helpers. The anchor's `href` is resolved to
     # an absolute URL (inherited from Element#anchor_href); break it
@@ -4147,6 +4173,7 @@ module Dommy
   end
 
   class HTMLAreaElement < HTMLElement
+    include HyperlinkActivation
     reflect_string :alt, :coords, :shape, :href, :target, :rel
   end
 

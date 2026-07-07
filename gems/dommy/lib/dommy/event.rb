@@ -623,6 +623,28 @@ module Dommy
     end
   end
 
+  # HashChangeEvent — fired on the window when the URL fragment changes (a
+  # fragment-navigation link, `location.hash = ...`). Exposes the full document
+  # URL before and after the change as `oldURL` / `newURL` (spec USVStrings). A
+  # plain `Event` subclass, NOT a CustomEvent.
+  class HashChangeEvent < Event
+    attr_reader :old_url, :new_url
+
+    def initialize(type, init = nil)
+      super
+      @old_url = read_init(init, "oldURL").to_s
+      @new_url = read_init(init, "newURL").to_s
+    end
+
+    def __js_get__(key)
+      case key
+      when "oldURL" then @old_url
+      when "newURL" then @new_url
+      else super
+      end
+    end
+  end
+
   # `ErrorEvent` — the event interface for an uncaught error (fired at
   # `window.onerror`). Error-reporting code constructs it directly
   # (`new ErrorEvent("error", { message, error, … })`); without the constructor

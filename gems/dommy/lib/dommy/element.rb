@@ -2039,19 +2039,19 @@ module Dommy
     # activation behavior (the default) just dispatch the event.
     def click
       pre = pre_click_activation_state
-      not_canceled = dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
-      return not_canceled if pre.nil?
-
+      event = MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0)
+      not_canceled = dispatch_event(event)
       if not_canceled
-        run_post_click_activation(pre)
-      else
+        run_post_click_activation(pre) unless pre.nil?
+        __run_click_activation_behavior__(event)
+      elsif pre
         restore_pre_click_activation(pre)
       end
       not_canceled
     end
 
-    # Activation-behavior hooks. The default element has none; HTMLInputElement
-    # overrides these for checkbox/radio.
+    # Pre-click activation hooks (checkbox/radio toggle-then-maybe-revert). The
+    # default element has none; HTMLInputElement overrides these.
     def pre_click_activation_state
       nil
     end
@@ -2059,6 +2059,37 @@ module Dommy
     def run_post_click_activation(_state); end
 
     def restore_pre_click_activation(_state); end
+
+    # Activation behavior: the default action of a non-canceled click (a
+    # hyperlink navigates; a submit button submits its form — added later). The
+    # default element has none. Called on the *activation target*.
+    def activation_behavior(_event); end
+
+    # An element is an "activation target" when it carries its own activation
+    # behavior (a hyperlink). Default: no.
+    def activation_target?
+      false
+    end
+
+    # The activation target for a click on this element: the nearest inclusive
+    # ancestor that is an activation target, or nil — so clicking a <span> inside
+    # an <a href> activates the anchor.
+    def activation_target
+      node = self
+      while node
+        return node if node.respond_to?(:activation_target?) && node.activation_target?
+
+        node = node.respond_to?(:parent_element) ? node.parent_element : nil
+      end
+      nil
+    end
+
+    # Run the activation target's activation behavior after a non-canceled click.
+    # Shared by Element#click (JS `.click()`) and synthetic clicks
+    # (EventSynthesis) so a real default action fires from both paths.
+    def __run_click_activation_behavior__(event)
+      activation_target&.activation_behavior(event)
+    end
 
     def get_attribute_names
       Backend.attribute_nodes(@__node__).map(&:name)

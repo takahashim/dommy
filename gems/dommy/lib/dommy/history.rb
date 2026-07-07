@@ -81,7 +81,8 @@ module Dommy
     def push(state, url)
       resolved = resolve_url!(url)
       @stack = @stack[0..@cursor]
-      @location.__internal_set_url__(resolved) if resolved
+      # pushState never fires hashchange, even when only the fragment changes.
+      @location.__internal_set_url__(resolved, fire_hash: false) if resolved
       # WHATWG: pushState serializes the state via structured-clone
       # so subsequent caller-side mutation of the original cannot
       # affect history.state.
@@ -92,7 +93,7 @@ module Dommy
 
     def replace(state, url)
       resolved = resolve_url!(url)
-      @location.__internal_set_url__(resolved) if resolved
+      @location.__internal_set_url__(resolved, fire_hash: false) if resolved
       @stack[@cursor] = {state: Dommy.structured_clone(state), url: @location.href}
       __internal_on_change__&.call(:replace, @location.href)
     end

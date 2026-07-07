@@ -53,8 +53,16 @@ module Dommy
     # in-memory stub (auto-open + __test_simulate_*__ seams).
     attr_accessor :websocket_connector
 
+    # Navigation host seam (see Dommy::Navigation). Cross-document navigation
+    # intents (link activation, location.assign/replace/reload, history
+    # traversal across a document boundary) are routed to this delegate. The
+    # default NullDelegate records attempts without navigating, so behaviour is
+    # unchanged until an embedder installs a real delegate.
+    attr_accessor :navigation_delegate
+
     def initialize(host = nil, backend_doc: nil)
       @host = host
+      @navigation_delegate = Navigation::NullDelegate.new
       @scheduler = Scheduler.new
       @crypto = Crypto.new(self)
       @css_namespace = CSSNamespace.new
@@ -274,9 +282,21 @@ module Dommy
       dispatch_event(event)
     end
 
-    def fire_hashchange(old_hash, new_hash)
-      event = CustomEvent.new("hashchange", "detail" => {"oldURL" => old_hash, "newURL" => new_hash})
+    def fire_hashchange(old_url, new_url)
+      event = HashChangeEvent.new("hashchange", "oldURL" => old_url.to_s, "newURL" => new_url.to_s)
       dispatch_event(event)
+    end
+
+    # Single firing point for cross-document navigation intents. Link
+    # activation, location.assign/replace/reload and cross-boundary history
+    # traversal all route here; the attached delegate (NullDelegate by default)
+    # decides what happens. Same-document navigation never reaches this — it is
+    # handled directly by Location/History (hashchange / popstate).
+    def __internal_navigate__(url:, source:, method: "GET", body: nil, headers: {}, replace: false)
+      @navigation_delegate&.navigate(
+        url: url, method: method, body: body, headers: headers,
+        replace: replace, source: source
+      )
     end
 
     # --- Viewport / media environment (cssom-view) ---
@@ -488,6 +508,7 @@ module Dommy
         "CustomEvent" => Bridge::Constructor.new { |args| CustomEvent.new(args[0], args[1]) },
         "MessageEvent" => Bridge::Constructor.new { |args| MessageEvent.new(args[0], args[1]) },
         "PopStateEvent" => Bridge::Constructor.new { |args| PopStateEvent.new(args[0], args[1]) },
+        "HashChangeEvent" => Bridge::Constructor.new { |args| HashChangeEvent.new(args[0], args[1]) },
         "CloseEvent" => Bridge::Constructor.new { |args| CloseEvent.new(args[0], args[1]) },
         "MouseEvent" => Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) },
         "KeyboardEvent" => Bridge::Constructor.new { |args| KeyboardEvent.new(args[0], args[1]) },
