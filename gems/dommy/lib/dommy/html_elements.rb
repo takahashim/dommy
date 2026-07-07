@@ -265,7 +265,21 @@ module Dommy
         end
       end
 
-      not_canceled = dispatch_event(SubmitEvent.new("submit", "bubbles" => true, "cancelable" => true, "submitter" => submitter))
+      __run_form_submission__(submitter)
+    end
+
+    # The form submission algorithm's observable core, shared by
+    # `requestSubmit()`, a submit button's activation (driver click), and Enter's
+    # implicit submission: fire a cancelable `SubmitEvent` (carrying the
+    # submitter), and — when nothing canceled it — hand the resulting navigation
+    # to the delegate. Returns true if not default-prevented. This is the single
+    # home for "a form was submitted"; callers that previously dispatched a bare
+    # `submit` event route here so the event is a real SubmitEvent (with
+    # submitter) and the navigation reaches the delegate.
+    def __run_form_submission__(submitter = nil)
+      not_canceled = dispatch_event(
+        SubmitEvent.new("submit", "bubbles" => true, "cancelable" => true, "submitter" => submitter)
+      )
       __internal_navigate_for_submit__(submitter) if not_canceled
       not_canceled
     end

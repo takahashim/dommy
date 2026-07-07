@@ -120,6 +120,39 @@ class TestBrowserNavigation < Minitest::Test
     assert_equal "results", b.document.query_selector("h1").text_content
   end
 
+  # --- clicking a submit button follows the submission (centralized) ---
+
+  def test_click_submit_button_navigates
+    b = visit(
+      "/" => html(
+        "<form id='f' method='get' action='/search'>" \
+        "<input name='q' value='hi'><button id='go' type='submit'>go</button></form>"
+      ),
+      "/search?q=hi" => html("<h1>results</h1>")
+    )
+
+    b.click_button("go")
+
+    assert_equal "http://localhost/search?q=hi", b.current_url
+    assert_equal "results", b.document.query_selector("h1").text_content
+  end
+
+  def test_click_submit_button_fires_submitevent_with_submitter
+    b = visit("/" => html("<form id='f'><button id='go' type='submit'>go</button></form>"))
+    go = b.document.get_element_by_id("go")
+    seen = []
+    b.document.get_element_by_id("f").add_event_listener("submit", lambda do |e|
+      seen << e.__js_get__("submitter")
+      e.__js_call__("preventDefault", []) # stay on the page so `go` stays valid
+    end)
+
+    b.click_button("go")
+
+    assert_equal 1, seen.size
+    assert_equal go, seen.first
+    assert_equal "http://localhost/", b.current_url, "prevented submit does not navigate"
+  end
+
   # --- non-document responses leave the page in place ---
 
   def test_non_document_response_does_not_replace_the_page

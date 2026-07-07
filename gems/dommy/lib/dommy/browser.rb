@@ -211,20 +211,25 @@ module Dommy
 
     # Click a submit-capable button. The button's click event fires (JS may
     # handle / preventDefault it); if it is an un-prevented submit button, the
-    # form's `submit` event is dispatched too (a SPA's JS handles it). Real
-    # navigation on an un-prevented submit is a Session concern (out of scope).
+    # owning form's submission algorithm runs (a real SubmitEvent a SPA can
+    # intercept, then the delegate navigation). In a navigable browser that
+    # follows the submit for real; otherwise the delegate just records it.
     def click_button(locator)
       button = finder.find_button(locator)
       prevented = Dommy::Interaction::EventSynthesis.click(button)
       if !prevented && submit_button?(button) && (form = finder.form_for(button))
-        form.dispatch_event(Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true))
+        # Centralized form submission (real SubmitEvent + delegate navigation);
+        # a navigable browser thus follows an un-prevented submit for real.
+        form.__run_form_submission__(button)
       end
       after_interaction
       button
     end
 
     # Click a link, firing its click event so SPA JS (Turbo, React Router, …)
-    # can intercept. Real navigation on an un-prevented click is out of scope.
+    # can intercept. An un-prevented click runs the anchor's activation behavior
+    # (follow-the-hyperlink); in a navigable browser that navigates for real,
+    # otherwise the delegate records it.
     def click_link(locator)
       link = finder.find_link(locator)
       Dommy::Interaction::EventSynthesis.click(link)

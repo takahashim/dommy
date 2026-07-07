@@ -288,7 +288,9 @@ module Dommy
         form = finder.form_for(element)
         return unless form
 
-        form.dispatch_event(Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true))
+        # Centralized form submission: fires a real SubmitEvent (with this
+        # button as the submitter) and hands navigation to the delegate.
+        form.__run_form_submission__(element)
       end
 
       # The includer (Browser / Rack::Session) may define the actual rule for
@@ -357,7 +359,8 @@ module Dommy
         if submitter
           submit_owning_form(submitter) unless EventSynthesis.click(submitter)
         else
-          form.dispatch_event(Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true))
+          # No submit button: HTML implicit submission with no submitter.
+          form.__run_form_submission__(nil)
         end
       end
 

@@ -294,9 +294,11 @@ module Capybara
         form = form_for(native)
         return unless form
 
-        event = ::Dommy::Event.new("submit", "bubbles" => true, "cancelable" => true)
-        form.dispatch_event(event)
-        driver.submit_form(form, submitter: native) unless event.default_prevented?
+        # Centralized form submission: a real SubmitEvent (with this button as
+        # the submitter) fires; if nothing canceled it, dommy-rack performs the
+        # actual request. (Wiring the session itself as the navigation delegate
+        # so this drops the explicit submit_form is N4-2.)
+        driver.submit_form(form, submitter: native) if form.__run_form_submission__(native)
       end
 
       # Selecting an option through the UI fires input + change on the select
