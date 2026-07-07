@@ -534,12 +534,15 @@ module Dommy
       root = get_root_node
       return [self] unless root.respond_to?(:query_selector_all)
 
-      root.query_selector_all("input[type='radio']").to_a.select do |radio|
+      members = root.query_selector_all("input[type='radio']").to_a.select do |radio|
         next false unless radio.respond_to?(:form_owner)
         next false unless radio.get_attribute("name").to_s == group_name
 
         same_form_owner?(owner, radio.form_owner)
       end
+      # `query_selector_all` searches descendants, so a detached radio (whose
+      # root node is itself) isn't returned — a radio is always in its own group.
+      members.any? { |m| m.__dommy_backend_node__.equal?(__dommy_backend_node__) } ? members : members + [self]
     end
 
     def labels
@@ -764,6 +767,16 @@ module Dommy
       n == n.to_i ? n.to_i.to_s : n.to_s
     end
 
+    # WHATWG "valid floating-point number": no surrounding whitespace (unlike
+    # Ruby's Float()), optional sign, digits with optional fraction, optional
+    # exponent. Anything else — including " 1 " or "1e" — yields NaN.
+    VALID_FLOAT_RE = /\A-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\z/
+
+    def parse_valid_float(str)
+      s = str.to_s
+      VALID_FLOAT_RE.match?(s) ? (Float(s) rescue ::Float::NAN) : ::Float::NAN
+    end
+
     # --- Date/time "convert a string to a number" algorithms (all UTC) --------
 
     def date_string_to_ms(s)
@@ -901,9 +914,10 @@ module Dommy
     def value_as_number
       case type
       when "number"
-        Float(value.to_s.strip) rescue ::Float::NAN
+        parse_valid_float(value.to_s)
       when "range"
-        n = (Float(value.to_s.strip) rescue nil)
+        n = parse_valid_float(value.to_s)
+        n = nil if n.nan?
         lo = range_min
         hi = range_max
         n = default_range_value(lo, hi) if n.nil?
@@ -1478,13 +1492,17 @@ module Dommy
     end
 
     def value_missing
-      return false if host_barred?
       return false unless @host && host_attr_present?("required")
 
       case host_type
       when "checkbox"
+        # The checkbox/radio "being missing" flag reflects checkedness even when
+        # the control is barred (only willValidate gates participation).
         !host_checked?
       when "radio"
+        # An unnamed radio is not part of a group and is never missing.
+        return false if @host.respond_to?(:get_attribute) && @host.get_attribute("name").to_s.empty?
+
         # A required radio is missing only when NO member of its group (same
         # name/form owner/tree) is checked — using runtime checkedness.
         if @host.respond_to?(:radio_group_members)
@@ -1492,7 +1510,17 @@ module Dommy
         else
           !host_checked?
         end
+      when "file"
+        files = @host.respond_to?(:files) ? @host.files : nil
+        files.nil? || files.length.zero?
+      when "select-one", "select-multiple"
+        # A required select is missing when its selected option has an empty
+        # value (the placeholder label option); the flag isn't barred by disabled.
+        @host.respond_to?(:value) && @host.value.to_s.empty?
       else
+        # Text-like controls only "suffer from being missing" when mutable.
+        return false if host_barred?
+
         # A date/number type with an unparseable value has no value (its
         # sanitized value is empty), so it counts as missing.
         if @host.respond_to?(:numeric_value_type?) && @host.send(:numeric_value_type?)
