@@ -645,6 +645,25 @@ module Dommy
     end
   end
 
+  # SubmitEvent — fired on a form at submission. Exposes the button/input that
+  # triggered submission via `submitter` (null for `form.requestSubmit()` with
+  # no argument or an implicit submission). Frameworks (Turbo) read
+  # `event.submitter` to locate the clicked control.
+  class SubmitEvent < Event
+    attr_reader :submitter
+
+    def initialize(type, init = nil)
+      super
+      @submitter = read_init(init, "submitter")
+    end
+
+    def __js_get__(key)
+      return @submitter if key == "submitter"
+
+      super
+    end
+  end
+
   # `ErrorEvent` — the event interface for an uncaught error (fired at
   # `window.onerror`). Error-reporting code constructs it directly
   # (`new ErrorEvent("error", { message, error, … })`); without the constructor

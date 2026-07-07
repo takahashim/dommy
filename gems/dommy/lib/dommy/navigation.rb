@@ -14,10 +14,16 @@ module Dommy
   #
   # A delegate is any object responding to:
   #
-  #   navigate(url:, method: "GET", body: nil, headers: {}, replace: false, source:)
+  #   navigate(url:, method: "GET", body: nil, params: nil, enctype: nil,
+  #            headers: {}, replace: false, source:)
   #     url:     already-resolved absolute URL string
   #     method:  "GET" | "POST" | ...  (GET for links / location / reload)
-  #     body:    request body for a form POST (serialized) or nil
+  #     body:    a pre-serialized request body, or nil
+  #     params:  a form submission's ordered [name, value] pair array (as
+  #              produced by Dommy::Interaction::FormSubmission#submit!), left
+  #              unserialized so the delegate can query-encode (GET) or build a
+  #              urlencoded/multipart body (POST) itself; nil for non-form navs
+  #     enctype: the form's enctype for `params` (urlencoded / multipart), or nil
   #     headers: extra request headers (Content-Type, ...)
   #     replace: true to replace the current history entry (location.replace,
   #              a reload, or a redirect)
@@ -39,10 +45,10 @@ module Dommy
         @attempts = []
       end
 
-      def navigate(url:, source:, method: "GET", body: nil, headers: {}, replace: false)
+      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, replace: false)
         @attempts << {
-          url: url, method: method, body: body, headers: headers,
-          replace: replace, source: source
+          url: url, method: method, body: body, params: params, enctype: enctype,
+          headers: headers, replace: replace, source: source
         }
         nil
       end

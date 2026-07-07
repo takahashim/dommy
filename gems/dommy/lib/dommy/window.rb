@@ -292,10 +292,10 @@ module Dommy
     # traversal all route here; the attached delegate (NullDelegate by default)
     # decides what happens. Same-document navigation never reaches this — it is
     # handled directly by Location/History (hashchange / popstate).
-    def __internal_navigate__(url:, source:, method: "GET", body: nil, headers: {}, replace: false)
+    def __internal_navigate__(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, replace: false)
       @navigation_delegate&.navigate(
-        url: url, method: method, body: body, headers: headers,
-        replace: replace, source: source
+        url: url, method: method, body: body, params: params, enctype: enctype,
+        headers: headers, replace: replace, source: source
       )
     end
 
@@ -509,6 +509,7 @@ module Dommy
         "MessageEvent" => Bridge::Constructor.new { |args| MessageEvent.new(args[0], args[1]) },
         "PopStateEvent" => Bridge::Constructor.new { |args| PopStateEvent.new(args[0], args[1]) },
         "HashChangeEvent" => Bridge::Constructor.new { |args| HashChangeEvent.new(args[0], args[1]) },
+        "SubmitEvent" => Bridge::Constructor.new { |args| SubmitEvent.new(args[0], args[1]) },
         "CloseEvent" => Bridge::Constructor.new { |args| CloseEvent.new(args[0], args[1]) },
         "MouseEvent" => Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) },
         "KeyboardEvent" => Bridge::Constructor.new { |args| KeyboardEvent.new(args[0], args[1]) },

@@ -233,11 +233,11 @@ module Dommy
       elements.size
     end
 
-    # Spec: `submit()` performs form submission directly WITHOUT
-    # firing a `submit` event. This is the JS-only entry point —
-    # browsers don't run constraint validation either. Dommy has no
-    # navigation engine, so this is effectively a no-op (returns nil).
+    # Spec: `submit()` performs form submission directly WITHOUT firing a
+    # `submit` event and without constraint validation. Navigation is handed to
+    # the delegate (a no-op recording by default).
     def submit
+      __internal_navigate_for_submit__(nil)
       nil
     end
 
@@ -248,10 +248,11 @@ module Dommy
       dispatch_event(Event.new("reset", "bubbles" => true, "cancelable" => true))
     end
 
-    # Spec: `requestSubmit(submitter?)` is the JS counterpart that
-    # MIRRORS user-initiated submission — it runs constraint validation
-    # and fires a `submit` event. Returns true if not default-prevented.
-    # `submitter` (if given) must be a button inside this form.
+    # Spec: `requestSubmit(submitter?)` MIRRORS user-initiated submission — it
+    # fires a `submit` event (with the submitter), and on a non-canceled event
+    # hands the form navigation to the delegate. Returns true if not
+    # default-prevented. `submitter` (if given) must be a submit button inside
+    # this form.
     def request_submit(submitter = nil)
       if submitter
         unless submitter.respond_to?(:__dommy_backend_node__) && submitter.__dommy_backend_node__.ancestors.include?(@__node__)
@@ -264,7 +265,24 @@ module Dommy
         end
       end
 
-      dispatch_event(Event.new("submit", "bubbles" => true, "cancelable" => true))
+      not_canceled = dispatch_event(SubmitEvent.new("submit", "bubbles" => true, "cancelable" => true, "submitter" => submitter))
+      __internal_navigate_for_submit__(submitter) if not_canceled
+      not_canceled
+    end
+
+    # Build the form data set and hand the resulting navigation to the delegate.
+    # Reuses the core FormSubmission serializer (submitter, method, action,
+    # enctype, GET query-stripping) — method-override is a host concern, so it's
+    # left off here (the delegate applies its own policy).
+    def __internal_navigate_for_submit__(submitter)
+      win = @document&.default_view
+      return if win.nil?
+
+      result = Dommy::Interaction::FormSubmission.new(self, submitter).submit!
+      win.__internal_navigate__(
+        url: result[:url], method: result[:method], params: result[:params],
+        enctype: result[:enctype], source: :form
+      )
     end
 
     # Walk all listed elements; the form is "valid" iff every

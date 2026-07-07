@@ -134,6 +134,68 @@ class TestNavigation < Minitest::Test
     assert_equal("#sec", @win.location.__js_get__("hash"))
   end
 
+  # --- N2: form submission (requestSubmit / submit) reaches the delegate ---
+
+  def form_fixture(method: "get", action: "/search")
+    @win = make_window(
+      "<form id='f' action='#{action}' method='#{method}'>" \
+      "<input name='q' value='hi'><input name='skip' disabled>" \
+      "<button id='go' type='submit' name='btn' value='v'>go</button>" \
+      "</form>"
+    )
+    @doc = @win.document
+    @delegate = @win.navigation_delegate
+    @doc.get_element_by_id("f")
+  end
+
+  def test_request_submit_fires_submit_event_and_navigates
+    form = form_fixture(method: "get")
+    events = []
+    form.add_event_listener("submit", ->(e) { events << e.__js_get__("submitter") })
+
+    form.__js_call__("requestSubmit", [@doc.get_element_by_id("go")])
+
+    assert_equal(1, events.size)
+    assert_equal(@doc.get_element_by_id("go"), events.first, "SubmitEvent exposes the submitter")
+
+    attempt = @delegate.attempts.first
+    assert_equal(:form, attempt[:source])
+    assert_equal("GET", attempt[:method])
+    assert_match(%r{/search\z}, attempt[:url])
+    # ordered [name,value] pairs, disabled control excluded, submitter included
+    assert_includes(attempt[:params], ["q", "hi"])
+    assert_includes(attempt[:params], ["btn", "v"])
+    refute(attempt[:params].any? { |name, _| name == "skip" })
+  end
+
+  def test_request_submit_prevent_default_suppresses_navigation
+    form = form_fixture
+    form.add_event_listener("submit", ->(e) { e.__js_call__("preventDefault", []) })
+    form.__js_call__("requestSubmit", [])
+
+    assert_empty(@delegate.attempts)
+  end
+
+  def test_submit_navigates_without_firing_event
+    form = form_fixture(method: "post", action: "/create")
+    events = []
+    form.add_event_listener("submit", ->(_e) { events << 1 })
+
+    form.__js_call__("submit", [])
+
+    assert_empty(events, "submit() fires no submit event, per spec")
+    attempt = @delegate.attempts.first
+    assert_equal("POST", attempt[:method])
+    assert_equal(:form, attempt[:source])
+    assert_match(%r{/create\z}, attempt[:url])
+  end
+
+  def test_request_submit_rejects_non_submit_submitter
+    form = form_fixture
+    plain = @doc.query_selector("input[name=q]")
+    assert_raises(TypeError) { form.request_submit(plain) }
+  end
+
   # --- N1: pushState fragment change no longer double-signals hashchange ---
 
   def test_pushstate_fragment_does_not_fire_hashchange
