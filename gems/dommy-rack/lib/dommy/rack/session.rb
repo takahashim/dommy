@@ -314,8 +314,8 @@ module Dommy
         result
       end
 
-      def navigate(method: "GET", url:, params: nil, body: nil, headers: {})
-        @navigation.navigate(method: method, url: url, params: params, body: body, headers: headers)
+      def navigate(method: "GET", url:, params: nil, body: nil, headers: {}, replace: false)
+        @navigation.navigate(method: method, url: url, params: params, body: body, headers: headers, replace: replace)
       end
 
       def reload
@@ -722,7 +722,7 @@ module Dommy
 
       # Apply a final navigation response: update last_response, current_url,
       # the document (HTML only), and the history stack.
-      def apply_navigation_response(response, final_url, push_history: true)
+      def apply_navigation_response(response, final_url, push_history: true, replace: false)
         @last_response = response
         @current_url = final_url
         if response.html?
@@ -738,7 +738,12 @@ module Dommy
           # BEFORE scripts boot: Turbo's replaceState-on-start then lands on
           # THIS entry, and its pushState navigations append after it.
           windex = @current_window.history.__internal_index__
-          if push_history
+          if replace
+            # location.replace() / reload() / a redirect: overwrite the current
+            # entry's URL and rebind it to the new document (no new entry).
+            @history.replace_current_url(final_url)
+            @history.rebind_current(window: @current_window, windex: windex)
+          elsif push_history
             @history.push(final_url, window: @current_window, windex: windex)
           else
             # A revisit re-loaded this URL into a fresh document: re-bind the
@@ -747,6 +752,8 @@ module Dommy
           end
           install_history_sync(@current_window)
           @document_loaded_listeners.each { |cb| cb.call(@current_window) }
+        elsif replace
+          @history.replace_current_url(final_url)
         elsif push_history
           @history.push(final_url)
         end
@@ -890,8 +897,26 @@ module Dommy
         return unless %w[http https].include?(uri_scheme(target))
         return if nav[:params].nil? && same_page_fragment?(target)
 
-        navigate(method: nav[:method] || "GET", url: target,
-                 params: nav[:params], body: nav[:body], headers: referer_headers)
+        method = (nav[:method] || "GET").to_s.upcase
+        params = nav[:params]
+        method, params = apply_delegate_method_override(method, params) if params
+        navigate(method: method, url: target, params: params, body: nav[:body],
+                 headers: referer_headers, replace: nav[:replace])
+      end
+
+      # The delegate path serializes forms through core FormSubmission, which
+      # doesn't know the session's method-override policy; apply it here so a
+      # Rails `_method` hidden field turns a POST into PATCH/PUT/DELETE even for
+      # an app without Rack::MethodOverride — matching the non-delegate submit.
+      def apply_delegate_method_override(method, params)
+        return [method, params] unless method == "POST" && @config.respect_method_override
+
+        pairs = params.dup
+        i = pairs.index { |name, _| name == @config.method_override_param }
+        return [method, params] unless i
+
+        override = pairs.delete_at(i)[1].to_s.upcase
+        %w[PATCH PUT DELETE].include?(override) ? [override, pairs] : [method, params]
       end
 
       def uri_scheme(url)

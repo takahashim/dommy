@@ -50,7 +50,7 @@ module Dommy
 
       # Perform a navigation, following redirects per session policy, then
       # apply the final response to the session (updating document + history).
-      def navigate(method:, url:, params: nil, body: nil, headers: {})
+      def navigate(method:, url:, params: nil, body: nil, headers: {}, replace: false)
         return navigate_about(url.to_s) if url.to_s.start_with?("about:")
 
         verb = method.to_s.upcase
@@ -67,7 +67,9 @@ module Dommy
         check_same_origin!(target)
 
         response, final_url = run(method: verb, url: target, params: params, body: body, headers: headers)
-        @session.apply_navigation_response(response, final_url)
+        # replace: a location.replace() / reload() / redirect updates the current
+        # history entry in place rather than pushing a new one.
+        @session.apply_navigation_response(response, final_url, replace: replace)
         maybe_follow_meta_refresh(response) || response
       end
 
