@@ -2278,6 +2278,15 @@ module Dommy
         @__node__["class"].to_s
       when "id"
         @__node__["id"].to_s
+      when "lang"
+        # The `lang` IDL attribute reflects the `lang` content attribute (own
+        # value, "" when absent) — not the inherited/computed language.
+        @__node__["lang"].to_s
+      when "translate"
+        # `translate` is a boolean reflecting the element's translation mode,
+        # which inherits: translate="yes"/"" → true, "no" → false, else the
+        # nearest ancestor's mode; the root defaults to translate (true).
+        translate_mode?
       when "hidden", "disabled", "checked", "readOnly", "multiple", "required"
         # Boolean reflected properties — true iff the matching HTML
         # attribute is present. Real DOM normalizes attribute names to
@@ -2502,6 +2511,24 @@ module Dommy
       {"readOnly" => "readonly"}.fetch(key, key)
     end
 
+    # The element's translation mode (HTML `translate`): the nearest ancestor-or-
+    # self with a valid translate attribute decides ("yes"/"" → true, "no" →
+    # false); with none, the root default is translate (true).
+    def translate_mode?
+      node = self
+      while node
+        attr = node.respond_to?(:get_attribute) ? node.get_attribute("translate") : nil
+        unless attr.nil?
+          value = attr.to_s.downcase
+          return true if value == "yes" || value.empty?
+          return false if value == "no"
+          # An invalid value inherits — keep walking up.
+        end
+        node = node.respond_to?(:parent_element) ? node.parent_element : nil
+      end
+      true
+    end
+
     def __js_set__(key, value)
       case key
       when "textContent"
@@ -2527,6 +2554,11 @@ module Dommy
         # Handling it here stops the bridge from stashing a string expando that
         # would shadow the CSSStyleDeclaration getter.
         @style.css_text = value.nil? ? "" : value.to_s
+      when "lang"
+        set_attribute("lang", value.to_s)
+      when "translate"
+        # The setter is a plain boolean → "yes" / "no".
+        set_attribute("translate", value ? "yes" : "no")
       when "className"
         set_attribute("class", value.to_s)
       when "classList"

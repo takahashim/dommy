@@ -388,3 +388,36 @@ class TestGenericElementForUnknownTag < Minitest::Test
     assert_kind_of(Dommy::Element, el)
   end
 end
+
+# lang (reflected) + translate (computed/inherited boolean) — global attributes.
+class TestLangTranslateAttributes < Minitest::Test
+  include DommyTestHelper
+
+  def test_lang_reflects_own_attribute
+    doc = make_window("<div id='d' lang='fr'></div><div id='e'></div>").document
+    assert_equal "fr", doc.get_element_by_id("d").__js_get__("lang")
+    assert_equal "", doc.get_element_by_id("e").__js_get__("lang"), "unset lang is empty"
+  end
+
+  def test_translate_inherits
+    doc = make_window(
+      "<div id='w' translate='no'><p id='p'><span id='s' translate='yes'></span></p><b id='b'></b></div>"
+    ).document
+    assert_equal false, doc.get_element_by_id("p").__js_get__("translate"), "inherits no"
+    assert_equal true, doc.get_element_by_id("s").__js_get__("translate"), "own yes"
+    assert_equal false, doc.get_element_by_id("b").__js_get__("translate"), "inherits no from ancestor"
+  end
+
+  def test_translate_default_is_true
+    el = make_window("<div id='d'></div>").document.get_element_by_id("d")
+    assert_equal true, el.__js_get__("translate"), "root default is translate"
+  end
+
+  def test_translate_setter
+    el = make_window("<div id='d'></div>").document.get_element_by_id("d")
+    el.__js_set__("translate", false)
+    assert_equal "no", el.get_attribute("translate")
+    el.__js_set__("translate", true)
+    assert_equal "yes", el.get_attribute("translate")
+  end
+end
