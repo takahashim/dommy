@@ -93,15 +93,28 @@ module Dommy
           const REFLECTED = new Set(#{WINDOW_REFLECTED_HANDLERS.to_json});
           const selector = [...HANDLERS].map((name) => `[${name}]`).join(",");
           const body = document.body;
+          // An inline handler runs with a scope chain of [element, form owner,
+          // document] inside the global, per the HTML "compile" algorithm — so
+          // `onclick="getElementById(...)"` (document) or a form-associated
+          // control's bare member resolve. Reflected (body/window) handlers keep
+          // the plain global scope (their `this` is the window, not the element).
+          const scoped = (el, code) => {
+            let src = `with(this){\n${code}\n}`;
+            if (el.form) src = `with(this.form){\n${src}\n}`;
+            return `with(document){\n${src}\n}`;
+          };
           for (const el of document.querySelectorAll(selector)) {
             const onBody = el === body || el.tagName === "FRAMESET";
             for (const name of el.getAttributeNames()) {
               if (!HANDLERS.has(name)) continue;
+              const code = el.getAttribute(name);
               try {
-                const fn = new Function("event", el.getAttribute(name));
                 if (onBody && REFLECTED.has(name)) {
-                  window.addEventListener(name.slice(2), fn);
+                  window.addEventListener(name.slice(2), new Function("event", code));
                 } else if (typeof el[name] !== "function") {
+                  let fn;
+                  try { fn = new Function("event", scoped(el, code)); }
+                  catch { fn = new Function("event", code); } // fall back to plain scope
                   el[name] = fn;
                 }
               } catch {
