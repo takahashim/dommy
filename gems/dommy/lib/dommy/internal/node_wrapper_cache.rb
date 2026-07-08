@@ -135,7 +135,17 @@ module Dommy
         qualified_name = domstring(qualified_name)
         ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
-        el = Backend.create_element(qualified_name, @document.backend_doc)
+        # An XML backend rejects some DOM-valid qualified names (an invalid char
+        # in the local part, which DOM permits): the loose creator builds them
+        # verbatim. A genuinely invalid name it (or the strict path) rejects with
+        # an ArgumentError becomes an InvalidCharacterError, per DOM.
+        el =
+          begin
+            Backend.create_element_loose(qualified_name, prefix, local, ns, @document.backend_doc) ||
+              Backend.create_element(qualified_name, @document.backend_doc)
+          rescue ArgumentError
+            raise DOMException::InvalidCharacterError, "'#{qualified_name}' is not a valid element name"
+          end
         Backend.add_namespace_definition(el, prefix, ns) if ns
 
         wrapper = build_element_wrapper(el, namespace: ns, local_name: local)

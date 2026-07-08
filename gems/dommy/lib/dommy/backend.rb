@@ -130,6 +130,15 @@ module Dommy
         current.create_element(name, doc)
       end
 
+      # Create a namespaced element permitting a DOM-valid qualified name that a
+      # strict XML backend would reject (an internal invalid char like "f}oo"),
+      # preserving case/prefix. Returns nil when the backend has no loose path
+      # (fall back to #create_element); raises ArgumentError for a genuinely
+      # invalid name (the caller maps it to InvalidCharacterError).
+      def create_element_loose(qualified_name, prefix, local, namespace, doc)
+        current.create_element_loose(qualified_name, prefix, local, namespace, doc)
+      end
+
       def create_text(content, doc)
         current.create_text(content, doc)
       end

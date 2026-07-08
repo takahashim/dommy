@@ -168,6 +168,16 @@ module Dommy
         doc.create_element(name)
       end
 
+      # An XML-backed document rejects a qualified name that DOM allows (e.g.
+      # "f}oo" — an invalid char in the local part), so createElementNS uses
+      # Makiri's loose creator, which builds it verbatim (case/prefix preserved).
+      # nil for a non-XML backend → the caller uses the strict #create_element.
+      def create_element_loose(qualified_name, prefix, local, namespace, doc)
+        return nil unless doc.is_a?(::Makiri::XML::Document) && doc.respond_to?(:create_loose_dom_element)
+
+        doc.create_loose_dom_element(qualified_name, prefix, local, namespace)
+      end
+
       def create_text(content, doc)
         doc.create_text_node(content)
       end

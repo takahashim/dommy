@@ -112,3 +112,27 @@ class TestDocumentNamedGetter < Minitest::Test
     refute_includes names, "nope"
   end
 end
+
+# createElementNS with names an XML backend rejects but DOM permits (via
+# Makiri's create_loose_dom_element), and error mapping for invalid names.
+class TestCreateElementNSLooseNames < Minitest::Test
+  include DommyTestHelper
+
+  def xml_doc
+    Dommy::DOMParser.new.parse_from_string(
+      "<root xmlns='urn:x'/>", "application/xml"
+    )
+  end
+
+  def test_leading_invalid_char_raises_invalid_character
+    assert_raises(Dommy::DOMException::InvalidCharacterError) do
+      xml_doc.__js_call__("createElementNS", [nil, "}foo"])
+    end
+  end
+
+  def test_valid_prefixed_name_preserves_case_and_prefix
+    el = xml_doc.__js_call__("createElementNS", ["urn:x", "ns:MyTag"])
+    assert_equal "MyTag", el.__js_get__("localName")
+    assert_equal "ns", el.__js_get__("prefix")
+  end
+end
