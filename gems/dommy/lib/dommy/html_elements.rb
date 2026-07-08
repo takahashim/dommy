@@ -9,6 +9,25 @@ module Dommy
   class HTMLElement < Element
     include Internal::ReflectedAttributes
 
+    # Shared "limited to only non-negative numbers" long reflection (maxLength /
+    # minLength on input and textarea): a missing / negative / non-numeric
+    # content attribute reads as -1; assigning a negative value throws.
+    def parse_non_negative_reflected(attr)
+      raw = @__node__[attr]
+      return -1 if raw.nil?
+      # HTML "rules for parsing non-negative integers": leading ASCII whitespace,
+      # then digits; anything else (a sign, letters) is an error → -1.
+      m = raw.to_s.match(/\A[\t\n\f\r ]*(\d+)/)
+      m ? m[1].to_i : -1
+    end
+
+    def set_non_negative_reflected(attr, value)
+      n = value.to_i
+      raise DOMException::IndexSizeError, "#{attr} must be non-negative" if n.negative?
+
+      set_reflected_string(attr, n.to_s)
+    end
+
     # HTML attribute names are case-insensitive — the browser DOM
     # lowercases everything. Override to make this explicit at the
     # HTMLElement level (Element's default would already pick this up
@@ -484,6 +503,9 @@ module Dommy
     # `files` — for `<input type="file">`. Browsers populate this via
     # user interaction; in tests, code uses `__driver_set_files__` to seed it.
     def files
+      # `files` is null for every type other than file (WHATWG).
+      return nil unless type == "file"
+
       @__files ||= FileList.new
     end
 
@@ -493,21 +515,39 @@ module Dommy
       @__files = files_input.is_a?(FileList) ? files_input : FileList.new(Array(files_input))
     end
 
+    # maxLength / minLength reflect a "limited to only non-negative numbers"
+    # long: a missing / negative / non-numeric content attribute reads as -1.
+    def max_length = parse_non_negative_reflected("maxlength")
+    def min_length = parse_non_negative_reflected("minlength")
+
+    def max_length=(value)
+      set_non_negative_reflected("maxlength", value)
+    end
+
+    def min_length=(value)
+      set_non_negative_reflected("minlength", value)
+    end
+
     # Spec: the "value sanitization algorithm" runs lazily on read.
     # type=email/url trim leading/trailing ASCII whitespace; type=number
     # rejects non-finite floats by returning "" (badInput stays true
     # so validity surfaces the original raw value).
     def sanitize_value(raw)
       case type
+      # The one-line text types "strip newlines from the value" (WHATWG value
+      # sanitization) — a pasted multi-line string collapses to one line.
+      when "text", "search", "tel", "password"
+        strip_newlines(raw.to_s)
       when "email"
+        stripped = strip_newlines(raw.to_s)
         if @__node__.key?("multiple")
-          raw.to_s.split(",").map(&:strip).join(",")
+          stripped.split(",").map(&:strip).join(",")
         else
-          raw.to_s.strip
+          stripped.strip
         end
-
       when "url"
-        raw.to_s.strip
+        # Strip newlines, then leading/trailing whitespace.
+        strip_newlines(raw.to_s).strip
       when "number", "range"
         sanitize_number(raw)
       when "color"
@@ -516,6 +556,10 @@ module Dommy
       else
         raw.to_s
       end
+    end
+
+    def strip_newlines(str)
+      str.gsub(/[\r\n]/, "")
     end
 
     def sanitize_number(raw)
@@ -1183,6 +1227,10 @@ module Dommy
         selection_direction
       when "valueAsNumber"
         value_as_number
+      when "maxLength"
+        max_length
+      when "minLength"
+        min_length
       else
         super
       end
@@ -1208,6 +1256,10 @@ module Dommy
         self.indeterminate = value
       when "readonly", "readOnly"
         self.readonly = value
+      when "maxLength"
+        self.max_length = value
+      when "minLength"
+        self.min_length = value
       else
         super
       end
@@ -2122,24 +2174,6 @@ module Dommy
     end
 
     private
-
-    def parse_non_negative_reflected(attr)
-      raw = @__node__[attr]
-      return -1 if raw.nil?
-      # HTML "rules for parsing non-negative integers": leading ASCII whitespace,
-      # then digits; anything else (a sign, letters) is an error → -1.
-      m = raw.to_s.match(/\A[\t\n\f\r ]*(\d+)/)
-      m ? m[1].to_i : -1
-    end
-
-    # WHATWG: assigning a negative value to a non-negative reflected long is an
-    # IndexSizeError; otherwise reflect it.
-    def set_non_negative_reflected(attr, value)
-      n = value.to_i
-      raise DOMException::IndexSizeError, "#{attr} must be non-negative" if n.negative?
-
-      set_reflected_string(attr, n.to_s)
-    end
 
     public
 

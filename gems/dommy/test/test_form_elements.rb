@@ -415,3 +415,47 @@ class TestValidityState < Minitest::Test
     end
   end
 end
+
+# WHATWG value sanitization + maxLength/minLength + files (bugs found via WPT).
+class TestHTMLInputElementSanitization < Minitest::Test
+  include DommyTestHelper
+
+  def input(html)
+    @win = make_window(html)
+    @win.document.get_element_by_id("i")
+  end
+
+  def test_one_line_types_strip_newlines
+    %w[text search tel password url].each do |type|
+      el = input("<input id='i' type='#{type}'>")
+      el.__js_set__("value", "a\nb\r\nc")
+      assert_equal("abc", el.__js_get__("value"), "type=#{type} strips newlines")
+    end
+  end
+
+  def test_multiline_textarea_keeps_newlines
+    el = input("<textarea id='i'></textarea>")
+    el.__js_set__("value", "a\nb")
+    assert_equal("a\nb", el.__js_get__("value"))
+  end
+
+  def test_maxlength_minlength_default_to_minus_one
+    el = input("<input id='i' type='text'>")
+    assert_equal(-1, el.__js_get__("maxLength"))
+    assert_equal(-1, el.__js_get__("minLength"))
+  end
+
+  def test_maxlength_reflects
+    el = input("<input id='i' maxlength='7' minlength='2'>")
+    assert_equal(7, el.__js_get__("maxLength"))
+    assert_equal(2, el.__js_get__("minLength"))
+    el.__js_set__("maxLength", 5)
+    assert_equal("5", el.get_attribute("maxlength"))
+    assert_raises(Dommy::DOMException::IndexSizeError) { el.__js_set__("maxLength", -1) }
+  end
+
+  def test_files_is_null_for_non_file_types
+    assert_nil(input("<input id='i' type='text'>").__js_get__("files"))
+    assert_instance_of(Dommy::FileList, input("<input id='i' type='file'>").__js_get__("files"))
+  end
+end
