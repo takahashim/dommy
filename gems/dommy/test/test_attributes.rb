@@ -56,3 +56,20 @@ class TestAttributes < Minitest::Test
     assert_equal("bar", @el[:value])
   end
 end
+
+# getAttribute returns the FIRST attribute for a qualified name shared across
+# namespaces (the JS bridge snapshot must not dedup to the last).
+class TestFirstSetAttribute < Minitest::Test
+  include DommyTestHelper
+
+  def test_get_attribute_returns_first_of_shared_qualified_name
+    el = make_window("<div id='d'></div>").document.get_element_by_id("d")
+    el.__js_call__("setAttributeNS", ["ab", "attr", "t1"])
+    el.__js_call__("setAttributeNS", ["kl", "attr", "t2"])
+
+    assert_equal "t1", el.get_attribute("attr"), "getAttribute returns the first"
+    assert_equal "t1", el.__js_attribute_snapshot__["attr"], "bridge snapshot keeps the first"
+    assert_equal "t1", el.__js_call__("getAttributeNS", ["ab", "attr"])
+    assert_equal "t2", el.__js_call__("getAttributeNS", ["kl", "attr"])
+  end
+end

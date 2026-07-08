@@ -2105,7 +2105,12 @@ module Dommy
     def __js_attribute_snapshot__
       return nil if case_sensitive_attribute_names?
 
-      Backend.attribute_nodes(@__node__).to_h { |a| [a.name, a.value.to_s] }
+      # Two attributes can share a qualified name (differing only by namespace);
+      # get-an-attribute-by-name returns the FIRST in list order, so keep the
+      # first occurrence (Ruby's Array#to_h would keep the last).
+      Backend.attribute_nodes(@__node__).each_with_object({}) do |a, snapshot|
+        snapshot[a.name] = a.value.to_s unless snapshot.key?(a.name)
+      end
     end
 
     # No real layout engine. By default geometry getters return zeroed rects;
