@@ -966,6 +966,10 @@ module Dommy
         cookie
       when "nodeType"
         9
+      when "nodeValue", "textContent"
+        # A Document's nodeValue and textContent are null (not the concatenated
+        # descendant text) per the DOM.
+        nil
       when "activeElement"
         active_element
       when "URL", "documentURI"

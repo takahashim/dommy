@@ -136,3 +136,14 @@ class TestCreateElementNSLooseNames < Minitest::Test
     assert_equal "ns", el.__js_get__("prefix")
   end
 end
+
+# A Document's nodeValue and textContent are null (DOM), not concatenated text.
+class TestDocumentNodeValueTextContent < Minitest::Test
+  include DommyTestHelper
+
+  def test_document_nodevalue_and_textcontent_are_null
+    doc = make_window("<p>hi</p>").document
+    assert_nil doc.__js_get__("nodeValue")
+    assert_nil doc.__js_get__("textContent")
+  end
+end
