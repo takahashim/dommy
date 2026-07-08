@@ -76,9 +76,16 @@ module Dommy
       KEEP_METHOD_STATUSES = [307, 308].freeze
       QUERY_METHODS = %w[GET HEAD].freeze
 
-      def initialize(resources, max_redirects: 20)
+      # `same_origin: true` scopes navigation to a single origin (the first one
+      # requested): a target or redirect to a different scheme/host/port is
+      # blocked (returns no response, so the browser stays put) — a test policy
+      # mirroring dommy-rack, so a page can't wander off to an external site the
+      # resources adapter happens to serve.
+      def initialize(resources, max_redirects: 20, same_origin: false)
         @resources = resources
         @max_redirects = max_redirects
+        @same_origin = same_origin
+        @origin = nil
       end
 
       # Resolve + issue the request, following redirects. `params` is an ordered
@@ -90,6 +97,10 @@ module Dommy
 
         verb = method.to_s.upcase
         target = url.to_s
+        # The first request establishes the origin the session is scoped to.
+        @origin ||= origin_of(target) if @same_origin
+        return [nil, target] if cross_origin?(target)
+
         hdrs = headers.dup
         if params && QUERY_METHODS.include?(verb)
           target = append_query(target, params)
@@ -124,12 +135,32 @@ module Dommy
           raise TooManyRedirectsError, "exceeded #{@max_redirects} redirects" if count >= @max_redirects
 
           nxt = resolve(location, target)
+          # A redirect that crosses the scoped origin is blocked (a browser would
+          # follow it, but the test policy keeps navigation on the app).
+          return [nil, nxt] if cross_origin?(nxt)
+
           nverb = redirect_method(status, verb)
           nbody = KEEP_METHOD_STATUSES.include?(status) ? body : nil
           return run(nverb, nxt, nbody, headers, count + 1)
         end
 
         [response, response.url || target]
+      end
+
+      def cross_origin?(url)
+        return false unless @same_origin && @origin
+
+        origin_of(url) != @origin
+      end
+
+      def origin_of(url)
+        u = URI.parse(url.to_s)
+        return nil unless u.scheme && u.host
+
+        port = u.port || u.default_port
+        "#{u.scheme.downcase}://#{u.host.downcase}:#{port}"
+      rescue URI::InvalidURIError
+        nil
       end
 
       # Serialize a form data set to a request body. multipart is approximated as

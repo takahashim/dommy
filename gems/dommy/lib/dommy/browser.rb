@@ -69,8 +69,9 @@ module Dommy
     end
 
     def initialize(html, url: "http://localhost/", resources: nil, execute_scripts: true, strict: true, settle: true,
-      wasm_memory_shim: false, backend: nil, navigable: false)
+      wasm_memory_shim: false, backend: nil, navigable: false, same_origin: false)
       @resources = resources
+      @same_origin = same_origin
       @strict = strict
       @backend = backend
       @execute_scripts = execute_scripts
@@ -90,7 +91,7 @@ module Dommy
       install_runtime(@window)
 
       if navigable
-        @fetcher = Navigation::Fetcher.new(@resources)
+        @fetcher = Navigation::Fetcher.new(@resources, same_origin: @same_origin)
         @history = Navigation::JointHistory.new
         @window.navigation_delegate = self
         @history.push(current_url, window: @window, windex: @window.history.__internal_index__)
@@ -299,7 +300,9 @@ module Dommy
     # fire the old document's unload, then replace the Window + JS realm with the
     # freshly parsed document and update the joint history. A network miss or a
     # non-document response leaves the current page in place.
-    def perform_navigation!(nav, rebind: false)
+    MAX_META_REFRESHES = 20
+
+    def perform_navigation!(nav, rebind: false, refresh_depth: 0)
       response, final_url = @fetcher.request(
         method: nav[:method] || "GET", url: nav[:url], params: nav[:params],
         body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
@@ -323,6 +326,43 @@ module Dommy
       else
         @history.push(final_url, window: new_window, windex: windex)
       end
+
+      follow_meta_refresh!(refresh_depth)
+    end
+
+    # If the freshly loaded document asks for an immediate `<meta http-equiv=
+    # refresh>`, follow it (as a replace, like a redirect), capped so a page that
+    # refreshes to itself can't loop forever.
+    def follow_meta_refresh!(depth)
+      return if depth >= MAX_META_REFRESHES
+
+      target = meta_refresh_target(@window.document)
+      return unless target
+
+      perform_navigation!({url: target, method: "GET", source: :meta_refresh},
+        rebind: true, refresh_depth: depth + 1)
+    end
+
+    # The resolved URL a `<meta http-equiv="refresh" content="0; url=…">` points
+    # at, or nil when the document has none (or a refresh with no URL, which just
+    # reloads and is left alone to avoid a busy loop).
+    def meta_refresh_target(document)
+      document.query_selector_all("meta").each do |meta|
+        next unless meta.get_attribute("http-equiv").to_s.casecmp?("refresh")
+
+        _delay, separator, rest = meta.get_attribute("content").to_s.partition(";")
+        next if separator.empty?
+
+        url = rest.strip.sub(/\Aurl\s*=\s*/i, "").gsub(/\A["']|["']\z/, "").strip
+        return resolve_against_current(url) unless url.empty?
+      end
+      nil
+    end
+
+    def resolve_against_current(url)
+      URI.join(current_url, url).to_s
+    rescue URI::InvalidURIError
+      url
     end
 
     # Perform a pending navigation recorded by the delegate (JS-initiated

@@ -215,6 +215,69 @@ class TestBrowserNavigation < Minitest::Test
     assert_equal 2, b.history.length
   end
 
+  # --- meta refresh (N3b) ---
+
+  def test_meta_refresh_is_followed
+    b = visit(
+      "/" => "<!doctype html><html><head>" \
+             "<meta http-equiv='refresh' content='0; url=/dest'></head><body>x</body></html>",
+      "/dest" => html("<h1>arrived</h1>")
+    )
+
+    assert_equal "http://localhost/dest", b.current_url
+    assert_equal "arrived", b.document.query_selector("h1").text_content
+    # The refresh replaces rather than pushes, so back leaves the app root.
+    assert_equal ["http://localhost/dest"], b.history.entries
+  end
+
+  def test_meta_refresh_self_loop_is_capped
+    # A page that refreshes to itself must not loop forever.
+    b = visit("/" => "<!doctype html><html><head>" \
+                     "<meta http-equiv='refresh' content='0;url=/'></head><body>x</body></html>")
+
+    assert_equal "http://localhost/", b.current_url
+  end
+
+  # --- same-origin scoping (N3b, opt-in) ---
+
+  def cross_origin_pages
+    {
+      "http://app.test/" => html("<a id='ext' href='http://evil.test/x'>go</a>"),
+      "http://evil.test/x" => html("<h1>external</h1>")
+    }
+  end
+
+  def test_same_origin_blocks_a_cross_origin_navigation
+    b = visit(cross_origin_pages, at: "http://app.test/", same_origin: true)
+
+    b.click_link("ext")
+
+    assert_equal "http://app.test/", b.current_url, "cross-origin navigation is blocked"
+  end
+
+  def test_cross_origin_navigation_allowed_by_default
+    b = visit(cross_origin_pages, at: "http://app.test/")
+
+    b.click_link("ext")
+
+    assert_equal "http://evil.test/x", b.current_url, "no same-origin policy by default"
+  end
+
+  def test_same_origin_blocks_a_cross_origin_redirect
+    b = visit(
+      {
+        "http://app.test/" => html("<a id='go' href='/leave'>go</a>"),
+        "http://app.test/leave" => {"status" => 302, "headers" => {"Location" => "http://evil.test/x"}},
+        "http://evil.test/x" => html("<h1>external</h1>")
+      },
+      at: "http://app.test/", same_origin: true
+    )
+
+    b.click_link("go")
+
+    assert_equal "http://app.test/", b.current_url, "a redirect off-origin is blocked"
+  end
+
   # --- a plain (non-navigable) browser keeps the NullDelegate ---
 
   def test_plain_browser_is_not_navigable
