@@ -23,6 +23,25 @@ module Dommy
   class Window
     include EventTarget
 
+    # Event handler IDL attributes the Window exposes (GlobalEventHandlers +
+    # WindowEventHandlers). Setting one (`window.onload = fn`) registers a
+    # listener; only these known names are intercepted so an arbitrary
+    # on-prefixed global (`window.onboarding = {...}`) still stays a plain
+    # expando rather than being mistaken for an event handler.
+    WINDOW_EVENT_HANDLER_NAMES = %w[
+      onabort onauxclick onbeforeinput onbeforematch onbeforetoggle onblur oncancel oncanplay
+      oncanplaythrough onchange onclick onclose oncontextlost oncontextmenu oncontextrestored oncopy
+      oncuechange oncut ondblclick ondrag ondragend ondragenter ondragleave ondragover ondragstart
+      ondrop ondurationchange onemptied onended onerror onfocus onformdata oninput oninvalid onkeydown
+      onkeypress onkeyup onload onloadeddata onloadedmetadata onloadstart onmousedown onmouseenter
+      onmouseleave onmousemove onmouseout onmouseover onmouseup onpaste onpause onplay onplaying
+      onprogress onratechange onreset onresize onscroll onscrollend onsecuritypolicyviolation onseeked
+      onseeking onselect onslotchange onstalled onsubmit onsuspend ontimeupdate ontoggle onvolumechange
+      onwaiting onwheel onafterprint onbeforeprint onbeforeunload onhashchange onlanguagechange onmessage
+      onmessageerror onoffline ononline onpagehide onpageshow onpopstate onrejectionhandled onstorage
+      onunhandledrejection onunload
+    ].to_set.freeze
+
     attr_reader :document, :scheduler, :location, :globals, :custom_elements, :navigator, :history
 
     # Opt into best-effort geometry: when true, getBoundingClientRect / client* /
@@ -170,6 +189,10 @@ module Dommy
         # window (the i-th `<iframe>`'s contentWindow), or ABSENT past the end.
         frame = frame_windows[key.to_i]
         frame.nil? ? Bridge::ABSENT : frame
+      when ->(k) { k.is_a?(String) && WINDOW_EVENT_HANDLER_NAMES.include?(k) }
+        # An event handler IDL attribute: the registered handler, or null (not
+        # undefined) when unset — matching the spec and Element's on* getter.
+        on_handler(event_name_from_on(key))
       else
         # A stashed global wins (even if its value is nil/null); a key never set
         # is genuinely absent → ABSENT so JS sees `undefined` and `"x" in window`
@@ -183,6 +206,12 @@ module Dommy
       # [PutForwards=href]): equivalent to `location.href = url`, i.e. navigate.
       if key == "location" && @location
         @location.__js_set__("href", value.to_s)
+        return nil
+      end
+      # `window.onload = fn` (and the other window event handlers) registers a
+      # listener rather than stashing an expando, so the handler actually fires.
+      if key.is_a?(String) && WINDOW_EVENT_HANDLER_NAMES.include?(key)
+        set_on_handler(event_name_from_on(key), value)
         return nil
       end
       # Stash arbitrary keys for later reads (e.g.

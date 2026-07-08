@@ -1548,11 +1548,19 @@ globalThis.__rbHost = (function () {
         // stash, …) keeps routing to the host below. (globalThis is NOT this
         // proxy's prototype, so the plain assignment can't recurse here.)
         if (isGlobalWindow(handle)) {
-          const cur = __rb_host_get(handle, prop);
-          const curAbsent = cur !== null && typeof cur === "object" && cur.__rb_absent === true;
-          if (curAbsent || rehydrate(cur) === null) {
-            globalThis[prop] = value;
-            return true;
+          // Event handler IDL attributes (onload, onresize, …) must reach the
+          // host so it registers a listener that actually fires; they read back
+          // as null when unset, so the null-means-unresolved rule below would
+          // otherwise divert them to a plain (never-firing) JS global. A
+          // non-handler name still becomes a JS global (window.X ≡ globalThis.X).
+          const isEventHandler = typeof prop === "string" && /^on[a-z]/.test(prop);
+          if (!isEventHandler) {
+            const cur = __rb_host_get(handle, prop);
+            const curAbsent = cur !== null && typeof cur === "object" && cur.__rb_absent === true;
+            if (curAbsent || rehydrate(cur) === null) {
+              globalThis[prop] = value;
+              return true;
+            }
           }
         }
         // WebIDL [LegacyNullToEmptyString] DOMString setters coerce JS-side

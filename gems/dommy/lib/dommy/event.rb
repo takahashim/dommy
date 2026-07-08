@@ -56,6 +56,29 @@ module Dommy
       nil
     end
 
+    # Event handler IDL attributes (`el.onclick = fn`, `window.onload = fn`): one
+    # named handler registered as a listener, where assignment replaces any
+    # previous handler and a nil value removes it. Shared by Element and Window.
+    def event_name_from_on(key)
+      key.to_s.sub(/\Aon/, "").downcase
+    end
+
+    def on_handler(event_name)
+      @on_handlers&.[](event_name)
+    end
+
+    def set_on_handler(event_name, value)
+      @on_handlers ||= {}
+      previous = @on_handlers[event_name]
+      remove_event_listener(event_name, previous) if previous
+      if value
+        add_event_listener(event_name, value)
+        @on_handlers[event_name] = value
+      else
+        @on_handlers.delete(event_name)
+      end
+    end
+
     def dispatch_event(event)
       return true if event.nil?
 

@@ -3008,22 +3008,6 @@ module Dommy
     end
 
     # on* event-handler property helpers.
-    def event_name_from_on(key)
-      key.to_s.sub(/\Aon/, "").downcase
-    end
-
-    def set_on_handler(event_name, value)
-      @on_handlers ||= {}
-      previous = @on_handlers[event_name]
-      remove_event_listener(event_name, previous) if previous
-      if value
-        add_event_listener(event_name, value)
-        @on_handlers[event_name] = value
-      else
-        @on_handlers.delete(event_name)
-      end
-    end
-
     # Attribute-key / child-wrapping / event-parent helpers.
     def normalize_attr_key(name)
       s = name.to_s
