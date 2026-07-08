@@ -11,6 +11,16 @@ module Dommy
     module GlobalFunctions
       module_function
 
+      # WebIDL DOMString conversion of a JS value: null → "null", undefined →
+      # "undefined", booleans → "true"/"false", everything else its string form.
+      # (Ruby's `nil.to_s` is "", which would silently drop a `btoa(null)` arg.)
+      def js_domstring(value)
+        return "null" if value.nil?
+        return "undefined" if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
+
+        value.to_s
+      end
+
       # JS `encodeURIComponent`: UTF-8 percent-encode everything except the
       # unreserved marks `A-Za-z0-9 - _ . ! ~ * ' ( )`. (Neither
       # `ERB::Util.url_encode` nor `CGI.escape` matches this set — the former
@@ -29,7 +39,7 @@ module Dommy
       # JS `btoa`: base64-encode a binary (Latin1) string. Each code unit must be
       # 0..255; anything beyond Latin1 is an InvalidCharacterError (per spec).
       def btoa(value)
-        codepoints = value.to_s.codepoints
+        codepoints = js_domstring(value).codepoints
         if codepoints.any? { |c| c > 0xFF }
           raise DOMException::InvalidCharacterError.new(
             "Failed to execute 'btoa': characters outside the Latin1 range cannot be base64-encoded."
