@@ -28,13 +28,17 @@ module Dommy
       when "href"
         href
       when "host"
-        URI(@origin).host || ""
+        # WHATWG host = hostname, plus ":port" only when the port is non-default.
+        uri = URI(@origin)
+        hostname = uri.host || ""
+        port = origin_port_string(uri)
+        port.empty? ? hostname : "#{hostname}:#{port}"
       when "hostname"
         URI(@origin).host || ""
       when "protocol"
         URI(@origin).scheme ? "#{URI(@origin).scheme}:" : ""
       when "port"
-        (URI(@origin).port || 80).to_s
+        origin_port_string(URI(@origin))
       else
         Bridge::ABSENT
       end
@@ -161,6 +165,16 @@ module Dommy
       {scheme: uri.scheme, host: uri.host, port: uri.port}
     rescue URI::InvalidURIError, ArgumentError
       {scheme: "http", host: "localhost", port: 80}
+    end
+
+    # WHATWG: the port is the empty string when it equals the scheme's default
+    # (URI always fills the default in, so compare against it explicitly).
+    def origin_port_string(uri)
+      port = uri.port
+      return "" if port.nil?
+
+      default = uri.respond_to?(:default_port) ? uri.default_port : nil
+      port == default ? "" : port.to_s
     end
 
     def rebuild_origin(scheme:, host:, port:)

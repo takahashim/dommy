@@ -90,5 +90,20 @@ class TestLocationFull < Minitest::Test
     @loc.__js_set__("port", "8080")
     assert_equal("localhost", @loc.__js_get__("hostname"))
     assert_equal("8080", @loc.__js_get__("port"))
+    # host carries the non-default port (WHATWG "hostname:port").
+    assert_equal("localhost:8080", @loc.__js_get__("host"))
+  end
+
+  def test_port_is_empty_for_a_default_port
+    # WHATWG: port returns "" when it is the scheme's default (80 for http).
+    assert_equal("", @loc.__js_get__("port"))
+    assert_equal("localhost", @loc.__js_get__("host"))
+
+    @loc.__internal_set_url__("https://example.com/")
+    assert_equal("", @loc.__js_get__("port"), "443 is the https default")
+    assert_equal("example.com", @loc.__js_get__("host"))
+
+    @loc.__internal_set_url__("http://example.com:80/")
+    assert_equal("", @loc.__js_get__("port"), "an explicit default port is still empty")
   end
 end
