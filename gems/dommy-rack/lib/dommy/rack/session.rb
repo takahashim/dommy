@@ -378,9 +378,10 @@ module Dommy
         else
           perform_page_navigation(nav)
         end
-      rescue CrossOriginError, UnsupportedURLError, InvalidFormError
-        # A page-initiated navigation to a blocked/unsupported target is dropped
-        # (a browser blocks it); it must not crash the drain.
+      rescue CrossOriginError, UnsupportedURLError, InvalidFormError, TooManyRedirectsError
+        # A page-initiated navigation that is blocked, unsupported, or loops on
+        # redirects is dropped (a browser blocks/abandons it); it must not crash
+        # the drain the way a Ruby-driven `visit` (which re-raises) does.
         nil
       end
 

@@ -93,8 +93,10 @@ module Dommy
     def activation_behavior(_event)
       return unless __submit_button__?
 
-      owner = respond_to?(:form_owner) ? form_owner : form
-      owner&.__run_form_submission__(self)
+      # `form` follows the form-owner algorithm (honoring a `form=` attribute) on
+      # both input and button, so a form-associated submit button outside its
+      # form still submits the right one.
+      form&.__run_form_submission__(self)
     end
   end
 
@@ -1226,7 +1228,16 @@ module Dommy
       set_reflected_string("type", v)
     end
 
+    # The form owner: a `form=` attribute pointing at a form (form-associated
+    # element, so a button can live outside its form), else the nearest ancestor
+    # form. Mirrors HTMLInputElement#form_owner.
     def form
+      form_id = get_attribute("form").to_s
+      unless form_id.empty?
+        target = @document.get_element_by_id(form_id)
+        return (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
+      end
+
       closest("form")
     end
 

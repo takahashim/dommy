@@ -58,19 +58,59 @@ module Dommy
       # the spec, where content attributes are set as the document is parsed), so
       # a listener is live for post-load interaction. `new Function` parses the
       # code as a function body with an `event` parameter; a syntactically bad
-      # handler is skipped, not fatal. (Handlers on elements inserted *after*
-      # boot — innerHTML / setAttribute — are not wired; frameworks use
-      # addEventListener, and this covers server-rendered inline handlers.)
+      # handler is skipped, not fatal.
+      #
+      # Two subtleties: (1) a handler on <body>/<frameset> for a
+      # window-reflected event (onload, onunload, …) belongs on the WINDOW, not
+      # the element — so `<body onload>` fires; it is wired via
+      # window.addEventListener since the element's own load never fires. (2) The
+      # scan targets only elements carrying a known handler attribute (via a
+      # selector) rather than every element, then wires all on* attributes on
+      # each. Handlers on elements inserted *after* boot (innerHTML /
+      # setAttribute) are not wired — frameworks use addEventListener; this
+      # covers server-rendered inline handlers.
+      HANDLER_ATTRIBUTES = %w[
+        onabort onauxclick onbeforeinput onbeforetoggle onblur oncancel oncanplay oncanplaythrough
+        onchange onclick onclose oncontextmenu oncopy oncuechange oncut ondblclick ondrag ondragend
+        ondragenter ondragleave ondragover ondragstart ondrop ondurationchange onemptied onended
+        onerror onfocus onformdata oninput oninvalid onkeydown onkeypress onkeyup onload onloadeddata
+        onloadedmetadata onloadstart onmousedown onmouseenter onmouseleave onmousemove onmouseout
+        onmouseover onmouseup onpaste onpause onplay onplaying onprogress onratechange onreset onresize
+        onscroll onscrollend onseeked onseeking onselect onslotchange onstalled onsubmit onsuspend
+        ontimeupdate ontoggle onvolumechange onwaiting onwheel onafterprint onbeforeprint onbeforeunload
+        onhashchange onlanguagechange onmessage onmessageerror onoffline ononline onpagehide onpageshow
+        onpopstate onrejectionhandled onstorage onunhandledrejection onunload
+      ].freeze
+      # Body/frameset handlers for these events reflect onto the Window.
+      WINDOW_REFLECTED_HANDLERS = %w[
+        onafterprint onbeforeprint onbeforeunload onhashchange onlanguagechange onmessage onmessageerror
+        onoffline ononline onpagehide onpageshow onpopstate onrejectionhandled onstorage
+        onunhandledrejection onunload onload onresize onscroll onerror onblur onfocus
+      ].freeze
       WIRE_INLINE_HANDLERS_JS = <<~JS
         (function () {
-          var els = document.querySelectorAll("*");
+          var HANDLERS = #{HANDLER_ATTRIBUTES.to_json};
+          var WINDOW_REFLECTED = #{WINDOW_REFLECTED_HANDLERS.to_json};
+          var isHandler = {}, reflected = {};
+          for (var k = 0; k < HANDLERS.length; k++) isHandler[HANDLERS[k]] = true;
+          for (var w = 0; w < WINDOW_REFLECTED.length; w++) reflected[WINDOW_REFLECTED[w]] = true;
+          var sel = HANDLERS.map(function (n) { return "[" + n + "]"; }).join(",");
+          var els = document.querySelectorAll(sel);
+          var body = document.body;
           for (var i = 0; i < els.length; i++) {
             var el = els[i], names = el.getAttributeNames();
+            var onBody = (el === body || el.tagName === "FRAMESET");
             for (var j = 0; j < names.length; j++) {
               var name = names[j];
-              if (/^on[a-z]+$/.test(name) && typeof el[name] !== "function") {
-                try { el[name] = new Function("event", el.getAttribute(name)); } catch (e) {}
-              }
+              if (!isHandler[name]) continue;
+              try {
+                var fn = new Function("event", el.getAttribute(name));
+                if (onBody && reflected[name]) {
+                  window.addEventListener(name.slice(2), fn);
+                } else if (typeof el[name] !== "function") {
+                  el[name] = fn;
+                }
+              } catch (e) {}
             }
           }
         })();

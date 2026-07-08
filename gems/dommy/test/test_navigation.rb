@@ -196,6 +196,25 @@ class TestNavigation < Minitest::Test
     assert_raises(TypeError) { form.request_submit(plain) }
   end
 
+  # A submit button associated to a form via a `form=` attribute (so it can live
+  # outside the form) activates that form, not a nearest-ancestor one.
+  def test_form_associated_submit_button_activates_its_owner
+    @win = make_window(
+      "<form id='real' action='/x' method='get'><input name='q' value='hi'></form>" \
+      "<button id='b' type='submit' form='real'>go</button>"
+    )
+    @doc = @win.document
+    @delegate = @win.navigation_delegate
+
+    @doc.get_element_by_id("b").click
+
+    attempt = @delegate.attempts.first
+    refute_nil(attempt, "the form= button submitted its associated form")
+    assert_equal(:form, attempt[:source])
+    assert_match(%r{/x\z}, attempt[:url])
+    assert_includes(attempt[:params], ["q", "hi"])
+  end
+
   # --- N1: pushState fragment change no longer double-signals hashchange ---
 
   def test_pushstate_fragment_does_not_fire_hashchange
