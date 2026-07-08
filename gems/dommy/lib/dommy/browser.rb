@@ -216,12 +216,10 @@ module Dommy
     # follows the submit for real; otherwise the delegate just records it.
     def click_button(locator)
       button = finder.find_button(locator)
-      prevented = Dommy::Interaction::EventSynthesis.click(button)
-      if !prevented && submit_button?(button) && (form = finder.form_for(button))
-        # Centralized form submission (real SubmitEvent + delegate navigation);
-        # a navigable browser thus follows an un-prevented submit for real.
-        form.__run_form_submission__(button)
-      end
+      # An un-prevented click runs the button's activation behavior — a submit
+      # button submits its owning form (real SubmitEvent + delegate navigation),
+      # so a navigable browser follows the submit for real.
+      Dommy::Interaction::EventSynthesis.click(button)
       after_interaction
       button
     end

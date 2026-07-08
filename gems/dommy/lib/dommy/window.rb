@@ -179,6 +179,12 @@ module Dommy
     end
 
     def __js_set__(key, value)
+      # `window.location = url` forwards to the Location object (WebIDL
+      # [PutForwards=href]): equivalent to `location.href = url`, i.e. navigate.
+      if key == "location" && @location
+        @location.__js_set__("href", value.to_s)
+        return nil
+      end
       # Stash arbitrary keys for later reads (e.g.
       # `JS.global[:__fetchy_stub__] = map`).
       @globals[key] = value

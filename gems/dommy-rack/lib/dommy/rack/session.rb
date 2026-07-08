@@ -6,6 +6,29 @@ require "tmpdir"
 
 module Dommy
   module Rack
+    # The NavigationDelegate (Dommy::Navigation port) attached to each page's
+    # window: it forwards a page-initiated navigation/traversal intent to the
+    # owning Session (which defers and performs it at the next drain). Bound to
+    # the specific window so a stale, navigated-away page cannot steer the
+    # session — the Session checks window identity before recording.
+    class PageNavigationDelegate
+      def initialize(session, window)
+        @session = session
+        @window = window
+      end
+
+      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, replace: false)
+        @session.__enqueue_page_navigation__(@window, {
+          url: url, method: method, body: body, params: params, enctype: enctype,
+          headers: headers, replace: replace, source: source
+        })
+      end
+
+      def traverse(delta)
+        @session.__enqueue_page_traverse__(@window, delta)
+      end
+    end
+
     # A single browser-like session over a Rack application. Owns the current
     # URL, document, cookie jar, persistent header store, and history; delegates
     # URL/redirect logic to Navigation and form data collection to FormSubmission.
@@ -141,6 +164,7 @@ module Dommy
       # #advance_time.
       def settle
         require_js!.settle
+        __flush_page_navigation__
         self
       end
 
@@ -314,6 +338,50 @@ module Dommy
 
       def forward
         traverse_history(:forward)
+      end
+
+      # --- NavigationDelegate port (see Dommy::Navigation) ---
+
+      # The delegate attached to each page's window (in SessionRuntime). A
+      # page-initiated navigation — a JS `location.href=` / `form.submit()`, a
+      # submitted form, an activated `<a>` — routes here. Navigation is a task:
+      # performing it synchronously could dispose the JS realm still on the
+      # stack, so it is recorded and performed at the next drain (#after_interaction
+      # / #settle), exactly like the standalone Browser.
+      def __navigation_delegate_for__(window)
+        PageNavigationDelegate.new(self, window)
+      end
+
+      def __enqueue_page_navigation__(window, nav)
+        # A retained handle to a navigated-away page must not steer the session.
+        return unless window.equal?(@current_window)
+
+        @pending_navigation = nav
+      end
+
+      def __enqueue_page_traverse__(window, delta)
+        return unless window.equal?(@current_window)
+
+        @pending_navigation = {traverse: delta}
+      end
+
+      # Perform a recorded page navigation, if any. Called after the JS runtime
+      # drains so the document/realm swap never runs with the outgoing realm's
+      # JS on the stack.
+      def __flush_page_navigation__
+        nav = @pending_navigation
+        return unless nav
+
+        @pending_navigation = nil
+        if nav.key?(:traverse)
+          traverse_history(nav[:traverse].negative? ? :back : :forward)
+        else
+          perform_page_navigation(nav)
+        end
+      rescue CrossOriginError, UnsupportedURLError, InvalidFormError
+        # A page-initiated navigation to a blocked/unsupported target is dropped
+        # (a browser blocks it); it must not crash the drain.
+        nil
       end
 
       # --- Basic request API (navigates, updating page state) ---
@@ -750,6 +818,7 @@ module Dommy
       # before the next line. A no-op when JS is disabled (the mixin default).
       def after_interaction
         @js_runtime&.drain
+        __flush_page_navigation__
       end
 
       private
@@ -810,6 +879,25 @@ module Dommy
       # a bare visit does not.
       def referer_headers
         @current_url ? {"Referer" => @current_url} : {}
+      end
+
+      # Carry out a page-initiated navigation recorded by the delegate: resolve
+      # the target, skip non-http(s) schemes (javascript:/mailto:/data:) and a
+      # bare same-page fragment link, then navigate — folding form params into
+      # the query (GET) or body (POST) as usual.
+      def perform_page_navigation(nav)
+        target = resolve_document_url(nav[:url])
+        return unless %w[http https].include?(uri_scheme(target))
+        return if nav[:params].nil? && same_page_fragment?(target)
+
+        navigate(method: nav[:method] || "GET", url: target,
+                 params: nav[:params], body: nav[:body], headers: referer_headers)
+      end
+
+      def uri_scheme(url)
+        URI.parse(url).scheme.to_s.downcase
+      rescue URI::InvalidURIError
+        ""
       end
 
       # A link to the current page that differs only by fragment does not

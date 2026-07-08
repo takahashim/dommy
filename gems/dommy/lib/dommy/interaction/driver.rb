@@ -113,12 +113,11 @@ module Dommy
       # event sequence so JS click handlers run.
       def click(selector)
         element = find(selector)
-        prevented = EventSynthesis.click(element)
-        # Browser activation behavior: an un-prevented click on a submit button
-        # runs form submission, whose JS-observable effect is a `submit` event
-        # on the owning form (a SPA handles it / preventDefaults navigation).
-        # This makes `click "button[type=submit]"` behave like a real click.
-        submit_owning_form(element) unless prevented
+        # An un-prevented click runs the element's activation behavior — a submit
+        # button submits its owning form (SubmitButtonActivation), an anchor
+        # follows its href — so `click "button[type=submit]"` / `click "a"` behave
+        # like a real click with no driver-level special-casing.
+        EventSynthesis.click(element)
         after_interaction
         element
       end
@@ -279,30 +278,16 @@ module Dommy
 
       private
 
-      # Dispatch a `submit` event on the form owning a clicked submit button.
-      # Real navigation on an un-prevented submit is a host (Session) concern;
-      # here we only surface the event so SPA handlers run.
-      def submit_owning_form(element)
-        return unless submit_button_element?(element)
-
-        form = finder.form_for(element)
-        return unless form
-
-        # Centralized form submission: fires a real SubmitEvent (with this
-        # button as the submitter) and hands navigation to the delegate.
-        form.__run_form_submission__(element)
-      end
-
       # The includer (Browser / Rack::Session) may define the actual rule for
-      # "is this a submit button"; treat none as present otherwise.
+      # "is this a submit button"; treat none as present otherwise. Used to pick
+      # the default submit button for Enter's implicit submission.
       def submit_button_element?(element)
         respond_to?(:submit_button?, true) && submit_button?(element)
       end
 
       # The form's first submit button in tree order (the one Enter's
       # implicit-submission default action would activate), or nil for a
-      # buttonless form. Reuses #submit_button_element? so this agrees with
-      # #submit_owning_form on what counts as a submit button.
+      # buttonless form.
       def default_submit_button(form)
         form.query_selector_all("button, input").find { |el| submit_button_element?(el) }
       end
@@ -357,7 +342,9 @@ module Dommy
 
         submitter = default_submit_button(form)
         if submitter
-          submit_owning_form(submitter) unless EventSynthesis.click(submitter)
+          # Clicking the default submit button runs its activation behavior
+          # (form submission); a prevented click naturally submits nothing.
+          EventSynthesis.click(submitter)
         else
           # No submit button: HTML implicit submission with no submitter.
           form.__run_form_submission__(nil)

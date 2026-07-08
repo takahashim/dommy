@@ -79,6 +79,25 @@ module Dommy
     end
   end
 
+  # The activation behavior of a submit button: run the owning form's
+  # submission algorithm with this button as the submitter. This makes a click
+  # — a real user click, a synthesized driver click, or `button.click()` from
+  # JS — on a submit button submit its form (fire a SubmitEvent, then hand
+  # navigation to the delegate), with no driver-level special-casing. Mirrors
+  # HyperlinkActivation for the form side.
+  module SubmitButtonActivation
+    def activation_target?
+      __submit_button__?
+    end
+
+    def activation_behavior(_event)
+      return unless __submit_button__?
+
+      owner = respond_to?(:form_owner) ? form_owner : form
+      owner&.__run_form_submission__(self)
+    end
+  end
+
   class HTMLAnchorElement < HTMLElement
     include HyperlinkActivation
     reflect_string :target, :download, :rel, :hreflang, :type
@@ -392,6 +411,7 @@ module Dommy
 
   # `<input>` — covers the most-used form control surface.
   class HTMLInputElement < HTMLElement
+    include SubmitButtonActivation
     reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value"
     reflect_boolean :autofocus, :disabled, :required, :readonly, default_checked: "checked"
     # Own __js_call__ methods, on top of Element's.
@@ -399,6 +419,8 @@ module Dommy
       raw = @__node__["type"].to_s
       raw.empty? ? "text" : raw.downcase
     end
+
+    def __submit_button__? = %w[submit image].include?(type) && !disabled
 
     def type=(v)
       set_reflected_string("type", v)
@@ -1190,12 +1212,15 @@ module Dommy
 
   # `<button>` — type defaults to "submit" per spec.
   class HTMLButtonElement < HTMLElement
+    include SubmitButtonActivation
     reflect_string :name, form_action: "formaction", form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
     reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
     def type
       raw = @__node__["type"].to_s.downcase
       %w[submit reset button].include?(raw) ? raw : "submit"
     end
+
+    def __submit_button__? = type == "submit" && !disabled
 
     def type=(v)
       set_reflected_string("type", v)
