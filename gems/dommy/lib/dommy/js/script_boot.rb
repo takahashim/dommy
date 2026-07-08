@@ -52,9 +52,34 @@ module Dommy
         @loader = nil
       end
 
+      # Compile each element's event-handler content attributes (onclick="…",
+      # oninput="…") into an event handler, reusing the working `el.onclick = fn`
+      # IDL path. Runs once at boot, after parsing and before scripts (matching
+      # the spec, where content attributes are set as the document is parsed), so
+      # a listener is live for post-load interaction. `new Function` parses the
+      # code as a function body with an `event` parameter; a syntactically bad
+      # handler is skipped, not fatal. (Handlers on elements inserted *after*
+      # boot — innerHTML / setAttribute — are not wired; frameworks use
+      # addEventListener, and this covers server-rendered inline handlers.)
+      WIRE_INLINE_HANDLERS_JS = <<~JS
+        (function () {
+          var els = document.querySelectorAll("*");
+          for (var i = 0; i < els.length; i++) {
+            var el = els[i], names = el.getAttributeNames();
+            for (var j = 0; j < names.length; j++) {
+              var name = names[j];
+              if (/^on[a-z]+$/.test(name) && typeof el[name] !== "function") {
+                try { el[name] = new Function("event", el.getAttribute(name)); } catch (e) {}
+              }
+            }
+          }
+        })();
+      JS
+
       def run
         @runtime.set_document_ready_state("loading")
         @loader = install_module_loader
+        wire_inline_event_handlers
         scripts = @document.scripts.to_a
         # Pass 1: parser-blocking classic scripts, in document order.
         scripts.each { |element| run_one(element) unless deferred?(element) }
@@ -62,6 +87,12 @@ module Dommy
         scripts.each { |element| run_one(element) if deferred?(element) }
         @runtime.set_document_ready_state("interactive")
         @runtime.set_document_ready_state("complete")
+      end
+
+      def wire_inline_event_handlers
+        @runtime.execute(WIRE_INLINE_HANDLERS_JS)
+      rescue StandardError => e
+        @on_error&.call(e)
       end
 
       # Fetch + run a dynamically-inserted external script, then fire `load` (or
