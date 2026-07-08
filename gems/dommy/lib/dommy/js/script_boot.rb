@@ -88,29 +88,25 @@ module Dommy
         onunhandledrejection onunload onload onresize onscroll onerror onblur onfocus
       ].freeze
       WIRE_INLINE_HANDLERS_JS = <<~JS
-        (function () {
-          var HANDLERS = #{HANDLER_ATTRIBUTES.to_json};
-          var WINDOW_REFLECTED = #{WINDOW_REFLECTED_HANDLERS.to_json};
-          var isHandler = {}, reflected = {};
-          for (var k = 0; k < HANDLERS.length; k++) isHandler[HANDLERS[k]] = true;
-          for (var w = 0; w < WINDOW_REFLECTED.length; w++) reflected[WINDOW_REFLECTED[w]] = true;
-          var sel = HANDLERS.map(function (n) { return "[" + n + "]"; }).join(",");
-          var els = document.querySelectorAll(sel);
-          var body = document.body;
-          for (var i = 0; i < els.length; i++) {
-            var el = els[i], names = el.getAttributeNames();
-            var onBody = (el === body || el.tagName === "FRAMESET");
-            for (var j = 0; j < names.length; j++) {
-              var name = names[j];
-              if (!isHandler[name]) continue;
+        (() => {
+          const HANDLERS = new Set(#{HANDLER_ATTRIBUTES.to_json});
+          const REFLECTED = new Set(#{WINDOW_REFLECTED_HANDLERS.to_json});
+          const selector = [...HANDLERS].map((name) => `[${name}]`).join(",");
+          const body = document.body;
+          for (const el of document.querySelectorAll(selector)) {
+            const onBody = el === body || el.tagName === "FRAMESET";
+            for (const name of el.getAttributeNames()) {
+              if (!HANDLERS.has(name)) continue;
               try {
-                var fn = new Function("event", el.getAttribute(name));
-                if (onBody && reflected[name]) {
+                const fn = new Function("event", el.getAttribute(name));
+                if (onBody && REFLECTED.has(name)) {
                   window.addEventListener(name.slice(2), fn);
                 } else if (typeof el[name] !== "function") {
                   el[name] = fn;
                 }
-              } catch (e) {}
+              } catch {
+                // A syntactically invalid handler is skipped, not fatal.
+              }
             }
           }
         })();
