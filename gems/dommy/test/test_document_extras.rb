@@ -73,3 +73,42 @@ class TestDocumentExtras < Minitest::Test
     assert_equal(9, @doc.__js_get__("nodeType"))
   end
 end
+
+# The document's WebIDL named getter (document.someName → named element).
+class TestDocumentNamedGetter < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @doc = make_window(
+      "<form name='f1'></form><img name='pic'><iframe name='frame'></iframe>" \
+      "<img name='dup'><img name='dup'><img id='byid' name='hasname'>"
+    ).document
+  end
+
+  def test_single_named_element_returns_the_element
+    assert_instance_of Dommy::HTMLFormElement, @doc.__js_get__("f1")
+    assert_instance_of Dommy::HTMLImageElement, @doc.__js_get__("pic")
+  end
+
+  def test_multiple_named_elements_return_a_collection
+    coll = @doc.__js_get__("dup")
+    assert_instance_of Dommy::HTMLCollection, coll
+    assert_equal 2, coll.length
+  end
+
+  def test_img_exposed_by_id_when_it_also_has_a_name
+    assert_instance_of Dommy::HTMLImageElement, @doc.__js_get__("byid")
+  end
+
+  def test_unknown_name_is_absent
+    assert_equal Dommy::Bridge::ABSENT, @doc.__js_get__("nope")
+  end
+
+  def test_supported_property_names
+    names = @doc.__js_named_props__
+    assert_includes names, "f1"
+    assert_includes names, "frame"
+    assert_includes names, "byid"
+    refute_includes names, "nope"
+  end
+end

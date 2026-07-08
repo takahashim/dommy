@@ -1050,9 +1050,64 @@ module Dommy
       when "nodeName"
         "#document"
       else
-        Bridge::ABSENT # unknown property: JS undefined, `in` reports absent
+        # WebIDL named getter: `document.someName` exposes a named embed / form /
+        # iframe / img / object element (or an img/object by id). Unknown
+        # otherwise → JS undefined.
+        named = document_named_property(key.to_s)
+        named.nil? ? Bridge::ABSENT : named
       end
     end
+
+    # The document's supported property names (for `"name" in document`): the
+    # `name` of each exposed element, plus the `id` of id-exposed img/object.
+    def __js_named_props__
+      names = []
+      named_getter_nodes.each do |node|
+        n = node["name"].to_s
+        names << n unless n.empty?
+        id = node["id"].to_s
+        names << id if !id.empty? && %w[img object].include?(node.name.to_s.downcase) && !n.empty?
+      end
+      names.uniq
+    end
+
+    # Resolve a document named-getter property: nil when unsupported, a single
+    # element (a named iframe yields its content window), or an HTMLCollection
+    # when several elements share the name.
+    def document_named_property(name)
+      return nil if name.empty?
+
+      matches = named_getter_nodes.select do |node|
+        node["name"] == name ||
+          (node["id"] == name && %w[img object].include?(node.name.to_s.downcase) && !node["name"].to_s.empty?)
+      end
+      wrapped = matches.map { |node| wrap_node(node) }.compact
+      return nil if wrapped.empty?
+
+      if wrapped.length == 1
+        el = wrapped.first
+        cw = el.respond_to?(:content_window) ? el.content_window : nil
+        cw || el
+      else
+        HTMLCollection.new { document_named_property_nodes(name) }
+      end
+    end
+
+    private
+
+    # Elements the document's named getter exposes, in tree order.
+    def named_getter_nodes
+      @backend_doc.css("embed, form, iframe, img, object")
+    end
+
+    def document_named_property_nodes(name)
+      named_getter_nodes.select do |node|
+        node["name"] == name ||
+          (node["id"] == name && %w[img object].include?(node.name.to_s.downcase) && !node["name"].to_s.empty?)
+      end.map { |node| wrap_node(node) }.compact
+    end
+
+    public
 
     def __js_set__(key, value)
       case key
