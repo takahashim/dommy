@@ -1542,9 +1542,14 @@ module Dommy
     end
 
     def read_title
-      head = @backend_doc.at_css("head")
-      title = head&.at_css("title")
-      title ? title.text : ""
+      # The first title element in tree order (usually the head's), with its
+      # child text content stripped and collapsed of ASCII whitespace per WHATWG.
+      # ASCII whitespace is exactly tab/LF/FF/CR/space — NOT Ruby's String#strip
+      # set, which also removes U+000B (vertical tab) and must be left intact.
+      title = @backend_doc.at_css("title")
+      return "" unless title
+
+      title.text.gsub(/[\t\n\f\r ]+/, " ").gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "")
     end
 
     def write_title(value)
