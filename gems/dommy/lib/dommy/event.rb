@@ -6,12 +6,12 @@ module Dommy
   # surface.
 
   module EventTarget
-    def add_event_listener(type, listener = nil, options = nil, &block)
+    def add_event_listener(type, listener = nil, options = nil, event_handler: false, &block)
       cb = listener || block
       return nil if type.nil? || cb.nil?
 
       list = listeners_for(type.to_s)
-      entry = Listener.new(cb, options)
+      entry = Listener.new(cb, options, event_handler)
       # Per spec, a listener is deduplicated by (type, callback, capture) — so
       # the same function may be registered once as a capture and once as a
       # bubble listener.
@@ -72,7 +72,7 @@ module Dommy
       previous = @on_handlers[event_name]
       remove_event_listener(event_name, previous) if previous
       if value
-        add_event_listener(event_name, value)
+        add_event_listener(event_name, value, event_handler: true)
         @on_handlers[event_name] = value
       else
         @on_handlers.delete(event_name)
@@ -153,16 +153,34 @@ module Dommy
           end
         end
 
-        if entry.passive?
-          event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
-        else
-          invoke_listener_isolated(entry.listener, event, self)
-        end
+        result =
+          if entry.passive?
+            event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
+          else
+            invoke_listener_isolated(entry.listener, event, self)
+          end
+        # Event handler processing algorithm: a handler registered via onX has its
+        # return value processed — onerror on a global cancels on `true`, every
+        # other handler cancels on `false` (`onsubmit="return false"`).
+        __internal_process_event_handler_return__(event, result) if entry.event_handler?
 
         break if event.immediate_propagation_stopped?
       end
 
       nil
+    end
+
+    # WHATWG event handler processing algorithm, step "process return value":
+    # the special error handler (onerror on a Window) cancels the event when the
+    # handler returns true; onbeforeunload has its own returnValue handling
+    # (left alone); any other handler cancels when it returns exactly false
+    # (`return false` from onclick/onsubmit). A non-cancelable event ignores it.
+    def __internal_process_event_handler_return__(event, result)
+      if event.type == "error" && defined?(Dommy::Window) && is_a?(Dommy::Window)
+        event.__js_call__("preventDefault", []) if result == true
+      elsif event.type != "beforeunload" && result == false
+        event.__js_call__("preventDefault", [])
+      end
     end
 
     # Run one listener, isolating a throw so it can't escape the dispatch.
@@ -204,7 +222,12 @@ module Dommy
 
     private
 
-    Listener = Struct.new(:listener, :options) do
+    Listener = Struct.new(:listener, :options, :event_handler) do
+      # True when this listener was registered via an event handler IDL/content
+      # attribute (el.onclick = fn / onclick="…"): its return value is processed
+      # per the event handler processing algorithm (a false return cancels).
+      def event_handler? = event_handler ? true : false
+
       def once?
         case options
         when Hash

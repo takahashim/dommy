@@ -100,6 +100,35 @@ module Dommy
     end
   end
 
+  # The "Window-reflecting body element event handler set": setting one of these
+  # event handler IDL attributes on <body>/<frameset> (`body.onload = fn`)
+  # actually targets the WINDOW, per HTML — so `window.onload` fires. A
+  # non-reflected handler (`body.onclick`) stays on the element.
+  module WindowReflectingHandlers
+    REFLECTED_HANDLERS = %w[
+      onblur onerror onfocus onload onresize onscroll onafterprint onbeforeprint
+      onbeforeunload onhashchange onlanguagechange onmessage onmessageerror onoffline
+      ononline onpagehide onpageshow onpopstate onrejectionhandled onstorage
+      onunhandledrejection onunload
+    ].to_set.freeze
+
+    def __js_set__(key, value)
+      if key.is_a?(String) && REFLECTED_HANDLERS.include?(key) && (win = @document&.default_view)
+        return win.__js_set__(key, value)
+      end
+
+      super
+    end
+
+    def __js_get__(key)
+      if key.is_a?(String) && REFLECTED_HANDLERS.include?(key) && (win = @document&.default_view)
+        return win.__js_get__(key)
+      end
+
+      super
+    end
+  end
+
   class HTMLAnchorElement < HTMLElement
     include HyperlinkActivation
     reflect_string :target, :download, :rel, :hreflang, :type
@@ -4235,7 +4264,9 @@ module Dommy
     reflect_string :color, :face, :size
   end
   class HTMLFrameElement < HTMLElement; end
-  class HTMLFrameSetElement < HTMLElement; end
+  class HTMLFrameSetElement < HTMLElement
+    include WindowReflectingHandlers
+  end
   class HTMLParamElement < HTMLElement
     reflect_string :name, :value
   end
@@ -4483,6 +4514,7 @@ module Dommy
   end
 
   class HTMLBodyElement < HTMLElement
+    include WindowReflectingHandlers
   end
 
   class HTMLHeadElement < HTMLElement

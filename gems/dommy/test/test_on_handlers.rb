@@ -55,4 +55,52 @@ class TestOnHandlers < Minitest::Test
     @btn.dispatch_event(Dommy::Event.new("input"))
     assert(seen)
   end
+
+  # --- event handler processing: return value cancels (onclick="return false") ---
+
+  def test_handler_returning_false_cancels_the_event
+    @btn[:onclick] = proc { false }
+    event = Dommy::MouseEvent.new("click", "cancelable" => true)
+    not_cancelled = @btn.dispatch_event(event)
+
+    refute(not_cancelled, "a false return cancels")
+    assert(event.__js_get__("defaultPrevented"))
+  end
+
+  def test_handler_returning_truthy_does_not_cancel
+    @btn[:onclick] = proc { true }
+    event = Dommy::MouseEvent.new("click", "cancelable" => true)
+
+    assert(@btn.dispatch_event(event))
+    refute(event.__js_get__("defaultPrevented"))
+  end
+
+  def test_addeventlistener_return_value_is_ignored
+    # Only event-handler (onX) listeners process the return value; a plain
+    # addEventListener listener returning false does NOT cancel.
+    @btn.add_event_listener("click", proc { false })
+    event = Dommy::MouseEvent.new("click", "cancelable" => true)
+
+    assert(@btn.dispatch_event(event), "addEventListener return value is ignored")
+    refute(event.__js_get__("defaultPrevented"))
+  end
+
+  # --- HTMLBodyElement window-reflecting IDL handlers (body.onload = fn) ---
+
+  def test_body_onload_idl_reflects_to_the_window
+    fired = []
+    @doc.body[:onload] = proc { |e| fired << e.__js_get__("currentTarget") }
+    # load fires on the WINDOW; the body.onload handler must run there.
+    @win.dispatch_event(Dommy::Event.new("load"))
+
+    assert_equal([@win], fired, "body.onload reflects onto the window")
+    assert_same(@win.__js_get__("onload"), @doc.body[:onload], "reads back through the window")
+  end
+
+  def test_body_onclick_stays_on_the_body
+    fired = 0
+    @doc.body[:onclick] = proc { fired += 1 }
+    @doc.body.dispatch_event(Dommy::MouseEvent.new("click"))
+    assert_equal(1, fired, "a non-reflected handler stays on the body")
+  end
 end
