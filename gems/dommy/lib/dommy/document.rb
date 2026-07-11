@@ -921,9 +921,83 @@ module Dommy
       @node_wrapper_cache.create_processing_instruction(target, data)
     end
 
+    # WHATWG "ensure pre-insertion validity", step 6 — the Document-parent
+    # constraints an element-like parent doesn't have. `args` is the set of nodes
+    # (and DOMStrings) being inserted; per "converting nodes into a node" they're
+    # summed as one insertion. `child_bn` is the backend reference child (nil for
+    # append). `ignore_existing` (replaceChildren) drops the current children
+    # from the counts, since replace-all removes them first. `exclude` (replace)
+    # is a current child to disregard. Raises HierarchyRequestError on violation.
+    def ensure_document_insertion_validity!(args, child_bn, ignore_existing: false, exclude: nil)
+      elements = 0
+      doctypes = 0
+      has_text = false
+      args.each do |arg|
+        case arg
+        when String
+          has_text = true
+        when Dommy::Fragment
+          arg.child_nodes.each do |c|
+            if c.is_a?(Dommy::Element) then elements += 1
+            elsif c.is_a?(Dommy::DocumentType) then doctypes += 1
+            elsif c.is_a?(Dommy::TextNode) then has_text = true
+            end
+          end
+        when Dommy::DocumentType then doctypes += 1
+        when Dommy::Element then elements += 1
+        when Dommy::CharacterDataNode
+          # Comment (8) / PI (7) are valid document children; Text (3) is not.
+          has_text = true if arg.node_type == 3
+        when Dommy::Node
+          # A Document / Attr / anything else is not an insertable node type.
+          raise DOMException::HierarchyRequestError, "This node type cannot be inserted here."
+        end
+      end
+
+      existing = ignore_existing ? [] : @backend_doc.children.to_a
+      existing.reject! { |c| c == exclude } if exclude
+      has_element = existing.any? { |c| c.node_type == 1 }
+      has_doctype = existing.any? { |c| c.node_type == 10 }
+
+      # Step 6, Text/DocumentFragment-with-text: no text under a document.
+      raise DOMException::HierarchyRequestError, "A Text node cannot be a child of a document." if has_text
+
+      if doctypes.positive?
+        if doctypes > 1 || elements.positive? || has_doctype ||
+           element_before_child?(existing, child_bn) ||
+           (child_bn.nil? && has_element)
+          raise DOMException::HierarchyRequestError, "A doctype cannot be inserted here."
+        end
+      end
+
+      if elements > 1
+        raise DOMException::HierarchyRequestError, "Only one element may be a child of a document."
+      elsif elements == 1 &&
+            (has_element || (child_bn && child_bn.node_type == 10) || doctype_after_child?(existing, child_bn))
+        raise DOMException::HierarchyRequestError, "An element cannot be inserted here."
+      end
+    end
+
+    # Whether any element child precedes `child_bn` in the document's child list.
+    def element_before_child?(existing, child_bn)
+      idx = child_bn && existing.index { |c| c == child_bn }
+      return false unless idx
+
+      existing[0...idx].any? { |c| c.node_type == 1 }
+    end
+
+    # Whether any doctype child follows `child_bn` in the document's child list.
+    def doctype_after_child?(existing, child_bn)
+      idx = child_bn && existing.index { |c| c == child_bn }
+      return false unless idx
+
+      existing[idx..].any? { |c| c.node_type == 10 }
+    end
+
     # Append a node as a child of the document itself (e.g. a comment alongside
     # the document element). Adopts the node into this document.
     def append_child(node)
+      ensure_document_insertion_validity!([node], nil)
       return node unless node.respond_to?(:__dommy_backend_node__)
 
       # appendChild adopts a node from another document (per spec). Only needed on
@@ -938,6 +1012,8 @@ module Dommy
     # ParentNode / Node mutation on the document's direct children (the doctype
     # and the document element).
     def document_insert(args, prepend:)
+      ref_bn = prepend ? @backend_doc.children.first : nil
+      ensure_document_insertion_validity!(args, ref_bn)
       nodes = args.filter_map { |a| backend_node(a) }
       if prepend && (first = @backend_doc.children.first)
         nodes.reverse_each { |n| first.add_previous_sibling(n) }
@@ -948,6 +1024,9 @@ module Dommy
     end
 
     def document_replace_children(args)
+      # replaceChildren removes the current children first, so the validity
+      # checks ignore them (whatwg/dom#1045).
+      ensure_document_insertion_validity!(args, nil, ignore_existing: true)
       @backend_doc.children.each(&:unlink)
       args.filter_map { |a| backend_node(a) }.each { |n| @backend_doc.add_child(n) }
       nil
@@ -965,6 +1044,8 @@ module Dommy
     end
 
     def document_insert_before(node, ref)
+      ref_bn = ref && backend_node(ref)
+      ensure_document_insertion_validity!([node], ref_bn)
       bn = backend_node(node)
       return node unless bn
 
@@ -981,6 +1062,9 @@ module Dommy
       old_bn = backend_node(old_child)
       raise DOMException::NotFoundError, "node is not a child of this document" unless old_bn && old_bn.parent == @backend_doc
 
+      # replaceChild's validity disregards the node being replaced when counting
+      # the document's existing element / doctype children.
+      ensure_document_insertion_validity!([new_child], old_bn, exclude: old_bn)
       new_bn = backend_node(new_child)
       old_bn.add_previous_sibling(new_bn) if new_bn
       old_bn.unlink
