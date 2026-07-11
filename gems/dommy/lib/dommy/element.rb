@@ -356,18 +356,57 @@ module Dommy
     # MutationObserver record.
 
     def length
-      @__node__.content.length
+      utf16_length(@__node__.content)
+    end
+
+    # CharacterData offsets and counts are measured in UTF-16 code units, not
+    # Unicode code points, so an astral character (e.g. an emoji) counts as 2.
+    def utf16_length(str)
+      str.encode(Encoding::UTF_16LE).bytesize / 2
+    end
+
+    # Extract `count` UTF-16 code units from `str` starting at code unit
+    # `offset`. Slicing on the UTF-16LE byte buffer keeps astral characters
+    # intact for the offsets these APIs actually produce.
+    def utf16_slice(str, offset, count)
+      buf = str.encode(Encoding::UTF_16LE)
+      buf.byteslice(offset * 2, count * 2).encode(Encoding::UTF_8, Encoding::UTF_16LE)
     end
 
     def substring_data(offset, count)
       s = @__node__.content
-      raise DOMException::IndexSizeError, "offset out of bounds" if offset.to_i.negative? || offset.to_i > s.length
+      len = utf16_length(s)
+      o = to_uint32(offset)
+      raise DOMException::IndexSizeError, "offset out of bounds" if o > len
 
-      s[offset.to_i, [count.to_i, 0].max].to_s
+      c = [to_uint32(count), len - o].min
+      utf16_slice(s, o, c)
+    end
+
+    # ECMAScript ToUint32 — WebIDL `unsigned long` conversion for a data offset
+    # or count: ToNumber (a non-numeric string is NaN), truncate toward zero,
+    # then take modulo 2**32 (so -1 wraps to 4294967295, 0x100000000+2 to 2).
+    def to_uint32(value)
+      num =
+        case value
+        when Integer then value
+        when Numeric then value
+        when nil then 0 # JS null -> 0
+        else Float(value.to_s) rescue Float::NAN
+        end
+      return 0 unless num.respond_to?(:finite?) ? num.finite? : true
+
+      num.to_i % (2**32)
     end
 
     def append_data(value)
-      write_data(@__node__.content + value.to_s)
+      write_data(@__node__.content + dom_string(value))
+    end
+
+    # WebIDL DOMString coercion for a CharacterData mutation argument: JS null
+    # becomes the string "null" (undefined already stringifies to "undefined").
+    def dom_string(value)
+      value.nil? ? "null" : value.to_s
     end
 
     def insert_data(offset, value)
@@ -380,11 +419,12 @@ module Dommy
 
     def replace_data(offset, count, value)
       s = @__node__.content
-      o = offset.to_i
-      raise DOMException::IndexSizeError, "offset out of bounds" if o.negative? || o > s.length
+      len = utf16_length(s)
+      o = to_uint32(offset)
+      raise DOMException::IndexSizeError, "offset out of bounds" if o > len
 
-      c = [[count.to_i, 0].max, s.length - o].min
-      write_data(s[0, o].to_s + value.to_s + s[(o + c)..].to_s)
+      c = [to_uint32(count), len - o].min
+      write_data(utf16_slice(s, 0, o) + dom_string(value) + utf16_slice(s, o + c, len - (o + c)))
     end
 
     def __js_get__(key)
@@ -502,6 +542,8 @@ module Dommy
       when "dispatchEvent"
         dispatch_event(args[0])
       when "appendData"
+        raise Bridge::TypeError, "appendData requires 1 argument." if args.empty?
+
         append_data(args[0])
       when "insertData"
         insert_data(args[0], args[1])
@@ -510,6 +552,8 @@ module Dommy
       when "replaceData"
         replace_data(args[0], args[1], args[2])
       when "substringData"
+        raise Bridge::TypeError, "substringData requires 2 arguments." if args.length < 2
+
         substring_data(args[0], args[1])
       when "remove"
         remove
