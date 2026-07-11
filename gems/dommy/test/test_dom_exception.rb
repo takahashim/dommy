@@ -50,8 +50,9 @@ class TestDOMExceptionThrowSites < Minitest::Test
 
   def test_attach_shadow_invalid_mode_raises_type_error
     host = @doc.get_element_by_id("h")
-    # ShadowRootMode is a WebIDL enum → an invalid value throws TypeError.
-    assert_raises(TypeError) do
+    # ShadowRootMode is a WebIDL enum → an invalid value throws TypeError
+    # (Bridge::TypeError, which the host bridge rethrows as a JS TypeError).
+    assert_raises(Dommy::Bridge::TypeError) do
       host.attach_shadow({"mode" => "foo"})
     end
   end

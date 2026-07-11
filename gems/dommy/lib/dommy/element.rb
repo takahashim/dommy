@@ -1828,12 +1828,14 @@ module Dommy
 
       opts = options.is_a?(Hash) ? options : {}
       mode_raw = opts.key?("mode") ? opts["mode"] : opts[:mode]
-      raise TypeError, "attachShadow init dictionary requires 'mode'" if mode_raw.nil?
+      # `mode` is a required WebIDL dictionary member — omitting it, like an
+      # invalid enum value below, is a (JS) TypeError, not a DOMException.
+      raise Bridge::TypeError, "attachShadow init dictionary requires 'mode'" if mode_raw.nil?
 
       # `mode` is a WebIDL enum (ShadowRootMode); a value that isn't "open"/
       # "closed" fails enum conversion → TypeError, not a DOMException.
       mode = mode_raw.to_s
-      raise TypeError, "mode must be 'open' or 'closed'" unless %w[open closed].include?(mode)
+      raise Bridge::TypeError, "mode must be 'open' or 'closed'" unless %w[open closed].include?(mode)
 
       @__shadow_root = ShadowRoot.new(
         self,

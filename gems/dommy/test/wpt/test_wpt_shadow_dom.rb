@@ -26,11 +26,11 @@ class TestWPTShadowAttach < Minitest::Test
 
   def test_attachShadow_missing_mode_raises_TypeError
     # Spec: `mode` is a required field of ShadowRootInit.
-    assert_raises(TypeError) { @host.attach_shadow }
+    assert_raises(Dommy::Bridge::TypeError) { @host.attach_shadow }
   end
 
   def test_attachShadow_empty_init_raises_TypeError
-    assert_raises(TypeError) { @host.attach_shadow({}) }
+    assert_raises(Dommy::Bridge::TypeError) { @host.attach_shadow({}) }
   end
 
   def test_attachShadow_on_input_raises_NotSupportedError
@@ -78,7 +78,7 @@ class TestWPTShadowAttach < Minitest::Test
 
   def test_attachShadow_invalid_mode_raises_TypeError
     # ShadowRootMode is a WebIDL enum; an invalid value throws TypeError.
-    assert_raises(TypeError) { @host.attach_shadow({"mode" => "wrong"}) }
+    assert_raises(Dommy::Bridge::TypeError) { @host.attach_shadow({"mode" => "wrong"}) }
   end
 
   def test_attachShadow_twice_raises_NotSupportedError

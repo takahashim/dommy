@@ -72,15 +72,15 @@ class TestWPTAttachShadowStrict < Minitest::Test
   # WPT: shadow-dom/Element-interface-attachShadow.html
 
   def test_no_argument_raises_TypeError
-    assert_raises(TypeError) { @host.attach_shadow }
+    assert_raises(Dommy::Bridge::TypeError) { @host.attach_shadow }
   end
 
   def test_empty_init_dict_raises_TypeError
-    assert_raises(TypeError) { @host.attach_shadow({}) }
+    assert_raises(Dommy::Bridge::TypeError) { @host.attach_shadow({}) }
   end
 
   def test_nil_mode_in_init_raises_TypeError
-    assert_raises(TypeError) { @host.attach_shadow({"mode" => nil}) }
+    assert_raises(Dommy::Bridge::TypeError) { @host.attach_shadow({"mode" => nil}) }
   end
 
   def test_input_cannot_host_shadow

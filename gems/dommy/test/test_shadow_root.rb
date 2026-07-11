@@ -29,7 +29,7 @@ class TestShadowRootBasics < Minitest::Test
 
   def test_attach_shadow_invalid_mode_raises
     # `mode` is a WebIDL enum → an invalid value throws TypeError, not a DOMException.
-    assert_raises(TypeError) { @host.attach_shadow({"mode" => "halfway"}) }
+    assert_raises(Dommy::Bridge::TypeError) { @host.attach_shadow({"mode" => "halfway"}) }
   end
 
   def test_attach_shadow_twice_raises
