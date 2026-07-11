@@ -1928,35 +1928,152 @@ globalThis.__rbHost = (function () {
     return dehydrateTop(fn.apply(p, rehydrate(args || [])));
   }
 
-  // customElements.define(name, JSClass): register JS-side and ask Ruby to wire
-  // a Dommy custom element whose reactions route back through invokeLifecycle.
+  // Hyphenated names the HTML spec reserves (SVG / MathML) — not valid custom
+  // element names even though they match the production.
+  const CE_RESERVED = new Set([
+    "annotation-xml", "color-profile", "font-face", "font-face-src",
+    "font-face-uri", "font-face-format", "font-face-name", "missing-glyph"
+  ]);
+  // https://html.spec.whatwg.org/#valid-custom-element-name — an ASCII-lower
+  // start, a PCENChar run, and at least one "-".
+  const CE_PCEN =
+    "-._0-9a-z\\u00B7\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u037D\\u037F-\\u1FFF" +
+    "\\u200C-\\u200D\\u203F-\\u2040\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF" +
+    "\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}";
+  const CE_NAME_RE = new RegExp("^[a-z][" + CE_PCEN + "]*-[" + CE_PCEN + "]*$", "u");
+  function isValidCustomElementName(name) {
+    return typeof name === "string" && CE_NAME_RE.test(name) && !CE_RESERVED.has(name);
+  }
+
+  // "element definition is running" flag — a define() reentered while running
+  // (e.g. from a constructor-property getter) is a NotSupportedError.
+  let ceDefinitionRunning = false;
+
+  // WebIDL `sequence<DOMString>` conversion: the value must be iterable (a
+  // non-iterable like a number throws a TypeError — unlike Array.from, which
+  // returns []); each item is stringified. Exceptions from the iterator / items
+  // propagate.
+  function toDOMStringSequence(value) {
+    const iterFn = (value === null || value === undefined) ? undefined : value[Symbol.iterator];
+    if (typeof iterFn !== "function") {
+      throw new TypeError("The value is not a sequence (it is not iterable)");
+    }
+    const result = [];
+    for (const item of value) result.push(String(item));
+    return result;
+  }
+
+  // customElements.define(name, JSClass): validate + read the constructor's
+  // definition per WHATWG, register JS-side, and ask Ruby to wire a Dommy custom
+  // element whose reactions route back through invokeLifecycle. Check order:
+  // IsConstructor, name, running-flag, duplicate name, duplicate constructor;
+  // then (flag set) prototype → callbacks → observedAttributes → disabledFeatures
+  // → formAssociated.
   function defineCustomElement(name, ctor) {
+    if (typeof ctor !== "function") {
+      throw new TypeError("The custom element constructor must be a constructor");
+    }
+    if (!isValidCustomElementName(name)) {
+      throw new DOMException("'" + name + "' is not a valid custom element name", "SyntaxError");
+    }
+    if (ceDefinitionRunning) {
+      throw new DOMException("A custom element definition is already being processed", "NotSupportedError");
+    }
+    if (ceRegistry.has(name)) {
+      throw new DOMException("An element with name '" + name + "' is already defined", "NotSupportedError");
+    }
+    for (const existing of ceRegistry.values()) {
+      if (existing === ctor) {
+        throw new DOMException("This constructor has already been registered", "NotSupportedError");
+      }
+    }
+
+    ceDefinitionRunning = true;
+    let observed = [];
+    try {
+      const proto = ctor.prototype;
+      if (typeof proto !== "object" || proto === null) {
+        throw new TypeError("The custom element constructor's prototype is not an object");
+      }
+      // Read each lifecycle reaction callback off the prototype, in spec order;
+      // each must be undefined or a function. (connectedMoveCallback is skipped —
+      // Dommy has no moveBefore.)
+      const readCallback = (cb) => {
+        const fn = proto[cb];
+        if (fn !== undefined && typeof fn !== "function") {
+          throw new TypeError("The " + cb + " callback is not a function");
+        }
+        return fn;
+      };
+      readCallback("connectedCallback");
+      readCallback("disconnectedCallback");
+      readCallback("adoptedCallback");
+      const attributeChanged = readCallback("attributeChangedCallback");
+      if (attributeChanged !== undefined) {
+        const oa = ctor.observedAttributes;
+        if (oa !== undefined) observed = toDOMStringSequence(oa);
+      }
+      // disabledFeatures / formAssociated are converted for their observable side
+      // effects (Symbol.iterator access, iteration, ToBoolean); values unmodeled.
+      const df = ctor.disabledFeatures;
+      if (df !== undefined) toDOMStringSequence(df);
+      if (ctor.formAssociated) {
+        readCallback("formAssociatedCallback");
+        readCallback("formResetCallback");
+        readCallback("formDisabledCallback");
+        readCallback("formStateRestoreCallback");
+      }
+    } finally {
+      ceDefinitionRunning = false;
+    }
+
     ceRegistry.set(name, ctor);
-    const observed = Array.isArray(ctor.observedAttributes) ? ctor.observedAttributes : [];
     __rb_define_custom_element(name, observed);
-    const waiters = cePending.get(name);
-    if (waiters) { cePending.delete(name); waiters.forEach((resolve) => resolve(ctor)); }
+    const waiter = cePending.get(name);
+    if (waiter) { cePending.delete(name); waiter.resolve(ctor); }
   }
 
   // whenDefined stays pending until the name is defined (spec semantics), so
   // `await customElements.whenDefined(x)` before define() doesn't resolve early.
+  // The SAME promise is returned for a given still-undefined name each call
+  // ([SameObject]-ish per spec), and define() resolves it.
   function whenDefinedCustomElement(name) {
     const ctor = ceRegistry.get(name);
     if (ctor) return Promise.resolve(ctor);
-    return new Promise((resolve) => {
-      if (!cePending.has(name)) cePending.set(name, []);
-      cePending.get(name).push(resolve);
-    });
+    let entry = cePending.get(name);
+    if (!entry) {
+      let resolve;
+      const promise = new Promise((r) => { resolve = r; });
+      entry = { promise, resolve };
+      cePending.set(name, entry);
+    }
+    return entry.promise;
   }
 
-  globalThis.customElements = {
-    define: (name, ctor) => defineCustomElement(name, ctor),
-    get: (name) => ceRegistry.get(name),
-    whenDefined: (name) => whenDefinedCustomElement(name),
-    // Delegate manual upgrades to Dommy's registry (define() already upgrades
-    // existing nodes; this covers subtrees attached without reactions).
-    upgrade: (root) => { if (isProxy(root)) __rb_upgrade_custom_elements(root[HKEY]); }
-  };
+  // Expose CustomElementRegistry as a real interface object with its operations
+  // on the prototype (so `'define' in CustomElementRegistry.prototype`,
+  // `customElements instanceof CustomElementRegistry`, and prototype reflection
+  // work); `customElements` is its sole instance. The operations close over the
+  // JS-side registry, so they ignore `this` (no host handle to route through).
+  function CustomElementRegistry() { throw new TypeError("Illegal constructor"); }
+  const cerProto = CustomElementRegistry.prototype;
+  Object.defineProperty(cerProto, Symbol.toStringTag, { value: "CustomElementRegistry", configurable: true });
+  const cerMethod = (key, fn) =>
+    Object.defineProperty(cerProto, key, { value: fn, writable: true, enumerable: true, configurable: true });
+  cerMethod("define", function (name, ctor) { return defineCustomElement(name, ctor); });
+  cerMethod("get", function (name) { return ceRegistry.get(name); });
+  cerMethod("getName", function (ctor) { for (const [n, c] of ceRegistry) if (c === ctor) return n; return null; });
+  cerMethod("whenDefined", function (name) {
+    if (!isValidCustomElementName(name)) {
+      return Promise.reject(new DOMException("'" + name + "' is not a valid custom element name", "SyntaxError"));
+    }
+    return whenDefinedCustomElement(name);
+  });
+  // Delegate manual upgrades to Dommy's registry (define() already upgrades
+  // existing nodes; this covers subtrees attached without reactions).
+  cerMethod("upgrade", function (root) { if (isProxy(root)) __rb_upgrade_custom_elements(root[HKEY]); });
+  globalThis.CustomElementRegistry = CustomElementRegistry;
+  globalThis.customElements = Object.create(cerProto);
 
   // ===== Unhandled-rejection detail capture (opt-in diagnostics) =====
   //
