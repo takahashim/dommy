@@ -2395,10 +2395,11 @@ module Dommy
     # `ariaErrorMessageElement` → "aria-errormessage"), or nil. The IDL name is
     # `aria<Xxx>Element`; the content attribute is "aria-" + <Xxx> lowercased.
     def aria_element_attr(key)
-      return nil unless key.is_a?(String) && key.start_with?("aria") && key.end_with?("Element")
-      return nil unless key.length > 11 && key[4] =~ /[A-Z]/
-
-      "aria-#{key[4...-7].downcase}"
+      # Only aria-activedescendant reflects as a SINGULAR element reference; every
+      # other ARIA element reference (controls / describedby / details /
+      # errormessage / flowto / labelledby / owns) is plural (aria*Elements), so
+      # e.g. `ariaErrorMessageElement` must not exist.
+      key == "ariaActiveDescendantElement" ? "aria-activedescendant" : nil
     end
 
     # Read an ARIA element reference: an explicitly-set Element wins; otherwise
@@ -2406,12 +2407,39 @@ module Dommy
     # this element's tree), or null.
     def aria_element_get(content_attr, key)
       explicit = (@aria_element_refs ||= {})[key]
-      return explicit if explicit
+      if explicit
+        # An explicitly-set attr-element is only observable while it stays in a
+        # valid scope: a shadow-including descendant of one of this element's
+        # shadow-including ancestors. A reference that crosses into a shadow tree
+        # (or whose target is reparented out of scope) reads as null.
+        return aria_ref_in_valid_scope?(explicit) ? explicit : nil
+      end
 
       idref = @__node__[content_attr].to_s
       return nil if idref.empty?
 
       aria_find_in_root(idref)
+    end
+
+    # WHATWG "reflecting element references" scope check: `attr_element` is valid
+    # iff its root is this element's root or a shadow-including-ancestor root
+    # (reached by hopping each shadow root to its host). So a same-tree reference
+    # and a reference to a shadow-inclusive ancestor are valid, but crossing into
+    # a shadow tree (or a sibling/detached scope) is not.
+    def aria_ref_in_valid_scope?(attr_element)
+      return false unless attr_element.respond_to?(:root_node)
+
+      target_root = attr_element.root_node
+      scope = self
+      loop do
+        root = scope.root_node
+        return true if root.equal?(target_root)
+
+        host = root.respond_to?(:host) ? root.host : nil
+        return false unless host
+
+        scope = host
+      end
     end
 
     # Set an ARIA element reference: null/undefined clears it and removes the
@@ -2423,6 +2451,9 @@ module Dommy
         refs.delete(key)
         remove_attribute(content_attr) if @__node__.key?(content_attr)
       else
+        # WebIDL: the value is an `Element?` — a non-Element throws a TypeError.
+        raise Bridge::TypeError, "value is not an Element or null" unless value.is_a?(Dommy::Element)
+
         # set_attribute clears explicit refs via its aria-* hook, so store the
         # new reference afterward.
         set_attribute(content_attr, "")
@@ -2447,7 +2478,13 @@ module Dommy
     # space-separated IDREF list and each resolved (missing ids dropped).
     def aria_elements_get(content_attr, key)
       explicit = (@aria_elements_refs ||= {})[key]
-      return explicit.dup if explicit
+      # Each explicitly-set attr-element is observable only while in a valid scope
+      # (see #aria_ref_in_valid_scope?); out-of-scope ones drop out of the list.
+      return explicit.select { |el| aria_ref_in_valid_scope?(el) } if explicit
+
+      # With no explicitly-set elements, the getter is null when the content
+      # attribute is absent, otherwise the resolved IDREF list (possibly empty).
+      return nil unless @__node__.key?(content_attr)
 
       @__node__[content_attr].to_s.split(/[ \t\n\f\r]+/).reject(&:empty?).filter_map do |id|
         aria_find_in_root(id)
@@ -2473,8 +2510,14 @@ module Dommy
         refs.delete(key)
         remove_attribute(content_attr) if @__node__.key?(content_attr)
       else
+        # WebIDL: the value is a `sequence<Element>?` — a non-array, or an array
+        # containing a non-Element, throws a TypeError.
+        unless value.is_a?(Array) && value.all? { |el| el.is_a?(Dommy::Element) }
+          raise Bridge::TypeError, "value is not a sequence of Elements"
+        end
+
         set_attribute(content_attr, "")
-        refs[key] = Array(value)
+        refs[key] = value.dup
       end
       nil
     end
