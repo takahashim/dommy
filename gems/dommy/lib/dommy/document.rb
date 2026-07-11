@@ -460,6 +460,10 @@ module Dommy
     # public/system identifier) is no-quirks. (The full quirks algorithm keys off
     # specific legacy public ids; this covers the common cases.)
     def compat_mode
+      # Only HTML documents can be in quirks mode; an XML document
+      # (createDocument / DOMParser XML) is always no-quirks.
+      return "CSS1Compat" unless html_document?
+
       dt = @backend_doc.internal_subset
       return "BackCompat" unless dt
       return "CSS1Compat" if dt.name.to_s.downcase == "html" && dt.external_id.nil?
@@ -523,10 +527,12 @@ module Dommy
     end
 
     # `document.URL` / `documentURI` — both return location.href in
-    # real browsers (legacy aliases of the same field).
+    # real browsers (legacy aliases of the same field). A document with no
+    # browsing context (createDocument / new Document / DOMParser) has the URL
+    # "about:blank", not the empty string.
     def url
       view = @default_view
-      view&.location ? view.location.href : ""
+      view&.location ? view.location.href : "about:blank"
     end
 
     alias document_uri url
@@ -1431,6 +1437,10 @@ module Dommy
     # Delegate node wrapping to NodeWrapperCache
     def wrap_node(node)
       @node_wrapper_cache.wrap(node)
+    end
+
+    def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
+      @node_wrapper_cache.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
     end
 
     # Clear the cached wrapper so the next `wrap_node` creates a new

@@ -153,6 +153,18 @@ module Dommy
         wrapper
       end
 
+      # Wrap a freshly-cloned backend element whose original was built via
+      # createElementNS: route the wrapper class by the known local name (the
+      # backend node name may be the full qualified name, e.g. "foo:div", which
+      # would otherwise resolve to HTMLUnknownElement) and reapply its namespace
+      # metadata (namespaceURI / prefix / localName / tagName).
+      def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
+        reset_wrapper(node)
+        wrapper = build_element_wrapper(node, namespace: namespace, local_name: local)
+        wrapper.__internal_set_namespace__(namespace, prefix, local, qualified_name)
+        wrapper
+      end
+
       # Query methods
 
       def query_selector(selector)
