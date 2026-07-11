@@ -181,6 +181,107 @@ globalThis.__rbHost = (function () {
     DOMException: DOMEXCEPTION_CONSTANTS
   };
 
+  // B1: per-interface member names, placed on the interface prototype so
+  // `'attachShadow' in Element.prototype`, `Object.getOwnPropertyDescriptor(
+  // Node.prototype, 'appendChild')`, and `Element.prototype.getAttribute.call(el)`
+  // work (WebIDL puts operations/attributes on the interface prototype, not the
+  // instance). The seeded members are non-instance stubs that delegate to the
+  // host via `this`'s handle; ordinary instance access still goes through the
+  // proxy get/set traps, so this only affects prototype-level reflection. Keyed by
+  // interface name; `m` = operations, `g` = readonly attributes, `p` = read-write
+  // attributes. Assignment follows WebIDL, not Dommy's Ruby class layout (Node /
+  // EventTarget are mixins folded into the Element class there).
+  const INTERFACE_MEMBERS = {
+    EventTarget: { m: ["addEventListener", "removeEventListener", "dispatchEvent"] },
+    Node: {
+      m: ["getRootNode", "hasChildNodes", "normalize", "cloneNode", "isEqualNode",
+        "isSameNode", "compareDocumentPosition", "contains", "lookupPrefix",
+        "lookupNamespaceURI", "isDefaultNamespace", "insertBefore", "appendChild",
+        "replaceChild", "removeChild"],
+      g: ["nodeType", "nodeName", "baseURI", "isConnected", "ownerDocument",
+        "parentNode", "parentElement", "childNodes", "firstChild", "lastChild",
+        "previousSibling", "nextSibling"],
+      p: ["nodeValue", "textContent"]
+    },
+    Element: {
+      m: ["hasAttributes", "getAttributeNames", "getAttribute", "getAttributeNS",
+        "setAttribute", "setAttributeNS", "removeAttribute", "removeAttributeNS",
+        "toggleAttribute", "hasAttribute", "hasAttributeNS", "getAttributeNode",
+        "getAttributeNodeNS", "setAttributeNode", "setAttributeNodeNS",
+        "removeAttributeNode", "attachShadow", "closest", "matches",
+        "webkitMatchesSelector", "getElementsByTagName", "getElementsByTagNameNS",
+        "getElementsByClassName", "insertAdjacentElement", "insertAdjacentText",
+        "insertAdjacentHTML", "querySelector", "querySelectorAll",
+        "getBoundingClientRect", "getClientRects", "scrollIntoView", "scroll",
+        "scrollTo", "scrollBy", "before", "after", "replaceWith", "remove",
+        "prepend", "append", "replaceChildren"],
+      g: ["namespaceURI", "prefix", "localName", "tagName", "shadowRoot",
+        "assignedSlot", "attributes", "classList", "firstElementChild",
+        "lastElementChild", "childElementCount", "children",
+        "previousElementSibling", "nextElementSibling"],
+      p: ["id", "className", "slot", "innerHTML", "outerHTML"]
+    },
+    CharacterData: {
+      m: ["substringData", "appendData", "insertData", "deleteData", "replaceData",
+        "before", "after", "replaceWith", "remove"],
+      g: ["length"],
+      p: ["data"]
+    },
+    Text: { m: ["splitText"], g: ["wholeText"] },
+    DocumentFragment: { m: ["getElementById", "querySelector", "querySelectorAll",
+      "prepend", "append", "replaceChildren"] },
+    ShadowRoot: { g: ["mode", "host", "delegatesFocus"] },
+    Document: {
+      m: ["getElementById", "getElementsByTagName", "getElementsByTagNameNS",
+        "getElementsByClassName", "getElementsByName", "createElement",
+        "createElementNS", "createDocumentFragment", "createTextNode",
+        "createCDATASection", "createComment", "createProcessingInstruction",
+        "createAttribute", "createAttributeNS", "importNode", "adoptNode",
+        "createEvent", "createRange", "createNodeIterator", "createTreeWalker",
+        "querySelector", "querySelectorAll"],
+      g: ["documentElement", "doctype", "implementation", "compatMode",
+        "characterSet", "contentType", "URL", "documentURI"],
+      p: ["title"]
+    },
+    HTMLElement: {
+      m: ["click", "focus", "blur"],
+      p: ["title", "lang", "dir", "hidden", "innerText"]
+    }
+  };
+  // Precompute the shared delegating stubs (created once, reused on every proto).
+  function memberMethodStub(name) {
+    return function (...args) {
+      return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args)));
+    };
+  }
+  function memberGetStub(name) {
+    return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };
+  }
+  function memberSetStub(name) {
+    return function (v) { __rb_host_set(this[HKEY], name, dehydrateTop(v)); };
+  }
+  // Seed interface `name`'s WebIDL members onto its prototype (idempotent — skips
+  // names already present so a subclass never shadows an inherited member).
+  function seedInterfaceMembers(proto, name) {
+    const members = INTERFACE_MEMBERS[name];
+    if (!members) return;
+    const def = (key, desc) => {
+      if (!Object.prototype.hasOwnProperty.call(proto, key)) {
+        Object.defineProperty(proto, key, desc);
+      }
+    };
+    (members.m || []).forEach((mname) =>
+      def(mname, { value: memberMethodStub(mname), writable: true, enumerable: true, configurable: true }));
+    (members.g || []).forEach((gname) =>
+      def(gname, { get: memberGetStub(gname), enumerable: true, configurable: true }));
+    // NB: read-write reflected attributes (`members.p`) are deferred — a plain
+    // prototype setter would bypass the proxy set trap's attribute-cache
+    // invalidation and reflected-value coercion (id / innerHTML / …). They are
+    // still fully functional via instance access (the proxy set trap); only their
+    // prototype-level accessor descriptor is not yet seeded.
+    void memberSetStub;
+  }
+
   // 1d: custom elements. ceRegistry maps a tag name to its JS constructor;
   // constructionStack carries the element being upgraded so the interface base
   // constructor (see protoForChain) adopts it when `super()` runs; cePending
@@ -957,6 +1058,7 @@ globalThis.__rbHost = (function () {
         Object.defineProperty(ctor, k, desc);
       }
     }
+    seedInterfaceMembers(proto, name);
     if (ARRAY_LIKE_COLLECTIONS.has(name)) {
       // WebIDL: a value-iterator interface (indexed getter + `iterable<>`) gets
       // keys()/values()/entries()/forEach()/@@iterator whose values ARE the
