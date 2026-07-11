@@ -52,6 +52,13 @@ module Dommy
       end
     end
 
+    # The document this doctype currently belongs to (nil for a detached
+    # synthetic doctype). Lets a cross-document appendChild/insert detect that
+    # the node must be adopted (re-created) into the destination backend.
+    def document
+      @document || @owner_document
+    end
+
     def name
       @__node__ ? @__node__.name : @name
     end
@@ -180,11 +187,13 @@ module Dommy
         get_root_node(args[0])
       when "compareDocumentPosition"
         compare_document_position(args[0])
-      when "appendChild", "insertBefore"
+      when "appendChild", "insertBefore", "replaceChild"
+        # Pre-insert / replace step 1 rejects a non-parent context node with
+        # HierarchyRequestError before the reference-child check.
         raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
 
         raise DOMException::HierarchyRequestError, "a DocumentType may not have children"
-      when "removeChild", "replaceChild"
+      when "removeChild"
         raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
 
         raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
@@ -753,6 +762,27 @@ module Dommy
       # Same document: just return the wrapper after the detach above.
       return wrap_node(src) if src.document == @backend_doc
 
+      # Cross-document DocumentType: Makiri can't import a doctype node between
+      # arenas, so re-create it in this document's backend from its public
+      # name / publicId / systemId (as createDocument does), then reseat the
+      # caller's wrapper onto the new node so JS identity survives the move.
+      if node.is_a?(DocumentType)
+        adopted = begin
+          Backend.create_document_type(node.name, node.public_id, node.system_id, @backend_doc)
+        rescue StandardError
+          nil
+        end
+        return node unless adopted
+
+        src_doc_wrapper = node.instance_variable_get(:@document)
+        src_doc_wrapper.__internal_reset_wrapper__(src) if src_doc_wrapper.respond_to?(:__internal_reset_wrapper__)
+        node.instance_variable_set(:@document, self)
+        node.instance_variable_set(:@owner_document, self)
+        node.instance_variable_set(:@__node__, adopted)
+        @node_wrapper_cache.register(adopted, node)
+        return node
+      end
+
       # Cross-document: hand the detached source to the backend, which
       # returns the node now owned by this document — an imported copy for
       # Makiri (a node can't move between arenas). Drop the stale source
@@ -954,10 +984,15 @@ module Dommy
         end
       end
 
+      # `existing` (with positions) drives the "doctype following / element
+      # preceding child" checks; those use the FULL child list, since `child`
+      # (the reference / node being replaced) is still in the tree. The
+      # "already has an element/doctype child" checks, however, disregard the
+      # node being replaced (`exclude`) — WHATWG replace's "...child that is not
+      # child" wording.
       existing = ignore_existing ? [] : @backend_doc.children.to_a
-      existing.reject! { |c| c == exclude } if exclude
-      has_element = existing.any? { |c| c.node_type == 1 }
-      has_doctype = existing.any? { |c| c.node_type == 10 }
+      has_element = existing.any? { |c| c.node_type == 1 && !(exclude && c == exclude) }
+      has_doctype = existing.any? { |c| c.node_type == 10 && !(exclude && c == exclude) }
 
       # Step 6, Text/DocumentFragment-with-text: no text under a document.
       raise DOMException::HierarchyRequestError, "A Text node cannot be a child of a document." if has_text
@@ -1044,7 +1079,15 @@ module Dommy
     end
 
     def document_insert_before(node, ref)
-      ref_bn = ref && backend_node(ref)
+      # WHATWG pre-insert order: the reference child must be a child of the
+      # parent (step 3, NotFoundError) BEFORE the node-type / document-hierarchy
+      # checks (steps 4-6).
+      ref_present = !(ref.nil? || (defined?(Bridge::UNDEFINED) && ref.equal?(Bridge::UNDEFINED)))
+      ref_bn = ref_present ? backend_node(ref) : nil
+      if ref_present && !(ref_bn && ref_bn.parent == @backend_doc)
+        raise DOMException::NotFoundError, "The reference child is not a child of this document."
+      end
+
       ensure_document_insertion_validity!([node], ref_bn)
       bn = backend_node(node)
       return node unless bn
@@ -1065,9 +1108,19 @@ module Dommy
       # replaceChild's validity disregards the node being replaced when counting
       # the document's existing element / doctype children.
       ensure_document_insertion_validity!([new_child], old_bn, exclude: old_bn)
-      new_bn = backend_node(new_child)
-      old_bn.add_previous_sibling(new_bn) if new_bn
+
+      # Remove old FIRST, then adopt the incoming node. A cross-document doctype
+      # is re-created in this backend, and Makiri's fail-closed guard refuses a
+      # second doctype — so the old one must be gone before the new is made.
+      ref = old_bn.next
       old_bn.unlink
+      if !Backend.moves_nodes_across_documents? && new_child.respond_to?(:document) && !new_child.document.equal?(self)
+        new_child = adopt_node(new_child)
+      end
+      new_bn = backend_node(new_child)
+      if new_bn
+        ref && ref.parent == @backend_doc ? ref.add_previous_sibling(new_bn) : @backend_doc.add_child(new_bn)
+      end
       old_child
     end
 

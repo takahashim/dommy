@@ -472,13 +472,15 @@ module Dommy
         # A leaf node contains only itself (no descendants).
         args[0].respond_to?(:__dommy_backend_node__) &&
           args[0].__dommy_backend_node__ == @__node__
-      when "appendChild", "insertBefore"
+      when "appendChild", "insertBefore", "replaceChild"
         # WebIDL coerces the Node argument first (null/non-Node → TypeError);
-        # only then does a leaf node reject any child with HierarchyRequestError.
+        # only then does the leaf reject the insertion. WHATWG pre-insert /
+        # replace step 1 checks the PARENT type before the reference child, so a
+        # leaf parent is a HierarchyRequestError even when `child` isn't a child.
         raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
 
         raise DOMException::HierarchyRequestError, "this node type does not support children"
-      when "removeChild", "replaceChild"
+      when "removeChild"
         raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
 
         raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
@@ -3033,7 +3035,12 @@ module Dommy
 
       # Capture the insertion point (old's next sibling) before detaching the new
       # child, which may itself be old (replaceChild(x, x)) or old's sibling.
+      # WHATWG: if that reference child IS the node being inserted (new_child is
+      # old's next sibling), advance it to new_child's next sibling so the node
+      # lands in old's slot rather than being appended.
       anchor = old_node.next_sibling
+      new_bn = unwrap_dom_node(new_child)
+      anchor = anchor.next_sibling if anchor && new_bn && anchor == new_bn
       new_nodes = detach_dom_nodes(new_child)
       anchor = nil if anchor && anchor.parent != @__node__
 
