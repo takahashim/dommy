@@ -195,6 +195,8 @@ module Dommy
     end
 
     def insert_before(node, ref)
+      coerce_node_argument!(node)
+      ensure_pre_insertion_validity!(node, ref)
       nodes = detach_dom_nodes(node)
       ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
       if ref_bn && ref_bn.parent == @__node__
@@ -206,9 +208,11 @@ module Dommy
     end
 
     def replace_child(new_child, old_child)
+      coerce_node_argument!(new_child)
       old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless old_bn && old_bn.parent == @__node__
 
+      ensure_pre_insertion_validity!(new_child, old_child)
       detach_dom_nodes(new_child).each { |n| old_bn.add_previous_sibling(n) }
       old_bn.unlink
       old_child
