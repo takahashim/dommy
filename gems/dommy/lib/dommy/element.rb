@@ -2477,13 +2477,23 @@ module Dommy
     # explicitly-set array wins; otherwise the content attribute is split as a
     # space-separated IDREF list and each resolved (missing ids dropped).
     def aria_elements_get(content_attr, key)
-      explicit = (@aria_elements_refs ||= {})[key]
-      # Each explicitly-set attr-element is observable only while in a valid scope
-      # (see #aria_ref_in_valid_scope?); out-of-scope ones drop out of the list.
-      return explicit.select { |el| aria_ref_in_valid_scope?(el) } if explicit
+      # null when there are neither explicit elements nor a content attribute.
+      return nil if aria_elements_current(content_attr, key).nil?
 
-      # With no explicitly-set elements, the getter is null when the content
-      # attribute is absent, otherwise the resolved IDREF list (possibly empty).
+      # Otherwise a per-property memoized live list, so repeated reads return the
+      # [SameObject] (WebIDL requires a stable FrozenArray) while its contents track
+      # the current references/IDREFs.
+      lists = (@aria_elements_lists ||= {})
+      lists[key] ||= LiveNodeList.new { aria_elements_current(content_attr, key) || [] }
+    end
+
+    # The current resolved element list for a plural ARIA element reference, or
+    # nil when neither explicit elements nor the content attribute are present. An
+    # explicitly-set list wins (out-of-scope entries dropped); otherwise the
+    # content attribute is split as space-separated IDREFs and each resolved.
+    def aria_elements_current(content_attr, key)
+      explicit = (@aria_elements_refs ||= {})[key]
+      return explicit.select { |el| aria_ref_in_valid_scope?(el) } if explicit
       return nil unless @__node__.key?(content_attr)
 
       @__node__[content_attr].to_s.split(/[ \t\n\f\r]+/).reject(&:empty?).filter_map do |id|
