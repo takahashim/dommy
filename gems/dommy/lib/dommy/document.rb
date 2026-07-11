@@ -754,6 +754,10 @@ module Dommy
     # node is detached from its previous owner and its ownerDocument
     # becomes this. Returns the (possibly re-wrapped) node.
     def adopt_node(node)
+      # WHATWG adopt: a Document can't be adopted into another document.
+      if node.is_a?(Dommy::Document)
+        raise DOMException::NotSupportedError, "A Document node cannot be adopted."
+      end
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
       src = node.__dommy_backend_node__
