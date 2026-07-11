@@ -28,13 +28,12 @@ module Dommy
       set_reflected_string(attr, n.to_s)
     end
 
-    # HTML attribute names are case-insensitive — the browser DOM
-    # lowercases everything. Override to make this explicit at the
-    # HTMLElement level (Element's default would already pick this up
-    # via namespace inspection, but spelling it out shortcuts the
-    # namespace check for HTML's hot path).
+    # HTML attribute names are case-insensitive only in an HTML document — the
+    # browser DOM lowercases everything there. In a non-HTML (XML) document even an
+    # HTML-namespaced element preserves case. Shortcuts Element's namespace check
+    # for HTML's hot path while honoring the document-kind condition.
     def case_sensitive_attribute_names?
-      false
+      !@document.html_document?
     end
 
     # The `labels` NodeList for a labelable control: every <label> in the

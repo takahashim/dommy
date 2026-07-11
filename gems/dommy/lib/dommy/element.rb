@@ -1616,6 +1616,10 @@ module Dommy
       @attributes ||= NamedNodeMap.new(self)
     end
 
+    # Public bridges to the attribute-name case machinery, for NamedNodeMap.
+    def __internal_normalize_attr_key__(name) = normalize_attr_key(name)
+    def __internal_case_sensitive_attribute_names__? = case_sensitive_attribute_names?
+
     def get_attribute_node(name)
       attributes.get_named_item(name)
     end
@@ -2778,6 +2782,19 @@ module Dommy
       # like "0"/":"/"invalid^Name" are deliberately treated as valid).
       raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
 
+      # A case-sensitive element (non-HTML namespace, or any element in a non-HTML
+      # document) must preserve the attribute name's case, but a plain `node[name]=`
+      # write goes through the HTML backend which ASCII-lowercases it. Route an
+      # upper-cased name through the case-preserving namespace setter (null
+      # namespace) to keep the case; lower-case names take the fast path unchanged.
+      qn = name.to_s
+      if case_sensitive_attribute_names? && qn.match?(/[A-Z]/)
+        old = Backend.get_attribute_ns(@__node__, nil, qn)
+        Backend.set_attribute_ns(@__node__, nil, nil, qn, qn, value.to_s)
+        @document.notify_attribute_mutation(target_node: @__node__, attribute_name: qn, old_value: old)
+        return nil
+      end
+
       key = normalize_attr_key(name)
       old = @__node__[key]
       @__node__[key] = value.to_s
@@ -2801,9 +2818,16 @@ module Dommy
       return nil unless @__node__.key?(key)
 
       old = @__node__[key]
-      # Detach the cached Attr (caching its value) *before* the backend drop,
-      # so a held reference keeps the value it had when removed.
-      @attributes&.__internal_evict__(nil, key)
+      # Detach the cached Attr (caching its value) *before* the backend drop, so a
+      # held reference keeps the value it had when removed and reports
+      # `ownerElement === null` (so it's no longer "in use"). An attribute set via
+      # setAttributeNS may carry a namespace, so evict by the removed node's real
+      # (namespace, localName) rather than assuming the null namespace.
+      if @attributes
+        removed = Backend.attribute_nodes(@__node__).find { |a| Backend.attribute_ns_info(a)[:qualified_name] == key }
+        info = removed && Backend.attribute_ns_info(removed)
+        @attributes.__internal_evict__(info ? info[:namespace_uri] : nil, info ? info[:local_name] : key)
+      end
       @__node__.remove_attribute(key)
       # Removing an `aria-*` IDREF attribute also clears any explicitly-set
       # element reference (the IDL getter then returns null).
@@ -2817,15 +2841,13 @@ module Dommy
     def get_attribute_ns(namespace, local_name)
       return nil if local_name.nil?
 
-      ns = namespace.to_s
-      Backend.get_attribute_ns(@__node__, ns.empty? ? nil : ns, local_name.to_s)
+      Backend.get_attribute_ns(@__node__, namespace_arg(namespace), local_name.to_s)
     end
 
     def has_attribute_ns?(namespace, local_name)
       return false if local_name.nil?
 
-      ns = namespace.to_s
-      Backend.has_attribute_ns?(@__node__, ns.empty? ? nil : ns, local_name.to_s)
+      Backend.has_attribute_ns?(@__node__, namespace_arg(namespace), local_name.to_s)
     end
 
     def set_attribute_ns(namespace, qualified_name, value)
@@ -2839,8 +2861,7 @@ module Dommy
     def remove_attribute_ns(namespace, local_name)
       return nil if local_name.nil?
 
-      ns = namespace.to_s
-      ns = nil if ns.empty?
+      ns = namespace_arg(namespace)
       local = local_name.to_s
       old = Backend.get_attribute_ns(@__node__, ns, local)
       @attributes&.__internal_evict__(ns, local)
@@ -3053,6 +3074,15 @@ module Dommy
       case_sensitive_attribute_names? ? s : s.downcase
     end
 
+    # WebIDL nullable-DOMString namespace argument (*AttributeNS): JS null and
+    # undefined, and the empty string, all denote the null namespace.
+    def namespace_arg(namespace)
+      return nil if namespace.nil? || namespace.equal?(Bridge::UNDEFINED)
+
+      s = namespace.to_s
+      s.empty? ? nil : s
+    end
+
     def element_children
       @__node__.element_children.each_with_object([]) do |node, out|
         wrapped = @document.wrap_node(node)
@@ -3091,9 +3121,12 @@ module Dommy
     # Subclasses with a known namespace override `case_sensitive_attribute_names?`
     # to flip the behavior. Generic Element nodes inspect the namespace
     # URI directly.
+    # Attribute qualified names are ASCII-lowercased (case-insensitive) only for an
+    # element in the HTML namespace within an HTML document; every other case — a
+    # non-HTML (or null) namespace, or any element in a non-HTML document —
+    # preserves case (WHATWG "set/get/has attribute" lowercasing condition).
     def case_sensitive_attribute_names?
-      ns = namespace_uri
-      !ns.nil? && ns != "http://www.w3.org/1999/xhtml"
+      !(namespace_uri == "http://www.w3.org/1999/xhtml" && @document.html_document?)
     end
 
     # Insertion / scroll / popover helpers.

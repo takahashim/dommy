@@ -209,7 +209,9 @@ module Dommy
     end
 
     def get_named_item(name)
-      key = name.to_s.downcase
+      # getNamedItem / getAttribute lowercase the qualified name only for an HTML
+      # element in an HTML document; other elements match case-sensitively.
+      key = @element.__internal_normalize_attr_key__(name)
       node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
         Backend.attribute_ns_info(a)[:qualified_name] == key
       end
@@ -221,7 +223,7 @@ module Dommy
     end
 
     def remove_named_item(name)
-      key = name.to_s.downcase
+      key = @element.__internal_normalize_attr_key__(name)
       node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
         Backend.attribute_ns_info(a)[:qualified_name] == key
       end
@@ -329,12 +331,17 @@ module Dommy
       end
     end
 
-    # WebIDL "supported property names" for NamedNodeMap: the qualified name of
-    # each attribute, in order (the indexed names are reflected separately).
+    # WebIDL "supported property names" for NamedNodeMap: each attribute's
+    # qualified name, in order with duplicates omitted (the indexed names are
+    # reflected separately). For an HTML element in an HTML document, names
+    # containing an ASCII upper alpha are excluded (they can't be reached by the
+    # case-insensitive named getter).
     def __js_named_props__
-      Backend.attribute_nodes(@element.__dommy_backend_node__).map do |a|
+      names = Backend.attribute_nodes(@element.__dommy_backend_node__).map do |a|
         Backend.attribute_ns_info(a)[:qualified_name]
-      end
+      end.uniq
+      names.reject! { |n| n.match?(/[A-Z]/) } unless @element.__internal_case_sensitive_attribute_names__?
+      names
     end
 
     include Bridge::Methods
