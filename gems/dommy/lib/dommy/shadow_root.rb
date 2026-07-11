@@ -84,6 +84,35 @@ module Dommy
       @document.wrap_node(@__node__.element_children.last)
     end
 
+    # Whether this shadow root participates in the document (its host is
+    # connected). A disconnected shadow tree has no active element and no live
+    # style sheets.
+    def connected?
+      @host.respond_to?(:is_connected?) && @host.is_connected?
+    end
+
+    # `shadowRoot.activeElement` — the focused element, retargeted to this shadow
+    # tree: the document's focused element when it is inside this (connected)
+    # shadow root, else null.
+    def active_element
+      return nil unless connected?
+
+      focused = @document.__internal_focused_element__
+      focused && contains?(focused) ? focused : nil
+    end
+
+    # `shadowRoot.styleSheets` — the CSSStyleSheets of the `<style>` / `<link>`
+    # elements within this (connected) shadow tree (mirrors Document#style_sheets);
+    # empty for a disconnected shadow root.
+    def style_sheets
+      return NodeList.new unless connected?
+
+      sheets = query_selector_all("style, link").filter_map do |element|
+        element.sheet if element.respond_to?(:sheet)
+      end
+      NodeList.new(sheets)
+    end
+
     def query_selector(selector)
       return nil if selector.nil?
 
@@ -183,6 +212,10 @@ module Dommy
         @delegates_focus
       when "slotAssignment"
         @slot_assignment
+      when "activeElement"
+        active_element
+      when "styleSheets"
+        style_sheets
       when "innerHTML"
         inner_html
       when "textContent"

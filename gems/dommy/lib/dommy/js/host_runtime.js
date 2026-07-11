@@ -227,10 +227,10 @@ globalThis.__rbHost = (function () {
       g: ["length"],
       p: ["data"]
     },
-    Text: { m: ["splitText"], g: ["wholeText"] },
+    Text: { m: ["splitText"], g: ["wholeText", "assignedSlot"] },
     DocumentFragment: { m: ["getElementById", "querySelector", "querySelectorAll",
       "prepend", "append", "replaceChildren"] },
-    ShadowRoot: { g: ["mode", "host", "delegatesFocus"] },
+    ShadowRoot: { g: ["mode", "host", "delegatesFocus", "activeElement", "styleSheets"] },
     Document: {
       m: ["getElementById", "getElementsByTagName", "getElementsByTagNameNS",
         "getElementsByClassName", "getElementsByName", "createElement",

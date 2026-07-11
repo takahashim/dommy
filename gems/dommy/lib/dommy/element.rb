@@ -412,8 +412,29 @@ module Dommy
         NodeList.new
       when "firstChild", "lastChild"
         nil
+      when "assignedSlot"
+        assigned_slot
       else
         Bridge::ABSENT # unknown property: JS undefined, `in` absent
+      end
+    end
+
+    # Slottable mixin: the <slot> this text node is assigned to. A text node has
+    # no `slot` attribute, so it targets the default (unnamed) slot of its parent
+    # element's shadow tree; a closed shadow tree hides the assignment (null).
+    def assigned_slot
+      parent = @__node__.parent
+      return nil unless parent.respond_to?(:element?) && parent.element?
+
+      host = @document.wrap_node(parent)
+      return nil unless host.respond_to?(:shadow_root)
+
+      sr = host.shadow_root
+      return nil unless sr
+      return nil if sr.__js_get__("mode") == "closed"
+
+      sr.query_selector_all("slot").find do |slot|
+        (slot.respond_to?(:name) ? slot.name.to_s : "") == ""
       end
     end
 
