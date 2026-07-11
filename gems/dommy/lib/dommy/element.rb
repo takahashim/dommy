@@ -84,6 +84,9 @@ module Dommy
         11
       when "nodeName"
         "#document-fragment"
+      when "nodeValue"
+        # A DocumentFragment's nodeValue is null (not undefined).
+        nil
       when "children"
         element_children
       when "childNodes"
