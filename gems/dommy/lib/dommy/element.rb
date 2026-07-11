@@ -228,11 +228,6 @@ module Dommy
       on == @__node__ || Internal::NodeTraversal.ancestor_of?(@__node__, on)
     end
 
-    def normalize
-      @__node__.children.each { |n| n.unlink if n.text? && n.content.empty? }
-      nil
-    end
-
     private
 
     def element_children
@@ -1506,35 +1501,6 @@ module Dommy
     # WHATWG Node.normalize: drop empty Text nodes and merge each run of
     # contiguous Text nodes into the first, firing the matching mutation records
     # (childList for every removed node, characterData for the merged data).
-    def normalize
-      text_nodes = []
-      @__node__.traverse { |node| text_nodes << node if node.respond_to?(:text?) && node.text? }
-
-      text_nodes.each do |node|
-        next unless node.parent # already removed as part of an earlier run
-
-        if node.content.to_s.empty?
-          @document.remove_node_with_notify(node)
-          next
-        end
-
-        merged = []
-        sib = node.next
-        while sib.respond_to?(:text?) && sib.text?
-          merged << sib
-          sib = sib.next
-        end
-        next if merged.empty?
-
-        old = node.content.to_s
-        node.content = old + merged.map { |m| m.content.to_s }.join
-        @document.notify_character_data_mutation(target_node: node, old_value: old)
-        merged.each { |m| @document.remove_node_with_notify(m) }
-      end
-
-      nil
-    end
-
     def toggle_attribute(name, force = nil)
       raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
 

@@ -65,6 +65,39 @@ module Dommy
         nil
       end
 
+      # Node#normalize — merge each run of adjacent exclusive Text descendants
+      # into its first node (preserving that node's identity, so a JS reference
+      # to it survives) and drop empty Text nodes. Recurses the whole subtree,
+      # so it works for Element, DocumentFragment, and ShadowRoot alike.
+      def normalize
+        text_nodes = []
+        @__node__.traverse { |node| text_nodes << node if node.respond_to?(:text?) && node.text? }
+
+        text_nodes.each do |node|
+          next unless node.parent # already removed as part of an earlier run
+
+          if node.content.to_s.empty?
+            @document.remove_node_with_notify(node)
+            next
+          end
+
+          merged = []
+          sib = node.next
+          while sib.respond_to?(:text?) && sib.text?
+            merged << sib
+            sib = sib.next
+          end
+          next if merged.empty?
+
+          old = node.content.to_s
+          node.content = old + merged.map { |m| m.content.to_s }.join
+          @document.notify_character_data_mutation(target_node: node, old_value: old)
+          merged.each { |m| @document.remove_node_with_notify(m) }
+        end
+
+        nil
+      end
+
       private
 
       # Hierarchy guard hook. Default no-op (Fragment / ShadowRoot stay
