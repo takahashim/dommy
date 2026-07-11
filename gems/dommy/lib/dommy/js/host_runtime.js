@@ -258,7 +258,20 @@ globalThis.__rbHost = (function () {
     return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };
   }
   function memberSetStub(name) {
-    return function (v) { __rb_host_set(this[HKEY], name, dehydrateTop(v)); };
+    // Mirror the proxy set trap for a reflected attribute: [LegacyNullToEmptyString]
+    // coercion, DOM-epoch invalidation around the host write (so a cached
+    // attribute snapshot / stable-prop cache doesn't go stale — the set trap
+    // delegates instance writes to this prototype setter), and re-throw a
+    // spec-mandated setter exception. Called with the element as `this`.
+    return function (v) {
+      if (NULL_TO_EMPTY_STRING_SETTERS.has(name)) v = v === null ? "" : String(v);
+      bumpDomEpoch();
+      const handled = __rb_host_set(this[HKEY], name, dehydrateTop(v));
+      bumpDomEpoch();
+      if (handled && typeof handled === "object" && handled.__rb_exception__) {
+        throw makeHostError(handled.__rb_exception__);
+      }
+    };
   }
   // Seed interface `name`'s WebIDL members onto its prototype (idempotent — skips
   // names already present so a subclass never shadows an inherited member).
@@ -274,12 +287,8 @@ globalThis.__rbHost = (function () {
       def(mname, { value: memberMethodStub(mname), writable: true, enumerable: true, configurable: true }));
     (members.g || []).forEach((gname) =>
       def(gname, { get: memberGetStub(gname), enumerable: true, configurable: true }));
-    // NB: read-write reflected attributes (`members.p`) are deferred — a plain
-    // prototype setter would bypass the proxy set trap's attribute-cache
-    // invalidation and reflected-value coercion (id / innerHTML / …). They are
-    // still fully functional via instance access (the proxy set trap); only their
-    // prototype-level accessor descriptor is not yet seeded.
-    void memberSetStub;
+    (members.p || []).forEach((pname) =>
+      def(pname, { get: memberGetStub(pname), set: memberSetStub(pname), enumerable: true, configurable: true }));
   }
 
   // 1d: custom elements. ceRegistry maps a tag name to its JS constructor;
