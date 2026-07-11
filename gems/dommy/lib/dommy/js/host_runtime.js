@@ -2062,7 +2062,13 @@ globalThis.__rbHost = (function () {
     Object.defineProperty(cerProto, key, { value: fn, writable: true, enumerable: true, configurable: true });
   cerMethod("define", function (name, ctor) { return defineCustomElement(name, ctor); });
   cerMethod("get", function (name) { return ceRegistry.get(name); });
-  cerMethod("getName", function (ctor) { for (const [n, c] of ceRegistry) if (c === ctor) return n; return null; });
+  cerMethod("getName", function (ctor) {
+    if (typeof ctor !== "function") {
+      throw new TypeError("The custom element constructor is not a constructor");
+    }
+    for (const [n, c] of ceRegistry) if (c === ctor) return n;
+    return null;
+  });
   cerMethod("whenDefined", function (name) {
     if (!isValidCustomElementName(name)) {
       return Promise.reject(new DOMException("'" + name + "' is not a valid custom element name", "SyntaxError"));
