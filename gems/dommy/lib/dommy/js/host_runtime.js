@@ -248,8 +248,25 @@ globalThis.__rbHost = (function () {
       p: ["title", "lang", "dir", "hidden", "innerText"]
     }
   };
+  // WebIDL `(Node or DOMString)...` variadic operations: each argument is a
+  // Node if it's one of our host proxies, otherwise it's ToString-coerced
+  // (so `before(null)` inserts the text "null", `before(undefined)` -> "undefined",
+  // `before(42)` -> "42"). Ruby can't tell null from undefined once marshaled, so
+  // the union conversion must happen here, JS-side, before the args cross.
+  const NODE_OR_STRING_METHODS = new Set([
+    "before", "after", "replaceWith", "prepend", "append", "replaceChildren"
+  ]);
+  function coerceNodeOrString(arg) {
+    return isProxy(arg) ? arg : String(arg);
+  }
+
   // Precompute the shared delegating stubs (created once, reused on every proto).
   function memberMethodStub(name) {
+    if (NODE_OR_STRING_METHODS.has(name)) {
+      return function (...args) {
+        return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args.map(coerceNodeOrString))));
+      };
+    }
     return function (...args) {
       return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args)));
     };
@@ -1548,6 +1565,19 @@ globalThis.__rbHost = (function () {
               fn = (name) => cachedAttrRead(prop, name);
             } else if (NON_MUTATING_METHODS.has(prop)) {
               fn = (...args) => rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+            } else if (NODE_OR_STRING_METHODS.has(prop)) {
+              // Mutating AND a `(Node or DOMString)...` union: coerce each arg
+              // (non-proxy -> ToString) before it crosses, so null/undefined/
+              // numbers become their text nodes per WebIDL.
+              fn = (...args) => {
+                const coerced = args.map(coerceNodeOrString);
+                bumpDomEpoch();
+                try {
+                  return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(coerced)));
+                } finally {
+                  bumpDomEpoch();
+                }
+              };
             } else {
               // Potentially mutating: bump the epoch before (a reentrant
               // callback during the call must not read stale snapshots) and

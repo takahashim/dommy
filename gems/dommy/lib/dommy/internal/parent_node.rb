@@ -11,6 +11,11 @@ module Dommy
     # coordinator already no-ops on empty added/removed sets and on an
     # unwrappable target, so callers may invoke it unconditionally.
     module ParentNode
+      # Argument coercion (`detach_dom_nodes`), childList notification, and the
+      # ChildNode `before`/`after`/`replaceWith` surface all live in ChildNode,
+      # shared with the leaf CharacterData nodes.
+      include ChildNode
+
       # `appendChild(child)` — detach the node(s) from any current parent
       # and append to the end of this node's child list.
       def append_child(child)
@@ -61,83 +66,6 @@ module Dommy
       end
 
       private
-
-      # Centralized MutationObserver childList notification. Defaults the
-      # target to this node; beforebegin/afterend/replaceWith/outerHTML
-      # callers pass the parent explicitly. The coordinator filters out
-      # empty added/removed sets, so this is always safe to call.
-      def notify_child_list(added: [], removed: [], target: @__node__)
-        @document.notify_child_list_mutation(
-          target_node: target,
-          added_nodes: added,
-          removed_nodes: removed
-        )
-      end
-
-      # Coerce an append/prepend/replaceChildren argument into raw Nokogiri
-      # node(s), detached from any current parent:
-      #   - Element / TextNode / CommentNode → its backing node (unlinked)
-      #   - Fragment                          → its extracted children
-      #   - String                            → a fresh text node
-      #   - anything else with a backing node → that node (unlinked)
-      #
-      # The class constants resolve at call time, so the mixin only needs to
-      # be defined before the including class bodies run.
-      def detach_dom_nodes(value)
-        case value
-        when Fragment
-          value.extract_children.map { |n| adopt_into_document(n) }
-        when String
-          [@document.create_text_node(value).__dommy_backend_node__]
-        else
-          node = value.respond_to?(:__dommy_backend_node__) ? value.__dommy_backend_node__ : nil
-          return [] unless node
-
-          # WHATWG pre-insert adopts the node into this node's document before
-          # linking it. libxml2 reassigns ownership in place during add_child, so
-          # the explicit adopt is a no-op move there; Makiri can't move a node
-          # between document arenas, so a cross-document insert must adopt (an
-          # imported copy) first. adopt_node reseats the Dommy wrapper onto the
-          # adopted node, so JS identity (`parent.appendChild(x); x` ===
-          # `parent.lastChild`) survives. Same-document: the wrapper's backend
-          # node is unchanged, so this is identical to the previous behavior.
-          detach_with_notify(node)
-          [@document.adopt_node(value).__dommy_backend_node__]
-        end
-      end
-
-      # Bring a raw backend node into this node's document (WHATWG adopt). A
-      # no-op when already same-document; otherwise Backend.adopt — in place for
-      # Nokogiri, an imported copy for Makiri (which can't move nodes between
-      # arenas). Used for fragment children, which have no standalone wrapper to
-      # reseat.
-      def adopt_into_document(node)
-        target = @document.backend_doc
-        node.document == target ? node : Backend.adopt(node, target)
-      end
-
-      # Detach a node from its current parent, queuing a childList removal
-      # record on that old parent first (WHATWG "remove" runs before the
-      # subsequent insert, so moving a node yields a removal record + an addition
-      # record). Returns the raw node, ready to be re-linked.
-      def detach_with_notify(node)
-        old_parent = node.parent
-        return node unless old_parent
-
-        # Capture the position (as wrapped nodes — the coordinator records
-        # explicit siblings verbatim) before unlinking.
-        prev_sib = node.previous_sibling && @document.wrap_node(node.previous_sibling)
-        next_sib = node.next_sibling && @document.wrap_node(node.next_sibling)
-        node.unlink
-        @document.notify_child_list_mutation(
-          target_node: old_parent,
-          added_nodes: [],
-          removed_nodes: [node],
-          previous_sibling: prev_sib,
-          next_sibling: next_sib
-        )
-        node
-      end
 
       # Hierarchy guard hook. Default no-op (Fragment / ShadowRoot stay
       # permissive, matching current behavior). Element overrides this to

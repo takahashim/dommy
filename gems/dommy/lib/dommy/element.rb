@@ -250,6 +250,9 @@ module Dommy
   class CharacterDataNode
     include Node
     include EventTarget
+    # `before` / `after` / `replaceWith` (+ their argument coercion) — the same
+    # spec-correct implementation Element uses, minus appendChild/insertBefore.
+    include Internal::ChildNode
 
     # The owning Dommy document (as Element exposes), so cross-document adoption
     # checks work for text/comment nodes too.
@@ -520,85 +523,25 @@ module Dommy
       end
     end
 
-    # ChildNode mixin: WHATWG DOM defines `before`, `after`,
-    # `replaceWith` on all child nodes, including Text and Comment.
-    # Implementations operate on the Nokogiri layer and notify the
-    # MutationObserver with the underlying nodes (mirroring
-    # Element#remove_child / replace_child).
+    # ChildNode mixin: WHATWG DOM defines `before`, `after`, `replaceWith` on
+    # all child nodes, including Text and Comment. The spec-correct algorithm
+    # (viable previous/next sibling, forward insertion, string coercion,
+    # Fragment/cross-document adoption) lives in Internal::ParentNode and is
+    # shared with Element — these just forward to it.
 
     def before(*args)
-      parent = @__node__.parent
-      return nil unless parent
-
-      added = args.map { |arg| coerce_node(arg) }.compact
-      added.reverse_each { |node| @__node__.add_previous_sibling(node) }
-      notify_child_list_added(parent, added)
-      nil
+      child_node_before(args)
     end
 
     def after(*args)
-      parent = @__node__.parent
-      return nil unless parent
-
-      added = args.map { |arg| coerce_node(arg) }.compact
-      anchor = @__node__.next_sibling
-      if anchor
-        added.reverse_each { |node| anchor.add_previous_sibling(node) }
-      else
-        added.each { |node| parent.add_child(node) }
-      end
-      notify_child_list_added(parent, added)
-      nil
+      child_node_after(args)
     end
 
     def replace_with(*args)
-      parent = @__node__.parent
-      return nil unless parent
-
-      added = args.map { |arg| coerce_node(arg) }.compact
-      removed = @__node__
-      anchor = @__node__.next_sibling
-      @__node__.unlink
-      if anchor
-        added.reverse_each { |node| anchor.add_previous_sibling(node) }
-      else
-        added.each { |node| parent.add_child(node) }
-      end
-      @document.notify_child_list_mutation(
-        target_node: parent,
-        added_nodes: added,
-        removed_nodes: [removed]
-      )
-      nil
+      child_node_replace_with(args)
     end
 
     private
-
-    # Coerce a `before` / `after` / `replaceWith` argument into a raw
-    # Nokogiri node, ready to be linked into a parent. Strings become
-    # fresh text nodes; existing nodes are detached from their current
-    # parent first (matching Element#detach_dom_nodes minus the
-    # Fragment branch which is rarely needed off a text/comment node).
-    def coerce_node(arg)
-      case arg
-      when String
-        @document.create_text_node(arg).__dommy_backend_node__
-      else
-        node = arg.respond_to?(:__dommy_backend_node__) ? arg.__dommy_backend_node__ : nil
-        node.unlink if node && node.parent
-        node
-      end
-    end
-
-    def notify_child_list_added(parent, added)
-      return if added.empty?
-
-      @document.notify_child_list_mutation(
-        target_node: parent,
-        added_nodes: added,
-        removed_nodes: []
-      )
-    end
 
     def write_data(value)
       old = @__node__.content
@@ -2040,15 +1983,15 @@ module Dommy
     # ChildNode mixin — before / after / replaceWith with mixed args.
 
     def before(*args)
-      insert_adjacent(:before, args)
+      child_node_before(args)
     end
 
     def after(*args)
-      insert_adjacent(:after, args)
+      child_node_after(args)
     end
 
     def replace_with_nodes(*args)
-      replace_with(args)
+      child_node_replace_with(args)
     end
 
     # `getInnerHTML()` — happy-dom alias for the `innerHTML` getter.
@@ -2817,15 +2760,15 @@ module Dommy
       when "replaceChildren"
         replace_children(*args)
       when "before"
-        insert_adjacent(:before, args)
+        child_node_before(args)
       when "after"
-        insert_adjacent(:after, args)
+        child_node_after(args)
       when "getInnerHTML", "getHTML"
         inner_html
       when "remove"
         remove
       when "replaceWith"
-        replace_with(args)
+        child_node_replace_with(args)
       when "click"
         click
       when "getBoundingClientRect"
@@ -3218,45 +3161,6 @@ module Dommy
     end
 
     # Insertion / scroll / popover helpers.
-    def insert_adjacent(side, args)
-      parent = @__node__.parent
-      return nil unless parent
-
-      nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
-      case side
-      when :before
-        nodes.reverse_each { |node| @__node__.add_previous_sibling(node) }
-      when :after
-        anchor = @__node__.next_sibling
-        if anchor
-          nodes.reverse_each { |node| anchor.add_previous_sibling(node) }
-        else
-          nodes.each { |node| parent.add_child(node) }
-        end
-      end
-
-      notify_child_list(added: nodes, target: parent)
-      nil
-    end
-
-    def replace_with(args)
-      parent = @__node__.parent
-      return nil unless parent
-
-      nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
-      removed = @__node__
-      anchor = @__node__.next_sibling
-      @__node__.unlink
-      if anchor
-        nodes.reverse_each { |node| anchor.add_previous_sibling(node) }
-      else
-        nodes.each { |node| parent.add_child(node) }
-      end
-
-      notify_child_list(added: nodes, removed: [removed], target: parent)
-      nil
-    end
-
     def append_dom_nodes(nodes)
       nodes.each { |node| @__node__.add_child(node) }
     end
