@@ -241,6 +241,13 @@ module Dommy
         @wrappers.delete(identity_key(nokogiri_node))
       end
 
+      # The cached wrapper for `node`, or nil — WITHOUT creating one (unlike
+      # #wrap). Used by cross-document adoption to find the live descendant
+      # wrappers that must be reseated onto the imported copy.
+      def peek(node)
+        node && @wrappers[identity_key(node)]
+      end
+
       # Register an externally-built wrapper. Used by
       # Document#adopt_node when migrating a wrapper from another
       # document so the existing Ruby object survives the move

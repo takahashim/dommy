@@ -767,7 +767,44 @@ module Dommy
       node.instance_variable_set(:@document, self)
       node.instance_variable_set(:@__node__, adopted)
       @node_wrapper_cache.register(adopted, node)
+
+      # A deep adopt imports a fresh copy of the whole subtree, so any live
+      # descendant wrapper (held by page script, e.g. an aria element reference)
+      # must be reseated onto its corresponding copy — otherwise it stays bound to
+      # the old document. Import preserves document order, so walk both subtrees in
+      # lockstep.
+      reseat_descendant_wrappers(src, adopted, src_doc_wrapper)
       node
+    end
+
+    # Move each live wrapper for a descendant of `src_root` onto the matching node
+    # in `dst_root` (the imported copy), pruning it from the source document.
+    def reseat_descendant_wrappers(src_root, dst_root, src_doc)
+      return unless src_doc.respond_to?(:__internal_peek_wrapper__)
+
+      src_nodes = collect_subtree_nodes(src_root)
+      dst_nodes = collect_subtree_nodes(dst_root)
+      return unless src_nodes.length == dst_nodes.length
+
+      src_nodes.zip(dst_nodes).each do |orig, copy|
+        next if orig.equal?(src_root) # the root wrapper is reseated by the caller
+
+        wrapper = src_doc.__internal_peek_wrapper__(orig)
+        next unless wrapper
+
+        src_doc.__internal_reset_wrapper__(orig)
+        wrapper.instance_variable_set(:@document, self)
+        wrapper.instance_variable_set(:@__node__, copy)
+        @node_wrapper_cache.register(copy, wrapper)
+      end
+    end
+
+    # A subtree's nodes in document (depth-first) order — the order Backend.adopt
+    # preserves — so a source node and its imported copy line up by index.
+    def collect_subtree_nodes(root)
+      nodes = [root]
+      root.children.each { |child| nodes.concat(collect_subtree_nodes(child)) } if root.respond_to?(:children)
+      nodes
     end
 
     # Legacy `document.createEvent("EventName")` factory. Returns an
@@ -1448,6 +1485,10 @@ module Dommy
     # constructed before the registration landed.
     def __internal_reset_wrapper__(nokogiri_node)
       @node_wrapper_cache.reset_wrapper(nokogiri_node)
+    end
+
+    def __internal_peek_wrapper__(nokogiri_node)
+      @node_wrapper_cache.peek(nokogiri_node)
     end
 
     # ShadowRoot identity registry: map a Nokogiri DocumentFragment
