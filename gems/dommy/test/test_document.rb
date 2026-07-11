@@ -97,7 +97,9 @@ class TestDocument < Minitest::Test
   end
 
   def test_first_last_child_and_root_node_links
-    assert_kind_of(Dommy::Element, @doc.__js_get__("firstChild"))
+    # The document has a doctype, so its firstChild is the DocumentType and its
+    # lastChild is the documentElement (per the tree order [doctype, html]).
+    assert_kind_of(Dommy::DocumentType, @doc.__js_get__("firstChild"))
     assert_kind_of(Dommy::Element, @doc.__js_get__("lastChild"))
     assert_nil(@doc.__js_get__("parentNode"))
     assert_nil(@doc.__js_get__("ownerDocument"))
@@ -113,13 +115,16 @@ class TestDocument < Minitest::Test
   end
 
   def test_insert_before_and_replace_child
+    # Insert a comment right before the documentElement (which sits after the
+    # doctype), then replace it — verified via documentElement.previousSibling so
+    # the assertion doesn't depend on the doctype occupying firstChild.
     c1 = @doc.__js_call__("createComment", ["a"])
     @doc.__js_call__("insertBefore", [c1, @doc.document_element])
-    assert_same(c1, @doc.__js_get__("firstChild"))
+    assert_same(c1, @doc.document_element.__js_get__("previousSibling"))
 
     c2 = @doc.__js_call__("createComment", ["b"])
     @doc.__js_call__("replaceChild", [c2, c1])
-    assert_same(c2, @doc.__js_get__("firstChild"))
+    assert_same(c2, @doc.document_element.__js_get__("previousSibling"))
   end
 
   def test_remove_child_doctype

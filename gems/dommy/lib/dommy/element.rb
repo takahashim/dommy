@@ -2240,7 +2240,9 @@ module Dommy
       when "firstElementChild"
         first_element_child
       when "parentElement", "parent"
-        wrap_parent(@__node__.parent)
+        # parentElement is null unless the parent is an element (the document /
+        # a fragment parent is a parentNode but not a parentElement).
+        @__node__.parent&.element? ? wrap_parent(@__node__.parent) : nil
       when "parentNode"
         # `parentNode` is broader than `parentElement` — includes
         # DocumentFragment / Document parents too. Reconcilers use

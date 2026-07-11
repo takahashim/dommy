@@ -293,8 +293,13 @@ module Dommy
     end
 
     def intersects_node(node)
-      # Range and node intersect iff node's "position relative to range"
-      # is not entirely before or entirely after.
+      # WHATWG Range.intersectsNode: a node in a different tree never intersects;
+      # a node with no parent (a tree root, e.g. the document) always does.
+      return false unless same_root?(node)
+      return true if parent_of(node).nil?
+
+      # Otherwise range and node intersect iff node's position relative to the
+      # range is not entirely before or entirely after it.
       return false if before?(node)
       return false if after?(node)
 

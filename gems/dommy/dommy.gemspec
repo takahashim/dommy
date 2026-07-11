@@ -23,8 +23,10 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb", "lib/**/*.js", "README.md"]
   spec.require_paths = ["lib"]
 
-  # Default HTML parser backend.
-  spec.add_dependency "makiri", ">= 0.6.0"
+  # Default HTML parser backend. 0.7.0 adds the DocumentType factory
+  # (create_document_type on HTML+XML documents, case-preserving) + doctype-insert
+  # guard that Dommy's DocumentType tree integration / createDocument(Type) rely on.
+  spec.add_dependency "makiri", ">= 0.7.0"
   # used for window.btoa / atob
   spec.add_dependency "base64"
 end

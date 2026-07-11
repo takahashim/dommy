@@ -315,12 +315,13 @@ module Dommy
     # Generic over any node with a backing Nokogiri node.
     def compare_document_position(other)
       return 0 if equal?(other)
-      unless respond_to?(:__dommy_backend_node__) && other.respond_to?(:__dommy_backend_node__)
+
+      self_node = compare_backend_node(self)
+      other_node = compare_backend_node(other)
+      unless self_node && other_node
         return DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | DOCUMENT_POSITION_PRECEDING
       end
 
-      self_node = __dommy_backend_node__
-      other_node = other.__dommy_backend_node__
       self_ancestors = node_ancestor_chain(self_node)
       other_ancestors = node_ancestor_chain(other_node)
 
@@ -406,9 +407,28 @@ module Dommy
 
     private
 
+    # The backend node to position `obj` by. A Document has no
+    # `__dommy_backend_node__` (it must not, or 60-odd `respond_to?` guards would
+    # misclassify it as a plain node), but for tree-position purposes it stands in
+    # for its backend document node — so `document.compareDocumentPosition(child)`
+    # works. Anything without a backend node is disconnected (nil).
+    def compare_backend_node(obj)
+      return obj.__dommy_backend_node__ if obj.respond_to?(:__dommy_backend_node__)
+
+      obj.backend_doc if obj.is_a?(Dommy::Document)
+    end
+
+    # The backend-node chain from `node` up to and INCLUDING the document node.
+    # Unlike NodeTraversal.each_ancestor (which stops before the document), this
+    # keeps the document so that two of its direct children — e.g. the doctype and
+    # the documentElement — share it as their common ancestor and compare in tree
+    # order rather than reporting DISCONNECTED.
     def node_ancestor_chain(node)
       chain = [node]
-      Internal::NodeTraversal.each_ancestor(node) { |n| chain << n }
+      current = node
+      while current.respond_to?(:parent) && (current = current.parent)
+        chain << current
+      end
       chain
     end
 

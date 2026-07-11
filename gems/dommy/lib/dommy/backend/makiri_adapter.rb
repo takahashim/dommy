@@ -21,6 +21,7 @@ module Dommy
       CDATASection = ::Makiri::CDATASection
       ProcessingInstruction = ::Makiri::ProcessingInstruction
       DocumentFragment = ::Makiri::DocumentFragment
+      DocumentType = ::Makiri::DocumentType
       Node = ::Makiri::Node
 
       # A minimal namespace wrapper exposing the same `href` API that Nokogiri's
@@ -176,6 +177,29 @@ module Dommy
         return nil unless doc.is_a?(::Makiri::XML::Document) && doc.respond_to?(:create_loose_dom_element)
 
         doc.create_loose_dom_element(qualified_name, prefix, local, namespace)
+      end
+
+      # A detached DocumentType node owned by `doc`, for
+      # DOMImplementation.createDocumentType. Only the HTML backend ships the
+      # factory (`create_document_type`); nil signals the caller to fall back to a
+      # synthetic (non-tree) DocumentType. Raises ArgumentError for a name the
+      # factory rejects.
+      def create_document_type(name, public_id, system_id, doc)
+        return nil unless doc.respond_to?(:create_document_type)
+
+        doc.create_document_type(name.to_s, public_id.to_s, system_id.to_s)
+      end
+
+      # The parsed document's DocumentType node (`<!DOCTYPE …>`), or nil when the
+      # document declares none.
+      def internal_subset(doc)
+        doc.respond_to?(:internal_subset) ? doc.internal_subset : nil
+      end
+
+      # The backend class for a DocumentType node, so the wrapper routes it to
+      # Dommy::DocumentType (node-backed).
+      def document_type_class
+        ::Makiri::DocumentType
       end
 
       def create_text(content, doc)

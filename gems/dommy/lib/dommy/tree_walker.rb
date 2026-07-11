@@ -531,13 +531,26 @@ module Dommy
       parent_node_of(node)
     end
 
+    # The backend node backing a wrapper — an element/leaf's
+    # `__dommy_backend_node__`, or a Document's `backend_doc` — so an iterator
+    # rooted at the document can descend into its children (doctype, root, …).
+    def backend_node_of(node)
+      if node.respond_to?(:__dommy_backend_node__)
+        node.__dommy_backend_node__
+      elsif node.respond_to?(:backend_doc)
+        node.backend_doc
+      end
+    end
+
     def first_child_node(node)
-      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.children.first : nil
+      bn = backend_node_of(node)
+      n = bn&.children&.first
       n && document_for(node).wrap_node(n)
     end
 
     def last_child_node(node)
-      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.children.last : nil
+      bn = backend_node_of(node)
+      n = bn&.children&.to_a&.last
       n && document_for(node).wrap_node(n)
     end
 
@@ -553,8 +566,10 @@ module Dommy
 
     def parent_node_of(node)
       parent_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.parent : nil
-      return nil unless parent_nk && !parent_nk.is_a?(Backend.document_class)
+      return nil unless parent_nk
 
+      # wrap_node maps the backend document node to the Dommy Document, so an
+      # upward walk reaches the document root (traversal terminates on `== @root`).
       document_for(node).wrap_node(parent_nk)
     end
 

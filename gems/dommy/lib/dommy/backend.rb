@@ -139,6 +139,26 @@ module Dommy
         current.create_element_loose(qualified_name, prefix, local, namespace, doc)
       end
 
+      # A detached DocumentType node owned by `doc` (for
+      # DOMImplementation.createDocumentType). Returns nil when the backend has no
+      # doctype factory (the caller falls back to a synthetic DocumentType); raises
+      # ArgumentError for a name the factory rejects (the caller then also falls
+      # back, since createDocumentType is permissive).
+      def create_document_type(name, public_id, system_id, doc)
+        current.respond_to?(:create_document_type) ? current.create_document_type(name, public_id, system_id, doc) : nil
+      end
+
+      # The parsed document's DocumentType node, or nil when it declares none.
+      def internal_subset(doc)
+        current.respond_to?(:internal_subset) ? current.internal_subset(doc) : nil
+      end
+
+      # The backend class for a DocumentType node (nil if unsupported), so the
+      # wrapper cache can route it to Dommy::DocumentType.
+      def document_type_class
+        current.respond_to?(:document_type_class) ? current.document_type_class : nil
+      end
+
       def create_text(content, doc)
         current.create_text(content, doc)
       end

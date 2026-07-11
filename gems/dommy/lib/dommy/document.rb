@@ -14,20 +14,69 @@ module Dommy
   # DocumentType (`<!doctype html>`) — exposes name / publicId / systemId and
   # nodeType=10. HTML5 doctypes carry empty public/system IDs, but
   # `implementation.createDocumentType` can set them.
+  #
+  # Two modes:
+  #  * node-backed — wraps the Makiri DocumentType node of a parsed document
+  #    (`document.doctype`). Participates in the tree machinery
+  #    (compareDocumentPosition / getRootNode / sibling links) like any other
+  #    backend-backed node, via the shared Node mixin.
+  #  * synthetic — a standalone doctype (`implementation.createDocumentType`)
+  #    carrying just name/public/system id and an owner document. No backend node,
+  #    so it stays tree-DISCONNECTED per its detached nature.
   class DocumentType
     include Node
 
-    attr_reader :name
+    # Mixed into a node-backed doctype only, so a synthetic one does NOT respond
+    # to `__dommy_backend_node__` — leaving the Node mixin's guards (which key off
+    # `respond_to?(:__dommy_backend_node__)`) to treat it as disconnected.
+    module NodeBacked
+      def __dommy_backend_node__ = @__node__
+    end
 
-    # `owner_document:` links a live doctype (document.doctype) to its document so
-    # the ChildNode methods (remove/before/after/replaceWith) act on the tree; a
-    # standalone doctype (DOMImplementation.createDocumentType) has none, so those
-    # methods are no-ops per spec.
-    def initialize(name, public_id = "", system_id = "", owner_document: nil)
-      @name = name.to_s
-      @public_id = public_id.to_s
-      @system_id = system_id.to_s
-      @owner_document = owner_document
+    # `owner_document:` links a synthetic doctype to its document so the ChildNode
+    # methods can act on the tree; a standalone one has none, so those methods are
+    # no-ops per spec. `backend_node:` + `document:` build the node-backed variant
+    # (a parsed-tree doctype or the createDocumentType factory node), which reads
+    # name/publicId/systemId straight off the node (the factory preserves case).
+    def initialize(name = "", public_id = "", system_id = "", owner_document: nil, backend_node: nil, document: nil)
+      @__node__ = backend_node
+      if backend_node
+        @document = document
+        @owner_document = document
+        extend(NodeBacked)
+      else
+        @name = name.to_s
+        @public_id = public_id.to_s
+        @system_id = system_id.to_s
+        @owner_document = owner_document
+      end
+    end
+
+    def name
+      @__node__ ? @__node__.name : @name
+    end
+
+    # Makiri reports nil for an absent public/system id; DOM exposes "".
+    def public_id
+      @__node__ ? @__node__.public_id.to_s : @public_id
+    end
+
+    def system_id
+      @__node__ ? @__node__.system_id.to_s : @system_id
+    end
+
+    def parent_node
+      # wrap_node maps the backend document node (the doctype's parent) to the
+      # Dommy Document.
+      @__node__ && @__node__.parent && @document.wrap_node(@__node__.parent)
+    end
+
+    def next_sibling
+      @__node__ && @__node__.next && @document.wrap_node(@__node__.next)
+    end
+
+    def previous_sibling
+      @__node__ && @__node__.previous && @document.wrap_node(@__node__.previous)
     end
 
     # ChildNode mixin — the doctype's parent is the document.
@@ -61,33 +110,63 @@ module Dommy
     def __js_get__(key)
       case key
       when "name"
-        @name
+        name
       when "nodeName"
         # WHATWG: a DocumentType's nodeName is its name.
-        @name
+        name
       when "nodeType"
         10
       when "publicId"
-        @public_id
+        public_id
       when "systemId"
-        @system_id
+        system_id
       when "ownerDocument"
         @owner_document
+      when "parentNode"
+        parent_node
+      when "parentElement"
+        nil
+      when "nextSibling"
+        next_sibling
+      when "previousSibling"
+        previous_sibling
+      when "childNodes"
+        NodeList.new
+      when "firstChild", "lastChild"
+        nil
       end
     end
 
     include EventTarget
 
     def __internal_event_parent__
-      nil
+      parent_node
+    end
+
+    # Node.cloneNode on a doctype: a detached copy with the same name/publicId/
+    # systemId (a doctype is a leaf, so `deep` is irrelevant). Node-backed when a
+    # backend factory is available, else synthetic — either reports the same
+    # values and isEqualNode-matches the original.
+    def clone_node(_deep = false)
+      if @__node__ && @document
+        node = begin
+          Backend.create_document_type(name, public_id, system_id, @document.backend_doc)
+        rescue StandardError
+          nil
+        end
+        return DocumentType.new(backend_node: node, document: @document) if node
+      end
+      DocumentType.new(name, public_id, system_id, owner_document: @owner_document)
     end
 
     include Bridge::Methods
     js_methods %w[isEqualNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition contains
-      appendChild insertBefore removeChild replaceChild before after replaceWith remove
+      cloneNode appendChild insertBefore removeChild replaceChild before after replaceWith remove
       addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
+      when "cloneNode"
+        clone_node(args[0])
       when "hasChildNodes"
         false
       when "contains"
@@ -135,11 +214,24 @@ module Dommy
       @document = document
     end
 
-    # A created DocumentType's node document is the implementation's document.
-    # (Qualified-name validation against the QName production is not enforced —
-    # a couple of invalid-name WPT cases stay as documented gaps.)
+    # A created DocumentType's node document is the implementation's document. When
+    # the backend ships a doctype factory (the HTML backend) and accepts the name,
+    # the result is a real, node-backed (but detached) DocumentType that can join
+    # the tree; otherwise it falls back to a synthetic one. (Qualified-name QName
+    # validation isn't enforced — createDocumentType is permissive, so the factory's
+    # stricter name check is bypassed via the synthetic fallback rather than
+    # raising; a couple of invalid-name WPT cases stay documented gaps.)
     def create_document_type(qualified_name, public_id, system_id)
-      DocumentType.new(qualified_name, public_id, system_id, owner_document: @document)
+      qn = qualified_name.to_s
+      pub = public_id.to_s
+      sys = system_id.to_s
+      node =
+        begin
+          Backend.create_document_type(qn, pub, sys, @document.backend_doc)
+        rescue ArgumentError
+          nil
+        end
+      node ? DocumentType.new(backend_node: node, document: @document) : DocumentType.new(qn, pub, sys, owner_document: @document)
     end
 
     # `hasFeature()` is a no-op that always returns true (DOM Standard).
@@ -147,11 +239,10 @@ module Dommy
       true
     end
 
-    # createDocument(namespace, qualifiedName, doctype?) — a fresh XML document,
-    # with a document element (namespace, qualifiedName) when qualifiedName is
-    # non-empty. (The doctype argument is accepted but not stored, as document
-    # equality compares only structure that survives wrap_node.)
-    def create_document(namespace, qualified_name, _doctype = nil)
+    # createDocument(namespace, qualifiedName, doctype?) — a fresh XML document
+    # with, in tree order, the doctype (when given) then a document element
+    # (namespace, qualifiedName) when qualifiedName is non-empty.
+    def create_document(namespace, qualified_name, doctype = nil)
       doc = Document.new(nil, backend_doc: Backend.empty_xml_document)
       # createDocument's content type is keyed off the namespace. None is
       # "text/html", so tagName keeps its case; xhtml+xml still routes
@@ -168,8 +259,36 @@ module Dommy
         el = doc.send(:create_element_ns, namespace, qualified_name)
         Backend.set_document_root(doc.backend_doc, el.__dommy_backend_node__)
       end
+      adopt_doctype_into(doc, doctype)
       doc
     end
+
+    private
+
+    # Place `doctype` (a DocumentType passed to createDocument) as `doc`'s first
+    # child. Makiri can't move a node between documents, so — like adoption — the
+    # doctype is re-created in `doc`'s backend from its name/publicId/systemId.
+    # No-op for nil/undefined, a non-DocumentType, a backend without an XML doctype
+    # factory, or a public/system id the backend rejects (createDocument itself
+    # doesn't validate those — only XML *serialization* would — so a rejection just
+    # leaves the doctype unplaced rather than throwing).
+    def adopt_doctype_into(doc, doctype)
+      return if doctype.nil? || doctype.equal?(Bridge::UNDEFINED)
+      return unless doctype.is_a?(DocumentType)
+
+      node =
+        begin
+          Backend.create_document_type(doctype.name, doctype.public_id, doctype.system_id, doc.backend_doc)
+        rescue StandardError
+          nil
+        end
+      return unless node
+
+      root = doc.backend_doc.root
+      root ? root.add_previous_sibling(node) : doc.backend_doc.add_child(node)
+    end
+
+    public
 
     # createHTMLDocument(title?) — a fresh HTML document (doctype + html > head,
     # body), with an optional <title>.
@@ -524,8 +643,12 @@ module Dommy
       return true if other.equal?(self)
       return false unless other.respond_to?(:__dommy_backend_node__)
 
+      # Walk parents up to the backend document node. (The backend's #ancestors
+      # stops below the document, so it can't test document membership; the
+      # doctype in particular reports an empty ancestor list.)
       node = other.__dommy_backend_node__
-      node.document == @backend_doc && node.ancestors.include?(@backend_doc)
+      node = node.parent while node && !node.equal?(@backend_doc)
+      !node.nil?
     end
 
     def __internal_set_active_element__(el)
@@ -738,14 +861,13 @@ module Dommy
       @node_iterators << iterator
     end
 
-    # Minimal DocumentType — represents the `<!doctype html>` line.
-    # Always present in HTML5 documents we parse, so we synthesize a
-    # stub object whose only useful field is `name`. Tests just need
-    # `nodeType == 10`.
+    # `document.doctype` — the node-backed DocumentType wrapping the parsed
+    # `<!DOCTYPE …>` node, or nil when the document declares none (or the doctype
+    # was removed, which unlinks the backend node). Shares wrapper identity with
+    # the same node in `childNodes`, since both wrap the same backend node.
     def doctype
-      return nil if @doctype_removed
-
-      @doctype ||= DocumentType.new("html", owner_document: self)
+      node = Backend.internal_subset(@backend_doc)
+      node ? wrap_node(node) : nil
     end
 
     def implementation
@@ -794,6 +916,7 @@ module Dommy
       bn = backend_node(node)
       raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @backend_doc
 
+      run_node_iterator_pre_remove(bn)
       bn.unlink
       node
     end
@@ -821,11 +944,14 @@ module Dommy
       old_child
     end
 
-    # Called by DocumentType#remove — the doctype is synthesized from the DTD, so
-    # remove the internal subset and mark it gone.
-    def __internal_remove_doctype__(_doctype)
-      @doctype_removed = true
-      @backend_doc.internal_subset&.unlink
+    # Called by DocumentType#remove — unlink the backend doctype node so the tree
+    # (and `document.doctype`, which re-derives from the tree) no longer sees it.
+    def __internal_remove_doctype__(doctype)
+      node = backend_node(doctype) || Backend.internal_subset(@backend_doc)
+      return nil unless node
+
+      run_node_iterator_pre_remove(node)
+      node.unlink
       nil
     end
 

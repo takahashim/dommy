@@ -303,6 +303,12 @@ module Dommy
 
       def build_wrapper_for(node)
         case node
+        when Backend.document_class
+          # The backend document node has no wrapper of its own — map it to the
+          # Dommy Document that owns this cache, so a top-level node's parentNode /
+          # getRootNode resolves to the document (documentElement.parentNode ===
+          # document), matching the DOM tree.
+          @document
         when Backend.element_class
           build_element_wrapper(node)
         when ->(n) { Backend.cdata_class && n.is_a?(Backend.cdata_class) }
@@ -316,6 +322,8 @@ module Dommy
           ProcessingInstructionNode.new(@document, node)
         when Backend.document_fragment_class
           Fragment.new(@document, node)
+        when ->(n) { (dt = Backend.document_type_class) && n.is_a?(dt) }
+          DocumentType.new(backend_node: node, document: @document)
         end
       end
 
