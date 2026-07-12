@@ -273,6 +273,21 @@ globalThis.__rbHost = (function () {
     NodeList: { m: ["item"] },
     NamedNodeMap: { m: ["item", "getNamedItem", "getNamedItemNS"] }
   };
+  // WebIDL `[Unscopable]` members: each interface prototype that declares them
+  // exposes a `@@unscopables` object so `with (element) { remove }` resolves to
+  // the OUTER `remove` (per the ChildNode/ParentNode mixins), not the method.
+  // The object has a null [[Prototype]] and the members map to `true`.
+  const INTERFACE_UNSCOPABLES = {
+    // ChildNode + ParentNode mixins, both included by Element.
+    Element: ["after", "before", "remove", "replaceWith", "append", "prepend", "replaceChildren"],
+    // ParentNode only.
+    Document: ["append", "prepend", "replaceChildren"],
+    DocumentFragment: ["append", "prepend", "replaceChildren"],
+    // ChildNode only (Text / Comment / ProcessingInstruction / CDATASection).
+    CharacterData: ["after", "before", "remove", "replaceWith"],
+    // ChildNode only.
+    DocumentType: ["after", "before", "remove", "replaceWith"]
+  };
   // Read-only collection operations that resolve to their prototype function
   // (identity + arity) rather than a per-instance get-trap closure.
   const PROTO_RESOLVED_METHODS = new Set(["item", "namedItem", "getNamedItem", "getNamedItemNS"]);
@@ -1146,6 +1161,14 @@ globalThis.__rbHost = (function () {
     Object.defineProperty(ctor, "name", { value: name, configurable: true });
     ctor.prototype = proto;
     Object.defineProperty(proto, "constructor", { value: ctor, configurable: true, writable: true });
+    // [Unscopable] members -> a null-prototyped @@unscopables object on the
+    // prototype (WebIDL: configurable, non-writable, non-enumerable).
+    const unscopables = INTERFACE_UNSCOPABLES[name];
+    if (unscopables) {
+      const u = Object.create(null);
+      for (const m of unscopables) u[m] = true;
+      Object.defineProperty(proto, Symbol.unscopables, { value: u, configurable: true });
+    }
     // WebIDL [Constant]s live on both the interface object and its prototype
     // (so `Node.ELEMENT_NODE`, `el.ELEMENT_NODE`, `Event.CAPTURING_PHASE`, …
     // all === the numeric value). Instances reach the prototype copy via the
