@@ -2016,6 +2016,16 @@ globalThis.__rbHost = (function () {
     // Suppressed when the proxy IS the return value of an in-flight direct
     // construction (`new MyElement()`), whose ctor is already on the stack.
     if (ceName && !suppressUpgrade) upgradeElement(p, ceName);
+    // An iframe's contentWindow crosses as a NON-global Window proxy. Seed its
+    // own constructor set (Event/DOMException/Range/… + JS builtins) the first
+    // time it materializes, so a nested realm resolves
+    // `iframe.contentWindow.DOMException` / cross-frame `instanceof` like a real
+    // browser. The top window is seeded explicitly at install time — the
+    // `globalThis.window` guard skips it (during its own creation the global
+    // isn't assigned yet), and once it is, isGlobalWindow tells the two apart.
+    if (desc.name === "Window" && globalThis.window && !isGlobalWindow(handle)) {
+      try { exposeConstructorsOnWindow(p); } catch (e) { /* best effort */ }
+    }
     return p;
   }
 
