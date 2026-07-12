@@ -132,9 +132,16 @@ module Dommy
     include Bridge::Methods
     js_methods %w[cloneNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition
       appendChild insertBefore removeChild replaceChild
+      lookupNamespaceURI lookupPrefix isDefaultNamespace
       addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
+      when "lookupNamespaceURI"
+        lookup_namespace_uri(args[0])
+      when "lookupPrefix"
+        lookup_prefix(args[0])
+      when "isDefaultNamespace"
+        is_default_namespace(args[0])
       when "cloneNode"
         Attr.new(@name, owner: nil, value: value,
                         namespace_uri: @namespace_uri, prefix: @prefix, local_name: @local_name,

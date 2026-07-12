@@ -169,9 +169,16 @@ module Dommy
     include Bridge::Methods
     js_methods %w[isEqualNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition contains
       cloneNode appendChild insertBefore removeChild replaceChild before after replaceWith remove
+      lookupNamespaceURI lookupPrefix isDefaultNamespace
       addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
       case method
+      when "lookupNamespaceURI"
+        lookup_namespace_uri(args[0])
+      when "lookupPrefix"
+        lookup_prefix(args[0])
+      when "isDefaultNamespace"
+        is_default_namespace(args[0])
       when "cloneNode"
         clone_node(args[0])
       when "hasChildNodes"
@@ -1458,9 +1465,16 @@ module Dommy
       removeEventListener dispatchEvent write writeln open close isEqualNode isSameNode appendChild
       hasChildNodes contains append prepend replaceChildren removeChild insertBefore replaceChild
       cloneNode normalize compareDocumentPosition getRootNode
+      lookupNamespaceURI lookupPrefix isDefaultNamespace
     ]
     def __js_call__(method, args)
       case method
+      when "lookupNamespaceURI"
+        lookup_namespace_uri(args[0])
+      when "lookupPrefix"
+        lookup_prefix(args[0])
+      when "isDefaultNamespace"
+        is_default_namespace(args[0])
       when "getRootNode"
         # A document is its own root (no shadow tree above it), for any options.
         # Exposing this is load-bearing: React's resource hoisting computes its

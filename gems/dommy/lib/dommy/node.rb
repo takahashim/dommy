@@ -359,40 +359,58 @@ module Dommy
     end
 
     HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+    XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
+    XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/"
 
-    # Node.lookupNamespaceURI(prefix) — the namespace bound to `prefix` (or the
-    # default namespace for a null/empty prefix) in this node's scope, walking up
-    # the element ancestors' namespace declarations. HTML elements default to the
-    # XHTML namespace.
+    # Node.lookupNamespaceURI(prefix) — WHATWG "locate a namespace": walk from the
+    # nearest enclosing element up its ancestors, matching the element's own
+    # namespace (by prefix) and its xmlns declarations. `xml` / `xmlns` are
+    # implicitly bound. Non-element scopes (fragment, doctype, disconnected attr)
+    # locate nothing.
     def lookup_namespace_uri(prefix)
       wanted = namespace_prefix_arg(prefix)
-      nk = nearest_namespaceable_node
-      while nk.respond_to?(:element?) && nk.element?
-        Backend.namespace_definitions(nk).each do |d|
-          return d.href if normalize_ns_prefix(d.prefix) == wanted
-        end
-        if wanted.nil?
-          ns = Backend.namespace_of(nk)
-          return ns ? ns.href : HTML_NAMESPACE
-        end
+      el = starting_namespace_element
+      return nil unless el
+      return XML_NAMESPACE if wanted == "xml"
+      return XMLNS_NAMESPACE if wanted == "xmlns"
 
-        nk = nk.parent
+      each_namespace_ancestor(el) do |node|
+        ns = node.namespace_uri
+        return ns if ns && !ns.to_s.empty? && wrapper_prefix(node) == wanted
+
+        node.attributes.each do |attr|
+          next unless attr.namespace_uri == XMLNS_NAMESPACE
+
+          ap = normalize_ns_prefix(attr.__js_get__("prefix"))
+          value = attr.value.to_s
+          if ap == "xmlns" && attr.local_name == wanted
+            return value.empty? ? nil : value
+          elsif ap.nil? && attr.local_name == "xmlns" && wanted.nil?
+            return value.empty? ? nil : value
+          end
+        end
       end
       nil
     end
 
-    # Node.lookupPrefix(namespace) — a prefix bound to `namespace`, or null for
-    # the default namespace.
+    # Node.lookupPrefix(namespace) — WHATWG "locate a prefix": a prefix bound to
+    # `namespace` in this node's scope, or null.
     def lookup_prefix(namespace)
       ns = namespace.to_s
       return nil if ns.empty?
 
-      nk = nearest_namespaceable_node
-      while nk.respond_to?(:element?) && nk.element?
-        Backend.namespace_definitions(nk).each do |d|
-          return d.prefix if d.href == ns && d.prefix
+      el = starting_namespace_element
+      return nil unless el
+
+      each_namespace_ancestor(el) do |node|
+        return wrapper_prefix(node) if node.namespace_uri == ns && wrapper_prefix(node)
+
+        node.attributes.each do |attr|
+          next unless attr.namespace_uri == XMLNS_NAMESPACE
+          next unless normalize_ns_prefix(attr.__js_get__("prefix")) == "xmlns"
+
+          return attr.local_name if attr.value.to_s == ns
         end
-        nk = nk.parent
       end
       nil
     end
@@ -448,7 +466,48 @@ module Dommy
     end
 
     def normalize_ns_prefix(prefix)
-      prefix.nil? || prefix.to_s.empty? ? nil : prefix.to_s
+      return nil if prefix.nil? || prefix.to_s.empty?
+      return nil if defined?(Bridge::UNDEFINED) && prefix.equal?(Bridge::UNDEFINED)
+
+      prefix.to_s
+    end
+
+    # The nearest enclosing element (as a Dommy wrapper) to start a namespace
+    # locate from: the element itself, a character-data/child node's ancestor
+    # element, an attr's owner element, or the document element. A fragment,
+    # doctype, or disconnected node has none.
+    def starting_namespace_element
+      node = self
+      node = node.owner_element if node.respond_to?(:owner_element) # Attr
+      return nil unless node
+      node = node.document_element if node.respond_to?(:document_element) # Document
+
+      while node && !namespace_element?(node)
+        node = node.respond_to?(:parent_node) ? node.parent_node : nil
+      end
+      node
+    end
+
+    def namespace_element?(node)
+      node.respond_to?(:attributes) && node.respond_to?(:namespace_uri) &&
+        node.respond_to?(:__dommy_backend_node__) &&
+        node.__dommy_backend_node__.respond_to?(:element?) &&
+        node.__dommy_backend_node__.element?
+    end
+
+    # Yield `el` and each of its ancestor elements (Dommy wrappers) in turn.
+    def each_namespace_ancestor(el)
+      doc = el.respond_to?(:document) ? el.document : nil
+      while el
+        yield el
+        parent = el.__dommy_backend_node__.parent
+        el = parent && parent.respond_to?(:element?) && parent.element? && doc ? doc.wrap_node(parent) : nil
+      end
+    end
+
+    # An element wrapper's prefix (nil when unprefixed).
+    def wrapper_prefix(node)
+      normalize_ns_prefix(node.__js_get__("prefix"))
     end
 
     def nearest_namespaceable_node
