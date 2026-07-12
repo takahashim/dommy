@@ -2664,7 +2664,7 @@ module Dommy
       getAttribute setAttribute hasAttribute removeAttribute getAttributeNames closest
       getAttributeNS setAttributeNS hasAttributeNS removeAttributeNS getAttributeNodeNS setAttributeNodeNS
       querySelector querySelectorAll getElementsByClassName getElementsByTagName getElementsByTagNameNS
-      insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches
+      insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches webkitMatchesSelector
       toString getAttributeNode setAttributeNode removeAttributeNode focus blur attachShadow
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
       replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
@@ -2734,11 +2734,11 @@ module Dommy
         insert_adjacent_text(args[0], args[1])
       when "toggleAttribute"
         toggle_attribute(args[0], args[1])
-      when "matches"
+      when "matches", "webkitMatchesSelector"
         raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
 
         # WebIDL DOMString: a null selector coerces to "null" (so `<null>` matches),
-        # undefined to "undefined".
+        # undefined to "undefined". webkitMatchesSelector is a legacy alias.
         matches?(args[0].nil? ? "null" : args[0])
       when "isEqualNode"
         is_equal_node(args[0])
