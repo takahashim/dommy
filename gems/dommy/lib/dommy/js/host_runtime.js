@@ -1394,11 +1394,15 @@ globalThis.__rbHost = (function () {
       try {
         const current = w[name];
         // Fill in names the window doesn't resolve at all; AND replace a
-        // host-backed interface object (e.g. window.Event / window.MutationObserver
-        // crossing as a non-constructable Dommy proxy) with the constructable
-        // seeded constructor, so `new document.defaultView.MutationObserver(cb)`
-        // works — in a real window, window.X IS the constructor function X.
-        if (current == null || (typeof current !== "function" && interfaceNames.has(name))) {
+        // host-backed interface object with the constructable seeded constructor,
+        // so `new document.defaultView.MutationObserver(cb)` works — in a real
+        // window, window.X IS the constructor function X. A host-backed interface
+        // crosses as EITHER a non-constructable object OR a callable-but-not-
+        // constructable Constructor proxy (typeof "function"); a nested window
+        // resolves `Event`/`DOMException`/… to the latter, so an interface name is
+        // replaced unconditionally rather than only when it isn't already a
+        // function — else `new cw.Event(...)` throws "not a constructor".
+        if (current == null || interfaceNames.has(name)) {
           Object.defineProperty(w, name, { value: ctor, configurable: true, writable: true });
         }
       } catch (e) { /* non-configurable / frozen — leave as-is */ }
