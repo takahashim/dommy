@@ -486,7 +486,9 @@ module Dommy
         # Validate `name(...)` per the function's argument grammar.
         def consume_function_args!(name, pseudo_element:)
           advance # consume '('
-          arg = consume_function_argument_source
+          # :is()/:where()/:matches() take a forgiving selector list, which may be
+          # empty (matches nothing); other functional pseudos require an argument.
+          arg = consume_function_argument_source(allow_empty: %w[is where matches].include?(name))
           arg_parser = Parser.new(arg, in_has: @in_has, namespaces: @namespaces)
           if pseudo_element
             # ::slotted(<compound>), ::part(<ident>+), ::cue(<selector>), …
@@ -520,7 +522,7 @@ module Dommy
           end
         end
 
-        def consume_function_argument_source
+        def consume_function_argument_source(allow_empty: false)
           skip_ws
           start = @i
           depth = 0
@@ -539,7 +541,7 @@ module Dommy
             advance
           end
           arg = @s[start...@i].to_s.strip
-          fail!("empty function arguments") if arg.empty?
+          fail!("empty function arguments") if arg.empty? && !allow_empty
           advance if peek == ")"
           arg
         end
