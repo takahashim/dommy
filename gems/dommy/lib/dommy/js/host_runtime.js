@@ -246,8 +246,19 @@ globalThis.__rbHost = (function () {
     HTMLElement: {
       m: ["click", "focus", "blur"],
       p: ["title", "lang", "dir", "hidden", "innerText"]
-    }
+    },
+    // Collection interfaces: only the READ-ONLY operations are seeded here, so
+    // the get trap can resolve them straight to these prototype functions
+    // (giving `coll.item === HTMLCollection.prototype.item`, per WebIDL). The
+    // mutating ones (setNamedItem / removeNamedItem…) stay on the epoch-bumping
+    // get-trap path, so they are deliberately absent.
+    HTMLCollection: { m: ["item", "namedItem"] },
+    NodeList: { m: ["item"] },
+    NamedNodeMap: { m: ["item", "getNamedItem", "getNamedItemNS"] }
   };
+  // Read-only collection operations that resolve to their prototype function
+  // (identity + arity) rather than a per-instance get-trap closure.
+  const PROTO_RESOLVED_METHODS = new Set(["item", "namedItem", "getNamedItem", "getNamedItemNS"]);
   // WebIDL `(Node or DOMString)...` variadic operations: each argument is a
   // Node if it's one of our host proxies, otherwise it's ToString-coerced
   // (so `before(null)` inserts the text "null", `before(undefined)` -> "undefined",
@@ -1589,6 +1600,14 @@ globalThis.__rbHost = (function () {
           return rehydrate(__rb_host_get(handle, prop));
         }
         if (methods.has(prop)) {
+          // A read-only collection operation resolves to the interface
+          // prototype's function (so `coll.item === HTMLCollection.prototype.item`
+          // and `.length` is the WebIDL arity). Data property on the proto chain,
+          // so Reflect.get won't re-enter this trap.
+          if ((arrayLike || named) && PROTO_RESOLVED_METHODS.has(prop)) {
+            const protoFn = Reflect.get(t, prop, receiver);
+            if (typeof protoFn === "function") return protoFn;
+          }
           let fn = methodCache.get(prop);
           if (!fn) {
             if (prop === "addEventListener" || prop === "removeEventListener") {
