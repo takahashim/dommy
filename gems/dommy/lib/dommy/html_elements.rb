@@ -4200,7 +4200,9 @@ module Dommy
     end
 
     def content_window
-      @content_document&.default_view
+      # Go through the lazy accessor so a blank browsing context is created on
+      # first `contentWindow` access too (not only via `contentDocument`).
+      content_document&.default_view
     end
 
     def __js_get__(key)
