@@ -310,6 +310,8 @@ module Dommy
     # range, 0 if inside, 1 if after. offset is a WebIDL unsigned long (so -1
     # wraps to a huge value > length → IndexSizeError).
     def compare_point(node, offset)
+      raise Bridge::TypeError, "argument is not a Node" unless node.is_a?(Dommy::Node)
+
       off = unsigned_long(offset)
       raise DOMException::WrongDocumentError, "node is in a different tree" unless same_root?(node)
       raise DOMException::InvalidNodeTypeError, "node is a doctype" if doctype?(node)

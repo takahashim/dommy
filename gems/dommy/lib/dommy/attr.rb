@@ -61,6 +61,14 @@ module Dommy
       @document&.base_uri
     end
 
+    # Node.ownerDocument — the owner element's current document when attached (so
+    # it follows the element across adoptNode), else the creation document.
+    def owner_document
+      return @owner.document if @owner.respond_to?(:document)
+
+      @document
+    end
+
     def value
       if @owner
         if @namespace_uri
@@ -100,6 +108,8 @@ module Dommy
         value
       when "ownerElement"
         @owner
+      when "ownerDocument"
+        owner_document
       when "localName"
         @local_name
       when "namespaceURI"
