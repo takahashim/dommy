@@ -1580,14 +1580,7 @@ module Dommy
     end
 
     def get_elements_by_tag_name(name)
-      n = name.to_s.downcase
-      root = @__node__
-      doc = @document
-      if n == "*"
-        HTMLCollection.new { root.css("*").map { |x| doc.wrap_node(x) }.compact }
-      else
-        HTMLCollection.new { root.css(n).map { |x| doc.wrap_node(x) }.compact }
-      end
+      HTMLCollection.elements_by_tag_name(@__node__, @document, name)
     end
 
     def get_elements_by_tag_name_ns(namespace, local_name)

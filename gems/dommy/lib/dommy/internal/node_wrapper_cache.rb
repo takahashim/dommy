@@ -205,14 +205,7 @@ module Dommy
       end
 
       def get_elements_by_tag_name(name)
-        n = name.to_s.downcase
-        doc = @document.backend_doc
-        cache = self
-        if n == "*"
-          HTMLCollection.new { doc.css("*").map { |x| cache.wrap(x) }.compact }
-        else
-          HTMLCollection.new { doc.css(n).map { |x| cache.wrap(x) }.compact }
-        end
+        HTMLCollection.elements_by_tag_name(@document.backend_doc, @document, name)
       end
 
       def get_elements_by_name(name)

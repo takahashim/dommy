@@ -25,6 +25,56 @@ module Dommy
     # Shared `getElementsByTagNameNS(namespace, localName)` — a live collection
     # of descendants of `root` matching the (namespace, localName) filter, where
     # "*" matches any. An empty-string namespace means the null namespace.
+    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+
+    # WHATWG `getElementsByTagName(qualifiedName)` — a live collection filtered
+    # by qualified name. "*" matches any. In an HTML document, HTML-namespace
+    # elements match case-insensitively (ASCII), while other-namespace elements
+    # (and everything in a non-HTML document) match case-sensitively.
+    def self.elements_by_tag_name(root, document, qualified_name)
+      qn = qualified_name.to_s
+      html_doc = document.respond_to?(:html_document?) ? document.html_document? : true
+      qn_lower = ascii_downcase(qn)
+      new do
+        root.css("*").filter_map do |node|
+          el = document.wrap_node(node)
+          next nil unless el
+          next el if qn == "*"
+
+          el_qn = qualified_name_of(el)
+          el_ns = el.respond_to?(:namespace_uri) ? el.namespace_uri : nil
+          # For an HTML-namespace element in an HTML document, only the QUERY is
+          # ASCII-lowercased — the element's own qualified name is compared as-is
+          # (so an uppercase-localName HTML element, e.g. createElementNS(html,
+          # "I"), never matches "i" or "I").
+          match =
+            if html_doc && el_ns == HTML_NAMESPACE
+              el_qn == qn_lower
+            else
+              el_qn == qn
+            end
+          match ? el : nil
+        end
+      end
+    end
+
+    # The element's qualified name (prefix:localName, or just localName). The
+    # backend node name can't be trusted — the HTML parser lowercases it — so
+    # rebuild it from the case-preserving local name and prefix.
+    def self.qualified_name_of(el)
+      local = el.respond_to?(:local_name) ? el.local_name.to_s : ""
+      prefix = el.respond_to?(:__js_get__) ? el.__js_get__("prefix") : nil
+      prefix = nil if prefix.nil? || prefix.to_s.empty? ||
+                      (defined?(Bridge::UNDEFINED) && prefix.equal?(Bridge::UNDEFINED))
+      prefix ? "#{prefix}:#{local}" : local
+    end
+
+    # ASCII-only lowercase (A-Z -> a-z), leaving non-ASCII code points intact,
+    # per the spec's "converted to ASCII lowercase".
+    def self.ascii_downcase(str)
+      str.gsub(/[A-Z]/) { |c| (c.ord + 32).chr }
+    end
+
     def self.elements_by_tag_name_ns(root, document, namespace, local_name)
       ns = namespace.to_s
       ns_filter = ns == "*" ? :any : (ns.empty? ? nil : ns)
