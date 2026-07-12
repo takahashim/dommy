@@ -29,14 +29,23 @@ module Dommy
       ns = namespace.to_s
       ns_filter = ns == "*" ? :any : (ns.empty? ? nil : ns)
       local = local_name.to_s
+      local_filter = local == "*" ? :any : local
       new do
-        nodes = local == "*" ? root.css("*") : root.css(local)
-        nodes.filter_map do |node|
+        # Match on the element's LOCAL NAME (case-sensitive, exact) and
+        # namespace — NOT a CSS type selector, which is case-insensitive in an
+        # HTML document and keys off the qualified name (so it misses a
+        # prefixed `test:body` and wrongly matches `BODY` for `body`).
+        root.css("*").filter_map do |node|
           el = document.wrap_node(node)
           next nil unless el
 
           el_ns = el.respond_to?(:namespace_uri) ? el.namespace_uri : nil
-          (ns_filter == :any || el_ns == ns_filter) ? el : nil
+          next nil unless ns_filter == :any || el_ns == ns_filter
+
+          el_local = el.respond_to?(:local_name) ? el.local_name : nil
+          next nil unless local_filter == :any || el_local == local_filter
+
+          el
         end
       end
     end
