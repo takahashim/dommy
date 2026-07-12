@@ -546,6 +546,7 @@ module Dommy
         "HashChangeEvent" => Bridge::Constructor.new { |args| HashChangeEvent.new(args[0], args[1]) },
         "SubmitEvent" => Bridge::Constructor.new { |args| SubmitEvent.new(args[0], args[1]) },
         "CloseEvent" => Bridge::Constructor.new { |args| CloseEvent.new(args[0], args[1]) },
+        "UIEvent" => Bridge::Constructor.new { |args| UIEvent.new(args[0], args[1]) },
         "MouseEvent" => Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) },
         "KeyboardEvent" => Bridge::Constructor.new { |args| KeyboardEvent.new(args[0], args[1]) },
         "PromiseRejectionEvent" => Bridge::Constructor.new { |args| PromiseRejectionEvent.new(args[0], args[1]) },

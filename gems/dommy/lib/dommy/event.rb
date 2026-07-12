@@ -630,6 +630,45 @@ module Dommy
     end
   end
 
+  # UIEvent — the base for user-interface events (MouseEvent, KeyboardEvent,
+  # CompositionEvent, …), adding `view` (the associated window) and `detail`.
+  # Carries the legacy `initUIEvent`, which — like initEvent — is a no-op while
+  # the event is being dispatched.
+  class UIEvent < Event
+    def initialize(type, init = nil)
+      super
+      @view = read_init(init, "view")
+      @detail = (read_init(init, "detail") || 0).to_i
+    end
+
+    def __js_get__(key)
+      case key
+      when "view" then @view
+      when "detail" then @detail
+      else super
+      end
+    end
+
+    js_methods %w[initUIEvent]
+    def __js_call__(method, args)
+      case method
+      when "initUIEvent"
+        # Deprecated initUIEvent(type, bubbles=false, cancelable=false, view=null,
+        # detail=0). Mandatory type; a no-op while dispatching.
+        raise Bridge::TypeError, "initUIEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @view = args[3]
+          @detail = (args[4] || 0).to_i
+        end
+        nil
+      else
+        super
+      end
+    end
+  end
+
   # ToggleEvent — fired at a `<details>` (and other poppable elements) when it
   # opens/closes, exposing the transition via `oldState` / `newState`
   # ("open"/"closed"). A plain Event subclass.
@@ -764,7 +803,7 @@ module Dommy
     end
   end
 
-  class MouseEvent < Event
+  class MouseEvent < UIEvent
     def initialize(type, init = nil)
       super
       @button = read_init(init, "button") || 0
@@ -772,6 +811,8 @@ module Dommy
       @shift_key = !!read_init(init, "shiftKey")
       @alt_key = !!read_init(init, "altKey")
       @meta_key = !!read_init(init, "metaKey")
+      @screen_x = read_init(init, "screenX") || 0
+      @screen_y = read_init(init, "screenY") || 0
       @client_x = read_init(init, "clientX") || 0
       @client_y = read_init(init, "clientY") || 0
     end
@@ -788,10 +829,43 @@ module Dommy
         @alt_key
       when "metaKey"
         @meta_key
+      when "screenX"
+        @screen_x
+      when "screenY"
+        @screen_y
       when "clientX"
         @client_x
       when "clientY"
         @client_y
+      else
+        super
+      end
+    end
+
+    js_methods %w[initMouseEvent]
+    def __js_call__(method, args)
+      case method
+      when "initMouseEvent"
+        # Legacy initMouseEvent(type, bubbles, cancelable, view, detail, screenX,
+        # screenY, clientX, clientY, ctrlKey, altKey, shiftKey, metaKey, button,
+        # relatedTarget). A no-op while dispatching.
+        raise Bridge::TypeError, "initMouseEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @view = args[3]
+          @detail = (args[4] || 0).to_i
+          @screen_x = (args[5] || 0).to_i
+          @screen_y = (args[6] || 0).to_i
+          @client_x = (args[7] || 0).to_i
+          @client_y = (args[8] || 0).to_i
+          @ctrl_key = !!args[9]
+          @alt_key = !!args[10]
+          @shift_key = !!args[11]
+          @meta_key = !!args[12]
+          @button = (args[13] || 0).to_i
+        end
+        nil
       else
         super
       end
@@ -819,8 +893,8 @@ module Dommy
     end
   end
 
-  class KeyboardEvent < Event
-    js_methods %w[getModifierState]
+  class KeyboardEvent < UIEvent
+    js_methods %w[getModifierState initKeyboardEvent]
 
     # Legacy keyCode values for non-printable keys (UI Events "keyCode"
     # informative mapping) — jQuery-era code still branches on these.
@@ -908,6 +982,19 @@ module Dommy
         when "Meta" then @meta_key
         else false
         end
+      when "initKeyboardEvent"
+        # Legacy initKeyboardEvent(type, bubbles, cancelable, view, key, location,
+        # modifiersList, repeat, locale). A no-op while dispatching.
+        raise Bridge::TypeError, "initKeyboardEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @view = args[3]
+          @key = args[4].to_s
+          @location = (args[5] || 0).to_i
+          @repeat = !!args[7]
+        end
+        nil
       else
         super
       end
@@ -1191,7 +1278,7 @@ module Dommy
 
   # `CompositionEvent` — IME composition events (compositionstart /
   # compositionupdate / compositionend). `data` holds the composing text.
-  class CompositionEvent < Event
+  class CompositionEvent < UIEvent
     def initialize(type, init = nil)
       super
       @data = (read_init(init, "data") || "").to_s
