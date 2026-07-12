@@ -2789,8 +2789,12 @@ module Dommy
     # inherits `remove()` from ChildNode for self-removal; spec lets
     # both forms coexist via overloading.)
     def remove_option(i)
-      target = options[i.to_i]
-      target&.remove
+      idx = i.to_i
+      # An index out of range (including a negative one) is a no-op — NOT Ruby's
+      # from-the-end negative indexing.
+      return if idx.negative? || idx >= options.length
+
+      options[idx]&.remove
     end
 
     def labels
@@ -2888,7 +2892,7 @@ module Dommy
       end
     end
 
-    js_methods %w[item namedItem add checkValidity reportValidity setCustomValidity]
+    js_methods %w[item namedItem add remove checkValidity reportValidity setCustomValidity]
     def __js_call__(method, args)
       case method
       when "item"
@@ -2897,6 +2901,10 @@ module Dommy
         named_item(args[0])
       when "add"
         add(args[0], args[1])
+      when "remove"
+        # HTMLSelectElement.remove(index) removes an option; with no argument it
+        # is ChildNode.remove() (removes the <select> itself).
+        args.empty? ? super : remove_option(args[0])
       when "checkValidity"
         check_validity
       when "reportValidity"
