@@ -73,6 +73,14 @@ module Dommy
         nil
       end
 
+      # WebIDL nullable DOMString coercion (`DOMString?`): JS null and undefined
+      # both become the null value, which callers treat as the empty string.
+      def nullable_dom_string(value)
+        return "" if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+
+        value.to_s
+      end
+
       private
 
       # Insert `nodes` (raw backend nodes) into `parent` before `ref`, or append

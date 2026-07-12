@@ -57,6 +57,27 @@ module Dommy
       @__node__.text
     end
 
+    def text_content=(value)
+      # Replace all children with a single Text node (nullable: null/undefined
+      # clear with no replacement). Unlink old children so a removed node keeps
+      # its own descendants.
+      removed = @__node__.children.to_a
+      str = nullable_dom_string(value)
+      removed.each(&:unlink)
+      @__node__.add_child(@document.create_text_node(str).__dommy_backend_node__) unless str.empty?
+      notify_child_list(added: @__node__.children.to_a, removed: removed)
+    end
+
+    def __js_set__(key, value)
+      case key
+      when "textContent"
+        self.text_content = value
+        nil
+      else
+        Bridge::UNHANDLED
+      end
+    end
+
     def query_selector(selector)
       return nil if selector.nil?
       ast = Internal::SelectorParser.parse!(selector)
@@ -1246,17 +1267,16 @@ module Dommy
     end
 
     def text_content=(value)
-      # Setting textContent removes all existing children and, only for a
-      # non-empty value, appends a single text node. Capture before/after to
-      # feed MutationObserver. The empty case clears children directly: the
-      # backend's `content=` is the parser's, and Makiri leaves an empty text
-      # node behind for "" (Nokogiri and the DOM produce no node at all).
+      # textContent is a nullable DOMString, so null AND undefined both mean "no
+      # value" -> clear the children with no replacement text. Otherwise replace
+      # all children with a single Text node. Unlink the old children (rather
+      # than the backend's `content=`, which frees their whole subtree) so a
+      # reference to a removed node keeps its own descendants intact.
       removed = @__node__.children.to_a
-      str = value.to_s
-      if str.empty?
-        removed.each(&:unlink)
-      else
-        @__node__.content = str
+      str = nullable_dom_string(value)
+      removed.each(&:unlink)
+      unless str.empty?
+        @__node__.add_child(@document.create_text_node(str).__dommy_backend_node__)
       end
       added = @__node__.children.to_a
       notify_child_list(added: added, removed: removed)
