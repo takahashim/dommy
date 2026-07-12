@@ -117,7 +117,9 @@ module Dommy
     # into nodes (Nuxt's DOM hydration / `<slot>` helpers call it via a Range).
     def create_contextual_fragment(html)
       context = @document.create_element(contextual_local_name)
-      context.inner_html = html.to_s # fragment-parses in the context element
+      # WebIDL DOMString coercion: JS null stringifies to "null" (no
+      # [LegacyNullToEmptyString] here), the UNDEFINED sentinel to "undefined".
+      context.inner_html = html.nil? ? "null" : html.to_s # fragment-parses in the context element
       fragment = @document.create_document_fragment
       context.child_nodes.to_a.each { |child| fragment.append_child(child) }
       fragment
@@ -422,6 +424,9 @@ module Dommy
       when "selectNodeContents"
         select_node_contents(args[0])
       when "createContextualFragment"
+        # WebIDL required argument: a bare call (0 args) throws TypeError.
+        raise Bridge::TypeError, "createContextualFragment requires 1 argument, but only 0 present" if args.empty?
+
         create_contextual_fragment(args[0])
       when "toString"
         to_s
