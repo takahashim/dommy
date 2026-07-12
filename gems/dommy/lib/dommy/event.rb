@@ -638,6 +638,13 @@ module Dommy
     def initialize(type, init = nil)
       super
       @view = read_init(init, "view")
+      # WebIDL: `view` is `Window?`, so a present non-null value that isn't a
+      # Window is a TypeError during dictionary conversion.
+      unless @view.nil? || (defined?(Bridge::UNDEFINED) && @view.equal?(Bridge::UNDEFINED)) ||
+             @view.is_a?(Dommy::Window)
+        raise Bridge::TypeError, "'view' member must be a Window or null"
+      end
+      @view = nil if defined?(Bridge::UNDEFINED) && @view.equal?(Bridge::UNDEFINED)
       @detail = (read_init(init, "detail") || 0).to_i
     end
 
@@ -811,6 +818,8 @@ module Dommy
       @shift_key = !!read_init(init, "shiftKey")
       @alt_key = !!read_init(init, "altKey")
       @meta_key = !!read_init(init, "metaKey")
+      @buttons = read_init(init, "buttons") || 0
+      @related_target = read_init(init, "relatedTarget")
       @screen_x = read_init(init, "screenX") || 0
       @screen_y = read_init(init, "screenY") || 0
       @client_x = read_init(init, "clientX") || 0
@@ -829,6 +838,10 @@ module Dommy
         @alt_key
       when "metaKey"
         @meta_key
+      when "buttons"
+        @buttons
+      when "relatedTarget"
+        @related_target
       when "screenX"
         @screen_x
       when "screenY"
@@ -1331,7 +1344,7 @@ module Dommy
 
   # `FocusEvent` — focus / blur / focusin / focusout. `relatedTarget`
   # is the element gaining/losing focus on the other side.
-  class FocusEvent < Event
+  class FocusEvent < UIEvent
     def initialize(type, init = nil)
       super
       @related_target = read_init(init, "relatedTarget")

@@ -83,6 +83,8 @@ module Dommy
         %w[CloseEvent Event],
         %w[UIEvent Event],
         %w[MouseEvent UIEvent Event],
+        %w[WheelEvent MouseEvent UIEvent Event],
+        %w[FocusEvent UIEvent Event],
         %w[KeyboardEvent UIEvent Event],
         %w[CompositionEvent UIEvent Event],
         %w[PromiseRejectionEvent Event],

@@ -247,6 +247,23 @@ globalThis.__rbHost = (function () {
       m: ["click", "focus", "blur"],
       p: ["title", "lang", "dir", "hidden", "innerText"]
     },
+    // Event interfaces: seed the readonly attributes so they exist on the
+    // prototype (WebIDL) — `("view" in ev)` / hasOwnProperty / getOwnPropertyDescriptor
+    // resolve, and `Object.getPrototypeOf` walks the right chain. The get trap
+    // still answers the value from the host (Ruby __js_get__), so these getters
+    // only drive presence/enumeration, not the value.
+    UIEvent: { g: ["view", "detail"] },
+    MouseEvent: {
+      g: ["screenX", "screenY", "clientX", "clientY", "ctrlKey", "shiftKey",
+        "altKey", "metaKey", "button", "buttons", "relatedTarget"]
+    },
+    KeyboardEvent: {
+      g: ["key", "code", "location", "ctrlKey", "shiftKey", "altKey", "metaKey",
+        "repeat", "isComposing"]
+    },
+    WheelEvent: { g: ["deltaX", "deltaY", "deltaZ", "deltaMode"] },
+    FocusEvent: { g: ["relatedTarget"] },
+    CompositionEvent: { g: ["data"] },
     // Collection interfaces: only the READ-ONLY operations are seeded here, so
     // the get trap can resolve them straight to these prototype functions
     // (giving `coll.item === HTMLCollection.prototype.item`, per WebIDL). The
@@ -1113,7 +1130,16 @@ globalThis.__rbHost = (function () {
           }
         }
       }
-      return constructInterface(name, args);
+      const built = constructInterface(name, args);
+      // A JS subclass (`class Foo extends Event {}`) reaches its base interface
+      // ctor via super(); the base returns a fresh host-backed proxy, which then
+      // becomes the subclass instance. Stamp new.target's prototype so
+      // `new Foo() instanceof Foo` holds (and Foo's added members resolve). Node
+      // subclasses are handled by the construction-stack path above.
+      if (nt !== ctor && !consultsStack && built && typeof built === "object") {
+        Object.setPrototypeOf(built, nt.prototype);
+      }
+      return built;
     };
     Object.defineProperty(ctor, "name", { value: name, configurable: true });
     ctor.prototype = proto;
