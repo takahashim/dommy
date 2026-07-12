@@ -326,7 +326,13 @@ module Dommy
       when "createDocument"
         create_document(args[0], args[1], args[2])
       when "createHTMLDocument"
-        create_html_document(args[0])
+        # title is an OPTIONAL DOMString: a missing or undefined argument leaves
+        # the document title-less, but an explicit null coerces to "null".
+        if args.empty? || args[0].equal?(Bridge::UNDEFINED)
+          create_html_document
+        else
+          create_html_document(args[0].nil? ? "null" : args[0])
+        end
       when "hasFeature"
         has_feature
       end
