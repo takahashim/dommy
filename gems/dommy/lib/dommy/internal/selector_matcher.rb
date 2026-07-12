@@ -358,6 +358,12 @@ module Dommy
         when "hover"
           hovered = element.owner_document&.__internal_hovered_element__
           hovered && (element.equal?(hovered) || element.contains?(hovered))
+        when "invalid" then constraint_invalid?(element)
+        when "valid" then constraint_valid?(element)
+        when "required" then form_control_required?(element)
+        when "optional" then form_control_optional?(element)
+        when "read-only" then read_only_element?(element)
+        when "read-write" then read_write_element?(element)
         when "active", "visited" then false # supported-but-currently-false (no pointer state / history)
         when "dir" then dir_match?(element, pseudo.argument)
         when "target" then element.get_attribute("id").to_s == Internal.target_id(element.owner_document).to_s && !Internal.target_id(element.owner_document).nil?
@@ -640,6 +646,89 @@ module Dommy
 
       def enableable_element?(element)
         %w[button input select textarea optgroup option fieldset].include?(element.local_name.to_s.downcase)
+      end
+
+      # A candidate for constraint validation: a form-associated control whose
+      # `willValidate` is true (not disabled / readonly / barred).
+      def validation_candidate?(element)
+        element.respond_to?(:will_validate) && element.respond_to?(:validity) && element.will_validate
+      end
+
+      # `:invalid` / `:valid` apply to candidates (by their validity) and to a
+      # form / fieldset (by whether any descendant candidate is invalid).
+      def constraint_invalid?(element)
+        name = element.local_name.to_s.downcase
+        if %w[form fieldset].include?(name)
+          descendant_candidates(element).any? { |c| !c.validity.valid }
+        else
+          validation_candidate?(element) && !element.validity.valid
+        end
+      end
+
+      def constraint_valid?(element)
+        name = element.local_name.to_s.downcase
+        if %w[form fieldset].include?(name)
+          descendant_candidates(element).all? { |c| c.validity.valid }
+        else
+          validation_candidate?(element) && element.validity.valid
+        end
+      end
+
+      def descendant_candidates(element)
+        element.query_selector_all("input, select, textarea, button").select do |c|
+          validation_candidate?(c)
+        end
+      end
+
+      # `:required` / `:optional` apply to input / select / textarea per the
+      # `required` attribute.
+      def requirable_element?(element)
+        %w[input select textarea].include?(element.local_name.to_s.downcase)
+      end
+
+      def form_control_required?(element)
+        requirable_element?(element) && element.has_attribute?("required")
+      end
+
+      def form_control_optional?(element)
+        requirable_element?(element) && !element.has_attribute?("required")
+      end
+
+      # `:read-write` matches an editable control (a mutable text input / textarea,
+      # or an element with contenteditable); `:read-only` is its complement over
+      # the elements the pseudo-classes apply to.
+      def read_write_element?(element)
+        name = element.local_name.to_s.downcase
+        if name == "textarea"
+          return !element.has_attribute?("readonly") && !disabled_element?(element)
+        end
+        if name == "input"
+          return false unless mutable_input_type?(element)
+
+          return !element.has_attribute?("readonly") && !disabled_element?(element)
+        end
+        editable_via_contenteditable?(element)
+      end
+
+      def read_only_element?(element)
+        name = element.local_name.to_s.downcase
+        return !read_write_element?(element) if %w[input textarea].include?(name)
+
+        # For other elements, :read-only matches when not editable.
+        !editable_via_contenteditable?(element)
+      end
+
+      # Text-like input types that can be read-write (not button/checkbox/etc.).
+      def mutable_input_type?(element)
+        %w[text search url tel email password date month week time
+           datetime-local number range color].include?(
+             (element.get_attribute("type") || "text").to_s.downcase
+           )
+      end
+
+      def editable_via_contenteditable?(element)
+        v = element.get_attribute("contenteditable")
+        !v.nil? && v.to_s.downcase != "false"
       end
 
       def disabled_element?(element)
