@@ -557,6 +557,7 @@ module Dommy
         substring_data(args[0], args[1])
       when "remove"
         remove
+        Bridge::UNDEFINED # ChildNode#remove is void -> JS undefined, not null
       when "before"
         before(*args)
       when "after"
@@ -2783,6 +2784,7 @@ module Dommy
         inner_html
       when "remove"
         remove
+        Bridge::UNDEFINED # ChildNode#remove is void -> JS undefined, not null
       when "replaceWith"
         child_node_replace_with(args)
       when "click"

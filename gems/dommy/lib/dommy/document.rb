@@ -205,6 +205,7 @@ module Dommy
         replace_with(*args)
       when "remove"
         remove
+        Bridge::UNDEFINED # DocumentType (ChildNode)#remove is void -> JS undefined
       when "normalize"
         nil
       when "addEventListener"
@@ -1226,7 +1227,8 @@ module Dommy
     # Create a Comment node. Wraps the Makiri comment so it flows
     # through the same wrap_node identity machinery as Element / TextNode.
     def create_comment(text)
-      @node_wrapper_cache.create_comment(text)
+      # WebIDL DOMString: JS null coerces to "null" (undefined -> "undefined").
+      @node_wrapper_cache.create_comment(text.nil? ? "null" : text)
     end
 
     def create_cdata_section(text)
@@ -1759,7 +1761,8 @@ module Dommy
     end
 
     def create_text_node(text)
-      @node_wrapper_cache.create_text_node(text)
+      # WebIDL DOMString: JS null coerces to "null" (undefined -> "undefined").
+      @node_wrapper_cache.create_text_node(text.nil? ? "null" : text)
     end
 
     def query_selector(selector)
