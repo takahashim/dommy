@@ -4164,11 +4164,31 @@ module Dommy
       set_reflected_string("height", v.to_s)
     end
 
-    # Dommy doesn't navigate iframes itself, but an integration/test layer can
-    # populate the nested browsing context's document (e.g. parsing the `src`
-    # resource) via `__internal_set_content_document__`.
+    # The nested browsing context's document. An integration/test layer may
+    # inject one via `__internal_set_content_document__` (e.g. the `src`
+    # resource); otherwise a connected iframe gets a lazily-created blank
+    # about:blank document (with its own Window), matching a browser where
+    # `iframe.contentDocument` is non-null once the frame is in a document.
+    # A disconnected iframe has no browsing context, so contentDocument is null.
     def content_document
-      @content_document
+      return @content_document if @content_document
+      return nil unless respond_to?(:is_connected?) && is_connected?
+      # An iframe with a `src` (or `srcdoc`) is navigated by the host / test layer
+      # (Dommy doesn't fetch), which injects the document via
+      # `__internal_set_content_document__`; only a truly blank iframe gets the
+      # auto about:blank document here, so we don't shadow a pending navigation.
+      return nil unless get_attribute("src").to_s.empty? && get_attribute("srcdoc").nil?
+
+      @content_document = build_blank_content_document
+    end
+
+    # Build the blank nested document + its Window, back-linking the Window to
+    # this frame (so getComputedStyle can detect a non-rendered frame's content).
+    def build_blank_content_document
+      win = Window.new(nil, backend_doc: Backend.parse("<!DOCTYPE html><html><head></head><body></body></html>"))
+      doc = win.document
+      win.frame_element = self if win.respond_to?(:frame_element=)
+      doc
     end
 
     def __internal_set_content_document__(doc)
