@@ -217,15 +217,27 @@ module Dommy
         end
       end
 
+      # DOM "ASCII whitespace" (https://infra.spec.whatwg.org/#ascii-whitespace):
+      # TAB, LF, FF, CR, SPACE — NOT Ruby's `\s` (which also matches VT / U+000B)
+      # and NOT any Unicode space (U+00A0, U+2000…). Class tokens split on exactly
+      # this set, so a class of a single U+000B or U+00A0 is ONE token.
+      ASCII_WHITESPACE = /[\t\n\f\r ]+/
+
       def get_elements_by_class_name(name)
-        tokens = name.to_s.split(/\s+/).reject(&:empty?)
+        tokens = name.to_s.split(ASCII_WHITESPACE).reject(&:empty?)
         doc = @document.backend_doc
         cache = self
         HTMLCollection.new do
           next [] if tokens.empty?
 
-          selector = tokens.map { |t| ".#{t}" }.join("")
-          doc.css(selector).map { |n| cache.wrap(n) }.compact
+          # Match class tokens directly rather than composing a `.tok` CSS
+          # selector string — an exotic class token (control chars, Unicode
+          # spaces, quotes) can't be safely embedded in a selector, and the
+          # split must be ASCII-whitespace, not the CSS engine's tokenization.
+          doc.css("[class]").select do |n|
+            classes = n["class"].to_s.split(ASCII_WHITESPACE)
+            tokens.all? { |t| classes.include?(t) }
+          end.map { |n| cache.wrap(n) }.compact
         end
       end
 
