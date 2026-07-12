@@ -1131,12 +1131,14 @@ globalThis.__rbHost = (function () {
         }
       }
       const built = constructInterface(name, args);
-      // A JS subclass (`class Foo extends Event {}`) reaches its base interface
-      // ctor via super(); the base returns a fresh host-backed proxy, which then
-      // becomes the subclass instance. Stamp new.target's prototype so
-      // `new Foo() instanceof Foo` holds (and Foo's added members resolve). Node
-      // subclasses are handled by the construction-stack path above.
-      if (nt !== ctor && !consultsStack && built && typeof built === "object") {
+      // A JS subclass (`class Foo extends Event {}` / `extends EventTarget`)
+      // reaches its base interface ctor via super(); the base returns a fresh
+      // host-backed proxy, which then becomes the subclass instance. Stamp
+      // new.target's prototype so `new Foo() instanceof Foo` holds and Foo's
+      // added members resolve. Node/custom-element subclasses were already
+      // handled (and returned) by the construction-stack / HTMLElement paths
+      // above, so reaching here with nt !== ctor is a plain interface subclass.
+      if (nt !== ctor && built && typeof built === "object") {
         Object.setPrototypeOf(built, nt.prototype);
       }
       return built;

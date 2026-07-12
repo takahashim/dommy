@@ -535,7 +535,9 @@ module Dommy
         @immediate_propagation_stopped = true
         nil
       when "composedPath"
-        @composed_path.dup
+        # composedPath() is the event path only while the event is being
+        # dispatched; once dispatch finishes (currentTarget is null) it is empty.
+        @dispatch_flag ? @composed_path.dup : []
       when "initEvent"
         # WebIDL: the `type` argument is mandatory.
         raise Bridge::TypeError, "initEvent requires a type argument" if args.empty?
