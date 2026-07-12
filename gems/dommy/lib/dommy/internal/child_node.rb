@@ -81,6 +81,21 @@ module Dommy
         value.to_s
       end
 
+      # WebIDL check for `insertBefore(node, child)`: `child` is a required but
+      # nullable Node, so a missing argument or a value that is neither a Node
+      # nor null/undefined is a TypeError before any DOM step runs. Now safe
+      # since the seeded stubs report the correct arity (2), so `.length`-based
+      # WPT helpers always pass the reference argument.
+      def validate_insert_before_ref!(args)
+        raise Bridge::TypeError, "insertBefore requires 2 arguments." if args.length < 2
+
+        ref = args[1]
+        return if ref.nil? || (defined?(Bridge::UNDEFINED) && ref.equal?(Bridge::UNDEFINED))
+        return if ref.is_a?(Dommy::Node)
+
+        raise Bridge::TypeError, "The reference child is not a Node."
+      end
+
       private
 
       # Insert `nodes` (raw backend nodes) into `parent` before `ref`, or append

@@ -174,6 +174,7 @@ module Dommy
       when "removeChild"
         remove_child(args[0])
       when "insertBefore"
+        validate_insert_before_ref!(args)
         insert_before(args[0], args[1])
       when "replaceChild"
         replace_child(args[0], args[1])
@@ -2819,6 +2820,7 @@ module Dommy
       when "appendChild"
         append_child(args[0])
       when "insertBefore"
+        validate_insert_before_ref!(args)
         insert_before(args[0], args[1])
       when "removeChild"
         remove_child(args[0])

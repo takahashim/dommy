@@ -260,16 +260,51 @@ globalThis.__rbHost = (function () {
     return isProxy(arg) ? arg : String(arg);
   }
 
+  // WebIDL operation `length` = the count of required arguments (it stops at the
+  // first optional or variadic one). Our stubs use rest params, so they report 0;
+  // stamp the spec length where a WPT test — or a `.length`-branching helper like
+  // pre-insertion-validation-hierarchy.js — reads it. Names absent here keep 0,
+  // which is already correct for the all-optional / variadic operations
+  // (before/after/append/prepend/getRootNode/cloneNode/normalize/…).
+  const METHOD_ARITY = {
+    isEqualNode: 1, isSameNode: 1, compareDocumentPosition: 1, contains: 1,
+    lookupPrefix: 1, lookupNamespaceURI: 1, isDefaultNamespace: 1,
+    insertBefore: 2, appendChild: 1, replaceChild: 2, removeChild: 1,
+    addEventListener: 2, removeEventListener: 2, dispatchEvent: 1,
+    getAttribute: 1, setAttribute: 2, removeAttribute: 1, hasAttribute: 1,
+    getAttributeNS: 2, setAttributeNS: 3, removeAttributeNS: 2, hasAttributeNS: 2,
+    toggleAttribute: 1, getAttributeNode: 1, getAttributeNodeNS: 2,
+    setAttributeNode: 1, setAttributeNodeNS: 1, removeAttributeNode: 1,
+    attachShadow: 1, closest: 1, matches: 1, webkitMatchesSelector: 1,
+    getElementsByTagName: 1, getElementsByTagNameNS: 2, getElementsByClassName: 1,
+    insertAdjacentElement: 2, insertAdjacentText: 2, insertAdjacentHTML: 2,
+    querySelector: 1, querySelectorAll: 1,
+    substringData: 2, appendData: 1, insertData: 2, deleteData: 2, replaceData: 3,
+    splitText: 1,
+    getElementById: 1, getElementsByName: 1, createElement: 1, createElementNS: 2,
+    createTextNode: 1, createCDATASection: 1, createComment: 1,
+    createProcessingInstruction: 2, createAttribute: 1, createAttributeNS: 2,
+    importNode: 1, adoptNode: 1, createEvent: 1, createNodeIterator: 1, createTreeWalker: 1,
+    item: 1, namedItem: 1, getNamedItem: 1, getNamedItemNS: 2,
+    setNamedItem: 1, setNamedItemNS: 1, removeNamedItem: 1, removeNamedItemNS: 2,
+    replace: 2, toggle: 1, supports: 1,
+  };
+  function withArity(fn, name) {
+    const n = METHOD_ARITY[name];
+    if (n !== undefined) Object.defineProperty(fn, "length", { value: n, configurable: true });
+    return fn;
+  }
+
   // Precompute the shared delegating stubs (created once, reused on every proto).
   function memberMethodStub(name) {
     if (NODE_OR_STRING_METHODS.has(name)) {
-      return function (...args) {
+      return withArity(function (...args) {
         return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args.map(coerceNodeOrString))));
-      };
+      }, name);
     }
-    return function (...args) {
+    return withArity(function (...args) {
       return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args)));
-    };
+    }, name);
   }
   function memberGetStub(name) {
     return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };
@@ -1591,6 +1626,7 @@ globalThis.__rbHost = (function () {
                 }
               };
             }
+            withArity(fn, prop);
             methodCache.set(prop, fn);
           }
           return fn;

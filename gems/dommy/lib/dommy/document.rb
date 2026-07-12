@@ -1508,6 +1508,11 @@ module Dommy
       when "removeChild"
         document_remove_child(args[0])
       when "insertBefore"
+        raise Bridge::TypeError, "insertBefore requires 2 arguments." if args.length < 2
+        unless args[1].nil? || args[1].equal?(Bridge::UNDEFINED) || args[1].is_a?(Dommy::Node)
+          raise Bridge::TypeError, "The reference child is not a Node."
+        end
+
         document_insert_before(args[0], args[1])
       when "replaceChild"
         document_replace_child(args[0], args[1])
