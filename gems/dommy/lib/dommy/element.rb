@@ -1841,16 +1841,26 @@ module Dommy
     # `el.insertAdjacentElement(position, element)` — DOM spec positions:
     # "beforebegin", "afterbegin", "beforeend", "afterend". Returns the
     # inserted element or nil if position has no anchor (root cases).
+    ADJACENT_POSITIONS = %w[beforebegin afterbegin beforeend afterend].freeze
+
     def insert_adjacent_element(position, element)
+      # Position is an ASCII case-insensitive enum; anything else is a SyntaxError
+      # (checked before the node coercion / anchor lookup, per spec).
+      pos = position.to_s.downcase
+      unless ADJACENT_POSITIONS.include?(pos)
+        raise DOMException::SyntaxError, "'#{position}' is not a valid insertAdjacent position."
+      end
       return nil unless element.respond_to?(:__dommy_backend_node__)
 
-      case position.to_s
+      case pos
       when "beforebegin"
-        return nil unless @__node__.parent
+        parent = @__node__.parent
+        return nil unless parent
 
+        validate_adjacent_document_insert!(parent, element)
         node = detach_for_insert(element)
         @__node__.add_previous_sibling(node)
-        notify_child_list(added: [node], target: @__node__.parent)
+        notify_child_list(added: [node], target: parent)
       when "afterbegin"
         node = detach_for_insert(element)
         first = @__node__.children.first
@@ -1861,16 +1871,25 @@ module Dommy
         @__node__.add_child(node)
         notify_child_list(added: [node])
       when "afterend"
-        return nil unless @__node__.parent
+        parent = @__node__.parent
+        return nil unless parent
 
+        validate_adjacent_document_insert!(parent, element)
         node = detach_for_insert(element)
         @__node__.add_next_sibling(node)
-        notify_child_list(added: [node], target: @__node__.parent)
-      else
-        return nil
+        notify_child_list(added: [node], target: parent)
       end
 
       element
+    end
+
+    # beforebegin / afterend insert a sibling — when this element's parent is the
+    # document, that would add a second document child, so run the document's
+    # WHATWG pre-insertion hierarchy check (a second root element is rejected).
+    def validate_adjacent_document_insert!(parent, element)
+      return unless parent == @document.backend_doc
+
+      @document.ensure_document_insertion_validity!([element], @__node__)
     end
 
     def insert_adjacent_html(position, html)
@@ -2718,7 +2737,9 @@ module Dommy
       when "matches"
         raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
 
-        matches?(args[0])
+        # WebIDL DOMString: a null selector coerces to "null" (so `<null>` matches),
+        # undefined to "undefined".
+        matches?(args[0].nil? ? "null" : args[0])
       when "isEqualNode"
         is_equal_node(args[0])
       when "isSameNode"

@@ -1798,7 +1798,9 @@ module Dommy
     end
 
     def get_element_by_id(id)
-      @node_wrapper_cache.get_element_by_id(id)
+      # WebIDL DOMString: a null argument coerces to "null" (so it can match an
+      # element with id="null"); undefined already stringifies to "undefined".
+      @node_wrapper_cache.get_element_by_id(id.nil? ? "null" : id)
     end
 
     # ----- template content helpers (called from Element) -----
