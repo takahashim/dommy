@@ -128,7 +128,14 @@ module Dommy
       to_a.find do |el|
         next false unless el.respond_to?(:__dommy_backend_node__)
 
-        el.__dommy_backend_node__["id"].to_s == key || el.__dommy_backend_node__["name"].to_s == key
+        node = el.__dommy_backend_node__
+        # `id` matches any element; `name` matches only HTML-namespace elements
+        # (WebIDL supported property names), so a null-namespace element's
+        # `name` attribute isn't a supported name.
+        next true if node["id"].to_s == key
+
+        html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == "http://www.w3.org/1999/xhtml"
+        html_ns && node["name"].to_s == key
       end
     end
 
