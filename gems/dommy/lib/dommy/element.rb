@@ -645,6 +645,30 @@ module Dommy
       3
     end
 
+    # WHATWG Text.wholeText — the concatenated data of this node together with
+    # its contiguous, logically-adjacent Text / CDATASection siblings (node
+    # types 3 and 4), in document order.
+    def whole_text
+      run = [@__node__]
+      prev = @__node__.previous
+      while prev && [3, 4].include?(prev.node_type)
+        run.unshift(prev)
+        prev = prev.previous
+      end
+      nxt = @__node__.next
+      while nxt && [3, 4].include?(nxt.node_type)
+        run.push(nxt)
+        nxt = nxt.next
+      end
+      run.map { |bn| bn.content.to_s }.join
+    end
+
+    def __js_get__(key)
+      return whole_text if key == "wholeText"
+
+      super
+    end
+
     # Own __js_call__ methods, on top of CharacterDataNode's.
     js_methods %w[cloneNode]
     def __js_call__(method, args)
