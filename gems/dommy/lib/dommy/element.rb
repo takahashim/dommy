@@ -399,9 +399,19 @@ module Dommy
     # Extract `count` UTF-16 code units from `str` starting at code unit
     # `offset`. Slicing on the UTF-16LE byte buffer keeps astral characters
     # intact for the offsets these APIs actually produce.
+    #
+    # If the range starts or ends inside a surrogate pair the result would be a
+    # lone (unpaired) surrogate. JS strings can hold those; a Ruby UTF-8 String
+    # cannot, so re-raise the raw encoding error as a clear, intentional message
+    # rather than leaking "\xDF on UTF-16LE" to the caller. This is a Dommy
+    # limitation and, since splitting a surrogate pair signals a UTF-16 offset
+    # bug in the caller, failing loud is deliberate.
     def utf16_slice(str, offset, count)
       buf = str.encode(Encoding::UTF_16LE)
       buf.byteslice(offset * 2, count * 2).encode(Encoding::UTF_8, Encoding::UTF_16LE)
+    rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
+      raise "cannot split a UTF-16 surrogate pair: the requested range would " \
+            "produce a lone surrogate, which Dommy cannot represent"
     end
 
     def substring_data(offset, count)
