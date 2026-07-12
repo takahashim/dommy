@@ -22,9 +22,12 @@ module Dommy
       nil
     end
 
-    def initialize(name, owner: nil, value: "", namespace_uri: nil, prefix: nil, local_name: nil)
+    def initialize(name, owner: nil, value: "", namespace_uri: nil, prefix: nil, local_name: nil, document: nil)
       qname = name.to_s
       @owner = owner
+      # The node document (for baseURI/ownerDocument when detached from an
+      # element). Owned attrs derive it from their owner instead.
+      @document = document
       @detached_value = value.to_s
       if namespace_uri && !namespace_uri.to_s.empty?
         # Namespaced attributes preserve case and carry prefix / localName.
@@ -48,6 +51,14 @@ module Dommy
     # The Element this attr is on, or nil if detached.
     def owner_element
       @owner
+    end
+
+    # Node.baseURI — the node document's base URL. Derived from the owner
+    # element when attached, else the document the attr was created in.
+    def base_uri
+      return @owner.base_uri if @owner.respond_to?(:base_uri)
+
+      @document&.base_uri
     end
 
     def value
@@ -97,6 +108,8 @@ module Dommy
         @prefix
       when "nodeType"
         2
+      when "baseURI"
+        base_uri
       when "specified"
         # Legacy/useless attribute — always true (WHATWG DOM).
         true
@@ -124,7 +137,8 @@ module Dommy
       case method
       when "cloneNode"
         Attr.new(@name, owner: nil, value: value,
-                        namespace_uri: @namespace_uri, prefix: @prefix, local_name: @local_name)
+                        namespace_uri: @namespace_uri, prefix: @prefix, local_name: @local_name,
+                        document: @document || (@owner.respond_to?(:document) ? @owner.document : nil))
       when "isSameNode"
         is_same_node(args[0])
       when "getRootNode"

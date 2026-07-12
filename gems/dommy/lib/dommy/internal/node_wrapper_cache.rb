@@ -115,14 +115,14 @@ module Dommy
         # WHATWG createAttribute: an HTML document lower-cases the name (an XML
         # document preserves it). Attr.new no longer folds case, so do it here.
         str = str.downcase if @document.html_document?
-        Attr.new(str)
+        Attr.new(str, document: @document)
       end
 
       def create_attribute_ns(namespace_uri, qualified_name)
         namespace_uri = nil if namespace_uri.equal?(Bridge::UNDEFINED)
         qualified_name = domstring(qualified_name)
         ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name)
-        Attr.new(qualified_name, namespace_uri: ns, prefix: prefix, local_name: local)
+        Attr.new(qualified_name, namespace_uri: ns, prefix: prefix, local_name: local, document: @document)
       end
 
       def create_element_ns(namespace_uri, qualified_name)
