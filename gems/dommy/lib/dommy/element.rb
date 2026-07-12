@@ -103,6 +103,10 @@ module Dommy
         last_element_child
       when "textContent"
         @__node__.text
+      when "parentNode", "parentElement"
+        # A DocumentFragment is never inserted, so it has no parent (null, not
+        # undefined).
+        nil
       when "ownerDocument"
         @document
       else
@@ -324,6 +328,12 @@ module Dommy
       @__node__.parent && @document.wrap_node(@__node__.parent)
     end
 
+    # parentElement is the parent only when it is an element (a document or
+    # fragment parent is a parentNode but not a parentElement).
+    def parent_element
+      @document.wrap_node(@__node__.parent) if @__node__.parent&.element?
+    end
+
     def next_sibling
       @__node__.next && @document.wrap_node(@__node__.next)
     end
@@ -443,6 +453,8 @@ module Dommy
         length
       when "parentNode"
         parent_node
+      when "parentElement"
+        parent_element
       when "ownerDocument"
         @document
       when "nextSibling"
