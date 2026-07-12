@@ -760,6 +760,9 @@ module Dommy
     def import_node(node, deep = false)
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
+      # WebIDL `optional boolean deep = false`: a missing / undefined argument
+      # is the default (false / shallow), not a truthy sentinel.
+      deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
       copy = clone_into_doc(node.__dommy_backend_node__, deep)
       wrap_node(copy)
     end
@@ -1067,7 +1070,7 @@ module Dommy
     def document_insert(args, prepend:)
       ref_bn = prepend ? @backend_doc.children.first : nil
       ensure_document_insertion_validity!(args, ref_bn)
-      nodes = args.filter_map { |a| backend_node(a) }
+      nodes = args.filter_map { |a| adopted_backend_node(a) }
       if prepend && (first = @backend_doc.children.first)
         nodes.reverse_each { |n| first.add_previous_sibling(n) }
       else
@@ -1081,7 +1084,7 @@ module Dommy
       # checks ignore them (whatwg/dom#1045).
       ensure_document_insertion_validity!(args, nil, ignore_existing: true)
       @backend_doc.children.each(&:unlink)
-      args.filter_map { |a| backend_node(a) }.each { |n| @backend_doc.add_child(n) }
+      args.filter_map { |a| adopted_backend_node(a) }.each { |n| @backend_doc.add_child(n) }
       nil
     end
 
@@ -1107,7 +1110,7 @@ module Dommy
       end
 
       ensure_document_insertion_validity!([node], ref_bn)
-      bn = backend_node(node)
+      bn = adopted_backend_node(node)
       return node unless bn
 
       ref_node = ref && backend_node(ref)
@@ -1176,6 +1179,21 @@ module Dommy
 
     def backend_node(node)
       node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
+    end
+
+    # Like `backend_node`, but first adopts a node that belongs to another
+    # document (per the insert steps) — the document-child insert paths
+    # (append / prepend / replaceChildren / insertBefore) need this exactly as
+    # `append_child` does, otherwise a cross-document node's backend node comes
+    # from a foreign arena and the insertion silently drops it on a backend that
+    # can't move nodes across documents (Makiri).
+    def adopted_backend_node(node)
+      return nil unless node.respond_to?(:__dommy_backend_node__)
+
+      if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
+        node = adopt_node(node)
+      end
+      node.__dommy_backend_node__
     end
 
     # Delegate to CookieJar
