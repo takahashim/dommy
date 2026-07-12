@@ -11,7 +11,7 @@ gem "dommy-rails", path: "gems/dommy-rails"
 
 # HTML parser backend (Lexbor-based). Published on RubyGems; for makiri
 # development, uncomment the `path:` override to use a local sibling checkout.
-gem "makiri", ">= 0.7.0"
+gem "makiri", ">= 0.8.0"
 # gem "makiri", path: "../makiri"
 
 # Shared dev tooling.

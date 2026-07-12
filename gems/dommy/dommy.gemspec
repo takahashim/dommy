@@ -26,7 +26,7 @@ Gem::Specification.new do |spec|
   # Default HTML parser backend. 0.7.0 adds the DocumentType factory
   # (create_document_type on HTML+XML documents, case-preserving) + doctype-insert
   # guard that Dommy's DocumentType tree integration / createDocument(Type) rely on.
-  spec.add_dependency "makiri", ">= 0.7.0"
+  spec.add_dependency "makiri", ">= 0.8.0"
   # used for window.btoa / atob
   spec.add_dependency "base64"
 end
