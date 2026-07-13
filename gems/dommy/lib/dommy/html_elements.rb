@@ -1363,9 +1363,10 @@ module Dommy
       @__validity ||= ValidityState.new(self)
     end
 
-    # Buttons don't participate in constraint validation (per spec).
+    # Only a submit button is a candidate for constraint validation; reset /
+    # button types are barred, as are disabled controls and datalist descendants.
     def will_validate
-      false
+      type == "submit" && !disabled && closest("datalist").nil?
     end
 
     def validation_message
@@ -2155,21 +2156,40 @@ module Dommy
   class HTMLTextAreaElement < HTMLElement
     reflect_string :name, :placeholder, :wrap, :autocomplete
     # Own __js_call__ methods, on top of Element's.
+
+    # The API value is the "raw value" — the dirty value once set (a wrapper-level
+    # flag, NOT a content attribute, so `setAttribute("value", …)` can't touch it),
+    # otherwise the default value (the element's child text content).
     def value
-      @__node__["value"] || text_content
+      @__value_dirty ? @__value.to_s : default_value
     end
 
     def value=(v)
-      @__node__["value"] = v.to_s
-      self.text_content = v.to_s
+      @__value = v.to_s
+      @__value_dirty = true
     end
 
+    # defaultValue is the child text content; setting it (or `text`) leaves the
+    # dirty value flag alone.
     def default_value
       text_content
     end
 
     def default_value=(v)
       self.text_content = v
+    end
+
+    # HTML cloning steps: copy the dirty value flag + raw value so a clone keeps
+    # the user-entered text rather than reverting to the default (child text).
+    def __cloning_state__
+      @__value_dirty ? { value: @__value, dirty: true } : nil
+    end
+
+    def __apply_cloning_state__(state)
+      return unless state[:dirty]
+
+      @__value = state[:value]
+      @__value_dirty = true
     end
 
     def rows

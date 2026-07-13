@@ -129,9 +129,13 @@ class TestHTMLTextAreaElement < Minitest::Test
   end
 
   def test_value_set_round_trip
+    default = @ta.text_content
     @ta.value = "replaced"
     assert_equal("replaced", @ta.value)
-    assert_equal("replaced", @ta.text_content)
+    # Per spec the value setter sets only the raw/dirty value; the child text
+    # (defaultValue) is left untouched.
+    assert_equal(default, @ta.text_content)
+    assert_equal(default, @ta.default_value)
   end
 
   def test_rows_cols_attrs
