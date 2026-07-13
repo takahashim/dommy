@@ -3170,11 +3170,16 @@ module Dommy
       # that metadata — routing the interface class by the local name and
       # reapplying tagName/localName/prefix/namespaceURI. Otherwise the clone loses
       # its prefix/case and resolves to HTMLUnknownElement.
-      if @__ns_qname
-        @document.wrap_cloned_element_ns(copy, @__ns_uri, @__ns_prefix, @__ns_local, @__ns_qname)
-      else
-        @document.wrap_node(copy)
-      end
+      clone =
+        if @__ns_qname
+          @document.wrap_cloned_element_ns(copy, @__ns_uri, @__ns_prefix, @__ns_local, @__ns_qname)
+        else
+          @document.wrap_node(copy)
+        end
+      # HTML cloning steps: propagate form-control dirty state (an input's value /
+      # checkedness, …) that lives on the wrapper, not the backend node.
+      @document.__internal_apply_cloning_steps__(@__node__, copy, deep_arg)
+      clone
     end
 
     # Test inspector for scroll calls (no real layout to scroll).

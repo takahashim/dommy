@@ -850,6 +850,29 @@ module Dommy
       end
     end
 
+    # HTML "cloning steps": a cloned node copies interface-specific live state
+    # that the content attributes don't capture — an input's dirty value and
+    # checkedness, a textarea's dirty value, etc. Dommy keeps that state on the
+    # Ruby wrapper (not the backend node), and a deep backend clone never calls
+    # the descendants' clone_node, so walk the original and cloned subtrees in
+    # lockstep and copy each live wrapper's cloning state onto its copy. `deep`
+    # false processes only the root (a shallow clone has no children).
+    def __internal_apply_cloning_steps__(src_root_bn, clone_root_bn, deep)
+      src_nodes = deep ? collect_subtree_nodes(src_root_bn) : [src_root_bn]
+      clone_nodes = deep ? collect_subtree_nodes(clone_root_bn) : [clone_root_bn]
+      return unless src_nodes.length == clone_nodes.length
+
+      src_nodes.zip(clone_nodes).each do |orig, copy|
+        wrapper = @node_wrapper_cache.peek(orig)
+        next unless wrapper.respond_to?(:__cloning_state__)
+
+        state = wrapper.__cloning_state__
+        next if state.nil?
+
+        @node_wrapper_cache.wrap(copy).__apply_cloning_state__(state)
+      end
+    end
+
     # A subtree's nodes in document (depth-first) order — the order Backend.adopt
     # preserves — so a source node and its imported copy line up by index.
     def collect_subtree_nodes(root)

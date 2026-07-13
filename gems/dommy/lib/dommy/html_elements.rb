@@ -1237,6 +1237,26 @@ module Dommy
       end
     end
 
+    # HTML "cloning steps" for input: the dirty value flag + value and the dirty
+    # checkedness flag + checkedness (plus indeterminate) — the user-modified
+    # state a clone must retain beyond the default* content attributes. Returns
+    # nil when the control is still pristine, so the walk skips it.
+    def __cloning_state__
+      state = {}
+      state[:value] = @__value unless @__value.nil?
+      state[:raw_value] = @__raw_value unless @__raw_value.nil?
+      state[:checked] = @__checked unless @__checked.nil?
+      state[:indeterminate] = @__indeterminate unless @__indeterminate.nil?
+      state.empty? ? nil : state
+    end
+
+    def __apply_cloning_state__(state)
+      @__value = state[:value] if state.key?(:value)
+      @__raw_value = state[:raw_value] if state.key?(:raw_value)
+      @__checked = state[:checked] if state.key?(:checked)
+      @__indeterminate = state[:indeterminate] if state.key?(:indeterminate)
+    end
+
     # HTMLInputElement.list — the <datalist> referenced by the `list` content
     # attribute (resolved by id, first element in tree order). Null when there
     # is no `list` attribute, no element with that id, or the referenced element
