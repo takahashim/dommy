@@ -303,6 +303,26 @@ globalThis.__rbHost = (function () {
     return isProxy(arg) ? arg : String(arg);
   }
 
+  // Setting an on* content attribute at runtime (`el.setAttribute("onclick",
+  // code)`) must compile+activate the handler synchronously, exactly like the
+  // boot-time inline-handler wiring (script_boot). Mirrors its scope chain —
+  // [element, form owner, document] — so `onclick="getElementById(…)"` or a
+  // form control's bare member resolve, and assigns via the on* IDL setter
+  // (el.onclick = fn), which the proxy routes to the Ruby handler registry.
+  // A null code (removeAttribute) clears the handler. Invalid source is ignored.
+  function wireInlineHandler(el, name, code) {
+    try {
+      if (code == null) { el[name] = null; return; }
+      let src = "with(this){\n" + String(code) + "\n}";
+      try { if (el.form) src = "with(this.form){\n" + src + "\n}"; } catch (e) { /* no form owner */ }
+      src = "with(document){\n" + src + "\n}";
+      let fn;
+      try { fn = new Function("event", src); }
+      catch (e) { fn = new Function("event", String(code)); } // fall back to plain scope
+      el[name] = fn;
+    } catch (e) { /* syntactically invalid handler: skip, non-fatal */ }
+  }
+
   // WebIDL operation `length` = the count of required arguments (it stops at the
   // first optional or variadic one). Our stubs use rest params, so they report 0;
   // stamp the spec length where a WPT test — or a `.length`-branching helper like
@@ -1672,6 +1692,22 @@ globalThis.__rbHost = (function () {
               };
             } else if (nodeChain && (prop === "getAttribute" || prop === "hasAttribute")) {
               fn = (name) => cachedAttrRead(prop, name);
+            } else if (nodeChain && (prop === "setAttribute" || prop === "removeAttribute")) {
+              // Mutating attribute op; additionally, an on* attribute set/removed
+              // at runtime (re)compiles or clears the inline event handler.
+              fn = function (...args) {
+                bumpDomEpoch();
+                try {
+                  const r = rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+                  const attr = String(args[0] == null ? "" : args[0]);
+                  if (/^on[a-z]/i.test(attr)) {
+                    wireInlineHandler(this, attr.toLowerCase(), prop === "removeAttribute" ? null : args[1]);
+                  }
+                  return r;
+                } finally {
+                  bumpDomEpoch();
+                }
+              };
             } else if (NON_MUTATING_METHODS.has(prop)) {
               fn = (...args) => rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
             } else if (NODE_OR_STRING_METHODS.has(prop)) {
