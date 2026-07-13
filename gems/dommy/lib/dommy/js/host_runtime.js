@@ -1374,7 +1374,10 @@ globalThis.__rbHost = (function () {
         return constructInterface(alias, args);
       };
       Object.defineProperty(ctor, "name", { value: alias, configurable: true });
-      ctor.prototype = proto; // share the interface prototype -> instanceof works
+      // Share the interface prototype (so `new Image() instanceof HTMLImageElement`)
+      // as a non-writable/enumerable/configurable own property, per WebIDL — a
+      // constructor's `prototype` is not writable.
+      Object.defineProperty(ctor, "prototype", { value: proto, writable: false, enumerable: false, configurable: false });
       globalThis[alias] = ctor;
     }
   }
