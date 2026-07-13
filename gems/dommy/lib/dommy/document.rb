@@ -510,7 +510,16 @@ module Dommy
     end
 
     def head
-      wrap_node(@backend_doc.at_css("head"))
+      # The first `head` element child of the document element in the HTML
+      # namespace (readonly — assignment is a no-op, see __js_set__). Not just
+      # `at_css("head")`, which searches the whole tree and ignores namespace.
+      root = document_element
+      return nil unless root
+
+      root.child_nodes.to_a.find do |c|
+        c.respond_to?(:local_name) && c.local_name == "head" &&
+          c.respond_to?(:namespace_uri) && c.namespace_uri == "http://www.w3.org/1999/xhtml"
+      end
     end
 
     # Resolve `body` fresh from the tree (not memoized) so it tracks a swapped
@@ -1495,6 +1504,10 @@ module Dommy
         # `document.location = url` navigates, same as `location.href = url`.
         loc = @default_view&.__js_get__("location")
         loc&.__js_set__("href", value)
+      when "head", "documentElement"
+        # Readonly attributes: assignment is a silent no-op. Handle it here so the
+        # bridge doesn't store a JS-side expando that would shadow the getter.
+        nil
       else
         return Bridge::UNHANDLED
       end
