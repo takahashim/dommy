@@ -150,6 +150,12 @@ module Dommy
   class HTMLAnchorElement < HTMLElement
     include HyperlinkActivation
     reflect_string :target, :download, :rel, :hreflang, :type
+
+    # WebIDL stringifier: `String(anchor)` / `anchor.toString()` is its href (the
+    # resolved absolute URL), not the element's serialization.
+    def to_s
+      anchor_href
+    end
     # URL-decomposition helpers. The anchor's `href` is resolved to
     # an absolute URL (inherited from Element#anchor_href); break it
     # into the standard components on demand.
