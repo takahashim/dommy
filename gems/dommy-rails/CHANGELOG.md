@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-07-13
 
 ### Changed
 - The browser-spec teardown disposes the whole session (`dispose`), not just the JS runtime, so WebSocket transports opened by a spec are closed too.
