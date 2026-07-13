@@ -9,6 +9,27 @@ module Dommy
   class HTMLElement < Element
     include Internal::ReflectedAttributes
 
+    # WHATWG "actually disabled": a form control is disabled if it (or an
+    # ancestor <fieldset disabled>) is disabled — EXCEPT a control within that
+    # fieldset's first <legend> child is NOT disabled by the fieldset. This drives
+    # willValidate / constraint validation (the `:disabled` selector has its own
+    # equivalent in SelectorMatcher).
+    def disabled_by_ancestor_fieldset?
+      node = parent_element
+      while node
+        if node.local_name.to_s.casecmp?("fieldset") && node.has_attribute?("disabled")
+          legend = node.child_nodes.to_a.find do |c|
+            c.respond_to?(:local_name) && c.local_name.to_s.casecmp?("legend")
+          end
+          return false if legend&.contains?(self)
+
+          return true
+        end
+        node = node.parent_element
+      end
+      false
+    end
+
     # Shared "limited to only non-negative numbers" long reflection (maxLength /
     # minLength on input and textarea): a missing / negative / non-numeric
     # content attribute reads as -1; assigning a negative value throws.
@@ -1164,6 +1185,7 @@ module Dommy
     # Disabled / hidden / button-type inputs return false.
     def will_validate
       return false if reflected_boolean("disabled")
+      return false if disabled_by_ancestor_fieldset?
       return false if reflected_boolean("readonly")
       return false if %w[hidden button submit reset image].include?(type)
       # A control with a datalist ancestor is barred from constraint validation.
@@ -1372,7 +1394,7 @@ module Dommy
     # Only a submit button is a candidate for constraint validation; reset /
     # button types are barred, as are disabled controls and datalist descendants.
     def will_validate
-      type == "submit" && !disabled && closest("datalist").nil?
+      type == "submit" && !disabled && !disabled_by_ancestor_fieldset? && closest("datalist").nil?
     end
 
     def validation_message
@@ -2270,7 +2292,8 @@ module Dommy
     end
 
     def will_validate
-      !reflected_boolean("disabled") && !reflected_boolean("readonly") && closest("datalist").nil?
+      !reflected_boolean("disabled") && !disabled_by_ancestor_fieldset? &&
+        !reflected_boolean("readonly") && closest("datalist").nil?
     end
 
     def validation_message
@@ -2872,7 +2895,7 @@ module Dommy
     end
 
     def will_validate
-      !reflected_boolean("disabled") && closest("datalist").nil?
+      !reflected_boolean("disabled") && !disabled_by_ancestor_fieldset? && closest("datalist").nil?
     end
 
     def validation_message
