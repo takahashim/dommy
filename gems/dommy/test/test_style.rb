@@ -56,12 +56,16 @@ class TestStyle < Minitest::Test
   def test_remove_property_via_js_call
     @el.style.css_text = "color:red"
     @el.style.__js_call__("removeProperty", ["color"])
-    refute(@el.has_attribute?("style"))
+    # Per CSSOM, clearing the last property serializes the declaration back to an
+    # EMPTY style attribute — it stays present (removed only via removeAttribute).
+    assert(@el.has_attribute?("style"))
+    assert_equal("", @el.get_attribute("style"))
   end
 
-  def test_set_property_to_nil_removes
+  def test_set_property_to_nil_keeps_empty_attribute
     @el.style.css_text = "color:red"
     @el.style.color = nil
-    refute(@el.has_attribute?("style"))
+    assert(@el.has_attribute?("style"))
+    assert_equal("", @el.get_attribute("style"))
   end
 end

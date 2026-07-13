@@ -1252,11 +1252,12 @@ module Dommy
     end
 
     def write_properties(props)
-      if props.empty?
-        @element.remove_attribute("style") if @element.__dommy_backend_node__.key?("style")
-      else
-        @element.set_attribute("style", serialize_properties(props))
-      end
+      # Per CSSOM, mutating an inline style declaration serializes it back to the
+      # `style` content attribute. An emptied declaration serializes to "" and
+      # the attribute STAYS present (style="") — it is removed only via an
+      # explicit removeAttribute("style"), never as a side effect of clearing the
+      # last property.
+      @element.set_attribute("style", serialize_properties(props))
     end
   end
 
