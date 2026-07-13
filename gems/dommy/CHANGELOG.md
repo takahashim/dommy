@@ -1,22 +1,62 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-07-13
 
 ### Added
-- **Keyboard interaction:** `Driver#send_keys` types named keys (`:enter`, `:arrow_down`, …) or strings through the full browser event sequence — cancelable `keydown` / `keypress` / `beforeinput`, character insertion, `input`, `keyup` — with browser default actions (typing into text fields, Backspace deletion, Enter's implicit form submission / textarea newline).
-- **IME composition:** `Driver#ime_input` drives the canonical composition sequence (`Process` keydowns with keyCode 229, `compositionstart` / `update` / `end`, non-cancelable `insertCompositionText` input pairs with `isComposing: true`), with commit / cancel and a per-update block for passing virtual time mid-composition. `CompositionEvent` is exposed to JS realms.
-- **Focus semantics:** `Element#focus` / `#blur` run the real focusing steps — `document.activeElement` moves, and `blur` / `focusout` fire on the previously focused element before `focus` / `focusin` (with `relatedTarget`), skipping already-focused and disabled targets.
-- **KeyboardEvent legacy surface:** `keyCode` / `charCode` / `which`, plus `code`, `repeat`, `location`, `isComposing`, and `getModifierState`.
-- **WebSocket transport seam:** `Window#websocket_connector` lets a host own a `new WebSocket(url)` connection through `__transport_*__` lifecycle callbacks (dommy-rack connects same-origin sockets to the Rack app); unhandled URLs keep the in-memory stub.
-- **History host seam:** `History` notifies a host of `pushState` / `replaceState` / traversal (with an absolute-index traversal API), so an embedding session can mirror same-document navigation; `Window#history` is now a public reader.
+
+#### Navigation
+- Page navigation now happens: clicking a link, assigning `location`/`location.href`, and submitting a form (`form.submit()` / `requestSubmit()`, or pressing Enter) trigger real transitions. Your app owns them through a navigation delegate; cross-document navigation loads the target and replaces the document, and `<meta http-equiv=refresh>` is honored.
+
+#### Networking (fetch / XHR)
+- `fetch` follows redirects and enforces CORS — preflight, credentials, the `same-origin` / `no-cors` / `cors` modes, and response filtering — and sends the default headers a browser adds.
+- `XMLHttpRequest` supports the standard `readyState` flow, `responseType`, and request bodies (string, `Blob`, `ArrayBuffer`, typed arrays), with UTF-8/BOM-aware JSON responses.
+
+#### Forms & validation
+- Constraint validation across control types: `checkValidity` / `reportValidity` / `validity` cover `valueMissing`, `tooLong` / `tooShort`, `rangeOverflow` / `rangeUnderflow`, `stepMismatch`, `patternMismatch`, `typeMismatch`, `badInput`, and `customError` (including email and `pattern`). `willValidate` accounts for disabled controls, controls inside a `<fieldset disabled>`, and non-submit buttons.
+- `<input>`: `valueAsNumber`, `stepUp` / `stepDown` (number/range/date/time/month/week), radio-group behavior, a text-selection API, and `.list` (the associated `<datalist>`).
+- `<select>` / `<option>` selection model and options collection; `<textarea>` value vs. `defaultValue`; `<meter>` / `<progress>` value clamping; `form.elements` with named access (`form.controlName`); labelable elements and `label.control`.
+- Cloning a form keeps user input — a cloned `<input>` / `<textarea>` retains its current value and checked state instead of reverting to the defaults.
+
+#### Tables
+- The table DOM API is available: `caption` / `createCaption` / `deleteCaption`, `tHead` / `tFoot` / `tBodies` / `createTBody`, `rows` / `insertRow` / `deleteRow`, `cells` / `insertCell` / `deleteCell`, and `rowIndex` / `sectionRowIndex` / `cellIndex`.
+
+#### Events & interaction
+- Inline handlers (`onclick="…"`) run, including handlers added at runtime with `setAttribute`, and a handler's return value is honored (`return false` cancels the default action).
+- **Keyboard:** `Driver#send_keys` types text and named keys (`:enter`, `:arrow_down`, …) through the full key-event sequence with browser default actions (typing, Backspace, Enter to submit / insert a newline).
+- **IME:** `Driver#ime_input` drives a composition sequence (`compositionstart` / `update` / `end`, `CompositionEvent`) with commit and cancel.
+- **Focus:** `Element#focus` / `#blur` move `document.activeElement` and fire `blur` / `focusout` then `focus` / `focusin`.
+- More event types are available to JavaScript — `UIEvent`, `MouseEvent`, `KeyboardEvent` (with `keyCode` / `charCode` / `which`, `code`, `getModifierState`, …), `WheelEvent`, `FocusEvent`, `CompositionEvent` — and subclassing `Event` / `EventTarget` works.
+- `<details>` fires `toggle` (with exclusive-accordion grouping by `name`); `<dialog>` fires `close` and reports an error from `showModal` when already open.
+- Host integration seams: `Window#websocket_connector` lets your app back `new WebSocket(url)`, and `History` reports `pushState` / `replaceState` / traversal so a session can mirror navigation (`Window#history` is now readable).
+
+#### DOM & JavaScript
+- Broader, spec-aligned DOM: `ChildNode` `before` / `after` / `replaceWith`, insertion hierarchy validation, `DocumentType` in the tree, `cloneNode` namespace preservation, `Text.wholeText`, `document.head`, `Range.createContextualFragment`, `Attr.baseURI` / `ownerDocument`, `lookupNamespaceURI` / `lookupPrefix`, `lang` / `translate`, `ShadowRoot.activeElement` / `styleSheets`, `Text.assignedSlot`, and anchor stringification (`String(a) === a.href`).
+- Custom elements: `customElements.define` and direct `new MyElement()` construction.
+- A blank `<iframe>` now has a working `contentDocument` / `contentWindow` with its own constructors.
+- `getElementsByClassName` / `getElementsByTagName` / `HTMLCollection.namedItem` follow the standard matching rules.
+
+#### Selectors & CSS
+- New selectors: `:valid` / `:invalid` / `:required` / `:optional` / `:read-only` / `:read-write`; `:is()` / `:where()` accept an empty list.
+
+#### Accessibility
+- ARIA element-reference reflection (e.g. `ariaActiveDescendantElement`) with scope validation.
+
+### Changed
+- Some previously lenient behaviors are now spec-correct and may change observed results:
+  - Setting a `<textarea>`'s `value` no longer changes its child text (its default value).
+  - Mutating an element's inline `style` keeps the `style` attribute present (empty `style=""` rather than removing it).
+  - `document.head` is read-only and resolves to the first HTML `<head>` child of the document element.
+  - `td` / `th` `cellIndex` is `-1` unless its direct parent is a `<tr>`.
+  - `document.title` collapses only ASCII whitespace; `Document` / `DocumentFragment` `nodeValue` is `null`; `btoa(null)` encodes `"null"`; `location.port` is empty for a default port.
 
 ### Fixed
-- URL / form decoding no longer depends on stdlib CGI: `URLSearchParams` and `decodeURIComponent` use the in-house WHATWG percent-decoder. Fixes a `NameError` on Ruby 3.3 (with `cgi/escape` under Ruby 4.0), and `decodeURIComponent` now correctly leaves `+` literal.
-- `encodeURIComponent` keeps the full JS unreserved set (`- _ . ! ~ * ' ( )`) literal; `ERB::Util.url_encode` (the previous implementation) percent-encoded `! ~ * ' ( )`.
+- URL / form decoding no longer relies on the stdlib CGI library (fixes a `NameError` on Ruby 3.3 and under Ruby 4.0). `decodeURIComponent` leaves `+` literal, and `encodeURIComponent` keeps the full JavaScript unreserved set (`- _ . ! ~ * ' ( )`) literal.
 
 ### Performance
-- Constant Node properties (nodeType, tagName, …) are cached per JS proxy, cutting host bridge crossings.
-- Element attribute snapshots are cached with DOM-epoch invalidation.
+- Faster selector matching and DOM queries, from cached selector parsing and cached DOM reads.
+
+### Dependencies
+- Requires `makiri >= 0.8.0`.
 
 ## 0.9.0 — 2026-06-22
 
