@@ -35,6 +35,6 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   spec.add_dependency "capybara", ">= 3.40"
-  spec.add_dependency "dommy", "~> 0.9.0"
-  spec.add_dependency "dommy-rack", "~> 0.9.0"
+  spec.add_dependency "dommy", "~> 0.10.0"
+  spec.add_dependency "dommy-rack", "~> 0.10.0"
 end
