@@ -3392,8 +3392,10 @@ module Dommy
   class HTMLTableCellElement < HTMLElement
     reflect_string :headers, :scope, :abbr
     def cell_index
-      row = closest("tr")
-      return -1 unless row
+      # cellIndex is the position in the DIRECT parent row's cells — -1 unless the
+      # cell's immediate parent is a tr (a cell nested in a non-tr is not indexed).
+      row = parent_element
+      return -1 unless row.is_a?(HTMLTableRowElement)
 
       row.cells.find_index { |c| c.__dommy_backend_node__ == @__node__ } || -1
     end
