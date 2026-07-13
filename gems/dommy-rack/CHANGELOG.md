@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-07-13
 
 ### Added
-- **In-process WebSockets:** a same-origin `new WebSocket(url)` on a page connects to the Rack app itself — a real RFC 6455 handshake over `rack.hijack` with a socketpair, so ActionCable's full stack (cookie auth, origin check, cable event loop) runs unmodified and Turbo Streams broadcasts work in tests. Frames are parsed by a dedicated `WebSocketFrame` codec; server events marshal onto the page thread through the scheduler. Cross-origin URLs keep the in-memory stub.
-- **Joint session/window history:** same-document (`pushState`) entries appear in the session history and `current_url`, and `Session#back` / `#forward` traverse them via `popstate` on the live page (Turbo Drive's restoration path) while document boundaries still re-request — matching a browser tab's single history list. JS-initiated traversal (`history.back()`) keeps the session cursor in sync, and operations from a navigated-away window are ignored.
+- **In-process WebSockets:** a same-origin `new WebSocket(url)` on a page connects to the Rack app itself over a real RFC 6455 handshake, so ActionCable's full stack (cookie auth, origin check, cable event loop) runs unmodified and Turbo Streams broadcasts work in tests. Cross-origin URLs keep the in-memory stub.
+- **Joint session/window history:** same-document (`pushState`) navigations appear in the session history and `current_url`, and `Session#back` / `#forward` traverse them on the live page (Turbo Drive's restoration path) while document boundaries still re-request — matching a browser tab's single history list. JS-initiated traversal (`history.back()`) stays in sync.
 - `Session#dispose` — full teardown (JS runtimes plus live WebSocket transports); `#dispose_js` remains JS-only.
 
 ### Fixed
