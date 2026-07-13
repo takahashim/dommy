@@ -1230,9 +1230,23 @@ module Dommy
         max_length
       when "minLength"
         min_length
+      when "list"
+        list
       else
         super
       end
+    end
+
+    # HTMLInputElement.list — the <datalist> referenced by the `list` content
+    # attribute (resolved by id, first element in tree order). Null when there
+    # is no `list` attribute, no element with that id, or the referenced element
+    # is not a <datalist>.
+    def list
+      id = get_attribute("list")
+      return nil if id.nil? || id.empty?
+
+      element = @document.get_element_by_id(id)
+      element.is_a?(HTMLDataListElement) ? element : nil
     end
 
     def __js_set__(key, value)
