@@ -35,6 +35,7 @@ module Dommy
             when :console then "CONSOLE [#{data[:level]}] #{data[:text]}"
             when :js_error then "JS_ERROR #{data[:message]}"
             when :dom then dom(data)
+            when :span then "SPAN [#{data[:kind]}] #{data[:label]} (#{data[:duration_ms]}ms)"
             else "#{event.type.to_s.upcase} #{compact(data)}"
             end
           end

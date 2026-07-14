@@ -191,13 +191,19 @@ module Dommy
           path: env["PATH_INFO"],
           query: presence(env["QUERY_STRING"])
         }
+        # Expose this trace to in-app instrumentation (dommy-rails subscribes
+        # to ActiveSupport::Notifications and buffers spans here) for the
+        # duration of the request. Requests run synchronously on this thread.
+        @pending_spans = []
+        Thread.current[:__dommy_active_trace__] = self
         nil
       end
 
       def __internal_on_response(response)
         request = @pending_request || {}
         @pending_request = nil
-        __internal_emit(:http, {
+        Thread.current[:__dommy_active_trace__] = nil
+        http = __internal_emit(:http, {
           method: request[:method],
           path: request[:path] || path_of(response.url),
           query: request[:query],
@@ -206,6 +212,37 @@ module Dommy
           location: response.location_header,
           set_cookie: response.set_cookie_strings.map { |raw| cookie_name(raw) }
         })
+        __internal_flush_spans(http)
+      end
+
+      # Buffer an inside-the-request span (controller/db/render — anything an
+      # instrumentation layer measured). Emitted as completed span events,
+      # parented to the enclosing :http event, when the response arrives —
+      # spans finish before the response exists, so they can't reference it
+      # any earlier.
+      def __internal_record_span__(kind:, label:, duration_ms:, data: nil)
+        return if @level == :off || @pending_spans.nil?
+
+        @pending_spans << {kind: kind.to_s, label: label.to_s,
+                           duration_ms: duration_ms.to_f.round(2), data: data}
+        nil
+      end
+      # The instrumentation entry point (reached via the thread-local) must be
+      # callable from outside; the surrounding seams stay private.
+      public :__internal_record_span__
+
+      def __internal_flush_spans(http_event)
+        spans = @pending_spans
+        @pending_spans = nil
+        return if spans.nil? || spans.empty? || http_event.nil?
+
+        spans.each do |span|
+          payload = {kind: span[:kind], label: span[:label],
+                     duration_ms: span[:duration_ms], parent: http_event.seq}
+          payload.merge!(span[:data]) if span[:data]
+          __internal_emit(:span, payload)
+        end
+        nil
       end
 
       def __internal_on_document(window)
