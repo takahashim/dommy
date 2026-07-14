@@ -2305,7 +2305,7 @@ module Dommy
         # document's own `fragment` (as TemplateContentRegistry does) rather than
         # `document_fragment_class.new`, so it works on backends whose fragment
         # class isn't directly instantiable (Makiri).
-        @backend_doc.fragment("")
+        Parser.fragment("", owner_doc: @backend_doc)
       else
         # Fallback: serialize + reparse via fragment for unusual types.
         fragment = Parser.fragment(source.to_html, owner_doc: @backend_doc)
@@ -2335,7 +2335,7 @@ module Dommy
       content_nodes = src_frag ? src_frag.children.to_a : Backend.template_content_nodes(source)
       return if content_nodes.empty?
 
-      frag = @backend_doc.fragment("")
+      frag = Parser.fragment("", owner_doc: @backend_doc)
       content_nodes.each { |n| frag.add_child(clone_into_doc(n, true)) }
       @template_content_registry.store(copy, frag)
     end

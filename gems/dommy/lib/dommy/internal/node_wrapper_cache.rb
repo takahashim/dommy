@@ -18,6 +18,11 @@ module Dommy
       def initialize(document)
         @document = document
         @wrappers = {}
+        # Identity recycling (see #wrap) needs a transient node to free, and
+        # transient nodes come from fragment parses. While no fragment parse
+        # has happened since this cache was born, a hit needs no liveness
+        # validation — skipping its backend round trip.
+        @initial_fragment_generation = Parser.fragment_generation
         # Memoizes document-rooted CSS query results within a DOM generation.
         # querySelector(All) over a large tree is a full descendant walk, yet a
         # heavy page issues the SAME selector hundreds of times between mutations
@@ -48,7 +53,13 @@ module Dommy
         # clone resolving to a cached TextNode). Validate cheaply via nodeType —
         # compared against a static class→type map so we never dereference the
         # cached wrapper's (possibly freed) backend node — and rebuild on a miss.
-        return cached if cached && cached_wrapper_live?(cached, node)
+        # No fragment parse since this cache was born means nothing transient
+        # could have been cached or recycled, so the validation (a backend
+        # round trip per hit) is skipped entirely.
+        if cached
+          return cached if @initial_fragment_generation == Parser.fragment_generation ||
+                           cached_wrapper_live?(cached, node)
+        end
 
         wrapper = build_wrapper_for(node)
         @wrappers[key] = wrapper if wrapper
@@ -129,7 +140,7 @@ module Dommy
       end
 
       def create_document_fragment
-        wrap_node(@document.backend_doc.fragment(""))
+        wrap_node(Parser.fragment("", owner_doc: @document.backend_doc))
       end
 
       def create_attribute(name)

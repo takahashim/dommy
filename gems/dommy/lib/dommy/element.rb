@@ -3530,7 +3530,7 @@ module Dommy
     # after), so running them would move live Range / NodeIterator positions for
     # a purely internal round trip.
     def matches_detached_node?(node, selector)
-      node.document.fragment("").add_child(node)
+      Parser.fragment("", owner_doc: node.document).add_child(node)
       node.matches?(selector)
     ensure
       node.unlink
