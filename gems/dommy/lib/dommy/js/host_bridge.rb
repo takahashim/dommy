@@ -280,6 +280,14 @@ module Dommy
         # ever registered for it process-wide dispatches here in ONE crossing,
         # and the JS side skips its epoch bumps — nothing could have mutated
         # the DOM. Anything else returns fast:false and takes the classic path.
+        # Type-only variant for JS-side events (docs/js-side-events-design.md):
+        # true when a dispatch of this type can run entirely JS-side (namespaced
+        # type, no listener ever registered for it).
+        @backend.define_host_function("__rb_host_event_fast") do |type|
+          count_crossing(:__rb_host_event_fast)
+          t = type.to_s
+          t.include?(":") && !Dommy::EventTarget.__internal_type_listened__?(t)
+        end
         @backend.define_host_function("__rb_host_dispatch_fast") do |handle, event_handle|
           dom_guard do
             target = host(handle)

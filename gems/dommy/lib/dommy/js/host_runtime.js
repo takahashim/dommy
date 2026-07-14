@@ -907,7 +907,13 @@ globalThis.__rbHost = (function () {
       // A host byte buffer tagged as an ArrayBuffer (Response/Blob/FileReader/
       // XHR arrayBuffer) rehydrates to a bare ArrayBuffer.
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
-      if ("__rb_handle" in v) return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+      if ("__rb_handle" in v) {
+        // A dispatch-in-flight host twin resolves to its JS event, so a
+        // listener's argument IS the object the caller constructed.
+        const jsEvent = jsEventByHandle.get(v.__rb_handle);
+        if (jsEvent !== undefined) return jsEvent;
+        return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+      }
       // An opaque JS-value reference round-tripping back from Ruby — restore the
       // exact original object (identity-preserving).
       if ("__rb_js_ref" in v) return jsRefs.get(v.__rb_js_ref);
@@ -959,7 +965,13 @@ globalThis.__rbHost = (function () {
       if ("__rb_js_ref" in v) return jsRefs.get(v.__rb_js_ref);
       if (v.__rb_bytes) return new Uint8Array(v.__rb_bytes);
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
-      if ("__rb_handle" in v) return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+      if ("__rb_handle" in v) {
+        // A dispatch-in-flight host twin resolves to its JS event, so a
+        // listener's argument IS the object the caller constructed.
+        const jsEvent = jsEventByHandle.get(v.__rb_handle);
+        if (jsEvent !== undefined) return jsEvent;
+        return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+      }
       const out = {};
       for (const k of Object.keys(v)) out[k] = wasmUntag(v[k]);
       return out;
@@ -1192,7 +1204,129 @@ globalThis.__rbHost = (function () {
     return [type, dict];
   }
 
+  // ===== JS-side Event/CustomEvent (docs/js-side-events-design.md) =====
+  // `new Event/CustomEvent` builds a pure-JS object on the seeded interface
+  // prototype — no crossing. A host twin is materialized only when a dispatch
+  // takes the slow (listened) path; while it's in flight, live state
+  // (defaultPrevented/eventPhase/target/…) delegates to the twin, and
+  // jsEventByHandle lets rehydrate hand listeners the IDENTICAL JS object.
+  const JS_EVENT = Symbol("dommyJsEvent");
+  const jsEventByHandle = new Map(); // twin handle -> JS event, during dispatch
+  // Shared accessor/method functions (WPT checks e.g. the isTrusted getter is
+  // the SAME function across instances), reading state via this[JS_EVENT].
+  const jsEventState = (self) => self[JS_EVENT];
+  const JS_EVENT_MEMBERS = {
+    type: { get: function () { return jsEventState(this).type; } },
+    bubbles: { get: function () { return jsEventState(this).bubbles; } },
+    cancelable: { get: function () { return jsEventState(this).cancelable; } },
+    composed: { get: function () { return jsEventState(this).composed; } },
+    timeStamp: { get: function () { return jsEventState(this).timeStamp; } },
+    defaultPrevented: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.defaultPrevented : s.canceled;
+    } },
+    eventPhase: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.eventPhase : 0;
+    } },
+    target: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.target : s.target;
+    } },
+    srcElement: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.target : s.target;
+    } },
+    currentTarget: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.currentTarget : null;
+    } },
+    returnValue: {
+      get: function () { const s = jsEventState(this); return s.host ? s.host.returnValue : !s.canceled; },
+      set: function (v) {
+        const s = jsEventState(this);
+        if (s.host) { s.host.returnValue = v; return; }
+        // Legacy: falsy cancels (when cancelable); truthy does not un-cancel.
+        if (!v && s.cancelable) s.canceled = true;
+      },
+    },
+    cancelBubble: {
+      get: function () { const s = jsEventState(this); return s.host ? s.host.cancelBubble : s.stopped; },
+      set: function (v) { if (v) this.stopPropagation(); },
+    },
+    preventDefault: { value: function () {
+      const s = jsEventState(this);
+      if (s.host) { s.host.preventDefault(); return; }
+      if (s.cancelable) s.canceled = true;
+    } },
+    stopPropagation: { value: function () {
+      const s = jsEventState(this);
+      if (s.host) s.host.stopPropagation();
+      s.stopped = true;
+    } },
+    stopImmediatePropagation: { value: function () {
+      const s = jsEventState(this);
+      if (s.host) s.host.stopImmediatePropagation();
+      s.stopped = true;
+    } },
+    // Legacy re-init: a no-op while the event is being dispatched.
+    initEvent: { value: function (type, bubbles, cancelable) {
+      const s = jsEventState(this);
+      if (s.host) return;
+      s.type = String(type);
+      s.bubbles = !!bubbles;
+      s.cancelable = !!cancelable;
+      s.canceled = false;
+      s.stopped = false;
+      s.target = null;
+    } },
+    // Outside dispatch the composed path is empty per spec.
+    composedPath: { value: function () {
+      const s = jsEventState(this); return s.host ? s.host.composedPath() : [];
+    } },
+  };
+  const JS_EVENT_DETAIL = { get: function () { return jsEventState(this).detail; }, enumerable: true, configurable: true };
+  const JS_EVENT_INIT_CUSTOM = { value: function (type, bubbles, cancelable, detail) {
+    const s = jsEventState(this);
+    if (s.host) return; // no-op while dispatching, like initEvent
+    this.initEvent(type, bubbles, cancelable);
+    s.detail = detail === undefined ? null : detail;
+  }, writable: true, enumerable: false, configurable: true };
+  // [LegacyUnforgeable]: an own, non-configurable accessor, like host events'.
+  const JS_EVENT_IS_TRUSTED = { get: function () { return false; }, enumerable: true, configurable: false };
+
+  function makeJsEvent(name, type, dict) {
+    const ev = Object.create(protos.get(name));
+    const nowv = (typeof performance === "object" && performance !== null &&
+      typeof performance.now === "function") ? performance.now() : 0;
+    const state = {
+      name, type,
+      bubbles: dict.bubbles === true, cancelable: dict.cancelable === true,
+      composed: dict.composed === true,
+      detail: "detail" in dict ? dict.detail : null,
+      // Strictly positive: creation always follows the time origin, but the
+      // clock's first read can round to 0 (WPT asserts timeStamp > 0).
+      timeStamp: nowv > 0 ? nowv : 0.001,
+      canceled: false, stopped: false, target: null, host: null,
+    };
+    Object.defineProperty(ev, JS_EVENT, { value: state });
+    // Own members shadow the seeded prototype stubs, which delegate through
+    // a host handle this object doesn't have.
+    for (const key of Object.keys(JS_EVENT_MEMBERS)) {
+      const m = JS_EVENT_MEMBERS[key];
+      const d = { configurable: true };
+      if (m.value) { d.value = m.value; d.writable = true; d.enumerable = false; }
+      else { d.get = m.get; d.enumerable = true; if (m.set) d.set = m.set; }
+      Object.defineProperty(ev, key, d);
+    }
+    if (name === "CustomEvent") {
+      Object.defineProperty(ev, "detail", JS_EVENT_DETAIL);
+      Object.defineProperty(ev, "initCustomEvent", JS_EVENT_INIT_CUSTOM);
+    }
+    Object.defineProperty(ev, "isTrusted", JS_EVENT_IS_TRUSTED);
+    return ev;
+  }
+
   function constructInterface(name, args) {
+    if (name === "Event" || name === "CustomEvent") {
+      const coerced = coerceConstructorArgs(name, args);
+      return makeJsEvent(name, coerced[0], coerced[1]);
+    }
     const r = rehydrate(__rb_construct(name, dehydrateArgs(coerceConstructorArgs(name, args))));
     if (r == null) throw new TypeError("Illegal constructor");
     return r;
@@ -1853,6 +1987,44 @@ globalThis.__rbHost = (function () {
               // the post-dispatch read doesn't cross either. Everything else
               // falls back to the classic bump-and-call path.
               fn = function (ev) {
+                const state = ev !== null && typeof ev === "object" ? ev[JS_EVENT] : undefined;
+                if (state !== undefined) {
+                  if (state.host) {
+                    throw new globalThis.DOMException(
+                      "The event is already being dispatched.", "InvalidStateError");
+                  }
+                  // Unlistened namespaced type: dispatch entirely JS-side —
+                  // the only crossing is the type check itself.
+                  if (typeof globalThis.__rb_host_event_fast === "function" &&
+                      __rb_host_event_fast(state.type) === true) {
+                    state.target = this;
+                    return state.canceled !== true;
+                  }
+                  // Slow path: materialize the host twin (carrying over any
+                  // pre-set canceled/stopped state), register it so listeners
+                  // receive THIS JS object, dispatch, then fold the final
+                  // state back and drop the twin.
+                  const init = { bubbles: state.bubbles, cancelable: state.cancelable, composed: state.composed };
+                  if (state.name === "CustomEvent") init.detail = state.detail;
+                  const twin = rehydrate(__rb_construct(state.name, dehydrateArgs([state.type, init])));
+                  if (state.canceled) twin.preventDefault();
+                  if (state.stopped) twin.stopPropagation();
+                  jsEventByHandle.set(twin[HKEY], ev);
+                  state.host = twin;
+                  bumpDomEpoch();
+                  try {
+                    const r = rehydrate(__rb_host_call(handle, prop, dehydrateArgs([twin])));
+                    // dispatchEvent returns !canceled — fold it back without
+                    // re-reading the twin's defaultPrevented.
+                    state.canceled = r !== true;
+                    return r;
+                  } finally {
+                    bumpDomEpoch();
+                    state.target = twin.target;
+                    jsEventByHandle.delete(twin[HKEY]);
+                    state.host = null;
+                  }
+                }
                 if (isProxy(ev) && typeof globalThis.__rb_host_dispatch_fast === "function") {
                   const r = __rb_host_dispatch_fast(handle, ev[HKEY]);
                   if (r && typeof r === "object" && r.fast === true) {
