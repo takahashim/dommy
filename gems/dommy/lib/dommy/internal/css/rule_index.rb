@@ -480,7 +480,10 @@ module Dommy
 
           classes = element.get_attribute("class").to_s
           unless classes.empty?
-            classes.split.uniq.each { |token| @bucket_class[token]&.each(&block) }
+            # HTML ASCII whitespace, exactly as the buckets were filled and as
+            # class_tokens / class_attr_token? split (Ruby's default split
+            # adds \v, which is NOT a class separator — "a\vb" is ONE token).
+            classes.split(/[ \t\n\f\r]+/).uniq.each { |token| @bucket_class[token]&.each(&block) }
           end
 
           @bucket_universal.each(&block)
