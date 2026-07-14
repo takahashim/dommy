@@ -220,13 +220,17 @@ module Dommy
       # Emit one event, gated by the recording level, and return it (or nil if
       # gated out). `seq` is the canonical order; `t` is the virtual clock if a
       # window exists.
-      def __internal_emit(type, data, name: nil, window: nil)
+      # `artifact:` carries the event's captured content (a DOM snapshot); it
+      # is stored BEFORE the event streams, so a live stream's write-time
+      # lookup (StreamingArtifacts) sees it.
+      def __internal_emit(type, data, name: nil, window: nil, artifact: nil)
         return if @level == :off
         return if REALM_TYPES.include?(type) && @level != :verbose
 
         @seq += 1
         event = Event.new(seq: @seq, t: window&.scheduler&.now_ms, wall_ms: monotonic_ms, type: type,
           name: name, action_seq: @action_seq, data: data)
+        @artifacts[event.seq] = artifact if artifact
         @events << event
         __internal_stream(event)
         event
@@ -335,10 +339,9 @@ module Dommy
         html = @session.document&.to_html
         return unless html
 
-        event = __internal_emit(:artifact,
+        __internal_emit(:artifact,
           {kind: "dom_snapshot", label: "DOM #{@session.current_url}", content_type: "text/html"},
-          window: window)
-        @artifacts[event.seq] = html if event
+          window: window, artifact: html)
       end
 
       # --- DOM observation ---
