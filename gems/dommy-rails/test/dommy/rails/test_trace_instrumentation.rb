@@ -47,6 +47,35 @@ module Dommy
         TraceInstrumentation.install!
         assert_equal false, TraceInstrumentation.install!
       end
+
+      FakeJob = Struct.new(:queue_name)
+      FakeBind = Struct.new(:name)
+
+      def wider_app
+        lambda do |_env|
+          ::ActiveSupport::Notifications.instrument("enqueue.active_job", job: FakeJob.new("mailers")) {}
+          ::ActiveSupport::Notifications.instrument("deliver.action_mailer", mailer: "UserMailer") {}
+          ::ActiveSupport::Notifications.instrument("sql.active_record",
+            name: "User Load", sql: "SELECT * FROM users WHERE email = ? AND password = ?",
+            binds: [FakeBind.new("email"), FakeBind.new("password")],
+            type_casted_binds: ["a@example.com", "secret"]) {}
+          [200, {"Content-Type" => "text/html"}, ["<html><body>ok</body></html>"]]
+        end
+      end
+
+      def test_job_mail_and_opted_in_masked_binds
+        TraceInstrumentation.install!(binds: true)
+        session = Dommy::Rack::Session.new(wider_app, trace: true)
+        session.visit "/x"
+
+        spans = session.trace.events.select { |e| e.type == :span }
+        labels = spans.map { |s| [s.data[:kind], s.data[:label]] }
+        assert labels.any? { |kind, label| kind == "job" && label.end_with?("FakeJob") && label.start_with?("enqueue") }
+        assert_includes labels, %w[mail UserMailer]
+
+        db = spans.find { |s| s.data[:kind] == "db" }
+        assert_equal({"email" => "a@example.com", "password" => "[FILTERED]"}, db.data[:binds])
+      end
     end
   end
 end

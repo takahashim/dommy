@@ -72,6 +72,9 @@ module Dommy
       def browser
         @dommy_browser ||= begin
           require "dommy/js/quickjs/rack"
+          # Rails-internals spans (controller/SQL/render/job/mail) on every
+          # traced request; idempotent, no-op without ActiveSupport.
+          Dommy::Rails::TraceInstrumentation.install!
           ::Dommy::Rack::Session.new(dommy_browser_app, javascript: true, trace: true, trace_dom: true,
             trace_snapshots: true)
         end
