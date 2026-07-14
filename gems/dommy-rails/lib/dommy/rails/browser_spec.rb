@@ -25,8 +25,14 @@ module Dommy
       def self.included(base)
         if base.respond_to?(:after)
           base.after do |example|
-            dommy_browser_after(failed: example.exception ? true : false,
+            dir = dommy_browser_after(failed: example.exception ? true : false,
               label: example.full_description, exception: example.exception)
+            # Point the failure output at the saved bundle and the one command
+            # that opens it in the standalone viewer.
+            if dir && example.respond_to?(:metadata)
+              (example.metadata[:extra_failure_lines] ||= []) <<
+                "Trace bundle: #{dir}" << "View it with: dommylizer #{::File.join(dir, "trace.ndjson")}"
+            end
           end
         end
       end
@@ -34,18 +40,21 @@ module Dommy
       # Minitest teardown hook (no-op outside Minitest).
       def after_teardown
         failures = respond_to?(:failures) ? self.failures : []
-        dommy_browser_after(failed: !failures.empty?, label: (name if respond_to?(:name)),
+        dir = dommy_browser_after(failed: !failures.empty?, label: (name if respond_to?(:name)),
           exception: failures.first)
+        warn "Trace bundle: #{dir}\nView it with: dommylizer #{::File.join(dir, "trace.ndjson")}" if dir
       ensure
         super if defined?(super)
       end
 
       # On a failed example, write debugging artifacts (page HTML + trace +
       # visible text) before disposing, then run the normal teardown. Shared by
-      # the RSpec and Minitest hooks.
+      # the RSpec and Minitest hooks. Returns the artifacts directory (nil when
+      # nothing was saved).
       def dommy_browser_after(failed:, label: nil, exception: nil)
-        dommy_save_failure_artifacts(label, exception: exception) if failed && browser_started?
+        dir = (dommy_save_failure_artifacts(label, exception: exception) if failed && browser_started?)
         dommy_browser_teardown
+        dir
       end
 
       # The Rack app the browser drives. Defaults to the Rails application;

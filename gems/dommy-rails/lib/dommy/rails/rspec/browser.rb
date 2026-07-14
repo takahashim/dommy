@@ -24,30 +24,6 @@ if defined?(::RSpec)
       config.include ::Rails.application.routes.url_helpers, type: :browser
     end
 
-    # A failed browser spec leaves a self-contained trace bundle
-    # (trace.ndjson + artifacts/) under tmp/dommy_traces/<example-id>/ and
-    # tells you the one command that opens it in the standalone viewer.
-    # Only when the example actually started a browser — the hook must not
-    # boot a session of its own.
-    config.after(:each, type: :browser) do |example|
-      next unless example.exception
-      next unless respond_to?(:browser_started?) && browser_started?
-
-      trace = browser.respond_to?(:trace) ? browser.trace : nil
-      next unless trace
-
-      dir = Dommy::Rails::TraceBundle.save_for_failure(
-        trace,
-        id: example.id,
-        description: example.full_description,
-        location: example.location
-      )
-      if dir
-        example.metadata[:extra_failure_lines] ||= []
-        example.metadata[:extra_failure_lines] << "Trace bundle: #{dir}"
-        example.metadata[:extra_failure_lines] << "View it with: dommylizer #{::File.join(dir, "trace.ndjson")}"
-      end
-    end
   end
 
   # When a matcher fails on a trace-enabled session subject (a browser spec's
