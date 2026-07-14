@@ -129,6 +129,7 @@ module Dommy
         @scope_stack = []
         @request_listeners = []
         @response_listeners = []
+        @abort_listeners = []
         @document_loaded_listeners = []
         @subresource_allowlist = []        # hosts allowed for cross-origin <script>/fetch/XHR
         @blocked_subresource_hosts = []    # cross-origin hosts declined since the last reset (awaiting a decision)
@@ -511,6 +512,15 @@ module Dommy
         self
       end
 
+      # Register a callback invoked with the Rack env when a request ABORTS
+      # (the app raised, so no Response exists). Every on_request has a
+      # matching on_response OR on_abort — per-request state can bracket on
+      # the pair.
+      def on_abort(&block)
+        @abort_listeners << block
+        self
+      end
+
       # Register a callback invoked with the new Window each time a navigation
       # installs an HTML document (visit, redirects, link clicks, form submits,
       # back/forward, reload, meta refresh). This is the page-load lifecycle
@@ -680,6 +690,9 @@ module Dommy
           },
           on_response: lambda { |response|
             @response_listeners.each { |cb| cb.call(response) }
+          },
+          on_abort: lambda { |env|
+            @abort_listeners.each { |cb| cb.call(env) }
           }
         )
       end
@@ -848,6 +861,9 @@ module Dommy
           },
           on_response: sched && lambda { |response|
             sched.post_external { @response_listeners.each { |cb| cb.call(response) } }
+          },
+          on_abort: sched && lambda { |env|
+            sched.post_external { @abort_listeners.each { |cb| cb.call(env) } }
           }
         )
       end

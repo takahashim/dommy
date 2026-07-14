@@ -24,13 +24,14 @@ module Dommy
       # @param headers [HeaderStore, Hash] anything responding to `merge(overrides)
       #   -> Hash`; the Session passes its live HeaderStore for the page path, a
       #   plain snapshot Hash for a worker path.
-      def initialize(app:, config:, cookie_jar:, headers:, on_request: nil, on_response: nil)
+      def initialize(app:, config:, cookie_jar:, headers:, on_request: nil, on_response: nil, on_abort: nil)
         @app = app
         @config = config
         @cookie_jar = cookie_jar
         @headers = headers
         @on_request = on_request
         @on_response = on_response
+        @on_abort = on_abort
       end
 
       # Perform one request and return its Response. `headers` are per-request
@@ -45,7 +46,16 @@ module Dommy
           cookie_string: @cookie_jar.cookies_for(absolute_url)
         )
         @on_request&.call(env)
-        status, response_headers, response_body = @app.call(env)
+        # on_request opened a request bracket (the Trace exposes itself
+        # thread-locally inside it); an app exception must still close it, or
+        # per-request state leaks past the failed request. The exception
+        # itself propagates unchanged.
+        begin
+          status, response_headers, response_body = @app.call(env)
+        rescue ::Exception # rubocop:disable Lint/RescueException -- close the bracket for ANY abort
+          @on_abort&.call(env)
+          raise
+        end
         response = Response.new(status, response_headers, response_body, url: absolute_url)
         response.set_cookie_strings.each do |sc|
           @cookie_jar.store_from_header(sc, absolute_url)

@@ -53,6 +53,27 @@ module Dommy
         assert_includes session.trace.to_text, "SPAN [db] Post Load (1.23ms)"
       end
 
+      def test_an_aborted_request_closes_the_bracket_and_keeps_its_spans
+        app = app_for("GET /boom" => lambda do |_req|
+          trace = Thread.current[:__dommy_active_trace__]
+          trace&.__internal_record_span__(kind: :db, label: "Doomed Load", duration_ms: 0.5)
+          raise "kaboom"
+        end)
+        session = Session.new(app, trace: true)
+        assert_raises(RuntimeError) { session.visit "/boom" }
+
+        # The bracket closed: nothing leaks to later notifications.
+        assert_nil Thread.current[:__dommy_active_trace__]
+
+        events = session.trace.events
+        http = events.find { |e| e.type == :http }
+        assert_equal true, http.data[:aborted]
+        assert_nil http.data[:status]
+        span = events.find { |e| e.type == :span }
+        assert_equal "Doomed Load", span.data[:label]
+        assert_equal http.seq, span.data[:parent]
+      end
+
       def test_spans_are_dropped_without_an_open_request
         session = Session.new(instrumented_app, trace: true)
         session.trace.__internal_record_span__(kind: :db, label: "stray", duration_ms: 1)

@@ -68,6 +68,7 @@ module Dommy
 
         @session.on_request { |env| __internal_on_request(env) }
         @session.on_response { |response| __internal_on_response(response) }
+        @session.on_abort { |env| __internal_on_abort(env) } if @session.respond_to?(:on_abort)
 
         runtime = @session.respond_to?(:__internal_js_runtime) ? @session.__internal_js_runtime : nil
         if runtime
@@ -271,6 +272,24 @@ module Dommy
           content_type: response.content_type,
           location: response.location_header,
           set_cookie: response.set_cookie_strings.map { |raw| cookie_name(raw) }
+        })
+        __internal_flush_spans(http)
+      end
+
+      # The request never produced a Response (the app raised): close the
+      # bracket on_request opened — clear the thread-local and record the
+      # aborted request itself (its buffered spans, if any, attach to it so
+      # the trace shows what ran before the exception).
+      def __internal_on_abort(env)
+        request = @pending_request || {}
+        @pending_request = nil
+        Thread.current[:__dommy_active_trace__] = nil
+        http = __internal_emit(:http, {
+          method: request[:method] || env["REQUEST_METHOD"],
+          path: request[:path] || env["PATH_INFO"],
+          query: request[:query],
+          status: nil,
+          aborted: true
         })
         __internal_flush_spans(http)
       end
