@@ -1838,6 +1838,14 @@ globalThis.__rbHost = (function () {
   // Proxy methods that never mutate the DOM (pure queries / listener
   // registration), so calling them does NOT bump the epoch. Anything not
   // listed is treated as potentially mutating — correctness over cache hits.
+  // The one place that knows which event methods can flip the canceled
+  // state — the defaultPrevented shadow (dispatchEvent fast path) must be
+  // dropped around every one of them.
+  const CANCELED_STATE_METHODS = new Set([
+    "preventDefault", "initEvent", "initCustomEvent", "initUIEvent",
+    "initMouseEvent", "initKeyboardEvent",
+  ]);
+
   const NON_MUTATING_METHODS = new Set([
     "getAttribute", "getAttributeNS", "getAttributeNames", "getAttributeNode",
     "hasAttribute", "hasAttributeNS", "hasAttributes",
@@ -2062,11 +2070,12 @@ globalThis.__rbHost = (function () {
                   bumpDomEpoch();
                 }
               };
-            } else if (prop === "preventDefault" || prop === "initEvent") {
-              // Both mutate the event's canceled state (initEvent resets it),
-              // so drop a fast-dispatch defaultPrevented shadow first — the
-              // next read then reflects the live host value. Neither can
-              // touch the DOM, so no epoch bump.
+            } else if (CANCELED_STATE_METHODS.has(prop)) {
+              // Every method that can change the event's canceled state
+              // (preventDefault sets it, the legacy init* reinitializers
+              // reset it) drops a fast-dispatch defaultPrevented shadow
+              // first — the next read then reflects the live host value.
+              // None of them can touch the DOM, so no epoch bump.
               fn = function (...args) {
                 try {
                   if (this && typeof this === "object") delete this.defaultPrevented;
