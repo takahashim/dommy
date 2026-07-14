@@ -452,10 +452,23 @@ globalThis.__rbHost = (function () {
   function memberMethodStub(name) {
     const coerce = NODE_OR_STRING_METHODS.has(name);
     const readOnly = NON_MUTATING_METHODS.has(name);
-    return withArity(function (...args) {
+    const stub = withArity(function (...args) {
+      // Resolve back through the receiver: the proxy get trap returns the
+      // specialized per-proxy wrapper (epoch bumps, cached getAttribute, the
+      // dispatchEvent fast path and its JS-event handling), which prototype
+      // extraction (Interface.prototype.m.call(el, …)) must not bypass. The
+      // get trap intercepts before the prototype, so this doesn't recurse —
+      // except for collections' PROTO_RESOLVED_METHODS, which resolve to this
+      // very stub; the self-check falls through to the raw call then, which
+      // still brackets a mutating call with the epoch bumps itself.
+      if (isProxy(this)) {
+        const fn = this[name];
+        if (typeof fn === "function" && fn !== stub) return fn.apply(this, args);
+      }
       const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
       return readOnly ? rehydrate(__rb_host_call(this[HKEY], name, wire)) : callMutating(this[HKEY], name, wire);
     }, name);
+    return stub;
   }
 
   function callMutating(handle, name, wire) {
