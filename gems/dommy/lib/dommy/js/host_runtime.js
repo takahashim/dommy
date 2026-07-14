@@ -1998,6 +1998,9 @@ globalThis.__rbHost = (function () {
                   if (typeof globalThis.__rb_host_event_fast === "function" &&
                       __rb_host_event_fast(state.type) === true) {
                     state.target = this;
+                    // Dispatch unsets the stop-propagation flags on completion
+                    // (DOM §dispatch), even when nothing listened.
+                    state.stopped = false;
                     return state.canceled !== true;
                   }
                   // Slow path: materialize the host twin (carrying over any
@@ -2021,6 +2024,10 @@ globalThis.__rbHost = (function () {
                   } finally {
                     bumpDomEpoch();
                     state.target = twin.target;
+                    // DOM §dispatch unsets the stop-propagation flags when the
+                    // dispatch completes; a reused event object must propagate
+                    // again (the canceled flag, by contrast, persists).
+                    state.stopped = false;
                     jsEventByHandle.delete(twin[HKEY]);
                     state.host = null;
                   }
