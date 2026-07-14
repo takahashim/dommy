@@ -11,6 +11,7 @@ require_relative "rails/match_target"
 require_relative "rails/dom_source"
 require_relative "rails/page_inspector"
 require_relative "rails/trace_instrumentation"
+require_relative "rails/trace_bundle"
 require_relative "rails/aria_snapshot_matching"
 
 module Dommy

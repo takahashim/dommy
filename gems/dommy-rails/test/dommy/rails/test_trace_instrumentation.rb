@@ -9,7 +9,7 @@ module Dommy
     # Rails-internals spans (trace-roadmap.md phase 2): the subscriber turns
     # ActiveSupport::Notifications into completed spans on the in-flight
     # trace, so a traced request shows controller / SQL / render inside it.
-    class TraceInstrumentationTest < Minitest::Test
+    class TraceInstrumentationTest < ::Minitest::Test
       def app
         lambda do |_env|
           ::ActiveSupport::Notifications.instrument("process_action.action_controller",
