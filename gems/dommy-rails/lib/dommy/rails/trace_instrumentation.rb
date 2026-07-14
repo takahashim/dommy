@@ -93,15 +93,23 @@ module Dommy
         {label: name.empty? ? "SQL" : name, data: data}
       end
 
-      # {attribute name => type-cast value}, sensitive keys masked exactly
-      # like traced form params. nil when the payload carries no usable binds.
+      # {attribute name => type-cast value}, sensitive keys masked with the
+      # in-flight trace's OWN filter (so custom filter keys apply to binds
+      # exactly as to form params), falling back to the shared default. nil
+      # when the payload carries no usable binds.
       def masked_binds(payload)
         names = Array(payload[:binds]).map { |b| b.respond_to?(:name) ? b.name.to_s : b.to_s }
         values = Array(payload[:type_casted_binds])
         return nil if names.empty? || names.length != values.length
 
-        Dommy::Rack::Trace::ParamFilter.new(Dommy::Rack::Trace::ParamFilter::DEFAULT)
-          .form_params(names.zip(values))
+        bind_filter.form_params(names.zip(values))
+      end
+
+      def bind_filter
+        trace = Thread.current[:__dommy_active_trace__]
+        return trace.__internal_param_filter__ if trace.respond_to?(:__internal_param_filter__)
+
+        @default_filter ||= Dommy::Rack::Trace::ParamFilter.new(Dommy::Rack::Trace::ParamFilter::DEFAULT)
       end
     end
   end

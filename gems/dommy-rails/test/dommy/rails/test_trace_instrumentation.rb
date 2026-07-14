@@ -43,6 +43,24 @@ module Dommy
         assert_operator db.data[:duration_ms], :>=, 0
       end
 
+      def test_binds_mask_with_the_traces_own_filter
+        TraceInstrumentation.install!(binds: true)
+        custom = Dommy::Rack::Trace::ParamFilter::DEFAULT + ["ssn"]
+        app = lambda do |_env|
+          ::ActiveSupport::Notifications.instrument("sql.active_record",
+            name: "User Load", sql: "SELECT 1",
+            binds: [FakeBind.new("ssn")], type_casted_binds: ["123-45-6789"]) {}
+          [200, {"Content-Type" => "text/html"}, ["<html><body>ok</body></html>"]]
+        end
+        session = Dommy::Rack::Session.new(app)
+        trace = Dommy::Rack::Trace.attach(session, filter: custom)
+        session.instance_variable_set(:@trace, trace)
+        session.visit "/x"
+
+        db = trace.events.find { |e| e.type == :span && e.data[:kind] == "db" }
+        assert_equal({"ssn" => "[FILTERED]"}, db.data[:binds])
+      end
+
       def test_install_is_idempotent
         TraceInstrumentation.install!
         assert_equal false, TraceInstrumentation.install!

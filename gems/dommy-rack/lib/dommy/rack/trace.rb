@@ -120,6 +120,10 @@ module Dommy
         nil
       end
 
+      # The configured sensitive-key filter — instrumentation layers mask
+      # values they record (SQL binds) with the SAME rules as form params.
+      def __internal_param_filter__ = @param_filter
+
       # --- Queries (read-only views over the event stream) ---
 
       def http = events_of(:http)
