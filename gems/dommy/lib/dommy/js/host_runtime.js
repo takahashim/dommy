@@ -1845,6 +1845,42 @@ globalThis.__rbHost = (function () {
                   bumpDomEpoch();
                 }
               };
+            } else if (prop === "dispatchEvent") {
+              // Unlistened-dispatch fast path (docs/event-dispatch-fastpath.md):
+              // one crossing decides AND dispatches a namespaced event nobody
+              // listens for — no epoch bumps (nothing can have mutated the
+              // DOM), and defaultPrevented is planted as an own-prop shadow so
+              // the post-dispatch read doesn't cross either. Everything else
+              // falls back to the classic bump-and-call path.
+              fn = function (ev) {
+                if (isProxy(ev) && typeof globalThis.__rb_host_dispatch_fast === "function") {
+                  const r = __rb_host_dispatch_fast(handle, ev[HKEY]);
+                  if (r && typeof r === "object" && r.fast === true) {
+                    try { ev.defaultPrevented = r.result !== true; } catch (_) { /* frozen ev */ }
+                    return r.result === true;
+                  }
+                }
+                // A re-dispatch must not read a stale shadow from an earlier
+                // fast dispatch: the slow path defers to the live host value.
+                try { if (isProxy(ev)) delete ev.defaultPrevented; } catch (_) { /* ignore */ }
+                bumpDomEpoch();
+                try {
+                  return rehydrate(__rb_host_call(handle, prop, dehydrateArgs([ev])));
+                } finally {
+                  bumpDomEpoch();
+                }
+              };
+            } else if (prop === "preventDefault" || prop === "initEvent") {
+              // Both mutate the event's canceled state (initEvent resets it),
+              // so drop a fast-dispatch defaultPrevented shadow first — the
+              // next read then reflects the live host value. Neither can
+              // touch the DOM, so no epoch bump.
+              fn = function (...args) {
+                try {
+                  if (this && typeof this === "object") delete this.defaultPrevented;
+                } catch (_) { /* non-configurable shadow can't exist; ignore */ }
+                return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+              };
             } else if (NON_MUTATING_METHODS.has(prop)) {
               fn = (...args) => rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
             } else if (NODE_OR_STRING_METHODS.has(prop)) {
@@ -2003,6 +2039,13 @@ globalThis.__rbHost = (function () {
               return true;
             }
           }
+        }
+        // Legacy `returnValue = false` cancels an event host-side; drop a
+        // fast-dispatch defaultPrevented shadow so the next read sees it.
+        // Gated on preventDefault's presence — only events carry it.
+        if (prop === "returnValue" && methods.has("preventDefault") &&
+            Object.hasOwn(t, "defaultPrevented")) {
+          delete t.defaultPrevented;
         }
         // WebIDL [LegacyNullToEmptyString] DOMString setters coerce JS-side
         // (null → "", else ToString — so `innerHTML = 42` / `{toString…}` work and

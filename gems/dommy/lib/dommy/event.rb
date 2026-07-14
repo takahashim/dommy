@@ -20,9 +20,29 @@ module Dommy
   )
 
   module EventTarget
+    # Process-wide, ADD-ONLY record of every event type a listener was ever
+    # registered for. The JS bridge's unlistened-dispatch fast path asks
+    # "could any listener possibly fire for this type?" — add-only means a
+    # removed listener's type stays recorded (losing only the fast path,
+    # never correctness), and there is no add/remove pairing to get wrong.
+    @listened_types = {}
+
+    class << self
+      def __internal_note_listened_type__(type)
+        @listened_types[type.to_s] = true
+        nil
+      end
+
+      def __internal_type_listened__?(type)
+        @listened_types.key?(type.to_s)
+      end
+    end
+
     def add_event_listener(type, listener = nil, options = nil, event_handler: false, &block)
       cb = listener || block
       return nil if type.nil? || cb.nil?
+
+      EventTarget.__internal_note_listened_type__(type)
 
       list = listeners_for(type.to_s)
       entry = Listener.new(cb, options, event_handler)
