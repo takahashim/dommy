@@ -21,12 +21,13 @@ module Dommy
         # Memoizes document-rooted CSS query results within a DOM generation.
         # querySelector(All) over a large tree is a full descendant walk, yet a
         # heavy page issues the SAME selector hundreds of times between mutations
-        # (measured ~87% repeats on a real site). `Document#style_generation`
-        # bumps on every childList / attribute / characterData mutation — and on
-        # focus / active-element changes too, so `:focus`-dependent selectors are
-        # invalidated correctly — so a result tagged with the generation it was
-        # computed in stays valid until the next mutation, then is recomputed
-        # lazily. Keyed by [kind, selector] => [generation, value].
+        # (measured ~87% repeats on a real site). `Document#dom_generation`
+        # bumps on every match-relevant mutation (childList / attributes /
+        # emptiness-flipping characterData) — and on focus / active-element
+        # changes too, so `:focus`-dependent selectors are invalidated
+        # correctly — so a result tagged with the generation it was computed
+        # in stays valid until the next mutation, then is recomputed lazily.
+        # Keyed by [kind, selector] => [generation, value].
         @query_cache = {}
       end
 
@@ -316,7 +317,7 @@ module Dommy
       # DOM generation, else nil (a miss, or a stale entry the caller recomputes).
       def query_cache_get(kind, selector)
         entry = @query_cache[[kind, selector]]
-        return nil unless entry && entry[0] == @document.style_generation
+        return nil unless entry && entry[0] == @document.dom_generation
 
         entry[1]
       end
@@ -325,7 +326,7 @@ module Dommy
       # clearing the cache wholesale if it has grown past the cap.
       def query_cache_set(kind, selector, value)
         @query_cache.clear if @query_cache.size >= QUERY_CACHE_CAP
-        @query_cache[[kind, selector]] = [@document.style_generation, value]
+        @query_cache[[kind, selector]] = [@document.dom_generation, value]
       end
 
       # DOM identity key for a backend node, delegated to the backend since

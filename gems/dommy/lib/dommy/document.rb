@@ -364,13 +364,30 @@ module Dommy
     attr_reader :backend_doc
     attr_accessor :default_view
     # --- CSS cascade support (Internal::CSS) ---
-    # Monotonic counter bumped on every DOM mutation; the CSS layer
-    # invalidates its per-document style cache wholesale when it moves.
-    # The cache slot itself is owned by Internal::CSS::Cascade.
+    # Two invalidation epochs, split so a style-neutral mutation doesn't pay
+    # for a cascade rebuild (RuleIndex.build is a full rules x document query):
+    #
+    # `dom_generation` keys the selector-result caches (query caches, selector
+    # index). It moves on anything that can change what a selector matches:
+    # tree shape, attributes, focus/hover, checkedness, and text edits that
+    # flip a node between empty and non-empty (`:empty` is the matcher's only
+    # text-sensitive pseudo-class).
+    #
+    # `style_generation` keys the cascade caches (RuleIndex, computed styles,
+    # counters — the slot itself is owned by Internal::CSS::Cascade). It moves
+    # on the same events, EXCEPT that an attribute change only moves it when
+    # the built RuleIndex's selectors depend on that attribute, and a text
+    # edit only when it's inside a <style> or flips emptiness while a sheet
+    # uses `:empty`. The coordinator reports mutations through the
+    # `__internal_note_*` seams below, which decide what to bump.
     attr_accessor :__css_style_cache__
 
     def style_generation
       @style_generation || 0
+    end
+
+    def dom_generation
+      @dom_generation || 0
     end
 
     def __internal_bump_style_generation__
@@ -378,10 +395,83 @@ module Dommy
       nil
     end
 
+    def __internal_bump_dom_generation__
+      @dom_generation = dom_generation + 1
+      nil
+    end
+
+    # A childList mutation: tree shape feeds both selector matching and the
+    # rule -> element index, so everything is suspect.
+    def __internal_note_tree_mutation__
+      __internal_bump_dom_generation__
+      __internal_bump_style_generation__
+    end
+
+    # An attribute mutation: selector results are always suspect (any cached
+    # query could carry an attribute selector), but the cascade only when the
+    # indexed rules read this attribute — or when the attribute belongs to a
+    # <style>/<link>, whose media/disabled/rel gate whole sheets.
+    def __internal_note_attribute_mutation__(name, target_node)
+      __internal_bump_dom_generation__
+      __internal_bump_style_generation__ if __internal_style_affected_by_attribute__(name, target_node)
+    end
+
+    # A characterData mutation. Text participates in matching only through
+    # `:empty` (a text node counts iff its data is non-empty), so nothing is
+    # suspect unless the edit flips that emptiness — except text inside a
+    # <style>, which IS the stylesheet source.
+    def __internal_note_character_data_mutation__(target_node, old_value)
+      # Only a Text node's data participates in :empty; a comment/PI edit
+      # can't change any match. `target_node` is a backend node, so its data
+      # reads through the Nokogiri-compatible #content.
+      text = target_node.respond_to?(:node_type) && target_node.node_type == 3
+      flipped = text && (old_value.to_s.empty? != target_node.content.to_s.empty?)
+      __internal_bump_dom_generation__ if flipped
+      if __internal_inside_style_element__(target_node) ||
+         (flipped && __internal_style_text_sensitive__)
+        __internal_bump_style_generation__
+      end
+      nil
+    end
+
+    # Selector-observable state that lives outside the attribute space
+    # (focus, hover, checkedness…): both cache families are suspect.
+    def __internal_note_selector_state_change__
+      __internal_bump_dom_generation__
+      __internal_bump_style_generation__
+    end
+
+    def __internal_style_affected_by_attribute__(name, target_node)
+      owner = target_node.respond_to?(:name) ? target_node.name.to_s.downcase : nil
+      return true if owner == "style" || owner == "link"
+
+      index = @__css_style_cache__ && @__css_style_cache__[:index]
+      # No RuleIndex yet: the bump is nearly free (at most it drops the
+      # author_css?/counters memos), so stay conservative.
+      return true unless index
+
+      index.attribute_dependency?(name)
+    end
+
+    def __internal_style_text_sensitive__
+      index = @__css_style_cache__ && @__css_style_cache__[:index]
+      index ? index.text_sensitive? : true
+    end
+
+    def __internal_inside_style_element__(node)
+      current = node.respond_to?(:parent) ? node.parent : nil
+      while current
+        return true if current.respond_to?(:name) && current.name.to_s.downcase == "style"
+
+        current = current.respond_to?(:parent) ? current.parent : nil
+      end
+      false
+    end
+
     # A by-id/class/tag index of the backend element tree, memoized per DOM
     # generation, for SelectorMatcher's document-scoped fast path (or nil to tell
     # the caller to walk). Rebuilt lazily only after a mutation bumps
-    # style_generation, so it costs one tree walk per generation and pays off when
+    # dom_generation, so it costs one tree walk per generation and pays off when
     # several queries run before the next mutation.
     #
     # Adaptive bypass: if the index keeps getting invalidated after serving only a
@@ -394,7 +484,7 @@ module Dommy
     SELECTOR_INDEX_RETEST_GAP = 64 # generations to wait before re-testing a bypass
 
     def __internal_selector_index__
-      gen = style_generation
+      gen = dom_generation
       if @__sel_idx_gen != gen
         if @__sel_idx
           if @__sel_idx_served.to_i < SELECTOR_INDEX_MIN_REUSE
@@ -425,18 +515,18 @@ module Dommy
     # (element, selector) constantly between mutations; this memoizes the match
     # set, keyed by [scope object_id, kind, selector] and tagged with the DOM
     # generation, so a hit skips the whole combinator match. Capped, and a
-    # mutation (style_generation bump) makes every entry stale at once.
+    # mutation (dom_generation bump) makes every entry stale at once.
     SCOPED_QUERY_CACHE_CAP = 4096
 
     def __internal_scoped_query_get(key)
       entry = (@__scoped_query_cache ||= {})[key]
-      entry && entry[0] == style_generation ? entry[1] : nil
+      entry && entry[0] == dom_generation ? entry[1] : nil
     end
 
     def __internal_scoped_query_set(key, value)
       cache = (@__scoped_query_cache ||= {})
       cache.clear if cache.size >= SCOPED_QUERY_CACHE_CAP
-      cache[key] = [style_generation, value]
+      cache[key] = [dom_generation, value]
       value
     end
 
@@ -724,8 +814,8 @@ module Dommy
 
     def __internal_set_active_element__(el)
       # Focus is selector-observable state (:focus / :focus-within rules), so
-      # a change invalidates computed styles.
-      __internal_bump_style_generation__ unless @active_element.equal?(el)
+      # a change invalidates cached query results and computed styles.
+      __internal_note_selector_state_change__ unless @active_element.equal?(el)
       @active_element = el
     end
 
@@ -746,7 +836,7 @@ module Dommy
       return if @hovered_element.equal?(el)
 
       @hovered_element = el
-      __internal_bump_style_generation__
+      __internal_note_selector_state_change__
       nil
     end
 

@@ -768,8 +768,9 @@ module Dommy
       # A radio becoming checked unchecks the rest of its radio button group.
       uncheck_radio_group if @__checked && type == "radio"
       # Checkedness is property state (no attribute mutation fires), yet it
-      # is selector-observable via :checked — invalidate computed styles.
-      @document&.__internal_bump_style_generation__
+      # is selector-observable via :checked — invalidate cached query results
+      # and computed styles.
+      @document&.__internal_note_selector_state_change__
     end
 
     # `indeterminate` is pure property state (no content attribute), default
@@ -780,7 +781,7 @@ module Dommy
 
     def indeterminate=(v)
       @__indeterminate = !!v
-      @document&.__internal_bump_style_generation__
+      @document&.__internal_note_selector_state_change__
     end
 
     # --- Click activation behavior (checkbox / radio) -------------------
@@ -870,7 +871,7 @@ module Dommy
     # unchecking peers).
     def __internal_set_checked_silently__(value)
       @__checked = !!value
-      @document&.__internal_bump_style_generation__
+      @document&.__internal_note_selector_state_change__
     end
 
     # Two controls share a form owner when both are formless, or both point at

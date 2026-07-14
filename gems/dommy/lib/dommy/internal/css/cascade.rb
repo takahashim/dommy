@@ -14,7 +14,9 @@ module Dommy
       # style from the UA sheet, the document's <style> sheets, and its
       # style attribute. Per-document state (RuleIndex + per-element memo)
       # is cached against Document#style_generation and rebuilt wholesale
-      # when any mutation bumps it.
+      # when it moves — which style-neutral mutations avoid (the epoch split:
+      # see Document's __internal_note_* seams and RuleIndex's dependency
+      # collection).
       #
       # Precedence, high to low: UA !important > author !important (the
       # style attribute's !important on top) > style attribute > author
