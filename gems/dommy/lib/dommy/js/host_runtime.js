@@ -1608,6 +1608,30 @@ globalThis.__rbHost = (function () {
   // invalidation concern.
   const CONST_NODE_PROPS = new Set(["nodeType", "nodeName", "localName", "tagName"]);
 
+  // Interface-specific lifetime-constant props (same contract as
+  // CONST_NODE_PROPS, but names too generic to cache globally — `name` is
+  // mutable on inputs, immutable on an Attr). Morph libraries iterate
+  // el.attributes reading every Attr's name; caching it removes one crossing
+  // per read after the first.
+  const CONST_IFACE_PROPS = new Map([
+    ["Attr", new Set(["name", "localName", "namespaceURI", "prefix", "specified"])],
+  ]);
+
+  // Interface-specific epoch-stable props (same contract as
+  // STABLE_EPOCH_NODE_PROPS): an Attr's value changes only through a DOM
+  // mutation (attr.value= / setAttribute), which bumps the epoch.
+  const STABLE_EPOCH_IFACE_PROPS = new Map([
+    ["Attr", new Set(["value"])],
+  ]);
+
+  // (interface, prop) writes the host has declined once ("Iface#prop"): the
+  // host's __js_set__ dispatch is a pure function of the wrapper class and
+  // property name, so a declined pair never becomes host-handled later and
+  // subsequent writes can stay JS-side expandos without crossing. Event
+  // handler names (on*) are excluded — their handling depends on the VALUE.
+  const declinedSetProps = new Set();
+  const isEventHandlerName = (prop) => typeof prop === "string" && /^on[a-z]/.test(prop);
+
   // IDL reflected string attributes that return the content attribute value
   // verbatim ("" when absent): the property name -> its content attribute. These
   // are answerable from the element's attribute snapshot (the same cache
@@ -1631,7 +1655,7 @@ globalThis.__rbHost = (function () {
     "firstChild", "lastChild", "nextSibling", "previousSibling",
     "firstElementChild", "lastElementChild",
     "nextElementSibling", "previousElementSibling",
-    "childElementCount", "textContent",
+    "childElementCount", "textContent", "isConnected",
     // Live collections: the NodeList/HTMLCollection object is stable (its
     // contents track mutations, but the read returns the same live proxy), so
     // caching the proxy per-epoch avoids re-crossing to fetch it on every
@@ -1678,12 +1702,25 @@ globalThis.__rbHost = (function () {
     "item", "namedItem", "getPropertyValue", "getPropertyPriority",
     "addEventListener", "removeEventListener",
     "observe", "unobserve", "disconnect", "takeRecords",
+    // Factories and cloners: they mint DETACHED nodes and mutate no existing
+    // node's attributes or tree relations, so no cache can go stale. (A
+    // custom-element constructor running inside createElement/cloneNode can
+    // mutate the DOM, but its writes go through proxies and bump then.)
+    // React's commit calls createElement per node; without this every one
+    // was a full invalidation.
+    "createElement", "createElementNS", "createTextNode", "createComment",
+    "createDocumentFragment", "createCDATASection", "createProcessingInstruction",
+    "createAttribute", "createAttributeNS", "createEvent", "createRange",
+    "createNodeIterator", "createTreeWalker", "cloneNode", "importNode",
   ]);
 
-  function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain, indexedSetter) {
+  function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain, indexedSetter, ifaceName) {
     // Cached constant-prop values (CONST_NODE_PROPS) for a Node proxy; null
     // for non-Node interfaces so the cache check stays out of their get path.
     const constCache = nodeChain ? new Map() : null;
+    // Interface-specific const / epoch-stable prop sets (Attr#name, Attr#value).
+    const constIface = CONST_IFACE_PROPS.get(ifaceName) || null;
+    const stableIface = STABLE_EPOCH_IFACE_PROPS.get(ifaceName) || null;
     // Reflected-attribute map, only for Node proxies (elements have the
     // snapshot; other node kinds return null from attrsSnapshot and fall back).
     const reflectAttrs = nodeChain ? REFLECTED_STRING_ATTRS : null;
@@ -1862,7 +1899,8 @@ globalThis.__rbHost = (function () {
         // answer from a per-epoch cache so a tree-walk's repeated reads cross
         // once, not once per iteration. The epoch bumps on any mutation or
         // Ruby -> JS entry, so a cached value is never stale.
-        if (nodeChain && STABLE_EPOCH_NODE_PROPS.has(prop)) {
+        if ((nodeChain && STABLE_EPOCH_NODE_PROPS.has(prop)) ||
+            (stableIface !== null && stableIface.has(prop))) {
           if (epochPropsEpoch !== domEpoch) { epochProps = new Map(); epochPropsEpoch = domEpoch; }
           if (epochProps.has(prop)) return epochProps.get(prop);
           const val = rehydrate(__rb_host_get(handle, prop));
@@ -1881,7 +1919,8 @@ globalThis.__rbHost = (function () {
         const v = rehydrate(raw);
         // Cache only a concrete primitive answer (a real node's constant); an
         // absent/null result keeps taking the fallback paths below uncached.
-        if (constCache !== null && !isAbsent && CONST_NODE_PROPS.has(prop) &&
+        if (constCache !== null && !isAbsent &&
+            (CONST_NODE_PROPS.has(prop) || (constIface !== null && constIface.has(prop))) &&
             (typeof v === "string" || typeof v === "number")) {
           constCache.set(prop, v);
         }
@@ -1928,6 +1967,21 @@ globalThis.__rbHost = (function () {
         // A read-only named property (HTMLCollection/NamedNodeMap) likewise
         // rejects — unless an own expando already shadows it (then update it).
         if (named && !named.writable && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
+        // An existing JS expando, or a property the host has already declined
+        // once for this interface: stays JS-side without asking the host
+        // again. Framework bookkeeping (React's __reactFiber$/__reactProps$)
+        // writes these on every node of every commit — previously one
+        // crossing each. Event-handler names and the global window keep
+        // crossing (their handling is value-/state-dependent), as do
+        // writable named collections (routed above).
+        if (typeof prop === "string" && !(named && named.writable) &&
+            !isEventHandlerName(prop) && !isGlobalWindow(handle) &&
+            (Object.hasOwn(t, prop) ||
+             (ifaceName != null && declinedSetProps.has(ifaceName + "#" + prop)))) {
+          t[prop] = value;
+          if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
+          return true;
+        }
         // The global window: a write to a name the host doesn't already
         // resolve becomes a JS global (window.X = … ≡ globalThis.X = …), so
         // window-attached and globalThis-attached globals converge on ONE
@@ -1973,6 +2027,13 @@ globalThis.__rbHost = (function () {
           // A genuine JS-side expando: pin the proxy so the node's JS state
           // outlives GC of this proxy (see the `pinned` declaration).
           if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
+          // Remember the decline per (interface, prop): the host's set
+          // dispatch depends only on the wrapper class and name, so future
+          // writes of this prop on this interface skip the crossing.
+          if (typeof prop === "string" && ifaceName != null &&
+              !isEventHandlerName(prop) && !isGlobalWindow(handle)) {
+            declinedSetProps.add(ifaceName + "#" + prop);
+          }
         }
         return true;
       },
@@ -2165,7 +2226,7 @@ globalThis.__rbHost = (function () {
     const isNode = !!(desc.chain && desc.chain.indexOf("Node") !== -1);
     const p = new Proxy(target, makeHandler(handle, methods, new Map(),
       ARRAY_LIKE_COLLECTIONS.has(desc.name), NAMED_PROP_COLLECTIONS.get(desc.name) || null,
-      isNode, INDEXED_SETTER_INTERFACES.has(desc.name)));
+      isNode, INDEXED_SETTER_INTERFACES.has(desc.name), desc.name));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
     proxyInterfaces.set(p, desc.name);
