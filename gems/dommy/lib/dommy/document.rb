@@ -390,6 +390,14 @@ module Dommy
       @dom_generation || 0
     end
 
+    # Moves only on childList mutations — the coarsest epoch. Keys memos
+    # whose value depends on the element population alone (which elements
+    # exist, in what order), like the document's <style>/<link> list: an
+    # attribute-triggered cascade rebuild can then skip re-walking for them.
+    def tree_generation
+      @tree_generation || 0
+    end
+
     def __internal_bump_style_generation__
       @style_generation = style_generation + 1
       nil
@@ -403,8 +411,21 @@ module Dommy
     # A childList mutation: tree shape feeds both selector matching and the
     # rule -> element index, so everything is suspect.
     def __internal_note_tree_mutation__
+      @tree_generation = tree_generation + 1
       __internal_bump_dom_generation__
       __internal_bump_style_generation__
+    end
+
+    # The document's <style> and <link> elements in document order (their
+    # relative order breaks cascade ties), memoized per tree_generation:
+    # only a childList mutation can change the list, so the cascade's
+    # attribute-triggered rebuilds reuse it without a document walk.
+    def __internal_style_sheet_elements__
+      if @__sheet_elements_gen != tree_generation
+        @__sheet_elements_gen = tree_generation
+        @__sheet_elements = query_selector_all("style, link").to_a
+      end
+      @__sheet_elements
     end
 
     # An attribute mutation: selector results are always suspect (any cached

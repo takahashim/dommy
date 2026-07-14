@@ -10,13 +10,25 @@ require_relative "../selector_matcher"
 module Dommy
   module Internal
     module CSS
-      # The document-wide "rule -> matched elements" index: every style
-      # rule's selector runs through SelectorMatcher exactly once, so
-      # per-element cascade work is a Hash lookup. Built lazily per style
-      # generation (see Cascade) and thrown away wholesale on invalidation —
-      # a viewport resize bumps the generation too, so @media re-evaluates.
+      # The document's "element -> matching rules" index. A plain rule (no
+      # @scope, not shadow-scoped, no ::part) is NOT matched at build time:
+      # it is bucketed by its subject compound's most selective simple
+      # selector (id > class > tag > universal, the WebKit rule-hash shape)
+      # and matched lazily, per element, on the first matches_for — so
+      # building the index costs parsing, not rules x document queries, and
+      # an invalidation is priced by the elements actually styled afterward.
+      # Only the rules whose targeting needs whole-document queries (@scope
+      # roots/limits, shadow-tree sheets, ::part) are resolved eagerly.
+      # Built lazily per style generation (see Cascade) and thrown away
+      # wholesale on invalidation — a viewport resize bumps the generation
+      # too, so @media re-evaluates.
       class RuleIndex
         Match = Struct.new(:origin, :specificity, :order, :declarations, :layer, :proximity)
+
+        # A bucketed plain rule awaiting lazy matching: the one-complex
+        # SelectorList to match (pseudo-element stripped), the pseudo-element
+        # name it styles (nil for the element itself), and the Match to emit.
+        LazyEntry = Struct.new(:list, :pseudo, :match)
 
         # A resolved @scope: the scoping roots that scope-start matched, and the
         # per-root scope limits (boundary elements from scope-end). An element is
@@ -44,6 +56,14 @@ module Dommy
           @attr_deps = {"style" => true}
           @text_sensitive = false
           @all_attr_deps = false
+          # The lazy-rule buckets (LazyEntry, keyed by the subject compound's
+          # most selective simple selector) and the per-element match memos.
+          @bucket_id = {}
+          @bucket_class = {}
+          @bucket_tag = {}
+          @bucket_universal = []
+          @element_matches = {}.compare_by_identity
+          @pseudo_matches = {}
           # Cascade-layer order: full layer name => 0-based index, assigned on
           # first declaration (statement or block), in source order across all
           # sheets. Unlayered styles act as a final implicit layer at index
@@ -63,9 +83,11 @@ module Dommy
 
         def matches_for(element, pseudo_element = nil)
           if pseudo_element
-            (@pseudo_index[pseudo_name(pseudo_element)] || EMPTY)[element] || EMPTY
+            name = pseudo_name(pseudo_element)
+            memo = (@pseudo_matches[name] ||= {}.compare_by_identity)
+            memo[element] ||= combined_matches(element, name, @pseudo_index.key?(name) ? @pseudo_index[name] : nil)
           else
-            @index[element] || EMPTY
+            @element_matches[element] ||= combined_matches(element, nil, @index)
           end
         end
 
@@ -107,7 +129,7 @@ module Dommy
         # cascade ties). A `media` attribute gates the whole sheet (same
         # evaluator as @media); `disabled` mutes it.
         def author_sheets
-          @document.query_selector_all("style, link").to_a.filter_map do |element|
+          sheet_elements.filter_map do |element|
             media = element.get_attribute("media").to_s.strip
             next nil unless media.empty? || MediaQuery.match?(media, environment)
 
@@ -117,6 +139,14 @@ module Dommy
 
         def link_element?(element)
           element.local_name.to_s.casecmp("link").zero?
+        end
+
+        def sheet_elements
+          if @document.respond_to?(:__internal_style_sheet_elements__)
+            @document.__internal_style_sheet_elements__
+          else
+            @document.query_selector_all("style, link").to_a
+          end
         end
 
         # A <link rel=stylesheet> contributes only once a host environment has
@@ -145,8 +175,23 @@ module Dommy
           end
         end
 
+        # Parsed-sheet cache (text => rules), module-level like the selector
+        # AST cache: an invalidation rebuilds the index far more often than
+        # any sheet's text changes, so the parse — the dominant build cost
+        # now that plain rules match lazily — is reused. The parse results
+        # are read-only value objects, safe to share between builds. (Hash
+        # dup+freezes unfrozen String keys, so a later mutation of the
+        # source text can't corrupt an entry.)
+        PARSE_CACHE = {}
+        PARSE_CACHE_CAP = 64
+
         def safe_parse(text)
-          Parser.parse(text)
+          cached = PARSE_CACHE[text]
+          return cached if cached
+
+          rules = Parser.parse(text)
+          PARSE_CACHE.clear if PARSE_CACHE.size >= PARSE_CACHE_CAP
+          PARSE_CACHE[text] = rules
         rescue Parser::Unavailable
           raise
         rescue StandardError
@@ -197,16 +242,12 @@ module Dommy
                 index_shadow_complex(complex, spec, origin, layer, shadow, rule.declarations)
               elsif complex.pseudo_element&.name == "part"
                 index_part_complex(complex, spec, origin, layer, rule.declarations)
-              else
+              elsif scope
                 pseudo = complex.pseudo_element&.name
                 target_index = pseudo ? @pseudo_index[pseudo] : @index
-                if scope
-                  index_scoped(complex, spec, target_index, origin, layer, scope, rule.declarations)
-                else
-                  query_complex(complex).each do |element|
-                    (target_index[element] ||= []) << Match.new(origin, spec, @order, rule.declarations, layer, nil)
-                  end
-                end
+                index_scoped(complex, spec, target_index, origin, layer, scope, rule.declarations)
+              else
+                bucket_complex(complex, spec, origin, layer, rule.declarations)
               end
             end
           end
@@ -363,6 +404,86 @@ module Dommy
                 Match.new(origin, spec, @order, declarations, layer, generations(element, root))
             end
           end
+        end
+
+        # --- lazy (bucketed) rule matching --------------------------------
+
+        # File a plain rule under its subject compound's most selective
+        # simple selector. The pseudo-element (if any) is stripped for
+        # matching — the matcher never matches pseudo-element subjects
+        # against elements; specificity stays that of the full selector.
+        def bucket_complex(complex, spec, origin, layer, declarations)
+          stripped = complex.pseudo_element? ? complex.without_pseudo_element : complex
+          entry = LazyEntry.new(single_complex_list(stripped), complex.pseudo_element&.name,
+            Match.new(origin, spec, @order, declarations, layer, nil))
+
+          compound = complex.parts.last.compound
+          if (id = compound.subclass_selectors.find { |s| s.is_a?(Internal::SelectorAST::IdSelector) })
+            (@bucket_id[id.value] ||= []) << entry
+          elsif (cls = compound.subclass_selectors.find { |s| s.is_a?(Internal::SelectorAST::ClassSelector) })
+            (@bucket_class[cls.value] ||= []) << entry
+          elsif compound.type.is_a?(Internal::SelectorAST::TypeSelector)
+            (@bucket_tag[compound.type.name.to_s.downcase] ||= []) << entry
+          else
+            @bucket_universal << entry
+          end
+        end
+
+        # The element's full match list: the eagerly-indexed rules (@scope /
+        # shadow / ::part), then the lazily-matched bucketed ones. Relative
+        # order doesn't matter — the cascade ranks every declaration by its
+        # precedence tuple, which carries the source order.
+        def combined_matches(element, pseudo, eager_index)
+          eager = eager_index && eager_index[element]
+          lazy = lazy_matches(element, pseudo)
+          return lazy if eager.nil? || eager.empty?
+
+          lazy.empty? ? eager : eager + lazy
+        end
+
+        def lazy_matches(element, pseudo)
+          # Document-sheet rules never reach into a shadow tree (the eager
+          # walk never descended into one; a shadow element's author styles
+          # come from its own tree's sheets, indexed eagerly).
+          return EMPTY if in_shadow_tree?(element)
+
+          out = nil
+          each_candidate_entry(element) do |entry|
+            next unless entry.pseudo == pseudo
+            next unless Internal::SelectorMatcher.matches?(element, entry.list)
+
+            (out ||= []) << entry.match
+          end
+          out || EMPTY
+        end
+
+        def in_shadow_tree?(element)
+          return false unless @document.respond_to?(:__internal_shadow_root_containing__)
+          # No shadow roots in the document — skip the per-element ancestor
+          # walk entirely (the overwhelmingly common case).
+          return false if @document.respond_to?(:__internal_all_shadow_roots__) &&
+                          @document.__internal_all_shadow_roots__.empty?
+
+          !@document.__internal_shadow_root_containing__(element.__dommy_backend_node__).nil?
+        end
+
+        # Yield every bucketed entry whose subject key the element carries:
+        # its tag bucket, id bucket, one bucket per class token (deduplicated
+        # — a repeated token must not emit a rule twice), and the universal
+        # bucket. A superset of the true matches; the matcher decides.
+        def each_candidate_entry(element, &block)
+          tag = element.local_name.to_s.downcase
+          @bucket_tag[tag]&.each(&block)
+
+          id = element.get_attribute("id").to_s
+          @bucket_id[id]&.each(&block) unless id.empty?
+
+          classes = element.get_attribute("class").to_s
+          unless classes.empty?
+            classes.split.uniq.each { |token| @bucket_class[token]&.each(&block) }
+          end
+
+          @bucket_universal.each(&block)
         end
 
         # Record a (fully-qualified) layer's first appearance, idempotently —
