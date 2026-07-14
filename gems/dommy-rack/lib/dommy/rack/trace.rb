@@ -90,8 +90,10 @@ module Dommy
 
         @seq += 1
         @action_seq = @seq
-        @events << Event.new(seq: @seq, t: now_ms, wall_ms: monotonic_ms, type: :action, name: verb,
+        event = Event.new(seq: @seq, t: now_ms, wall_ms: monotonic_ms, type: :action, name: verb,
           action_seq: nil, data: {verb: verb, label: label, source: __internal_caller_source})
+        @events << event
+        __internal_stream(event)
         nil
       end
 
@@ -166,6 +168,52 @@ module Dommy
         dir
       end
 
+      # Stream every event as an NDJSON line the moment it is recorded —
+      # append-only, one flush per line — so a live viewer (dommylizer
+      # --follow) tails the run, and a hang or kill still leaves the trace up
+      # to the last completed event. Accepts an IO or a path (opened for
+      # write; closed by #finish_stream). Bracket with #finish_stream to add
+      # the trace_end line.
+      #
+      #   session.trace.stream_to("tmp/live.trace.ndjson")
+      #   ... drive the session ...
+      #   session.trace.finish_stream(status: "ok")
+      def stream_to(path_or_io, metadata: nil)
+        require "json"
+        @stream_owns_io = !path_or_io.respond_to?(:write)
+        io = @stream_owns_io ? ::File.open(path_or_io, "w") : path_or_io
+        @stream_serializer = Ndjson.new(@events, level: @level, metadata: metadata,
+          artifacts: StreamingArtifacts.new(@artifacts))
+        io.write(::JSON.generate(@stream_serializer.start_line), "\n")
+        io.flush if io.respond_to?(:flush)
+        @stream_io = io
+        self
+      end
+
+      def finish_stream(status: "ok")
+        io = @stream_io
+        return nil unless io
+
+        @stream_io = nil
+        io.write(::JSON.generate(@stream_serializer.end_line(status.to_s)), "\n")
+        io.flush if io.respond_to?(:flush)
+        io.close if @stream_owns_io
+        nil
+      end
+
+      # Resolves an artifact's emission fields at WRITE time (the content is
+      # captured in the same synchronous flow, just before the event lands).
+      class StreamingArtifacts
+        def initialize(artifacts)
+          @artifacts = artifacts
+        end
+
+        def [](seq)
+          content = @artifacts[seq]
+          content ? {content: content, encoding: "utf-8"} : nil
+        end
+      end
+
       private
 
       # Emit one event, gated by the recording level, and return it (or nil if
@@ -179,7 +227,19 @@ module Dommy
         event = Event.new(seq: @seq, t: window&.scheduler&.now_ms, wall_ms: monotonic_ms, type: type,
           name: name, action_seq: @action_seq, data: data)
         @events << event
+        __internal_stream(event)
         event
+      end
+
+      # A dead stream (closed pipe, full disk) must not take the session down:
+      # drop the stream and keep tracing in memory.
+      def __internal_stream(event)
+        return unless @stream_io
+
+        @stream_io.write(::JSON.generate(@stream_serializer.event_line(event)), "\n")
+        @stream_io.flush if @stream_io.respond_to?(:flush)
+      rescue StandardError
+        @stream_io = nil
       end
 
       # on_request fires before its on_response (single-threaded, per redirect

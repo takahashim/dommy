@@ -50,8 +50,8 @@ module Dommy
           line
         end
 
-        private
-
+        # The bracketing lines are public alongside #event_line so a streaming
+        # writer (Trace#stream_to) can emit the same document incrementally.
         def start_line
           line = {seq: 0, op: "trace_start", t: nil, wall_ms: 0.0, version: VERSION, level: @level.to_s}
           line[:wall_time] = @wall_time if @wall_time
@@ -64,6 +64,8 @@ module Dommy
           {seq: (last&.seq || 0) + 1, op: "trace_end", t: last&.t,
            wall_ms: @end_wall_ms || last&.wall_ms, status: status.to_s}
         end
+
+        private
 
         # The internal type maps straight to op, except `:artifact`, which the
         # viewer reads as `artifact_ref` (carrying either a path or content).
