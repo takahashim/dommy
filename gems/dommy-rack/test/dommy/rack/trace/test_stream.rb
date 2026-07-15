@@ -64,6 +64,32 @@ module Dommy
           assert_equal %w[trace_start trace_end], [lines.first["op"], lines.last["op"]]
         end
 
+        # dispose brackets an un-finished stream (contract: ends in trace_end).
+        Tempfile.create(["disp", ".trace.ndjson"]) do |f|
+          session = Session.new(app, trace: true)
+          session.trace.stream_to(f.path)
+          session.visit "/x"
+          assert session.trace.streaming?
+          session.dispose # caller never called finish_stream
+          refute session.trace.streaming?
+          lines = ::File.read(f.path).each_line.map { |l| JSON.parse(l) }
+          assert_equal "trace_end", lines.last["op"]
+          assert_equal "cancelled", lines.last["status"]
+        end
+
+        # Re-opening a stream closes the prior owned file (no fd leak) instead
+        # of dropping it silently.
+        Tempfile.create(["a", ".ndjson"]) do |a|
+          Tempfile.create(["b", ".ndjson"]) do |b|
+            session = Session.new(app, trace: true)
+            session.trace.stream_to(a.path)
+            session.trace.stream_to(b.path) # supersedes a
+            session.visit "/x"
+            session.trace.finish_stream(status: "ok")
+            assert_equal "trace_end", ::File.read(b.path).each_line.map { |l| JSON.parse(l) }.last["op"]
+          end
+        end
+
         # A sink that dies mid-run: the trace drops the stream and carries on.
         dead = Object.new
         def dead.write(*)

@@ -146,7 +146,7 @@ module Dommy
       def to_s = to_text
 
       def to_ndjson(status: "ok", wall_time: nil, metadata: nil)
-        inline = @artifacts.transform_values { |content| {content: content, encoding: "utf-8"} }
+        inline = InlineArtifacts.new(@artifacts)
         Ndjson.new(@events, level: @level, wall_time: wall_time, metadata: metadata,
           artifacts: inline, end_wall_ms: monotonic_ms).document(status: status)
       end
@@ -185,15 +185,22 @@ module Dommy
       #   session.trace.finish_stream(status: "ok")
       def stream_to(path_or_io, metadata: nil)
         require "json"
+        # Re-opening supersedes a prior stream: close its owned file (an
+        # abandoned, unbracketed document) so the fd doesn't leak.
+        @stream_io.close if @stream_io && @stream_owns_io
         @stream_owns_io = !path_or_io.respond_to?(:write)
         io = @stream_owns_io ? ::File.open(path_or_io, "w") : path_or_io
         @stream_serializer = Ndjson.new(@events, level: @level, metadata: metadata,
-          artifacts: StreamingArtifacts.new(@artifacts))
+          artifacts: InlineArtifacts.new(@artifacts))
         io.write(::JSON.generate(@stream_serializer.start_line), "\n")
         io.flush if io.respond_to?(:flush)
         @stream_io = io
         self
       end
+
+      # True while a live stream is open (finish_stream not yet called) — lets
+      # the Session bracket an un-finished stream on dispose.
+      def streaming? = !@stream_io.nil?
 
       def finish_stream(status: "ok")
         io = @stream_io
@@ -206,9 +213,11 @@ module Dommy
         nil
       end
 
-      # Resolves an artifact's emission fields at WRITE time (the content is
-      # captured in the same synchronous flow, just before the event lands).
-      class StreamingArtifacts
+      # Lazily shapes an artifact's inline emission fields ({content:,
+      # encoding:}) by seq — the single owner of the inline wire shape, used
+      # by both to_ndjson (whole document) and streaming (per event at write
+      # time, the content captured just before the event lands).
+      class InlineArtifacts
         def initialize(artifacts)
           @artifacts = artifacts
         end
@@ -217,6 +226,20 @@ module Dommy
           content = @artifacts[seq]
           content ? {content: content, encoding: "utf-8"} : nil
         end
+      end
+
+      # Instrumentation entry point (reached via the thread-local): buffer an
+      # inside-the-request span (controller/db/render — anything an
+      # instrumentation layer measured). Emitted as completed span events,
+      # parented to the enclosing :http event, when the response arrives —
+      # spans finish before the response exists, so they can't reference it
+      # any earlier. Public; the surrounding request seams stay private.
+      def __internal_record_span__(kind:, label:, duration_ms:, data: nil)
+        return if @level == :off || @pending_spans.nil?
+
+        @pending_spans << {kind: kind.to_s, label: label.to_s,
+                           duration_ms: duration_ms.to_f.round(2), data: data}
+        nil
       end
 
       private
@@ -301,22 +324,6 @@ module Dommy
         })
         __internal_flush_spans(http)
       end
-
-      # Buffer an inside-the-request span (controller/db/render — anything an
-      # instrumentation layer measured). Emitted as completed span events,
-      # parented to the enclosing :http event, when the response arrives —
-      # spans finish before the response exists, so they can't reference it
-      # any earlier.
-      def __internal_record_span__(kind:, label:, duration_ms:, data: nil)
-        return if @level == :off || @pending_spans.nil?
-
-        @pending_spans << {kind: kind.to_s, label: label.to_s,
-                           duration_ms: duration_ms.to_f.round(2), data: data}
-        nil
-      end
-      # The instrumentation entry point (reached via the thread-local) must be
-      # callable from outside; the surrounding seams stay private.
-      public :__internal_record_span__
 
       def __internal_flush_spans(http_event)
         spans = @pending_spans
