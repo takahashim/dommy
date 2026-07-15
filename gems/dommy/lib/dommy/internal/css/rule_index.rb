@@ -593,8 +593,12 @@ module Dommy
 
         # Walk a selector AST recording every attribute it can read. An AST
         # node kind this walker doesn't know is treated as "reads anything".
+        # `@all_attr_deps` and `@text_sensitive` are INDEPENDENT invalidation
+        # axes (attribute mutations vs. `:empty`-flipping text edits), so the
+        # walk stops only when BOTH are maxed — an unmapped pseudo that sets
+        # @all_attr_deps must not hide a later `:empty` from text-sensitivity.
         def collect_dependencies(node)
-          return if @all_attr_deps || node.nil?
+          return if (@all_attr_deps && @text_sensitive) || node.nil?
 
           case node
           when Array # :has() carries its RelativeSelectors as a plain Array
@@ -657,7 +661,9 @@ module Dommy
         end
 
         def add_attr_dep(name)
-          @attr_deps[name.to_s.downcase] = true
+          # Once every attribute already invalidates, individual names are
+          # moot — the walk continues only to find text-sensitive pseudos.
+          @attr_deps[name.to_s.downcase] = true unless @all_attr_deps
         end
 
         # In scope for `root`: an inclusive descendant of the root that is not an

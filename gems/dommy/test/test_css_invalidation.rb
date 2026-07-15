@@ -80,6 +80,16 @@ class TestCssInvalidation < Minitest::Test
     assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
   end
 
+  # An unmapped pseudo (all-attributes fallback) appearing BEFORE an :empty
+  # rule must not hide the :empty from text-sensitivity — the two are
+  # independent invalidation axes, so a text edit still recomputes.
+  def test_all_attr_fallback_does_not_suppress_empty_text_sensitivity
+    doc = doc_for('<style>a:defined { color: blue } div:empty { color: red }</style><div id="x">hi</div>')
+    assert_equal "rgb(0, 0, 0)", computed(doc, "x")["color"]
+    doc.get_element_by_id("x").first_child.data = ""
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
   def test_unmapped_pseudo_class_falls_back_to_any_attribute
     doc = doc_for('<style>input:invalid { color: red }</style><input id="x" type="text">')
     assert_equal "rgb(0, 0, 0)", computed(doc, "x")["color"]
