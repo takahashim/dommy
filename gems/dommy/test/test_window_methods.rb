@@ -20,6 +20,26 @@ class TestWindowMethods < Minitest::Test
     assert_nil @win.__js_call__("reportError", [StandardError.new("boom")])
   end
 
+  def test_dialog_handler_receives_the_type_message_and_prompt_default
+    seen = []
+    @win.dialog_handler = lambda do |type, message, default_value|
+      seen << [type, message, default_value]
+      case type
+      when :confirm then true
+      when :prompt then "Ada"
+      end
+    end
+
+    assert_nil @win.__js_call__("alert", ["Heads up"])
+    assert_equal true, @win.__js_call__("confirm", ["Continue?"])
+    assert_equal "Ada", @win.__js_call__("prompt", ["Name?", "Guest"])
+    assert_equal [
+      [:alert, "Heads up", nil],
+      [:confirm, "Continue?", nil],
+      [:prompt, "Name?", "Guest"]
+    ], seen
+  end
+
   def test_get_selection_delegates_to_the_document
     selection = @win.__js_call__("getSelection", [])
     refute_nil selection

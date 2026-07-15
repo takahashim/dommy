@@ -181,6 +181,84 @@ RSpec.describe "Capybara::Dommy::Driver with javascript: true" do
     end
   end
 
+  describe "native dialogs" do
+    def confirm_button(driver, messages, &after_confirm)
+      button = driver.find_css("#confirm").first
+      window = driver.document.default_view
+      button.native.add_event_listener("click", lambda do |_event|
+        messages.each do |message|
+          accepted = window.__js_call__("confirm", [message])
+          after_confirm.call(message, accepted) if after_confirm
+        end
+      end)
+      button
+    end
+
+    it "accepts a confirm opened by an interaction and returns its message" do
+      driver = js_driver_for("<button id='confirm'>Delete</button>")
+      answers = []
+      button = confirm_button(driver, ["Delete this record?"]) { |_message, accepted| answers << accepted }
+
+      message = driver.accept_modal(:confirm, text: "Delete this") { button.click }
+
+      expect(message).to eq("Delete this record?")
+      expect(answers).to eq([true])
+      expect(driver.document.default_view.__js_call__("confirm", ["Another?"])).to be(false)
+    end
+
+    it "dismisses a confirm" do
+      driver = js_driver_for("<button id='confirm'>Delete</button>")
+      answers = []
+      button = confirm_button(driver, ["Delete this record?"]) { |_message, accepted| answers << accepted }
+
+      driver.dismiss_modal(:confirm) { button.click }
+
+      expect(answers).to eq([false])
+    end
+
+    it "returns alert text and supplies an accepted prompt response" do
+      driver = js_driver_for("<p>Dialogs</p>")
+      window = driver.document.default_view
+      prompt_response = nil
+
+      alert_message = driver.accept_modal(:alert, text: /Heads/) do
+        window.__js_call__("alert", ["Heads up"])
+      end
+      prompt_message = driver.accept_modal(:prompt, text: "Name", with: "Ada") do
+        prompt_response = window.__js_call__("prompt", ["Name?", "Guest"])
+      end
+
+      expect(alert_message).to eq("Heads up")
+      expect(prompt_message).to eq("Name?")
+      expect(prompt_response).to eq("Ada")
+    end
+
+    it "does not silently accept a confirm whose text does not match" do
+      driver = js_driver_for("<button id='confirm'>Delete</button>")
+      answers = []
+      button = confirm_button(driver, ["Delete this record?"]) { |_message, accepted| answers << accepted }
+
+      expect {
+        driver.accept_modal(:confirm, text: "Archive") { button.click }
+      }.to raise_error(Capybara::ModalNotFound)
+      expect(answers).to eq([false])
+    end
+
+    it "handles nested modal helper blocks in the order the page opens confirms" do
+      driver = js_driver_for("<button id='confirm'>Delete</button>")
+      answers = []
+      button = confirm_button(driver, ["Are you sure?", "Really delete?"]) do |_message, accepted|
+        answers << accepted
+      end
+
+      driver.dismiss_modal(:confirm, text: "Really") do
+        driver.accept_modal(:confirm, text: "Are you sure") { button.click }
+      end
+
+      expect(answers).to eq([true, false])
+    end
+  end
+
   describe "lifecycle" do
     it "disposes the rack session on reset!" do
       driver = js_driver_for("<p>x</p>")

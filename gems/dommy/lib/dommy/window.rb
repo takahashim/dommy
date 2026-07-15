@@ -79,6 +79,13 @@ module Dommy
     # unchanged until an embedder installs a real delegate.
     attr_accessor :navigation_delegate
 
+    # Optional host seam for native JavaScript dialogs. It receives the dialog
+    # type (`:alert`, `:confirm`, or `:prompt`), its message, and (for prompts)
+    # the default value. A headless Window has no user to ask, so the fallback
+    # remains alert -> nil, confirm -> false, prompt -> nil. Browser front ends
+    # can install a handler to supply a deterministic answer.
+    attr_accessor :dialog_handler
+
     def initialize(host = nil, backend_doc: nil)
       @host = host
       @navigation_delegate = Navigation::NullDelegate.new
@@ -288,11 +295,11 @@ module Dommy
       when "scrollBy"
         scroll_by(*args)
       when "alert"
-        nil # headless: no dialog (happy-dom semantics)
+        handle_dialog(:alert, args[0].to_s, nil)
       when "confirm"
-        false # no user -> treated as "Cancel"
+        handle_dialog(:confirm, args[0].to_s, nil)
       when "prompt"
-        nil # no user input
+        handle_dialog(:prompt, args[0].to_s, args[1].nil? ? "" : args[1].to_s)
       when "open"
         nil # cannot open a new browsing context headlessly
       when "reportError"
@@ -322,6 +329,16 @@ module Dommy
       @current_event = event
       nil
     end
+
+    private
+
+    def handle_dialog(type, message, default_value)
+      return @dialog_handler.call(type, message, default_value) if @dialog_handler
+
+      type == :confirm ? false : nil
+    end
+
+    public
 
     # Called by History#go and Location.href= to fire popstate /
     # hashchange events. Listeners registered on the Window via
