@@ -480,6 +480,12 @@ module Dommy
     end
 
     def __internal_inside_style_element__(node)
+      # No <style> in the document -> a text edit can't be sheet source, so
+      # skip the ancestor walk. The sheet-element list is memoized per
+      # tree_generation (only childList changes it), so a text-editing loop
+      # between childList mutations answers this without re-walking.
+      return false unless __internal_style_sheet_elements__.any? { |el| el.local_name.to_s.casecmp?("style") }
+
       current = node.respond_to?(:parent) ? node.parent : nil
       while current
         return true if current.respond_to?(:name) && current.name.to_s.downcase == "style"
