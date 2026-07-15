@@ -80,6 +80,30 @@ class TestCssInvalidation < Minitest::Test
     assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
   end
 
+  RULE_INDEX = Dommy::Internal::CSS::RuleIndex
+
+  # Drift guard (see the Q3 fix): a pseudo whose match depends on descendant
+  # text MUST be in TEXT_SENSITIVE_PSEUDOS, or a text edit won't recompute the
+  # cascade. :empty is the one the matcher reads text for today; when :blank
+  # (already reserved in the set) or another gains a text-reading match, add a
+  # case here so this guard covers it.
+  def test_text_reading_pseudos_mark_the_index_text_sensitive
+    %w[empty].each do |pseudo|
+      doc = doc_for("<style>div:#{pseudo} { color: red }</style><div id=\"x\">hi</div>")
+      idx = CASCADE.index_for(doc)
+      assert idx.text_sensitive?, ":#{pseudo} must be in RuleIndex::TEXT_SENSITIVE_PSEUDOS"
+    end
+  end
+
+  # The dependency maps must reference only real pseudo-class names (a typo
+  # would silently never match, collapsing to the all-attrs fallback).
+  def test_dependency_maps_reference_only_known_pseudos
+    known = Dommy::Internal::KNOWN_PSEUDOS
+    names = RULE_INDEX::PSEUDO_CLASS_ATTR_DEPS.keys +
+      RULE_INDEX::TEXT_SENSITIVE_PSEUDOS + RULE_INDEX::NTH_PSEUDOS
+    names.each { |name| assert_includes known, name, "#{name.inspect} is not a known pseudo-class" }
+  end
+
   # An unmapped pseudo (all-attributes fallback) appearing BEFORE an :empty
   # rule must not hide the :empty from text-sensitivity — the two are
   # independent invalidation axes, so a text edit still recomputes.
