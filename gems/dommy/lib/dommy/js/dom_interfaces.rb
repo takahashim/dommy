@@ -112,11 +112,9 @@ module Dommy
         # `Storage.prototype` exists (a global constructor, construction routes
         # to the window / throws like the browser's illegal constructor).
         %w[Storage],
-        # CSSOM stylesheet interfaces. Seeded so `style instanceof CSSStyleSheet`
-        # resolves: Lit's css-tag runs that check while deciding whether to use
-        # constructable stylesheets; with the interface present but
-        # `adoptedStyleSheets` unsupported it falls back to injecting a <style>
-        # element, which Dommy handles.
+        # CSSOM stylesheet interfaces. `CSSStyleSheet` is constructable for
+        # component bundles that prepare CSS with `new CSSStyleSheet()`;
+        # adoptedStyleSheets remains unsupported.
         %w[CSSStyleSheet StyleSheet], %w[StyleSheet],
         # CSSOM rule interfaces. Dommy models every rule with one Ruby class
         # carrying a `type`, so the chain a rule reports is derived from that

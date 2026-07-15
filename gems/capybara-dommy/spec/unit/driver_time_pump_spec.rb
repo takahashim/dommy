@@ -23,7 +23,8 @@ RSpec.describe Capybara::Dommy::Driver, "time pump" do
     driver.find_xpath("//p")
     driver.html
     driver.title
-    expect(calls).to eq(4)
+    driver.current_url
+    expect(calls).to eq(5)
   end
 
   it "survives reset!" do

@@ -77,6 +77,15 @@ class TestCSSStyleSheetStub < Minitest::Test
     @doc.body.append_child(style)
     assert_equal(0, style.sheet.css_rules.length)
   end
+
+  def test_constructable_stylesheet_has_no_owner_node
+    sheet = @win.__js_get__("CSSStyleSheet").__js_new__([])
+
+    assert_kind_of(Dommy::CSSStyleSheet, sheet)
+    assert_nil(sheet.owner_node)
+    sheet.replace_sync("p { color: red }")
+    assert_equal("p { color: red; }", sheet.css_rules.item(0).css_text)
+  end
 end
 
 class TestCSSStyleSheetMutation < Minitest::Test

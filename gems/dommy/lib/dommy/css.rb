@@ -18,7 +18,9 @@ module Dommy
   class CSSStyleSheet
     attr_reader :owner_node, :css_rules
 
-    def initialize(owner_node:, href: nil, media: nil, title: nil, type: "text/css", source_text: nil)
+    # A stylesheet constructed by `new CSSStyleSheet()` has no owner node.
+    # Element-owned sheets still pass their <style> / <link> node explicitly.
+    def initialize(owner_node: nil, href: nil, media: nil, title: nil, type: "text/css", source_text: nil)
       @owner_node = owner_node
       @href = href
       @media = media

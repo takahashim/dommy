@@ -635,6 +635,11 @@ module Dommy
         "PerformanceObserver" => Bridge::Constructor.new { |args| PerformanceObserver.new(args[0]) },
         "Request" => Bridge::Constructor.new { |args| Request.new(args[0], args[1], win) },
         "XMLHttpRequest" => Bridge::Constructor.new { |_args| XMLHttpRequest.new(win) },
+        # Constructable Stylesheets (`new CSSStyleSheet()`) are used by web
+        # components to prepare CSS before attaching it to a shadow root. They
+        # have no owner node; CSSOM edits remain available even where
+        # adoptedStyleSheets itself is not implemented yet.
+        "CSSStyleSheet" => Bridge::Constructor.new { |_args| CSSStyleSheet.new },
         "FileReader" => Bridge::Constructor.new { |_args| FileReader.new(win) },
         "MessageChannel" => Bridge::Constructor.new { |_args| MessageChannel.new(win) },
         "BroadcastChannel" => Bridge::Constructor.new { |args| BroadcastChannel.new(win, args[0]) },

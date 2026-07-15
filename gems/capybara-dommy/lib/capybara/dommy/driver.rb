@@ -95,6 +95,12 @@ module Capybara
       end
 
       def current_url
+        # Capybara polls current_url for have_current_path. In JS mode that poll
+        # must advance the virtual clock too: Turbo/fetch continuations often
+        # settle in a scheduled task rather than the interaction's microtask
+        # drain. The Rack session's History hook then reflects pushState in its
+        # current URL.
+        pump!
         rack_session.current_url.to_s
       end
 
