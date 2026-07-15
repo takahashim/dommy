@@ -1771,12 +1771,25 @@ globalThis.__rbHost = (function () {
     ["Attr", new Set(["value"])],
   ]);
 
-  // (interface, prop) writes the host has declined once ("Iface#prop"): the
+  // Props the host has declined to handle a write for, per interface: the
   // host's __js_set__ dispatch is a pure function of the wrapper class and
-  // property name, so a declined pair never becomes host-handled later and
-  // subsequent writes can stay JS-side expandos without crossing. Event
-  // handler names (on*) are excluded — their handling depends on the VALUE.
-  const declinedSetProps = new Set();
+  // property name, so a declined prop never becomes host-handled later and
+  // subsequent writes can stay JS-side expandos without crossing. Keyed by
+  // interface (each proxy's handler grabs its own Set once, so the hot path
+  // is a plain Set.has with no per-write string building), and capped —
+  // frameworks write per-navigation-random keys (React's __reactFiber$<rand>)
+  // that never recur, so on a long-lived VM the Set would otherwise grow
+  // without bound. Clearing an overflowed Set only costs one re-decline
+  // (the entry is a pure optimization). Event handler names (on*) are never
+  // recorded — their handling depends on the VALUE, not just the name.
+  const declinedByInterface = new Map();
+  const DECLINED_PROPS_CAP = 1024;
+  function declinedSetFor(ifaceName) {
+    if (ifaceName == null) return null;
+    let set = declinedByInterface.get(ifaceName);
+    if (!set) { set = new Set(); declinedByInterface.set(ifaceName, set); }
+    return set;
+  }
   const isEventHandlerName = (prop) => typeof prop === "string" && /^on[a-z]/.test(prop);
 
   // IDL reflected string attributes that return the content attribute value
@@ -1876,6 +1889,9 @@ globalThis.__rbHost = (function () {
     // Interface-specific const / epoch-stable prop sets (Attr#name, Attr#value).
     const constIface = CONST_IFACE_PROPS.get(ifaceName) || null;
     const stableIface = STABLE_EPOCH_IFACE_PROPS.get(ifaceName) || null;
+    // This interface's host-declined-props Set (shared across its proxies),
+    // resolved once so the set trap's hot path skips per-write key building.
+    const declinedProps = declinedSetFor(ifaceName);
     // Reflected-attribute map, only for Node proxies (elements have the
     // snapshot; other node kinds return null from attrsSnapshot and fall back).
     const reflectAttrs = nodeChain ? REFLECTED_STRING_ATTRS : null;
@@ -2213,8 +2229,7 @@ globalThis.__rbHost = (function () {
         // writable named collections (routed above).
         if (typeof prop === "string" && !(named && named.writable) &&
             !isEventHandlerName(prop) && !isGlobalWindow(handle) &&
-            (Object.hasOwn(t, prop) ||
-             (ifaceName != null && declinedSetProps.has(ifaceName + "#" + prop)))) {
+            (Object.hasOwn(t, prop) || (declinedProps !== null && declinedProps.has(prop)))) {
           t[prop] = value;
           if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
           return true;
@@ -2273,10 +2288,13 @@ globalThis.__rbHost = (function () {
           if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
           // Remember the decline per (interface, prop): the host's set
           // dispatch depends only on the wrapper class and name, so future
-          // writes of this prop on this interface skip the crossing.
-          if (typeof prop === "string" && ifaceName != null &&
+          // writes of this prop on this interface skip the crossing. Cap the
+          // set (clearing on overflow just re-declines once) so a long-lived
+          // VM doesn't accumulate per-navigation-random keys forever.
+          if (typeof prop === "string" && declinedProps !== null &&
               !isEventHandlerName(prop) && !isGlobalWindow(handle)) {
-            declinedSetProps.add(ifaceName + "#" + prop);
+            if (declinedProps.size >= DECLINED_PROPS_CAP) declinedProps.clear();
+            declinedProps.add(prop);
           }
         }
         return true;
