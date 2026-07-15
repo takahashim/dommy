@@ -1303,8 +1303,38 @@ globalThis.__rbHost = (function () {
   // [LegacyUnforgeable]: an own, non-configurable accessor, like host events'.
   const JS_EVENT_IS_TRUSTED = { get: function () { return false; }, enumerable: true, configurable: false };
 
+  // A per-interface prototype carrying the JS-event members ONCE (they shadow
+  // the seeded interface stubs, which delegate through a host handle a JS
+  // event doesn't have; each member reads this[JS_EVENT] so it works as an
+  // inherited accessor). Built lazily, so construction installs only the two
+  // genuinely per-instance own props (the state slot + unforgeable isTrusted)
+  // rather than ~20 defineProperty calls per event.
+  function defineJsEventMembers(target, name) {
+    for (const key of Object.keys(JS_EVENT_MEMBERS)) {
+      const m = JS_EVENT_MEMBERS[key];
+      const d = { configurable: true };
+      if (m.value) { d.value = m.value; d.writable = true; d.enumerable = false; }
+      else { d.get = m.get; d.enumerable = true; if (m.set) d.set = m.set; }
+      Object.defineProperty(target, key, d);
+    }
+    if (name === "CustomEvent") {
+      Object.defineProperty(target, "detail", JS_EVENT_DETAIL);
+      Object.defineProperty(target, "initCustomEvent", JS_EVENT_INIT_CUSTOM);
+    }
+  }
+
+  const jsEventProtoByName = new Map();
+  function jsEventProtoFor(name) {
+    let proto = jsEventProtoByName.get(name);
+    if (proto) return proto;
+    proto = Object.create(protos.get(name));
+    defineJsEventMembers(proto, name);
+    jsEventProtoByName.set(name, proto);
+    return proto;
+  }
+
   function makeJsEvent(name, type, dict) {
-    const ev = Object.create(protos.get(name));
+    const ev = Object.create(jsEventProtoFor(name));
     const nowv = (typeof performance === "object" && performance !== null &&
       typeof performance.now === "function") ? performance.now() : 0;
     const state = {
@@ -1318,19 +1348,9 @@ globalThis.__rbHost = (function () {
       canceled: false, stopped: false, target: null, host: null,
     };
     Object.defineProperty(ev, JS_EVENT, { value: state });
-    // Own members shadow the seeded prototype stubs, which delegate through
-    // a host handle this object doesn't have.
-    for (const key of Object.keys(JS_EVENT_MEMBERS)) {
-      const m = JS_EVENT_MEMBERS[key];
-      const d = { configurable: true };
-      if (m.value) { d.value = m.value; d.writable = true; d.enumerable = false; }
-      else { d.get = m.get; d.enumerable = true; if (m.set) d.set = m.set; }
-      Object.defineProperty(ev, key, d);
-    }
-    if (name === "CustomEvent") {
-      Object.defineProperty(ev, "detail", JS_EVENT_DETAIL);
-      Object.defineProperty(ev, "initCustomEvent", JS_EVENT_INIT_CUSTOM);
-    }
+    // isTrusted is [LegacyUnforgeable] — an OWN non-configurable accessor
+    // (getOwnPropertyDescriptor(ev, "isTrusted") must resolve it), so it
+    // stays per-instance even though every event answers false.
     Object.defineProperty(ev, "isTrusted", JS_EVENT_IS_TRUSTED);
     return ev;
   }
@@ -1418,7 +1438,12 @@ globalThis.__rbHost = (function () {
       // handled (and returned) by the construction-stack / HTMLElement paths
       // above, so reaching here with nt !== ctor is a plain interface subclass.
       if (nt !== ctor && built && typeof built === "object") {
+        // A JS-side event (built[JS_EVENT]) carries its members on an
+        // intermediate prototype that this setPrototypeOf discards; reinstall
+        // them as own props so a subclassed Event/CustomEvent still works.
+        const evState = built[JS_EVENT];
         Object.setPrototypeOf(built, nt.prototype);
+        if (evState !== undefined) defineJsEventMembers(built, evState.name);
       }
       return built;
     };
