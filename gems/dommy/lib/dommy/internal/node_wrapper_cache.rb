@@ -345,7 +345,11 @@ module Dommy
         when Backend.processing_instruction_class
           ProcessingInstructionNode.new(@document, node)
         when Backend.document_fragment_class
-          Fragment.new(@document, node)
+          # A shadow tree's backing fragment IS its ShadowRoot, so `parentNode`
+          # from the top of a shadow tree has to reach the ShadowRoot — a bare
+          # Fragment wrapper would have no host and no mode, and the walk out of
+          # the tree would dead-end there.
+          @document.__internal_shadow_root_for_fragment__(node) || Fragment.new(@document, node)
         when ->(n) { (dt = Backend.document_type_class) && n.is_a?(dt) }
           DocumentType.new(backend_node: node, document: @document)
         end

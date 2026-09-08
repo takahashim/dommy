@@ -28,6 +28,100 @@ module Dommy
       @start_offset = 0
       @end_container = document
       @end_offset = 0
+      # Ranges are LIVE: the document tracks them so every mutation that can
+      # shift a boundary point gets a chance to move it (see the
+      # `__internal_apply_*` steps below).
+      document.__internal_register_range__(self)
+    end
+
+    # --- Live range mutation rules -----------------------------------
+    # WHATWG spreads these across the mutation algorithms ("insert", "remove",
+    # "replace data", "split"). A boundary point has to follow the tree so the
+    # range keeps designating the same content: text inserted before it shifts
+    # it along, text deleted under it clamps it, and a removed node hands its
+    # boundaries to the position it vacated.
+
+    # "Replace data" steps 8-11. `count` characters at `offset` became
+    # `new_length` characters.
+    def __internal_apply_replace_data__(node, offset, count, new_length)
+      delta = new_length - count
+      limit = offset + count
+      # Each boundary is rewritten from its ORIGINAL value: one past the replaced
+      # run slides by the length difference, one inside it clamps to the run's
+      # start, and one before it is untouched. The two rules are mutually
+      # exclusive on the original offset, so they must be an if/elsif — sliding
+      # first and then re-testing would clamp a boundary already moved correctly.
+      if @start_container.equal?(node)
+        if @start_offset > limit
+          @start_offset += delta
+        elsif @start_offset > offset
+          @start_offset = offset
+        end
+      end
+      if @end_container.equal?(node)
+        if @end_offset > limit
+          @end_offset += delta
+        elsif @end_offset > offset
+          @end_offset = offset
+        end
+      end
+      nil
+    end
+
+    # "Split" steps 7.2-7.5: the tail of the split moves to `new_node`, and a
+    # boundary sitting right where the new node lands shifts past it.
+    def __internal_apply_split__(node, offset, new_node, parent, index)
+      if @start_container.equal?(node) && @start_offset > offset
+        @start_container = new_node
+        @start_offset -= offset
+      end
+      if @end_container.equal?(node) && @end_offset > offset
+        @end_container = new_node
+        @end_offset -= offset
+      end
+      return nil unless parent
+
+      @start_offset += 1 if @start_container.equal?(parent) && @start_offset == index + 1
+      @end_offset += 1 if @end_container.equal?(parent) && @end_offset == index + 1
+      nil
+    end
+
+    # "Remove" steps, run while the node is still attached.
+    def __internal_apply_remove__(node, parent, index)
+      if inclusive_ancestor?(node, @start_container)
+        @start_container = parent
+        @start_offset = index
+      end
+      if inclusive_ancestor?(node, @end_container)
+        @end_container = parent
+        @end_offset = index
+      end
+      @start_offset -= 1 if @start_container.equal?(parent) && @start_offset > index
+      @end_offset -= 1 if @end_container.equal?(parent) && @end_offset > index
+      nil
+    end
+
+    # "Insert" step: a node inserted at `index` pushes later boundary points in
+    # the same parent along by one.
+    def __internal_apply_insert__(parent, index)
+      @start_offset += 1 if @start_container.equal?(parent) && @start_offset > index
+      @end_offset += 1 if @end_container.equal?(parent) && @end_offset > index
+      nil
+    end
+
+    # Cheap pre-checks the document uses to decide whether a mutation is worth
+    # resolving a child index for. Computing an index means walking the parent's
+    # child list, which would turn a bulk append into quadratic work if it ran
+    # for every insertion regardless of where the live ranges actually sit.
+
+    def __internal_anchored_at__(parent)
+      @start_container.equal?(parent) || @end_container.equal?(parent)
+    end
+
+    def __internal_affected_by_removal__(node, parent)
+      __internal_anchored_at__(parent) ||
+        inclusive_ancestor?(node, @start_container) ||
+        inclusive_ancestor?(node, @end_container)
     end
 
     def collapsed?
@@ -48,17 +142,39 @@ module Dommy
     # --- Boundary setters --------------------------------------------
 
     def set_start(node, offset)
+      offset = validate_boundary!(node, offset)
+      # A boundary in a different tree carries the whole range with it; otherwise
+      # a start past the end collapses the range onto the new start.
+      different_root = !same_root?(node)
       @start_container = node
-      @start_offset = offset.to_i
-      collapse_to_start if compare_points(@start_container, @start_offset, @end_container, @end_offset) > 0
+      @start_offset = offset
+      if different_root || compare_points(@start_container, @start_offset, @end_container, @end_offset) > 0
+        collapse_to_start
+      end
       nil
     end
 
     def set_end(node, offset)
+      offset = validate_boundary!(node, offset)
+      different_root = !same_root?(node)
       @end_container = node
-      @end_offset = offset.to_i
-      collapse_to_end if compare_points(@start_container, @start_offset, @end_container, @end_offset) > 0
+      @end_offset = offset
+      if different_root || compare_points(@start_container, @start_offset, @end_container, @end_offset) > 0
+        collapse_to_end
+      end
       nil
+    end
+
+    # WHATWG "set the start/end of a range" steps 1-2: a DocumentType can never
+    # hold a boundary, and the offset is an unsigned long bounded by the node's
+    # length (so a negative JS offset wraps to a huge value and is rejected).
+    def validate_boundary!(node, offset)
+      raise DOMException::InvalidNodeTypeError, "a DocumentType cannot be a boundary point" if doctype?(node)
+
+      value = unsigned_long(offset)
+      raise DOMException::IndexSizeError, "offset #{value} is past the node's length" if value > length_of(node)
+
+      value
     end
 
     def set_start_before(node)
@@ -131,25 +247,98 @@ module Dommy
       Internal::RangeTextSerializer.new(self).serialize
     end
 
-    # cloneContents — returns a DocumentFragment with a deep clone of
-    # the range contents. Range is left unchanged.
+    # cloneContents — a DocumentFragment holding a copy of the range contents.
+    # The tree is left unchanged. Partially-contained nodes are copied only as
+    # far as the range reaches into them (WHATWG "clone the contents of a
+    # range"), so a range ending mid-text yields the leading substring, not the
+    # whole node.
     def clone_contents
+      copy_or_move(@start_container, @start_offset, @end_container, @end_offset, extract: false)
+    end
+
+    # extractContents — like cloneContents, but the contents are *moved* into
+    # the fragment (fully-contained nodes keep their identity) and the range
+    # collapses to the point the removal leaves behind.
+    def extract_contents
+      return @document.create_document_fragment if collapsed?
+
+      sc = @start_container
+      so = @start_offset
+      ec = @end_container
+      eo = @end_offset
+      # The collapse point has to be computed against the *pre-mutation* tree.
+      new_node, new_offset = deletion_collapse_point(sc, so, ec, eo)
+      fragment = copy_or_move(sc, so, ec, eo, extract: true)
+      @start_container = @end_container = new_node
+      @start_offset = @end_offset = new_offset
+      fragment
+    end
+
+    # WHATWG "clone/extract the contents of a range" — one recursive walk, since
+    # the two algorithms differ only in whether the source is mutated and whether
+    # fully-contained nodes are moved or deep-copied.
+    def copy_or_move(sc, so, ec, eo, extract:)
       fragment = @document.create_document_fragment
-      contents = collect_nodes_in_range
-      contents.each do |node|
-        clone = clone_wrapped(node)
-        fragment.append_child(clone) if clone
+      return fragment if sc.equal?(ec) && so == eo
+
+      # Both boundaries inside one CharacterData node: a single substring.
+      if sc.equal?(ec) && character_data?(sc)
+        clone = shallow_clone(sc)
+        clone.data = sc.data.to_s[so, eo - so].to_s
+        fragment.append_child(clone)
+        sc.replace_data(so, eo - so, "") if extract
+        return fragment
       end
+
+      common = common_ancestor_of(sc, ec)
+      children = common.respond_to?(:child_nodes) ? common.child_nodes.to_a : []
+      first_partial = inclusive_ancestor?(sc, ec) ? nil : children.find { |c| partially_contained?(c, sc, ec) }
+      last_partial = inclusive_ancestor?(ec, sc) ? nil : children.reverse.find { |c| partially_contained?(c, sc, ec) }
+      contained = children.select { |c| contained_between?(c, sc, so, ec, eo) }
+
+      if contained.any? { |node| doctype?(node) }
+        raise DOMException::HierarchyRequestError, "cannot extract a doctype from a range"
+      end
+
+      append_start_boundary(fragment, sc, so, first_partial, extract: extract)
+      contained.each { |child| fragment.append_child(extract ? child : clone_wrapped(child)) }
+      append_end_boundary(fragment, ec, eo, last_partial, extract: extract)
 
       fragment
     end
 
-    # extractContents — like cloneContents but also removes the
-    # extracted nodes from the document.
-    def extract_contents
-      fragment = clone_contents
-      delete_contents
-      fragment
+    # Step 10: the start boundary's contribution — the tail of a boundary text
+    # node, or a shallow copy of the partially-contained child holding whatever
+    # the range reaches inside it.
+    def append_start_boundary(fragment, sc, so, first_partial, extract:)
+      return if first_partial.nil?
+
+      if character_data?(first_partial)
+        clone = shallow_clone(sc)
+        clone.data = (sc.data.to_s[so..] || "")
+        fragment.append_child(clone)
+        sc.replace_data(so, length_of(sc) - so, "") if extract
+      else
+        clone = shallow_clone(first_partial)
+        fragment.append_child(clone)
+        clone.append_child(copy_or_move(sc, so, first_partial, length_of(first_partial), extract: extract))
+      end
+    end
+
+    # Step 12: the mirror of `append_start_boundary` for the end boundary.
+    def append_end_boundary(fragment, ec, eo, last_partial, extract:)
+      return if last_partial.nil?
+
+      if character_data?(last_partial)
+        clone = shallow_clone(ec)
+        clone.data = ec.data.to_s[0, eo].to_s
+        fragment.append_child(clone)
+        ec.replace_data(0, eo, "") if extract
+      else
+        clone = shallow_clone(last_partial)
+        fragment.append_child(clone)
+        clone.append_child(copy_or_move(last_partial, 0, ec, eo, extract: extract))
+      end
     end
 
     # WHATWG Range.deleteContents. Removes the fully-contained nodes (childList
@@ -203,12 +392,43 @@ module Dommy
     # A node is contained in the range when its start position is at or after the
     # range start and its end position is at or before the range end.
     def node_fully_contained?(node)
+      contained_between?(node, @start_container, @start_offset, @end_container, @end_offset)
+    end
+
+    # `node_fully_contained?` against explicit boundaries, for the recursive
+    # clone/extract walk (which works on sub-ranges, not on `self`).
+    def contained_between?(node, sc, so, ec, eo)
       parent = parent_of(node)
       return false unless parent
 
       idx = child_index_of(parent, node)
-      compare_points(parent, idx, @start_container, @start_offset) >= 0 &&
-        compare_points(parent, idx + 1, @end_container, @end_offset) <= 0
+      compare_points(parent, idx, sc, so) >= 0 && compare_points(parent, idx + 1, ec, eo) <= 0
+    end
+
+    # WHATWG "partially contained": an inclusive ancestor of exactly one of the
+    # range's two boundary nodes — i.e. the range reaches into it but does not
+    # cover it.
+    def partially_contained?(node, sc, ec)
+      inclusive_ancestor?(node, sc) != inclusive_ancestor?(node, ec)
+    end
+
+    # The "common ancestor" the clone/extract algorithms use: the start node's
+    # lowest inclusive ancestor that is also an inclusive ancestor of the end
+    # node.
+    def common_ancestor_of(sc, ec)
+      node = sc
+      node = parent_of(node) while node && !inclusive_ancestor?(node, ec)
+      node || @document
+    end
+
+    # Text / CDATASection / ProcessingInstruction / Comment — the node types
+    # whose "length" is a character count, so a range boundary can sit inside one.
+    def character_data?(node)
+      [3, 4, 7, 8].include?(node_type_of(node))
+    end
+
+    def shallow_clone(node)
+      node.__js_call__("cloneNode", [false])
     end
 
     # The (node, offset) the range collapses to after deletion (WHATWG step 5):
@@ -233,13 +453,26 @@ module Dommy
       false
     end
 
-    # surroundContents(newParent) — wraps the range contents in
-    # newParent (which must be an element).
+    # surroundContents(newParent) — wraps the range contents in newParent.
     def surround_contents(new_parent)
-      contents = extract_contents
-      new_parent.append_child(contents)
-      # Insert new_parent at the (now-collapsed) range start.
+      # A non-Text node the range only reaches *into* cannot be surrounded: the
+      # result would not be a well-formed tree.
+      partial = ancestor_chain(@start_container) + ancestor_chain(@end_container)
+      if partial.any? { |n| !text_node?(n) && partially_contained?(n, @start_container, @end_container) }
+        raise DOMException::InvalidStateError, "a non-Text node is partially contained in the range"
+      end
+
+      if [9, 10, 11].include?(node_type_of(new_parent)) # Document / DocumentType / DocumentFragment
+        raise DOMException::InvalidNodeTypeError, "newParent cannot be a Document, DocumentType or DocumentFragment"
+      end
+
+      fragment = extract_contents
+      # "Replace all" with null: newParent is emptied before it takes the
+      # contents. Insert it first, then fill it — inserting a populated wrapper
+      # would place its children relative to the wrong boundary.
+      new_parent.child_nodes.to_a.each { |child| child.remove }
       insert_node(new_parent)
+      new_parent.append_child(fragment)
       select_node(new_parent)
       nil
     end
@@ -484,7 +717,7 @@ module Dommy
     end
 
     def text_node?(node)
-      node.respond_to?(:node_type) && node.node_type == 3
+      node_type_of(node) == 3
     end
 
     # WHATWG "length of a node": a DocumentType is 0; a CharacterData node
@@ -541,10 +774,18 @@ module Dommy
     end
 
     def doctype?(node)
-      nt = if node.respond_to?(:node_type) then node.node_type
-           elsif node.respond_to?(:__js_get__) then node.__js_get__("nodeType")
-           end
-      nt == 10
+      node_type_of(node) == 10
+    end
+
+    # Document / Fragment / DocumentType expose nodeType only over the bridge,
+    # while Element and CharacterData also have a Ruby reader — ask both.
+    def node_type_of(node)
+      if node.respond_to?(:node_type)
+        node.node_type
+      elsif node.respond_to?(:__js_get__)
+        nt = node.__js_get__("nodeType")
+        nt.is_a?(Integer) ? nt : nil
+      end
     end
 
     def insert_into_parent_at(parent, idx, node)
@@ -567,16 +808,6 @@ module Dommy
       return nil unless node.respond_to?(:__js_call__)
 
       node.__js_call__("cloneNode", [true])
-    end
-
-    # Collect top-level nodes contained in the range. Simple
-    # approximation that walks child_nodes of common ancestor and
-    # picks nodes fully inside the range.
-    def collect_nodes_in_range
-      ancestor = common_ancestor_container
-      return [] unless ancestor.respond_to?(:child_nodes)
-
-      ancestor.child_nodes.to_a.select { |child| fully_inside?(child) }
     end
 
     def before?(node)

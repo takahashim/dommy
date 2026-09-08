@@ -216,6 +216,7 @@ module Dommy
       bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless bn && bn.parent == @__node__
 
+      @document.__internal_ranges_will_remove__(bn)
       bn.unlink
       node
     end
@@ -240,6 +241,7 @@ module Dommy
 
       ensure_pre_insertion_validity!(new_child, old_child)
       detach_dom_nodes(new_child).each { |n| old_bn.add_previous_sibling(n) }
+      @document.__internal_ranges_will_remove__(old_bn)
       old_bn.unlink
       old_child
     end
@@ -307,6 +309,9 @@ module Dommy
         # The new node is inserted right after self — a childList addition record.
         @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: [new_bn], removed_nodes: [])
       end
+      # Live ranges past the split point move to the tail node (the generic
+      # insert step above already shifted boundaries sitting further along).
+      @document.__internal_ranges_split_text__(self, off, new_node)
       new_node
     end
 
@@ -322,7 +327,11 @@ module Dommy
     end
 
     def data=(value)
+      # Assigning `data` is "replace data" over the whole node, so a live range
+      # boundary inside it clamps to the start rather than dangling past the end.
+      old_length = utf16_length(@__node__.content)
       write_data(value)
+      @document.__internal_ranges_replaced_data__(self, 0, old_length, utf16_length(@__node__.content))
     end
 
     def node_value
@@ -466,7 +475,10 @@ module Dommy
       raise DOMException::IndexSizeError, "offset out of bounds" if o > len
 
       c = [to_uint32(count), len - o].min
-      write_data(utf16_slice(s, 0, o) + dom_string(value) + utf16_slice(s, o + c, len - (o + c)))
+      inserted = dom_string(value)
+      write_data(utf16_slice(s, 0, o) + inserted + utf16_slice(s, o + c, len - (o + c)))
+      # Live ranges whose boundary sits in (or past) the replaced run follow it.
+      @document.__internal_ranges_replaced_data__(self, o, c, utf16_length(inserted))
     end
 
     def __js_get__(key)
@@ -1592,6 +1604,7 @@ module Dommy
       removed = @__node__
       new_nodes = fragment.children.to_a
       mark_fragment_scripts_started(new_nodes)
+      @document.__internal_ranges_will_remove__(@__node__)
       @__node__.unlink
       if anchor
         new_nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
@@ -3194,6 +3207,7 @@ module Dommy
       # unlink (and record the removal) when old is still attached.
       removed = []
       if old_node.parent == @__node__
+        @document.__internal_ranges_will_remove__(old_node)
         old_node.unlink
         removed = [old_node]
       end

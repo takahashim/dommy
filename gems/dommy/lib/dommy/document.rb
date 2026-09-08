@@ -1140,6 +1140,7 @@ module Dommy
       raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @backend_doc
 
       run_node_iterator_pre_remove(bn)
+      __internal_ranges_will_remove__(bn)
       bn.unlink
       node
     end
@@ -1179,6 +1180,7 @@ module Dommy
       # is re-created in this backend, and Makiri's fail-closed guard refuses a
       # second doctype — so the old one must be gone before the new is made.
       ref = old_bn.next
+      __internal_ranges_will_remove__(old_bn)
       old_bn.unlink
       if !Backend.moves_nodes_across_documents? && new_child.respond_to?(:document) && !new_child.document.equal?(self)
         new_child = adopt_node(new_child)
@@ -1197,6 +1199,7 @@ module Dommy
       return nil unless node
 
       run_node_iterator_pre_remove(node)
+      __internal_ranges_will_remove__(node)
       node.unlink
       nil
     end
@@ -1793,6 +1796,7 @@ module Dommy
       previous_sibling: nil,
       next_sibling: nil
     )
+      __internal_ranges_inserted__(target_node, added_nodes) unless added_nodes.empty?
       @mutation_coordinator.notify_child_list_mutation(
         target_node: target_node,
         added_nodes: added_nodes,
@@ -1813,6 +1817,7 @@ module Dommy
       prev_w = node.previous_sibling && wrap_node(node.previous_sibling)
       next_w = node.next_sibling && wrap_node(node.next_sibling)
       run_node_iterator_pre_remove(node)
+      __internal_ranges_will_remove__(node)
       node.unlink
       notify_child_list_mutation(
         target_node: parent,
@@ -1821,6 +1826,99 @@ module Dommy
         previous_sibling: prev_w,
         next_sibling: next_w
       )
+    end
+
+    # --- Live ranges -------------------------------------------------
+    # Ranges are live: a DOM mutation moves their boundary points so they keep
+    # designating the same content. They are held weakly, so a range the caller
+    # drops is collected rather than pinned for the document's lifetime.
+
+    def __internal_register_range__(range)
+      @live_ranges ||= ObjectSpace::WeakMap.new
+      @live_ranges[range] = true
+      nil
+    end
+
+    def __internal_each_live_range__
+      return if @live_ranges.nil? || @live_ranges.size.zero?
+
+      @live_ranges.each_key { |range| yield range }
+    end
+
+    def live_ranges?
+      !@live_ranges.nil? && @live_ranges.size.positive?
+    end
+
+    # WHATWG "removing steps" for live ranges. Must run while `backend_node` is
+    # still attached, since the rules are expressed in terms of the position it
+    # is about to vacate.
+    def __internal_ranges_will_remove__(backend_node)
+      return unless live_ranges?
+
+      parent = backend_node.parent
+      return unless parent
+
+      removed = wrap_node(backend_node)
+      parent_wrapper = wrap_node(parent)
+      affected = live_ranges_where { |r| r.__internal_affected_by_removal__(removed, parent_wrapper) }
+      return if affected.empty?
+
+      index = child_index_of_wrapper(parent_wrapper, removed)
+      return unless index
+
+      affected.each { |r| r.__internal_apply_remove__(removed, parent_wrapper, index) }
+    end
+
+    # WHATWG "insert" step, run after the nodes are in place. Processed in
+    # document order so a multi-node insert shifts a later boundary once per
+    # inserted node.
+    def __internal_ranges_inserted__(parent_backend_node, added_backend_nodes)
+      return unless live_ranges?
+
+      parent_wrapper = wrap_node(parent_backend_node)
+      return unless parent_wrapper.respond_to?(:child_nodes)
+
+      affected = live_ranges_where { |r| r.__internal_anchored_at__(parent_wrapper) }
+      return if affected.empty?
+
+      children = parent_wrapper.child_nodes.to_a
+      added_backend_nodes.each do |bn|
+        wrapper = wrap_node(bn)
+        index = children.index { |c| c.equal?(wrapper) }
+        next unless index
+
+        affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index) }
+      end
+    end
+
+    def __internal_ranges_replaced_data__(node, offset, count, new_length)
+      return unless live_ranges?
+
+      __internal_each_live_range__ { |r| r.__internal_apply_replace_data__(node, offset, count, new_length) }
+    end
+
+    def __internal_ranges_split_text__(node, offset, new_node)
+      return unless live_ranges?
+
+      parent = node.parent_node
+      # Only the parent-anchored rule needs an index, so resolve one lazily.
+      index =
+        if parent && live_ranges_where { |r| r.__internal_anchored_at__(parent) }.any?
+          child_index_of_wrapper(parent, node)
+        end
+      __internal_each_live_range__ { |r| r.__internal_apply_split__(node, offset, new_node, parent, index) }
+    end
+
+    def live_ranges_where
+      out = []
+      __internal_each_live_range__ { |r| out << r if yield(r) }
+      out
+    end
+
+    def child_index_of_wrapper(parent_wrapper, child_wrapper)
+      return nil unless parent_wrapper.respond_to?(:child_nodes)
+
+      parent_wrapper.child_nodes.to_a.index { |c| c.equal?(child_wrapper) }
     end
 
     # Run the "NodeIterator pre-removing steps" for every live iterator before
