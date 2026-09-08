@@ -2428,6 +2428,8 @@ module Dommy
         # Boolean reflected properties — true iff the matching HTML
         # attribute is present. Real DOM normalizes attribute names to
         # lowercase, mapped here too (e.g. `readOnly` ↔ `readonly`).
+        return Bridge::ABSENT unless boolean_idl_attribute?(key)
+
         @__node__.key?(reflected_attr_name(key))
       when "value"
         # For form elements `value` is a property that defaults to the
@@ -2707,6 +2709,26 @@ module Dommy
       {"readOnly" => "readonly"}.fetch(key, key)
     end
 
+    # The HTML elements each boolean IDL attribute is actually defined on.
+    # `hidden` is global (it lives on HTMLElement), the rest belong to specific
+    # interfaces — a `select` that answered `readOnly` would be claiming an IDL
+    # attribute HTML never gave it, and feature detection (`"readOnly" in ctl`)
+    # reads that as a text control.
+    BOOLEAN_IDL_OWNERS = {
+      "checked" => %w[input].freeze,
+      "readOnly" => %w[input textarea].freeze,
+      "multiple" => %w[input select].freeze,
+      "required" => %w[input select textarea].freeze,
+      "disabled" => %w[button fieldset input link optgroup option select style textarea].freeze
+    }.freeze
+
+    def boolean_idl_attribute?(key)
+      owners = BOOLEAN_IDL_OWNERS[key]
+      return true if owners.nil? # `hidden`, on every HTML element
+
+      namespace_uri == HTML_NAMESPACE && owners.include?(local_name.to_s.downcase)
+    end
+
     # The element's translation mode (HTML `translate`): the nearest ancestor-or-
     # self with a valid translate attribute decides ("yes"/"" → true, "no" →
     # false); with none, the root default is translate (true).
@@ -2736,7 +2758,11 @@ module Dommy
         self.outer_html = value.nil? ? "" : value.to_s
       when "hidden", "disabled", "checked", "readOnly", "multiple", "required"
         # Boolean reflected property — funnel through set_attribute /
-        # remove_attribute so MutationObserver attribute records fire.
+        # remove_attribute so MutationObserver attribute records fire. On an
+        # element the IDL attribute does not belong to, the assignment is an
+        # ordinary JS expando and must not touch the content attribute.
+        return Bridge::UNHANDLED unless boolean_idl_attribute?(key)
+
         name = reflected_attr_name(key)
         if value
           set_attribute(name, "")

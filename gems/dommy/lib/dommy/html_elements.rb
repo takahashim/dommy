@@ -1319,13 +1319,15 @@ module Dommy
       @__validity ||= ValidityState.new(self)
     end
 
-    # Whether this control participates in constraint validation.
-    # Disabled / hidden / button-type inputs return false.
+    # Whether this control participates in constraint validation. Only the
+    # Hidden, Reset Button and Button states are barred outright — a submit or
+    # image button is a submittable element like any other, and validates (it
+    # just has no constraints of its own beyond a custom validity message).
     def will_validate
       return false if reflected_boolean("disabled")
       return false if disabled_by_ancestor_fieldset?
       return false if reflected_boolean("readonly")
-      return false if %w[hidden button submit reset image].include?(type)
+      return false if %w[hidden button reset].include?(type)
       # A control with a datalist ancestor is barred from constraint validation.
       return false unless closest("datalist").nil?
 
@@ -1549,16 +1551,22 @@ module Dommy
       type == "submit" && !disabled && !disabled_by_ancestor_fieldset? && closest("datalist").nil?
     end
 
+    # A button has no constraints of its own, so the only thing it can report is
+    # a message set through setCustomValidity — and only while it validates.
     def validation_message
-      ""
+      return "" unless will_validate
+
+      (@custom_validity_message || "").to_s
     end
 
     def check_validity
-      true
+      ok = !will_validate || validity.valid
+      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
+      ok
     end
 
     def report_validity
-      true
+      check_validity
     end
 
     def set_custom_validity(msg)
@@ -1954,13 +1962,54 @@ module Dommy
 
       v = host_value.to_s
       return false if v.empty?
+      # HTML compiles the pattern as a JavaScript RegExp with the `v` flag and
+      # ignores the attribute entirely if that fails.
+      return false if v_mode_syntax_error?(pat)
 
       # The pattern must be a valid regex ON ITS OWN — validate it before
       # anchoring, so an unbalanced `a)(b` (which the `(?:…)` wrapper would
       # otherwise balance) is correctly discarded rather than silently matched.
       Regexp.new(pat)
-      !Regexp.new("\\A(?:#{pat})\\z").match?(v)
+      anchored = Regexp.new("\\A(?:#{pat})\\z")
+      # A `multiple` email is a comma-separated list, and the pattern is matched
+      # against each entry rather than the list as a whole.
+      pattern_values(v).any? { |part| !anchored.match?(part) }
     rescue RegexpError
+      false
+    end
+
+    # The values the pattern is matched against: one per comma-separated entry
+    # for a `multiple` email control, otherwise the value itself.
+    def pattern_values(value)
+      return [value] unless host_type == "email" && host_attr_present?("multiple")
+
+      value.split(",", -1).map(&:strip)
+    end
+
+    # Characters that carry no syntactic role inside a JavaScript `v`-mode
+    # character class and so must be escaped there. `[(]` — legal in every other
+    # regex dialect, Ruby's included — is a syntax error under `v`, which is why
+    # HTML then ignores the pattern rather than reporting a mismatch. (`[`, `]`
+    # and `-` do have roles: nested classes and ranges.)
+    V_MODE_CLASS_RESERVED = "(){}/|"
+
+    def v_mode_syntax_error?(pattern)
+      depth = 0
+      escaped = false
+      pattern.each_char do |ch|
+        if escaped
+          escaped = false
+          next
+        end
+
+        case ch
+        when "\\" then escaped = true
+        when "[" then depth += 1
+        when "]" then depth -= 1 if depth.positive?
+        else
+          return true if depth.positive? && V_MODE_CLASS_RESERVED.include?(ch)
+        end
+      end
       false
     end
 
@@ -2021,8 +2070,21 @@ module Dommy
       num = @host.value_as_number
       return false if num.nan?
 
-      ratio = (num - @host.validation_step_base) / step
-      (ratio - ratio.round).abs > 1e-7
+      # Decimal arithmetic, not binary: `step=0.003, value=3.6` is an exact
+      # multiple in base 10 but not in IEEE-754, and `step=3e-15, value=17` is
+      # the reverse — the float division lands exactly on an integer. Going
+      # through each number's shortest round-trip decimal recovers the literal
+      # the author wrote and gets both right.
+      ratio = decimal(num - @host.validation_step_base) / decimal(step)
+      !ratio.frac.zero?
+    rescue ArgumentError, FloatDomainError, ZeroDivisionError
+      false
+    end
+
+    def decimal(float)
+      require "bigdecimal"
+
+      BigDecimal(float.to_s)
     end
 
     # `badInput` flags input that the user agent couldn't convert to
@@ -2039,9 +2101,10 @@ module Dommy
       case host_type
       when "number", "range"
         !valid_float?(raw)
-      when "color"
-        !raw.strip.downcase.match?(/\A#[0-9a-f]{6}\z/)
       else
+        # Every other type either has no conversion to fail or (color, date and
+        # friends) sanitizes an unparseable value to a valid one on the way in,
+        # leaving nothing for the user agent to have failed to convert.
         false
       end
     end
@@ -4682,6 +4745,38 @@ module Dommy
       nil
     end
 
+    def form
+      closest("form")
+    end
+
+    # An `<object>` is a form-associated element, so it carries the whole
+    # constraint validation API — and is barred from constraint validation, so
+    # every member of it reports the never-invalid answer.
+    def validity
+      ValidityState.new
+    end
+
+    def will_validate
+      false
+    end
+
+    def validation_message
+      ""
+    end
+
+    def check_validity
+      true
+    end
+
+    def report_validity
+      true
+    end
+
+    def set_custom_validity(msg)
+      @custom_validity_message = msg.to_s
+      nil
+    end
+
     def __js_get__(key)
       case key
       when "width"
@@ -4692,6 +4787,14 @@ module Dommy
         content_document
       when "contentWindow"
         content_window
+      when "form"
+        form
+      when "validity"
+        validity
+      when "willValidate"
+        will_validate
+      when "validationMessage"
+        validation_message
       when "sandbox"
         # JS-side `iframe.sandbox` is a DOMTokenList (the Ruby `#sandbox` string
         # accessor from reflect_string is kept for internal use). Non-iframe
@@ -4708,6 +4811,20 @@ module Dommy
         self.width = value
       when "height"
         self.height = value
+      else
+        super
+      end
+    end
+
+    js_methods %w[checkValidity reportValidity setCustomValidity]
+    def __js_call__(method, args)
+      case method
+      when "checkValidity"
+        check_validity
+      when "reportValidity"
+        report_validity
+      when "setCustomValidity"
+        set_custom_validity(args[0])
       else
         super
       end

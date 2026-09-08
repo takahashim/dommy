@@ -242,10 +242,15 @@ class TestWPTInputBadInput < Minitest::Test
     refute(i.validity.bad_input)
   end
 
-  def test_color_invalid_sets_badInput
+  # A color control's value sanitization algorithm rewrites anything that is not
+  # a simple color to "#000000", so there is never a value the user agent failed
+  # to convert — badInput stays false.
+  # WPT: html/semantics/forms/constraints/form-validation-validity-badInput.html
+  def test_color_invalid_is_sanitized_rather_than_bad_input
     i = input("color")
     i.value = "purple"
-    assert(i.validity.bad_input)
+    assert_equal("#000000", i.value)
+    refute(i.validity.bad_input)
   end
 
   def test_color_valid_clears_badInput
