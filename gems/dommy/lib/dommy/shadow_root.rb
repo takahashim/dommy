@@ -39,7 +39,7 @@ module Dommy
 
     def inner_html=(html)
       removed = @__node__.children.to_a
-      removed.each(&:unlink)
+      removed.each { |n| @document.detach_node(n) }
       fragment = Parser.fragment(html.to_s, owner_doc: @document.backend_doc)
       added = fragment.children.to_a
       added.each { |n| @__node__.add_child(n) }
@@ -52,7 +52,7 @@ module Dommy
     end
 
     def text_content=(value)
-      @__node__.children.each(&:unlink)
+      @__node__.children.to_a.each { |n| @document.detach_node(n) }
       @__node__.add_child(Backend.create_text(value.to_s, @document.backend_doc))
     end
 
@@ -156,7 +156,7 @@ module Dommy
       bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this shadow root" unless bn && bn.parent == @__node__
 
-      bn.unlink
+      @document.detach_node(bn)
       notify_child_list(removed: [bn])
       node
     end
@@ -167,7 +167,7 @@ module Dommy
 
       added = detach_dom_nodes(new_child)
       added.each { |n| old_bn.add_previous_sibling(n) }
-      old_bn.unlink
+      @document.detach_node(old_bn)
       notify_child_list(added: added, removed: [old_bn])
       old_child
     end

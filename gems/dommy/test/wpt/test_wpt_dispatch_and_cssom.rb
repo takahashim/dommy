@@ -51,6 +51,14 @@ class TestWPTDispatchOrder < Minitest::Test
     assert_equal(%i[outer_capture target_capture target_bubble outer_bubble], seen)
   end
 
+  # stopPropagation() at the target during the capturing pass. The target
+  # appears TWICE in the event path traversal (once per pass), and "invoke"
+  # returns early when the stop propagation flag is set — so the bubbling visit
+  # to the same target never reaches its listeners. This reading of the dispatch
+  # algorithm is what Chromium does too (cross-checked in a headless browser),
+  # so it is not merely an artifact of how Dommy structures its two passes.
+  #
+  # Spec: https://dom.spec.whatwg.org/#concept-event-listener-invoke step 4
   def test_stop_propagation_in_target_capture_skips_target_bubble
     seen = []
     @btn.add_event_listener("click", nil, {"capture" => true}) do |e|
@@ -61,6 +69,36 @@ class TestWPTDispatchOrder < Minitest::Test
     @outer.add_event_listener("click", nil, nil) { seen << :ancestor }
     @btn.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
     assert_equal([:capture], seen)
+  end
+
+  # stopPropagation() stops LATER targets, not the remaining listeners on the
+  # one currently being invoked — the second at-target capture listener still
+  # runs. (Its sibling below is what stops those.)
+  def test_stop_propagation_does_not_skip_sibling_listeners_on_the_same_target
+    seen = []
+    @btn.add_event_listener("click", nil, {"capture" => true}) do |e|
+      seen << :capture1
+      e.__js_call__("stopPropagation", [])
+    end
+    @btn.add_event_listener("click", nil, {"capture" => true}) { seen << :capture2 }
+    @btn.add_event_listener("click", nil, nil) { seen << :bubble }
+    @btn.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
+    assert_equal(%i[capture1 capture2], seen)
+  end
+
+  # stopImmediatePropagation() additionally drops the remaining listeners on the
+  # current target, so only the first one runs.
+  def test_stop_immediate_propagation_also_skips_sibling_listeners
+    seen = []
+    @btn.add_event_listener("click", nil, {"capture" => true}) do |e|
+      seen << :capture1
+      e.__js_call__("stopImmediatePropagation", [])
+    end
+    @btn.add_event_listener("click", nil, {"capture" => true}) { seen << :capture2 }
+    @btn.add_event_listener("click", nil, nil) { seen << :bubble }
+    @outer.add_event_listener("click", nil, nil) { seen << :ancestor }
+    @btn.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
+    assert_equal([:capture1], seen)
   end
 
   def test_non_bubbling_event_still_runs_target_bubble_listener
@@ -227,5 +265,89 @@ class TestWPTInlineStyleImportant < Minitest::Test
   def test_invalid_declarations_are_still_dropped
     @el.style.css_text = "color:: bad; width: 1px"
     assert_equal("width: 1px;", @el.style.css_text)
+  end
+end
+
+# CSSOM setProperty step 4: a priority that is neither the empty string nor an
+# ASCII case-insensitive "important" abandons the call — the declaration block
+# is left exactly as it was, rather than the flag being normalized away and the
+# value written anyway.
+#
+# WPT: css/cssom/setproperty-null-undefined.html
+# Spec: https://drafts.csswg.org/cssom/#dom-cssstyledeclaration-setproperty
+class TestWPTSetPropertyPriorityValidation < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+    @el = @doc.create_element("div")
+  end
+
+  def with_red_important
+    @el.set_attribute("style", "color: red !important")
+    yield @el.style
+    @el.get_attribute("style")
+  end
+
+  def test_important_in_any_ascii_case_is_accepted
+    assert_equal("color: blue !important;", with_red_important { |s| s.set_property("color", "blue", "important") })
+    assert_equal("color: blue !important;", with_red_important { |s| s.set_property("color", "blue", "IMPORTANT") })
+  end
+
+  def test_the_empty_string_and_a_missing_priority_clear_importance
+    assert_equal("color: blue;", with_red_important { |s| s.set_property("color", "blue", "") })
+    assert_equal("color: blue;", with_red_important { |s| s.set_property("color", "blue", nil) })
+    assert_equal("color: blue;", with_red_important { |s| s.set_property("color", "blue") })
+  end
+
+  # No trimming, no near-misses: each of these leaves the block untouched.
+  def test_an_invalid_priority_is_a_no_op
+    ["bogus", "important!", " important ", "!important"].each do |priority|
+      assert_equal("color: red !important",
+        with_red_important { |s| s.set_property("color", "blue", priority) },
+        "priority #{priority.inspect} must not change the declaration block")
+    end
+  end
+
+  def test_an_invalid_priority_queues_no_mutation_record
+    @doc.body.append_child(@el)
+    @el.set_attribute("style", "color: red !important")
+    observer = Dommy::MutationObserver.new(@win, proc { |_recs| nil })
+    observer.__js_call__("observe", [@el, {"attributes" => true}])
+    @el.style.set_property("color", "blue", "bogus")
+    assert_empty(observer.__js_call__("takeRecords", []))
+  end
+
+  # Step 3 (empty value removes the declaration) runs BEFORE step 4, so the
+  # priority never gets a say. Chromium checks the priority first and keeps the
+  # declaration here; Dommy follows the spec's order.
+  def test_an_empty_value_removes_the_declaration_whatever_the_priority
+    assert_equal("", with_red_important { |s| s.set_property("color", "", "bogus") })
+  end
+
+  def test_the_js_bridge_agrees_with_the_ruby_api
+    @el.set_attribute("style", "color: red !important")
+    style = @el.__js_get__("style")
+    style.__js_call__("setProperty", ["color", "blue", "bogus"])
+    assert_equal("red", style.__js_call__("getPropertyValue", ["color"]))
+    assert_equal("important", style.__js_call__("getPropertyPriority", ["color"]))
+
+    style.__js_call__("setProperty", ["color", "blue", "IMPORTANT"])
+    assert_equal("blue", style.__js_call__("getPropertyValue", ["color"]))
+  end
+
+  # A stylesheet rule's declaration block is a CSSStyleDeclaration too, and has
+  # to enforce the same rule.
+  def test_a_rule_declaration_block_validates_the_priority_too
+    document = Dommy.parse("<style>p { color: red !important }</style>").document
+    style = document.query_selector("style").sheet.css_rules[0].style
+    style.set_property("color", "blue", "bogus")
+    assert_equal("red", style.get_property_value("color"))
+    assert_equal("important", style.get_property_priority("color"))
+
+    style.set_property("color", "blue", "Important")
+    assert_equal("blue", style.get_property_value("color"))
+    assert_equal("important", style.get_property_priority("color"))
   end
 end

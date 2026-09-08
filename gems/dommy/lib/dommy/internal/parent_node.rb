@@ -58,7 +58,7 @@ module Dommy
       def replace_children(*args)
         validate_insertion_args!(args)
         removed = @__node__.children.to_a
-        removed.each(&:unlink)
+        removed.each { |n| @document.detach_node(n) }
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
         nodes.each { |n| @__node__.add_child(n) }
         notify_child_list(added: nodes, removed: removed)
@@ -90,8 +90,21 @@ module Dommy
           next if merged.empty?
 
           old = node.content.to_s
+          # The offset each merged sibling's data lands at inside the surviving
+          # node — measured BEFORE the concatenation, since it is the length of
+          # what the node already held.
+          length = @document.wrap_node(node).length
           node.content = old + merged.map { |m| m.content.to_s }.join
           @document.notify_character_data_mutation(target_node: node, old_value: old)
+          # WHATWG normalize() step 6: each merged-away sibling hands its live
+          # range boundaries to the surviving node at that offset, BEFORE any of
+          # them is removed (the offsets are expressed against the tree with
+          # every sibling still in place). Without this the plain removing steps
+          # below would strand those boundaries on the parent.
+          merged.each do |m|
+            @document.__internal_ranges_normalize_merge__(node, m, length)
+            length += @document.wrap_node(m).length
+          end
           merged.each { |m| @document.remove_node_with_notify(m) }
         end
 

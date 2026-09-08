@@ -835,7 +835,7 @@ module Dommy
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
       src = node.__dommy_backend_node__
-      src.unlink if src.parent
+      detach_node(src) if src.parent
 
       # Same document: just return the wrapper after the detach above.
       return wrap_node(src) if src.document == @backend_doc
@@ -1165,6 +1165,7 @@ module Dommy
       else
         nodes.each { |n| @backend_doc.add_child(n) }
       end
+      __internal_ranges_inserted__(@backend_doc, nodes)
       nil
     end
 
@@ -1172,8 +1173,10 @@ module Dommy
       # replaceChildren removes the current children first, so the validity
       # checks ignore them (whatwg/dom#1045).
       ensure_document_insertion_validity!(args, nil, ignore_existing: true)
-      @backend_doc.children.each(&:unlink)
-      args.filter_map { |a| adopted_backend_node(a) }.each { |n| @backend_doc.add_child(n) }
+      @backend_doc.children.to_a.each { |child| detach_node(child) }
+      added = args.filter_map { |a| adopted_backend_node(a) }
+      added.each { |n| @backend_doc.add_child(n) }
+      __internal_ranges_inserted__(@backend_doc, added)
       nil
     end
 
@@ -1183,9 +1186,7 @@ module Dommy
       bn = backend_node(node)
       raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @backend_doc
 
-      run_node_iterator_pre_remove(bn)
-      __internal_ranges_will_remove__(bn)
-      bn.unlink
+      detach_node(bn)
       node
     end
 
@@ -1209,6 +1210,7 @@ module Dommy
       else
         @backend_doc.add_child(bn)
       end
+      __internal_ranges_inserted__(@backend_doc, [bn])
       node
     end
 
@@ -1224,14 +1226,14 @@ module Dommy
       # is re-created in this backend, and Makiri's fail-closed guard refuses a
       # second doctype — so the old one must be gone before the new is made.
       ref = old_bn.next
-      __internal_ranges_will_remove__(old_bn)
-      old_bn.unlink
+      detach_node(old_bn)
       if !Backend.moves_nodes_across_documents? && new_child.respond_to?(:document) && !new_child.document.equal?(self)
         new_child = adopt_node(new_child)
       end
       new_bn = backend_node(new_child)
       if new_bn
         ref && ref.parent == @backend_doc ? ref.add_previous_sibling(new_bn) : @backend_doc.add_child(new_bn)
+        __internal_ranges_inserted__(@backend_doc, [new_bn])
       end
       old_child
     end
@@ -1242,9 +1244,7 @@ module Dommy
       node = backend_node(doctype) || Backend.internal_subset(@backend_doc)
       return nil unless node
 
-      run_node_iterator_pre_remove(node)
-      __internal_ranges_will_remove__(node)
-      node.unlink
+      detach_node(node)
       nil
     end
 
@@ -1899,6 +1899,36 @@ module Dommy
       )
     end
 
+    # WHATWG "removing steps", run while `node` is STILL attached (they are all
+    # expressed in terms of the position it is about to vacate). Every path that
+    # takes a node out of its parent — an explicit removeChild, the implicit
+    # removal a move performs, replaceChildren, textContent=, fragment
+    # extraction — must go through here, or a live Range / NodeIterator anchored
+    # in the vacated position is left pointing at a detached node.
+    #
+    # A document with no live range and no NodeIterator has nothing to observe
+    # the vacated position, so the whole thing collapses to two predicate calls
+    # — this runs once per removed node, and a bulk replaceChildren /
+    # textContent= must not pay for machinery nobody is watching.
+    def pre_remove_node(node)
+      return nil if @node_iterators.empty? && !live_ranges?
+      return nil unless node.parent
+
+      run_node_iterator_pre_remove(node)
+      __internal_ranges_will_remove__(node)
+      nil
+    end
+
+    # The single detach primitive: pre-removing steps, then unlink. Callers that
+    # batch several removals into one childList record (replaceChildren,
+    # textContent=, replaceChild) use this and queue the record themselves;
+    # `remove_node_with_notify` is this plus a per-node record.
+    def detach_node(node)
+      pre_remove_node(node)
+      node.unlink
+      node
+    end
+
     # Unlink a backend node from its parent and queue a childList removal record
     # capturing the node's position (previous/next sibling) BEFORE the unlink, so
     # the record's previousSibling/nextSibling are correct (the coordinator can't
@@ -1909,9 +1939,7 @@ module Dommy
 
       prev_w = node.previous_sibling && wrap_node(node.previous_sibling)
       next_w = node.next_sibling && wrap_node(node.next_sibling)
-      run_node_iterator_pre_remove(node)
-      __internal_ranges_will_remove__(node)
-      node.unlink
+      detach_node(node)
       notify_child_list_mutation(
         target_node: parent,
         added_nodes: [],
@@ -1981,6 +2009,23 @@ module Dommy
         next unless index
 
         affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index) }
+      end
+    end
+
+    # WHATWG normalize() steps 6.1-6.4. `current` is a contiguous exclusive Text
+    # sibling whose data has just been appended to `node` at `length`; its own
+    # boundaries — and a parent-anchored boundary pointing AT it — follow the
+    # data into the merged node. Run for every merged sibling before any of them
+    # is removed, so the indices still describe the pre-removal tree.
+    def __internal_ranges_normalize_merge__(node, current, length)
+      return unless live_ranges?
+
+      merged_into = wrap_node(node)
+      current_wrapper = wrap_node(current)
+      parent = current.parent && wrap_node(current.parent)
+      index = parent && child_index_of_wrapper(parent, current_wrapper)
+      __internal_each_live_range__ do |range|
+        range.__internal_apply_normalize_merge__(merged_into, current_wrapper, length, parent, index)
       end
     end
 
@@ -2175,7 +2220,7 @@ module Dommy
         head.add_child(title)
       end
 
-      title.children.each(&:unlink)
+      title.children.to_a.each { |child| detach_node(child) }
       title.add_child(Backend.create_text(value, @backend_doc))
     end
 

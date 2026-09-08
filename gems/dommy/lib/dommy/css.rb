@@ -303,9 +303,15 @@ module Dommy
     def set_property(name, value, priority = nil)
       key = name.to_s
       if value.nil? || value.to_s.empty?
+        # CSSOM step 3 — an empty value removes the declaration, and it runs
+        # before the priority check, so the priority is irrelevant here.
         @props.delete(key)
       else
-        important = priority.to_s.downcase == "important" ? "important" : ""
+        # CSSOM step 4 — an invalid priority abandons the call, leaving the
+        # declaration block exactly as it was.
+        important = Internal::CssPriority.normalize(priority)
+        return nil if important.nil?
+
         @props[key] = {value: value.to_s, priority: important}
       end
       flush!

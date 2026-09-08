@@ -59,10 +59,16 @@ module Dommy
         removed = @__node__
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
         if @__node__.parent == parent
-          # `@__node__` survived the conversion (it wasn't among the arguments):
-          # insert the new nodes before it, then unlink it — a true replace.
-          nodes.each { |n| @__node__.add_previous_sibling(n) }
-          @__node__.unlink
+          # `@__node__` survived the conversion (it wasn't among the arguments),
+          # so this is WHATWG "replace a child within a parent": the child is
+          # REMOVED FIRST and the nodes are then inserted before its viable next
+          # sibling. The order is observable — the pre-removing steps run against
+          # a tree that does not yet hold the replacements, so a NodeIterator
+          # anchored inside the old child falls back to the parent rather than to
+          # a node that was not there when the removal happened.
+          @document.detach_node(@__node__)
+          anchor = viable_next && viable_next.parent == parent ? viable_next : nil
+          insert_child_nodes(nodes, anchor, parent)
           notify_child_list(added: nodes, removed: [removed], target: parent)
         else
           # `@__node__` was itself an argument, so the conversion already moved
@@ -177,21 +183,11 @@ module Dommy
       # subsequent insert, so moving a node yields a removal record + an addition
       # record). Returns the raw node, ready to be re-linked.
       def detach_with_notify(node)
-        old_parent = node.parent
-        return node unless old_parent
-
-        # Capture the position (as wrapped nodes — the coordinator records
-        # explicit siblings verbatim) before unlinking.
-        prev_sib = node.previous_sibling && @document.wrap_node(node.previous_sibling)
-        next_sib = node.next_sibling && @document.wrap_node(node.next_sibling)
-        node.unlink
-        @document.notify_child_list_mutation(
-          target_node: old_parent,
-          added_nodes: [],
-          removed_nodes: [node],
-          previous_sibling: prev_sib,
-          next_sibling: next_sib
-        )
+        # Document#remove_node_with_notify no-ops on a parentless node, runs the
+        # pre-removing steps (live Range / NodeIterator) and captures the
+        # position for the record before the unlink — a move must not skip them
+        # just because the node is about to be re-inserted somewhere else.
+        @document.remove_node_with_notify(node)
         node
       end
     end

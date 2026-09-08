@@ -63,7 +63,7 @@ module Dommy
       # its own descendants.
       removed = @__node__.children.to_a
       str = nullable_dom_string(value)
-      removed.each(&:unlink)
+      removed.each { |n| @document.detach_node(n) }
       @__node__.add_child(@document.create_text_node(str).__dommy_backend_node__) unless str.empty?
       notify_child_list(added: @__node__.children.to_a, removed: removed)
     end
@@ -203,7 +203,7 @@ module Dommy
       nodes = @__node__.children.to_a
       return nodes if nodes.empty?
 
-      nodes.each(&:unlink)
+      nodes.each { |n| @document.detach_node(n) }
       # Inserting a DocumentFragment removes all its children first; the spec
       # queues a single childList record on the fragment for that removal.
       @document.notify_child_list_mutation(target_node: @__node__, added_nodes: [], removed_nodes: nodes)
@@ -216,8 +216,7 @@ module Dommy
       bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless bn && bn.parent == @__node__
 
-      @document.__internal_ranges_will_remove__(bn)
-      bn.unlink
+      @document.detach_node(bn)
       node
     end
 
@@ -231,6 +230,7 @@ module Dommy
       else
         nodes.each { |n| @__node__.add_child(n) }
       end
+      @document.__internal_ranges_inserted__(@__node__, nodes)
       node
     end
 
@@ -240,9 +240,17 @@ module Dommy
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless old_bn && old_bn.parent == @__node__
 
       ensure_pre_insertion_validity!(new_child, old_child)
-      detach_dom_nodes(new_child).each { |n| old_bn.add_previous_sibling(n) }
-      @document.__internal_ranges_will_remove__(old_bn)
-      old_bn.unlink
+      added = detach_dom_nodes(new_child)
+      # WHATWG "replace a child within a parent" removes the old child BEFORE
+      # inserting, so anchor on its next sibling and detach it first.
+      anchor = old_bn.next
+      @document.detach_node(old_bn)
+      if anchor && anchor.parent == @__node__
+        added.each { |n| anchor.add_previous_sibling(n) }
+      else
+        added.each { |n| @__node__.add_child(n) }
+      end
+      @document.__internal_ranges_inserted__(@__node__, added)
       old_child
     end
 
@@ -293,25 +301,34 @@ module Dommy
       @__node__.parent && @document.wrap_node(@__node__.parent)
     end
 
-    # Text.splitText / CharacterData split: break the node at `offset`, keeping
-    # [0, offset) here and returning a new sibling node with the remainder.
+    # Text.splitText / CharacterData split: break the node at `offset` (a UTF-16
+    # code unit index), keeping [0, offset) here and returning a new sibling node
+    # with the remainder.
     def split_text(offset)
       off = offset.to_i
       full = @__node__.content
-      raise DOMException::IndexSizeError, "offset #{off} is out of bounds" if off.negative? || off > full.length
+      length = utf16_length(full)
+      raise DOMException::IndexSizeError, "offset #{off} is out of bounds" if off.negative? || off > length
 
-      rest = full[off..] || ""
-      write_data(full[0, off])
-      new_node = @document.create_text_node(rest)
+      count = length - off
+      new_node = @document.create_text_node(utf16_slice(full, off, count))
       if @__node__.parent
         new_bn = new_node.__dommy_backend_node__
         @__node__.add_next_sibling(new_bn)
         # The new node is inserted right after self — a childList addition record.
         @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: [new_bn], removed_nodes: [])
+        # Live ranges past the split point move to the tail node (the generic
+        # insert step above already shifted boundaries sitting further along).
+        # Step 7 only runs for a node that HAS a parent: splitting a detached
+        # node leaves every boundary on the node itself, to be clamped by the
+        # truncation below.
+        @document.__internal_ranges_split_text__(self, off, new_node)
       end
-      # Live ranges past the split point move to the tail node (the generic
-      # insert step above already shifted boundaries sitting further along).
-      @document.__internal_ranges_split_text__(self, off, new_node)
+      # Step 8 — "replace data with node, offset, count, the empty string": the
+      # truncation is a data replacement, so it carries the replace-data live
+      # range rules (the ones that clamp a boundary in a detached node).
+      write_data(utf16_slice(full, 0, off))
+      @document.__internal_ranges_replaced_data__(self, off, count, 0)
       new_node
     end
 
@@ -402,26 +419,14 @@ module Dommy
 
     # CharacterData offsets and counts are measured in UTF-16 code units, not
     # Unicode code points, so an astral character (e.g. an emoji) counts as 2.
+    # Range boundary offsets mean the same thing, so the conversion itself lives
+    # in Internal::Utf16 and both share it.
     def utf16_length(str)
-      str.encode(Encoding::UTF_16LE).bytesize / 2
+      Internal::Utf16.length(str)
     end
 
-    # Extract `count` UTF-16 code units from `str` starting at code unit
-    # `offset`. Slicing on the UTF-16LE byte buffer keeps astral characters
-    # intact for the offsets these APIs actually produce.
-    #
-    # If the range starts or ends inside a surrogate pair the result would be a
-    # lone (unpaired) surrogate. JS strings can hold those; a Ruby UTF-8 String
-    # cannot, so re-raise the raw encoding error as a clear, intentional message
-    # rather than leaking "\xDF on UTF-16LE" to the caller. This is a Dommy
-    # limitation and, since splitting a surrogate pair signals a UTF-16 offset
-    # bug in the caller, failing loud is deliberate.
     def utf16_slice(str, offset, count)
-      buf = str.encode(Encoding::UTF_16LE)
-      buf.byteslice(offset * 2, count * 2).encode(Encoding::UTF_8, Encoding::UTF_16LE)
-    rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
-      raise "cannot split a UTF-16 surrogate pair: the requested range would " \
-            "produce a lone surrogate, which Dommy cannot represent"
+      Internal::Utf16.slice(str, offset, count)
     end
 
     def substring_data(offset, count)
@@ -1209,8 +1214,8 @@ module Dommy
     end
 
     # CSSOM setProperty(property, value, priority?): an empty value removes the
-    # declaration; `priority` is "important" (any other value, including the
-    # omitted default, clears importance).
+    # declaration, and `priority` must be either the empty string or an ASCII
+    # case-insensitive "important" — any other priority abandons the call.
     #
     # Public: `method_missing` treats every unknown name as a CSS property, so a
     # private CSSOM method would be silently swallowed rather than called.
@@ -1218,17 +1223,24 @@ module Dommy
       key = name.to_s
       decls = declarations
       if value.nil? || value.to_s.empty?
-        # Removing a property that was not set changes nothing, so the style
-        # attribute is left alone — no rewrite, and no mutation record.
+        # Step 3 runs BEFORE the priority check, so an empty value removes the
+        # declaration even when the priority is nonsense. Removing a property
+        # that was not set changes nothing, so the style attribute is left alone
+        # — no rewrite, and no mutation record.
         return nil unless decls.key?(key)
 
         decls.delete(key)
       else
+        # Step 4: an invalid priority leaves the declaration block untouched
+        # (it is NOT normalized to "" and stored).
+        normalized = normalize_priority(priority)
+        return nil if normalized.nil?
+
         # An invalid value is dropped rather than stored, and dropping it is not
         # a change either.
         return nil unless valid_declaration_value?(value.to_s.strip)
 
-        entry = [value.to_s, normalize_priority(priority)]
+        entry = [value.to_s, normalized]
         return nil if decls[key] == entry
 
         decls[key] = entry
@@ -1270,8 +1282,9 @@ module Dommy
       declarations.transform_values(&:first)
     end
 
+    # "important" / "" for a valid priority, nil when the whole call is a no-op.
     def normalize_priority(priority)
-      priority.to_s.strip.casecmp?("important") ? "important" : ""
+      Internal::CssPriority.normalize(priority)
     end
 
     # Parse a declaration block into an ordered { property => [value, priority] }
@@ -1412,7 +1425,7 @@ module Dommy
       # reference to a removed node keeps its own descendants intact.
       removed = @__node__.children.to_a
       str = nullable_dom_string(value)
-      removed.each(&:unlink)
+      removed.each { |n| @document.detach_node(n) }
       unless str.empty?
         @__node__.add_child(@document.create_text_node(str).__dommy_backend_node__)
       end
@@ -1664,8 +1677,7 @@ module Dommy
       removed = @__node__
       new_nodes = fragment.children.to_a
       mark_fragment_scripts_started(new_nodes)
-      @document.__internal_ranges_will_remove__(@__node__)
-      @__node__.unlink
+      @document.detach_node(@__node__)
       if anchor
         new_nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
       else
@@ -3303,8 +3315,7 @@ module Dommy
       # unlink (and record the removal) when old is still attached.
       removed = []
       if old_node.parent == @__node__
-        @document.__internal_ranges_will_remove__(old_node)
-        old_node.unlink
+        @document.detach_node(old_node)
         removed = [old_node]
       end
 
@@ -3539,6 +3550,11 @@ module Dommy
     # backend's `matches?` has an ancestor root, then unlinking to leave the
     # node detached (and its parentNode unchanged) as it was. `fragment("")`
     # (not the no-arg form) is backend-agnostic — Makiri's takes a source string.
+    #
+    # This is the one place that unlinks a node WITHOUT the pre-removing steps,
+    # deliberately: no DOM removal happened (the node was parentless before and
+    # after), so running them would move live Range / NodeIterator positions for
+    # a purely internal round trip.
     def matches_detached_node?(node, selector)
       node.document.fragment("").add_child(node)
       node.matches?(selector)

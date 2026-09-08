@@ -86,6 +86,27 @@ module Dommy
       nil
     end
 
+    # normalize() steps 6.1-6.4: `current`'s data has been appended to `node` at
+    # offset `length`, so a boundary inside `current` slides into `node`, and a
+    # parent-anchored boundary sitting exactly at `current` lands at the join.
+    def __internal_apply_normalize_merge__(node, current, length, parent, index)
+      if @start_container.equal?(current)
+        @start_container = node
+        @start_offset += length
+      elsif parent && @start_container.equal?(parent) && @start_offset == index
+        @start_container = node
+        @start_offset = length
+      end
+      if @end_container.equal?(current)
+        @end_container = node
+        @end_offset += length
+      elsif parent && @end_container.equal?(parent) && @end_offset == index
+        @end_container = node
+        @end_offset = length
+      end
+      nil
+    end
+
     # "Remove" steps, run while the node is still attached.
     def __internal_apply_remove__(node, parent, index)
       if inclusive_ancestor?(node, @start_container)
@@ -284,7 +305,7 @@ module Dommy
       # Both boundaries inside one CharacterData node: a single substring.
       if sc.equal?(ec) && character_data?(sc)
         clone = shallow_clone(sc)
-        clone.data = sc.data.to_s[so, eo - so].to_s
+        clone.data = Internal::Utf16.slice(sc.data.to_s, so, eo - so)
         fragment.append_child(clone)
         sc.replace_data(so, eo - so, "") if extract
         return fragment
@@ -315,7 +336,7 @@ module Dommy
 
       if character_data?(first_partial)
         clone = shallow_clone(sc)
-        clone.data = (sc.data.to_s[so..] || "")
+        clone.data = Internal::Utf16.suffix(sc.data.to_s, so)
         fragment.append_child(clone)
         sc.replace_data(so, length_of(sc) - so, "") if extract
       else
@@ -331,7 +352,7 @@ module Dommy
 
       if character_data?(last_partial)
         clone = shallow_clone(ec)
-        clone.data = ec.data.to_s[0, eo].to_s
+        clone.data = Internal::Utf16.slice(ec.data.to_s, 0, eo)
         fragment.append_child(clone)
         ec.replace_data(0, eo, "") if extract
       else
@@ -353,10 +374,12 @@ module Dommy
       ec = @end_container
       eo = @end_offset
 
-      # Both boundaries in the same text node: just delete the substring.
-      if sc.equal?(ec) && text_node?(sc)
-        d = sc.data.to_s
-        sc.data = d[0, so].to_s + (d[eo..] || "")
+      # Both boundaries in the same CharacterData node: just delete the run.
+      # "Replace data" (not a whole-node `data=`) is what the spec calls for, and
+      # it is also what leaves the collapsed boundary at `so` rather than
+      # clamping it to 0 — plus its offsets are UTF-16 code units.
+      if sc.equal?(ec) && character_data?(sc)
+        sc.replace_data(so, eo - so, "")
         return nil
       end
 
@@ -365,7 +388,7 @@ module Dommy
 
       # Trim the start boundary text node's tail, remove the contained nodes,
       # then trim the end boundary text node's head (order matters for records).
-      sc.data = sc.data.to_s[0, so].to_s if text_node?(sc)
+      sc.replace_data(so, length_of(sc) - so, "") if character_data?(sc)
       to_remove.each do |node|
         if node.respond_to?(:__dommy_backend_node__)
           @document.remove_node_with_notify(node.__dommy_backend_node__)
@@ -373,7 +396,7 @@ module Dommy
           node.remove
         end
       end
-      ec.data = (ec.data.to_s[eo..] || "") if text_node?(ec)
+      ec.replace_data(0, eo, "") if character_data?(ec)
 
       @start_container = @end_container = new_node
       @start_offset = @end_offset = new_offset
@@ -728,7 +751,9 @@ module Dommy
       when 10 # DocumentType
         0
       when 3, 4, 7, 8 # Text, CDATASection, ProcessingInstruction, Comment
-        node.respond_to?(:data) ? node.data.to_s.length : 0
+        # A CharacterData node's length is its data length in UTF-16 code units
+        # (an astral character counts 2), NOT Ruby code points.
+        node.respond_to?(:data) ? Internal::Utf16.length(node.data.to_s) : 0
       else
         node.respond_to?(:child_nodes) ? node.child_nodes.length : 0
       end
