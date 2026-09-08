@@ -3301,19 +3301,11 @@ module Dommy
       @document.wrap_node(node)
     end
 
+    # WHATWG "get the parent": the node's parent, and nothing more — a detached
+    # element has none, so an event dispatched on one stays inside the detached
+    # subtree instead of reaching the document.
     def __internal_event_parent__
-      parent_node = @__node__.parent
-      # If our Nokogiri parent is a shadow tree's backing fragment,
-      # the bubble path's next stop is the ShadowRoot itself — not
-      # the bare Fragment wrapper. The ShadowRoot's __internal_event_parent__
-      # will return nil (composed events route to host explicitly).
-      if parent_node.is_a?(Backend.document_fragment_class)
-        sr = @document.__internal_shadow_root_for_fragment__(parent_node)
-        return sr if sr
-      end
-
-      parent = wrap_parent(parent_node)
-      parent || @document
+      wrap_parent(@__node__.parent)
     end
 
     def template_content

@@ -5,6 +5,19 @@ module Dommy
   # they're bridge-adapter classes, not part of the public DOM
   # surface.
 
+  # One entry in the WHATWG "event path": the node whose listeners run, plus the
+  # per-node view of the event (which target and relatedTarget that node is
+  # entitled to see) and the two flags `composedPath()` uses to hide the inside
+  # of a closed shadow tree from listeners outside it.
+  EventPathEntry = Struct.new(
+    :invocation_target,
+    :shadow_adjusted_target,
+    :related_target,
+    :root_of_closed_tree,
+    :slot_in_closed_tree,
+    :effective_target
+  )
+
   module EventTarget
     def add_event_listener(type, listener = nil, options = nil, event_handler: false, &block)
       cb = listener || block
@@ -86,9 +99,9 @@ module Dommy
     end
 
     def dispatch_event(event)
-      return true if event.nil?
-
-      # Per spec, dispatchEvent must receive an Event instance.
+      # WebIDL: the argument is a non-nullable Event, so null (and anything that
+      # is not an Event) is a TypeError rather than a silent no-op.
+      raise TypeError, "dispatchEvent requires an Event, got #{event.inspect}" if event.nil?
       raise TypeError, "dispatchEvent requires an Event, got #{event.class}" unless event.is_a?(Event)
 
       # WHATWG dispatchEvent: an event whose dispatch flag is already set cannot
@@ -97,56 +110,41 @@ module Dommy
       if event.__internal_dispatch_flag__
         raise DOMException::InvalidStateError, "the event is already being dispatched"
       end
+      # An event straight out of createEvent() has not been initialized yet, so
+      # it carries no type and cannot be dispatched until initEvent() runs.
+      unless event.__internal_initialized__
+        raise DOMException::InvalidStateError, "the event has not been initialized"
+      end
 
       event.__internal_prepare_for_dispatch__(self)
       event.__internal_set_dispatch_flag__(true)
 
-      # The full propagation path: the target plus its ancestors (root last).
-      # Capturing always traverses the ancestors regardless of `bubbles`.
-      path = event.__js_get__("composed") ? composed_bubble_path(event) : event_bubble_path
-      event.__internal_record_path__(path) if event.respond_to?(:__internal_record_path__)
-      ancestors = path[1..] || []
-      # The target each listener sees is retargeted against the tree the
-      # listener lives in, so a shadow tree's internals stay encapsulated.
-      dispatch_target = event.__js_get__("target") || self
+      path = build_event_path(event)
+      event.__internal_record_path__(path)
+      # Decided from the pre-dispatch tree: a listener may move the target out of
+      # its shadow tree, which must not change whether the targets get cleared.
+      clear_targets = clear_targets?(path)
 
       catch(:stop_propagation) do
-        # Capturing phase: root → … → parent, capture listeners only.
-        event.__internal_set_event_phase__(Event::CAPTURING_PHASE)
-        ancestors.reverse_each do |node|
-          deliver_at(node, event, :capture, dispatch_target)
-        end
-
-        # At the target: capture listeners run before bubble ones. The spec
-        # visits the target in BOTH the capturing and the bubbling pass (with
-        # eventPhase pinned to AT_TARGET), so registration order does not decide
-        # between them — and stopPropagation from a capture listener here also
-        # skips the target's own bubble listeners.
-        event.__internal_set_event_phase__(Event::AT_TARGET)
-        deliver_at(self, event, :capture, dispatch_target)
-        deliver_at(self, event, :bubble, dispatch_target)
-
-        # Bubbling phase: parent → … → root, bubble listeners only (only when
-        # the event bubbles).
-        if event.bubbles?
-          event.__internal_set_event_phase__(Event::BUBBLING_PHASE)
-          ancestors.each do |node|
-            deliver_at(node, event, :bubble, dispatch_target)
-          end
-        end
+        # One pass outward-in for capture listeners, then one inward-out for
+        # bubble listeners. A struct carrying a shadow-adjusted target is AT the
+        # target in both passes (the dispatch target, and every host the event
+        # was retargeted onto as it left a shadow tree).
+        path.reverse_each { |entry| invoke_event_path_entry(entry, event, :capture) }
+        path.each { |entry| invoke_event_path_entry(entry, event, :bubble) }
       end
 
-      # Dispatch step 18 ("clear targets"): when the outermost target the path
-      # reached is still inside a shadow tree — an uncomposed event never leaves
-      # one — holding on to it afterwards would leak an encapsulated node, so
-      # `target` is cleared.
-      final_target = event.__js_get__("target")
-      if final_target.respond_to?(:root_node) && final_target.root_node.is_a?(ShadowRoot)
+      # Dispatch step 18 ("clear targets"): if the outermost node the event was
+      # still targeted at lives in a shadow tree, holding on to it afterwards
+      # would leak an encapsulated node, so the targets are cleared.
+      if clear_targets
         event.__internal_set_target__(nil)
+        event.__internal_set_related_target__(nil)
       end
 
       # After dispatch, currentTarget reverts to null and eventPhase to NONE, and
       # the propagation flags are unset so the event can be dispatched again.
+      event.__internal_record_path__([])
       event.__internal_set_current_target__(nil)
       event.__internal_set_event_phase__(Event::NONE)
       event.__internal_clear_propagation_flags__
@@ -155,20 +153,135 @@ module Dommy
       !event.default_prevented?
     end
 
-    # Deliver `event` to one node's listeners for the current phase, then honor
-    # stopPropagation (throws to end the whole walk after this node finishes).
-    def deliver_at(node, event, phase, dispatch_target = nil)
-      # Honor a stop-propagation flag set before reaching this node (including
-      # one set before dispatch began) — the spec checks it before invoking a
-      # node's listeners, not only after.
+    # WHATWG "invoke": hand the event to one path entry's listeners with the view
+    # of the event that entry is entitled to — its own target and relatedTarget.
+    def invoke_event_path_entry(entry, event, phase)
+      event.__internal_set_target__(entry.effective_target)
+      event.__internal_set_related_target__(entry.related_target)
+
+      # The spec checks the stop-propagation flag before invoking a node's
+      # listeners, not only after — including a flag set before dispatch began.
       throw :stop_propagation if event.propagation_stopped?
 
-      if dispatch_target && event.respond_to?(:__internal_set_target__)
-        event.__internal_set_target__(retarget_against(dispatch_target, node))
+      if entry.shadow_adjusted_target
+        event.__internal_set_event_phase__(Event::AT_TARGET)
+      elsif phase == :capture
+        event.__internal_set_event_phase__(Event::CAPTURING_PHASE)
+      else
+        # Past the target, the bubbling pass only runs for a bubbling event.
+        return unless event.bubbles?
+
+        event.__internal_set_event_phase__(Event::BUBBLING_PHASE)
       end
-      event.__internal_set_current_target__(node)
-      node.__internal_deliver_event__(event, phase)
+
+      event.__internal_set_current_target__(entry.invocation_target)
+      entry.invocation_target.__internal_deliver_event__(event, phase)
       throw :stop_propagation if event.propagation_stopped?
+    end
+
+    # WHATWG dispatch steps 5-12: walk from the target outward, recording one
+    # struct per node the event visits. Crossing a shadow boundary re-targets
+    # the event onto the host, and a slotted node composes into its slot rather
+    # than its parent, so the path follows the *flattened* tree.
+    def build_event_path(event)
+      target = self
+      related = retarget_against(event.__internal_related_target__, target)
+      # An event whose relatedTarget retargets onto the target itself never
+      # dispatches — a mouseover between two nodes of one shadow tree is not
+      # observable from outside it.
+      return [] if related && related.equal?(target) && !related.equal?(event.__internal_related_target__)
+
+      path = []
+      append_event_path(path, target, event.__js_get__("target") || target, related, false)
+      slotable = assigned_slot_of(target) ? target : nil
+      slot_in_closed_tree = false
+      parent = event_path_parent(target, event, target)
+
+      while parent
+        if slotable
+          slotable = nil
+          slot_in_closed_tree = true if closed_shadow_root?(root_of(parent))
+        end
+        slotable = parent if assigned_slot_of(parent)
+        related = retarget_against(event.__internal_related_target__, parent)
+
+        if parent.is_a?(Window) || shadow_including_inclusive_ancestor?(root_of(target), parent)
+          append_event_path(path, parent, nil, related, slot_in_closed_tree)
+        elsif related && parent.equal?(related)
+          parent = nil
+        else
+          target = parent
+          append_event_path(path, parent, parent, related, slot_in_closed_tree)
+        end
+
+        parent = parent && event_path_parent(parent, event, path.first.invocation_target)
+        slot_in_closed_tree = false
+      end
+
+      path
+    end
+
+    # WHATWG "append to an event path". `effective_target` is precomputed here
+    # rather than re-scanned per invoke: it is the shadow-adjusted target of this
+    # struct or the nearest preceding one that has any.
+    def append_event_path(path, invocation_target, shadow_adjusted_target, related_target, slot_in_closed_tree)
+      path << EventPathEntry.new(
+        invocation_target,
+        shadow_adjusted_target,
+        related_target,
+        closed_shadow_root?(invocation_target),
+        slot_in_closed_tree,
+        shadow_adjusted_target || path.last&.effective_target
+      )
+    end
+
+    # WHATWG "get the parent" as the event path walks: a slotted node composes
+    # into its slot, a shadow root reaches its host only when the event may leave
+    # the tree, and a document reaches its window (except for `load`, which does
+    # not propagate that far).
+    def event_path_parent(node, event, first_target)
+      if node.is_a?(ShadowRoot)
+        return nil if !event.__js_get__("composed") && node.equal?(root_of(first_target))
+
+        return node.host
+      end
+      return nil if event.type == "load" && node.is_a?(Document)
+
+      assigned_slot_of(node) || node.__send__(:__internal_event_parent__)
+    end
+
+    # Dispatch step 6.11: the last struct that still carried a target decides
+    # whether the event ends up pointing into a shadow tree.
+    def clear_targets?(path)
+      entry = path.reverse_each.find { |e| e.shadow_adjusted_target }
+      return false unless entry
+
+      root_of(entry.shadow_adjusted_target).is_a?(ShadowRoot) ||
+        root_of(entry.related_target).is_a?(ShadowRoot)
+    end
+
+    # The `<slot>` a slottable composes into, whatever the shadow root's mode.
+    # `assignedSlot` deliberately reports null for a closed tree, but the event
+    # path still has to route through the slot.
+    def assigned_slot_of(node)
+      return nil unless node.respond_to?(:parent_node)
+
+      host = node.parent_node
+      return nil unless host.respond_to?(:__internal_shadow_root__)
+
+      root = host.__internal_shadow_root__
+      return nil unless root
+
+      name = node.respond_to?(:get_attribute) ? node.get_attribute("slot").to_s : ""
+      root.query_selector_all("slot").find { |slot| (slot.respond_to?(:name) ? slot.name.to_s : "") == name }
+    end
+
+    def closed_shadow_root?(node)
+      node.is_a?(ShadowRoot) && node.mode == "closed"
+    end
+
+    def root_of(node)
+      node.respond_to?(:root_node) ? node.root_node : nil
     end
 
     # `phase` is :capture (capture listeners), :bubble (non-capture), or :both
@@ -334,9 +447,9 @@ module Dommy
     def retarget_against(target, against)
       current = target
       loop do
-        root = current.respond_to?(:root_node) ? current.root_node : nil
+        root = root_of(current)
         return current unless root.is_a?(ShadowRoot)
-        return current if shadow_including_inclusive_descendant?(against, root)
+        return current if against && shadow_including_inclusive_ancestor?(root, against)
 
         host = root.host
         return current if host.nil?
@@ -345,79 +458,29 @@ module Dommy
       end
     end
 
-    # Whether `node` is `ancestor` (always a ShadowRoot here) or sits below it in
-    # the shadow-including tree. Walks root-to-host rather than parent-to-parent:
-    # `parentNode` deliberately stops at a shadow boundary, so only the root
-    # chain crosses it.
-    def shadow_including_inclusive_descendant?(node, ancestor)
+    # Whether `ancestor` is `node` or contains it in the *shadow-including* tree.
+    # Climbs out of each shadow root through its host, which `parentNode` alone
+    # does not do once a slot is involved.
+    def shadow_including_inclusive_ancestor?(ancestor, node)
+      return false unless ancestor
+
       current = node
       while current
         return true if current.equal?(ancestor)
 
-        root = current.respond_to?(:root_node) ? current.root_node : nil
-        return false unless root.is_a?(ShadowRoot)
-        return true if root.equal?(ancestor)
-
-        current = root.host
+        current =
+          if current.is_a?(ShadowRoot)
+            current.host
+          elsif current.respond_to?(:parent_node)
+            current.parent_node
+          end
       end
       false
     end
-
-    def event_bubble_path
-      path = [self]
-      current = self
-      while (current = current.__send__(:__internal_event_parent__))
-        path << current
-      end
-
-      path
-    end
-
-    # Build the propagation path with optional shadow-boundary
-    # crossing. When the in-flight event has `composed: true`, the
-    # walk continues from a ShadowRoot to its host; otherwise it
-    # stops at the shadow boundary (nil from `__internal_event_parent__`).
-    def composed_bubble_path(event)
-      path = [self]
-      current = self
-      loop do
-        nxt = current.__send__(:__internal_event_parent__)
-        if nxt.nil? && event.respond_to?(:__js_get__) && event.__js_get__("composed")
-          # Try to cross a shadow boundary
-          if current.is_a?(ShadowRoot)
-            # If current is a ShadowRoot, jump to its host
-            nxt = current.host
-          else
-            # If current is a node inside a ShadowRoot, find and jump to host
-            sr = enclosing_shadow_root_of(current)
-            break unless sr
-
-            nxt = sr.host
-          end
-        end
-
-        break unless nxt
-
-        path << nxt
-        current = nxt
-      end
-
-      path
-    end
-
-    private
-
-    def enclosing_shadow_root_of(target)
-      return nil unless target.respond_to?(:__dommy_backend_node__)
-
-      doc = target.instance_variable_get(:@document)
-      return nil unless doc && doc.respond_to?(:__internal_shadow_root_containing__)
-
-      doc.__internal_shadow_root_containing__(target.__dommy_backend_node__)
-    end
-
   end
 
+  # An EventTarget that is not a tree node (the base `new EventTarget()`), so
+  # dispatch on it never leaves the object itself.
   class StandaloneEventTarget
     include EventTarget
 
@@ -513,6 +576,17 @@ module Dommy
     # differently on either side of a shadow boundary.
     def __internal_set_target__(value)
       @target = value
+      nil
+    end
+
+    # `relatedTarget` is retargeted per node the same way `target` is (only
+    # MouseEvent / FocusEvent expose one; for every other event it stays nil).
+    def __internal_related_target__
+      @related_target
+    end
+
+    def __internal_set_related_target__(value)
+      @related_target = value
       nil
     end
 
@@ -618,15 +692,25 @@ module Dommy
         @immediate_propagation_stopped = true
         nil
       when "composedPath"
-        # composedPath() is the event path only while the event is being
-        # dispatched; once dispatch finishes (currentTarget is null) it is empty.
-        @dispatch_flag ? @composed_path.dup : []
+        composed_path
       when "initEvent"
         # WebIDL: the `type` argument is mandatory.
         raise Bridge::TypeError, "initEvent requires a type argument" if args.empty?
 
         init_event(args[0], args[1], args[2])
       end
+    end
+
+    # WHATWG "initialized flag". Every constructed event is initialized; only
+    # `document.createEvent()` hands back an uninitialized one, which stays
+    # undispatchable until initEvent() gives it a type.
+    def __internal_initialized__
+      @initialized.nil? || @initialized
+    end
+
+    def __internal_mark_uninitialized__
+      @initialized = false
+      nil
     end
 
     # WHATWG "dispatch flag" — true while this event is being dispatched.
@@ -648,6 +732,7 @@ module Dommy
       # Spec: initEvent is a no-op while the event is being dispatched.
       return nil if @dispatch_flag
 
+      @initialized = true
       @type = type.to_s
       @bubbles = !!bubbles
       @cancelable = !!cancelable
@@ -657,21 +742,61 @@ module Dommy
       nil
     end
 
-    # Filled in by EventTarget#dispatch_event as the event walks the
-    # bubble path so `composedPath()` returns the right list.
-    #
-    # Per spec, `load` events do not propagate to the Window when
-    # composed paths are computed (resource-finished signal stays at
-    # the target).
-    def __internal_record_path__(targets)
-      @composed_path = if @type == "load"
-        targets.reject { |t| t.is_a?(Window) }
-      else
-        targets
+    # The event path (a list of EventPathEntry), set by dispatch as it builds the
+    # path and emptied again when dispatch finishes.
+    def __internal_record_path__(entries)
+      @composed_path = entries
+      nil
+    end
+
+    # WHATWG composedPath(): the path as the node currently handling the event is
+    # allowed to see it. Entries inside a closed shadow tree that this listener
+    # has no business seeing are filtered out by tracking, per entry, how deep
+    # into closed trees it sits relative to the current target.
+    def composed_path
+      path = @composed_path
+      return [] if path.nil? || path.empty? || @current_target.nil?
+
+      target_index, hidden_level = composed_path_current_index(path)
+      result = [@current_target]
+
+      current = max = hidden_level
+      (target_index - 1).downto(0) do |i|
+        current += 1 if path[i].root_of_closed_tree
+        result.unshift(path[i].invocation_target) if current <= max
+        if path[i].slot_in_closed_tree
+          current -= 1
+          max = current if current < max
+        end
       end
+
+      current = max = hidden_level
+      ((target_index + 1)...path.length).each do |i|
+        current += 1 if path[i].slot_in_closed_tree
+        result << path[i].invocation_target if current <= max
+        if path[i].root_of_closed_tree
+          current -= 1
+          max = current if current < max
+        end
+      end
+
+      result
     end
 
     private
+
+    # Locate the current target in the path (scanning from the outermost entry
+    # inward, as the spec does) and the closed-tree depth it sits at.
+    def composed_path_current_index(path)
+      hidden_level = 0
+      (path.length - 1).downto(0) do |i|
+        hidden_level += 1 if path[i].root_of_closed_tree
+        return [i, hidden_level] if path[i].invocation_target.equal?(@current_target)
+
+        hidden_level -= 1 if path[i].slot_in_closed_tree
+      end
+      [0, 0]
+    end
 
     def event_phase
       @event_phase

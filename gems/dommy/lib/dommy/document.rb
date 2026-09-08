@@ -909,18 +909,21 @@ module Dommy
     # mapping happy-dom and linkedom use.
     def create_event(type_name)
       name = type_name.to_s
-      case name
-      when "Event", "Events", "HTMLEvents"
-        Event.new("")
-      when "CustomEvent"
-        CustomEvent.new("")
-      when "MouseEvent", "MouseEvents"
-        MouseEvent.new("")
-      when "KeyboardEvent", "KeyboardEvents"
-        KeyboardEvent.new("")
-      else
-        Event.new("")
-      end
+      event =
+        case name
+        when "CustomEvent"
+          CustomEvent.new("")
+        when "MouseEvent", "MouseEvents"
+          MouseEvent.new("")
+        when "KeyboardEvent", "KeyboardEvents"
+          KeyboardEvent.new("")
+        else
+          Event.new("")
+        end
+      # createEvent hands back an *uninitialized* event: it has no type yet and
+      # dispatching it before initEvent() is an InvalidStateError.
+      event.__internal_mark_uninitialized__
+      event
     end
 
     # Stubs for layout / focus / selection / execCommand APIs that

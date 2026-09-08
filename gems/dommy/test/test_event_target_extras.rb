@@ -19,8 +19,17 @@ class TestEventTargetExtras < Minitest::Test
     assert_raises(TypeError) { @btn.dispatch_event({}) }
   end
 
-  def test_dispatch_event_accepts_nil_returns_true
-    assert_equal(true, @btn.dispatch_event(nil))
+  def test_dispatch_event_raises_for_nil
+    # WebIDL: dispatchEvent takes a non-nullable Event, so null is a TypeError
+    # rather than a silent no-op.
+    assert_raises(TypeError) { @btn.dispatch_event(nil) }
+  end
+
+  def test_dispatch_event_raises_for_an_uninitialized_event
+    event = @doc.create_event("Event")
+    assert_raises(Dommy::DOMException::InvalidStateError) { @btn.dispatch_event(event) }
+    event.__js_call__("initEvent", ["ready", true, false])
+    assert_equal(true, @btn.dispatch_event(event))
   end
 
   def test_once_option_fires_once_then_removes
