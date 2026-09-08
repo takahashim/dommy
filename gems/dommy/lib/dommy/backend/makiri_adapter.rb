@@ -276,6 +276,12 @@ module Dommy
 
         node["xmlns:#{prefix}"] = href.to_s
         nil
+      rescue ArgumentError
+        # DOM validates a qualified name against the Name production, which
+        # admits prefixes an XML backend cannot spell as an `xmlns:` attribute
+        # ("0:a", ";:a"). The element is still valid — its prefix and namespace
+        # live on the wrapper — so the declaration is simply not written.
+        nil
       end
 
       def namespace_definitions(_node)

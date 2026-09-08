@@ -135,6 +135,67 @@ class TestCreateElementNSLooseNames < Minitest::Test
     assert_equal "MyTag", el.__js_get__("localName")
     assert_equal "ns", el.__js_get__("prefix")
   end
+
+  # DOM validates the qualified name against the Name production only, so a
+  # prefix an XML backend cannot spell as an `xmlns:` attribute is still a valid
+  # element — it just gets no namespace declaration written.
+  # WPT: dom/nodes/Document-createElementNS.html
+  def test_a_prefix_the_backend_cannot_declare_still_creates_the_element
+    ["0:a", ";:a"].each do |qualified|
+      el = xml_doc.__js_call__("createElementNS", ["http://example.com/", qualified])
+      assert_equal("a", el.__js_get__("localName"), qualified)
+      assert_equal(qualified.split(":").first, el.__js_get__("prefix"), qualified)
+      assert_equal("http://example.com/", el.__js_get__("namespaceURI"), qualified)
+    end
+  end
+end
+
+# createElement validates against the XML *Name* production, which is looser
+# than the QName an XML backend insists on.
+# WPT: dom/nodes/Document-createElement.html
+class TestCreateElementLooseNames < Minitest::Test
+  include DommyTestHelper
+
+  def xml_doc
+    Dommy::DOMParser.new.parse_from_string("<root/>", "text/xml")
+  end
+
+  def xhtml_doc
+    Dommy::DOMParser.new.parse_from_string(
+      "<html xmlns='http://www.w3.org/1999/xhtml'><body/></html>", "application/xhtml+xml"
+    )
+  end
+
+  # Colons make a name a poor QName but a perfectly good Name, and a combining
+  # char or a brace is fine anywhere but the first position.
+  NAMES = [":", ":foo", "foo:", "f:o:o", "f::oo", "f::oo:", "foo:0", "xmlns:foo", "f}oo", "foo}"].freeze
+
+  def test_an_xml_document_accepts_them_verbatim
+    doc = xml_doc
+    NAMES.each do |name|
+      el = doc.create_element(name)
+      assert_equal(name, el.local_name, name)
+      assert_equal(name, el.tag_name, name)
+      assert_nil(el.namespace_uri, name)
+      assert_nil(el.__js_get__("prefix"), name)
+    end
+  end
+
+  def test_an_xhtml_document_puts_them_in_the_html_namespace
+    doc = xhtml_doc
+    NAMES.each do |name|
+      el = doc.create_element(name)
+      assert_equal(name, el.local_name, name)
+      assert_equal("http://www.w3.org/1999/xhtml", el.namespace_uri, name)
+    end
+  end
+
+  def test_a_name_that_is_not_a_name_at_all_still_raises
+    doc = xml_doc
+    ["", "1foo", "fo o", "}foo", "<foo", "foo>", "-foo", ".foo"].each do |name|
+      assert_raises(Dommy::DOMException::InvalidCharacterError, name) { doc.create_element(name) }
+    end
+  end
 end
 
 # A Document's nodeValue and textContent are null (DOM), not concatenated text.
