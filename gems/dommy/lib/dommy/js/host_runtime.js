@@ -15,6 +15,11 @@ globalThis.__rbHost = (function () {
   // later length-shrinking mutation (pop/shift/splice) does `symbol >= newLen`
   // and throws "cannot convert symbol to number". A WeakMap lookup is pure.
   const proxyHandles = new WeakMap(); // proxy -> handle (identity, trap-free)
+  // proxy -> the interface name it was built for. A Ruby object can be freed and
+  // its handle id reused for a DIFFERENT object, so a cached proxy is only
+  // trustworthy while it still describes the same interface — otherwise the new
+  // object would come back wearing the previous one's prototype (and expandos).
+  const proxyInterfaces = new WeakMap();
   // handle -> proxy, STRONG. A proxy is normally cached only weakly (so it can
   // be GC'd and its Ruby handle released), but once JS code stores an expando on
   // it — framework bookkeeping like lit-html's `_$litPart$` or React's
@@ -2069,7 +2074,16 @@ globalThis.__rbHost = (function () {
     const ref = cache.get(handle);
     if (ref) {
       const existing = ref.deref();
-      if (existing) return existing;
+      // Trust the cache only while the handle still names an object of the same
+      // interface (see proxyInterfaces): a recycled handle otherwise resurfaces
+      // the previous object's proxy.
+      if (existing && (iface == null || proxyInterfaces.get(existing) === iface)) return existing;
+      if (existing) {
+        cache.delete(handle);
+        pinned.delete(handle);
+        proxyHandles.delete(existing);
+        proxyInterfaces.delete(existing);
+      }
     }
     // Reuse the cached per-interface descriptor when the handle crossed tagged
     // with a known interface — skipping the describe round trip. Otherwise (no
@@ -2122,6 +2136,7 @@ globalThis.__rbHost = (function () {
       isNode, INDEXED_SETTER_INTERFACES.has(desc.name)));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
+    proxyInterfaces.set(p, desc.name);
     // A DOM node's JS wrapper must be STABLE for the node's lifetime, exactly as
     // in a browser (same node -> the same object every time). Otherwise an
     // unretained node proxy — one JS holds only as a WeakMap/WeakSet KEY, not a

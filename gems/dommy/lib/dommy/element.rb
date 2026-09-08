@@ -1218,9 +1218,20 @@ module Dommy
       key = name.to_s
       decls = declarations
       if value.nil? || value.to_s.empty?
+        # Removing a property that was not set changes nothing, so the style
+        # attribute is left alone — no rewrite, and no mutation record.
+        return nil unless decls.key?(key)
+
         decls.delete(key)
       else
-        decls[key] = [value.to_s, normalize_priority(priority)]
+        # An invalid value is dropped rather than stored, and dropping it is not
+        # a change either.
+        return nil unless valid_declaration_value?(value.to_s.strip)
+
+        entry = [value.to_s, normalize_priority(priority)]
+        return nil if decls[key] == entry
+
+        decls[key] = entry
       end
 
       write_properties(decls)
@@ -1230,6 +1241,10 @@ module Dommy
     def remove_property(name)
       key = name.to_s
       decls = declarations
+      # Removing a property that was not set changes nothing, so the style
+      # attribute is left as it is — no rewrite, and no mutation record.
+      return "" unless decls.key?(key)
+
       removed = decls.delete(key)
       write_properties(decls)
       removed&.first.to_s
@@ -1294,7 +1309,42 @@ module Dommy
         when ":" then return false if depth.zero?
         end
       end
+      valid_var_functions?(value)
+    end
+
+    # `var()` takes a custom property name and then, optionally, a comma and a
+    # fallback — `var(--x)`, `var(--x,)`, `var(--x, 1px)`. Anything else between
+    # the name and that comma, as in `var(--x ())`, is a syntax error, and a
+    # declaration whose value fails to parse is dropped rather than stored.
+    VAR_ARGUMENTS = /\A\s*--[^\s,()]*\s*(?:,|\z)/m
+
+    def valid_var_functions?(value)
+      index = 0
+      while (start = value.index(/var\(/i, index))
+        open = value.index("(", start)
+        close = matching_paren(value, open)
+        return false if close.nil?
+        return false unless value[(open + 1)...close].match?(VAR_ARGUMENTS)
+
+        # Continue inside the call, so a nested var() in the fallback is checked
+        # by the same rule.
+        index = open + 1
+      end
       true
+    end
+
+    # The index of the ")" closing the "(" at `open`, or nil when unbalanced.
+    def matching_paren(value, open)
+      depth = 0
+      (open...value.length).each do |i|
+        case value[i]
+        when "(" then depth += 1
+        when ")"
+          depth -= 1
+          return i if depth.zero?
+        end
+      end
+      nil
     end
 
     def serialize_properties(decls)

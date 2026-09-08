@@ -93,14 +93,16 @@ class TestCSSStyleSheetMutation < Minitest::Test
   def test_insertRule_appends_by_default
     @sheet.insert_rule("p { color: red }")
     assert_equal(1, @sheet.css_rules.length)
-    assert_equal("p { color: red }", @sheet.css_rules.item(0).css_text)
+    # CSSOM serializes a style rule from its parsed declarations, so the block
+    # comes back with the trailing semicolon whatever the source looked like.
+    assert_equal("p { color: red; }", @sheet.css_rules.item(0).css_text)
   end
 
   def test_insertRule_at_index
     @sheet.insert_rule("p {}")
     @sheet.insert_rule("a {}", 0)
-    assert_equal("a {}", @sheet.css_rules.item(0).css_text)
-    assert_equal("p {}", @sheet.css_rules.item(1).css_text)
+    assert_equal("a { }", @sheet.css_rules.item(0).css_text)
+    assert_equal("p { }", @sheet.css_rules.item(1).css_text)
   end
 
   def test_insertRule_returns_index
@@ -119,7 +121,7 @@ class TestCSSStyleSheetMutation < Minitest::Test
     @sheet.insert_rule("a {}")
     @sheet.delete_rule(0)
     assert_equal(1, @sheet.css_rules.length)
-    assert_equal("a {}", @sheet.css_rules.item(0).css_text)
+    assert_equal("a { }", @sheet.css_rules.item(0).css_text)
   end
 
   def test_deleteRule_out_of_range_raises
@@ -130,7 +132,7 @@ class TestCSSStyleSheetMutation < Minitest::Test
     @sheet.insert_rule("p {}")
     @sheet.replace_sync("body { margin: 0 }")
     assert_equal(1, @sheet.css_rules.length)
-    assert_equal("body { margin: 0 }", @sheet.css_rules.item(0).css_text)
+    assert_equal("body { margin: 0; }", @sheet.css_rules.item(0).css_text)
   end
 
   def test_replaceSync_empty_clears_rules
@@ -176,17 +178,17 @@ class TestCSSRuleListAndCSSRule < Minitest::Test
   end
 
   def test_rule_list_item
-    assert_equal("p { color: red }", @sheet.css_rules.item(0).css_text)
+    assert_equal("p { color: red; }", @sheet.css_rules.item(0).css_text)
   end
 
   def test_rule_list_indexer
-    assert_equal("a { color: blue }", @sheet.css_rules[1].css_text)
+    assert_equal("a { color: blue; }", @sheet.css_rules[1].css_text)
   end
 
   def test_rule_list_iteration
     seen = []
     @sheet.css_rules.each { |r| seen << r.css_text }
-    assert_equal(["p { color: red }", "a { color: blue }"], seen)
+    assert_equal(["p { color: red; }", "a { color: blue; }"], seen)
   end
 
   def test_rule_list_out_of_range_returns_nil
@@ -205,7 +207,7 @@ class TestCSSRuleListAndCSSRule < Minitest::Test
   def test_rule_cssText_setter
     rule = @sheet.css_rules.item(0)
     rule.css_text = "p { color: green }"
-    assert_equal("p { color: green }", rule.css_text)
+    assert_equal("p { color: green; }", rule.css_text)
   end
 end
 

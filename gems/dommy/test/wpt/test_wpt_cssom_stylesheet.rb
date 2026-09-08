@@ -57,9 +57,9 @@ class TestWPTCssomStylesheet < Minitest::Test
     assert_equal "green", rule.css_rules[0].style.get_property_value("color")
   end
 
-  def test_css_text_round_trips_until_mutated
+  def test_css_text_is_reserialized_from_the_declarations
     rule = sheet("p { color: red }").css_rules[0]
-    assert_equal "p { color: red }", rule.css_text
+    assert_equal "p { color: red; }", rule.css_text
     rule.style.set_property("color", "green")
     assert_includes rule.css_text, "green"
   end
@@ -72,5 +72,84 @@ class TestWPTCssomStylesheet < Minitest::Test
 
     document.query_selector("style").sheet.css_rules[0].style.set_property("color", "green")
     assert_equal "rgb(0, 128, 0)", view.get_computed_style(target)["color"]
+  end
+end
+
+# CSSOM gives every rule kind its own interface, and dommy backs them all with
+# one Ruby class carrying a `type` — so which interface a rule reports has to be
+# derived per instance rather than per class.
+# WPT: css/cssom/CSSStyleSheet.html
+class TestWPTCssRuleInterfaces < Minitest::Test
+  include DommyTestHelper
+
+  def rules(css)
+    win = make_window
+    style = win.document.create_element("style")
+    style.text_content = css
+    win.document.body.append_child(style)
+    style.sheet.css_rules
+  end
+
+  def chain(rule)
+    Dommy::Js::DomInterfaces.chain_for(rule)
+  end
+
+  def test_a_style_rule_reports_CSSStyleRule
+    assert_equal(%w[CSSStyleRule CSSGroupingRule CSSRule], chain(rules("p { color: red }").item(0)))
+  end
+
+  def test_a_media_rule_reports_CSSMediaRule
+    rule = rules("@media all { p { color: red } }").item(0)
+    assert_equal(%w[CSSMediaRule CSSConditionRule CSSGroupingRule CSSRule], chain(rule))
+  end
+
+  def test_a_supports_rule_reports_CSSSupportsRule
+    rule = rules("@supports (color: red) { p { color: red } }").item(0)
+    assert_equal(%w[CSSSupportsRule CSSConditionRule CSSGroupingRule CSSRule], chain(rule))
+  end
+
+  # The interface depends on the instance, so nothing may memoize it per class.
+  def test_the_interface_is_not_memoized_per_class
+    list = rules("p { color: red }\n@media all { a { color: blue } }")
+    assert_equal("CSSStyleRule", chain(list.item(0)).first)
+    assert_equal("CSSMediaRule", chain(list.item(1)).first)
+    assert(Dommy::Js::DomInterfaces.polymorphic?(list.item(0)))
+  end
+end
+
+# WPT: css/cssom/CSSStyleSheet.html — the legacy addRule / removeRule members.
+class TestWPTCssStyleSheetAddRule < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    style = @win.document.create_element("style")
+    style.text_content = "#foo { height: 100px; }"
+    @win.document.body.append_child(style)
+    @sheet = style.sheet
+  end
+
+  def test_addRule_appends_and_returns_minus_one
+    assert_equal(-1, @sheet.add_rule("#foo", "color: red"))
+    assert_equal(2, @sheet.css_rules.length)
+    assert_equal("#foo { color: red; }", @sheet.css_rules.item(1).css_text)
+  end
+
+  def test_addRule_with_an_index_inserts_there
+    @sheet.add_rule("#foo", "color: blue", 0)
+    assert_equal("#foo { color: blue; }", @sheet.css_rules.item(0).css_text)
+  end
+
+  def test_addRule_builds_an_at_rule_by_concatenation
+    @sheet.add_rule("@media all", "#foo { color: red }")
+    rule = @sheet.css_rules.item(1)
+    assert_equal(Dommy::CSSRule::MEDIA_RULE, rule.type)
+  end
+
+  # Both arguments default to the string "undefined", and a block that holds no
+  # declarations serializes empty.
+  def test_addRule_with_no_arguments
+    assert_equal(-1, @sheet.add_rule)
+    assert_equal("undefined { }", @sheet.css_rules.item(1).css_text)
   end
 end
