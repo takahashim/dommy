@@ -16,6 +16,14 @@ module Dommy
   # Window). Useful for fragment parsing where you want a Document
   # without spinning up a Window.
   class DOMParser
+    # `window` is the browsing context whose script is doing the parsing. A
+    # parsed document has no browsing context of its own (`defaultView` is null),
+    # but the tasks it queues — a `details` the parser opened owes a toggle event
+    # — still run on that window's event loop.
+    def initialize(window = nil)
+      @window = window
+    end
+
     def parse_from_string(string, mime_type = "text/html")
       str = string.to_s
       case mime_type.to_s.downcase
@@ -49,7 +57,10 @@ module Dommy
 
     def parse_html(str)
       backend_doc = Backend.parse(str.empty? ? "<html><body></body></html>" : str)
-      Document.new(nil, backend_doc: backend_doc)
+      doc = Document.new(nil, backend_doc: backend_doc)
+      doc.task_scheduler = @window.scheduler if @window.respond_to?(:scheduler)
+      doc.__internal_run_parsed_details_steps__
+      doc
     end
 
     def parse_xml(str, mime_type = "application/xml")

@@ -104,6 +104,7 @@ module Dommy
       # this, a tree-walk (Alpine's x-for/x-if scan, etc.) descends into the
       # template's inert content and evaluates directives there out of scope.
       @document.migrate_template_descendants(@document.backend_doc)
+      @document.__internal_run_parsed_details_steps__
       @custom_elements = CustomElementRegistry.new(self)
       @navigator = Navigator.new(self)
       # All JS global constructors (`new Event()`, `new URL()`, ...) live in a
@@ -582,7 +583,7 @@ module Dommy
         "File" => Bridge::Constructor.new { |args| File.new(args[0] || [], args[1].to_s, args[2] || {}, win) },
         "FileList" => Bridge::Constructor.new { |args| FileList.new(args[0] || []) },
         "FormData" => Bridge::Constructor.new { |args| FormData.new(args[0]) },
-        "DOMParser" => Bridge::Constructor.new { |_args| DOMParser.new },
+        "DOMParser" => Bridge::Constructor.new { |_args| DOMParser.new(self) },
         "XMLSerializer" => Bridge::Constructor.new { |_args| XMLSerializer.new },
         "URLSearchParams" => Bridge::Constructor.new { |args| URLSearchParams.new(args[0] || "") },
         "Headers" => Bridge::Constructor.new { |args| Headers.new(args[0] || {}) },

@@ -3375,14 +3375,42 @@ module Dommy
 
     def set_attribute(name, value)
       result = with_toggle_on_open_change { super }
-      # Re-point this element to a new exclusive group: if it is open, close the
-      # other open members of the group it just joined.
-      enforce_group_exclusivity if name.to_s.casecmp?("name") && open
+      # Renaming moves this element into a different exclusive group. The member
+      # already open in that group keeps its state, so it is this element that
+      # closes — the same rule as arriving there by insertion.
+      yield_to_open_group_peer if name.to_s.casecmp?("name")
       result
     end
 
     def remove_attribute(name)
       with_toggle_on_open_change { super }
+    end
+
+    # Run the insertion steps over details elements that arrived together — a
+    # parsed document, or a subtree inserted in one go. The DOM inserts nodes one
+    # at a time, so each element only sees the group members that were already
+    # there; that is what makes the FIRST open member of a parsed group the one
+    # that stays open, while an element inserted into a settled group later is
+    # the one that closes.
+    def self.run_insertion_steps(elements)
+      pending = elements.map(&:__dommy_backend_node__).to_set
+      elements.each do |element|
+        pending.delete(element.__dommy_backend_node__)
+        element.__internal_details_inserted__(pending)
+      end
+      nil
+    end
+
+    # HTML's details insertion steps, run when the element joins a tree — and
+    # for every details the parser produced, since none of them went through an
+    # attribute change. Two things follow from arriving somewhere: an element the
+    # parser opened owes its toggle event, and an open element joining a group
+    # that already has an open member closes. `pending` holds the members of the
+    # same batch that have not been inserted yet, which this element cannot see.
+    def __internal_details_inserted__(pending = nil)
+      queue_toggle_event(false, true) if open && !@__toggle_announced
+      yield_to_open_group_peer(pending)
+      nil
     end
 
     def __js_get__(key)
@@ -3403,53 +3431,74 @@ module Dommy
       was = open
       result = yield
       if open != was
-        # Opening a named details closes the other open members of its exclusive
-        # group (same `name`, same tree scope) before its own toggle is queued.
-        enforce_group_exclusivity if open
+        # This element's own toggle is queued first; only then do the other open
+        # members of its exclusive group (same `name`, same tree scope) close and
+        # queue theirs, so the group's events arrive in the order it settled.
         queue_toggle_event(was, open)
+        close_open_group_peers if open
       end
       result
     end
 
-    # WHATWG details name-group exclusivity: at most one details per (name, tree)
-    # may be open. When this element opens, remove `open` from every other open
-    # details in the same tree that shares its non-empty name.
-    def enforce_group_exclusivity
+    # WHATWG details name-group exclusivity: at most one details per (name, tree
+    # scope) may be open. The other members of this element's group — details
+    # elements in the same tree sharing its non-empty `name`.
+    def group_peers
       group = @__node__["name"].to_s
-      return if group.empty?
+      return [] if group.empty?
 
       root = get_root_node
-      return unless root.respond_to?(:query_selector_all)
+      return [] unless root.respond_to?(:query_selector_all)
 
-      root.query_selector_all("details").each do |other|
-        next unless other.respond_to?(:__dommy_backend_node__)
-        next if other.__dommy_backend_node__.equal?(__dommy_backend_node__)
-        next unless other.__dommy_backend_node__["name"].to_s == group
-
-        other.open = false if other.respond_to?(:open) && other.open
+      root.query_selector_all("details").select do |other|
+        other.respond_to?(:__dommy_backend_node__) &&
+          !other.__dommy_backend_node__.equal?(__dommy_backend_node__) &&
+          other.__dommy_backend_node__["name"].to_s == group
       end
+    end
+
+    # This element just opened: the rest of its group closes.
+    def close_open_group_peers
+      group_peers.each { |other| other.open = false if other.respond_to?(:open) && other.open }
+    end
+
+    # This element just joined a group: whoever was open there stays open, and
+    # this element is the one that closes.
+    def yield_to_open_group_peer(pending = nil)
+      return unless open
+
+      peers = group_peers
+      peers = peers.reject { |other| pending.include?(other.__dommy_backend_node__) } if pending
+      return unless peers.any? { |other| other.respond_to?(:open) && other.open }
+
+      self.open = false
+      nil
     end
 
     # WHATWG "queue a details toggle event task": the trusted ToggleEvent fires
     # asynchronously, and rapid changes coalesce into ONE event whose oldState is
     # the state before the first change and newState the state after the last.
     def queue_toggle_event(old_open, new_open)
-      if @__toggle_pending
-        @__toggle_new = new_open ? "open" : "closed"
-        return
-      end
-
-      @__toggle_pending = true
-      @__toggle_old = old_open ? "open" : "closed"
+      # A change while a toggle task is still pending CANCELS that task and
+      # queues a fresh one at the back of the queue. The event still reports the
+      # state before the first change and after the last, but it now arrives
+      # after everything queued in between — which is what orders the events of
+      # an accordion group by when each element last settled.
+      @__toggle_old = old_open ? "open" : "closed" unless @__toggle_pending
       @__toggle_new = new_open ? "open" : "closed"
+      @__toggle_pending = true
+      @__toggle_announced = true
+      generation = @__toggle_generation = (@__toggle_generation || 0) + 1
       fire = proc do
+        next unless generation == @__toggle_generation
+
         @__toggle_pending = false
         evt = ToggleEvent.new("toggle",
           "oldState" => @__toggle_old, "newState" => @__toggle_new,
           "bubbles" => false, "cancelable" => false)
         dispatch_event(evt.__internal_mark_trusted__)
       end
-      scheduler = @document.respond_to?(:default_view) && @document.default_view&.scheduler
+      scheduler = @document.respond_to?(:__internal_scheduler__) ? @document.__internal_scheduler__ : nil
       scheduler ? scheduler.set_timeout(fire, 0) : fire.call
     end
   end

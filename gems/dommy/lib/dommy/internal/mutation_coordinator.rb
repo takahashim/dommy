@@ -165,6 +165,34 @@ module Dommy
         nil
       end
 
+      # An open `details` joining an exclusive accordion group that already has an
+      # open member closes itself — the member that was already there wins,
+      # whichever order the parser or a script produced them in. A details the
+      # parser opened also owes a toggle event, which it has had no attribute
+      # change to queue.
+      def run_details_insertion_steps(added_nodes)
+        found = []
+        added_nodes.each do |node|
+          next unless node.respond_to?(:element?) && node.element?
+
+          found << node if node.name == "details"
+          # Only descend when there is something to descend into: appending a
+          # leaf element (the shape of bulk DOM construction) then costs one
+          # name comparison rather than a backend query.
+          next unless node.respond_to?(:first_element_child) && node.first_element_child
+
+          found.concat(node.css("details").to_a)
+        end
+        return if found.empty?
+
+        # One batch across every added node: the whole insertion is a single
+        # pass, so a group that arrives together settles on its first open
+        # member rather than its last.
+        HTMLDetailsElement.run_insertion_steps(found.filter_map { |backend| @document.wrap_node(backend) })
+      rescue StandardError
+        nil
+      end
+
       # Fire MutationObserver childList records
       def notify_child_list_mutation(
         target_node:,
@@ -188,6 +216,11 @@ module Dommy
           added_nodes.each { |nk| notify_connected_subtree(nk) }
           removed_nodes.each { |nk| notify_disconnected_subtree(nk) }
         end
+
+        # HTML's details insertion steps run wherever the element lands, not only
+        # in a connected tree, so an accordion group assembled off-document is
+        # already consistent by the time it is attached.
+        run_details_insertion_steps(added_nodes)
 
         # MutationRecords are only needed when something is observing; skip the
         # eager wrapping + record entirely when no observer is registered.

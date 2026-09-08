@@ -208,3 +208,32 @@ class TestDocumentNodeValueTextContent < Minitest::Test
     assert_nil doc.__js_get__("textContent")
   end
 end
+
+# The selector index walks the backend element tree; the XML backend has no
+# `first_element_child` / `next_element` sibling walk, so a query on an XML
+# document used to raise instead of matching.
+class TestQuerySelectorOnXmlDocument < Minitest::Test
+  include DommyTestHelper
+
+  def xml_doc
+    Dommy::DOMParser.new.parse_from_string(
+      "<root><a id='x'/><b class='c'><a/></b></root>", "text/xml"
+    )
+  end
+
+  def test_a_type_selector_matches
+    assert_equal(2, xml_doc.query_selector_all("a").to_a.size)
+  end
+
+  def test_an_id_selector_matches
+    assert_equal("a", xml_doc.query_selector("#x").tag_name)
+  end
+
+  def test_a_class_selector_matches
+    assert_equal("b", xml_doc.query_selector(".c").tag_name)
+  end
+
+  def test_a_descendant_selector_matches
+    assert_equal(1, xml_doc.query_selector_all("b a").to_a.size)
+  end
+end

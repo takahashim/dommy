@@ -1735,6 +1735,28 @@ module Dommy
       @node_wrapper_cache.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
     end
 
+    # The task scheduler this document's own tasks run on: its browsing context's
+    # when it has one, otherwise the one handed to it by whatever built it (a
+    # DOMParser document has no defaultView but still queues tasks on the window
+    # whose script created it).
+    attr_writer :task_scheduler
+
+    def __internal_scheduler__
+      (@default_view&.scheduler if @default_view.respond_to?(:scheduler)) || @task_scheduler
+    end
+
+    # The parser sets `open` while building a `details`, so no attribute change
+    # ever ran for it: give every details in a freshly parsed document its
+    # insertion steps, which queue the toggle event it owes and settle each
+    # exclusive accordion group.
+    def __internal_run_parsed_details_steps__
+      return nil unless @backend_doc.respond_to?(:css)
+
+      elements = @backend_doc.css("details").filter_map { |node| wrap_node(node) }
+      HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
+      nil
+    end
+
     # The wrapper already cached for a backend node, or nil — never builds one.
     def __internal_cached_wrapper__(node)
       @node_wrapper_cache.cached_wrapper(node)
