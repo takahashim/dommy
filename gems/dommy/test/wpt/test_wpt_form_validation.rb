@@ -264,3 +264,127 @@ class TestBooleanIDLAttributeSurface < Minitest::Test
     refute(el.has_attribute?("readonly"))
   end
 end
+
+# WPT: html/semantics/forms/the-form-element/form-nameditem.html
+class TestWPTFormNamedGetter < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+  end
+
+  def form(html)
+    el = @doc.create_element("form")
+    el.inner_html = html
+    @doc.body.append_child(el)
+    el
+  end
+
+  def test_a_single_control_is_returned_directly
+    f = form("<input name='a'>")
+    assert_same(f.query_selector("input"), f.__js_get__("a"))
+  end
+
+  def test_several_controls_of_a_name_come_back_as_a_list
+    f = form("<input type='radio' name='r' value='x'><input type='radio' name='r' value='y'>")
+    list = f.__js_get__("r")
+    assert_equal(2, list.length)
+    assert_equal(%w[x y], list.to_a.map(&:value))
+    assert_same(list, f.__js_get__("r"), "the list is [SameObject] across reads")
+  end
+
+  def test_a_control_is_reachable_by_its_id_as_well
+    f = form("<input id='byid'>")
+    assert_same(f.query_selector("input"), f.__js_get__("byid"))
+  end
+
+  # HTMLFormElement is [LegacyOverrideBuiltIns]: a control named after one of the
+  # form's own members shadows it.
+  def test_a_named_control_shadows_a_builtin
+    f = form("<input name='action'><input name='length'>")
+    assert_same(f.query_selector("input[name='action']"), f.__js_get__("action"))
+    assert_same(f.query_selector("input[name='length']"), f.__js_get__("length"))
+  end
+
+  def test_an_unmatched_name_is_absent
+    assert_equal(Dommy::Bridge::ABSENT, form("<input name='a'>").__js_get__("nope"))
+  end
+
+  # The past names map: a control that is renamed — or loses its name and id
+  # entirely — stays reachable under the name it was last found by.
+  def test_a_renamed_control_keeps_its_old_name
+    f = form("")
+    input = @doc.create_element("input")
+    input.set_attribute("name", "first")
+    input.set_attribute("id", "first-id")
+    f.append_child(input)
+    assert_same(input, f.__js_get__("first"))
+    assert_same(input, f.__js_get__("first-id"))
+
+    input.set_attribute("name", "second")
+    input.set_attribute("id", "second-id")
+    assert_same(input, f.__js_get__("first"))
+    assert_same(input, f.__js_get__("second"))
+    assert_same(input, f.__js_get__("first-id"))
+    assert_same(input, f.__js_get__("second-id"))
+
+    input.remove_attribute("name")
+    input.remove_attribute("id")
+    assert_same(input, f.__js_get__("first"))
+    assert_same(input, f.__js_get__("second"))
+  end
+
+  def test_the_old_names_go_when_the_control_leaves_the_form
+    f = form("")
+    input = @doc.create_element("input")
+    input.set_attribute("name", "gone")
+    f.append_child(input)
+    assert_same(input, f.__js_get__("gone"))
+    input.remove
+    assert_equal(Dommy::Bridge::ABSENT, f.__js_get__("gone"))
+  end
+
+  def test_a_name_is_only_remembered_when_it_matched_exactly_one_control
+    f = form("<input type='radio' name='r'><input type='radio' name='r'>")
+    f.__js_get__("r")
+    f.query_selector_all("input").each { |el| el.remove_attribute("name") }
+    assert_equal(Dommy::Bridge::ABSENT, f.__js_get__("r"))
+  end
+
+  def test_past_names_show_up_in_the_supported_property_names
+    f = form("")
+    input = @doc.create_element("input")
+    input.set_attribute("name", "old")
+    f.append_child(input)
+    f.__js_get__("old")
+    input.set_attribute("name", "new")
+    assert_includes(f.__js_named_props__, "new")
+    assert_includes(f.__js_named_props__, "old")
+    input.remove
+    refute_includes(f.__js_named_props__, "old")
+  end
+end
+
+# A form containing a control named after a DOM member used to shadow that
+# member for dommy's OWN reads too, because internal code went through the JS
+# bridge protocol — so getElementsByTagName("form") lost any form holding an
+# `<input name=prefix>`.
+class TestWPTFormNamedGetterDoesNotLeakInternally < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+    @doc.body.inner_html = "<form id='a'><input name='prefix'><input name='localName'></form><form id='b'></form>"
+  end
+
+  def test_get_elements_by_tag_name_still_finds_the_form
+    assert_equal(%w[a b], @doc.get_elements_by_tag_name("form").to_a.map { |f| f.get_attribute("id") })
+  end
+
+  def test_the_named_getter_itself_still_works
+    f = @doc.get_element_by_id("a")
+    assert_same(f.query_selector("input[name='prefix']"), f.__js_get__("prefix"))
+  end
+end

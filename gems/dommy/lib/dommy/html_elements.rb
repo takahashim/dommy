@@ -532,8 +532,14 @@ module Dommy
       # HTMLFormElement is [LegacyOverrideBuiltIns]: a control whose name/id
       # matches a builtin (`elements`, `length`, `submit`, `action`, …) shadows
       # that builtin. So the named getter is consulted BEFORE the builtins.
-      named = named_controls[key.to_s]
-      return __named_getter_result__(key.to_s, named) if named && !named.empty?
+      name = key.to_s
+      named = named_controls[name]
+      if named && !named.empty?
+        remember_past_name(name, named.first) if named.length == 1
+        return __named_getter_result__(name, named)
+      end
+      past = past_named_control(name)
+      return past if past
 
       case key
       when "elements"
@@ -543,6 +549,32 @@ module Dommy
       else
         super
       end
+    end
+
+    # HTML's "past names map": the named getter remembers the single control it
+    # last returned under a name, so a control that is later renamed — or loses
+    # its name and id entirely — stays reachable under the old one. The entry
+    # lives only as long as the control still belongs to this form; removing it
+    # from the form, or pointing it at another one, drops the name.
+    def remember_past_name(name, element)
+      (@__past_names__ ||= {})[name] = element
+      nil
+    end
+
+    def past_named_control(name)
+      entry = @__past_names__&.[](name)
+      return nil if entry.nil?
+      return entry if own_control?(entry)
+
+      @__past_names__.delete(name)
+      nil
+    end
+
+    def own_control?(element)
+      return false unless element.respond_to?(:__dommy_backend_node__)
+
+      node = element.__dommy_backend_node__
+      elements.any? { |el| el.respond_to?(:__dommy_backend_node__) && el.__dommy_backend_node__.equal?(node) }
     end
 
     # A single matching control is returned directly; multiple matches yield a
@@ -557,9 +589,12 @@ module Dommy
     end
 
     # WebIDL named getter: the form's supported property names are the name/id
-    # of each of its listed controls.
+    # of each of its listed controls, followed by the names in its past names
+    # map that still point at one of them.
     def __js_named_props__
-      named_controls.keys
+      live = named_controls.keys
+      past = (@__past_names__ || {}).keys.select { |name| past_named_control(name) }
+      live + (past - live)
     end
 
     # name/id -> [controls], for the named getter (a name matching more than one
