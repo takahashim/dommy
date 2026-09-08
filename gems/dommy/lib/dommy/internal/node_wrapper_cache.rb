@@ -74,7 +74,20 @@ module Dommy
           namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
         end
 
-        wrapper = wrap_node(Backend.create_element(local, @document.backend_doc))
+        # createElement validates against the XML *Name* production, which is
+        # looser than the QName an XML backend insists on: ":", "foo:", "f::oo"
+        # and a local part with a combining char are all valid element names the
+        # backend would reject. The loose creator builds those verbatim; anything
+        # it (or the strict path) still refuses is an InvalidCharacterError.
+        node =
+          begin
+            Backend.create_element_loose(local, nil, local, namespace, @document.backend_doc) ||
+              Backend.create_element(local, @document.backend_doc)
+          rescue ArgumentError
+            raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}"
+          end
+
+        wrapper = wrap_node(node)
         wrapper.__internal_set_namespace__(namespace, nil, local, local)
         wrapper
       end
