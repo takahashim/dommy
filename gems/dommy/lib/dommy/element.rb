@@ -2513,12 +2513,15 @@ module Dommy
     end
 
     # Resolve a URL-valued attribute against the document base URL, falling back
-    # to the raw value when it cannot be parsed.
+    # to the raw value when it cannot be parsed. The result is a SERIALIZED URL,
+    # so `a.href = "http://example.org/?ä"` reads back percent-encoded — which is
+    # what the URL parser produces and what `URI.join` does not.
     def resolve_url(raw)
       win = @document.default_view
       base = win&.location ? win.location.href : ""
-      URI.join(base, raw.to_s).to_s
-    rescue URI::InvalidURIError, ArgumentError
+      base = nil if base.to_s.empty?
+      Internal::UrlParser.serialize(Internal::UrlParser.parse(raw.to_s, base))
+    rescue Internal::UrlParser::Failure
       raw.to_s
     end
 

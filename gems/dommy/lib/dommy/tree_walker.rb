@@ -323,9 +323,13 @@ module Dommy
       false
     end
 
+    # The wrapped parent, INCLUDING the Document itself: a walker rooted at the
+    # document has to be able to walk up to its root, or `parentNode()` from the
+    # body reports no parent at all (and never filters the document element on
+    # the way). wrap_node maps the backend document node to the Dommy Document.
     def wrapped_parent(node)
       parent_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.parent : nil
-      return nil unless parent_nk && !parent_nk.is_a?(Backend.document_class)
+      return nil unless parent_nk
 
       doc = node.instance_variable_get(:@document) || (@root.respond_to?(:document) ? @root.document : @root)
       doc.wrap_node(parent_nk)

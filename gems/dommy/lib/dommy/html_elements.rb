@@ -4974,12 +4974,16 @@ module Dommy
       @__disabled = !!v
     end
 
-    # `style.sheet` — always non-nil for `<style>`. Memoized per text
-    # content (CSSOM: repeated reads return the same object), seeded
-    # with the element's CSS text so insertRule/deleteRule order against
-    # it. Rewriting the element's text discards the sheet and any rules
-    # inserted via CSSOM — browsers re-parse into a fresh sheet too.
+    # `style.sheet` — the CSSOM sheet, which exists only while the element is
+    # browsing-context connected: a `<style>` built in script, or one inside a
+    # shadow tree whose host is not in the document, has no sheet yet. Memoized
+    # per text content (CSSOM: repeated reads return the same object), seeded
+    # with the element's CSS text so insertRule/deleteRule order against it.
+    # Rewriting the element's text discards the sheet and any rules inserted via
+    # CSSOM — browsers re-parse into a fresh sheet too.
     def sheet
+      return nil unless is_connected?
+
       text = text_content.to_s
       return @__sheet if @__sheet && @__sheet_text == text
 

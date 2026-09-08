@@ -44,13 +44,37 @@ class TestCSSStyleSheetStub < Minitest::Test
     assert_same(link.sheet, link.sheet)
   end
 
-  def test_style_element_always_has_sheet
+  # CSSOM: a style element's sheet exists only while the element is
+  # browsing-context connected.
+  def test_a_connected_style_element_has_a_sheet
     style = @doc.create_element("style")
+    @doc.body.append_child(style)
+    assert_kind_of(Dommy::CSSStyleSheet, style.sheet)
+  end
+
+  def test_a_detached_style_element_has_no_sheet
+    style = @doc.create_element("style")
+    assert_nil(style.sheet)
+    @doc.body.append_child(style)
+    assert_kind_of(Dommy::CSSStyleSheet, style.sheet)
+    style.remove
+    assert_nil(style.sheet)
+  end
+
+  # A shadow tree counts as connected only once its host is in the document.
+  def test_a_style_in_a_detached_shadow_tree_has_no_sheet
+    host = @doc.create_element("div")
+    root = host.attach_shadow(mode: "open")
+    root.inner_html = "<style>a {}</style>"
+    style = root.query_selector("style")
+    assert_nil(style.sheet)
+    @doc.body.append_child(host)
     assert_kind_of(Dommy::CSSStyleSheet, style.sheet)
   end
 
   def test_style_sheet_starts_empty
     style = @doc.create_element("style")
+    @doc.body.append_child(style)
     assert_equal(0, style.sheet.css_rules.length)
   end
 end
@@ -62,6 +86,7 @@ class TestCSSStyleSheetMutation < Minitest::Test
     @win = make_window
     @doc = @win.document
     @style = @doc.create_element("style")
+    @doc.body.append_child(@style)
     @sheet = @style.sheet
   end
 
@@ -135,7 +160,9 @@ class TestCSSRuleListAndCSSRule < Minitest::Test
   def setup
     @win = make_window
     @doc = @win.document
-    @sheet = @doc.create_element("style").sheet
+    style = @doc.create_element("style")
+    @doc.body.append_child(style)
+    @sheet = style.sheet
     @sheet.insert_rule("p { color: red }")
     @sheet.insert_rule("a { color: blue }")
   end

@@ -161,7 +161,14 @@ module Dommy
         rescue StandardError
           nil
         end
-        return DocumentType.new(backend_node: node, document: @document) if node
+        if node
+          clone = DocumentType.new(backend_node: node, document: @document)
+          # Register the wrapper against its backend node, so inserting the clone
+          # into a tree and reading it back returns THIS object rather than a
+          # freshly built one (`doc.replaceChildren(dt); doc.firstChild === dt`).
+          @document.__internal_register_wrapper__(node, clone)
+          return clone
+        end
       end
       DocumentType.new(name, public_id, system_id, owner_document: @owner_document)
     end
@@ -231,15 +238,23 @@ module Dommy
       @document = document
     end
 
+    # A name createDocumentType refuses. It is otherwise extremely permissive —
+    # "1foo", "@foo", "edi:%" and the empty string are all accepted — but a name
+    # carrying whitespace or ">" could not be serialized back as a doctype, and
+    # is an InvalidCharacterError.
+    UNSERIALIZABLE_DOCTYPE_NAME = /[\s>]/
+
     # A created DocumentType's node document is the implementation's document. When
     # the backend ships a doctype factory (the HTML backend) and accepts the name,
     # the result is a real, node-backed (but detached) DocumentType that can join
-    # the tree; otherwise it falls back to a synthetic one. (Qualified-name QName
-    # validation isn't enforced — createDocumentType is permissive, so the factory's
-    # stricter name check is bypassed via the synthetic fallback rather than
-    # raising; a couple of invalid-name WPT cases stay documented gaps.)
+    # the tree; otherwise it falls back to a synthetic one — the factory's own
+    # (stricter, XML-flavoured) name check is not the DOM rule.
     def create_document_type(qualified_name, public_id, system_id)
       qn = qualified_name.to_s
+      if qn.match?(UNSERIALIZABLE_DOCTYPE_NAME)
+        raise DOMException::InvalidCharacterError, "invalid doctype name: #{qn.inspect}"
+      end
+
       pub = public_id.to_s
       sys = system_id.to_s
       node =
@@ -785,6 +800,10 @@ module Dommy
     # wrapper is owned by `this`. Per spec, the source node is left
     # in place. `deep: true` copies the entire subtree.
     def import_node(node, deep = false)
+      # An Attr is a Node but not a backend-tree node: it is copied by rebuilding
+      # it here with the same qualified name, namespace, prefix and value, owned
+      # by no element (importNode never attaches the copy to anything).
+      return import_attribute(node) if node.is_a?(Attr)
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
       # WebIDL `optional boolean deep = false`: a missing / undefined argument
@@ -792,6 +811,17 @@ module Dommy
       deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
       copy = clone_into_doc(node.__dommy_backend_node__, deep)
       wrap_node(copy)
+    end
+
+    def import_attribute(attr)
+      Attr.new(
+        attr.name,
+        value: attr.value,
+        namespace_uri: attr.namespace_uri,
+        prefix: attr.prefix,
+        local_name: attr.local_name,
+        document: self
+      )
     end
 
     # Move a node from another document into this one. The source
@@ -1755,6 +1785,13 @@ module Dommy
       elements = @backend_doc.css("details").filter_map { |node| wrap_node(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
       nil
+    end
+
+    # Bind an externally built wrapper to its backend node, so later traversals
+    # return the same Ruby object (JS identity) instead of building a new one.
+    def __internal_register_wrapper__(node, wrapper)
+      @node_wrapper_cache.register(node, wrapper)
+      wrapper
     end
 
     # The wrapper already cached for a backend node, or nil — never builds one.
