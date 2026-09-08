@@ -38,12 +38,8 @@ module Dommy
     end
 
     def inner_html=(html)
-      removed = @__node__.children.to_a
-      removed.each { |n| @document.detach_node(n) }
       fragment = Parser.fragment(html.to_s, owner_doc: @document.backend_doc)
-      added = fragment.children.to_a
-      added.each { |n| @__node__.add_child(n) }
-      notify_child_list(added: added, removed: removed)
+      __internal_replace_all__(fragment.children.to_a)
       nil
     end
 
@@ -52,8 +48,11 @@ module Dommy
     end
 
     def text_content=(value)
-      @__node__.children.to_a.each { |n| @document.detach_node(n) }
-      @__node__.add_child(Backend.create_text(value.to_s, @document.backend_doc))
+      # A ShadowRoot is a DocumentFragment, so its textContent setter is the
+      # same WHATWG "string replace all" as Element's and Fragment's: one
+      # childList record for the whole swap, and an empty value leaves no
+      # children rather than an empty Text node.
+      string_replace_all(value)
     end
 
     def children
@@ -165,10 +164,9 @@ module Dommy
       old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this shadow root" unless old_bn && old_bn.parent == @__node__
 
-      added = detach_dom_nodes(new_child)
-      added.each { |n| old_bn.add_previous_sibling(n) }
-      @document.detach_node(old_bn)
-      notify_child_list(added: added, removed: [old_bn])
+      # The shared "replace a child within a parent" primitive — remove first,
+      # then insert, exactly as for an Element or a DocumentFragment.
+      replace_child_within(new_child, old_bn)
       old_child
     end
 

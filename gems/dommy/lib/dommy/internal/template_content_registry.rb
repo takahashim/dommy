@@ -16,13 +16,21 @@ module Dommy
         @fragments = {}
       end
 
-      # Parse HTML into a fragment and attach it as the template's content.
-      # Drops any pre-existing direct children of the template element.
+      # Replace the template's content with `html`.
+      #
+      # HTML's innerHTML setter retargets a `<template>` to its template
+      # contents DocumentFragment and does "replace all with fragment" THERE, so
+      # the content object itself is NOT exchanged: `template.content` is the
+      # same object before and after, an existing reference to it stays live,
+      # and a MutationObserver watching it sees the swap. The registry entry is
+      # therefore left alone; only the fragment's children change.
+      #
+      # Spec: https://html.spec.whatwg.org/#dom-innerhtml
       def attach(template_element, html)
-        Backend.template_content_nodes(template_element.__dommy_backend_node__).each(&:unlink)
-        fragment = @document.backend_doc.fragment(html.to_s)
-        @fragments[Backend.identity_key(template_element.__dommy_backend_node__)] = fragment
-        fragment
+        content = fragment_for(template_element)
+        parsed = @document.backend_doc.fragment(html.to_s)
+        content.__internal_replace_all__(parsed.children.to_a)
+        content
       end
 
       # Get the wrapped Fragment for a template element, seeding from
@@ -91,6 +99,14 @@ module Dommy
         @fragments[Backend.identity_key(template_element.__dommy_backend_node__)]
       end
 
+      # Bootstrap: move a freshly parsed template's direct backend children into
+      # the associated DocumentFragment, creating that fragment once. This
+      # normalizes Dommy's internal representation to the spec model rather than
+      # performing a DOM mutation — the nodes are the template's contents before
+      # and after — so it deliberately uses a raw unlink, and it is the ONLY
+      # time the registry's fragment for a template is created. Afterwards the
+      # `template node -> template contents` mapping is stable: `attach`
+      # (innerHTML=) replaces the fragment's children, never the fragment.
       def migrate_one(template_node)
         fragment = @document.backend_doc.fragment("")
         Backend.template_content_nodes(template_node).each do |child|

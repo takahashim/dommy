@@ -835,7 +835,9 @@ module Dommy
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
       src = node.__dommy_backend_node__
-      detach_node(src) if src.parent
+      # WHATWG adopt removes the node from its parent first — a full remove, so
+      # the old parent gets its removing steps AND its childList record.
+      remove_node_with_notify(src) if src.parent
 
       # Same document: just return the wrapper after the detach above.
       return wrap_node(src) if src.document == @backend_doc
@@ -1145,12 +1147,11 @@ module Dommy
       ensure_document_insertion_validity!([node], nil)
       return node unless node.respond_to?(:__dommy_backend_node__)
 
-      # appendChild adopts a node from another document (per spec). Only needed on
-      # a backend that can't move a node across documents (Makiri).
-      if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
-        node = adopt_node(node)
-      end
-      @backend_doc.add_child(node.__dommy_backend_node__)
+      bn = adopted_backend_node(node)
+      return node unless bn
+
+      @backend_doc.add_child(bn)
+      notify_document_child_list(added: [bn])
       node
     end
 
@@ -1165,7 +1166,7 @@ module Dommy
       else
         nodes.each { |n| @backend_doc.add_child(n) }
       end
-      __internal_ranges_inserted__(@backend_doc, nodes)
+      notify_document_child_list(added: nodes)
       nil
     end
 
@@ -1173,10 +1174,11 @@ module Dommy
       # replaceChildren removes the current children first, so the validity
       # checks ignore them (whatwg/dom#1045).
       ensure_document_insertion_validity!(args, nil, ignore_existing: true)
-      @backend_doc.children.to_a.each { |child| detach_node(child) }
+      removed = @backend_doc.children.to_a
+      removed.each { |child| detach_node(child) }
       added = args.filter_map { |a| adopted_backend_node(a) }
       added.each { |n| @backend_doc.add_child(n) }
-      __internal_ranges_inserted__(@backend_doc, added)
+      notify_document_child_list(added: added, removed: removed)
       nil
     end
 
@@ -1186,7 +1188,7 @@ module Dommy
       bn = backend_node(node)
       raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @backend_doc
 
-      detach_node(bn)
+      remove_node_with_notify(bn)
       node
     end
 
@@ -1210,7 +1212,7 @@ module Dommy
       else
         @backend_doc.add_child(bn)
       end
-      __internal_ranges_inserted__(@backend_doc, [bn])
+      notify_document_child_list(added: [bn])
       node
     end
 
@@ -1222,19 +1224,27 @@ module Dommy
       # the document's existing element / doctype children.
       ensure_document_insertion_validity!([new_child], old_bn, exclude: old_bn)
 
-      # Remove old FIRST, then adopt the incoming node. A cross-document doctype
-      # is re-created in this backend, and Makiri's fail-closed guard refuses a
-      # second doctype — so the old one must be gone before the new is made.
       ref = old_bn.next
+      cross_document = !Backend.moves_nodes_across_documents? &&
+        new_child.respond_to?(:document) && !new_child.document.equal?(self)
+
+      # Same document: WHATWG replace adopts the incoming node — which removes
+      # it from whatever parent it has — BEFORE removing the child it replaces,
+      # so that old parent gets its removing steps and its childList record.
+      #
+      # Cross-document is deferred instead: a doctype has to be re-created in
+      # this backend, and Makiri's fail-closed guard refuses a second doctype,
+      # so the old one must be gone before the new one is made.
+      new_bn = adopted_backend_node(new_child) unless cross_document
       detach_node(old_bn)
-      if !Backend.moves_nodes_across_documents? && new_child.respond_to?(:document) && !new_child.document.equal?(self)
+      if cross_document
         new_child = adopt_node(new_child)
+        new_bn = backend_node(new_child)
       end
-      new_bn = backend_node(new_child)
       if new_bn
         ref && ref.parent == @backend_doc ? ref.add_previous_sibling(new_bn) : @backend_doc.add_child(new_bn)
-        __internal_ranges_inserted__(@backend_doc, [new_bn])
       end
+      notify_document_child_list(added: new_bn ? [new_bn] : [], removed: [old_bn])
       old_child
     end
 
@@ -1244,7 +1254,7 @@ module Dommy
       node = backend_node(doctype) || Backend.internal_subset(@backend_doc)
       return nil unless node
 
-      detach_node(node)
+      remove_node_with_notify(node)
       nil
     end
 
@@ -1279,13 +1289,21 @@ module Dommy
     # `append_child` does, otherwise a cross-document node's backend node comes
     # from a foreign arena and the insertion silently drops it on a backend that
     # can't move nodes across documents (Makiri).
+    # WHATWG pre-insert: adopt the node into this document, which removes it
+    # from whatever parent it has now. The backend would detach it implicitly on
+    # the next add_child, but silently — that is a storage operation, not a DOM
+    # removal, so route it through the shared remove primitive instead and let
+    # the old parent see its removing steps and its childList record.
     def adopted_backend_node(node)
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
       if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
-        node = adopt_node(node)
+        return adopt_node(node)&.__dommy_backend_node__
       end
-      node.__dommy_backend_node__
+
+      bn = node.__dommy_backend_node__
+      remove_node_with_notify(bn) if bn.parent
+      bn
     end
 
     # Delegate to CookieJar
@@ -1917,6 +1935,18 @@ module Dommy
       run_node_iterator_pre_remove(node)
       __internal_ranges_will_remove__(node)
       nil
+    end
+
+    # A childList mutation on the DOCUMENT's own child list (its doctype, the
+    # document element, a stray comment). Document-level mutation is observable
+    # like any other — `observe(document, {childList: true})` is legal — so it
+    # goes through the same pipeline rather than only nudging live ranges.
+    def notify_document_child_list(added: [], removed: [])
+      notify_child_list_mutation(
+        target_node: @backend_doc,
+        added_nodes: added,
+        removed_nodes: removed
+      )
     end
 
     # The single detach primitive: pre-removing steps, then unlink. Callers that

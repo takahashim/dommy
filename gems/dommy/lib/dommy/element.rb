@@ -58,14 +58,10 @@ module Dommy
     end
 
     def text_content=(value)
-      # Replace all children with a single Text node (nullable: null/undefined
-      # clear with no replacement). Unlink old children so a removed node keeps
-      # its own descendants.
-      removed = @__node__.children.to_a
-      str = nullable_dom_string(value)
-      removed.each { |n| @document.detach_node(n) }
-      @__node__.add_child(@document.create_text_node(str).__dommy_backend_node__) unless str.empty?
-      notify_child_list(added: @__node__.children.to_a, removed: removed)
+      # WHATWG "string replace all": one logical operation, so one childList
+      # record covering both sides — and an empty (or null / undefined) value
+      # leaves no children at all rather than an empty Text node.
+      string_replace_all(value)
     end
 
     def __js_set__(key, value)
@@ -114,6 +110,8 @@ module Dommy
         child_nodes
       when "childElementCount"
         child_element_count
+      when "isConnected"
+        is_connected?
       when "firstChild"
         first_child
       when "lastChild"
@@ -240,17 +238,7 @@ module Dommy
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless old_bn && old_bn.parent == @__node__
 
       ensure_pre_insertion_validity!(new_child, old_child)
-      added = detach_dom_nodes(new_child)
-      # WHATWG "replace a child within a parent" removes the old child BEFORE
-      # inserting, so anchor on its next sibling and detach it first.
-      anchor = old_bn.next
-      @document.detach_node(old_bn)
-      if anchor && anchor.parent == @__node__
-        added.each { |n| anchor.add_previous_sibling(n) }
-      else
-        added.each { |n| @__node__.add_child(n) }
-      end
-      @document.__internal_ranges_inserted__(@__node__, added)
+      replace_child_within(new_child, old_bn)
       old_child
     end
 
@@ -263,6 +251,19 @@ module Dommy
       # to contain its own children. `parent` is consistent across backends.
       on == @__node__ || Internal::NodeTraversal.ancestor_of?(@__node__, on)
     end
+
+    # A bare DocumentFragment is never connected — its shadow-including root is
+    # itself, not a document. (A ShadowRoot is a fragment too, but has its own
+    # host-following answer.) Beyond `node.isConnected`, this is what tells the
+    # mutation pipeline to skip the connected/disconnected walk for mutations
+    # inside a detached fragment: a custom element parsed into a `<template>`'s
+    # content must NOT get a connectedCallback there, only when it is later
+    # inserted into a document.
+    def is_connected?
+      false
+    end
+
+    alias connected? is_connected?
 
     private
 
@@ -1418,19 +1419,12 @@ module Dommy
     end
 
     def text_content=(value)
-      # textContent is a nullable DOMString, so null AND undefined both mean "no
-      # value" -> clear the children with no replacement text. Otherwise replace
-      # all children with a single Text node. Unlink the old children (rather
-      # than the backend's `content=`, which frees their whole subtree) so a
+      # WHATWG "string replace all". textContent is a nullable DOMString, so
+      # null AND undefined both mean "no value" -> clear the children with no
+      # replacement text. The children are detached one by one (rather than via
+      # the backend's `content=`, which frees their whole subtree) so a
       # reference to a removed node keeps its own descendants intact.
-      removed = @__node__.children.to_a
-      str = nullable_dom_string(value)
-      removed.each { |n| @document.detach_node(n) }
-      unless str.empty?
-        @__node__.add_child(@document.create_text_node(str).__dommy_backend_node__)
-      end
-      added = @__node__.children.to_a
-      notify_child_list(added: added, removed: removed)
+      string_replace_all(value)
     end
 
     def inner_html
@@ -1442,16 +1436,20 @@ module Dommy
     end
 
     def inner_html=(value)
-      removed = @__node__.children.to_a
       if @__node__.name == "template"
         # `<template>` content is invisible to outer selectors in real DOM (it
-        # lives in a separate DocumentFragment exposed via `[:content]`).
+        # lives in a separate DocumentFragment exposed via `[:content]`). HTML's
+        # innerHTML setter retargets to that fragment and replaces all of ITS
+        # children, so the record belongs there, not on the template element
+        # (which has no children of its own to swap).
         @document.attach_template_content(self, value.to_s)
-      else
-        @__node__.inner_html = value.to_s
-        @document.migrate_template_descendants(@__node__)
-        mark_fragment_scripts_started(@__node__.children.to_a)
+        return
       end
+
+      removed = @__node__.children.to_a
+      @__node__.inner_html = value.to_s
+      @document.migrate_template_descendants(@__node__)
+      mark_fragment_scripts_started(@__node__.children.to_a)
       notify_child_list(added: @__node__.children.to_a, removed: removed)
     end
 
@@ -3300,31 +3298,7 @@ module Dommy
       ensure_pre_insertion_validity!(new_child, old_child)
       old_node = unwrap_dom_node(old_child)
 
-      # Capture the insertion point (old's next sibling) before detaching the new
-      # child, which may itself be old (replaceChild(x, x)) or old's sibling.
-      # WHATWG: if that reference child IS the node being inserted (new_child is
-      # old's next sibling), advance it to new_child's next sibling so the node
-      # lands in old's slot rather than being appended.
-      anchor = old_node.next_sibling
-      new_bn = unwrap_dom_node(new_child)
-      anchor = anchor.next_sibling if anchor && new_bn && anchor == new_bn
-      new_nodes = detach_dom_nodes(new_child)
-      anchor = nil if anchor && anchor.parent != @__node__
-
-      # detach_dom_nodes already removed old when new_child === old_child; only
-      # unlink (and record the removal) when old is still attached.
-      removed = []
-      if old_node.parent == @__node__
-        @document.detach_node(old_node)
-        removed = [old_node]
-      end
-
-      if anchor
-        new_nodes.each { |node| anchor.add_previous_sibling(node) }
-      else
-        new_nodes.each { |node| @__node__.add_child(node) }
-      end
-      notify_child_list(added: new_nodes, removed: removed)
+      replace_child_within(new_child, old_node)
       old_child
     end
 

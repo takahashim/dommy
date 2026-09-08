@@ -57,9 +57,25 @@ module Dommy
       # append the new set. One mutation record carries both sides.
       def replace_children(*args)
         validate_insertion_args!(args)
-        removed = @__node__.children.to_a
-        removed.each { |n| @document.detach_node(n) }
+        removed = detach_all_children
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
+        nodes.each { |n| @__node__.add_child(n) }
+        notify_child_list(added: nodes, removed: removed)
+        nil
+      end
+
+      # WHATWG "replace all with node within a parent": remove every child in
+      # tree order (through the shared removal primitive, so each one runs the
+      # pre-removing steps), insert the new nodes, and queue ONE childList
+      # record carrying both sides. Backs textContent=, a ShadowRoot's
+      # innerHTML=, and a <template>'s content replacement.
+      #
+      # `__internal_` because collaborators outside the node classes call it
+      # (TemplateContentRegistry); within a node, prefer `string_replace_all`.
+      #
+      # Spec: https://dom.spec.whatwg.org/#concept-node-replace-all
+      def __internal_replace_all__(nodes)
+        removed = detach_all_children
         nodes.each { |n| @__node__.add_child(n) }
         notify_child_list(added: nodes, removed: removed)
         nil
@@ -112,6 +128,63 @@ module Dommy
       end
 
       private
+
+      # Steps 3-4 of "replace all": detach every child in tree order, returning
+      # them so the caller can name them in the single record that covers the
+      # whole operation.
+      def detach_all_children
+        removed = @__node__.children.to_a
+        removed.each { |n| @document.detach_node(n) }
+        removed
+      end
+
+      # WHATWG "string replace all" — the textContent setter for Element,
+      # DocumentFragment and ShadowRoot alike. The empty string (and a null /
+      # undefined, which coerce to it) leaves the parent with NO children rather
+      # than an empty Text node.
+      #
+      # Spec: https://dom.spec.whatwg.org/#string-replace-all
+      def string_replace_all(value)
+        str = nullable_dom_string(value)
+        nodes = str.empty? ? [] : [@document.create_text_node(str).__dommy_backend_node__]
+        __internal_replace_all__(nodes)
+      end
+
+      # WHATWG "replace a child with node within a parent", shared by Element,
+      # DocumentFragment and ShadowRoot. `old_bn` must already be validated as a
+      # child of this node; each caller keeps its own WebIDL / hierarchy checks.
+      #
+      # The old child is REMOVED BEFORE the replacements are inserted. That
+      # order is observable: the pre-removing steps run against a tree that does
+      # not yet hold the new nodes, so a NodeIterator anchored inside the old
+      # child falls back to this parent rather than to a node that was not there
+      # when the removal happened.
+      #
+      # Spec: https://dom.spec.whatwg.org/#concept-node-replace
+      def replace_child_within(new_child, old_bn)
+        # Capture the insertion point (old's next sibling) before converting the
+        # new child, which may itself be old (replaceChild(x, x)) or old's
+        # sibling. WHATWG: when that reference child IS the node being inserted,
+        # advance it to the node's next sibling so the node lands in old's slot
+        # rather than being appended.
+        anchor = old_bn.next_sibling
+        new_bn = new_child.respond_to?(:__dommy_backend_node__) ? new_child.__dommy_backend_node__ : nil
+        anchor = anchor.next_sibling if anchor && new_bn && anchor == new_bn
+        nodes = detach_dom_nodes(new_child)
+        anchor = nil if anchor && anchor.parent != @__node__
+
+        # detach_dom_nodes already removed old when new_child === old_child; only
+        # detach (and record the removal) when old is still attached.
+        removed = []
+        if old_bn.parent == @__node__
+          @document.detach_node(old_bn)
+          removed = [old_bn]
+        end
+
+        insert_child_nodes(nodes, anchor, @__node__)
+        notify_child_list(added: nodes, removed: removed)
+        nil
+      end
 
       # Hierarchy guard hook. Default no-op (Fragment / ShadowRoot stay
       # permissive, matching current behavior). Element overrides this to

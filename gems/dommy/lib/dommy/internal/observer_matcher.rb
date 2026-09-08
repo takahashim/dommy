@@ -19,10 +19,14 @@ module Dommy
         observed_wrapped.contains?(target_wrapped)
       end
 
-      # Special case: Document observation. Matches iff subtree=true
-      # (a plain target==observed match never applies to a Document).
-      def matches_document?(_target_wrapped, subtree:)
-        subtree
+      # Special case: Document observation. `subtree` covers the whole tree; a
+      # plain registration still matches the Document node ITSELF, whose child
+      # list is the doctype, the document element and any stray comment —
+      # `observe(document, {childList: true})` is a legal way to watch those.
+      def matches_document?(target_wrapped, subtree:)
+        return true if subtree
+
+        target_wrapped.is_a?(Dommy::Document)
       end
     end
   end
