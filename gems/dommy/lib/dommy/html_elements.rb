@@ -173,6 +173,32 @@ module Dommy
     end
   end
 
+  # `formAction` is a URL-reflecting IDL attribute on the submit buttons that
+  # carry it: the setter writes the content attribute verbatim, and the getter
+  # resolves it against the document base URL — falling back to the document's
+  # own address when the attribute is missing or empty, so a submit button
+  # without a `formaction` reports where the form would post.
+  module FormActionUrl
+    def form_action
+      raw = get_attribute("formaction").to_s
+      return @document.url.to_s if raw.empty?
+
+      resolve_url(raw)
+    end
+
+    def form_action=(value)
+      set_attribute("formaction", value.to_s)
+    end
+
+    def __js_get__(key)
+      key == "formAction" ? form_action : super
+    end
+
+    def __js_set__(key, value)
+      key == "formAction" ? (self.form_action = value) : super
+    end
+  end
+
   # The "Window-reflecting body element event handler set": setting one of these
   # event handler IDL attributes on <body>/<frameset> (`body.onload = fn`)
   # actually targets the WINDOW, per HTML — so `window.onload` fires. A
@@ -202,18 +228,27 @@ module Dommy
     end
   end
 
-  class HTMLAnchorElement < HTMLElement
-    include HyperlinkActivation
-    reflect_string :target, :download, :rel, :hreflang, :type
-
-    # WebIDL stringifier: `String(anchor)` / `anchor.toString()` is its href (the
+  # The HTMLHyperlinkElementUtils IDL mixin, shared by <a> and <area>. `href`
+  # reads back as the RESOLVED absolute URL (the URL-decomposition IDL
+  # attributes all report resolved values), while the setter writes the content
+  # attribute verbatim — `link.href = url` is how most code sets a link.
+  module HyperlinkUtils
+    # WebIDL stringifier: `String(link)` / `link.toString()` is its href (the
     # resolved absolute URL), not the element's serialization.
     def to_s
       anchor_href
     end
-    # URL-decomposition helpers. The anchor's `href` is resolved to
-    # an absolute URL (inherited from Element#anchor_href); break it
-    # into the standard components on demand.
+
+    def href
+      anchor_href
+    end
+
+    def href=(value)
+      set_attribute("href", value.to_s)
+    end
+
+    # URL-decomposition helpers. The href is resolved to an absolute URL
+    # (Element#anchor_href); break it into the standard components on demand.
     def hash
       uri_part(:fragment) ? "##{uri_part(:fragment)}" : ""
     end
@@ -246,17 +281,10 @@ module Dommy
       uri.scheme && uri.host ? "#{uri.scheme}://#{uri.host}#{port_suffix}" : ""
     end
 
-    # `a.text` is an alias for the element's descendant text content.
-    def text
-      text_content
-    end
-
-    def text=(v)
-      self.text_content = v.to_s
-    end
-
     def __js_get__(key)
       case key
+      when "href"
+        href
       when "hash"
         self.hash
       when "host"
@@ -273,20 +301,13 @@ module Dommy
         port
       when "origin"
         origin
-      when "text"
-        text
       else
         super
       end
     end
 
     def __js_set__(key, value)
-      case key
-      when "text"
-        self.text = value
-      else
-        super
-      end
+      key == "href" ? (self.href = value) : super
     end
 
     private
@@ -311,6 +332,29 @@ module Dommy
     end
   end
 
+  class HTMLAnchorElement < HTMLElement
+    include HyperlinkActivation
+    include HyperlinkUtils
+    reflect_string :target, :download, :rel, :hreflang, :type
+
+    # `a.text` is an alias for the element's descendant text content.
+    def text
+      text_content
+    end
+
+    def text=(v)
+      self.text_content = v.to_s
+    end
+
+    def __js_get__(key)
+      key == "text" ? text : super
+    end
+
+    def __js_set__(key, value)
+      key == "text" ? (self.text = value) : super
+    end
+  end
+
   # `<form>` — element collection, submit/reset, and a stubbed
   # validation surface.
   class HTMLFormElement < HTMLElement
@@ -330,6 +374,27 @@ module Dommy
     # and a control in a nested inner form is excluded. Memoized so the live
     # collection is the [SameObject] each access returns.
     LISTED_CONTROL_SELECTOR = "input, select, textarea, button, output, fieldset, object"
+
+    # Events a form swallows rather than letting them reach its own listeners
+    # when they were fired at another node — see the dispatch hook below.
+    LEGACY_STOPPED_EVENTS = %w[submit reset].freeze
+
+    # HTML's legacy form dispatch rule: a form does not see a `submit` or `reset`
+    # event that was fired at a different node; the event stops here instead,
+    # without running this form's listeners. What it is for is nested forms —
+    # the parser never produces one, but the DOM API lets you build one, and
+    # this is what keeps submitting an inner form from also running the outer
+    # form's `onsubmit`. Capture is exempt: dispatch only consults this hook
+    # once the event is at or past its target, so the event still reaches it.
+    def __internal_legacy_stops_propagation__(event)
+      return false unless LEGACY_STOPPED_EVENTS.include?(event.type)
+
+      target = event.__js_get__("target")
+      return false if target.nil?
+      return false if target.respond_to?(:__dommy_backend_node__) && target.__dommy_backend_node__ == @__node__
+
+      true
+    end
 
     def elements
       el = self
@@ -535,8 +600,11 @@ module Dommy
   # `<input>` — covers the most-used form control surface.
   class HTMLInputElement < HTMLElement
     include SubmitButtonActivation
-    reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value"
-    reflect_boolean :autofocus, :disabled, :required, :readonly, default_checked: "checked"
+    include FormActionUrl
+    reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value",
+                   form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+    reflect_boolean :autofocus, :disabled, :required, :readonly, default_checked: "checked",
+                    form_no_validate: "formnovalidate"
     # Own __js_call__ methods, on top of Element's.
     def type
       raw = @__node__["type"].to_s
@@ -1427,8 +1495,10 @@ module Dommy
   # `<button>` — type defaults to "submit" per spec.
   class HTMLButtonElement < HTMLElement
     include SubmitButtonActivation
-    reflect_string :name, form_action: "formaction", form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+    reflect_string :name, form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
     reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
+    include FormActionUrl
+
     def type
       raw = @__node__["type"].to_s.downcase
       %w[submit reset button].include?(raw) ? raw : "submit"
@@ -2511,14 +2581,17 @@ module Dommy
     # HTML: a label's activation behavior runs synthetic click activation steps
     # on its labeled control — which is what makes clicking a label's text check
     # the checkbox next to it. A click already targeted at interactive content
-    # inside the label (the control itself included) is left alone, so the
-    # forwarded click cannot bounce back here.
+    # *inside* the label (the control itself included) is left alone, so the
+    # forwarded click cannot bounce back here. Interactive content the label is
+    # nested in — a label inside an <a> or a <button> — is not a descendant, so
+    # it does not suppress the forwarding.
     def activation_behavior(_event)
       labeled = control
       return if labeled.nil?
 
       origin = _event.__js_get__("target")
-      return if origin.respond_to?(:closest) && origin.closest(INTERACTIVE_CONTENT)
+      interactive = origin.closest(INTERACTIVE_CONTENT) if origin.respond_to?(:closest)
+      return if interactive && contains?(interactive)
 
       labeled.click
     end
@@ -4557,7 +4630,8 @@ module Dommy
 
   class HTMLAreaElement < HTMLElement
     include HyperlinkActivation
-    reflect_string :alt, :coords, :shape, :href, :target, :rel
+    include HyperlinkUtils
+    reflect_string :alt, :coords, :shape, :target, :rel
   end
 
   class HTMLMapElement < HTMLElement

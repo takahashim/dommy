@@ -279,9 +279,16 @@ module Dommy
       runtime.install_wasm_memory_shim if @wasm_memory_shim && runtime.respond_to?(:install_wasm_memory_shim)
       window.globals["__fetch_handler__"] = Resources::FetchHandler.new(@resources) if @resources
       @runtime = runtime
+      doc = window.document
+      # An `on*` attribute that arrived after boot (a cloned template, an
+      # innerHTML fragment) is compiled on first dispatch, which replays the scan.
+      # Installed whenever a runtime is attached — an embedder that drives script
+      # boot itself (`execute_scripts: false`) still needs inline handlers wired.
+      doc.inline_handler_wirer = lambda do
+        Js::ScriptBoot.wire_inline_handlers(runtime, on_error: ->(e) { @js_errors << e })
+      end
       return unless @execute_scripts
 
-      doc = window.document
       # Dynamically-inserted `<script src>` (webpack/Vite on-demand chunks)
       # fetch + run through the same resources adapter, after boot.
       doc.external_script_runner = lambda do |element, src|

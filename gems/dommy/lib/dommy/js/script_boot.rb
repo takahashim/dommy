@@ -32,6 +32,16 @@ module Dommy
         ScriptBooter.new(runtime, document, resources: resources, on_error: on_error, on_script: on_script).run
       end
 
+      # Re-run the inline-handler scan. Idempotent — the scan skips an element
+      # whose handler is already compiled — so it can be replayed whenever an
+      # element carrying an `on*` attribute turns up after boot (cloneNode,
+      # innerHTML, a fragment inserted by a template).
+      def wire_inline_handlers(runtime, on_error: nil)
+        runtime.execute(ScriptBooter::WIRE_INLINE_HANDLERS_JS)
+      rescue StandardError => e
+        on_error&.call(e)
+      end
+
       # Fetch + execute a single `<script src>` that was dynamically inserted into
       # an already-booted document (webpack/Vite on-demand chunk loading), then
       # fire its load / error event so the loader's promise settles.
@@ -66,9 +76,11 @@ module Dommy
       # window.addEventListener since the element's own load never fires. (2) The
       # scan targets only elements carrying a known handler attribute (via a
       # selector) rather than every element, then wires all on* attributes on
-      # each. Handlers on elements inserted *after* boot (innerHTML /
-      # setAttribute) are not wired — frameworks use addEventListener; this
-      # covers server-rendered inline handlers.
+      # each. An element that turns up after boot still gets its handler: a
+      # runtime `setAttribute("on*")` compiles it directly (host_runtime.js), and
+      # one that arrived already carrying the attribute (cloneNode / innerHTML)
+      # is compiled the first time a matching event is dispatched at it, which
+      # replays this scan.
       HANDLER_ATTRIBUTES = %w[
         onabort onauxclick onbeforeinput onbeforetoggle onblur oncancel oncanplay oncanplaythrough
         onchange onclick onclose oncontextmenu oncopy oncuechange oncut ondblclick ondrag ondragend
@@ -139,9 +151,7 @@ module Dommy
       end
 
       def wire_inline_event_handlers
-        @runtime.execute(WIRE_INLINE_HANDLERS_JS)
-      rescue StandardError => e
-        @on_error&.call(e)
+        ScriptBoot.wire_inline_handlers(@runtime, on_error: @on_error)
       end
 
       # Fetch + run a dynamically-inserted external script, then fire `load` (or

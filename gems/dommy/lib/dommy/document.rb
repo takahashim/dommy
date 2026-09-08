@@ -447,6 +447,17 @@ module Dommy
     # owns firing the element's load / error event. nil = such scripts are inert.
     attr_accessor :external_script_runner
 
+    # Installed by the browser when a JS runtime is present: re-runs the
+    # inline-handler scan so an `on*` attribute that arrived after boot (a cloned
+    # template, an innerHTML fragment) is compiled. nil without a runtime, which
+    # is also the fast path that keeps a JS-free document out of this entirely.
+    attr_accessor :inline_handler_wirer
+
+    def __internal_wire_inline_handlers__
+      @inline_handler_wirer&.call
+      nil
+    end
+
     def initialize(host = nil, backend_doc: nil, default_view: nil)
       @host = host
       @default_view = default_view

@@ -182,15 +182,38 @@ module Dommy
       # listeners, not only after — including a flag set before dispatch began.
       throw :stop_propagation if event.propagation_stopped?
 
+      capturing = false
       if entry.shadow_adjusted_target
         event.__internal_set_event_phase__(Event::AT_TARGET)
       elsif phase == :capture
         event.__internal_set_event_phase__(Event::CAPTURING_PHASE)
+        capturing = true
       else
         # Past the target, the bubbling pass only runs for a bubbling event.
         return unless event.bubbles?
 
         event.__internal_set_event_phase__(Event::BUBBLING_PHASE)
+      end
+
+      # HTML's legacy form rule: a form about to run its own listeners for a
+      # `submit` / `reset` event fired at some other node stops the event
+      # instead. It is what keeps an inner form's submission from also
+      # activating the form it is nested in (the parser never nests forms, but
+      # the DOM API lets you). The capturing pass is exempt — the event still
+      # travels down to its target.
+      unless capturing
+        target = entry.invocation_target
+        if target.respond_to?(:__internal_legacy_stops_propagation__) &&
+           target.__internal_legacy_stops_propagation__(event)
+          event.__js_call__("stopPropagation", [])
+          throw :stop_propagation
+        end
+      end
+
+      # An `on*` content attribute that arrived after boot is compiled the first
+      # time a matching event reaches its element (HTML compiles these lazily).
+      if entry.invocation_target.respond_to?(:__internal_wire_inline_handler__)
+        entry.invocation_target.__internal_wire_inline_handler__(event.type)
       end
 
       event.__internal_set_current_target__(entry.invocation_target)

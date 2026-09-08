@@ -380,3 +380,153 @@ class TestWPTSummaryActivation < Minitest::Test
     assert(details.open)
   end
 end
+
+# WPT: dom/events/Event-dispatch-single-activation-behavior.html — the parts
+# that pin <area> hyperlink activation, label forwarding, and the legacy
+# nested-form dispatch rule.
+class TestWPTAreaActivation < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+  end
+
+  def area(href)
+    el = @doc.create_element("area")
+    el.href = href
+    @doc.body.append_child(el)
+    el
+  end
+
+  # `area.href` is a URL-decomposition IDL attribute, like the anchor's: the
+  # setter writes the attribute verbatim, the getter resolves it.
+  def test_area_href_reads_back_resolved
+    el = area("#target")
+    assert_equal("#target", el.get_attribute("href"))
+    assert_equal("http://localhost/#target", el.href)
+  end
+
+  def test_area_exposes_the_url_decomposition_members
+    el = area("http://example.com:8080/p?q=1#f")
+    assert_equal("http:", el.protocol)
+    assert_equal("example.com:8080", el.host)
+    assert_equal("example.com", el.hostname)
+    assert_equal("8080", el.port)
+    assert_equal("/p", el.pathname)
+    assert_equal("?q=1", el.search)
+    assert_equal("#f", el.hash)
+  end
+
+  def test_clicking_an_area_navigates
+    area("#area-target").click
+    assert_equal("#area-target", @win.location.__js_get__("hash"))
+  end
+end
+
+class TestWPTLabelActivation < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+  end
+
+  def labeled(wrapper_html = nil)
+    host = @doc.create_element("div")
+    label = "<label><input type='checkbox'><span id='s'>t</span></label>"
+    host.inner_html = wrapper_html ? wrapper_html.sub("%s", label) : label
+    @doc.body.append_child(host)
+    [host.query_selector("input"), host.query_selector("#s")]
+  end
+
+  def test_clicking_a_labels_text_activates_its_control
+    box, span = labeled
+    span.click
+    assert(box.checked)
+  end
+
+  # The "do nothing" rule covers interactive content *inside* the label; the
+  # control itself is one, so its own click is not forwarded a second time.
+  def test_clicking_the_control_itself_toggles_only_once
+    box, = labeled
+    box.click
+    assert(box.checked)
+  end
+
+  # Interactive content the label is nested *in* is not a descendant, so it must
+  # not suppress the forwarding.
+  def test_a_label_inside_a_link_still_forwards_the_click
+    box, span = labeled("<a href='#l'>%s</a>")
+    span.click
+    assert(box.checked)
+  end
+
+  def test_a_label_inside_a_button_still_forwards_the_click
+    box, span = labeled("<button type='button'>%s</button>")
+    span.click
+    assert(box.checked)
+  end
+end
+
+# HTML's legacy nested-form dispatch rule: a form stops a `submit`/`reset` event
+# that was fired at another node instead of running its own listeners, so an
+# inner form's submission never activates the form it is nested in.
+class TestWPTNestedFormEvents < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+    @doc.body.inner_html = <<~HTML
+      <form id="outer"><span id="host"></span></form>
+    HTML
+    @outer = @doc.get_element_by_id("outer")
+    @seen = []
+    @outer.add_event_listener("submit") { @seen << "outer-submit" }
+    @outer.add_event_listener("reset") { @seen << "outer-reset" }
+  end
+
+  def nest(inner_html)
+    host = @doc.get_element_by_id("host")
+    host.inner_html = "<form id='inner'>#{inner_html}</form>"
+    inner = @doc.get_element_by_id("inner")
+    inner.add_event_listener("submit") { |e| @seen << "inner-submit"; e.__js_call__("preventDefault", []) }
+    inner.add_event_listener("reset") { @seen << "inner-reset" }
+    inner
+  end
+
+  def test_an_inner_forms_submission_does_not_reach_the_outer_form
+    inner = nest("<input type='submit'>")
+    inner.query_selector("input").click
+    assert_equal(["inner-submit"], @seen)
+  end
+
+  def test_an_inner_forms_reset_does_not_reach_the_outer_form
+    inner = nest("<input type='reset'>")
+    inner.query_selector("input").click
+    assert_equal(["inner-reset"], @seen)
+  end
+
+  # The rule keys off the event's target, not off form nesting: a submit event
+  # fired at any other node stops at the form too.
+  def test_a_submit_fired_at_a_descendant_does_not_reach_the_form
+    @doc.get_element_by_id("host").dispatch_event(Dommy::Event.new("submit", "bubbles" => true))
+    assert_empty(@seen)
+  end
+
+  def test_a_submit_fired_at_the_form_itself_still_runs_its_listeners
+    @outer.dispatch_event(Dommy::Event.new("submit", "bubbles" => true))
+    assert_equal(["outer-submit"], @seen)
+  end
+
+  # Only the bubbling side is suppressed — the event still travels down to its
+  # target, so a capturing listener on the outer form sees it.
+  def test_a_capturing_listener_on_the_outer_form_still_sees_it
+    captured = []
+    @outer.add_event_listener("submit", ->(_e) { captured << "capture" }, true)
+    inner = nest("<input type='submit'>")
+    inner.query_selector("input").click
+    assert_equal(["capture"], captured)
+  end
+end

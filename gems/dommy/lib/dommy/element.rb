@@ -2179,6 +2179,25 @@ module Dommy
       false
     end
 
+    # HTML compiles an event handler content attribute lazily — the handler only
+    # has to exist by the time an event of that type is dispatched at the
+    # element. Doing it here, rather than only in the boot-time scan, is what
+    # makes `onclick="…"` survive cloneNode / innerHTML: such an element never
+    # went through that scan, so its handler would otherwise never fire.
+    #
+    # Each (element, type) is attempted once — a handler that fails to compile
+    # is not retried on every dispatch.
+    def __internal_wire_inline_handler__(type)
+      return unless @document.inline_handler_wirer
+      return if @__inline_wired&.key?(type)
+
+      code = @__node__["on#{type}"]
+      return if code.nil?
+
+      (@__inline_wired ||= {})[type] = true
+      @document.__internal_wire_inline_handlers__
+    end
+
     # WHATWG "legacy-pre-activation behavior": run on the activation target
     # BEFORE the click is dispatched, so a listener already sees the new state
     # (a checkbox reads as checked inside its own onclick). Returns whatever
@@ -2478,6 +2497,12 @@ module Dommy
       raw = @__node__["href"]
       return "" if raw.nil?
 
+      resolve_url(raw)
+    end
+
+    # Resolve a URL-valued attribute against the document base URL, falling back
+    # to the raw value when it cannot be parsed.
+    def resolve_url(raw)
       win = @document.default_view
       base = win&.location ? win.location.href : ""
       URI.join(base, raw.to_s).to_s

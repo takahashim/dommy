@@ -99,3 +99,58 @@ class TestEventTargetExtras < Minitest::Test
     assert(true)
   end
 end
+
+# HTML compiles an `on*` content attribute the first time a matching event
+# reaches its element, so a node that arrived by `cloneNode` / `innerHTML` /
+# `setAttribute` — after the boot-time wiring pass — still gets its handler.
+class TestLazyInlineHandlerWiring < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+    @wired = 0
+    @doc.inline_handler_wirer = -> { @wired += 1 }
+    @el = @doc.create_element("div")
+    @doc.body.append_child(@el)
+  end
+
+  def test_an_element_without_an_on_attribute_never_wires
+    @el.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
+    assert_equal(0, @wired)
+  end
+
+  def test_the_first_matching_event_triggers_the_wiring_pass
+    @el.set_attribute("onclick", "noop()")
+    @el.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
+    assert_equal(1, @wired)
+  end
+
+  def test_a_second_event_of_the_same_type_does_not_wire_again
+    @el.set_attribute("onclick", "noop()")
+    2.times { @el.dispatch_event(Dommy::Event.new("click", "bubbles" => true)) }
+    assert_equal(1, @wired)
+  end
+
+  def test_an_unrelated_event_type_does_not_wire
+    @el.set_attribute("onclick", "noop()")
+    @el.dispatch_event(Dommy::Event.new("focus", "bubbles" => true))
+    assert_equal(0, @wired)
+  end
+
+  # An element the event only passes through wires its own handler too.
+  def test_an_ancestor_on_the_bubble_path_wires_as_well
+    @el.set_attribute("onclick", "noop()")
+    child = @doc.create_element("span")
+    @el.append_child(child)
+    child.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
+    assert_equal(1, @wired)
+  end
+
+  def test_no_wirer_means_no_work
+    @doc.inline_handler_wirer = nil
+    @el.set_attribute("onclick", "noop()")
+    @el.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
+    assert_equal(0, @wired)
+  end
+end

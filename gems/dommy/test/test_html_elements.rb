@@ -38,6 +38,19 @@ class TestHTMLAnchorElement < Minitest::Test
     @a.target = "_self"
     assert_equal("_self", @a.get_attribute("target"))
   end
+
+  # `href` writes the content attribute verbatim and reads back resolved.
+  def test_href_setter_writes_the_attribute_and_reads_back_resolved
+    @a.href = "/other"
+    assert_equal("/other", @a.get_attribute("href"))
+    assert_equal("http://localhost/other", @a.href)
+  end
+
+  def test_href_setter_through_the_bridge
+    @a.__js_set__("href", "#frag")
+    assert_equal("#frag", @a.get_attribute("href"))
+    assert_equal("http://localhost/#frag", @a.__js_get__("href"))
+  end
 end
 
 class TestHTMLFormElement < Minitest::Test
@@ -225,8 +238,16 @@ class TestHTMLButtonElement < Minitest::Test
   def test_form_attributes
     @btn.set_attribute("formaction", "/x")
     @btn.set_attribute("formmethod", "post")
-    assert_equal("/x", @btn[:formAction])
+    # `formAction` is a URL-reflecting IDL attribute: it reads back resolved.
+    assert_equal("http://localhost/x", @btn[:formAction])
     assert_equal("post", @btn[:formMethod])
+  end
+
+  # With no `formaction`, `formAction` reports the document's own address.
+  def test_form_action_defaults_to_the_document_url
+    assert_equal(@doc.url, @btn[:formAction])
+    @btn.set_attribute("formaction", "")
+    assert_equal(@doc.url, @btn[:formAction])
   end
 end
 
