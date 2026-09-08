@@ -9,6 +9,19 @@ module Dommy
   class HTMLElement < Element
     include Internal::ReflectedAttributes
 
+    # HTML's form owner. A `form` content attribute names a form BY ID IN THIS
+    # ELEMENT'S OWN TREE — the association never reaches out of a shadow tree,
+    # or into one — and with no such attribute the owner is the nearest ancestor
+    # form.
+    def __internal_form_owner__
+      form_id = get_attribute("form").to_s
+      return closest("form") if form_id.empty?
+
+      root = get_root_node
+      target = root.get_element_by_id(form_id) if root.respond_to?(:get_element_by_id)
+      target if target.respond_to?(:tag_name) && target.tag_name.to_s.casecmp?("form")
+    end
+
     # WHATWG "actually disabled": a form control is disabled if it (or an
     # ancestor <fieldset disabled>) is disabled — EXCEPT a control within that
     # fieldset's first <legend> child is NOT disabled by the fieldset. This drives
@@ -399,10 +412,10 @@ module Dommy
     def elements
       el = self
       @elements ||= HTMLFormControlsCollection.new do
-        # A connected form is scanned document-wide, so a control associated by a
-        # `form=` attribute from outside the subtree is still found; a form built
-        # in script and never inserted only owns its own descendants.
-        scope = el.is_connected? ? el.document : el
+        # The form's own TREE is the search scope, so a control associated by a
+        # `form=` attribute from outside the subtree is still found while one in
+        # another tree — a shadow tree, or the light DOM around one — is not.
+        scope = el.get_root_node || el
         scope.query_selector_all(LISTED_CONTROL_SELECTOR).select do |c|
           next false if c.tag_name.to_s.casecmp?("input") && c.respond_to?(:type) && c.type.to_s.casecmp?("image")
 
@@ -416,14 +429,7 @@ module Dommy
     # nothing, if the id resolves to a non-form / nothing); otherwise it is the
     # nearest ancestor form element.
     def __owns_control__(control)
-      form_id = control.__dommy_backend_node__["form"].to_s
-      owner =
-        if form_id.empty?
-          control.closest("form")
-        else
-          target = control.document.get_element_by_id(form_id)
-          (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
-        end
+      owner = control.respond_to?(:__internal_form_owner__) ? control.__internal_form_owner__ : control.closest("form")
       !owner.nil? && owner.__dommy_backend_node__.equal?(__dommy_backend_node__)
     end
 
@@ -914,13 +920,7 @@ module Dommy
     end
 
     def form_owner
-      form_id = get_attribute("form").to_s
-      unless form_id.empty?
-        target = @document.get_element_by_id(form_id)
-        return (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
-      end
-
-      closest("form")
+      __internal_form_owner__
     end
 
     # Only these input types expose a variable-length text selection; the rest
@@ -1561,15 +1561,9 @@ module Dommy
 
     # The form owner: a `form=` attribute pointing at a form (form-associated
     # element, so a button can live outside its form), else the nearest ancestor
-    # form. Mirrors HTMLInputElement#form_owner.
+    # form.
     def form
-      form_id = get_attribute("form").to_s
-      unless form_id.empty?
-        target = @document.get_element_by_id(form_id)
-        return (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
-      end
-
-      closest("form")
+      __internal_form_owner__
     end
 
     def labels
@@ -1656,7 +1650,13 @@ module Dommy
   # image loading, so `complete`/`naturalWidth`/`naturalHeight` are
   # static (complete=true, dimensions=0).
   class HTMLImageElement < HTMLElement
-    reflect_string :src, :alt, :decoding, :loading, :sizes, :srcset, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
+    # `name`, `align`, `border`, `hspace`, `vspace` and `longDesc` are obsolete
+    # but still reflected — `name` in particular is what puts an image in the
+    # document's named getter, so renaming one has to move it there.
+    reflect_string :src, :alt, :decoding, :loading, :sizes, :srcset, :name, :align, :border,
+                   crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy",
+                   use_map: "usemap", long_desc: "longdesc"
+    reflect_boolean :is_map
     def width
       @__node__["width"].to_s.to_i
     end

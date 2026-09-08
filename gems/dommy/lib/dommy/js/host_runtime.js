@@ -407,15 +407,27 @@ globalThis.__rbHost = (function () {
   }
 
   // Precompute the shared delegating stubs (created once, reused on every proto).
+  // A stub reached through the prototype (`Element.prototype.remove.call(el)`,
+  // or a `super.method()` in a custom element) must invalidate the DOM-epoch
+  // caches around a mutating call exactly as the proxy's own get trap does —
+  // otherwise the DOM changes underneath a cached parentNode / attribute
+  // snapshot and the next read hands back the state from before the call.
   function memberMethodStub(name) {
-    if (NODE_OR_STRING_METHODS.has(name)) {
-      return withArity(function (...args) {
-        return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args.map(coerceNodeOrString))));
-      }, name);
-    }
+    const coerce = NODE_OR_STRING_METHODS.has(name);
+    const readOnly = NON_MUTATING_METHODS.has(name);
     return withArity(function (...args) {
-      return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args)));
+      const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
+      return readOnly ? rehydrate(__rb_host_call(this[HKEY], name, wire)) : callMutating(this[HKEY], name, wire);
     }, name);
+  }
+
+  function callMutating(handle, name, wire) {
+    bumpDomEpoch();
+    try {
+      return rehydrate(__rb_host_call(handle, name, wire));
+    } finally {
+      bumpDomEpoch();
+    }
   }
   function memberGetStub(name) {
     return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };

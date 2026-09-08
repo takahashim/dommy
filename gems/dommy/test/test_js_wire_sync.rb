@@ -153,3 +153,29 @@ class TestEventHandlerContentAttributes < Minitest::Test
     assert_match(/if \(!isHandlerAttribute\(el, name\)\) return;/, RUNTIME_JS)
   end
 end
+
+# A stub reached through the prototype (`Element.prototype.remove.call(el)`, or
+# a `super.method()` in a custom element) must invalidate the DOM-epoch caches
+# around a mutating call exactly as the proxy's own get trap does — otherwise
+# the DOM changes underneath a cached parentNode and the next read hands back
+# the state from before the call.
+# WPT: html/semantics/forms/the-select-element/select-remove.html
+class TestProtoMethodStubsInvalidateCaches < Minitest::Test
+  RUNTIME_JS = Dommy::Js::HostBridge::HOST_RUNTIME_JS
+
+  def test_the_stub_routes_a_mutating_call_through_the_epoch_bump
+    assert_includes(RUNTIME_JS, "function callMutating(handle, name, wire)")
+    assert_match(/readOnly \? rehydrate\(__rb_host_call\(this\[HKEY\], name, wire\)\) : callMutating\(/, RUNTIME_JS)
+  end
+
+  def test_the_read_only_set_is_what_decides
+    assert_match(/const readOnly = NON_MUTATING_METHODS\.has\(name\);/, RUNTIME_JS)
+  end
+
+  def test_callMutating_bumps_on_both_sides_of_the_call
+    body = RUNTIME_JS[/function callMutating\(handle, name, wire\) \{(.*?)\n  \}/m, 1]
+    refute_nil(body)
+    assert_equal(2, body.scan("bumpDomEpoch()").size, "the epoch is bumped before and after the host call")
+    assert_includes(body, "finally", "the trailing bump has to survive a throwing call")
+  end
+end

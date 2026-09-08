@@ -388,3 +388,91 @@ class TestWPTFormNamedGetterDoesNotLeakInternally < Minitest::Test
     assert_same(f.query_selector("input[name='prefix']"), f.__js_get__("prefix"))
   end
 end
+
+# A `form` content attribute names a form BY ID IN THE ELEMENT'S OWN TREE, so
+# the association never reaches out of a shadow tree — or into one.
+# WPT: html/semantics/forms/the-form-element/form-elements-filter.html
+class TestWPTFormOwnerTreeScope < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+    @doc.body.inner_html = "<form id='f'><span id='inside'></span></form><span id='outside'></span>"
+    @form = @doc.get_element_by_id("f")
+  end
+
+  def shadow_input(host_id, form_attr: nil)
+    root = @doc.get_element_by_id(host_id).attach_shadow(mode: "open")
+    input = @doc.create_element("input")
+    input.set_attribute("form", form_attr) if form_attr
+    root.append_child(input)
+    input
+  end
+
+  def test_a_control_in_a_shadow_tree_inside_the_form_has_no_owner
+    assert_nil(shadow_input("inside").form)
+  end
+
+  def test_a_form_attribute_cannot_reach_a_form_in_another_tree
+    assert_nil(shadow_input("outside", form_attr: "f").form)
+  end
+
+  def test_neither_shows_up_in_the_forms_elements
+    shadow_input("inside")
+    shadow_input("outside", form_attr: "f")
+    assert_equal(0, @form.elements.to_a.size)
+  end
+
+  def test_a_form_attribute_still_works_within_one_tree
+    outside = @doc.create_element("input")
+    outside.set_attribute("form", "f")
+    @doc.body.append_child(outside)
+    assert_same(@form, outside.form)
+    assert_equal([outside], @form.elements.to_a)
+  end
+
+  # A button carries the same rule as an input.
+  def test_the_rule_covers_buttons_too
+    root = @doc.get_element_by_id("outside").attach_shadow(mode: "open")
+    button = @doc.create_element("button")
+    button.set_attribute("form", "f")
+    root.append_child(button)
+    assert_nil(button.form)
+  end
+end
+
+# `<img>`'s `name` is obsolete but reflected — it is what puts an image in the
+# document's named getter, so renaming one has to move it there.
+# WPT: html/dom/documents/dom-tree-accessors/nameditem-01.html
+class TestWPTImageNameReflection < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window("<img id='a' name='b'>")
+    @doc = @win.document
+    @img = @doc.query_selector("img")
+  end
+
+  def test_name_reflects_the_content_attribute
+    assert_equal("b", @img.name)
+    @img.name = "c"
+    assert_equal("c", @img.get_attribute("name"))
+    assert_equal("c", @img.name)
+  end
+
+  def test_renaming_moves_the_image_in_the_documents_named_getter
+    assert_same(@img, @doc.__js_get__("b"))
+    @img.__js_set__("name", "c")
+    assert_equal(Dommy::Bridge::ABSENT, @doc.__js_get__("b"))
+    assert_same(@img, @doc.__js_get__("c"))
+    assert_same(@img, @doc.__js_get__("a"), "the id keeps working")
+  end
+
+  def test_the_other_obsolete_reflections_are_there_too
+    %w[align border useMap longDesc].each do |key|
+      refute_equal(Dommy::Bridge::ABSENT, @img.__js_get__(key), key)
+    end
+    refute(@img.__js_get__("isMap"))
+  end
+end
