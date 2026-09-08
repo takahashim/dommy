@@ -1735,6 +1735,26 @@ module Dommy
       @node_wrapper_cache.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
     end
 
+    # The wrapper already cached for a backend node, or nil — never builds one.
+    def __internal_cached_wrapper__(node)
+      @node_wrapper_cache.cached_wrapper(node)
+    end
+
+    # Recorded when an element is created outside the HTML namespace or with a
+    # prefix. Deep cloning only has to carry that metadata across for a document
+    # that has some — which the overwhelming majority never do, so the ordinary
+    # `body.cloneNode(true)` keeps walking nothing.
+    def __internal_note_namespaced_element__(namespace, prefix)
+      return if namespace == Element::HTML_NAMESPACE && prefix.nil?
+
+      @namespaced_elements = true
+      nil
+    end
+
+    def __internal_namespaced_elements__?
+      @namespaced_elements == true
+    end
+
     # Clear the cached wrapper so the next `wrap_node` creates a new
     # one. Used by `customElements.define` to upgrade nodes that were
     # constructed before the registration landed.

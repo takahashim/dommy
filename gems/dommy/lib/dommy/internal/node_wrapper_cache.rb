@@ -54,6 +54,16 @@ module Dommy
         wrapper
       end
 
+      # The wrapper already cached for this backend node, or nil — a lookup that
+      # never builds one, for callers that only want state a wrapper is already
+      # carrying (the createElementNS metadata a deep clone has to copy over).
+      def cached_wrapper(node)
+        return nil unless node
+
+        cached = @wrappers[identity_key(node)]
+        cached if cached && cached_wrapper_live?(cached, node)
+      end
+
       # Factory methods
 
       def create_element(name)
@@ -89,6 +99,7 @@ module Dommy
 
         wrapper = wrap_node(node)
         wrapper.__internal_set_namespace__(namespace, nil, local, local)
+        @document.__internal_note_namespaced_element__(namespace, nil)
         wrapper
       end
 
@@ -163,6 +174,7 @@ module Dommy
 
         wrapper = build_element_wrapper(el, namespace: ns, local_name: local)
         wrapper.__internal_set_namespace__(ns, prefix, local, qualified_name)
+        @document.__internal_note_namespaced_element__(ns, prefix)
         wrapper
       end
 

@@ -1422,6 +1422,16 @@ module Dommy
       nil
     end
 
+    # The createElementNS metadata, but only when it says something wrapping the
+    # backend node would not work out on its own — a namespace other than HTML,
+    # or a prefix. nil otherwise, so a clone walk can skip the node.
+    def __internal_namespace_metadata__
+      return nil if @__ns_qname.nil?
+      return nil if @__ns_uri == HTML_NAMESPACE && @__ns_prefix.nil?
+
+      [@__ns_uri, @__ns_prefix, @__ns_local, @__ns_qname]
+    end
+
     # tagName is the qualified name, ASCII-upper-cased only for an HTML-namespace
     # element whose node document is an HTML document. An XHTML element (HTML
     # namespace, but in an XML document) and any non-HTML-namespace element keep
@@ -2985,8 +2995,11 @@ module Dommy
 
     def get_attribute(name)
       return nil if name.nil?
+      return @__node__[name.to_s.downcase] unless case_sensitive_attribute_names?
 
-      @__node__[normalize_attr_key(name)]
+      qualified = name.to_s
+      value = @__node__[qualified]
+      value.nil? || exact_attribute_name?(qualified) ? value : nil
     end
 
     def set_attribute(name, value)
@@ -3022,8 +3035,10 @@ module Dommy
 
     def has_attribute?(name)
       return false if name.nil?
+      return @__node__.key?(name.to_s.downcase) unless case_sensitive_attribute_names?
 
-      @__node__.key?(normalize_attr_key(name))
+      qualified = name.to_s
+      @__node__.key?(qualified) && exact_attribute_name?(qualified)
     end
 
     def remove_attribute(name)
@@ -3269,10 +3284,32 @@ module Dommy
         else
           @document.wrap_node(copy)
         end
+      # A deep clone copies the backend tree, but the createElementNS metadata
+      # lives on the wrappers — so a descendant created in another namespace, or
+      # in none, would come back from the clone reporting the HTML namespace.
+      copy_namespaces_into(@__node__, copy) if deep_arg && @document.__internal_namespaced_elements__?
       # HTML cloning steps: propagate form-control dirty state (an input's value /
       # checkedness, …) that lives on the wrapper, not the backend node.
       @document.__internal_apply_cloning_steps__(@__node__, copy, deep_arg)
       clone
+    end
+
+    # Walk the original subtree and its copy in step, reapplying the namespace
+    # metadata of every descendant that carries a non-default one. Only the
+    # originals that already have a wrapper can be carrying it, so this never
+    # builds a wrapper it does not need.
+    def copy_namespaces_into(original, copy)
+      copies = copy.children.to_a
+      original.children.each_with_index do |orig_child, index|
+        copy_child = copies[index]
+        break if copy_child.nil?
+
+        wrapper = @document.__internal_cached_wrapper__(orig_child)
+        meta = wrapper.__internal_namespace_metadata__ if wrapper.respond_to?(:__internal_namespace_metadata__)
+        @document.wrap_cloned_element_ns(copy_child, *meta) if meta
+        copy_namespaces_into(orig_child, copy_child)
+      end
+      nil
     end
 
     # Test inspector for scroll calls (no real layout to scroll).
@@ -3307,6 +3344,16 @@ module Dommy
     def normalize_attr_key(name)
       s = name.to_s
       case_sensitive_attribute_names? ? s : s.downcase
+    end
+
+    # The HTML backend looks an attribute up ASCII case-insensitively, which is
+    # what an HTML element wants — but an element whose attribute names are
+    # compared verbatim (a non-HTML namespace, or any element in an XML document)
+    # must not let `[viewbox]` find `viewBox`. Confirm the qualified name is
+    # spelled exactly as asked. Only reached on a hit, and only for those
+    # elements, so the ordinary HTML read still costs one backend lookup.
+    def exact_attribute_name?(qualified_name)
+      Backend.attribute_nodes(@__node__).any? { |attr| attr.name == qualified_name }
     end
 
     # WebIDL nullable-DOMString namespace argument (*AttributeNS): JS null and
