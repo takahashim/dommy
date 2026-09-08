@@ -51,7 +51,13 @@ module Dommy
       # registered as both a capture and a bubble listener is two listeners).
       capture = EventTarget.capture_flag(options)
       listeners_for(type.to_s).reject! do |entry|
-        entry.listener.equal?(listener) && entry.capture? == capture
+        next false unless entry.listener.equal?(listener) && entry.capture? == capture
+
+        # A dispatch already in flight iterates a *snapshot* of the list, so
+        # dropping the entry from the live list is not enough: flag it removed so
+        # the in-flight walk skips it (spec: "set listener's removed to true").
+        entry.removed = true
+        true
       end
       nil
     end
@@ -85,6 +91,13 @@ module Dommy
       # Per spec, dispatchEvent must receive an Event instance.
       raise TypeError, "dispatchEvent requires an Event, got #{event.class}" unless event.is_a?(Event)
 
+      # WHATWG dispatchEvent: an event whose dispatch flag is already set cannot
+      # be re-dispatched. Without this a listener that re-dispatches the event it
+      # is handling recurses until the Ruby stack overflows.
+      if event.__internal_dispatch_flag__
+        raise DOMException::InvalidStateError, "the event is already being dispatched"
+      end
+
       event.__internal_prepare_for_dispatch__(self)
       event.__internal_set_dispatch_flag__(true)
 
@@ -101,9 +114,14 @@ module Dommy
           deliver_at(node, event, :capture)
         end
 
-        # At the target: both capture and bubble listeners.
+        # At the target: capture listeners run before bubble ones. The spec
+        # visits the target in BOTH the capturing and the bubbling pass (with
+        # eventPhase pinned to AT_TARGET), so registration order does not decide
+        # between them — and stopPropagation from a capture listener here also
+        # skips the target's own bubble listeners.
         event.__internal_set_event_phase__(Event::AT_TARGET)
-        deliver_at(self, event, :both)
+        deliver_at(self, event, :capture)
+        deliver_at(self, event, :bubble)
 
         # Bubbling phase: parent → … → root, bubble listeners only (only when
         # the event bubbles).
@@ -143,6 +161,7 @@ module Dommy
     def __internal_deliver_event__(event, phase = :both)
       listeners = listeners_for(event.type).dup
       listeners.each do |entry|
+        next if entry.removed?
         next unless phase == :both || (phase == :capture ? entry.capture? : !entry.capture?)
 
         # Spec: a `once` listener is removed BEFORE its callback runs, so a nested
@@ -222,7 +241,12 @@ module Dommy
 
     private
 
-    Listener = Struct.new(:listener, :options, :event_handler) do
+    Listener = Struct.new(:listener, :options, :event_handler, :removed) do
+      # Set by removeEventListener. A listener removed by an earlier listener in
+      # the same dispatch must not be invoked, even though the dispatch walks a
+      # snapshot of the list taken before it ran.
+      def removed? = removed ? true : false
+
       # True when this listener was registered via an event handler IDL/content
       # attribute (el.onclick = fn / onclick="…"): its return value is processed
       # per the event handler processing algorithm (a false return cancels).
@@ -544,6 +568,12 @@ module Dommy
 
         init_event(args[0], args[1], args[2])
       end
+    end
+
+    # WHATWG "dispatch flag" — true while this event is being dispatched.
+    # dispatchEvent consults it to reject a re-entrant dispatch.
+    def __internal_dispatch_flag__
+      @dispatch_flag ? true : false
     end
 
     # Set while the event is being dispatched, so initEvent() can short-circuit.

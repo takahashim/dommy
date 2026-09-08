@@ -504,6 +504,13 @@ module Dommy
       write_title(value.to_s)
     end
 
+    # A document is its own shadow-including root, so it is always connected
+    # (Element#is_connected? walks up to a document; the document itself is the
+    # base case).
+    def is_connected?
+      true
+    end
+
     def document_element
       # The document's root element — `<html>` for HTML, the actual root for XML.
       wrap_node(@backend_doc.root)
@@ -872,6 +879,12 @@ module Dommy
       return unless src_nodes.length == clone_nodes.length
 
       src_nodes.zip(clone_nodes).each do |orig, copy|
+        # HTML cloning steps for <template>: its content lives in an off-tree
+        # fragment the backend's subtree clone never reaches, so a deep clone has
+        # to copy it across explicitly (a shallow clone gets an empty template,
+        # per spec).
+        clone_template_content(orig, copy) if deep && @template_content_registry.has_content?(orig)
+
         wrapper = @node_wrapper_cache.peek(orig)
         next unless wrapper.respond_to?(:__cloning_state__)
 
@@ -1341,6 +1354,9 @@ module Dommy
         cookie
       when "nodeType"
         9
+      when "isConnected"
+        # A document is its own shadow-including root, so it is always connected.
+        true
       when "nodeValue", "textContent"
         # A Document's nodeValue and textContent are null (not the concatenated
         # descendant text) per the DOM.
