@@ -223,11 +223,12 @@ class TestWPTDispatchEventValidation < TestWPTEventPathBase
   end
 
   def test_dispatching_null_is_a_type_error
-    assert_raises(TypeError) { @node.dispatch_event(nil) }
+    # Bridge::TypeError is the spec-mandated one the host maps to a JS TypeError.
+    assert_raises(Dommy::Bridge::TypeError) { @node.dispatch_event(nil) }
   end
 
   def test_dispatching_a_non_event_is_a_type_error
-    assert_raises(TypeError) { @node.dispatch_event("not-an-event") }
+    assert_raises(Dommy::Bridge::TypeError) { @node.dispatch_event("not-an-event") }
   end
 
   def test_dispatching_an_uninitialized_event_is_an_invalid_state_error

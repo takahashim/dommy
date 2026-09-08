@@ -15,14 +15,14 @@ class TestEventTargetExtras < Minitest::Test
   end
 
   def test_dispatch_event_raises_for_non_event
-    assert_raises(TypeError) { @btn.dispatch_event("not-an-event") }
-    assert_raises(TypeError) { @btn.dispatch_event({}) }
+    assert_raises(Dommy::Bridge::TypeError) { @btn.dispatch_event("not-an-event") }
+    assert_raises(Dommy::Bridge::TypeError) { @btn.dispatch_event({}) }
   end
 
   def test_dispatch_event_raises_for_nil
     # WebIDL: dispatchEvent takes a non-nullable Event, so null is a TypeError
     # rather than a silent no-op.
-    assert_raises(TypeError) { @btn.dispatch_event(nil) }
+    assert_raises(Dommy::Bridge::TypeError) { @btn.dispatch_event(nil) }
   end
 
   def test_dispatch_event_raises_for_an_uninitialized_event

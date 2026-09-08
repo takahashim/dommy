@@ -22,14 +22,11 @@ module Dommy
         dispatch(element, Dommy::PointerEvent.new("pointerup", mouse_init))
         dispatch(element, Dommy::MouseEvent.new("mouseup", mouse_init))
         event = Dommy::MouseEvent.new("click", mouse_init)
+        # Dispatch runs the click's activation behavior itself (hyperlink
+        # navigation, form submission, the checkbox toggle plus input/change), so
+        # a synthetic click takes exactly the same path as `element.click()`.
         element.dispatch_event(event)
-        prevented = event.default_prevented?
-        # Run the click's activation behavior (hyperlink navigation, …) the same
-        # way Element#click does, so a synthetic/user click triggers the default
-        # action too — unless it was prevented. Checkbox/radio toggling is handled
-        # by the field interactor, not here (their activation_target is nil).
-        element.__run_click_activation_behavior__(event) if !prevented && element.respond_to?(:__run_click_activation_behavior__)
-        prevented
+        event.default_prevented?
       end
 
       # Run the element's focusing steps (Element#focus): moves

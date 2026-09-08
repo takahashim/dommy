@@ -2166,16 +2166,11 @@ module Dommy
       # bound to it never runs.
       return false if __internal_actually_disabled__
 
-      pre = pre_click_activation_state
-      event = MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0)
-      not_canceled = dispatch_event(event)
-      if not_canceled
-        run_post_click_activation(pre) unless pre.nil?
-        __run_click_activation_behavior__(event)
-      elsif pre
-        restore_pre_click_activation(pre)
-      end
-      not_canceled
+      # Everything else (picking the activation target, the pre-activation
+      # toggle, running or undoing the activation behavior) is dispatch's job,
+      # so a synthesized `dispatchEvent(new MouseEvent("click"))` behaves
+      # identically to click().
+      dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
     end
 
     # WHATWG "actually disabled". Only the disable-able form controls can be,
@@ -2184,45 +2179,27 @@ module Dommy
       false
     end
 
-    # Pre-click activation hooks (checkbox/radio toggle-then-maybe-revert). The
-    # default element has none; HTMLInputElement overrides these.
-    def pre_click_activation_state
+    # WHATWG "legacy-pre-activation behavior": run on the activation target
+    # BEFORE the click is dispatched, so a listener already sees the new state
+    # (a checkbox reads as checked inside its own onclick). Returns whatever
+    # `legacy_canceled_activation_behavior` needs to undo it, or nil when the
+    # element has none. The default element has none; HTMLInputElement overrides.
+    def legacy_pre_activation_behavior
       nil
     end
 
-    def run_post_click_activation(_state); end
-
-    def restore_pre_click_activation(_state); end
+    # Run when the click was canceled: undo the pre-activation change.
+    def legacy_canceled_activation_behavior(_state); end
 
     # Activation behavior: the default action of a non-canceled click (a
-    # hyperlink navigates; a submit button submits its form — added later). The
-    # default element has none. Called on the *activation target*.
+    # hyperlink navigates; a submit button submits its form; a checkbox fires
+    # input + change). The default element has none.
     def activation_behavior(_event); end
 
-    # An element is an "activation target" when it carries its own activation
-    # behavior (a hyperlink). Default: no.
+    # Whether this element has activation behavior, so dispatch can pick it as
+    # the click's activation target. Default: no.
     def activation_target?
       false
-    end
-
-    # The activation target for a click on this element: the nearest inclusive
-    # ancestor that is an activation target, or nil — so clicking a <span> inside
-    # an <a href> activates the anchor.
-    def activation_target
-      node = self
-      while node
-        return node if node.respond_to?(:activation_target?) && node.activation_target?
-
-        node = node.respond_to?(:parent_element) ? node.parent_element : nil
-      end
-      nil
-    end
-
-    # Run the activation target's activation behavior after a non-canceled click.
-    # Shared by Element#click (JS `.click()`) and synthetic clicks
-    # (EventSynthesis) so a real default action fires from both paths.
-    def __run_click_activation_behavior__(event)
-      activation_target&.activation_behavior(event)
     end
 
     def get_attribute_names

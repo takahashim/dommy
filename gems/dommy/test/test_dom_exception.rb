@@ -126,9 +126,10 @@ class TestDOMExceptionThrowSites < Minitest::Test
   end
 
   def test_dispatch_event_with_non_event_raises_type_error
-    # TypeError stays as TypeError per spec (not a DOMException).
+    # A TypeError, not a DOMException — and the bridge-mapped one, so JS sees a
+    # real TypeError rather than a bare Error.
     el = @doc.get_element_by_id("h")
-    assert_raises(TypeError) { el.dispatch_event("not-an-event") }
+    assert_raises(Dommy::Bridge::TypeError) { el.dispatch_event("not-an-event") }
   end
 
   def test_rescue_dom_exception_catches_all_named

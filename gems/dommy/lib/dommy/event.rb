@@ -15,7 +15,8 @@ module Dommy
     :related_target,
     :root_of_closed_tree,
     :slot_in_closed_tree,
-    :effective_target
+    :effective_target,
+    :in_shadow_tree
   )
 
   module EventTarget
@@ -101,8 +102,8 @@ module Dommy
     def dispatch_event(event)
       # WebIDL: the argument is a non-nullable Event, so null (and anything that
       # is not an Event) is a TypeError rather than a silent no-op.
-      raise TypeError, "dispatchEvent requires an Event, got #{event.inspect}" if event.nil?
-      raise TypeError, "dispatchEvent requires an Event, got #{event.class}" unless event.is_a?(Event)
+      raise Bridge::TypeError, "dispatchEvent requires an Event, got #{event.inspect}" if event.nil?
+      raise Bridge::TypeError, "dispatchEvent requires an Event, got #{event.class}" unless event.is_a?(Event)
 
       # WHATWG dispatchEvent: an event whose dispatch flag is already set cannot
       # be re-dispatched. Without this a listener that re-dispatches the event it
@@ -125,6 +126,12 @@ module Dommy
       # its shadow tree, which must not change whether the targets get cleared.
       clear_targets = clear_targets?(path)
 
+      # A click's default action belongs to dispatch, not to `click()`, so a
+      # synthesized `dispatchEvent(new MouseEvent("click"))` activates the same
+      # element a real click would.
+      activation_target = activation_target_in(path, event)
+      pre_activation_state = activation_target&.legacy_pre_activation_behavior
+
       catch(:stop_propagation) do
         # One pass outward-in for capture listeners, then one inward-out for
         # bubble listeners. A struct carrying a shadow-adjusted target is AT the
@@ -134,7 +141,7 @@ module Dommy
         path.each { |entry| invoke_event_path_entry(entry, event, :bubble) }
       end
 
-      # Dispatch step 18 ("clear targets"): if the outermost node the event was
+      # Dispatch step 19 ("clear targets"): if the outermost node the event was
       # still targeted at lives in a shadow tree, holding on to it afterwards
       # would leak an encapsulated node, so the targets are cleared.
       if clear_targets
@@ -149,6 +156,18 @@ module Dommy
       event.__internal_set_event_phase__(Event::NONE)
       event.__internal_clear_propagation_flags__
       event.__internal_set_dispatch_flag__(false)
+
+      # The activation behavior is the LAST step, after the event has been reset:
+      # code it runs sees a settled event (eventPhase NONE, no currentTarget) and
+      # may even re-dispatch it. A canceled click instead undoes whatever the
+      # pre-activation step changed.
+      if activation_target
+        if event.default_prevented?
+          activation_target.legacy_canceled_activation_behavior(pre_activation_state) if pre_activation_state
+        else
+          activation_target.activation_behavior(event)
+        end
+      end
 
       !event.default_prevented?
     end
@@ -175,8 +194,27 @@ module Dommy
       end
 
       event.__internal_set_current_target__(entry.invocation_target)
-      entry.invocation_target.__internal_deliver_event__(event, phase)
+      # The legacy `window.event` global is set for the duration of a listener,
+      # then restored — but NOT for a listener inside a shadow tree, which would
+      # otherwise hand an encapsulated event to the outer global.
+      window = window_of(entry.invocation_target)
+      previous_event = window&.__internal_current_event__
+      window.__internal_set_current_event__(event) if window && !entry.in_shadow_tree
+      begin
+        entry.invocation_target.__internal_deliver_event__(event, phase)
+      ensure
+        window&.__internal_set_current_event__(previous_event)
+      end
       throw :stop_propagation if event.propagation_stopped?
+    end
+
+    # The Window whose `event` global covers this node, or nil for a node with
+    # no browsing context.
+    def window_of(node)
+      return node if node.is_a?(Window)
+
+      document = node.is_a?(Document) ? node : (node.document if node.respond_to?(:document))
+      document.default_view if document.respond_to?(:default_view)
     end
 
     # WHATWG dispatch steps 5-12: walk from the target outward, recording one
@@ -231,7 +269,8 @@ module Dommy
         related_target,
         closed_shadow_root?(invocation_target),
         slot_in_closed_tree,
-        shadow_adjusted_target || path.last&.effective_target
+        shadow_adjusted_target || path.last&.effective_target,
+        root_of(invocation_target).is_a?(ShadowRoot)
       )
     end
 
@@ -248,6 +287,21 @@ module Dommy
       return nil if event.type == "load" && node.is_a?(Document)
 
       assigned_slot_of(node) || node.__send__(:__internal_event_parent__)
+    end
+
+    # WHATWG picks the activation target while it walks the path: the target
+    # itself when it has activation behavior, otherwise — and only for an event
+    # that bubbles — the nearest ancestor that does. Only a real MouseEvent
+    # named "click" activates anything, so `new Event("click")` does not.
+    def activation_target_in(path, event)
+      return nil unless event.is_a?(MouseEvent) && event.type == "click"
+
+      candidates = event.bubbles? ? path : path.first(1)
+      candidates.each do |entry|
+        node = entry.invocation_target
+        return node if node.respond_to?(:activation_target?) && node.activation_target?
+      end
+      nil
     end
 
     # Dispatch step 6.11: the last struct that still carried a target decides

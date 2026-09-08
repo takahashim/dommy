@@ -125,6 +125,10 @@ module Dommy
       return ctor if ctor
 
       case key
+      when "event"
+        # Legacy `window.event`: the event currently being dispatched, and
+        # undefined at any other time (or while a shadow tree's listener runs).
+        @current_event || Bridge::UNDEFINED
       when "document"
         @document
       when "window", "self", "parent", "top", "frames"
@@ -304,6 +308,17 @@ module Dommy
     end
 
     def __internal_event_parent__
+      nil
+    end
+
+    # Backing store for the legacy `window.event` global, set and restored by
+    # dispatch around each listener.
+    def __internal_current_event__
+      @current_event
+    end
+
+    def __internal_set_current_event__(event)
+      @current_event = event
       nil
     end
 

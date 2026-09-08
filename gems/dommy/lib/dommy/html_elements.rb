@@ -30,6 +30,29 @@ module Dommy
       false
     end
 
+    # `<summary>` has no interface of its own (it is a plain HTMLElement), but it
+    # does have activation behavior: clicking the first summary of a <details>
+    # toggles the disclosure open or shut.
+    def activation_target?
+      !__internal_summary_details__.nil?
+    end
+
+    def activation_behavior(_event)
+      details = __internal_summary_details__
+      details.open = !details.open if details
+    end
+
+    # The <details> this element is the first <summary> child of, or nil.
+    def __internal_summary_details__
+      return nil unless local_name.to_s.casecmp?("summary")
+
+      parent = parent_element
+      return nil unless parent.respond_to?(:local_name) && parent.local_name.to_s.casecmp?("details")
+
+      first = parent.children.to_a.find { |c| c.local_name.to_s.casecmp?("summary") }
+      first&.equal?(self) ? parent : nil
+    end
+
     # The elements the HTML spec lets a `disabled` content attribute disable.
     DISABLEABLE_LOCAL_NAMES = %w[button input select textarea optgroup option fieldset].freeze
 
@@ -311,7 +334,11 @@ module Dommy
     def elements
       el = self
       @elements ||= HTMLFormControlsCollection.new do
-        el.document.query_selector_all(LISTED_CONTROL_SELECTOR).select do |c|
+        # A connected form is scanned document-wide, so a control associated by a
+        # `form=` attribute from outside the subtree is still found; a form built
+        # in script and never inserted only owns its own descendants.
+        scope = el.is_connected? ? el.document : el
+        scope.query_selector_all(LISTED_CONTROL_SELECTOR).select do |c|
           next false if c.tag_name.to_s.casecmp?("input") && c.respond_to?(:type) && c.type.to_s.casecmp?("image")
 
           el.__owns_control__(c)
@@ -347,11 +374,15 @@ module Dommy
       nil
     end
 
-    # Spec: `reset()` does fire a `reset` event; if the event is
-    # default-prevented, no reset happens. Dommy has no built-in
-    # control re-init logic, so we just dispatch the event.
+    # HTML "reset a form": fire a cancelable `reset` event, and unless it was
+    # prevented, run every resettable control's reset algorithm — which drops the
+    # dirty value / checkedness so the control reverts to its content attributes.
     def reset
-      dispatch_event(Event.new("reset", "bubbles" => true, "cancelable" => true))
+      reset_event = Event.new("reset", "bubbles" => true, "cancelable" => true).__internal_mark_trusted__
+      return false unless dispatch_event(reset_event)
+
+      elements.to_a.each { |control| control.__internal_reset__ if control.respond_to?(:__internal_reset__) }
+      true
     end
 
     # Spec: `requestSubmit(submitter?)` MIRRORS user-initiated submission — it
@@ -383,6 +414,11 @@ module Dommy
     # `submit` event route here so the event is a real SubmitEvent (with
     # submitter) and the navigation reaches the delegate.
     def __run_form_submission__(submitter = nil)
+      # HTML form submission: "if form cannot navigate, then return" — a form
+      # that is not connected has no navigable, so clicking its submit button
+      # fires nothing at all.
+      return false unless is_connected?
+
       not_canceled = dispatch_event(
         SubmitEvent.new("submit", "bubbles" => true, "cancelable" => true, "submitter" => submitter)
       )
@@ -640,13 +676,43 @@ module Dommy
 
     # --- Click activation behavior (checkbox / radio) -------------------
 
-    # HTML pre-click activation: a checkbox toggles; a radio becomes checked
-    # (which unchecks its group). Returns the state needed to undo this if the
-    # click is canceled, or nil for inputs with no activation behavior.
-    def pre_click_activation_state
-      # Only a mutable (enabled) checkbox/radio has activation behavior.
-      return nil if disabled
+    # A checkbox / radio / reset button has activation behavior of its own, on
+    # top of the submit-button behavior HTMLInputElement inherits. Checkbox and
+    # radio are the two states HTML's input activation behavior runs for even
+    # when the control is not mutable — `click()` still refuses on a disabled
+    # control, but an explicitly dispatched click activates it.
+    def activation_target?
+      super || %w[checkbox radio].include?(type) || (type == "reset" && !disabled)
+    end
 
+    # HTML "input activation behavior": a submit button submits its form, a reset
+    # button resets it, and a checkbox / radio fires `input` then `change` — but
+    # only when connected, so clicking a detached checkbox toggles it silently.
+    # Both events are UA-generated, so trusted.
+    def activation_behavior(event)
+      return super if __submit_button__?
+      return form&.reset if type == "reset" && !disabled
+      return unless %w[checkbox radio].include?(type) && is_connected?
+
+      dispatch_event(Event.new("input", "bubbles" => true).__internal_mark_trusted__)
+      dispatch_event(Event.new("change", "bubbles" => true).__internal_mark_trusted__)
+    end
+
+    # HTML reset algorithm: drop the dirty value and dirty checkedness flags, so
+    # `value` / `checked` fall back to the `value` / `checked` content attributes.
+    def __internal_reset__
+      @__value = nil
+      @__raw_value = nil
+      @__checked = nil
+      @__indeterminate = nil
+      nil
+    end
+
+    # HTML legacy-pre-activation behavior: a checkbox toggles; a radio becomes
+    # checked (which unchecks its group). Runs before the click is dispatched, so
+    # a listener already sees the new state. Returns the state needed to undo it
+    # if the click is canceled, or nil for inputs with no such behavior.
+    def legacy_pre_activation_behavior
       case type
       when "checkbox"
         old = checked
@@ -663,16 +729,9 @@ module Dommy
       end
     end
 
-    # Not canceled: fire `input` then `change` (HTML "input activation
-    # behavior"). Both are UA-generated, so trusted and non-cancelable.
-    def run_post_click_activation(_state)
-      dispatch_event(Event.new("input", "bubbles" => true).__internal_mark_trusted__)
-      dispatch_event(Event.new("change", "bubbles" => true).__internal_mark_trusted__)
-    end
-
     # Canceled (default prevented): restore the pre-click checkedness. For a
     # radio, also re-check whichever member was checked before.
-    def restore_pre_click_activation(state)
+    def legacy_canceled_activation_behavior(state)
       case state[:kind]
       when :checkbox
         self.checked = state[:old_checked]
@@ -1377,6 +1436,18 @@ module Dommy
 
     def __submit_button__? = type == "submit" && !disabled
 
+    # A reset button has activation behavior of its own, on top of the
+    # submit-button behavior inherited from SubmitButtonActivation.
+    def activation_target?
+      super || (type == "reset" && !disabled)
+    end
+
+    def activation_behavior(event)
+      return super if __submit_button__?
+
+      form&.reset if type == "reset" && !disabled
+    end
+
     def type=(v)
       set_reflected_string("type", v)
     end
@@ -2069,6 +2140,14 @@ module Dommy
       @selectedness = !!value
     end
 
+    # HTML reset algorithm (run for each option by the owning select): clear the
+    # dirtiness flag and re-sync selectedness to the `selected` content attribute.
+    def __internal_reset__
+      @selectedness = default_selected
+      @selectedness_dirty = false
+      nil
+    end
+
     # Whether selectedness was set via the IDL setter (property), as opposed to
     # only the content attribute — a single-select shows the most recently
     # property-selected option in preference to an attribute-selected one.
@@ -2206,6 +2285,14 @@ module Dommy
     def value=(v)
       @__value = v.to_s
       @__value_dirty = true
+    end
+
+    # HTML reset algorithm: clear the dirty value flag so `value` reverts to the
+    # child text content.
+    def __internal_reset__
+      @__value = nil
+      @__value_dirty = false
+      nil
     end
 
     # defaultValue is the child text content; setting it (or `text`) leaves the
@@ -2412,6 +2499,29 @@ module Dommy
   # `control` returns the labelled form control.
   class HTMLLabelElement < HTMLElement
     reflect_string html_for: "for"
+
+    # Interactive content that handles its own click; a click that landed on one
+    # of these inside a label is NOT forwarded again by the label.
+    INTERACTIVE_CONTENT = "a[href], button, input, select, textarea"
+
+    def activation_target?
+      !control.nil?
+    end
+
+    # HTML: a label's activation behavior runs synthetic click activation steps
+    # on its labeled control — which is what makes clicking a label's text check
+    # the checkbox next to it. A click already targeted at interactive content
+    # inside the label (the control itself included) is left alone, so the
+    # forwarded click cannot bounce back here.
+    def activation_behavior(_event)
+      labeled = control
+      return if labeled.nil?
+
+      origin = _event.__js_get__("target")
+      return if origin.respond_to?(:closest) && origin.closest(INTERACTIVE_CONTENT)
+
+      labeled.click
+    end
     # `label.control` — the form control associated with this label.
     # Priority: explicit `for=`, then first form control descendant.
     def control
@@ -2846,6 +2956,21 @@ module Dommy
 
     def selected_index=(i)
       options.to_a.each_with_index { |o, idx| o.selected = (idx == i.to_i) }
+    end
+
+    # HTML reset algorithm: reset every option's selectedness, then run the
+    # selectedness setting algorithm — a single-selection select always ends up
+    # with exactly one option selected, so a reset that clears every `selected`
+    # attribute falls back to the first option.
+    def __internal_reset__
+      opts = options.to_a
+      opts.each(&:__internal_reset__)
+      return nil if multiple || opts.empty?
+      return nil if opts.any? { |o| o.respond_to?(:selected) && o.selected }
+
+      first = opts.find { |o| !(o.respond_to?(:disabled) && o.disabled) } || opts.first
+      first.__internal_set_selectedness__(true)
+      nil
     end
 
     # `value` of the select = value of the (displayed) selected option, or "".
