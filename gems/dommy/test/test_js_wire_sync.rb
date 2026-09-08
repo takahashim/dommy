@@ -95,3 +95,61 @@ class TestJsWireSync < Minitest::Test
     def run_bundle(*) = nil
   end
 end
+
+# The event handler CONTENT attributes are enumerated once, in host_runtime.js —
+# it gates the runtime `setAttribute("on*")` path on them, and the boot-time
+# inline-handler wiring reads the same sets rather than carrying a second copy.
+# An `on*` attribute outside them names no event handler and must stay inert.
+# WPT: html/webappapis/scripting/events/event-handler-non-content-document-idl-attributes.html
+class TestEventHandlerContentAttributes < Minitest::Test
+  RUNTIME_JS = Dommy::Js::HostBridge::HOST_RUNTIME_JS
+  BOOT_JS = Dommy::Js::ScriptBooter::WIRE_INLINE_HANDLERS_JS
+
+  def names_in(constant)
+    body = RUNTIME_JS[/const #{constant} = new Set\(\[(.*?)\]\);/m, 1]
+    refute_nil(body, "#{constant} is missing from host_runtime.js")
+    body.scan(/"([^"]+)"/).flatten
+  end
+
+  def element_handlers = names_in("ELEMENT_HANDLER_ATTRIBUTES")
+  def reflected_handlers = names_in("WINDOW_REFLECTED_HANDLERS")
+
+  # These are event handler IDL attributes of Document (and Element for the
+  # pointer-lock pair); none of them is a content attribute on any element.
+  DOCUMENT_ONLY = %w[onreadystatechange onvisibilitychange onpointerlockchange onpointerlockerror].freeze
+
+  def test_the_document_only_handlers_are_in_neither_set
+    DOCUMENT_ONLY.each do |name|
+      refute_includes(element_handlers, name)
+      refute_includes(reflected_handlers, name)
+    end
+  end
+
+  def test_the_element_set_covers_the_handlers_elements_actually_have
+    %w[
+      onclick oninput onsubmit ontoggle onwheel onscrollend onslotchange onsecuritypolicyviolation
+      onpointerdown onpointerrawupdate ongotpointercapture ontouchstart onanimationstart
+      onfocusin onfocusout onselectstart oncommand oncontextlost
+    ].each { |name| assert_includes(element_handlers, name) }
+  end
+
+  # The Window handlers are content attributes on body and frameset only, so
+  # they belong to the reflected set and not to the element one.
+  def test_the_window_handlers_are_only_in_the_reflected_set
+    %w[onhashchange onpopstate onbeforeunload onstorage onunload onmessage].each do |name|
+      assert_includes(reflected_handlers, name)
+      refute_includes(element_handlers, name)
+    end
+  end
+
+  def test_the_boot_wiring_reads_the_sets_rather_than_repeating_them
+    assert_includes(BOOT_JS, "__rbHost.elementHandlerAttributes")
+    assert_includes(BOOT_JS, "__rbHost.windowReflectedHandlers")
+    refute_match(/new Set\(\["on/, BOOT_JS, "the boot wiring must not carry its own copy of the list")
+  end
+
+  def test_the_runtime_gates_the_set_attribute_path_on_them
+    assert_includes(RUNTIME_JS, "function isHandlerAttribute(el, name)")
+    assert_match(/if \(!isHandlerAttribute\(el, name\)\) return;/, RUNTIME_JS)
+  end
+end

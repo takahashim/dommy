@@ -81,29 +81,20 @@ module Dommy
       # one that arrived already carrying the attribute (cloneNode / innerHTML)
       # is compiled the first time a matching event is dispatched at it, which
       # replays this scan.
-      HANDLER_ATTRIBUTES = %w[
-        onabort onauxclick onbeforeinput onbeforetoggle onblur oncancel oncanplay oncanplaythrough
-        onchange onclick onclose oncontextmenu oncopy oncuechange oncut ondblclick ondrag ondragend
-        ondragenter ondragleave ondragover ondragstart ondrop ondurationchange onemptied onended
-        onerror onfocus onformdata oninput oninvalid onkeydown onkeypress onkeyup onload onloadeddata
-        onloadedmetadata onloadstart onmousedown onmouseenter onmouseleave onmousemove onmouseout
-        onmouseover onmouseup onpaste onpause onplay onplaying onprogress onratechange onreset onresize
-        onscroll onscrollend onseeked onseeking onselect onslotchange onstalled onsubmit onsuspend
-        ontimeupdate ontoggle onvolumechange onwaiting onwheel onafterprint onbeforeprint onbeforeunload
-        onhashchange onlanguagechange onmessage onmessageerror onoffline ononline onpagehide onpageshow
-        onpopstate onrejectionhandled onstorage onunhandledrejection onunload
-      ].freeze
-      # Body/frameset handlers for these events reflect onto the Window.
-      WINDOW_REFLECTED_HANDLERS = %w[
-        onafterprint onbeforeprint onbeforeunload onhashchange onlanguagechange onmessage onmessageerror
-        onoffline ononline onpagehide onpageshow onpopstate onrejectionhandled onstorage
-        onunhandledrejection onunload onload onresize onscroll onerror onblur onfocus
-      ].freeze
+      # The event handler content attribute sets live in host_runtime.js, which
+      # gates the runtime `setAttribute("on*")` path on exactly the same lists —
+      # one source of truth for what is a handler attribute and what is just an
+      # attribute whose name starts with "on".
       WIRE_INLINE_HANDLERS_JS = <<~JS
         (() => {
-          const HANDLERS = new Set(#{HANDLER_ATTRIBUTES.to_json});
-          const REFLECTED = new Set(#{WINDOW_REFLECTED_HANDLERS.to_json});
-          const selector = [...HANDLERS].map((name) => `[${name}]`).join(",");
+          const HANDLERS = __rbHost.elementHandlerAttributes;
+          const REFLECTED = __rbHost.windowReflectedHandlers;
+          // On body/frameset, blur/error/focus/load/resize/scroll are the
+          // Window's handlers too, so they reflect there like the rest.
+          const BODY_REFLECTED = new Set([
+            ...REFLECTED, "onblur", "onerror", "onfocus", "onload", "onresize", "onscroll",
+          ]);
+          const selector = [...HANDLERS, ...REFLECTED].map((name) => `[${name}]`).join(",");
           const body = document.body;
           // An inline handler runs with a scope chain of [element, form owner,
           // document] inside the global, per the HTML "compile" algorithm — so
@@ -118,10 +109,10 @@ module Dommy
           for (const el of document.querySelectorAll(selector)) {
             const onBody = el === body || el.tagName === "FRAMESET";
             for (const name of el.getAttributeNames()) {
-              if (!HANDLERS.has(name)) continue;
+              if (!HANDLERS.has(name) && !(onBody && REFLECTED.has(name))) continue;
               const code = el.getAttribute(name);
               try {
-                if (onBody && REFLECTED.has(name)) {
+                if (onBody && BODY_REFLECTED.has(name)) {
                   window.addEventListener(name.slice(2), new Function("event", code));
                 } else if (typeof el[name] !== "function") {
                   let fn;

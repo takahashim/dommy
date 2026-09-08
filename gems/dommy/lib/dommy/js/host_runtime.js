@@ -303,6 +303,53 @@ globalThis.__rbHost = (function () {
     return isProxy(arg) ? arg : String(arg);
   }
 
+  // The event handler CONTENT attributes HTML (with Pointer/Touch/Animation
+  // Events) defines on elements. An `on*` attribute outside this set is not a
+  // handler and must stay inert: `onreadystatechange` and `onvisibilitychange`
+  // are IDL attributes of Document only, and `div.setAttribute("onfoobar", …)`
+  // names no event handler at all.
+  const ELEMENT_HANDLER_ATTRIBUTES = new Set([
+    "onabort", "onauxclick", "onbeforeinput", "onbeforetoggle", "onblur", "oncancel",
+    "oncanplay", "oncanplaythrough", "onchange", "onclick", "onclose", "oncommand",
+    "oncontextlost", "oncontextmenu", "oncontextrestored", "oncopy", "oncuechange",
+    "oncut", "ondblclick", "ondrag", "ondragend", "ondragenter", "ondragleave",
+    "ondragover", "ondragstart", "ondrop", "ondurationchange", "onemptied", "onended",
+    "onerror", "onfocus", "onfocusin", "onfocusout", "onformdata", "oninput",
+    "oninvalid", "onkeydown", "onkeypress", "onkeyup", "onload", "onloadeddata",
+    "onloadedmetadata", "onloadstart", "onmousedown", "onmouseenter", "onmouseleave",
+    "onmousemove", "onmouseout", "onmouseover", "onmouseup", "onpaste", "onpause",
+    "onplay", "onplaying", "onprogress", "onratechange", "onreset", "onresize",
+    "onscroll", "onscrollend", "onsecuritypolicyviolation", "onseeked", "onseeking",
+    "onselect", "onselectstart", "onslotchange", "onstalled", "onsubmit", "onsuspend",
+    "ontimeupdate", "ontoggle", "onvolumechange", "onwaiting", "onwheel",
+    "onanimationstart", "onanimationend", "onanimationiteration",
+    "ongotpointercapture", "onlostpointercapture", "onpointercancel", "onpointerdown",
+    "onpointerenter", "onpointerleave", "onpointermove", "onpointerout",
+    "onpointerover", "onpointerrawupdate", "onpointerup",
+    "ontouchcancel", "ontouchend", "ontouchmove", "ontouchstart",
+  ]);
+
+  // Window event handlers that `body` and `frameset` — and only those two —
+  // additionally carry as content attributes, reflecting onto the Window.
+  const WINDOW_REFLECTED_HANDLERS = new Set([
+    "onafterprint", "onbeforeprint", "onbeforeunload", "onhashchange",
+    "onlanguagechange", "onmessage", "onmessageerror", "onoffline", "ononline",
+    "onpagehide", "onpageshow", "onpopstate", "onrejectionhandled", "onstorage",
+    "onunhandledrejection", "onunload",
+  ]);
+
+  function isHandlerAttribute(el, name) {
+    if (ELEMENT_HANDLER_ATTRIBUTES.has(name)) return true;
+    if (!WINDOW_REFLECTED_HANDLERS.has(name)) return false;
+
+    try {
+      const tag = el.tagName;
+      return tag === "BODY" || tag === "FRAMESET";
+    } catch (e) {
+      return false;
+    }
+  }
+
   // Setting an on* content attribute at runtime (`el.setAttribute("onclick",
   // code)`) must compile+activate the handler synchronously, exactly like the
   // boot-time inline-handler wiring (script_boot). Mirrors its scope chain —
@@ -312,6 +359,7 @@ globalThis.__rbHost = (function () {
   // A null code (removeAttribute) clears the handler. Invalid source is ignored.
   function wireInlineHandler(el, name, code) {
     try {
+      if (!isHandlerAttribute(el, name)) return;
       if (code == null) { el[name] = null; return; }
       let src = "with(this){\n" + String(code) + "\n}";
       try { if (el.form) src = "with(this.form){\n" + src + "\n}"; } catch (e) { /* no form owner */ }
@@ -2353,5 +2401,9 @@ globalThis.__rbHost = (function () {
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,
     wasmTypeof, wasmToString, wasmStrictEqual, wasmIsNull, wasmInstanceof,
     wasmMakeCallback, wasmReleaseRef,
+    // The event handler content attribute sets, so the boot-time inline-handler
+    // wiring (script_boot) works from the same lists this file gates on.
+    elementHandlerAttributes: ELEMENT_HANDLER_ATTRIBUTES,
+    windowReflectedHandlers: WINDOW_REFLECTED_HANDLERS,
   };
 })();
