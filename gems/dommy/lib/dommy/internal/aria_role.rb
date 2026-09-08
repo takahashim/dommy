@@ -21,7 +21,7 @@ module Dommy
         alert alertdialog application article banner blockquote button caption
         cell checkbox code columnheader combobox comment complementary
         contentinfo definition deletion dialog directory document emphasis
-        feed figure form generic grid gridcell group heading img insertion link
+        feed figure form generic grid gridcell group heading image img insertion link
         list listbox listitem log main mark marquee math menu menubar menuitem
         menuitemcheckbox menuitemradio meter navigation none note option
         paragraph presentation progressbar radio radiogroup region row rowgroup
@@ -31,7 +31,9 @@ module Dommy
       ].freeze
 
       # Deprecated role synonyms normalized to their canonical computed role.
-      SYNONYMS = { "directory" => "list", "image" => "img", "presentation" => "none" }.freeze
+      # ARIA renamed `img` to `image`, keeping the old token as the synonym, so
+      # the canonical direction is `img` -> `image`.
+      SYNONYMS = { "directory" => "list", "img" => "image", "presentation" => "none" }.freeze
 
       # Roles that require an author-provided accessible name; without one the
       # token is skipped (role fallback continues to the next token, else the
@@ -143,7 +145,7 @@ module Dommy
         # An explicitly empty alt makes the image presentational. Return the
         # canonical "none" (not its "presentation" synonym) so the accessibility
         # tree flattens it like any other presentational node.
-        alt == "" ? "none" : "img"
+        alt == "" ? "none" : "image"
       end
 
       # A <th> is a column or row header. An explicit `scope` wins; otherwise the
