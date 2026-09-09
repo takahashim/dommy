@@ -104,7 +104,7 @@ module Dommy
       # this, a tree-walk (Alpine's x-for/x-if scan, etc.) descends into the
       # template's inert content and evaluates directives there out of scope.
       @document.migrate_template_descendants(@document.backend_doc)
-      @document.__internal_run_parsed_details_steps__
+      @document.__internal_run_parsed_insertion_steps__
       @custom_elements = CustomElementRegistry.new(self)
       @navigator = Navigator.new(self)
       # All JS global constructors (`new Event()`, `new URL()`, ...) live in a

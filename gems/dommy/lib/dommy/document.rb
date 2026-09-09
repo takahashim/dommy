@@ -1927,15 +1927,18 @@ module Dommy
       (@default_view&.scheduler if @default_view.respond_to?(:scheduler)) || @task_scheduler
     end
 
-    # The parser sets `open` while building a `details`, so no attribute change
-    # ever ran for it: give every details in a freshly parsed document its
-    # insertion steps, which queue the toggle event it owes and settle each
-    # exclusive accordion group.
-    def __internal_run_parsed_details_steps__
+    # The parser built the tree without any insertion or attribute steps
+    # running: give the elements that depend on them their due, once the
+    # document exists. Every details gets its insertion steps (the toggle event
+    # it owes, its exclusive accordion group settled), and every select has its
+    # list of options settled (a single-select the parser left with no, or
+    # several, selected options).
+    def __internal_run_parsed_insertion_steps__
       return nil unless @backend_doc.respond_to?(:css)
 
       elements = @backend_doc.css("details").filter_map { |node| wrap_node(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
+      @backend_doc.css("select").each { |node| wrap_node(node)&.__internal_settle_selectedness__ }
       nil
     end
 
