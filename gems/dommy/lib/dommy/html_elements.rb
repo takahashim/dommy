@@ -9,6 +9,19 @@ module Dommy
   class HTMLElement < Element
     include Internal::ReflectedAttributes
 
+    # HTML's form owner. A `form` content attribute names a form BY ID IN THIS
+    # ELEMENT'S OWN TREE — the association never reaches out of a shadow tree,
+    # or into one — and with no such attribute the owner is the nearest ancestor
+    # form.
+    def __internal_form_owner__
+      form_id = get_attribute("form").to_s
+      return closest("form") if form_id.empty?
+
+      root = get_root_node
+      target = root.get_element_by_id(form_id) if root.respond_to?(:get_element_by_id)
+      target if target.respond_to?(:tag_name) && target.tag_name.to_s.casecmp?("form")
+    end
+
     # WHATWG "actually disabled": a form control is disabled if it (or an
     # ancestor <fieldset disabled>) is disabled — EXCEPT a control within that
     # fieldset's first <legend> child is NOT disabled by the fieldset. This drives
@@ -28,6 +41,29 @@ module Dommy
         node = node.parent_element
       end
       false
+    end
+
+    # `<summary>` has no interface of its own (it is a plain HTMLElement), but it
+    # does have activation behavior: clicking the first summary of a <details>
+    # toggles the disclosure open or shut.
+    def activation_target?
+      !__internal_summary_details__.nil?
+    end
+
+    def activation_behavior(_event)
+      details = __internal_summary_details__
+      details.open = !details.open if details
+    end
+
+    # The <details> this element is the first <summary> child of, or nil.
+    def __internal_summary_details__
+      return nil unless local_name.to_s.casecmp?("summary")
+
+      parent = parent_element
+      return nil unless parent.respond_to?(:local_name) && parent.local_name.to_s.casecmp?("details")
+
+      first = parent.children.to_a.find { |c| c.local_name.to_s.casecmp?("summary") }
+      first&.equal?(self) ? parent : nil
     end
 
     # The elements the HTML spec lets a `disabled` content attribute disable.
@@ -150,6 +186,32 @@ module Dommy
     end
   end
 
+  # `formAction` is a URL-reflecting IDL attribute on the submit buttons that
+  # carry it: the setter writes the content attribute verbatim, and the getter
+  # resolves it against the document base URL — falling back to the document's
+  # own address when the attribute is missing or empty, so a submit button
+  # without a `formaction` reports where the form would post.
+  module FormActionUrl
+    def form_action
+      raw = get_attribute("formaction").to_s
+      return @document.url.to_s if raw.empty?
+
+      resolve_url(raw)
+    end
+
+    def form_action=(value)
+      set_attribute("formaction", value.to_s)
+    end
+
+    def __js_get__(key)
+      key == "formAction" ? form_action : super
+    end
+
+    def __js_set__(key, value)
+      key == "formAction" ? (self.form_action = value) : super
+    end
+  end
+
   # The "Window-reflecting body element event handler set": setting one of these
   # event handler IDL attributes on <body>/<frameset> (`body.onload = fn`)
   # actually targets the WINDOW, per HTML — so `window.onload` fires. A
@@ -179,18 +241,27 @@ module Dommy
     end
   end
 
-  class HTMLAnchorElement < HTMLElement
-    include HyperlinkActivation
-    reflect_string :target, :download, :rel, :hreflang, :type
-
-    # WebIDL stringifier: `String(anchor)` / `anchor.toString()` is its href (the
+  # The HTMLHyperlinkElementUtils IDL mixin, shared by <a> and <area>. `href`
+  # reads back as the RESOLVED absolute URL (the URL-decomposition IDL
+  # attributes all report resolved values), while the setter writes the content
+  # attribute verbatim — `link.href = url` is how most code sets a link.
+  module HyperlinkUtils
+    # WebIDL stringifier: `String(link)` / `link.toString()` is its href (the
     # resolved absolute URL), not the element's serialization.
     def to_s
       anchor_href
     end
-    # URL-decomposition helpers. The anchor's `href` is resolved to
-    # an absolute URL (inherited from Element#anchor_href); break it
-    # into the standard components on demand.
+
+    def href
+      anchor_href
+    end
+
+    def href=(value)
+      set_attribute("href", value.to_s)
+    end
+
+    # URL-decomposition helpers. The href is resolved to an absolute URL
+    # (Element#anchor_href); break it into the standard components on demand.
     def hash
       uri_part(:fragment) ? "##{uri_part(:fragment)}" : ""
     end
@@ -223,17 +294,10 @@ module Dommy
       uri.scheme && uri.host ? "#{uri.scheme}://#{uri.host}#{port_suffix}" : ""
     end
 
-    # `a.text` is an alias for the element's descendant text content.
-    def text
-      text_content
-    end
-
-    def text=(v)
-      self.text_content = v.to_s
-    end
-
     def __js_get__(key)
       case key
+      when "href"
+        href
       when "hash"
         self.hash
       when "host"
@@ -250,20 +314,13 @@ module Dommy
         port
       when "origin"
         origin
-      when "text"
-        text
       else
         super
       end
     end
 
     def __js_set__(key, value)
-      case key
-      when "text"
-        self.text = value
-      else
-        super
-      end
+      key == "href" ? (self.href = value) : super
     end
 
     private
@@ -288,6 +345,29 @@ module Dommy
     end
   end
 
+  class HTMLAnchorElement < HTMLElement
+    include HyperlinkActivation
+    include HyperlinkUtils
+    reflect_string :target, :download, :rel, :hreflang, :type
+
+    # `a.text` is an alias for the element's descendant text content.
+    def text
+      text_content
+    end
+
+    def text=(v)
+      self.text_content = v.to_s
+    end
+
+    def __js_get__(key)
+      key == "text" ? text : super
+    end
+
+    def __js_set__(key, value)
+      key == "text" ? (self.text = value) : super
+    end
+  end
+
   # `<form>` — element collection, submit/reset, and a stubbed
   # validation surface.
   class HTMLFormElement < HTMLElement
@@ -308,10 +388,35 @@ module Dommy
     # collection is the [SameObject] each access returns.
     LISTED_CONTROL_SELECTOR = "input, select, textarea, button, output, fieldset, object"
 
+    # Events a form swallows rather than letting them reach its own listeners
+    # when they were fired at another node — see the dispatch hook below.
+    LEGACY_STOPPED_EVENTS = %w[submit reset].freeze
+
+    # HTML's legacy form dispatch rule: a form does not see a `submit` or `reset`
+    # event that was fired at a different node; the event stops here instead,
+    # without running this form's listeners. What it is for is nested forms —
+    # the parser never produces one, but the DOM API lets you build one, and
+    # this is what keeps submitting an inner form from also running the outer
+    # form's `onsubmit`. Capture is exempt: dispatch only consults this hook
+    # once the event is at or past its target, so the event still reaches it.
+    def __internal_legacy_stops_propagation__(event)
+      return false unless LEGACY_STOPPED_EVENTS.include?(event.type)
+
+      target = event.__js_get__("target")
+      return false if target.nil?
+      return false if target.respond_to?(:__dommy_backend_node__) && target.__dommy_backend_node__ == @__node__
+
+      true
+    end
+
     def elements
       el = self
       @elements ||= HTMLFormControlsCollection.new do
-        el.document.query_selector_all(LISTED_CONTROL_SELECTOR).select do |c|
+        # The form's own TREE is the search scope, so a control associated by a
+        # `form=` attribute from outside the subtree is still found while one in
+        # another tree — a shadow tree, or the light DOM around one — is not.
+        scope = el.get_root_node || el
+        scope.query_selector_all(LISTED_CONTROL_SELECTOR).select do |c|
           next false if c.tag_name.to_s.casecmp?("input") && c.respond_to?(:type) && c.type.to_s.casecmp?("image")
 
           el.__owns_control__(c)
@@ -324,14 +429,7 @@ module Dommy
     # nothing, if the id resolves to a non-form / nothing); otherwise it is the
     # nearest ancestor form element.
     def __owns_control__(control)
-      form_id = control.__dommy_backend_node__["form"].to_s
-      owner =
-        if form_id.empty?
-          control.closest("form")
-        else
-          target = control.document.get_element_by_id(form_id)
-          (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
-        end
+      owner = control.respond_to?(:__internal_form_owner__) ? control.__internal_form_owner__ : control.closest("form")
       !owner.nil? && owner.__dommy_backend_node__.equal?(__dommy_backend_node__)
     end
 
@@ -347,11 +445,15 @@ module Dommy
       nil
     end
 
-    # Spec: `reset()` does fire a `reset` event; if the event is
-    # default-prevented, no reset happens. Dommy has no built-in
-    # control re-init logic, so we just dispatch the event.
+    # HTML "reset a form": fire a cancelable `reset` event, and unless it was
+    # prevented, run every resettable control's reset algorithm — which drops the
+    # dirty value / checkedness so the control reverts to its content attributes.
     def reset
-      dispatch_event(Event.new("reset", "bubbles" => true, "cancelable" => true))
+      reset_event = Event.new("reset", "bubbles" => true, "cancelable" => true).__internal_mark_trusted__
+      return false unless dispatch_event(reset_event)
+
+      elements.to_a.each { |control| control.__internal_reset__ if control.respond_to?(:__internal_reset__) }
+      true
     end
 
     # Spec: `requestSubmit(submitter?)` MIRRORS user-initiated submission — it
@@ -383,6 +485,11 @@ module Dommy
     # `submit` event route here so the event is a real SubmitEvent (with
     # submitter) and the navigation reaches the delegate.
     def __run_form_submission__(submitter = nil)
+      # HTML form submission: "if form cannot navigate, then return" — a form
+      # that is not connected has no navigable, so clicking its submit button
+      # fires nothing at all.
+      return false unless is_connected?
+
       not_canceled = dispatch_event(
         SubmitEvent.new("submit", "bubbles" => true, "cancelable" => true, "submitter" => submitter)
       )
@@ -431,8 +538,14 @@ module Dommy
       # HTMLFormElement is [LegacyOverrideBuiltIns]: a control whose name/id
       # matches a builtin (`elements`, `length`, `submit`, `action`, …) shadows
       # that builtin. So the named getter is consulted BEFORE the builtins.
-      named = named_controls[key.to_s]
-      return __named_getter_result__(key.to_s, named) if named && !named.empty?
+      name = key.to_s
+      named = named_controls[name]
+      if named && !named.empty?
+        remember_past_name(name, named.first) if named.length == 1
+        return __named_getter_result__(name, named)
+      end
+      past = past_named_control(name)
+      return past if past
 
       case key
       when "elements"
@@ -442,6 +555,32 @@ module Dommy
       else
         super
       end
+    end
+
+    # HTML's "past names map": the named getter remembers the single control it
+    # last returned under a name, so a control that is later renamed — or loses
+    # its name and id entirely — stays reachable under the old one. The entry
+    # lives only as long as the control still belongs to this form; removing it
+    # from the form, or pointing it at another one, drops the name.
+    def remember_past_name(name, element)
+      (@__past_names__ ||= {})[name] = element
+      nil
+    end
+
+    def past_named_control(name)
+      entry = @__past_names__&.[](name)
+      return nil if entry.nil?
+      return entry if own_control?(entry)
+
+      @__past_names__.delete(name)
+      nil
+    end
+
+    def own_control?(element)
+      return false unless element.respond_to?(:__dommy_backend_node__)
+
+      node = element.__dommy_backend_node__
+      elements.any? { |el| el.respond_to?(:__dommy_backend_node__) && el.__dommy_backend_node__.equal?(node) }
     end
 
     # A single matching control is returned directly; multiple matches yield a
@@ -456,9 +595,12 @@ module Dommy
     end
 
     # WebIDL named getter: the form's supported property names are the name/id
-    # of each of its listed controls.
+    # of each of its listed controls, followed by the names in its past names
+    # map that still point at one of them.
     def __js_named_props__
-      named_controls.keys
+      live = named_controls.keys
+      past = (@__past_names__ || {}).keys.select { |name| past_named_control(name) }
+      live + (past - live)
     end
 
     # name/id -> [controls], for the named getter (a name matching more than one
@@ -499,8 +641,11 @@ module Dommy
   # `<input>` — covers the most-used form control surface.
   class HTMLInputElement < HTMLElement
     include SubmitButtonActivation
-    reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value"
-    reflect_boolean :autofocus, :disabled, :required, :readonly, default_checked: "checked"
+    include FormActionUrl
+    reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value",
+                   form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+    reflect_boolean :autofocus, :disabled, :required, :readonly, default_checked: "checked",
+                    form_no_validate: "formnovalidate"
     # Own __js_call__ methods, on top of Element's.
     def type
       raw = @__node__["type"].to_s
@@ -640,13 +785,43 @@ module Dommy
 
     # --- Click activation behavior (checkbox / radio) -------------------
 
-    # HTML pre-click activation: a checkbox toggles; a radio becomes checked
-    # (which unchecks its group). Returns the state needed to undo this if the
-    # click is canceled, or nil for inputs with no activation behavior.
-    def pre_click_activation_state
-      # Only a mutable (enabled) checkbox/radio has activation behavior.
-      return nil if disabled
+    # A checkbox / radio / reset button has activation behavior of its own, on
+    # top of the submit-button behavior HTMLInputElement inherits. Checkbox and
+    # radio are the two states HTML's input activation behavior runs for even
+    # when the control is not mutable — `click()` still refuses on a disabled
+    # control, but an explicitly dispatched click activates it.
+    def activation_target?
+      super || %w[checkbox radio].include?(type) || (type == "reset" && !disabled)
+    end
 
+    # HTML "input activation behavior": a submit button submits its form, a reset
+    # button resets it, and a checkbox / radio fires `input` then `change` — but
+    # only when connected, so clicking a detached checkbox toggles it silently.
+    # Both events are UA-generated, so trusted.
+    def activation_behavior(event)
+      return super if __submit_button__?
+      return form&.reset if type == "reset" && !disabled
+      return unless %w[checkbox radio].include?(type) && is_connected?
+
+      dispatch_event(Event.new("input", "bubbles" => true).__internal_mark_trusted__)
+      dispatch_event(Event.new("change", "bubbles" => true).__internal_mark_trusted__)
+    end
+
+    # HTML reset algorithm: drop the dirty value and dirty checkedness flags, so
+    # `value` / `checked` fall back to the `value` / `checked` content attributes.
+    def __internal_reset__
+      @__value = nil
+      @__raw_value = nil
+      @__checked = nil
+      @__indeterminate = nil
+      nil
+    end
+
+    # HTML legacy-pre-activation behavior: a checkbox toggles; a radio becomes
+    # checked (which unchecks its group). Runs before the click is dispatched, so
+    # a listener already sees the new state. Returns the state needed to undo it
+    # if the click is canceled, or nil for inputs with no such behavior.
+    def legacy_pre_activation_behavior
       case type
       when "checkbox"
         old = checked
@@ -663,16 +838,9 @@ module Dommy
       end
     end
 
-    # Not canceled: fire `input` then `change` (HTML "input activation
-    # behavior"). Both are UA-generated, so trusted and non-cancelable.
-    def run_post_click_activation(_state)
-      dispatch_event(Event.new("input", "bubbles" => true).__internal_mark_trusted__)
-      dispatch_event(Event.new("change", "bubbles" => true).__internal_mark_trusted__)
-    end
-
     # Canceled (default prevented): restore the pre-click checkedness. For a
     # radio, also re-check whichever member was checked before.
-    def restore_pre_click_activation(state)
+    def legacy_canceled_activation_behavior(state)
       case state[:kind]
       when :checkbox
         self.checked = state[:old_checked]
@@ -752,13 +920,7 @@ module Dommy
     end
 
     def form_owner
-      form_id = get_attribute("form").to_s
-      unless form_id.empty?
-        target = @document.get_element_by_id(form_id)
-        return (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
-      end
-
-      closest("form")
+      __internal_form_owner__
     end
 
     # Only these input types expose a variable-length text selection; the rest
@@ -1192,13 +1354,15 @@ module Dommy
       @__validity ||= ValidityState.new(self)
     end
 
-    # Whether this control participates in constraint validation.
-    # Disabled / hidden / button-type inputs return false.
+    # Whether this control participates in constraint validation. Only the
+    # Hidden, Reset Button and Button states are barred outright — a submit or
+    # image button is a submittable element like any other, and validates (it
+    # just has no constraints of its own beyond a custom validity message).
     def will_validate
       return false if reflected_boolean("disabled")
       return false if disabled_by_ancestor_fieldset?
       return false if reflected_boolean("readonly")
-      return false if %w[hidden button submit reset image].include?(type)
+      return false if %w[hidden button reset].include?(type)
       # A control with a datalist ancestor is barred from constraint validation.
       return false unless closest("datalist").nil?
 
@@ -1368,8 +1532,10 @@ module Dommy
   # `<button>` — type defaults to "submit" per spec.
   class HTMLButtonElement < HTMLElement
     include SubmitButtonActivation
-    reflect_string :name, form_action: "formaction", form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+    reflect_string :name, form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
     reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
+    include FormActionUrl
+
     def type
       raw = @__node__["type"].to_s.downcase
       %w[submit reset button].include?(raw) ? raw : "submit"
@@ -1377,21 +1543,27 @@ module Dommy
 
     def __submit_button__? = type == "submit" && !disabled
 
+    # A reset button has activation behavior of its own, on top of the
+    # submit-button behavior inherited from SubmitButtonActivation.
+    def activation_target?
+      super || (type == "reset" && !disabled)
+    end
+
+    def activation_behavior(event)
+      return super if __submit_button__?
+
+      form&.reset if type == "reset" && !disabled
+    end
+
     def type=(v)
       set_reflected_string("type", v)
     end
 
     # The form owner: a `form=` attribute pointing at a form (form-associated
     # element, so a button can live outside its form), else the nearest ancestor
-    # form. Mirrors HTMLInputElement#form_owner.
+    # form.
     def form
-      form_id = get_attribute("form").to_s
-      unless form_id.empty?
-        target = @document.get_element_by_id(form_id)
-        return (target && target.tag_name.to_s.casecmp?("form")) ? target : nil
-      end
-
-      closest("form")
+      __internal_form_owner__
     end
 
     def labels
@@ -1408,16 +1580,22 @@ module Dommy
       type == "submit" && !disabled && !disabled_by_ancestor_fieldset? && closest("datalist").nil?
     end
 
+    # A button has no constraints of its own, so the only thing it can report is
+    # a message set through setCustomValidity — and only while it validates.
     def validation_message
-      ""
+      return "" unless will_validate
+
+      (@custom_validity_message || "").to_s
     end
 
     def check_validity
-      true
+      ok = !will_validate || validity.valid
+      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
+      ok
     end
 
     def report_validity
-      true
+      check_validity
     end
 
     def set_custom_validity(msg)
@@ -1472,7 +1650,13 @@ module Dommy
   # image loading, so `complete`/`naturalWidth`/`naturalHeight` are
   # static (complete=true, dimensions=0).
   class HTMLImageElement < HTMLElement
-    reflect_string :src, :alt, :decoding, :loading, :sizes, :srcset, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
+    # `name`, `align`, `border`, `hspace`, `vspace` and `longDesc` are obsolete
+    # but still reflected — `name` in particular is what puts an image in the
+    # document's named getter, so renaming one has to move it there.
+    reflect_string :src, :alt, :decoding, :loading, :sizes, :srcset, :name, :align, :border,
+                   crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy",
+                   use_map: "usemap", long_desc: "longdesc"
+    reflect_boolean :is_map
     def width
       @__node__["width"].to_s.to_i
     end
@@ -1813,13 +1997,54 @@ module Dommy
 
       v = host_value.to_s
       return false if v.empty?
+      # HTML compiles the pattern as a JavaScript RegExp with the `v` flag and
+      # ignores the attribute entirely if that fails.
+      return false if v_mode_syntax_error?(pat)
 
       # The pattern must be a valid regex ON ITS OWN — validate it before
       # anchoring, so an unbalanced `a)(b` (which the `(?:…)` wrapper would
       # otherwise balance) is correctly discarded rather than silently matched.
       Regexp.new(pat)
-      !Regexp.new("\\A(?:#{pat})\\z").match?(v)
+      anchored = Regexp.new("\\A(?:#{pat})\\z")
+      # A `multiple` email is a comma-separated list, and the pattern is matched
+      # against each entry rather than the list as a whole.
+      pattern_values(v).any? { |part| !anchored.match?(part) }
     rescue RegexpError
+      false
+    end
+
+    # The values the pattern is matched against: one per comma-separated entry
+    # for a `multiple` email control, otherwise the value itself.
+    def pattern_values(value)
+      return [value] unless host_type == "email" && host_attr_present?("multiple")
+
+      value.split(",", -1).map(&:strip)
+    end
+
+    # Characters that carry no syntactic role inside a JavaScript `v`-mode
+    # character class and so must be escaped there. `[(]` — legal in every other
+    # regex dialect, Ruby's included — is a syntax error under `v`, which is why
+    # HTML then ignores the pattern rather than reporting a mismatch. (`[`, `]`
+    # and `-` do have roles: nested classes and ranges.)
+    V_MODE_CLASS_RESERVED = "(){}/|"
+
+    def v_mode_syntax_error?(pattern)
+      depth = 0
+      escaped = false
+      pattern.each_char do |ch|
+        if escaped
+          escaped = false
+          next
+        end
+
+        case ch
+        when "\\" then escaped = true
+        when "[" then depth += 1
+        when "]" then depth -= 1 if depth.positive?
+        else
+          return true if depth.positive? && V_MODE_CLASS_RESERVED.include?(ch)
+        end
+      end
       false
     end
 
@@ -1880,8 +2105,21 @@ module Dommy
       num = @host.value_as_number
       return false if num.nan?
 
-      ratio = (num - @host.validation_step_base) / step
-      (ratio - ratio.round).abs > 1e-7
+      # Decimal arithmetic, not binary: `step=0.003, value=3.6` is an exact
+      # multiple in base 10 but not in IEEE-754, and `step=3e-15, value=17` is
+      # the reverse — the float division lands exactly on an integer. Going
+      # through each number's shortest round-trip decimal recovers the literal
+      # the author wrote and gets both right.
+      ratio = decimal(num - @host.validation_step_base) / decimal(step)
+      !ratio.frac.zero?
+    rescue ArgumentError, FloatDomainError, ZeroDivisionError
+      false
+    end
+
+    def decimal(float)
+      require "bigdecimal"
+
+      BigDecimal(float.to_s)
     end
 
     # `badInput` flags input that the user agent couldn't convert to
@@ -1898,9 +2136,10 @@ module Dommy
       case host_type
       when "number", "range"
         !valid_float?(raw)
-      when "color"
-        !raw.strip.downcase.match?(/\A#[0-9a-f]{6}\z/)
       else
+        # Every other type either has no conversion to fail or (color, date and
+        # friends) sanitizes an unparseable value to a valid one on the way in,
+        # leaving nothing for the user agent to have failed to convert.
         false
       end
     end
@@ -2069,6 +2308,14 @@ module Dommy
       @selectedness = !!value
     end
 
+    # HTML reset algorithm (run for each option by the owning select): clear the
+    # dirtiness flag and re-sync selectedness to the `selected` content attribute.
+    def __internal_reset__
+      @selectedness = default_selected
+      @selectedness_dirty = false
+      nil
+    end
+
     # Whether selectedness was set via the IDL setter (property), as opposed to
     # only the content attribute — a single-select shows the most recently
     # property-selected option in preference to an attribute-selected one.
@@ -2206,6 +2453,14 @@ module Dommy
     def value=(v)
       @__value = v.to_s
       @__value_dirty = true
+    end
+
+    # HTML reset algorithm: clear the dirty value flag so `value` reverts to the
+    # child text content.
+    def __internal_reset__
+      @__value = nil
+      @__value_dirty = false
+      nil
     end
 
     # defaultValue is the child text content; setting it (or `text`) leaves the
@@ -2412,6 +2667,32 @@ module Dommy
   # `control` returns the labelled form control.
   class HTMLLabelElement < HTMLElement
     reflect_string html_for: "for"
+
+    # Interactive content that handles its own click; a click that landed on one
+    # of these inside a label is NOT forwarded again by the label.
+    INTERACTIVE_CONTENT = "a[href], button, input, select, textarea"
+
+    def activation_target?
+      !control.nil?
+    end
+
+    # HTML: a label's activation behavior runs synthetic click activation steps
+    # on its labeled control — which is what makes clicking a label's text check
+    # the checkbox next to it. A click already targeted at interactive content
+    # *inside* the label (the control itself included) is left alone, so the
+    # forwarded click cannot bounce back here. Interactive content the label is
+    # nested in — a label inside an <a> or a <button> — is not a descendant, so
+    # it does not suppress the forwarding.
+    def activation_behavior(_event)
+      labeled = control
+      return if labeled.nil?
+
+      origin = _event.__js_get__("target")
+      interactive = origin.closest(INTERACTIVE_CONTENT) if origin.respond_to?(:closest)
+      return if interactive && contains?(interactive)
+
+      labeled.click
+    end
     # `label.control` — the form control associated with this label.
     # Priority: explicit `for=`, then first form control descendant.
     def control
@@ -2848,6 +3129,21 @@ module Dommy
       options.to_a.each_with_index { |o, idx| o.selected = (idx == i.to_i) }
     end
 
+    # HTML reset algorithm: reset every option's selectedness, then run the
+    # selectedness setting algorithm — a single-selection select always ends up
+    # with exactly one option selected, so a reset that clears every `selected`
+    # attribute falls back to the first option.
+    def __internal_reset__
+      opts = options.to_a
+      opts.each(&:__internal_reset__)
+      return nil if multiple || opts.empty?
+      return nil if opts.any? { |o| o.respond_to?(:selected) && o.selected }
+
+      first = opts.find { |o| !(o.respond_to?(:disabled) && o.disabled) } || opts.first
+      first.__internal_set_selectedness__(true)
+      nil
+    end
+
     # `value` of the select = value of the (displayed) selected option, or "".
     def value
       sel = __display_selected__.first
@@ -3114,14 +3410,42 @@ module Dommy
 
     def set_attribute(name, value)
       result = with_toggle_on_open_change { super }
-      # Re-point this element to a new exclusive group: if it is open, close the
-      # other open members of the group it just joined.
-      enforce_group_exclusivity if name.to_s.casecmp?("name") && open
+      # Renaming moves this element into a different exclusive group. The member
+      # already open in that group keeps its state, so it is this element that
+      # closes — the same rule as arriving there by insertion.
+      yield_to_open_group_peer if name.to_s.casecmp?("name")
       result
     end
 
     def remove_attribute(name)
       with_toggle_on_open_change { super }
+    end
+
+    # Run the insertion steps over details elements that arrived together — a
+    # parsed document, or a subtree inserted in one go. The DOM inserts nodes one
+    # at a time, so each element only sees the group members that were already
+    # there; that is what makes the FIRST open member of a parsed group the one
+    # that stays open, while an element inserted into a settled group later is
+    # the one that closes.
+    def self.run_insertion_steps(elements)
+      pending = elements.map(&:__dommy_backend_node__).to_set
+      elements.each do |element|
+        pending.delete(element.__dommy_backend_node__)
+        element.__internal_details_inserted__(pending)
+      end
+      nil
+    end
+
+    # HTML's details insertion steps, run when the element joins a tree — and
+    # for every details the parser produced, since none of them went through an
+    # attribute change. Two things follow from arriving somewhere: an element the
+    # parser opened owes its toggle event, and an open element joining a group
+    # that already has an open member closes. `pending` holds the members of the
+    # same batch that have not been inserted yet, which this element cannot see.
+    def __internal_details_inserted__(pending = nil)
+      queue_toggle_event(false, true) if open && !@__toggle_announced
+      yield_to_open_group_peer(pending)
+      nil
     end
 
     def __js_get__(key)
@@ -3142,53 +3466,74 @@ module Dommy
       was = open
       result = yield
       if open != was
-        # Opening a named details closes the other open members of its exclusive
-        # group (same `name`, same tree scope) before its own toggle is queued.
-        enforce_group_exclusivity if open
+        # This element's own toggle is queued first; only then do the other open
+        # members of its exclusive group (same `name`, same tree scope) close and
+        # queue theirs, so the group's events arrive in the order it settled.
         queue_toggle_event(was, open)
+        close_open_group_peers if open
       end
       result
     end
 
-    # WHATWG details name-group exclusivity: at most one details per (name, tree)
-    # may be open. When this element opens, remove `open` from every other open
-    # details in the same tree that shares its non-empty name.
-    def enforce_group_exclusivity
+    # WHATWG details name-group exclusivity: at most one details per (name, tree
+    # scope) may be open. The other members of this element's group — details
+    # elements in the same tree sharing its non-empty `name`.
+    def group_peers
       group = @__node__["name"].to_s
-      return if group.empty?
+      return [] if group.empty?
 
       root = get_root_node
-      return unless root.respond_to?(:query_selector_all)
+      return [] unless root.respond_to?(:query_selector_all)
 
-      root.query_selector_all("details").each do |other|
-        next unless other.respond_to?(:__dommy_backend_node__)
-        next if other.__dommy_backend_node__.equal?(__dommy_backend_node__)
-        next unless other.__dommy_backend_node__["name"].to_s == group
-
-        other.open = false if other.respond_to?(:open) && other.open
+      root.query_selector_all("details").select do |other|
+        other.respond_to?(:__dommy_backend_node__) &&
+          !other.__dommy_backend_node__.equal?(__dommy_backend_node__) &&
+          other.__dommy_backend_node__["name"].to_s == group
       end
+    end
+
+    # This element just opened: the rest of its group closes.
+    def close_open_group_peers
+      group_peers.each { |other| other.open = false if other.respond_to?(:open) && other.open }
+    end
+
+    # This element just joined a group: whoever was open there stays open, and
+    # this element is the one that closes.
+    def yield_to_open_group_peer(pending = nil)
+      return unless open
+
+      peers = group_peers
+      peers = peers.reject { |other| pending.include?(other.__dommy_backend_node__) } if pending
+      return unless peers.any? { |other| other.respond_to?(:open) && other.open }
+
+      self.open = false
+      nil
     end
 
     # WHATWG "queue a details toggle event task": the trusted ToggleEvent fires
     # asynchronously, and rapid changes coalesce into ONE event whose oldState is
     # the state before the first change and newState the state after the last.
     def queue_toggle_event(old_open, new_open)
-      if @__toggle_pending
-        @__toggle_new = new_open ? "open" : "closed"
-        return
-      end
-
-      @__toggle_pending = true
-      @__toggle_old = old_open ? "open" : "closed"
+      # A change while a toggle task is still pending CANCELS that task and
+      # queues a fresh one at the back of the queue. The event still reports the
+      # state before the first change and after the last, but it now arrives
+      # after everything queued in between — which is what orders the events of
+      # an accordion group by when each element last settled.
+      @__toggle_old = old_open ? "open" : "closed" unless @__toggle_pending
       @__toggle_new = new_open ? "open" : "closed"
+      @__toggle_pending = true
+      @__toggle_announced = true
+      generation = @__toggle_generation = (@__toggle_generation || 0) + 1
       fire = proc do
+        next unless generation == @__toggle_generation
+
         @__toggle_pending = false
         evt = ToggleEvent.new("toggle",
           "oldState" => @__toggle_old, "newState" => @__toggle_new,
           "bubbles" => false, "cancelable" => false)
         dispatch_event(evt.__internal_mark_trusted__)
       end
-      scheduler = @document.respond_to?(:default_view) && @document.default_view&.scheduler
+      scheduler = @document.respond_to?(:__internal_scheduler__) ? @document.__internal_scheduler__ : nil
       scheduler ? scheduler.set_timeout(fire, 0) : fire.call
     end
   end
@@ -4432,7 +4777,8 @@ module Dommy
 
   class HTMLAreaElement < HTMLElement
     include HyperlinkActivation
-    reflect_string :alt, :coords, :shape, :href, :target, :rel
+    include HyperlinkUtils
+    reflect_string :alt, :coords, :shape, :target, :rel
   end
 
   class HTMLMapElement < HTMLElement
@@ -4483,6 +4829,38 @@ module Dommy
       nil
     end
 
+    def form
+      closest("form")
+    end
+
+    # An `<object>` is a form-associated element, so it carries the whole
+    # constraint validation API — and is barred from constraint validation, so
+    # every member of it reports the never-invalid answer.
+    def validity
+      ValidityState.new
+    end
+
+    def will_validate
+      false
+    end
+
+    def validation_message
+      ""
+    end
+
+    def check_validity
+      true
+    end
+
+    def report_validity
+      true
+    end
+
+    def set_custom_validity(msg)
+      @custom_validity_message = msg.to_s
+      nil
+    end
+
     def __js_get__(key)
       case key
       when "width"
@@ -4493,6 +4871,14 @@ module Dommy
         content_document
       when "contentWindow"
         content_window
+      when "form"
+        form
+      when "validity"
+        validity
+      when "willValidate"
+        will_validate
+      when "validationMessage"
+        validation_message
       when "sandbox"
         # JS-side `iframe.sandbox` is a DOMTokenList (the Ruby `#sandbox` string
         # accessor from reflect_string is kept for internal use). Non-iframe
@@ -4509,6 +4895,20 @@ module Dommy
         self.width = value
       when "height"
         self.height = value
+      else
+        super
+      end
+    end
+
+    js_methods %w[checkValidity reportValidity setCustomValidity]
+    def __js_call__(method, args)
+      case method
+      when "checkValidity"
+        check_validity
+      when "reportValidity"
+        report_validity
+      when "setCustomValidity"
+        set_custom_validity(args[0])
       else
         super
       end
@@ -4574,12 +4974,16 @@ module Dommy
       @__disabled = !!v
     end
 
-    # `style.sheet` — always non-nil for `<style>`. Memoized per text
-    # content (CSSOM: repeated reads return the same object), seeded
-    # with the element's CSS text so insertRule/deleteRule order against
-    # it. Rewriting the element's text discards the sheet and any rules
-    # inserted via CSSOM — browsers re-parse into a fresh sheet too.
+    # `style.sheet` — the CSSOM sheet, which exists only while the element is
+    # browsing-context connected: a `<style>` built in script, or one inside a
+    # shadow tree whose host is not in the document, has no sheet yet. Memoized
+    # per text content (CSSOM: repeated reads return the same object), seeded
+    # with the element's CSS text so insertRule/deleteRule order against it.
+    # Rewriting the element's text discards the sheet and any rules inserted via
+    # CSSOM — browsers re-parse into a fresh sheet too.
     def sheet
+      return nil unless is_connected?
+
       text = text_content.to_s
       return @__sheet if @__sheet && @__sheet_text == text
 

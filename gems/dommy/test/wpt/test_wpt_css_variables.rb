@@ -57,3 +57,59 @@ class TestWPTCssVariables < Minitest::Test
     assert_equal "rgb(255, 0, 0)", value(html, "color")
   end
 end
+
+# `var()` takes a custom property name and then, optionally, a comma and a
+# fallback. Anything else between the name and that comma is a syntax error, and
+# a declaration whose value fails to parse is dropped rather than stored.
+# WPT: css/css-variables/var-parsing.html
+class TestWPTVarParsing < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window
+    @el = @win.document.create_element("div")
+    @win.document.body.append_child(@el)
+  end
+
+  def width_after(value)
+    @el.style.remove_property("width")
+    @el.style.set_property("width", value)
+    @el.style.get_property_value("width")
+  end
+
+  def test_the_shapes_var_accepts
+    ["var(--x)", "var(--x,)", "var(--x, )", "var(--x, 1px)", "var(--a, var(--b))",
+     "calc(var(--x) * 2)"].each { |value| assert_equal(value, width_after(value), value) }
+  end
+
+  def test_the_shapes_var_rejects
+    ["var(--x ())", "var(--x () )", "var(--x() )", "var(--x (),)", "var(--x(),)"].each do |value|
+      assert_equal("", width_after(value), value)
+    end
+  end
+
+  def test_an_ordinary_value_is_untouched
+    ["10px", "url(http://example.com/x.png)", "rgb(1, 2, 3)"].each do |value|
+      assert_equal(value, width_after(value), value)
+    end
+  end
+
+  # Setting a value the declaration block refuses, or removing a property that
+  # was never set, changes nothing — so neither rewrites the style attribute.
+  def test_a_rejected_write_leaves_the_attribute_alone
+    @el.set_attribute("style", "z-index: 50; invalid")
+    before = @el.get_attribute("style")
+    @el.style.set_property("width", "var(--x ())")
+    @el.style.remove_property("position")
+    @el.style.set_property("position", "")
+    assert_equal(before, @el.get_attribute("style"))
+  end
+
+  def test_setting_the_value_a_property_already_has_is_not_a_change
+    @el.style.set_property("color", "red")
+    @el.set_attribute("style", @el.get_attribute("style"))
+    before = @el.get_attribute("style")
+    @el.style.set_property("color", "red")
+    assert_equal(before, @el.get_attribute("style"))
+  end
+end

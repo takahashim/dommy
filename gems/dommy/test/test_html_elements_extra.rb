@@ -307,7 +307,10 @@ class TestHTMLAreaMap < Minitest::Test
     assert_equal("icon", a.alt)
     assert_equal("rect", a.shape)
     assert_equal("0,0,10,10", a.coords)
-    assert_equal("/x", a.href)
+    # `href` is a URL-decomposition IDL attribute on <area> just as on <a>: the
+    # setter writes the content attribute verbatim, the getter resolves it.
+    assert_equal("/x", a.get_attribute("href"))
+    assert_equal("http://localhost/x", a.href)
   end
 
   def test_map_dispatch

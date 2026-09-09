@@ -15,6 +15,11 @@ globalThis.__rbHost = (function () {
   // later length-shrinking mutation (pop/shift/splice) does `symbol >= newLen`
   // and throws "cannot convert symbol to number". A WeakMap lookup is pure.
   const proxyHandles = new WeakMap(); // proxy -> handle (identity, trap-free)
+  // proxy -> the interface name it was built for. A Ruby object can be freed and
+  // its handle id reused for a DIFFERENT object, so a cached proxy is only
+  // trustworthy while it still describes the same interface — otherwise the new
+  // object would come back wearing the previous one's prototype (and expandos).
+  const proxyInterfaces = new WeakMap();
   // handle -> proxy, STRONG. A proxy is normally cached only weakly (so it can
   // be GC'd and its Ruby handle released), but once JS code stores an expando on
   // it — framework bookkeeping like lit-html's `_$litPart$` or React's
@@ -173,12 +178,44 @@ globalThis.__rbHost = (function () {
     QUOTA_EXCEEDED_ERR: 22, TIMEOUT_ERR: 23, INVALID_NODE_TYPE_ERR: 24, DATA_CLONE_ERR: 25,
   };
 
+  // CSSOM rule-type [Constant]s. Dommy backs every rule with one class carrying
+  // a numeric `type`, and library code reads these to branch on it
+  // (`rule.type === CSSRule.STYLE_RULE`).
+  const CSSRULE_CONSTANTS = {
+    STYLE_RULE: 1, CHARSET_RULE: 2, IMPORT_RULE: 3, MEDIA_RULE: 4, FONT_FACE_RULE: 5,
+    PAGE_RULE: 6, MARGIN_RULE: 9, NAMESPACE_RULE: 10
+  };
+
+  // EventSource / FileReader ready-state [Constant]s.
+  const EVENTSOURCE_CONSTANTS = { CONNECTING: 0, OPEN: 1, CLOSED: 2 };
+  const FILEREADER_CONSTANTS = { EMPTY: 0, LOADING: 1, DONE: 2 };
+
+  // KeyboardEvent.location [Constant]s.
+  const KEYBOARDEVENT_CONSTANTS = {
+    DOM_KEY_LOCATION_STANDARD: 0x00, DOM_KEY_LOCATION_LEFT: 0x01,
+    DOM_KEY_LOCATION_RIGHT: 0x02, DOM_KEY_LOCATION_NUMPAD: 0x03
+  };
+
+  // HTMLMediaElement networkState / readyState, and HTMLTrackElement readyState.
+  const HTMLMEDIAELEMENT_CONSTANTS = {
+    NETWORK_EMPTY: 0, NETWORK_IDLE: 1, NETWORK_LOADING: 2, NETWORK_NO_SOURCE: 3,
+    HAVE_NOTHING: 0, HAVE_METADATA: 1, HAVE_CURRENT_DATA: 2, HAVE_FUTURE_DATA: 3,
+    HAVE_ENOUGH_DATA: 4
+  };
+  const HTMLTRACKELEMENT_CONSTANTS = { NONE: 0, LOADING: 1, LOADED: 2, ERROR: 3 };
+
   // Interface name -> its [Constant]s (placed on both the interface object and
   // its prototype; instances inherit via the proxy get `prop in target` path).
+  // Kept in step with the WebIDL by test/test_webidl_conformance.rb, which reads
+  // this table and compares it against the specs' own `interfaces/*.idl`.
   const INTERFACE_CONSTANTS = {
     Node: NODE_CONSTANTS, Event: EVENT_CONSTANTS, NodeFilter: NODEFILTER_CONSTANTS,
     WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS, XMLHttpRequest: XHR_CONSTANTS,
-    DOMException: DOMEXCEPTION_CONSTANTS
+    DOMException: DOMEXCEPTION_CONSTANTS, CSSRule: CSSRULE_CONSTANTS,
+    EventSource: EVENTSOURCE_CONSTANTS, FileReader: FILEREADER_CONSTANTS,
+    KeyboardEvent: KEYBOARDEVENT_CONSTANTS,
+    HTMLMediaElement: HTMLMEDIAELEMENT_CONSTANTS,
+    HTMLTrackElement: HTMLTRACKELEMENT_CONSTANTS
   };
 
   // B1: per-interface member names, placed on the interface prototype so
@@ -303,6 +340,53 @@ globalThis.__rbHost = (function () {
     return isProxy(arg) ? arg : String(arg);
   }
 
+  // The event handler CONTENT attributes HTML (with Pointer/Touch/Animation
+  // Events) defines on elements. An `on*` attribute outside this set is not a
+  // handler and must stay inert: `onreadystatechange` and `onvisibilitychange`
+  // are IDL attributes of Document only, and `div.setAttribute("onfoobar", …)`
+  // names no event handler at all.
+  const ELEMENT_HANDLER_ATTRIBUTES = new Set([
+    "onabort", "onauxclick", "onbeforeinput", "onbeforetoggle", "onblur", "oncancel",
+    "oncanplay", "oncanplaythrough", "onchange", "onclick", "onclose", "oncommand",
+    "oncontextlost", "oncontextmenu", "oncontextrestored", "oncopy", "oncuechange",
+    "oncut", "ondblclick", "ondrag", "ondragend", "ondragenter", "ondragleave",
+    "ondragover", "ondragstart", "ondrop", "ondurationchange", "onemptied", "onended",
+    "onerror", "onfocus", "onfocusin", "onfocusout", "onformdata", "oninput",
+    "oninvalid", "onkeydown", "onkeypress", "onkeyup", "onload", "onloadeddata",
+    "onloadedmetadata", "onloadstart", "onmousedown", "onmouseenter", "onmouseleave",
+    "onmousemove", "onmouseout", "onmouseover", "onmouseup", "onpaste", "onpause",
+    "onplay", "onplaying", "onprogress", "onratechange", "onreset", "onresize",
+    "onscroll", "onscrollend", "onsecuritypolicyviolation", "onseeked", "onseeking",
+    "onselect", "onselectstart", "onslotchange", "onstalled", "onsubmit", "onsuspend",
+    "ontimeupdate", "ontoggle", "onvolumechange", "onwaiting", "onwheel",
+    "onanimationstart", "onanimationend", "onanimationiteration",
+    "ongotpointercapture", "onlostpointercapture", "onpointercancel", "onpointerdown",
+    "onpointerenter", "onpointerleave", "onpointermove", "onpointerout",
+    "onpointerover", "onpointerrawupdate", "onpointerup",
+    "ontouchcancel", "ontouchend", "ontouchmove", "ontouchstart",
+  ]);
+
+  // Window event handlers that `body` and `frameset` — and only those two —
+  // additionally carry as content attributes, reflecting onto the Window.
+  const WINDOW_REFLECTED_HANDLERS = new Set([
+    "onafterprint", "onbeforeprint", "onbeforeunload", "onhashchange",
+    "onlanguagechange", "onmessage", "onmessageerror", "onoffline", "ononline",
+    "onpagehide", "onpageshow", "onpopstate", "onrejectionhandled", "onstorage",
+    "onunhandledrejection", "onunload",
+  ]);
+
+  function isHandlerAttribute(el, name) {
+    if (ELEMENT_HANDLER_ATTRIBUTES.has(name)) return true;
+    if (!WINDOW_REFLECTED_HANDLERS.has(name)) return false;
+
+    try {
+      const tag = el.tagName;
+      return tag === "BODY" || tag === "FRAMESET";
+    } catch (e) {
+      return false;
+    }
+  }
+
   // Setting an on* content attribute at runtime (`el.setAttribute("onclick",
   // code)`) must compile+activate the handler synchronously, exactly like the
   // boot-time inline-handler wiring (script_boot). Mirrors its scope chain —
@@ -312,6 +396,7 @@ globalThis.__rbHost = (function () {
   // A null code (removeAttribute) clears the handler. Invalid source is ignored.
   function wireInlineHandler(el, name, code) {
     try {
+      if (!isHandlerAttribute(el, name)) return;
       if (code == null) { el[name] = null; return; }
       let src = "with(this){\n" + String(code) + "\n}";
       try { if (el.form) src = "with(this.form){\n" + src + "\n}"; } catch (e) { /* no form owner */ }
@@ -359,15 +444,27 @@ globalThis.__rbHost = (function () {
   }
 
   // Precompute the shared delegating stubs (created once, reused on every proto).
+  // A stub reached through the prototype (`Element.prototype.remove.call(el)`,
+  // or a `super.method()` in a custom element) must invalidate the DOM-epoch
+  // caches around a mutating call exactly as the proxy's own get trap does —
+  // otherwise the DOM changes underneath a cached parentNode / attribute
+  // snapshot and the next read hands back the state from before the call.
   function memberMethodStub(name) {
-    if (NODE_OR_STRING_METHODS.has(name)) {
-      return withArity(function (...args) {
-        return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args.map(coerceNodeOrString))));
-      }, name);
-    }
+    const coerce = NODE_OR_STRING_METHODS.has(name);
+    const readOnly = NON_MUTATING_METHODS.has(name);
     return withArity(function (...args) {
-      return rehydrate(__rb_host_call(this[HKEY], name, dehydrateArgs(args)));
+      const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
+      return readOnly ? rehydrate(__rb_host_call(this[HKEY], name, wire)) : callMutating(this[HKEY], name, wire);
     }, name);
+  }
+
+  function callMutating(handle, name, wire) {
+    bumpDomEpoch();
+    try {
+      return rehydrate(__rb_host_call(handle, name, wire));
+    } finally {
+      bumpDomEpoch();
+    }
   }
   function memberGetStub(name) {
     return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };
@@ -2009,7 +2106,16 @@ globalThis.__rbHost = (function () {
     const ref = cache.get(handle);
     if (ref) {
       const existing = ref.deref();
-      if (existing) return existing;
+      // Trust the cache only while the handle still names an object of the same
+      // interface (see proxyInterfaces): a recycled handle otherwise resurfaces
+      // the previous object's proxy.
+      if (existing && (iface == null || proxyInterfaces.get(existing) === iface)) return existing;
+      if (existing) {
+        cache.delete(handle);
+        pinned.delete(handle);
+        proxyHandles.delete(existing);
+        proxyInterfaces.delete(existing);
+      }
     }
     // Reuse the cached per-interface descriptor when the handle crossed tagged
     // with a known interface — skipping the describe round trip. Otherwise (no
@@ -2062,6 +2168,7 @@ globalThis.__rbHost = (function () {
       isNode, INDEXED_SETTER_INTERFACES.has(desc.name)));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
+    proxyInterfaces.set(p, desc.name);
     // A DOM node's JS wrapper must be STABLE for the node's lifetime, exactly as
     // in a browser (same node -> the same object every time). Otherwise an
     // unretained node proxy — one JS holds only as a WeakMap/WeakSet KEY, not a
@@ -2353,5 +2460,9 @@ globalThis.__rbHost = (function () {
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,
     wasmTypeof, wasmToString, wasmStrictEqual, wasmIsNull, wasmInstanceof,
     wasmMakeCallback, wasmReleaseRef,
+    // The event handler content attribute sets, so the boot-time inline-handler
+    // wiring (script_boot) works from the same lists this file gates on.
+    elementHandlerAttributes: ELEMENT_HANDLER_ATTRIBUTES,
+    windowReflectedHandlers: WINDOW_REFLECTED_HANDLERS,
   };
 })();

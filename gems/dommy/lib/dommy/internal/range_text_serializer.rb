@@ -23,7 +23,7 @@ module Dommy
         so, eo = @range.start_offset, @range.end_offset
 
         if sc.equal?(ec) && text_node?(sc)
-          return sc.data.to_s[so, eo - so].to_s
+          return Utf16.slice(sc.data.to_s, so, eo - so)
         end
 
         pieces = []
@@ -51,12 +51,13 @@ module Dommy
         sc, ec = @range.start_container, @range.end_container
         so, eo = @range.start_offset, @range.end_offset
 
+        # Boundary offsets are UTF-16 code unit indices, so slice on that basis.
         if text_node.equal?(sc) && text_node.equal?(ec)
-          txt[so, eo - so].to_s
+          Utf16.slice(txt, so, eo - so)
         elsif text_node.equal?(sc)
-          txt[so..].to_s
+          Utf16.suffix(txt, so)
         elsif text_node.equal?(ec)
-          txt[0, eo].to_s
+          Utf16.slice(txt, 0, eo)
         elsif @range.intersects_node(text_node)
           txt
         else

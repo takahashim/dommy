@@ -307,8 +307,7 @@ module Dommy
       end
 
       def matches_attribute?(element, selector)
-        name = selector.name.to_s
-        actual = element.get_attribute(name)
+        actual = attribute_value(element, selector)
         return false if actual.nil?
         return true unless selector.matcher
 
@@ -328,6 +327,33 @@ module Dommy
         when "*=" then !expected.empty? && actual.include?(expected)
         else false
         end
+      end
+
+      # Selectors 4 §6.1: an unprefixed (or `|`-prefixed) attribute selector matches
+      # only attributes in no namespace, `*|` matches one in any namespace by its
+      # local name, and a declared prefix matches that namespace. querySelector
+      # declares no prefixes, so only the first two shapes reach here from the DOM.
+      def attribute_value(element, selector)
+        name = selector.name.to_s
+        case selector.namespace
+        when :any then any_namespace_attribute_value(element, name)
+        when nil, :none then element.get_attribute(name)
+        else element.get_attribute_ns(selector.namespace, name)
+        end
+      end
+
+      # `[*|att]` — the no-namespace read covers the common case; a namespaced
+      # attribute is found by scanning for the local name, since the qualified
+      # name it is stored under (`xlink:href`) is not what the selector spells.
+      def any_namespace_attribute_value(element, local_name)
+        value = element.get_attribute(local_name)
+        return value unless value.nil?
+
+        Backend.attribute_nodes(element.__dommy_backend_node__).each do |attr|
+          info = Backend.attribute_ns_info(attr)
+          return info[:value] if info[:local_name] == local_name
+        end
+        nil
       end
 
       def matches_pseudo_class?(element, pseudo, scope:)
@@ -366,7 +392,7 @@ module Dommy
         when "read-write" then read_write_element?(element)
         when "active", "visited" then false # supported-but-currently-false (no pointer state / history)
         when "dir" then dir_match?(element, pseudo.argument)
-        when "target" then element.get_attribute("id").to_s == Internal.target_id(element.owner_document).to_s && !Internal.target_id(element.owner_document).nil?
+        when "target" then target_element?(element)
         when "lang" then lang_match?(element, pseudo.argument)
         when "link" then link_element?(element)
         when "any-link" then link_element?(element)
@@ -382,11 +408,14 @@ module Dommy
       # leading:, so e.g. `section:has(.a .b)` cannot satisfy `.a` with an
       # ancestor outside the section, and `:has(+ .a .b)` finds subjects
       # inside the adjacent sibling. Inside :has, `:scope` is the anchor.
+      # `:has(RS)` anchors the relative selector at `element`, but `:scope` keeps
+      # meaning the scoping root of the enclosing query — so `el.closest(":has(> :scope)")`
+      # asks for an ancestor whose child is `el`, not one whose child is itself.
       def has_relative?(element, relative_selectors, scope:)
         relative_selectors.any? do |relative|
           leading = relative.leading_combinator || :descendant
           relative_candidates(element, leading).any? do |candidate|
-            matches_complex?(candidate, relative.complex, scope: element, anchor: element, leading: leading)
+            matches_complex?(candidate, relative.complex, scope: scope, anchor: element, leading: leading)
           end
         end
       end
@@ -467,8 +496,24 @@ module Dommy
         a.namespace_uri == b.namespace_uri && a.local_name == b.local_name
       end
 
+      # The scoping root of a query. A Document is not an element, so `:scope`
+      # falls back to its document element there (`document.querySelector(":scope")`
+      # is the root element); a DocumentFragment or ShadowRoot has no such
+      # fallback, and `:scope` simply matches nothing inside one.
       def default_scope(root)
-        root if root.respond_to?(:__dommy_backend_node__) && !root.is_a?(Document)
+        return root.document_element if root.is_a?(Document)
+
+        root if root.respond_to?(:__dommy_backend_node__)
+      end
+
+      # `:target` — the element the document's URL fragment points at. It has to
+      # be in the document: an id match inside a detached subtree or a fragment
+      # is not the target of anything.
+      def target_element?(element)
+        target = Internal.target_id(element.owner_document)
+        return false if target.nil?
+
+        element.get_attribute("id").to_s == target.to_s && element.is_connected?
       end
 
       def element_descendants(root)
@@ -817,8 +862,11 @@ module Dommy
         true
       end
 
+      # `:link` / `:any-link` match an `a` or `area` with an href. A `<link href>`
+      # is not a hyperlink for selector purposes, however much its name suggests
+      # otherwise.
       def link_element?(element)
-        %w[a area link].include?(element.local_name.to_s.downcase) && element.has_attribute?("href")
+        %w[a area].include?(element.local_name.to_s.downcase) && element.has_attribute?("href")
       end
 
       # `:dir()` from the nearest dir attribute (ltr/rtl; auto and absent

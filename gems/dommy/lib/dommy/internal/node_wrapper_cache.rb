@@ -54,6 +54,16 @@ module Dommy
         wrapper
       end
 
+      # The wrapper already cached for this backend node, or nil — a lookup that
+      # never builds one, for callers that only want state a wrapper is already
+      # carrying (the createElementNS metadata a deep clone has to copy over).
+      def cached_wrapper(node)
+        return nil unless node
+
+        cached = @wrappers[identity_key(node)]
+        cached if cached && cached_wrapper_live?(cached, node)
+      end
+
       # Factory methods
 
       def create_element(name)
@@ -74,8 +84,22 @@ module Dommy
           namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
         end
 
-        wrapper = wrap_node(Backend.create_element(local, @document.backend_doc))
+        # createElement validates against the XML *Name* production, which is
+        # looser than the QName an XML backend insists on: ":", "foo:", "f::oo"
+        # and a local part with a combining char are all valid element names the
+        # backend would reject. The loose creator builds those verbatim; anything
+        # it (or the strict path) still refuses is an InvalidCharacterError.
+        node =
+          begin
+            Backend.create_element_loose(local, nil, local, namespace, @document.backend_doc) ||
+              Backend.create_element(local, @document.backend_doc)
+          rescue ArgumentError
+            raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}"
+          end
+
+        wrapper = wrap_node(node)
         wrapper.__internal_set_namespace__(namespace, nil, local, local)
+        @document.__internal_note_namespaced_element__(namespace, nil)
         wrapper
       end
 
@@ -150,6 +174,7 @@ module Dommy
 
         wrapper = build_element_wrapper(el, namespace: ns, local_name: local)
         wrapper.__internal_set_namespace__(ns, prefix, local, qualified_name)
+        @document.__internal_note_namespaced_element__(ns, prefix)
         wrapper
       end
 

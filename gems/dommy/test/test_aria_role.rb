@@ -72,6 +72,10 @@ class TestAriaRole < Minitest::Test
 
   def test_synonym_roles_normalize_to_canonical
     assert_equal "list", role_of('<ul role="directory"></ul>', "ul")
+    # ARIA 1.2 renamed `img` to `image`, so the rename runs old -> new.
+    # WPT: wai-aria/role/synonym-roles.html
+    assert_equal "image", role_of('<div role="img"></div>', "div")
+    assert_equal "image", role_of('<div role="image"></div>', "div")
   end
 
   def test_presentation_yields_to_implicit_when_focusable
@@ -87,7 +91,8 @@ class TestAriaRole < Minitest::Test
 
   def test_img_empty_alt_is_canonical_none
     assert_equal "none", role_of('<img alt="" src="x">', "img")
-    assert_equal "img", role_of('<img alt="cat" src="x">', "img")
+    # ARIA renamed `img` to `image`; the old token is now the synonym.
+    assert_equal "image", role_of('<img alt="cat" src="x">', "img")
   end
 
   def test_details_is_group

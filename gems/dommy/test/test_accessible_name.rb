@@ -118,4 +118,50 @@ class TestAccessibleName < Minitest::Test
     html = "<table><tr><td>Profile</td><td>Profile</td><td>A</td></tr></table>"
     assert_equal "Profile Profile A", label_of(html, "tr")
   end
+
+  # HTML-AAM names a <summary> from the disclosure text it shows, whatever role
+  # it computes to, so a `title` on it stays a tooltip.
+  # WPT: accname/name/comp_tooltip.html
+  def test_summary_names_from_its_contents_over_title
+    html = '<details><summary title="tip">More info</summary>body</details>'
+    assert_equal "More info", label_of(html, "summary")
+  end
+
+  # accname step 2B: the control a <label> wraps contributes nothing to that
+  # label's text, so the select's own options stay out of its name.
+  # WPT: accname/name/comp_host_language_label.html
+  def test_a_wrapping_label_excludes_the_control_it_names
+    html = '<label>Name <select id="s"><option>Alpha</option></select></label>'
+    assert_equal "Name", label_of(html, "#s")
+
+    html = '<label>Name <select id="s"><option>Alpha</option></select> suffix</label>'
+    assert_equal "Name suffix", label_of(html, "#s")
+  end
+
+  # A hidden subtree is not part of a name computed from content.
+  # WPT: accname/name/comp_text_node.html
+  def test_hidden_children_do_not_contribute_to_the_name
+    assert_equal "Hello", label_of("<button>Hello <span hidden>secret</span></button>", "button")
+    assert_equal "Hello", label_of('<button>Hello <span aria-hidden="true">secret</span></button>', "button")
+    assert_equal "Hello", label_of('<button>Hello <span style="display:none">secret</span></button>', "button")
+    assert_equal "Hello", label_of('<button>Hello <span style="visibility:hidden">secret</span></button>', "button")
+  end
+
+  # ...but a node the author points at directly is named even when hidden, and
+  # that exemption covers its whole subtree.
+  # WPT: accname/name/comp_labelledby.html
+  def test_a_directly_referenced_hidden_node_still_names
+    html = '<div role="group" aria-labelledby="r"></div><span id="r" hidden>Hidden <b>name</b></span>'
+    assert_equal "Hidden name", label_of(html, "div[role=group]")
+
+    # The exemption is rooted at the reference: a hidden child of a visible
+    # referenced node is still skipped.
+    html = '<div role="group" aria-labelledby="r"></div><span id="r">A <b hidden>B</b></span>'
+    assert_equal "A", label_of(html, "div[role=group]")
+  end
+
+  def test_a_hidden_label_still_names_its_control
+    html = '<label for="i" hidden>Hidden <b>label</b></label><input id="i">'
+    assert_equal "Hidden label", label_of(html, "#i")
+  end
 end

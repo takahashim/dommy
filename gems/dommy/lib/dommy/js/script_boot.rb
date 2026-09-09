@@ -32,6 +32,16 @@ module Dommy
         ScriptBooter.new(runtime, document, resources: resources, on_error: on_error, on_script: on_script).run
       end
 
+      # Re-run the inline-handler scan. Idempotent — the scan skips an element
+      # whose handler is already compiled — so it can be replayed whenever an
+      # element carrying an `on*` attribute turns up after boot (cloneNode,
+      # innerHTML, a fragment inserted by a template).
+      def wire_inline_handlers(runtime, on_error: nil)
+        runtime.execute(ScriptBooter::WIRE_INLINE_HANDLERS_JS)
+      rescue StandardError => e
+        on_error&.call(e)
+      end
+
       # Fetch + execute a single `<script src>` that was dynamically inserted into
       # an already-booted document (webpack/Vite on-demand chunk loading), then
       # fire its load / error event so the loader's promise settles.
@@ -66,32 +76,25 @@ module Dommy
       # window.addEventListener since the element's own load never fires. (2) The
       # scan targets only elements carrying a known handler attribute (via a
       # selector) rather than every element, then wires all on* attributes on
-      # each. Handlers on elements inserted *after* boot (innerHTML /
-      # setAttribute) are not wired — frameworks use addEventListener; this
-      # covers server-rendered inline handlers.
-      HANDLER_ATTRIBUTES = %w[
-        onabort onauxclick onbeforeinput onbeforetoggle onblur oncancel oncanplay oncanplaythrough
-        onchange onclick onclose oncontextmenu oncopy oncuechange oncut ondblclick ondrag ondragend
-        ondragenter ondragleave ondragover ondragstart ondrop ondurationchange onemptied onended
-        onerror onfocus onformdata oninput oninvalid onkeydown onkeypress onkeyup onload onloadeddata
-        onloadedmetadata onloadstart onmousedown onmouseenter onmouseleave onmousemove onmouseout
-        onmouseover onmouseup onpaste onpause onplay onplaying onprogress onratechange onreset onresize
-        onscroll onscrollend onseeked onseeking onselect onslotchange onstalled onsubmit onsuspend
-        ontimeupdate ontoggle onvolumechange onwaiting onwheel onafterprint onbeforeprint onbeforeunload
-        onhashchange onlanguagechange onmessage onmessageerror onoffline ononline onpagehide onpageshow
-        onpopstate onrejectionhandled onstorage onunhandledrejection onunload
-      ].freeze
-      # Body/frameset handlers for these events reflect onto the Window.
-      WINDOW_REFLECTED_HANDLERS = %w[
-        onafterprint onbeforeprint onbeforeunload onhashchange onlanguagechange onmessage onmessageerror
-        onoffline ononline onpagehide onpageshow onpopstate onrejectionhandled onstorage
-        onunhandledrejection onunload onload onresize onscroll onerror onblur onfocus
-      ].freeze
+      # each. An element that turns up after boot still gets its handler: a
+      # runtime `setAttribute("on*")` compiles it directly (host_runtime.js), and
+      # one that arrived already carrying the attribute (cloneNode / innerHTML)
+      # is compiled the first time a matching event is dispatched at it, which
+      # replays this scan.
+      # The event handler content attribute sets live in host_runtime.js, which
+      # gates the runtime `setAttribute("on*")` path on exactly the same lists —
+      # one source of truth for what is a handler attribute and what is just an
+      # attribute whose name starts with "on".
       WIRE_INLINE_HANDLERS_JS = <<~JS
         (() => {
-          const HANDLERS = new Set(#{HANDLER_ATTRIBUTES.to_json});
-          const REFLECTED = new Set(#{WINDOW_REFLECTED_HANDLERS.to_json});
-          const selector = [...HANDLERS].map((name) => `[${name}]`).join(",");
+          const HANDLERS = __rbHost.elementHandlerAttributes;
+          const REFLECTED = __rbHost.windowReflectedHandlers;
+          // On body/frameset, blur/error/focus/load/resize/scroll are the
+          // Window's handlers too, so they reflect there like the rest.
+          const BODY_REFLECTED = new Set([
+            ...REFLECTED, "onblur", "onerror", "onfocus", "onload", "onresize", "onscroll",
+          ]);
+          const selector = [...HANDLERS, ...REFLECTED].map((name) => `[${name}]`).join(",");
           const body = document.body;
           // An inline handler runs with a scope chain of [element, form owner,
           // document] inside the global, per the HTML "compile" algorithm — so
@@ -106,10 +109,10 @@ module Dommy
           for (const el of document.querySelectorAll(selector)) {
             const onBody = el === body || el.tagName === "FRAMESET";
             for (const name of el.getAttributeNames()) {
-              if (!HANDLERS.has(name)) continue;
+              if (!HANDLERS.has(name) && !(onBody && REFLECTED.has(name))) continue;
               const code = el.getAttribute(name);
               try {
-                if (onBody && REFLECTED.has(name)) {
+                if (onBody && BODY_REFLECTED.has(name)) {
                   window.addEventListener(name.slice(2), new Function("event", code));
                 } else if (typeof el[name] !== "function") {
                   let fn;
@@ -139,9 +142,7 @@ module Dommy
       end
 
       def wire_inline_event_handlers
-        @runtime.execute(WIRE_INLINE_HANDLERS_JS)
-      rescue StandardError => e
-        @on_error&.call(e)
+        ScriptBoot.wire_inline_handlers(@runtime, on_error: @on_error)
       end
 
       # Fetch + run a dynamically-inserted external script, then fire `load` (or

@@ -58,14 +58,10 @@ module Dommy
     end
 
     def text_content=(value)
-      # Replace all children with a single Text node (nullable: null/undefined
-      # clear with no replacement). Unlink old children so a removed node keeps
-      # its own descendants.
-      removed = @__node__.children.to_a
-      str = nullable_dom_string(value)
-      removed.each(&:unlink)
-      @__node__.add_child(@document.create_text_node(str).__dommy_backend_node__) unless str.empty?
-      notify_child_list(added: @__node__.children.to_a, removed: removed)
+      # WHATWG "string replace all": one logical operation, so one childList
+      # record covering both sides — and an empty (or null / undefined) value
+      # leaves no children at all rather than an empty Text node.
+      string_replace_all(value)
     end
 
     def __js_set__(key, value)
@@ -114,6 +110,8 @@ module Dommy
         child_nodes
       when "childElementCount"
         child_element_count
+      when "isConnected"
+        is_connected?
       when "firstChild"
         first_child
       when "lastChild"
@@ -203,7 +201,7 @@ module Dommy
       nodes = @__node__.children.to_a
       return nodes if nodes.empty?
 
-      nodes.each(&:unlink)
+      nodes.each { |n| @document.detach_node(n) }
       # Inserting a DocumentFragment removes all its children first; the spec
       # queues a single childList record on the fragment for that removal.
       @document.notify_child_list_mutation(target_node: @__node__, added_nodes: [], removed_nodes: nodes)
@@ -216,8 +214,7 @@ module Dommy
       bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless bn && bn.parent == @__node__
 
-      @document.__internal_ranges_will_remove__(bn)
-      bn.unlink
+      @document.detach_node(bn)
       node
     end
 
@@ -231,6 +228,7 @@ module Dommy
       else
         nodes.each { |n| @__node__.add_child(n) }
       end
+      @document.__internal_ranges_inserted__(@__node__, nodes)
       node
     end
 
@@ -240,9 +238,7 @@ module Dommy
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless old_bn && old_bn.parent == @__node__
 
       ensure_pre_insertion_validity!(new_child, old_child)
-      detach_dom_nodes(new_child).each { |n| old_bn.add_previous_sibling(n) }
-      @document.__internal_ranges_will_remove__(old_bn)
-      old_bn.unlink
+      replace_child_within(new_child, old_bn)
       old_child
     end
 
@@ -255,6 +251,19 @@ module Dommy
       # to contain its own children. `parent` is consistent across backends.
       on == @__node__ || Internal::NodeTraversal.ancestor_of?(@__node__, on)
     end
+
+    # A bare DocumentFragment is never connected — its shadow-including root is
+    # itself, not a document. (A ShadowRoot is a fragment too, but has its own
+    # host-following answer.) Beyond `node.isConnected`, this is what tells the
+    # mutation pipeline to skip the connected/disconnected walk for mutations
+    # inside a detached fragment: a custom element parsed into a `<template>`'s
+    # content must NOT get a connectedCallback there, only when it is later
+    # inserted into a document.
+    def is_connected?
+      false
+    end
+
+    alias connected? is_connected?
 
     private
 
@@ -293,25 +302,34 @@ module Dommy
       @__node__.parent && @document.wrap_node(@__node__.parent)
     end
 
-    # Text.splitText / CharacterData split: break the node at `offset`, keeping
-    # [0, offset) here and returning a new sibling node with the remainder.
+    # Text.splitText / CharacterData split: break the node at `offset` (a UTF-16
+    # code unit index), keeping [0, offset) here and returning a new sibling node
+    # with the remainder.
     def split_text(offset)
       off = offset.to_i
       full = @__node__.content
-      raise DOMException::IndexSizeError, "offset #{off} is out of bounds" if off.negative? || off > full.length
+      length = utf16_length(full)
+      raise DOMException::IndexSizeError, "offset #{off} is out of bounds" if off.negative? || off > length
 
-      rest = full[off..] || ""
-      write_data(full[0, off])
-      new_node = @document.create_text_node(rest)
+      count = length - off
+      new_node = @document.create_text_node(utf16_slice(full, off, count))
       if @__node__.parent
         new_bn = new_node.__dommy_backend_node__
         @__node__.add_next_sibling(new_bn)
         # The new node is inserted right after self — a childList addition record.
         @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: [new_bn], removed_nodes: [])
+        # Live ranges past the split point move to the tail node (the generic
+        # insert step above already shifted boundaries sitting further along).
+        # Step 7 only runs for a node that HAS a parent: splitting a detached
+        # node leaves every boundary on the node itself, to be clamped by the
+        # truncation below.
+        @document.__internal_ranges_split_text__(self, off, new_node)
       end
-      # Live ranges past the split point move to the tail node (the generic
-      # insert step above already shifted boundaries sitting further along).
-      @document.__internal_ranges_split_text__(self, off, new_node)
+      # Step 8 — "replace data with node, offset, count, the empty string": the
+      # truncation is a data replacement, so it carries the replace-data live
+      # range rules (the ones that clamp a boundary in a detached node).
+      write_data(utf16_slice(full, 0, off))
+      @document.__internal_ranges_replaced_data__(self, off, count, 0)
       new_node
     end
 
@@ -402,26 +420,14 @@ module Dommy
 
     # CharacterData offsets and counts are measured in UTF-16 code units, not
     # Unicode code points, so an astral character (e.g. an emoji) counts as 2.
+    # Range boundary offsets mean the same thing, so the conversion itself lives
+    # in Internal::Utf16 and both share it.
     def utf16_length(str)
-      str.encode(Encoding::UTF_16LE).bytesize / 2
+      Internal::Utf16.length(str)
     end
 
-    # Extract `count` UTF-16 code units from `str` starting at code unit
-    # `offset`. Slicing on the UTF-16LE byte buffer keeps astral characters
-    # intact for the offsets these APIs actually produce.
-    #
-    # If the range starts or ends inside a surrogate pair the result would be a
-    # lone (unpaired) surrogate. JS strings can hold those; a Ruby UTF-8 String
-    # cannot, so re-raise the raw encoding error as a clear, intentional message
-    # rather than leaking "\xDF on UTF-16LE" to the caller. This is a Dommy
-    # limitation and, since splitting a surrogate pair signals a UTF-16 offset
-    # bug in the caller, failing loud is deliberate.
     def utf16_slice(str, offset, count)
-      buf = str.encode(Encoding::UTF_16LE)
-      buf.byteslice(offset * 2, count * 2).encode(Encoding::UTF_8, Encoding::UTF_16LE)
-    rescue Encoding::InvalidByteSequenceError, Encoding::UndefinedConversionError
-      raise "cannot split a UTF-16 surrogate pair: the requested range would " \
-            "produce a lone surrogate, which Dommy cannot represent"
+      Internal::Utf16.slice(str, offset, count)
     end
 
     def substring_data(offset, count)
@@ -1209,8 +1215,8 @@ module Dommy
     end
 
     # CSSOM setProperty(property, value, priority?): an empty value removes the
-    # declaration; `priority` is "important" (any other value, including the
-    # omitted default, clears importance).
+    # declaration, and `priority` must be either the empty string or an ASCII
+    # case-insensitive "important" — any other priority abandons the call.
     #
     # Public: `method_missing` treats every unknown name as a CSS property, so a
     # private CSSOM method would be silently swallowed rather than called.
@@ -1218,9 +1224,27 @@ module Dommy
       key = name.to_s
       decls = declarations
       if value.nil? || value.to_s.empty?
+        # Step 3 runs BEFORE the priority check, so an empty value removes the
+        # declaration even when the priority is nonsense. Removing a property
+        # that was not set changes nothing, so the style attribute is left alone
+        # — no rewrite, and no mutation record.
+        return nil unless decls.key?(key)
+
         decls.delete(key)
       else
-        decls[key] = [value.to_s, normalize_priority(priority)]
+        # Step 4: an invalid priority leaves the declaration block untouched
+        # (it is NOT normalized to "" and stored).
+        normalized = normalize_priority(priority)
+        return nil if normalized.nil?
+
+        # An invalid value is dropped rather than stored, and dropping it is not
+        # a change either.
+        return nil unless valid_declaration_value?(value.to_s.strip)
+
+        entry = [value.to_s, normalized]
+        return nil if decls[key] == entry
+
+        decls[key] = entry
       end
 
       write_properties(decls)
@@ -1230,6 +1254,10 @@ module Dommy
     def remove_property(name)
       key = name.to_s
       decls = declarations
+      # Removing a property that was not set changes nothing, so the style
+      # attribute is left as it is — no rewrite, and no mutation record.
+      return "" unless decls.key?(key)
+
       removed = decls.delete(key)
       write_properties(decls)
       removed&.first.to_s
@@ -1255,8 +1283,9 @@ module Dommy
       declarations.transform_values(&:first)
     end
 
+    # "important" / "" for a valid priority, nil when the whole call is a no-op.
     def normalize_priority(priority)
-      priority.to_s.strip.casecmp?("important") ? "important" : ""
+      Internal::CssPriority.normalize(priority)
     end
 
     # Parse a declaration block into an ordered { property => [value, priority] }
@@ -1294,7 +1323,42 @@ module Dommy
         when ":" then return false if depth.zero?
         end
       end
+      valid_var_functions?(value)
+    end
+
+    # `var()` takes a custom property name and then, optionally, a comma and a
+    # fallback — `var(--x)`, `var(--x,)`, `var(--x, 1px)`. Anything else between
+    # the name and that comma, as in `var(--x ())`, is a syntax error, and a
+    # declaration whose value fails to parse is dropped rather than stored.
+    VAR_ARGUMENTS = /\A\s*--[^\s,()]*\s*(?:,|\z)/m
+
+    def valid_var_functions?(value)
+      index = 0
+      while (start = value.index(/var\(/i, index))
+        open = value.index("(", start)
+        close = matching_paren(value, open)
+        return false if close.nil?
+        return false unless value[(open + 1)...close].match?(VAR_ARGUMENTS)
+
+        # Continue inside the call, so a nested var() in the fallback is checked
+        # by the same rule.
+        index = open + 1
+      end
       true
+    end
+
+    # The index of the ")" closing the "(" at `open`, or nil when unbalanced.
+    def matching_paren(value, open)
+      depth = 0
+      (open...value.length).each do |i|
+        case value[i]
+        when "(" then depth += 1
+        when ")"
+          depth -= 1
+          return i if depth.zero?
+        end
+      end
+      nil
     end
 
     def serialize_properties(decls)
@@ -1355,19 +1419,12 @@ module Dommy
     end
 
     def text_content=(value)
-      # textContent is a nullable DOMString, so null AND undefined both mean "no
-      # value" -> clear the children with no replacement text. Otherwise replace
-      # all children with a single Text node. Unlink the old children (rather
-      # than the backend's `content=`, which frees their whole subtree) so a
+      # WHATWG "string replace all". textContent is a nullable DOMString, so
+      # null AND undefined both mean "no value" -> clear the children with no
+      # replacement text. The children are detached one by one (rather than via
+      # the backend's `content=`, which frees their whole subtree) so a
       # reference to a removed node keeps its own descendants intact.
-      removed = @__node__.children.to_a
-      str = nullable_dom_string(value)
-      removed.each(&:unlink)
-      unless str.empty?
-        @__node__.add_child(@document.create_text_node(str).__dommy_backend_node__)
-      end
-      added = @__node__.children.to_a
-      notify_child_list(added: added, removed: removed)
+      string_replace_all(value)
     end
 
     def inner_html
@@ -1379,16 +1436,20 @@ module Dommy
     end
 
     def inner_html=(value)
-      removed = @__node__.children.to_a
       if @__node__.name == "template"
         # `<template>` content is invisible to outer selectors in real DOM (it
-        # lives in a separate DocumentFragment exposed via `[:content]`).
+        # lives in a separate DocumentFragment exposed via `[:content]`). HTML's
+        # innerHTML setter retargets to that fragment and replaces all of ITS
+        # children, so the record belongs there, not on the template element
+        # (which has no children of its own to swap).
         @document.attach_template_content(self, value.to_s)
-      else
-        @__node__.inner_html = value.to_s
-        @document.migrate_template_descendants(@__node__)
-        mark_fragment_scripts_started(@__node__.children.to_a)
+        return
       end
+
+      removed = @__node__.children.to_a
+      @__node__.inner_html = value.to_s
+      @document.migrate_template_descendants(@__node__)
+      mark_fragment_scripts_started(@__node__.children.to_a)
       notify_child_list(added: @__node__.children.to_a, removed: removed)
     end
 
@@ -1420,6 +1481,16 @@ module Dommy
       @__ns_local = local_name
       @__ns_qname = qualified_name
       nil
+    end
+
+    # The createElementNS metadata, but only when it says something wrapping the
+    # backend node would not work out on its own — a namespace other than HTML,
+    # or a prefix. nil otherwise, so a clone walk can skip the node.
+    def __internal_namespace_metadata__
+      return nil if @__ns_qname.nil?
+      return nil if @__ns_uri == HTML_NAMESPACE && @__ns_prefix.nil?
+
+      [@__ns_uri, @__ns_prefix, @__ns_local, @__ns_qname]
     end
 
     # tagName is the qualified name, ASCII-upper-cased only for an HTML-namespace
@@ -1604,8 +1675,7 @@ module Dommy
       removed = @__node__
       new_nodes = fragment.children.to_a
       mark_fragment_scripts_started(new_nodes)
-      @document.__internal_ranges_will_remove__(@__node__)
-      @__node__.unlink
+      @document.detach_node(@__node__)
       if anchor
         new_nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
       else
@@ -2166,16 +2236,11 @@ module Dommy
       # bound to it never runs.
       return false if __internal_actually_disabled__
 
-      pre = pre_click_activation_state
-      event = MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0)
-      not_canceled = dispatch_event(event)
-      if not_canceled
-        run_post_click_activation(pre) unless pre.nil?
-        __run_click_activation_behavior__(event)
-      elsif pre
-        restore_pre_click_activation(pre)
-      end
-      not_canceled
+      # Everything else (picking the activation target, the pre-activation
+      # toggle, running or undoing the activation behavior) is dispatch's job,
+      # so a synthesized `dispatchEvent(new MouseEvent("click"))` behaves
+      # identically to click().
+      dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
     end
 
     # WHATWG "actually disabled". Only the disable-able form controls can be,
@@ -2184,45 +2249,46 @@ module Dommy
       false
     end
 
-    # Pre-click activation hooks (checkbox/radio toggle-then-maybe-revert). The
-    # default element has none; HTMLInputElement overrides these.
-    def pre_click_activation_state
+    # HTML compiles an event handler content attribute lazily — the handler only
+    # has to exist by the time an event of that type is dispatched at the
+    # element. Doing it here, rather than only in the boot-time scan, is what
+    # makes `onclick="…"` survive cloneNode / innerHTML: such an element never
+    # went through that scan, so its handler would otherwise never fire.
+    #
+    # Each (element, type) is attempted once — a handler that fails to compile
+    # is not retried on every dispatch.
+    def __internal_wire_inline_handler__(type)
+      return unless @document.inline_handler_wirer
+      return if @__inline_wired&.key?(type)
+
+      code = @__node__["on#{type}"]
+      return if code.nil?
+
+      (@__inline_wired ||= {})[type] = true
+      @document.__internal_wire_inline_handlers__
+    end
+
+    # WHATWG "legacy-pre-activation behavior": run on the activation target
+    # BEFORE the click is dispatched, so a listener already sees the new state
+    # (a checkbox reads as checked inside its own onclick). Returns whatever
+    # `legacy_canceled_activation_behavior` needs to undo it, or nil when the
+    # element has none. The default element has none; HTMLInputElement overrides.
+    def legacy_pre_activation_behavior
       nil
     end
 
-    def run_post_click_activation(_state); end
-
-    def restore_pre_click_activation(_state); end
+    # Run when the click was canceled: undo the pre-activation change.
+    def legacy_canceled_activation_behavior(_state); end
 
     # Activation behavior: the default action of a non-canceled click (a
-    # hyperlink navigates; a submit button submits its form — added later). The
-    # default element has none. Called on the *activation target*.
+    # hyperlink navigates; a submit button submits its form; a checkbox fires
+    # input + change). The default element has none.
     def activation_behavior(_event); end
 
-    # An element is an "activation target" when it carries its own activation
-    # behavior (a hyperlink). Default: no.
+    # Whether this element has activation behavior, so dispatch can pick it as
+    # the click's activation target. Default: no.
     def activation_target?
       false
-    end
-
-    # The activation target for a click on this element: the nearest inclusive
-    # ancestor that is an activation target, or nil — so clicking a <span> inside
-    # an <a href> activates the anchor.
-    def activation_target
-      node = self
-      while node
-        return node if node.respond_to?(:activation_target?) && node.activation_target?
-
-        node = node.respond_to?(:parent_element) ? node.parent_element : nil
-      end
-      nil
-    end
-
-    # Run the activation target's activation behavior after a non-canceled click.
-    # Shared by Element#click (JS `.click()`) and synthetic clicks
-    # (EventSynthesis) so a real default action fires from both paths.
-    def __run_click_activation_behavior__(event)
-      activation_target&.activation_behavior(event)
     end
 
     def get_attribute_names
@@ -2432,6 +2498,8 @@ module Dommy
         # Boolean reflected properties — true iff the matching HTML
         # attribute is present. Real DOM normalizes attribute names to
         # lowercase, mapped here too (e.g. `readOnly` ↔ `readonly`).
+        return Bridge::ABSENT unless boolean_idl_attribute?(key)
+
         @__node__.key?(reflected_attr_name(key))
       when "value"
         # For form elements `value` is a property that defaults to the
@@ -2501,10 +2569,19 @@ module Dommy
       raw = @__node__["href"]
       return "" if raw.nil?
 
+      resolve_url(raw)
+    end
+
+    # Resolve a URL-valued attribute against the document base URL, falling back
+    # to the raw value when it cannot be parsed. The result is a SERIALIZED URL,
+    # so `a.href = "http://example.org/?ä"` reads back percent-encoded — which is
+    # what the URL parser produces and what `URI.join` does not.
+    def resolve_url(raw)
       win = @document.default_view
       base = win&.location ? win.location.href : ""
-      URI.join(base, raw.to_s).to_s
-    rescue URI::InvalidURIError, ArgumentError
+      base = nil if base.to_s.empty?
+      Internal::UrlParser.serialize(Internal::UrlParser.parse(raw.to_s, base))
+    rescue Internal::UrlParser::Failure
       raw.to_s
     end
 
@@ -2705,6 +2782,26 @@ module Dommy
       {"readOnly" => "readonly"}.fetch(key, key)
     end
 
+    # The HTML elements each boolean IDL attribute is actually defined on.
+    # `hidden` is global (it lives on HTMLElement), the rest belong to specific
+    # interfaces — a `select` that answered `readOnly` would be claiming an IDL
+    # attribute HTML never gave it, and feature detection (`"readOnly" in ctl`)
+    # reads that as a text control.
+    BOOLEAN_IDL_OWNERS = {
+      "checked" => %w[input].freeze,
+      "readOnly" => %w[input textarea].freeze,
+      "multiple" => %w[input select].freeze,
+      "required" => %w[input select textarea].freeze,
+      "disabled" => %w[button fieldset input link optgroup option select style textarea].freeze
+    }.freeze
+
+    def boolean_idl_attribute?(key)
+      owners = BOOLEAN_IDL_OWNERS[key]
+      return true if owners.nil? # `hidden`, on every HTML element
+
+      namespace_uri == HTML_NAMESPACE && owners.include?(local_name.to_s.downcase)
+    end
+
     # The element's translation mode (HTML `translate`): the nearest ancestor-or-
     # self with a valid translate attribute decides ("yes"/"" → true, "no" →
     # false); with none, the root default is translate (true).
@@ -2734,7 +2831,11 @@ module Dommy
         self.outer_html = value.nil? ? "" : value.to_s
       when "hidden", "disabled", "checked", "readOnly", "multiple", "required"
         # Boolean reflected property — funnel through set_attribute /
-        # remove_attribute so MutationObserver attribute records fire.
+        # remove_attribute so MutationObserver attribute records fire. On an
+        # element the IDL attribute does not belong to, the assignment is an
+        # ordinary JS expando and must not touch the content attribute.
+        return Bridge::UNHANDLED unless boolean_idl_attribute?(key)
+
         name = reflected_attr_name(key)
         if value
           set_attribute(name, "")
@@ -2957,8 +3058,11 @@ module Dommy
 
     def get_attribute(name)
       return nil if name.nil?
+      return @__node__[name.to_s.downcase] unless case_sensitive_attribute_names?
 
-      @__node__[normalize_attr_key(name)]
+      qualified = name.to_s
+      value = @__node__[qualified]
+      value.nil? || exact_attribute_name?(qualified) ? value : nil
     end
 
     def set_attribute(name, value)
@@ -2994,8 +3098,10 @@ module Dommy
 
     def has_attribute?(name)
       return false if name.nil?
+      return @__node__.key?(name.to_s.downcase) unless case_sensitive_attribute_names?
 
-      @__node__.key?(normalize_attr_key(name))
+      qualified = name.to_s
+      @__node__.key?(qualified) && exact_attribute_name?(qualified)
     end
 
     def remove_attribute(name)
@@ -3192,32 +3298,7 @@ module Dommy
       ensure_pre_insertion_validity!(new_child, old_child)
       old_node = unwrap_dom_node(old_child)
 
-      # Capture the insertion point (old's next sibling) before detaching the new
-      # child, which may itself be old (replaceChild(x, x)) or old's sibling.
-      # WHATWG: if that reference child IS the node being inserted (new_child is
-      # old's next sibling), advance it to new_child's next sibling so the node
-      # lands in old's slot rather than being appended.
-      anchor = old_node.next_sibling
-      new_bn = unwrap_dom_node(new_child)
-      anchor = anchor.next_sibling if anchor && new_bn && anchor == new_bn
-      new_nodes = detach_dom_nodes(new_child)
-      anchor = nil if anchor && anchor.parent != @__node__
-
-      # detach_dom_nodes already removed old when new_child === old_child; only
-      # unlink (and record the removal) when old is still attached.
-      removed = []
-      if old_node.parent == @__node__
-        @document.__internal_ranges_will_remove__(old_node)
-        old_node.unlink
-        removed = [old_node]
-      end
-
-      if anchor
-        new_nodes.each { |node| anchor.add_previous_sibling(node) }
-      else
-        new_nodes.each { |node| @__node__.add_child(node) }
-      end
-      notify_child_list(added: new_nodes, removed: removed)
+      replace_child_within(new_child, old_node)
       old_child
     end
 
@@ -3241,10 +3322,32 @@ module Dommy
         else
           @document.wrap_node(copy)
         end
+      # A deep clone copies the backend tree, but the createElementNS metadata
+      # lives on the wrappers — so a descendant created in another namespace, or
+      # in none, would come back from the clone reporting the HTML namespace.
+      copy_namespaces_into(@__node__, copy) if deep_arg && @document.__internal_namespaced_elements__?
       # HTML cloning steps: propagate form-control dirty state (an input's value /
       # checkedness, …) that lives on the wrapper, not the backend node.
       @document.__internal_apply_cloning_steps__(@__node__, copy, deep_arg)
       clone
+    end
+
+    # Walk the original subtree and its copy in step, reapplying the namespace
+    # metadata of every descendant that carries a non-default one. Only the
+    # originals that already have a wrapper can be carrying it, so this never
+    # builds a wrapper it does not need.
+    def copy_namespaces_into(original, copy)
+      copies = copy.children.to_a
+      original.children.each_with_index do |orig_child, index|
+        copy_child = copies[index]
+        break if copy_child.nil?
+
+        wrapper = @document.__internal_cached_wrapper__(orig_child)
+        meta = wrapper.__internal_namespace_metadata__ if wrapper.respond_to?(:__internal_namespace_metadata__)
+        @document.wrap_cloned_element_ns(copy_child, *meta) if meta
+        copy_namespaces_into(orig_child, copy_child)
+      end
+      nil
     end
 
     # Test inspector for scroll calls (no real layout to scroll).
@@ -3281,6 +3384,16 @@ module Dommy
       case_sensitive_attribute_names? ? s : s.downcase
     end
 
+    # The HTML backend looks an attribute up ASCII case-insensitively, which is
+    # what an HTML element wants — but an element whose attribute names are
+    # compared verbatim (a non-HTML namespace, or any element in an XML document)
+    # must not let `[viewbox]` find `viewBox`. Confirm the qualified name is
+    # spelled exactly as asked. Only reached on a hit, and only for those
+    # elements, so the ordinary HTML read still costs one backend lookup.
+    def exact_attribute_name?(qualified_name)
+      Backend.attribute_nodes(@__node__).any? { |attr| attr.name == qualified_name }
+    end
+
     # WebIDL nullable-DOMString namespace argument (*AttributeNS): JS null and
     # undefined, and the empty string, all denote the null namespace.
     def namespace_arg(namespace)
@@ -3301,19 +3414,11 @@ module Dommy
       @document.wrap_node(node)
     end
 
+    # WHATWG "get the parent": the node's parent, and nothing more — a detached
+    # element has none, so an event dispatched on one stays inside the detached
+    # subtree instead of reaching the document.
     def __internal_event_parent__
-      parent_node = @__node__.parent
-      # If our Nokogiri parent is a shadow tree's backing fragment,
-      # the bubble path's next stop is the ShadowRoot itself — not
-      # the bare Fragment wrapper. The ShadowRoot's __internal_event_parent__
-      # will return nil (composed events route to host explicitly).
-      if parent_node.is_a?(Backend.document_fragment_class)
-        sr = @document.__internal_shadow_root_for_fragment__(parent_node)
-        return sr if sr
-      end
-
-      parent = wrap_parent(parent_node)
-      parent || @document
+      wrap_parent(@__node__.parent)
     end
 
     def template_content
@@ -3419,6 +3524,11 @@ module Dommy
     # backend's `matches?` has an ancestor root, then unlinking to leave the
     # node detached (and its parentNode unchanged) as it was. `fragment("")`
     # (not the no-arg form) is backend-agnostic — Makiri's takes a source string.
+    #
+    # This is the one place that unlinks a node WITHOUT the pre-removing steps,
+    # deliberately: no DOM removal happened (the node was parentless before and
+    # after), so running them would move live Range / NodeIterator positions for
+    # a purely internal round trip.
     def matches_detached_node?(node, selector)
       node.document.fragment("").add_child(node)
       node.matches?(selector)

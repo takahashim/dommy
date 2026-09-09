@@ -60,12 +60,15 @@ module Dommy
 
     # The element's qualified name (prefix:localName, or just localName). The
     # backend node name can't be trusted — the HTML parser lowercases it — so
-    # rebuild it from the case-preserving local name and prefix.
+    # rebuild it from the case-preserving local name and prefix. The prefix is
+    # read through the Ruby accessor, never `__js_get__("prefix")`: that is the
+    # JS bridge protocol, and on a form it goes through the named getter first —
+    # so a form containing a control named "prefix" would report itself as
+    # `prefix:form` and vanish from getElementsByTagName("form").
     def self.qualified_name_of(el)
       local = el.respond_to?(:local_name) ? el.local_name.to_s : ""
-      prefix = el.respond_to?(:__js_get__) ? el.__js_get__("prefix") : nil
-      prefix = nil if prefix.nil? || prefix.to_s.empty? ||
-                      (defined?(Bridge::UNDEFINED) && prefix.equal?(Bridge::UNDEFINED))
+      prefix = el.respond_to?(:element_prefix) ? el.element_prefix : nil
+      prefix = nil if prefix.nil? || prefix.to_s.empty?
       prefix ? "#{prefix}:#{local}" : local
     end
 

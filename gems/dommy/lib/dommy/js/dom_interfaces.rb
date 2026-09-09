@@ -96,12 +96,18 @@ module Dommy
         %w[MutationObserver], %w[IntersectionObserver], %w[ResizeObserver],
         %w[PerformanceObserver], %w[AbortController], %w[AbortSignal EventTarget],
         %w[FormData], %w[URL], %w[URLSearchParams], %w[Headers], %w[Request], %w[Response],
-        %w[Blob], %w[File], %w[FileList], %w[FileReader], %w[XMLHttpRequest],
+        %w[Blob], %w[File Blob], %w[FileList], %w[FileReader EventTarget],
+        %w[XMLHttpRequest XMLHttpRequestEventTarget EventTarget],
+        %w[XMLHttpRequestEventTarget EventTarget], %w[XMLHttpRequestUpload XMLHttpRequestEventTarget EventTarget],
         %w[TextEncoder], %w[TextDecoder], %w[DOMParser], %w[XMLSerializer],
-        %w[MessageChannel], %w[BroadcastChannel], %w[WebSocket], %w[EventSource],
-        %w[Notification], %w[Worker], %w[DataTransfer],
+        %w[MessageChannel], %w[BroadcastChannel EventTarget], %w[WebSocket EventTarget],
+        %w[EventSource EventTarget],
+        %w[Notification EventTarget], %w[Worker EventTarget], %w[DataTransfer],
         %w[ReadableStream], %w[WritableStream], %w[TransformStream],
-        %w[Range],
+        # A Range is an AbstractRange (as a StaticRange would be); Dommy models
+        # only the live one, but the base interface still has to exist for
+        # `range instanceof AbstractRange`.
+        %w[AbstractRange], %w[Range AbstractRange],
         # Web Storage: seeded so `localStorage instanceof Storage` resolves and
         # `Storage.prototype` exists (a global constructor, construction routes
         # to the window / throws like the browser's illegal constructor).
@@ -112,6 +118,21 @@ module Dommy
         # `adoptedStyleSheets` unsupported it falls back to injecting a <style>
         # element, which Dommy handles.
         %w[CSSStyleSheet StyleSheet], %w[StyleSheet],
+        # CSSOM rule interfaces. Dommy models every rule with one Ruby class
+        # carrying a `type`, so the chain a rule reports is derived from that
+        # type (see #chain_for) rather than from its Ruby class — but the
+        # prototypes still have to exist for `rule instanceof CSSMediaRule`.
+        %w[CSSRule], %w[CSSRuleList],
+        %w[CSSGroupingRule CSSRule],
+        %w[CSSConditionRule CSSGroupingRule CSSRule],
+        %w[CSSMediaRule CSSConditionRule CSSGroupingRule CSSRule],
+        %w[CSSSupportsRule CSSConditionRule CSSGroupingRule CSSRule],
+        %w[CSSStyleRule CSSGroupingRule CSSRule],
+        %w[CSSImportRule CSSRule],
+        %w[CSSFontFaceRule CSSRule],
+        %w[CSSPageRule CSSGroupingRule CSSRule],
+        %w[CSSKeyframesRule CSSRule],
+        %w[CSSKeyframeRule CSSRule],
         # Collection interfaces, seeded so `result instanceof NodeList` /
         # `instanceof HTMLCollection` resolve (querySelectorAll, children, …).
         %w[NodeList], %w[HTMLCollection], %w[RadioNodeList NodeList],
@@ -151,6 +172,10 @@ module Dommy
         # so a DOMException crossing as a value (e.g. `signal.reason`) reports
         # `constructor === DOMException`, which assert_throws_dom checks.
         return ["DOMException"] if defined?(Dommy::DOMException) && obj.is_a?(Dommy::DOMException)
+        # One Ruby class backs every CSS rule, so which CSSOM interface a rule
+        # reports comes from its `type` — `@media` is a CSSMediaRule, a style
+        # rule is a CSSStyleRule, and so on.
+        return css_rule_chain(obj) if defined?(Dommy::CSSRule) && obj.instance_of?(Dommy::CSSRule)
 
         names = []
         klass = obj.class
@@ -159,11 +184,51 @@ module Dommy
           names << name if name && !names.include?(name)
           klass = klass.superclass
         end
+        # WebIDL bases Dommy has no Ruby class for, so the superclass walk above
+        # cannot find them.
+        IMPLICIT_BASES[names.first]&.each { |base| names << base unless names.include?(base) }
         if defined?(Dommy::Node) && obj.is_a?(Dommy::Node)
           names << "Node" unless names.include?("Node")
           names << "EventTarget" unless names.include?("EventTarget")
+        elsif defined?(Dommy::EventTarget) && obj.is_a?(Dommy::EventTarget)
+          # Every non-node EventTarget (FileReader, XMLHttpRequest, Worker, …)
+          # inherits EventTarget in its IDL too, but Dommy models EventTarget as
+          # a mixin rather than a superclass, so append it here.
+          names << "EventTarget" unless names.include?("EventTarget")
         end
         names
+      end
+
+      # WebIDL base interfaces that sit between a Dommy class and its root but
+      # have no Ruby class of their own, keyed by the most-derived interface.
+      # Spliced into the chain so `instanceof` matches the IDL hierarchy.
+      IMPLICIT_BASES = {
+        "Range" => %w[AbstractRange],
+        "XMLHttpRequest" => %w[XMLHttpRequestEventTarget],
+        "XMLHttpRequestUpload" => %w[XMLHttpRequestEventTarget]
+      }.freeze
+
+      # Whether this object's WebIDL interface depends on the instance rather
+      # than its Ruby class, so callers must not memoize the answer per class.
+      def polymorphic?(value)
+        defined?(Dommy::CSSRule) && value.instance_of?(Dommy::CSSRule)
+      end
+
+      # The interface chain for a CSS rule, keyed by CSSOM's `CSSRule.type`
+      # constant (spelled numerically so this file stays loadable on its own).
+      CSS_RULE_CHAINS = {
+        1 => %w[CSSStyleRule CSSGroupingRule CSSRule],       # STYLE_RULE
+        3 => %w[CSSImportRule CSSRule],                      # IMPORT_RULE
+        4 => %w[CSSMediaRule CSSConditionRule CSSGroupingRule CSSRule], # MEDIA_RULE
+        5 => %w[CSSFontFaceRule CSSRule],                    # FONT_FACE_RULE
+        6 => %w[CSSPageRule CSSGroupingRule CSSRule],        # PAGE_RULE
+        7 => %w[CSSKeyframesRule CSSRule],                   # KEYFRAMES_RULE
+        8 => %w[CSSKeyframeRule CSSRule],                    # KEYFRAME_RULE
+        12 => %w[CSSSupportsRule CSSConditionRule CSSGroupingRule CSSRule] # SUPPORTS_RULE
+      }.freeze
+
+      def css_rule_chain(rule)
+        CSS_RULE_CHAINS.fetch(rule.type) { %w[CSSRule] }
       end
 
       def name_for(klass)

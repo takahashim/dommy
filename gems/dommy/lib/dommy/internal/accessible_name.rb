@@ -24,6 +24,11 @@ module Dommy
       # Form controls whose name can come from an associated <label>.
       LABELABLE = %w[button input meter output progress select textarea].freeze
 
+      # Elements HTML-AAM names from their contents whatever role they compute
+      # to. A `<summary>`'s name is the disclosure text it shows, so a `title`
+      # on it stays a tooltip rather than becoming the name.
+      NAME_FROM_CONTENT_TAGS = %w[summary].freeze
+
       module_function
 
       # The accessible name string ("" when none). ASCII whitespace runs are
@@ -43,7 +48,10 @@ module Dommy
       # self-reference fall through to its own aria-label/content).
       # `allow_content`: name-from-content is permitted regardless of role (true
       # for referenced and recursed-into nodes); at the top it is role-gated.
-      def name_of(node, visited, referenced:, allow_content:)
+      # `hidden_root`: this traversal started at a node that was itself hidden (a
+      # directly referenced aria-labelledby target, or a hidden <label>), which
+      # per accname exempts the whole subtree from the hidden check.
+      def name_of(node, visited, referenced:, allow_content:, skip: nil, hidden_root: false)
         return "" unless node.respond_to?(:__dommy_backend_node__)
 
         # 1. aria-labelledby (not when already inside a labelledby traversal).
@@ -63,8 +71,10 @@ module Dommy
         # 4. Name from content (role-permitting, or when recursing). Guard
         #    against content cycles with the visited set.
         key = node.__dommy_backend_node__
-        if (allow_content || NAME_FROM_CONTENT.include?(node.computed_role)) && visited.none? { |v| v.equal?(key) }
-          content = content_name(node, visited + [key])
+        names_from_content = allow_content || NAME_FROM_CONTENT.include?(node.computed_role) ||
+                             NAME_FROM_CONTENT_TAGS.include?(node.local_name.to_s.downcase)
+        if names_from_content && visited.none? { |v| v.equal?(key) }
+          content = content_name(node, visited + [key], skip, hidden_root)
           # Preserve whitespace-only content: a space deep in the subtree is the
           # separator between sibling text runs ("button" + " " + "label").
           return content unless content.empty?
@@ -101,7 +111,9 @@ module Dommy
 
         parts = ids.map do |id|
           ref = doc.get_element_by_id(id)
-          ref ? name_of(ref, visited, referenced: true, allow_content: true) : ""
+          next "" unless ref
+
+          name_of(ref, visited, referenced: true, allow_content: true, hidden_root: hidden_for_name?(ref))
         end
         joined = parts.join(" ").strip
         joined.empty? ? nil : joined
@@ -173,7 +185,10 @@ module Dommy
         labels = associated_labels(node)
         return nil if labels.empty?
 
-        text = labels.map { |l| name_of(l, visited, referenced: false, allow_content: true) }.join(" ").strip
+        text = labels.map do |label|
+          name_of(label, visited, referenced: false, allow_content: true,
+            skip: node, hidden_root: hidden_for_name?(label))
+        end.join(" ").strip
         text.empty? ? nil : text
       end
 
@@ -202,7 +217,7 @@ module Dommy
       # Concatenate child text nodes and the names of element children, with the
       # `::before` content prepended and `::after` content appended (accname
       # name-from-content folds in generated content).
-      def content_name(node, visited)
+      def content_name(node, visited, skip = nil, hidden_root = false)
         bn = node.__dommy_backend_node__
         return "" unless bn.respond_to?(:children)
 
@@ -212,8 +227,17 @@ module Dommy
           elsif child.respond_to?(:element?) && child.element?
             wrapped = node.document.wrap_node(child)
             next "" unless wrapped
+            # The control a label names contributes nothing to that label's text
+            # — `<label>Name <select>…</select></label>` names the select "Name",
+            # not "Name" plus its own options.
+            next "" if skip && Backend.identity_key(skip.__dommy_backend_node__) == Backend.identity_key(child)
+            # A hidden subtree is not part of the name computed from content —
+            # unless the traversal started at a hidden node, which brings its
+            # whole subtree along.
+            next "" if !hidden_root && hidden_for_name?(wrapped)
 
-            name = name_of(wrapped, visited, referenced: false, allow_content: true)
+            name = name_of(wrapped, visited, referenced: false, allow_content: true,
+              skip: skip, hidden_root: hidden_root)
             # Concatenate contributions directly (inline content glues:
             # "button" + "" + "label" -> "buttonlabel"); a block-level box is
             # padded with spaces so sibling cells / blocks separate
@@ -225,6 +249,19 @@ module Dommy
         end.join
 
         pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
+      end
+
+      # Whether this element is excluded from a name computed from content. A
+      # node the author pointed at directly with aria-labelledby is still named
+      # even when hidden — this only governs the traversal INTO a subtree.
+      def hidden_for_name?(element)
+        return true if element.has_attribute?("hidden")
+        return true if element.get_attribute("aria-hidden").to_s == "true"
+
+        style = Internal::CSS::Cascade.computed_style(element)
+        style["display"].to_s == "none" || style["visibility"].to_s == "hidden"
+      rescue StandardError
+        false
       end
 
       # Elements that generate a block-level box by the UA stylesheet — used as

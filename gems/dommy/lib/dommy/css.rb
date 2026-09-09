@@ -303,9 +303,15 @@ module Dommy
     def set_property(name, value, priority = nil)
       key = name.to_s
       if value.nil? || value.to_s.empty?
+        # CSSOM step 3 — an empty value removes the declaration, and it runs
+        # before the priority check, so the priority is irrelevant here.
         @props.delete(key)
       else
-        important = priority.to_s.downcase == "important" ? "important" : ""
+        # CSSOM step 4 — an invalid priority abandons the call, leaving the
+        # declaration block exactly as it was.
+        important = Internal::CssPriority.normalize(priority)
+        return nil if important.nil?
+
         @props[key] = {value: value.to_s, priority: important}
       end
       flush!
@@ -458,8 +464,16 @@ module Dommy
       @parent_style_sheet = parent_style_sheet
     end
 
+    # CSSOM serializes a style rule as its selector plus its declaration block,
+    # so the text is rebuilt from the parsed declarations rather than echoed
+    # back: `#foo { color: red }` reads as `#foo { color: red; }`, and a block
+    # whose contents are not declarations at all serializes empty. An at-rule
+    # keeps its text as given.
     def css_text
-      @css_text
+      return @css_text unless style_rule?
+
+      declarations = style&.css_text.to_s
+      declarations.empty? ? "#{selector_text} { }" : "#{selector_text} { #{declarations} }"
     end
 
     def css_text=(v)
@@ -553,7 +567,7 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "cssText" then @css_text
+      when "cssText" then css_text
       when "type" then type
       when "selectorText" then selector_text
       when "style" then style

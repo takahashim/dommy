@@ -161,7 +161,14 @@ module Dommy
         rescue StandardError
           nil
         end
-        return DocumentType.new(backend_node: node, document: @document) if node
+        if node
+          clone = DocumentType.new(backend_node: node, document: @document)
+          # Register the wrapper against its backend node, so inserting the clone
+          # into a tree and reading it back returns THIS object rather than a
+          # freshly built one (`doc.replaceChildren(dt); doc.firstChild === dt`).
+          @document.__internal_register_wrapper__(node, clone)
+          return clone
+        end
       end
       DocumentType.new(name, public_id, system_id, owner_document: @owner_document)
     end
@@ -231,15 +238,23 @@ module Dommy
       @document = document
     end
 
+    # A name createDocumentType refuses. It is otherwise extremely permissive —
+    # "1foo", "@foo", "edi:%" and the empty string are all accepted — but a name
+    # carrying whitespace or ">" could not be serialized back as a doctype, and
+    # is an InvalidCharacterError.
+    UNSERIALIZABLE_DOCTYPE_NAME = /[\s>]/
+
     # A created DocumentType's node document is the implementation's document. When
     # the backend ships a doctype factory (the HTML backend) and accepts the name,
     # the result is a real, node-backed (but detached) DocumentType that can join
-    # the tree; otherwise it falls back to a synthetic one. (Qualified-name QName
-    # validation isn't enforced — createDocumentType is permissive, so the factory's
-    # stricter name check is bypassed via the synthetic fallback rather than
-    # raising; a couple of invalid-name WPT cases stay documented gaps.)
+    # the tree; otherwise it falls back to a synthetic one — the factory's own
+    # (stricter, XML-flavoured) name check is not the DOM rule.
     def create_document_type(qualified_name, public_id, system_id)
       qn = qualified_name.to_s
+      if qn.match?(UNSERIALIZABLE_DOCTYPE_NAME)
+        raise DOMException::InvalidCharacterError, "invalid doctype name: #{qn.inspect}"
+      end
+
       pub = public_id.to_s
       sys = system_id.to_s
       node =
@@ -446,6 +461,17 @@ module Dommy
     # webpack/Vite loading an on-demand chunk via document.head.appendChild). It
     # owns firing the element's load / error event. nil = such scripts are inert.
     attr_accessor :external_script_runner
+
+    # Installed by the browser when a JS runtime is present: re-runs the
+    # inline-handler scan so an `on*` attribute that arrived after boot (a cloned
+    # template, an innerHTML fragment) is compiled. nil without a runtime, which
+    # is also the fast path that keeps a JS-free document out of this entirely.
+    attr_accessor :inline_handler_wirer
+
+    def __internal_wire_inline_handlers__
+      @inline_handler_wirer&.call
+      nil
+    end
 
     def initialize(host = nil, backend_doc: nil, default_view: nil)
       @host = host
@@ -774,6 +800,10 @@ module Dommy
     # wrapper is owned by `this`. Per spec, the source node is left
     # in place. `deep: true` copies the entire subtree.
     def import_node(node, deep = false)
+      # An Attr is a Node but not a backend-tree node: it is copied by rebuilding
+      # it here with the same qualified name, namespace, prefix and value, owned
+      # by no element (importNode never attaches the copy to anything).
+      return import_attribute(node) if node.is_a?(Attr)
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
       # WebIDL `optional boolean deep = false`: a missing / undefined argument
@@ -781,6 +811,17 @@ module Dommy
       deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
       copy = clone_into_doc(node.__dommy_backend_node__, deep)
       wrap_node(copy)
+    end
+
+    def import_attribute(attr)
+      Attr.new(
+        attr.name,
+        value: attr.value,
+        namespace_uri: attr.namespace_uri,
+        prefix: attr.prefix,
+        local_name: attr.local_name,
+        document: self
+      )
     end
 
     # Move a node from another document into this one. The source
@@ -794,7 +835,9 @@ module Dommy
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
       src = node.__dommy_backend_node__
-      src.unlink if src.parent
+      # WHATWG adopt removes the node from its parent first — a full remove, so
+      # the old parent gets its removing steps AND its childList record.
+      remove_node_with_notify(src) if src.parent
 
       # Same document: just return the wrapper after the detach above.
       return wrap_node(src) if src.document == @backend_doc
@@ -909,18 +952,21 @@ module Dommy
     # mapping happy-dom and linkedom use.
     def create_event(type_name)
       name = type_name.to_s
-      case name
-      when "Event", "Events", "HTMLEvents"
-        Event.new("")
-      when "CustomEvent"
-        CustomEvent.new("")
-      when "MouseEvent", "MouseEvents"
-        MouseEvent.new("")
-      when "KeyboardEvent", "KeyboardEvents"
-        KeyboardEvent.new("")
-      else
-        Event.new("")
-      end
+      event =
+        case name
+        when "CustomEvent"
+          CustomEvent.new("")
+        when "MouseEvent", "MouseEvents"
+          MouseEvent.new("")
+        when "KeyboardEvent", "KeyboardEvents"
+          KeyboardEvent.new("")
+        else
+          Event.new("")
+        end
+      # createEvent hands back an *uninitialized* event: it has no type yet and
+      # dispatching it before initEvent() is an InvalidStateError.
+      event.__internal_mark_uninitialized__
+      event
     end
 
     # Stubs for layout / focus / selection / execCommand APIs that
@@ -1101,12 +1147,11 @@ module Dommy
       ensure_document_insertion_validity!([node], nil)
       return node unless node.respond_to?(:__dommy_backend_node__)
 
-      # appendChild adopts a node from another document (per spec). Only needed on
-      # a backend that can't move a node across documents (Makiri).
-      if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
-        node = adopt_node(node)
-      end
-      @backend_doc.add_child(node.__dommy_backend_node__)
+      bn = adopted_backend_node(node)
+      return node unless bn
+
+      @backend_doc.add_child(bn)
+      notify_document_child_list(added: [bn])
       node
     end
 
@@ -1121,6 +1166,7 @@ module Dommy
       else
         nodes.each { |n| @backend_doc.add_child(n) }
       end
+      notify_document_child_list(added: nodes)
       nil
     end
 
@@ -1128,8 +1174,11 @@ module Dommy
       # replaceChildren removes the current children first, so the validity
       # checks ignore them (whatwg/dom#1045).
       ensure_document_insertion_validity!(args, nil, ignore_existing: true)
-      @backend_doc.children.each(&:unlink)
-      args.filter_map { |a| adopted_backend_node(a) }.each { |n| @backend_doc.add_child(n) }
+      removed = @backend_doc.children.to_a
+      removed.each { |child| detach_node(child) }
+      added = args.filter_map { |a| adopted_backend_node(a) }
+      added.each { |n| @backend_doc.add_child(n) }
+      notify_document_child_list(added: added, removed: removed)
       nil
     end
 
@@ -1139,9 +1188,7 @@ module Dommy
       bn = backend_node(node)
       raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @backend_doc
 
-      run_node_iterator_pre_remove(bn)
-      __internal_ranges_will_remove__(bn)
-      bn.unlink
+      remove_node_with_notify(bn)
       node
     end
 
@@ -1165,6 +1212,7 @@ module Dommy
       else
         @backend_doc.add_child(bn)
       end
+      notify_document_child_list(added: [bn])
       node
     end
 
@@ -1176,19 +1224,27 @@ module Dommy
       # the document's existing element / doctype children.
       ensure_document_insertion_validity!([new_child], old_bn, exclude: old_bn)
 
-      # Remove old FIRST, then adopt the incoming node. A cross-document doctype
-      # is re-created in this backend, and Makiri's fail-closed guard refuses a
-      # second doctype — so the old one must be gone before the new is made.
       ref = old_bn.next
-      __internal_ranges_will_remove__(old_bn)
-      old_bn.unlink
-      if !Backend.moves_nodes_across_documents? && new_child.respond_to?(:document) && !new_child.document.equal?(self)
+      cross_document = !Backend.moves_nodes_across_documents? &&
+        new_child.respond_to?(:document) && !new_child.document.equal?(self)
+
+      # Same document: WHATWG replace adopts the incoming node — which removes
+      # it from whatever parent it has — BEFORE removing the child it replaces,
+      # so that old parent gets its removing steps and its childList record.
+      #
+      # Cross-document is deferred instead: a doctype has to be re-created in
+      # this backend, and Makiri's fail-closed guard refuses a second doctype,
+      # so the old one must be gone before the new one is made.
+      new_bn = adopted_backend_node(new_child) unless cross_document
+      detach_node(old_bn)
+      if cross_document
         new_child = adopt_node(new_child)
+        new_bn = backend_node(new_child)
       end
-      new_bn = backend_node(new_child)
       if new_bn
         ref && ref.parent == @backend_doc ? ref.add_previous_sibling(new_bn) : @backend_doc.add_child(new_bn)
       end
+      notify_document_child_list(added: new_bn ? [new_bn] : [], removed: [old_bn])
       old_child
     end
 
@@ -1198,9 +1254,7 @@ module Dommy
       node = backend_node(doctype) || Backend.internal_subset(@backend_doc)
       return nil unless node
 
-      run_node_iterator_pre_remove(node)
-      __internal_ranges_will_remove__(node)
-      node.unlink
+      remove_node_with_notify(node)
       nil
     end
 
@@ -1235,13 +1289,21 @@ module Dommy
     # `append_child` does, otherwise a cross-document node's backend node comes
     # from a foreign arena and the insertion silently drops it on a backend that
     # can't move nodes across documents (Makiri).
+    # WHATWG pre-insert: adopt the node into this document, which removes it
+    # from whatever parent it has now. The backend would detach it implicitly on
+    # the next add_child, but silently — that is a storage operation, not a DOM
+    # removal, so route it through the shared remove primitive instead and let
+    # the old parent see its removing steps and its childList record.
     def adopted_backend_node(node)
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
       if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
-        node = adopt_node(node)
+        return adopt_node(node)&.__dommy_backend_node__
       end
-      node.__dommy_backend_node__
+
+      bn = node.__dommy_backend_node__
+      remove_node_with_notify(bn) if bn.parent
+      bn
     end
 
     # Delegate to CookieJar
@@ -1721,6 +1783,55 @@ module Dommy
       @node_wrapper_cache.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
     end
 
+    # The task scheduler this document's own tasks run on: its browsing context's
+    # when it has one, otherwise the one handed to it by whatever built it (a
+    # DOMParser document has no defaultView but still queues tasks on the window
+    # whose script created it).
+    attr_writer :task_scheduler
+
+    def __internal_scheduler__
+      (@default_view&.scheduler if @default_view.respond_to?(:scheduler)) || @task_scheduler
+    end
+
+    # The parser sets `open` while building a `details`, so no attribute change
+    # ever ran for it: give every details in a freshly parsed document its
+    # insertion steps, which queue the toggle event it owes and settle each
+    # exclusive accordion group.
+    def __internal_run_parsed_details_steps__
+      return nil unless @backend_doc.respond_to?(:css)
+
+      elements = @backend_doc.css("details").filter_map { |node| wrap_node(node) }
+      HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
+      nil
+    end
+
+    # Bind an externally built wrapper to its backend node, so later traversals
+    # return the same Ruby object (JS identity) instead of building a new one.
+    def __internal_register_wrapper__(node, wrapper)
+      @node_wrapper_cache.register(node, wrapper)
+      wrapper
+    end
+
+    # The wrapper already cached for a backend node, or nil — never builds one.
+    def __internal_cached_wrapper__(node)
+      @node_wrapper_cache.cached_wrapper(node)
+    end
+
+    # Recorded when an element is created outside the HTML namespace or with a
+    # prefix. Deep cloning only has to carry that metadata across for a document
+    # that has some — which the overwhelming majority never do, so the ordinary
+    # `body.cloneNode(true)` keeps walking nothing.
+    def __internal_note_namespaced_element__(namespace, prefix)
+      return if namespace == Element::HTML_NAMESPACE && prefix.nil?
+
+      @namespaced_elements = true
+      nil
+    end
+
+    def __internal_namespaced_elements__?
+      @namespaced_elements == true
+    end
+
     # Clear the cached wrapper so the next `wrap_node` creates a new
     # one. Used by `customElements.define` to upgrade nodes that were
     # constructed before the registration landed.
@@ -1806,6 +1917,48 @@ module Dommy
       )
     end
 
+    # WHATWG "removing steps", run while `node` is STILL attached (they are all
+    # expressed in terms of the position it is about to vacate). Every path that
+    # takes a node out of its parent — an explicit removeChild, the implicit
+    # removal a move performs, replaceChildren, textContent=, fragment
+    # extraction — must go through here, or a live Range / NodeIterator anchored
+    # in the vacated position is left pointing at a detached node.
+    #
+    # A document with no live range and no NodeIterator has nothing to observe
+    # the vacated position, so the whole thing collapses to two predicate calls
+    # — this runs once per removed node, and a bulk replaceChildren /
+    # textContent= must not pay for machinery nobody is watching.
+    def pre_remove_node(node)
+      return nil if @node_iterators.empty? && !live_ranges?
+      return nil unless node.parent
+
+      run_node_iterator_pre_remove(node)
+      __internal_ranges_will_remove__(node)
+      nil
+    end
+
+    # A childList mutation on the DOCUMENT's own child list (its doctype, the
+    # document element, a stray comment). Document-level mutation is observable
+    # like any other — `observe(document, {childList: true})` is legal — so it
+    # goes through the same pipeline rather than only nudging live ranges.
+    def notify_document_child_list(added: [], removed: [])
+      notify_child_list_mutation(
+        target_node: @backend_doc,
+        added_nodes: added,
+        removed_nodes: removed
+      )
+    end
+
+    # The single detach primitive: pre-removing steps, then unlink. Callers that
+    # batch several removals into one childList record (replaceChildren,
+    # textContent=, replaceChild) use this and queue the record themselves;
+    # `remove_node_with_notify` is this plus a per-node record.
+    def detach_node(node)
+      pre_remove_node(node)
+      node.unlink
+      node
+    end
+
     # Unlink a backend node from its parent and queue a childList removal record
     # capturing the node's position (previous/next sibling) BEFORE the unlink, so
     # the record's previousSibling/nextSibling are correct (the coordinator can't
@@ -1816,9 +1969,7 @@ module Dommy
 
       prev_w = node.previous_sibling && wrap_node(node.previous_sibling)
       next_w = node.next_sibling && wrap_node(node.next_sibling)
-      run_node_iterator_pre_remove(node)
-      __internal_ranges_will_remove__(node)
-      node.unlink
+      detach_node(node)
       notify_child_list_mutation(
         target_node: parent,
         added_nodes: [],
@@ -1888,6 +2039,23 @@ module Dommy
         next unless index
 
         affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index) }
+      end
+    end
+
+    # WHATWG normalize() steps 6.1-6.4. `current` is a contiguous exclusive Text
+    # sibling whose data has just been appended to `node` at `length`; its own
+    # boundaries — and a parent-anchored boundary pointing AT it — follow the
+    # data into the merged node. Run for every merged sibling before any of them
+    # is removed, so the indices still describe the pre-removal tree.
+    def __internal_ranges_normalize_merge__(node, current, length)
+      return unless live_ranges?
+
+      merged_into = wrap_node(node)
+      current_wrapper = wrap_node(current)
+      parent = current.parent && wrap_node(current.parent)
+      index = parent && child_index_of_wrapper(parent, current_wrapper)
+      __internal_each_live_range__ do |range|
+        range.__internal_apply_normalize_merge__(merged_into, current_wrapper, length, parent, index)
       end
     end
 
@@ -2082,7 +2250,7 @@ module Dommy
         head.add_child(title)
       end
 
-      title.children.each(&:unlink)
+      title.children.to_a.each { |child| detach_node(child) }
       title.add_child(Backend.create_text(value, @backend_doc))
     end
 

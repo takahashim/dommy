@@ -39,15 +39,26 @@ module Dommy
       # Walk the backend element tree in document order, numbering each element and
       # recording it under its id / classes / tag.
       def populate(node)
-        child = node.first_element_child
-        while child
-          enter = (@counter += 1)
-          record(child, enter)
-          populate(child)
-          @extent[child.pointer_id] = [enter, @counter]
-          child = child.next_element
+        if node.respond_to?(:first_element_child)
+          child = node.first_element_child
+          while child
+            index_subtree(child)
+            child = child.next_element
+          end
+        else
+          # The XML backend has no first_element_child / next_element sibling
+          # walk (a Document there answers neither); its `element_children` list
+          # is the equivalent, at the cost of materializing one array per level.
+          node.element_children.each { |child| index_subtree(child) }
         end
         self
+      end
+
+      def index_subtree(child)
+        enter = (@counter += 1)
+        record(child, enter)
+        populate(child)
+        @extent[child.pointer_id] = [enter, @counter]
       end
 
       # Backend nodes for an indexable pre-filter ([:id|:class|:type, value]),

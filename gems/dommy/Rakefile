@@ -10,4 +10,28 @@ Rake::TestTask.new(:test) do |t|
   t.verbose = false
 end
 
+# The WebIDL audit (test/test_webidl_conformance.rb) measures Dommy against the
+# specs' own IDL, distilled into test/fixtures/webidl/. Both files are generated
+# artifacts: refresh them together when WPT moves, or after implementing
+# something the inventory currently records as missing.
+#
+#     rake webidl:refresh WPT=/path/to/web-platform-tests
+#
+# Needs node (for the webidl2.js parser vendored in that checkout); nothing else
+# in the suite does.
+namespace :webidl do
+  desc "Regenerate the WebIDL fixture + gap inventory from a web-platform-tests checkout"
+  task :refresh do
+    wpt = ENV["WPT"] or abort "usage: rake webidl:refresh WPT=/path/to/web-platform-tests"
+    sh "node", "script/build_webidl_fixture.js", wpt
+    Rake::Task["webidl:record"].invoke
+  end
+
+  desc "Re-record only the gap inventory (after implementing an interface or member)"
+  task :record do
+    sh({"RECORD_WEBIDL_GAPS" => "1"}, RbConfig.ruby, "-Ilib", "-Itest",
+       "test/test_webidl_conformance.rb")
+  end
+end
+
 task default: :test

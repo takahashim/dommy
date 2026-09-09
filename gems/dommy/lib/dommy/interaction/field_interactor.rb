@@ -148,14 +148,20 @@ module Dommy
       def toggle(box, checked)
         return box if box.checked == checked
 
-        box.checked = checked
-        # React (and other frameworks) detect checkbox/radio changes from the
-        # `click` event, not `change` — its ChangeEventPlugin uses
-        # shouldUseClickEvent for these inputs. Fire the full click sequence so
-        # the synthetic onChange runs, then input/change for plain listeners.
+        # A user checks a box by clicking it: the click's activation behavior
+        # flips the checkedness and fires input + change. React (and other
+        # frameworks) detect the change from the `click` event, not `change` —
+        # its ChangeEventPlugin uses shouldUseClickEvent for these inputs — so
+        # the full click sequence is what makes their onChange run.
         EventSynthesis.click(box)
-        EventSynthesis.input(box)
-        EventSynthesis.change(box)
+        # A radio cannot be unchecked by clicking, and a canceled click leaves
+        # the box as it was; fall back to setting the state directly so the
+        # driver's contract (`uncheck` unchecks) still holds.
+        unless box.checked == checked
+          box.checked = checked
+          EventSynthesis.input(box)
+          EventSynthesis.change(box)
+        end
         box
       end
 

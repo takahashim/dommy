@@ -117,18 +117,23 @@ module Dommy
 
       # The host object's interface name (chain.first), cached by class — the
       # name->descriptor mapping is per-interface, so this lookup is the cheap
-      # half of avoiding the describe crossing.
+      # half of avoiding the describe crossing. A class whose interface depends
+      # on the INSTANCE (one Ruby class backs every CSS rule) is asked every
+      # time, or the first rule seen would name the interface for all of them.
       def interface_name(value)
+        return derive_interface_name(value) if DomInterfaces.polymorphic?(value)
+
         @interface_name_cache ||= {}
         klass = value.class
         return @interface_name_cache[klass] if @interface_name_cache.key?(klass)
 
-        @interface_name_cache[klass] =
-          begin
-            DomInterfaces.info(value)["name"]
-          rescue StandardError
-            nil
-          end
+        @interface_name_cache[klass] = derive_interface_name(value)
+      end
+
+      def derive_interface_name(value)
+        DomInterfaces.info(value)["name"]
+      rescue StandardError
+        nil
       end
 
       # A value crosses as a proxy if it implements any of the bridge ABI — not
