@@ -216,6 +216,7 @@ module Dommy
       bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless bn && bn.parent == @__node__
 
+      @document.__internal_ranges_will_remove__(bn)
       bn.unlink
       node
     end
@@ -240,6 +241,7 @@ module Dommy
 
       ensure_pre_insertion_validity!(new_child, old_child)
       detach_dom_nodes(new_child).each { |n| old_bn.add_previous_sibling(n) }
+      @document.__internal_ranges_will_remove__(old_bn)
       old_bn.unlink
       old_child
     end
@@ -307,6 +309,9 @@ module Dommy
         # The new node is inserted right after self — a childList addition record.
         @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: [new_bn], removed_nodes: [])
       end
+      # Live ranges past the split point move to the tail node (the generic
+      # insert step above already shifted boundaries sitting further along).
+      @document.__internal_ranges_split_text__(self, off, new_node)
       new_node
     end
 
@@ -322,7 +327,11 @@ module Dommy
     end
 
     def data=(value)
+      # Assigning `data` is "replace data" over the whole node, so a live range
+      # boundary inside it clamps to the start rather than dangling past the end.
+      old_length = utf16_length(@__node__.content)
       write_data(value)
+      @document.__internal_ranges_replaced_data__(self, 0, old_length, utf16_length(@__node__.content))
     end
 
     def node_value
@@ -466,7 +475,10 @@ module Dommy
       raise DOMException::IndexSizeError, "offset out of bounds" if o > len
 
       c = [to_uint32(count), len - o].min
-      write_data(utf16_slice(s, 0, o) + dom_string(value) + utf16_slice(s, o + c, len - (o + c)))
+      inserted = dom_string(value)
+      write_data(utf16_slice(s, 0, o) + inserted + utf16_slice(s, o + c, len - (o + c)))
+      # Live ranges whose boundary sits in (or past) the replaced run follow it.
+      @document.__internal_ranges_replaced_data__(self, o, c, utf16_length(inserted))
     end
 
     def __js_get__(key)
@@ -1091,11 +1103,21 @@ module Dommy
     # block (`prop: value;` joined by spaces), dropping invalid declarations.
     # The setter reparses and rewrites the `style` attribute in that form.
     def css_text
-      serialize_properties(properties)
+      serialize_properties(declarations)
     end
 
     def css_text=(value)
       write_properties(parse_declarations(value))
+    end
+
+    # CSSOM getPropertyPriority: "important" for a declaration flagged
+    # `!important`, "" otherwise (including for an absent property).
+    def get_property_priority(name)
+      declarations[name.to_s]&.last.to_s
+    end
+
+    def get_property_value(name)
+      properties[name.to_s].to_s
     end
 
     def length
@@ -1168,20 +1190,49 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[setProperty removeProperty getPropertyValue item]
+    js_methods %w[setProperty removeProperty getPropertyValue getPropertyPriority item]
     def __js_call__(method, args)
       case method
       when "setProperty"
-        set_property(args[0], args[1])
+        set_property(args[0], args[1], args[2])
       when "removeProperty"
         remove_property(args[0])
       when "getPropertyValue"
-        properties[args[0].to_s]
+        get_property_value(args[0])
+      when "getPropertyPriority"
+        get_property_priority(args[0])
       when "item"
         properties.keys[args[0].to_i]
       else
         nil
       end
+    end
+
+    # CSSOM setProperty(property, value, priority?): an empty value removes the
+    # declaration; `priority` is "important" (any other value, including the
+    # omitted default, clears importance).
+    #
+    # Public: `method_missing` treats every unknown name as a CSS property, so a
+    # private CSSOM method would be silently swallowed rather than called.
+    def set_property(name, value, priority = nil)
+      key = name.to_s
+      decls = declarations
+      if value.nil? || value.to_s.empty?
+        decls.delete(key)
+      else
+        decls[key] = [value.to_s, normalize_priority(priority)]
+      end
+
+      write_properties(decls)
+      nil
+    end
+
+    def remove_property(name)
+      key = name.to_s
+      decls = declarations
+      removed = decls.delete(key)
+      write_properties(decls)
+      removed&.first.to_s
     end
 
     private
@@ -1192,34 +1243,26 @@ module Dommy
       s.include?("_") ? s.tr("_", "-") : s.gsub(/[A-Z]/) { |m| "-#{m.downcase}" }
     end
 
-    def set_property(name, value)
-      key = name.to_s
-      props = properties
-      if value.nil? || value.to_s.empty?
-        props.delete(key)
-      else
-        props[key] = value.to_s
-      end
-
-      write_properties(props)
-      nil
-    end
-
-    def remove_property(name)
-      key = name.to_s
-      props = properties
-      removed = props.delete(key)
-      write_properties(props)
-      removed
-    end
-
-    def properties
+    # The declaration block as an ordered { property => [value, priority] } hash,
+    # where priority is "important" or "".
+    def declarations
       parse_declarations(@element.__dommy_backend_node__["style"].to_s)
     end
 
-    # Parse a declaration block into an ordered { property => value } hash,
-    # dropping declarations whose value is invalid (empty, or — like the second
-    # colon in "color:: invalid" — containing a bare colon outside parentheses).
+    # Just the values, for the value-only readers (getPropertyValue, indexing,
+    # `style.color`) — an `!important` flag is metadata, never part of the value.
+    def properties
+      declarations.transform_values(&:first)
+    end
+
+    def normalize_priority(priority)
+      priority.to_s.strip.casecmp?("important") ? "important" : ""
+    end
+
+    # Parse a declaration block into an ordered { property => [value, priority] }
+    # hash, dropping declarations whose value is invalid (empty, or — like the
+    # second colon in "color:: invalid" — containing a bare colon outside
+    # parentheses).
     def parse_declarations(str)
       str.to_s.split(";").each_with_object({}) do |entry, out|
         key, value = entry.split(":", 2)
@@ -1227,9 +1270,16 @@ module Dommy
 
         name = key.strip
         val = value.strip
+        # Split the `!important` flag off the value before validating it, so the
+        # flag round-trips through cssText without leaking into the value.
+        priority = ""
+        if (stripped = val[/\A(.*?)!\s*important\s*\z/im, 1])
+          priority = "important"
+          val = stripped.strip
+        end
         next if name.empty? || !valid_declaration_value?(val)
 
-        out[name] = val
+        out[name] = [val, priority]
       end
     end
 
@@ -1247,17 +1297,19 @@ module Dommy
       true
     end
 
-    def serialize_properties(props)
-      props.map { |k, v| "#{k}: #{v};" }.join(" ")
+    def serialize_properties(decls)
+      decls.map do |k, (v, priority)|
+        "#{k}: #{v}#{priority.to_s.empty? ? "" : " !important"};"
+      end.join(" ")
     end
 
-    def write_properties(props)
+    def write_properties(decls)
       # Per CSSOM, mutating an inline style declaration serializes it back to the
       # `style` content attribute. An emptied declaration serializes to "" and
       # the attribute STAYS present (style="") — it is removed only via an
       # explicit removeAttribute("style"), never as a side effect of clearing the
       # last property.
-      @element.set_attribute("style", serialize_properties(props))
+      @element.set_attribute("style", serialize_properties(decls))
     end
   end
 
@@ -1552,6 +1604,7 @@ module Dommy
       removed = @__node__
       new_nodes = fragment.children.to_a
       mark_fragment_scripts_started(new_nodes)
+      @document.__internal_ranges_will_remove__(@__node__)
       @__node__.unlink
       if anchor
         new_nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
@@ -2108,6 +2161,11 @@ module Dommy
     # or the pre-click state is restored (default prevented). Elements with no
     # activation behavior (the default) just dispatch the event.
     def click
+      # HTML click(): "if this element is a form control that is disabled,
+      # then return" — a disabled control fires no event at all, so a listener
+      # bound to it never runs.
+      return false if __internal_actually_disabled__
+
       pre = pre_click_activation_state
       event = MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0)
       not_canceled = dispatch_event(event)
@@ -2118,6 +2176,12 @@ module Dommy
         restore_pre_click_activation(pre)
       end
       not_canceled
+    end
+
+    # WHATWG "actually disabled". Only the disable-able form controls can be,
+    # so the generic element never is; HTMLElement narrows it by local name.
+    def __internal_actually_disabled__
+      false
     end
 
     # Pre-click activation hooks (checkbox/radio toggle-then-maybe-revert). The
@@ -3143,6 +3207,7 @@ module Dommy
       # unlink (and record the removal) when old is still attached.
       removed = []
       if old_node.parent == @__node__
+        @document.__internal_ranges_will_remove__(old_node)
         old_node.unlink
         removed = [old_node]
       end

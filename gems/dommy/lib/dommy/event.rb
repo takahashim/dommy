@@ -51,7 +51,13 @@ module Dommy
       # registered as both a capture and a bubble listener is two listeners).
       capture = EventTarget.capture_flag(options)
       listeners_for(type.to_s).reject! do |entry|
-        entry.listener.equal?(listener) && entry.capture? == capture
+        next false unless entry.listener.equal?(listener) && entry.capture? == capture
+
+        # A dispatch already in flight iterates a *snapshot* of the list, so
+        # dropping the entry from the live list is not enough: flag it removed so
+        # the in-flight walk skips it (spec: "set listener's removed to true").
+        entry.removed = true
+        true
       end
       nil
     end
@@ -85,6 +91,13 @@ module Dommy
       # Per spec, dispatchEvent must receive an Event instance.
       raise TypeError, "dispatchEvent requires an Event, got #{event.class}" unless event.is_a?(Event)
 
+      # WHATWG dispatchEvent: an event whose dispatch flag is already set cannot
+      # be re-dispatched. Without this a listener that re-dispatches the event it
+      # is handling recurses until the Ruby stack overflows.
+      if event.__internal_dispatch_flag__
+        raise DOMException::InvalidStateError, "the event is already being dispatched"
+      end
+
       event.__internal_prepare_for_dispatch__(self)
       event.__internal_set_dispatch_flag__(true)
 
@@ -93,26 +106,43 @@ module Dommy
       path = event.__js_get__("composed") ? composed_bubble_path(event) : event_bubble_path
       event.__internal_record_path__(path) if event.respond_to?(:__internal_record_path__)
       ancestors = path[1..] || []
+      # The target each listener sees is retargeted against the tree the
+      # listener lives in, so a shadow tree's internals stay encapsulated.
+      dispatch_target = event.__js_get__("target") || self
 
       catch(:stop_propagation) do
         # Capturing phase: root → … → parent, capture listeners only.
         event.__internal_set_event_phase__(Event::CAPTURING_PHASE)
         ancestors.reverse_each do |node|
-          deliver_at(node, event, :capture)
+          deliver_at(node, event, :capture, dispatch_target)
         end
 
-        # At the target: both capture and bubble listeners.
+        # At the target: capture listeners run before bubble ones. The spec
+        # visits the target in BOTH the capturing and the bubbling pass (with
+        # eventPhase pinned to AT_TARGET), so registration order does not decide
+        # between them — and stopPropagation from a capture listener here also
+        # skips the target's own bubble listeners.
         event.__internal_set_event_phase__(Event::AT_TARGET)
-        deliver_at(self, event, :both)
+        deliver_at(self, event, :capture, dispatch_target)
+        deliver_at(self, event, :bubble, dispatch_target)
 
         # Bubbling phase: parent → … → root, bubble listeners only (only when
         # the event bubbles).
         if event.bubbles?
           event.__internal_set_event_phase__(Event::BUBBLING_PHASE)
           ancestors.each do |node|
-            deliver_at(node, event, :bubble)
+            deliver_at(node, event, :bubble, dispatch_target)
           end
         end
+      end
+
+      # Dispatch step 18 ("clear targets"): when the outermost target the path
+      # reached is still inside a shadow tree — an uncomposed event never leaves
+      # one — holding on to it afterwards would leak an encapsulated node, so
+      # `target` is cleared.
+      final_target = event.__js_get__("target")
+      if final_target.respond_to?(:root_node) && final_target.root_node.is_a?(ShadowRoot)
+        event.__internal_set_target__(nil)
       end
 
       # After dispatch, currentTarget reverts to null and eventPhase to NONE, and
@@ -127,12 +157,15 @@ module Dommy
 
     # Deliver `event` to one node's listeners for the current phase, then honor
     # stopPropagation (throws to end the whole walk after this node finishes).
-    def deliver_at(node, event, phase)
+    def deliver_at(node, event, phase, dispatch_target = nil)
       # Honor a stop-propagation flag set before reaching this node (including
       # one set before dispatch began) — the spec checks it before invoking a
       # node's listeners, not only after.
       throw :stop_propagation if event.propagation_stopped?
 
+      if dispatch_target && event.respond_to?(:__internal_set_target__)
+        event.__internal_set_target__(retarget_against(dispatch_target, node))
+      end
       event.__internal_set_current_target__(node)
       node.__internal_deliver_event__(event, phase)
       throw :stop_propagation if event.propagation_stopped?
@@ -143,6 +176,7 @@ module Dommy
     def __internal_deliver_event__(event, phase = :both)
       listeners = listeners_for(event.type).dup
       listeners.each do |entry|
+        next if entry.removed?
         next unless phase == :both || (phase == :capture ? entry.capture? : !entry.capture?)
 
         # Spec: a `once` listener is removed BEFORE its callback runs, so a nested
@@ -222,7 +256,12 @@ module Dommy
 
     private
 
-    Listener = Struct.new(:listener, :options, :event_handler) do
+    Listener = Struct.new(:listener, :options, :event_handler, :removed) do
+      # Set by removeEventListener. A listener removed by an earlier listener in
+      # the same dispatch must not be invoked, even though the dispatch walks a
+      # snapshot of the list taken before it ran.
+      def removed? = removed ? true : false
+
       # True when this listener was registered via an event handler IDL/content
       # attribute (el.onclick = fn / onclick="…"): its return value is processed
       # per the event handler processing algorithm (a false return cancels).
@@ -286,6 +325,42 @@ module Dommy
     def listeners_for(type)
       @event_listeners ||= Hash.new { |h, k| h[k] = [] }
       @event_listeners[type]
+    end
+
+    # WHATWG "retargeting": while `target` lives in a shadow tree that does not
+    # also contain `against`, hand it up to that tree's host. A listener outside
+    # a shadow boundary therefore sees the host, never the node inside it, which
+    # is what keeps a shadow tree encapsulated.
+    def retarget_against(target, against)
+      current = target
+      loop do
+        root = current.respond_to?(:root_node) ? current.root_node : nil
+        return current unless root.is_a?(ShadowRoot)
+        return current if shadow_including_inclusive_descendant?(against, root)
+
+        host = root.host
+        return current if host.nil?
+
+        current = host
+      end
+    end
+
+    # Whether `node` is `ancestor` (always a ShadowRoot here) or sits below it in
+    # the shadow-including tree. Walks root-to-host rather than parent-to-parent:
+    # `parentNode` deliberately stops at a shadow boundary, so only the root
+    # chain crosses it.
+    def shadow_including_inclusive_descendant?(node, ancestor)
+      current = node
+      while current
+        return true if current.equal?(ancestor)
+
+        root = current.respond_to?(:root_node) ? current.root_node : nil
+        return false unless root.is_a?(ShadowRoot)
+        return true if root.equal?(ancestor)
+
+        current = root.host
+      end
+      false
     end
 
     def event_bubble_path
@@ -433,6 +508,14 @@ module Dommy
       @target ||= target
     end
 
+    # The shadow-adjusted target for the node currently being visited. The
+    # dispatch algorithm recomputes it per node, so `event.target` reads
+    # differently on either side of a shadow boundary.
+    def __internal_set_target__(value)
+      @target = value
+      nil
+    end
+
     # End-of-dispatch cleanup: the dispatch algorithm unsets the stop-propagation
     # and stop-immediate-propagation flags (but NOT the canceled flag), so the
     # same event object can be dispatched again. A stopPropagation() issued
@@ -544,6 +627,12 @@ module Dommy
 
         init_event(args[0], args[1], args[2])
       end
+    end
+
+    # WHATWG "dispatch flag" — true while this event is being dispatched.
+    # dispatchEvent consults it to reject a re-entrant dispatch.
+    def __internal_dispatch_flag__
+      @dispatch_flag ? true : false
     end
 
     # Set while the event is being dispatched, so initEvent() can short-circuit.

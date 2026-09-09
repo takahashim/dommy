@@ -34,6 +34,15 @@ module Dommy
       @pending_promises = {}
     end
 
+    # Whether `name` is a valid custom element name. Also consulted by
+    # `element_class_for`: an unrecognized HTML-namespace name that is valid here
+    # is an *undefined custom element* (interface HTMLElement), not an unknown
+    # element (HTMLUnknownElement).
+    def self.valid_name?(name)
+      key = name.to_s
+      key.match?(NAME_RE) && !RESERVED_NAMES.include?(key)
+    end
+
     def define(name, klass, _options = nil)
       key = name.to_s
       unless key.match?(NAME_RE)
@@ -90,7 +99,13 @@ module Dommy
         # Force re-wrap by clearing the document's cached wrapper.
         @window.document.__internal_reset_wrapper__(nk)
         wrapped = @window.document.wrap_node(nk)
-        @window.document.__internal_notify_connected__(wrapped) if wrapped
+        next unless wrapped
+
+        replay_observed_attributes(wrapped)
+        # connectedCallback is enqueued only for an element that is actually in
+        # a document tree — `customElements.upgrade()` on a detached subtree
+        # upgrades it without connecting it.
+        @window.document.__internal_notify_connected__(wrapped) if wrapped.is_connected?
       end
 
       nil
@@ -135,7 +150,32 @@ module Dommy
 
         doc.__internal_reset_wrapper__(nk)
         wrapped = doc.wrap_node(nk)
-        doc.__internal_notify_connected__(wrapped) if wrapped
+        next unless wrapped
+
+        replay_observed_attributes(wrapped)
+        doc.__internal_notify_connected__(wrapped)
+      end
+    end
+
+    # "Upgrade an element" step 6: the element's *existing* attributes are
+    # replayed through attributeChangedCallback (oldValue null) before
+    # connectedCallback, so a definition registered after the markup was parsed
+    # still sees the attributes that were already there.
+    def replay_observed_attributes(element)
+      klass = element.class
+      return unless klass.respond_to?(:observed_attributes)
+
+      observed = Array(klass.observed_attributes).map { |a| a.to_s.downcase }
+      return if observed.empty?
+
+      element.get_attribute_names.each do |name|
+        next unless observed.include?(name.to_s.downcase)
+
+        # Routed through the coordinator so the callback's arity handling (the
+        # optional 4th namespace argument) stays in one place.
+        @window.document.__internal_notify_attribute_changed__(
+          element, name, nil, element.get_attribute(name)
+        )
       end
     end
 

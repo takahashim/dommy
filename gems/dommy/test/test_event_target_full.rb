@@ -57,7 +57,7 @@ class TestEventTargetFull < Minitest::Test
     assert_equal([:ran], received)
   end
 
-  def test_listener_removed_during_dispatch_still_completes_current
+  def test_listener_removed_during_dispatch_is_not_invoked
     seen = []
     later_handler = proc { seen << :later }
     @btn.add_event_listener(
@@ -69,8 +69,17 @@ class TestEventTargetFull < Minitest::Test
     )
     @btn.add_event_listener("click", later_handler)
     @btn.click
-    # The snapshot taken at dispatch start still invokes `later_handler`.
-    assert_equal([:first, :later], seen)
+    # WHATWG "inner invoke" walks a snapshot of the listener list but skips any
+    # entry whose removed flag is set, so removing a not-yet-invoked listener
+    # from an earlier listener cancels it for this dispatch too.
+    assert_equal([:first], seen)
+  end
+
+  def test_listener_added_during_dispatch_is_not_invoked
+    seen = []
+    @btn.add_event_listener("click", proc { @btn.add_event_listener("click", proc { seen << :late }) })
+    @btn.click
+    assert_empty(seen)
   end
 
   def test_dispatch_event_returns_true_when_no_default_prevented

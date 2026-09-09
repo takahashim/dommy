@@ -30,6 +30,17 @@ module Dommy
       false
     end
 
+    # The elements the HTML spec lets a `disabled` content attribute disable.
+    DISABLEABLE_LOCAL_NAMES = %w[button input select textarea optgroup option fieldset].freeze
+
+    # WHATWG "actually disabled": one of the disable-able form controls carrying
+    # `disabled`, or a control disabled by an ancestor <fieldset disabled>.
+    def __internal_actually_disabled__
+      return false unless DISABLEABLE_LOCAL_NAMES.include?(local_name.to_s)
+
+      has_attribute?("disabled") || disabled_by_ancestor_fieldset?
+    end
+
     # Shared "limited to only non-negative numbers" long reflection (maxLength /
     # minLength on input and textarea): a missing / negative / non-numeric
     # content attribute reads as -1; assigning a negative value throws.
@@ -4779,7 +4790,11 @@ module Dommy
     when SVG_NAMESPACE_URI
       SVG_ELEMENT_CLASSES[name.downcase] || SVGElement
     when HTML_NAMESPACE_URI
-      HTML_ELEMENT_CLASSES[name] || HTMLUnknownElement
+      # An unrecognized name that is a *valid custom element name* is an
+      # undefined custom element, and its interface is HTMLElement — only a
+      # genuinely unknown name falls through to HTMLUnknownElement.
+      HTML_ELEMENT_CLASSES[name] ||
+        (CustomElementRegistry.valid_name?(name) ? HTMLElement : HTMLUnknownElement)
     else
       Element
     end
