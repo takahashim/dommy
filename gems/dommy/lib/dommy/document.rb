@@ -673,7 +673,15 @@ module Dommy
 
     def document_element
       # The document's root element — `<html>` for HTML, the actual root for XML.
-      wrap_node(@backend_doc.root)
+      # It is the document's first ELEMENT child, so a document that has none
+      # answers null: the backend's `root` falls back to the doctype once the
+      # element is gone (`document.removeChild(documentElement)`, or a
+      # replaceChild that swaps it for a comment), and head / body / title
+      # resolve through this.
+      root = @backend_doc.root
+      return nil unless root&.element?
+
+      wrap_node(root)
     end
 
     def head
@@ -943,7 +951,8 @@ module Dommy
       # WebIDL `optional boolean deep = false`: a missing / undefined argument
       # is the default (false / shallow), not a truthy sentinel.
       deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
-      copy = clone_into_doc(node.__dommy_backend_node__, deep)
+      source_document = node.respond_to?(:document) ? node.document : self
+      copy = clone_into_doc(node.__dommy_backend_node__, deep, source_document)
       wrap_node(copy)
     end
 
@@ -956,6 +965,14 @@ module Dommy
         local_name: attr.local_name,
         document: self
       )
+    end
+
+    # The registry holding this document's `<template>` content fragments. A
+    # cross-document clone or adopt has to read the SOURCE document's registry:
+    # template contents are not in the template's child list, so they are
+    # reachable only through the registry that owns them.
+    def __internal_template_registry__
+      @template_content_registry
     end
 
     # Move a node from another document into this one. The source
@@ -1018,12 +1035,15 @@ module Dommy
       # the old document. Import preserves document order, so walk both subtrees in
       # lockstep.
       reseat_descendant_wrappers(src, adopted, src_doc_wrapper)
+      __internal_adopt_template_contents__(src, adopted, src_doc_wrapper)
       node
     end
 
     # Move each live wrapper for a descendant of `src_root` onto the matching node
     # in `dst_root` (the imported copy), pruning it from the source document.
-    def reseat_descendant_wrappers(src_root, dst_root, src_doc)
+    # `include_root` also reseats the root pair — adopt_node reseats its own root
+    # wrapper by hand, but a template's content fragment has no such caller.
+    def reseat_descendant_wrappers(src_root, dst_root, src_doc, include_root: false)
       return unless src_doc.respond_to?(:__internal_peek_wrapper__)
 
       src_nodes = collect_subtree_nodes(src_root)
@@ -1031,16 +1051,79 @@ module Dommy
       return unless src_nodes.length == dst_nodes.length
 
       src_nodes.zip(dst_nodes).each do |orig, copy|
-        next if orig.equal?(src_root) # the root wrapper is reseated by the caller
+        next if orig.equal?(src_root) && !include_root
 
-        wrapper = src_doc.__internal_peek_wrapper__(orig)
-        next unless wrapper
-
-        src_doc.__internal_reset_wrapper__(orig)
-        wrapper.instance_variable_set(:@document, self)
-        wrapper.instance_variable_set(:@__node__, copy)
-        @node_wrapper_cache.register(copy, wrapper)
+        reseat_wrapper(orig, copy, src_doc)
       end
+    end
+
+    def reseat_wrapper(orig, copy, src_doc)
+      return if orig.equal?(copy)
+
+      wrapper = src_doc.__internal_peek_wrapper__(orig)
+      return unless wrapper
+
+      src_doc.__internal_reset_wrapper__(orig)
+      wrapper.instance_variable_set(:@document, self)
+      wrapper.instance_variable_set(:@__node__, copy)
+      @node_wrapper_cache.register(copy, wrapper)
+    end
+
+    # WHATWG adopt for a raw backend node that has no wrapper of its own to
+    # reseat through #adopt_node — a DocumentFragment's children on a
+    # cross-document insert. Beyond the backend move it does what #adopt_node
+    # does for the node it is handed: reseat any live wrapper onto the adopted
+    # node, and carry a `<template>`'s contents across.
+    def __internal_adopt_backend_node__(node, source_document)
+      return node if node.document == @backend_doc
+
+      adopted = Backend.adopt(node, @backend_doc)
+      if source_document && !source_document.equal?(self)
+        reseat_wrapper(node, adopted, source_document)
+        reseat_descendant_wrappers(node, adopted, source_document)
+        __internal_adopt_template_contents__(node, adopted, source_document)
+      end
+      adopted
+    end
+
+    # HTML: adopting a `<template>` adopts its template contents DocumentFragment
+    # along with it — the SAME fragment object, so `template.content` keeps both
+    # its identity and its children across the move. The contents are not in the
+    # template's child list, so neither the backend's adopt nor the descendant
+    # reseat above ever reaches them; without this the adopted template comes out
+    # empty. Recurses, since a template's contents can hold further templates.
+    # Spec: https://html.spec.whatwg.org/#the-template-element (adopting steps)
+    def __internal_adopt_template_contents__(src_root, dst_root, src_doc)
+      return if src_doc.nil? || src_doc.equal?(self)
+      return unless src_doc.respond_to?(:__internal_template_registry__)
+
+      src_registry = src_doc.__internal_template_registry__
+      src_nodes = collect_subtree_nodes(src_root)
+      dst_nodes = collect_subtree_nodes(dst_root)
+      return unless src_nodes.length == dst_nodes.length
+
+      src_nodes.zip(dst_nodes).each do |orig, copy|
+        src_frag = src_registry.raw_fragment_for(orig)
+        next unless src_frag
+
+        adopt_one_template_content(src_frag, copy, src_doc)
+      end
+    end
+
+    def adopt_one_template_content(src_frag, template_copy, src_doc)
+      frag = Parser.fragment("", owner_doc: @backend_doc)
+      # Snapshot before moving: the backend either relocates each node in place
+      # (Nokogiri) or hands back an imported copy (Makiri, which cannot move a
+      # node between arenas), and the pairs drive the wrapper reseat either way.
+      src_frag.children.to_a.each do |child|
+        moved = Backend.adopt(child, @backend_doc)
+        __internal_adopt_template_contents__(child, moved, src_doc)
+        reseat_wrapper(child, moved, src_doc)
+        reseat_descendant_wrappers(child, moved, src_doc)
+        frag.add_child(moved)
+      end
+      @template_content_registry.store(template_copy, frag)
+      reseat_wrapper(src_frag, frag, src_doc)
     end
 
     # HTML "cloning steps": a cloned node copies interface-specific live state
@@ -1545,8 +1628,7 @@ module Dommy
       when "scrollingElement"
         wrap_node(@backend_doc.at_css("html"))
       when "documentElement"
-        # The document's root element — `<html>` for HTML, the actual root for XML.
-        wrap_node(@backend_doc.root)
+        document_element
       when "title"
         read_title
       when "cookie"
@@ -2311,7 +2393,7 @@ module Dommy
     # Build a Nokogiri copy of the given node inside our @backend_doc.
     # `deep: true` recurses into children. Used by importNode and
     # adoptNode for cross-document transfer.
-    def clone_into_doc(source, deep)
+    def clone_into_doc(source, deep, source_document = self)
       copy = if source.element?
         new_el = Backend.create_element(source.name, @backend_doc)
         Backend.attribute_nodes(source).each { |a| new_el[a.name] = a.value }
@@ -2338,10 +2420,10 @@ module Dommy
       if source.element? && source.name == "template"
         # A <template>'s contents live in a separate content fragment, not its
         # child list, so the generic deep pass over `children` misses them.
-        clone_template_content(source, copy) if deep
+        clone_template_content(source, copy, source_document) if deep
       elsif deep && source.respond_to?(:children)
         source.children.each do |child|
-          copy.add_child(clone_into_doc(child, true))
+          copy.add_child(clone_into_doc(child, true, source_document))
         end
       end
 
@@ -2353,13 +2435,14 @@ module Dommy
     # keeps it in a native content fragment, Nokogiri keeps it as direct children
     # before migration and in the registry after — so source it from the registry
     # fragment when migrated, else from Backend.template_content_nodes.
-    def clone_template_content(source, copy)
-      src_frag = @template_content_registry.raw_fragment_for(source)
+    def clone_template_content(source, copy, source_document = self)
+      registry = source_document.__internal_template_registry__
+      src_frag = registry.raw_fragment_for(source)
       content_nodes = src_frag ? src_frag.children.to_a : Backend.template_content_nodes(source)
       return if content_nodes.empty?
 
       frag = Parser.fragment("", owner_doc: @backend_doc)
-      content_nodes.each { |n| frag.add_child(clone_into_doc(n, true)) }
+      content_nodes.each { |n| frag.add_child(clone_into_doc(n, true, source_document)) }
       @template_content_registry.store(copy, frag)
     end
 
