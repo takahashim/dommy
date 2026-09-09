@@ -2127,19 +2127,14 @@ module Dommy
 
       # Decimal arithmetic, not binary: `step=0.003, value=3.6` is an exact
       # multiple in base 10 but not in IEEE-754, and `step=3e-15, value=17` is
-      # the reverse — the float division lands exactly on an integer. Going
-      # through each number's shortest round-trip decimal recovers the literal
-      # the author wrote and gets both right.
-      ratio = decimal(num - @host.validation_step_base) / decimal(step)
-      !ratio.frac.zero?
+      # the reverse — the float division lands exactly on an integer. Reading
+      # each number back from its shortest round-trip decimal recovers the
+      # literal the author wrote (Rational("3.6") is exactly 18/5) and gets
+      # both right.
+      ratio = Rational((num - @host.validation_step_base).to_s) / Rational(step.to_s)
+      ratio.denominator != 1
     rescue ArgumentError, FloatDomainError, ZeroDivisionError
       false
-    end
-
-    def decimal(float)
-      require "bigdecimal"
-
-      BigDecimal(float.to_s)
     end
 
     # `badInput` flags input that the user agent couldn't convert to
