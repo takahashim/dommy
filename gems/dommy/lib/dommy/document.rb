@@ -2124,6 +2124,27 @@ module Dommy
       next_sibling: nil
     )
       __internal_ranges_inserted__(target_node, added_nodes) unless added_nodes.empty?
+      queue_child_list_record(
+        target_node: target_node,
+        added_nodes: added_nodes,
+        removed_nodes: removed_nodes,
+        previous_sibling: previous_sibling,
+        next_sibling: next_sibling
+      )
+    end
+
+    # The record half of #notify_child_list_mutation, without the live range
+    # insertion steps. Every caller but one wants both together and calls
+    # #notify_child_list_mutation instead; "split a Text node" is the exception,
+    # because there the range steps and the record belong at different points in
+    # the algorithm (see TextNode#split_text).
+    def queue_child_list_record(
+      target_node:,
+      added_nodes:,
+      removed_nodes:,
+      previous_sibling: nil,
+      next_sibling: nil
+    )
       @mutation_coordinator.notify_child_list_mutation(
         target_node: target_node,
         added_nodes: added_nodes,
