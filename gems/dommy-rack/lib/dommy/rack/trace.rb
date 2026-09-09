@@ -36,6 +36,16 @@ module Dommy
       LEVELS = %i[off actions verbose].freeze
       REALM_TYPES = %i[script console js_error].freeze
 
+      # The app-call bracket's channels. The thread-locals are how in-app
+      # instrumentation (dommy-rails' TraceInstrumentation) finds the trace
+      # whose request is running on THIS thread; the env keys carry that
+      # request's spans — and the bracket's saved outer values — back to the
+      # response listener, which may run later and on another thread.
+      TRACE_THREAD_KEY = :__dommy_active_trace__
+      SPANS_THREAD_KEY = :__dommy_trace_spans__
+      SPANS_ENV_KEY = "dommy.trace.spans"
+      BRACKET_ENV_KEY = "dommy.trace.outer_bracket"
+
       # Build a Trace, wire it to the session's (and its runtime's) seams, and
       # return it. A `:off` trace wires nothing.
       def self.attach(session, level: :verbose, dom: false, filter: ParamFilter::DEFAULT, snapshots: false)
@@ -68,6 +78,11 @@ module Dommy
 
         @session.on_request { |env| __internal_on_request(env) }
         @session.on_response { |response| __internal_on_response(response) }
+        @session.on_abort { |env| __internal_on_abort(env) } if @session.respond_to?(:on_abort)
+        if @session.respond_to?(:on_app_start)
+          @session.on_app_start { |env| __internal_open_app_bracket(env) }
+          @session.on_app_finish { |env| __internal_close_app_bracket(env) }
+        end
 
         runtime = @session.respond_to?(:__internal_js_runtime) ? @session.__internal_js_runtime : nil
         if runtime
@@ -90,8 +105,9 @@ module Dommy
 
         @seq += 1
         @action_seq = @seq
-        @events << Event.new(seq: @seq, t: now_ms, wall_ms: monotonic_ms, type: :action, name: verb,
+        event = Event.new(seq: @seq, t: now_ms, wall_ms: monotonic_ms, type: :action, name: verb,
           action_seq: nil, data: {verb: verb, label: label, source: __internal_caller_source})
+        @events << event
         nil
       end
 
@@ -117,6 +133,10 @@ module Dommy
         nil
       end
 
+      # The configured sensitive-key filter — instrumentation layers mask
+      # values they record (SQL binds) with the SAME rules as form params.
+      def __internal_param_filter__ = @param_filter
+
       # --- Queries (read-only views over the event stream) ---
 
       def http = events_of(:http)
@@ -139,7 +159,7 @@ module Dommy
       def to_s = to_text
 
       def to_ndjson(status: "ok", wall_time: nil, metadata: nil)
-        inline = @artifacts.transform_values { |content| {content: content, encoding: "utf-8"} }
+        inline = InlineArtifacts.new(@artifacts)
         Ndjson.new(@events, level: @level, wall_time: wall_time, metadata: metadata,
           artifacts: inline, end_wall_ms: monotonic_ms).document(status: status)
       end
@@ -166,38 +186,109 @@ module Dommy
         dir
       end
 
+      # Lazily shapes an artifact's inline emission fields ({content:,
+      # encoding:}) by seq — the single owner of the inline wire shape that
+      # to_ndjson hands the serializer.
+      class InlineArtifacts
+        def initialize(artifacts)
+          @artifacts = artifacts
+        end
+
+        def [](seq)
+          content = @artifacts[seq]
+          content ? {content: content, encoding: "utf-8"} : nil
+        end
+      end
+
+      # Instrumentation entry point (reached via the thread-local): buffer an
+      # inside-the-request span (controller/db/render — anything an
+      # instrumentation layer measured). Emitted as completed span events,
+      # parented to the enclosing :http event, when the response arrives —
+      # spans finish before the response exists, so they can't reference it
+      # any earlier. Public; the surrounding request seams stay private.
+      #
+      # The buffer is the one the app-call bracket published thread-locally,
+      # not an ivar: a subresource fetch (JS `fetch`/XHR) runs the app on a
+      # network worker thread, so a per-Trace buffer would be a race AND would
+      # mis-attribute those spans to whatever the page thread was doing.
+      def __internal_record_span__(kind:, label:, duration_ms:, data: nil)
+        buffer = Thread.current[SPANS_THREAD_KEY]
+        return if @level == :off || buffer.nil?
+
+        buffer << {kind: kind.to_s, label: label.to_s,
+                   duration_ms: duration_ms.to_f.round(2), data: data}
+        nil
+      end
+
       private
 
       # Emit one event, gated by the recording level, and return it (or nil if
       # gated out). `seq` is the canonical order; `t` is the virtual clock if a
       # window exists.
-      def __internal_emit(type, data, name: nil, window: nil)
+      # `artifact:` carries the event's captured content (a DOM snapshot),
+      # stored under the event's seq alongside it.
+      def __internal_emit(type, data, name: nil, window: nil, artifact: nil)
         return if @level == :off
         return if REALM_TYPES.include?(type) && @level != :verbose
 
         @seq += 1
         event = Event.new(seq: @seq, t: window&.scheduler&.now_ms, wall_ms: monotonic_ms, type: type,
           name: name, action_seq: @action_seq, data: data)
+        @artifacts[event.seq] = artifact if artifact
         @events << event
         event
       end
 
-      # on_request fires before its on_response (single-threaded, per redirect
-      # hop), so stash the method/path here and emit the `:http` event when the
-      # response arrives with its status.
+      # on_request fires before its on_response (per redirect hop, in order),
+      # so stash the method/path here and emit the `:http` event when the
+      # response arrives with its status. The env is stashed too: the app-call
+      # bracket leaves this request's spans on it, and on the async-network
+      # path this listener runs after the app already finished.
       def __internal_on_request(env)
         @pending_request = {
           method: env["REQUEST_METHOD"],
           path: env["PATH_INFO"],
-          query: presence(env["QUERY_STRING"])
+          query: presence(env["QUERY_STRING"]),
+          env: env
         }
+        nil
+      end
+
+      # --- the app-call bracket (runs on the thread that calls the app) ---
+
+      # Expose this trace to in-app instrumentation (dommy-rails subscribes to
+      # ActiveSupport::Notifications and records spans through the thread-local)
+      # for exactly the duration of the app call, and give it a buffer to fill.
+      # The buffer rides on the env, so the response listener finds this
+      # request's spans even when the app ran on another thread.
+      #
+      # The previous values are saved rather than assumed nil: a nested request
+      # (an app that drives a Dommy session of its own) must restore its
+      # caller's bracket instead of tearing it down.
+      def __internal_open_app_bracket(env)
+        return if @level == :off
+
+        spans = []
+        env[SPANS_ENV_KEY] = spans
+        env[BRACKET_ENV_KEY] = [Thread.current[TRACE_THREAD_KEY], Thread.current[SPANS_THREAD_KEY]]
+        Thread.current[TRACE_THREAD_KEY] = self
+        Thread.current[SPANS_THREAD_KEY] = spans
+        nil
+      end
+
+      def __internal_close_app_bracket(env)
+        saved = env.delete(BRACKET_ENV_KEY)
+        return if saved.nil?
+
+        Thread.current[TRACE_THREAD_KEY] = saved[0]
+        Thread.current[SPANS_THREAD_KEY] = saved[1]
         nil
       end
 
       def __internal_on_response(response)
         request = @pending_request || {}
         @pending_request = nil
-        __internal_emit(:http, {
+        http = __internal_emit(:http, {
           method: request[:method],
           path: request[:path] || path_of(response.url),
           query: request[:query],
@@ -206,6 +297,36 @@ module Dommy
           location: response.location_header,
           set_cookie: response.set_cookie_strings.map { |raw| cookie_name(raw) }
         })
+        __internal_flush_spans(http, request[:env])
+      end
+
+      # The request never produced a Response (the app raised): record the
+      # aborted request itself, with the spans the closed bracket left on the
+      # env, so the trace shows what ran before the exception.
+      def __internal_on_abort(env)
+        request = @pending_request || {}
+        @pending_request = nil
+        http = __internal_emit(:http, {
+          method: request[:method] || env["REQUEST_METHOD"],
+          path: request[:path] || env["PATH_INFO"],
+          query: request[:query],
+          status: nil,
+          aborted: true
+        })
+        __internal_flush_spans(http, request[:env] || env)
+      end
+
+      def __internal_flush_spans(http_event, env)
+        spans = env && env.delete(SPANS_ENV_KEY)
+        return if spans.nil? || spans.empty? || http_event.nil?
+
+        spans.each do |span|
+          payload = {kind: span[:kind], label: span[:label],
+                     duration_ms: span[:duration_ms], parent: http_event.seq}
+          payload.merge!(span[:data]) if span[:data]
+          __internal_emit(:span, payload)
+        end
+        nil
       end
 
       def __internal_on_document(window)
@@ -219,10 +340,9 @@ module Dommy
         html = @session.document&.to_html
         return unless html
 
-        event = __internal_emit(:artifact,
+        __internal_emit(:artifact,
           {kind: "dom_snapshot", label: "DOM #{@session.current_url}", content_type: "text/html"},
-          window: window)
-        @artifacts[event.seq] = html if event
+          window: window, artifact: html)
       end
 
       # --- DOM observation ---

@@ -17,6 +17,13 @@ module Dommy
     #   it as `last_request` and fires request listeners; an async path routes the
     #   same notification through the scheduler inbox).
     # * `on_response` — observe the Response (response listeners).
+    # * `on_abort`    — observe an env whose `@app.call` raised (no Response).
+    # * `on_app_start` / `on_app_finish` — bracket the app call ITSELF. Unlike
+    #   the observation hooks above (which an async path routes through the
+    #   scheduler inbox, i.e. LATER and on the page thread), these run inline,
+    #   on whatever thread calls the app, so per-request state a hook installs
+    #   for the app to find — the Trace's thread-local — is live exactly while
+    #   the app runs. Anything they need to hand back travels on the env.
     #
     # Reload bookkeeping (`last_request_args`) and history/document application are
     # NOT here: they belong to the page thread and stay in Session / Navigation.
@@ -24,13 +31,17 @@ module Dommy
       # @param headers [HeaderStore, Hash] anything responding to `merge(overrides)
       #   -> Hash`; the Session passes its live HeaderStore for the page path, a
       #   plain snapshot Hash for a worker path.
-      def initialize(app:, config:, cookie_jar:, headers:, on_request: nil, on_response: nil)
+      def initialize(app:, config:, cookie_jar:, headers:, on_request: nil, on_response: nil, on_abort: nil,
+        on_app_start: nil, on_app_finish: nil)
         @app = app
         @config = config
         @cookie_jar = cookie_jar
         @headers = headers
         @on_request = on_request
         @on_response = on_response
+        @on_abort = on_abort
+        @on_app_start = on_app_start
+        @on_app_finish = on_app_finish
       end
 
       # Perform one request and return its Response. `headers` are per-request
@@ -45,7 +56,20 @@ module Dommy
           cookie_string: @cookie_jar.cookies_for(absolute_url)
         )
         @on_request&.call(env)
-        status, response_headers, response_body = @app.call(env)
+        # on_app_start opened a request bracket (the Trace exposes itself
+        # thread-locally inside it); an app exception must still close it, or
+        # per-request state leaks past the failed request. Close it BEFORE
+        # on_abort, which reads what the bracket left on the env. The exception
+        # itself propagates unchanged.
+        @on_app_start&.call(env)
+        begin
+          status, response_headers, response_body = @app.call(env)
+        rescue ::Exception # rubocop:disable Lint/RescueException -- close the bracket for ANY abort
+          @on_app_finish&.call(env)
+          @on_abort&.call(env)
+          raise
+        end
+        @on_app_finish&.call(env)
         response = Response.new(status, response_headers, response_body, url: absolute_url)
         response.set_cookie_strings.each do |sc|
           @cookie_jar.store_from_header(sc, absolute_url)

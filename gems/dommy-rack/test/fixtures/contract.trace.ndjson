@@ -1,0 +1,11 @@
+{"seq":0,"op":"trace_start","t":null,"wall_ms":0.0,"version":2,"level":"verbose"}
+{"seq":1,"op":"action","t":null,"wall_ms":0.0,"verb":"visit","label":"/form","source":"test/support/trace_contract.rb:45"}
+{"seq":2,"op":"http","t":null,"wall_ms":2.6,"action":1,"method":"GET","path":"/form","query":null,"status":200,"content_type":"text/html","location":null,"set_cookie":[]}
+{"seq":3,"op":"document","t":0,"wall_ms":35.0,"action":1,"url":"http://example.org/form","title":"Form"}
+{"seq":4,"op":"action","t":0,"wall_ms":35.4,"verb":"click_button","label":"Create","source":"test/support/trace_contract.rb:47"}
+{"seq":5,"op":"form","t":null,"wall_ms":35.7,"action":4,"method":"POST","path":"/submit","params":{"title":"Hello","commit":""}}
+{"seq":6,"op":"http","t":null,"wall_ms":35.8,"action":4,"method":"POST","path":"/submit","query":null,"status":302,"content_type":"text/html","location":"/done","set_cookie":[]}
+{"seq":7,"op":"http","t":null,"wall_ms":35.9,"action":4,"method":"GET","path":"/done","query":null,"status":200,"content_type":"text/html","location":null,"set_cookie":[]}
+{"seq":8,"op":"document","t":0,"wall_ms":35.9,"action":4,"url":"http://example.org/done","title":"Done"}
+{"seq":9,"op":"error","t":0,"wall_ms":36.0,"action":4,"label":"Expectation failed","source":"spec/contract_spec.rb:12","data":{"exception_class":"Minitest::Assertion","message":"expected to find text \"Missing\""}}
+{"seq":10,"op":"trace_end","t":0,"wall_ms":36.0,"status":"failed"}

@@ -108,6 +108,35 @@ expect(mail).to have_html_text("Confirm your account")
 expect(mail).to have_plain_text("Welcome")
 ```
 
+## Failure traces in CI
+
+A failed browser test saves a self-contained bundle under
+`tmp/dommy/failures/<example-slug>/` — the page HTML, the readable trace,
+and a machine-readable `trace.ndjson` (with Rails-internals spans:
+controller, SQL, renders, jobs, mail) that the standalone `dommylizer`
+viewer opens. The failure output prints the exact path and command.
+
+To keep them from CI runs, upload the directory as an artifact:
+
+```yaml
+# GitHub Actions
+- uses: actions/upload-artifact@v4
+  if: failure()
+  with:
+    name: dommy-traces
+    path: tmp/dommy/failures/
+```
+
+Then download the artifact locally and run
+`dommylizer tmp/dommy/failures/<example>/trace.ndjson`.
+
+SQL bind values are excluded from traces by default. To include them
+(masked through the same sensitive-key filter as form params):
+
+```ruby
+Dommy::Rails::TraceInstrumentation.install!(binds: true)
+```
+
 ## URL normalization
 
 `have_link(href:)`, `have_form(action:)`, and their Minitest counterparts
