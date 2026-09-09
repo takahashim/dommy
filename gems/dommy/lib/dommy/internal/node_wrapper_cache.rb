@@ -18,15 +18,21 @@ module Dommy
       def initialize(document)
         @document = document
         @wrappers = {}
+        # Identity recycling (see #wrap) needs a transient node to free, and
+        # transient nodes come from fragment parses. While no fragment parse
+        # has happened since this cache was born, a hit needs no liveness
+        # validation — skipping its backend round trip.
+        @initial_fragment_generation = Parser.fragment_generation
         # Memoizes document-rooted CSS query results within a DOM generation.
         # querySelector(All) over a large tree is a full descendant walk, yet a
         # heavy page issues the SAME selector hundreds of times between mutations
-        # (measured ~87% repeats on a real site). `Document#style_generation`
-        # bumps on every childList / attribute / characterData mutation — and on
-        # focus / active-element changes too, so `:focus`-dependent selectors are
-        # invalidated correctly — so a result tagged with the generation it was
-        # computed in stays valid until the next mutation, then is recomputed
-        # lazily. Keyed by [kind, selector] => [generation, value].
+        # (measured ~87% repeats on a real site). `Document#dom_generation`
+        # bumps on every match-relevant mutation (childList / attributes /
+        # emptiness-flipping characterData) — and on focus / active-element
+        # changes too, so `:focus`-dependent selectors are invalidated
+        # correctly — so a result tagged with the generation it was computed
+        # in stays valid until the next mutation, then is recomputed lazily.
+        # Keyed by [kind, selector] => [generation, value].
         @query_cache = {}
       end
 
@@ -47,7 +53,13 @@ module Dommy
         # clone resolving to a cached TextNode). Validate cheaply via nodeType —
         # compared against a static class→type map so we never dereference the
         # cached wrapper's (possibly freed) backend node — and rebuild on a miss.
-        return cached if cached && cached_wrapper_live?(cached, node)
+        # No fragment parse since this cache was born means nothing transient
+        # could have been cached or recycled, so the validation (a backend
+        # round trip per hit) is skipped entirely.
+        if cached
+          return cached if @initial_fragment_generation == Parser.fragment_generation ||
+                           cached_wrapper_live?(cached, node)
+        end
 
         wrapper = build_wrapper_for(node)
         @wrappers[key] = wrapper if wrapper
@@ -128,7 +140,7 @@ module Dommy
       end
 
       def create_document_fragment
-        wrap_node(@document.backend_doc.fragment(""))
+        wrap_node(Parser.fragment("", owner_doc: @document.backend_doc))
       end
 
       def create_attribute(name)
@@ -316,7 +328,7 @@ module Dommy
       # DOM generation, else nil (a miss, or a stale entry the caller recomputes).
       def query_cache_get(kind, selector)
         entry = @query_cache[[kind, selector]]
-        return nil unless entry && entry[0] == @document.style_generation
+        return nil unless entry && entry[0] == @document.dom_generation
 
         entry[1]
       end
@@ -325,7 +337,7 @@ module Dommy
       # clearing the cache wholesale if it has grown past the cap.
       def query_cache_set(kind, selector, value)
         @query_cache.clear if @query_cache.size >= QUERY_CACHE_CAP
-        @query_cache[[kind, selector]] = [@document.style_generation, value]
+        @query_cache[[kind, selector]] = [@document.dom_generation, value]
       end
 
       # DOM identity key for a backend node, delegated to the backend since

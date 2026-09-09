@@ -27,7 +27,7 @@ module Dommy
       @delegates_focus = !!delegates_focus
       @slot_assignment = slot_assignment.to_s
       @document = host.document
-      @__node__ = @document.backend_doc.fragment("")
+      @__node__ = Parser.fragment("", owner_doc: @document.backend_doc)
       @document.__internal_register_shadow_fragment__(@__node__, self)
     end
 

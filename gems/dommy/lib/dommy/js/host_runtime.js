@@ -452,10 +452,23 @@ globalThis.__rbHost = (function () {
   function memberMethodStub(name) {
     const coerce = NODE_OR_STRING_METHODS.has(name);
     const readOnly = NON_MUTATING_METHODS.has(name);
-    return withArity(function (...args) {
+    const stub = withArity(function (...args) {
+      // Resolve back through the receiver: the proxy get trap returns the
+      // specialized per-proxy wrapper (epoch bumps, cached getAttribute, the
+      // dispatchEvent fast path and its JS-event handling), which prototype
+      // extraction (Interface.prototype.m.call(el, …)) must not bypass. The
+      // get trap intercepts before the prototype, so this doesn't recurse —
+      // except for collections' PROTO_RESOLVED_METHODS, which resolve to this
+      // very stub; the self-check falls through to the raw call then, which
+      // still brackets a mutating call with the epoch bumps itself.
+      if (isProxy(this)) {
+        const fn = this[name];
+        if (typeof fn === "function" && fn !== stub) return fn.apply(this, args);
+      }
       const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
       return readOnly ? rehydrate(__rb_host_call(this[HKEY], name, wire)) : callMutating(this[HKEY], name, wire);
     }, name);
+    return stub;
   }
 
   function callMutating(handle, name, wire) {
@@ -907,7 +920,13 @@ globalThis.__rbHost = (function () {
       // A host byte buffer tagged as an ArrayBuffer (Response/Blob/FileReader/
       // XHR arrayBuffer) rehydrates to a bare ArrayBuffer.
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
-      if ("__rb_handle" in v) return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+      if ("__rb_handle" in v) {
+        // A dispatch-in-flight host twin resolves to its JS event, so a
+        // listener's argument IS the object the caller constructed.
+        const jsEvent = jsEventByHandle.get(v.__rb_handle);
+        if (jsEvent !== undefined) return jsEvent;
+        return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+      }
       // An opaque JS-value reference round-tripping back from Ruby — restore the
       // exact original object (identity-preserving).
       if ("__rb_js_ref" in v) return jsRefs.get(v.__rb_js_ref);
@@ -959,7 +978,13 @@ globalThis.__rbHost = (function () {
       if ("__rb_js_ref" in v) return jsRefs.get(v.__rb_js_ref);
       if (v.__rb_bytes) return new Uint8Array(v.__rb_bytes);
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
-      if ("__rb_handle" in v) return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+      if ("__rb_handle" in v) {
+        // A dispatch-in-flight host twin resolves to its JS event, so a
+        // listener's argument IS the object the caller constructed.
+        const jsEvent = jsEventByHandle.get(v.__rb_handle);
+        if (jsEvent !== undefined) return jsEvent;
+        return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+      }
       const out = {};
       for (const k of Object.keys(v)) out[k] = wasmUntag(v[k]);
       return out;
@@ -1192,7 +1217,149 @@ globalThis.__rbHost = (function () {
     return [type, dict];
   }
 
+  // ===== JS-side Event/CustomEvent (docs/js-side-events-design.md) =====
+  // `new Event/CustomEvent` builds a pure-JS object on the seeded interface
+  // prototype — no crossing. A host twin is materialized only when a dispatch
+  // takes the slow (listened) path; while it's in flight, live state
+  // (defaultPrevented/eventPhase/target/…) delegates to the twin, and
+  // jsEventByHandle lets rehydrate hand listeners the IDENTICAL JS object.
+  const JS_EVENT = Symbol("dommyJsEvent");
+  const jsEventByHandle = new Map(); // twin handle -> JS event, during dispatch
+  // Shared accessor/method functions (WPT checks e.g. the isTrusted getter is
+  // the SAME function across instances), reading state via this[JS_EVENT].
+  const jsEventState = (self) => self[JS_EVENT];
+  const JS_EVENT_MEMBERS = {
+    type: { get: function () { return jsEventState(this).type; } },
+    bubbles: { get: function () { return jsEventState(this).bubbles; } },
+    cancelable: { get: function () { return jsEventState(this).cancelable; } },
+    composed: { get: function () { return jsEventState(this).composed; } },
+    timeStamp: { get: function () { return jsEventState(this).timeStamp; } },
+    defaultPrevented: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.defaultPrevented : s.canceled;
+    } },
+    eventPhase: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.eventPhase : 0;
+    } },
+    target: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.target : s.target;
+    } },
+    srcElement: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.target : s.target;
+    } },
+    currentTarget: { get: function () {
+      const s = jsEventState(this); return s.host ? s.host.currentTarget : null;
+    } },
+    returnValue: {
+      get: function () { const s = jsEventState(this); return s.host ? s.host.returnValue : !s.canceled; },
+      set: function (v) {
+        const s = jsEventState(this);
+        if (s.host) { s.host.returnValue = v; return; }
+        // Legacy: falsy cancels (when cancelable); truthy does not un-cancel.
+        if (!v && s.cancelable) s.canceled = true;
+      },
+    },
+    cancelBubble: {
+      get: function () { const s = jsEventState(this); return s.host ? s.host.cancelBubble : s.stopped; },
+      set: function (v) { if (v) this.stopPropagation(); },
+    },
+    preventDefault: { value: function () {
+      const s = jsEventState(this);
+      if (s.host) { s.host.preventDefault(); return; }
+      if (s.cancelable) s.canceled = true;
+    } },
+    stopPropagation: { value: function () {
+      const s = jsEventState(this);
+      if (s.host) s.host.stopPropagation();
+      s.stopped = true;
+    } },
+    stopImmediatePropagation: { value: function () {
+      const s = jsEventState(this);
+      if (s.host) s.host.stopImmediatePropagation();
+      s.stopped = true;
+    } },
+    // Legacy re-init: a no-op while the event is being dispatched.
+    initEvent: { value: function (type, bubbles, cancelable) {
+      const s = jsEventState(this);
+      if (s.host) return;
+      s.type = String(type);
+      s.bubbles = !!bubbles;
+      s.cancelable = !!cancelable;
+      s.canceled = false;
+      s.stopped = false;
+      s.target = null;
+    } },
+    // Outside dispatch the composed path is empty per spec.
+    composedPath: { value: function () {
+      const s = jsEventState(this); return s.host ? s.host.composedPath() : [];
+    } },
+  };
+  const JS_EVENT_DETAIL = { get: function () { return jsEventState(this).detail; }, enumerable: true, configurable: true };
+  const JS_EVENT_INIT_CUSTOM = { value: function (type, bubbles, cancelable, detail) {
+    const s = jsEventState(this);
+    if (s.host) return; // no-op while dispatching, like initEvent
+    this.initEvent(type, bubbles, cancelable);
+    s.detail = detail === undefined ? null : detail;
+  }, writable: true, enumerable: false, configurable: true };
+  // [LegacyUnforgeable]: an own, non-configurable accessor, like host events'.
+  const JS_EVENT_IS_TRUSTED = { get: function () { return false; }, enumerable: true, configurable: false };
+
+  // A per-interface prototype carrying the JS-event members ONCE (they shadow
+  // the seeded interface stubs, which delegate through a host handle a JS
+  // event doesn't have; each member reads this[JS_EVENT] so it works as an
+  // inherited accessor). Built lazily, so construction installs only the two
+  // genuinely per-instance own props (the state slot + unforgeable isTrusted)
+  // rather than ~20 defineProperty calls per event.
+  function defineJsEventMembers(target, name) {
+    for (const key of Object.keys(JS_EVENT_MEMBERS)) {
+      const m = JS_EVENT_MEMBERS[key];
+      const d = { configurable: true };
+      if (m.value) { d.value = m.value; d.writable = true; d.enumerable = false; }
+      else { d.get = m.get; d.enumerable = true; if (m.set) d.set = m.set; }
+      Object.defineProperty(target, key, d);
+    }
+    if (name === "CustomEvent") {
+      Object.defineProperty(target, "detail", JS_EVENT_DETAIL);
+      Object.defineProperty(target, "initCustomEvent", JS_EVENT_INIT_CUSTOM);
+    }
+  }
+
+  const jsEventProtoByName = new Map();
+  function jsEventProtoFor(name) {
+    let proto = jsEventProtoByName.get(name);
+    if (proto) return proto;
+    proto = Object.create(protos.get(name));
+    defineJsEventMembers(proto, name);
+    jsEventProtoByName.set(name, proto);
+    return proto;
+  }
+
+  function makeJsEvent(name, type, dict) {
+    const ev = Object.create(jsEventProtoFor(name));
+    const nowv = (typeof performance === "object" && performance !== null &&
+      typeof performance.now === "function") ? performance.now() : 0;
+    const state = {
+      name, type,
+      bubbles: dict.bubbles === true, cancelable: dict.cancelable === true,
+      composed: dict.composed === true,
+      detail: "detail" in dict ? dict.detail : null,
+      // Strictly positive: creation always follows the time origin, but the
+      // clock's first read can round to 0 (WPT asserts timeStamp > 0).
+      timeStamp: nowv > 0 ? nowv : 0.001,
+      canceled: false, stopped: false, target: null, host: null,
+    };
+    Object.defineProperty(ev, JS_EVENT, { value: state });
+    // isTrusted is [LegacyUnforgeable] — an OWN non-configurable accessor
+    // (getOwnPropertyDescriptor(ev, "isTrusted") must resolve it), so it
+    // stays per-instance even though every event answers false.
+    Object.defineProperty(ev, "isTrusted", JS_EVENT_IS_TRUSTED);
+    return ev;
+  }
+
   function constructInterface(name, args) {
+    if (name === "Event" || name === "CustomEvent") {
+      const coerced = coerceConstructorArgs(name, args);
+      return makeJsEvent(name, coerced[0], coerced[1]);
+    }
     const r = rehydrate(__rb_construct(name, dehydrateArgs(coerceConstructorArgs(name, args))));
     if (r == null) throw new TypeError("Illegal constructor");
     return r;
@@ -1271,7 +1438,12 @@ globalThis.__rbHost = (function () {
       // handled (and returned) by the construction-stack / HTMLElement paths
       // above, so reaching here with nt !== ctor is a plain interface subclass.
       if (nt !== ctor && built && typeof built === "object") {
+        // A JS-side event (built[JS_EVENT]) carries its members on an
+        // intermediate prototype that this setPrototypeOf discards; reinstall
+        // them as own props so a subclassed Event/CustomEvent still works.
+        const evState = built[JS_EVENT];
         Object.setPrototypeOf(built, nt.prototype);
+        if (evState !== undefined) defineJsEventMembers(built, evState.name);
       }
       return built;
     };
@@ -1608,6 +1780,43 @@ globalThis.__rbHost = (function () {
   // invalidation concern.
   const CONST_NODE_PROPS = new Set(["nodeType", "nodeName", "localName", "tagName"]);
 
+  // Interface-specific lifetime-constant props (same contract as
+  // CONST_NODE_PROPS, but names too generic to cache globally — `name` is
+  // mutable on inputs, immutable on an Attr). Morph libraries iterate
+  // el.attributes reading every Attr's name; caching it removes one crossing
+  // per read after the first.
+  const CONST_IFACE_PROPS = new Map([
+    ["Attr", new Set(["name", "localName", "namespaceURI", "prefix", "specified"])],
+  ]);
+
+  // Interface-specific epoch-stable props (same contract as
+  // STABLE_EPOCH_NODE_PROPS): an Attr's value changes only through a DOM
+  // mutation (attr.value= / setAttribute), which bumps the epoch.
+  const STABLE_EPOCH_IFACE_PROPS = new Map([
+    ["Attr", new Set(["value"])],
+  ]);
+
+  // Props the host has declined to handle a write for, per interface: the
+  // host's __js_set__ dispatch is a pure function of the wrapper class and
+  // property name, so a declined prop never becomes host-handled later and
+  // subsequent writes can stay JS-side expandos without crossing. Keyed by
+  // interface (each proxy's handler grabs its own Set once, so the hot path
+  // is a plain Set.has with no per-write string building), and capped —
+  // frameworks write per-navigation-random keys (React's __reactFiber$<rand>)
+  // that never recur, so on a long-lived VM the Set would otherwise grow
+  // without bound. Clearing an overflowed Set only costs one re-decline
+  // (the entry is a pure optimization). Event handler names (on*) are never
+  // recorded — their handling depends on the VALUE, not just the name.
+  const declinedByInterface = new Map();
+  const DECLINED_PROPS_CAP = 1024;
+  function declinedSetFor(ifaceName) {
+    if (ifaceName == null) return null;
+    let set = declinedByInterface.get(ifaceName);
+    if (!set) { set = new Set(); declinedByInterface.set(ifaceName, set); }
+    return set;
+  }
+  const isEventHandlerName = (prop) => typeof prop === "string" && /^on[a-z]/.test(prop);
+
   // IDL reflected string attributes that return the content attribute value
   // verbatim ("" when absent): the property name -> its content attribute. These
   // are answerable from the element's attribute snapshot (the same cache
@@ -1631,7 +1840,7 @@ globalThis.__rbHost = (function () {
     "firstChild", "lastChild", "nextSibling", "previousSibling",
     "firstElementChild", "lastElementChild",
     "nextElementSibling", "previousElementSibling",
-    "childElementCount", "textContent",
+    "childElementCount", "textContent", "isConnected",
     // Live collections: the NodeList/HTMLCollection object is stable (its
     // contents track mutations, but the read returns the same live proxy), so
     // caching the proxy per-epoch avoids re-crossing to fetch it on every
@@ -1667,6 +1876,14 @@ globalThis.__rbHost = (function () {
   // Proxy methods that never mutate the DOM (pure queries / listener
   // registration), so calling them does NOT bump the epoch. Anything not
   // listed is treated as potentially mutating — correctness over cache hits.
+  // The one place that knows which event methods can flip the canceled
+  // state — the defaultPrevented shadow (dispatchEvent fast path) must be
+  // dropped around every one of them.
+  const CANCELED_STATE_METHODS = new Set([
+    "preventDefault", "initEvent", "initCustomEvent", "initUIEvent",
+    "initMouseEvent", "initKeyboardEvent",
+  ]);
+
   const NON_MUTATING_METHODS = new Set([
     "getAttribute", "getAttributeNS", "getAttributeNames", "getAttributeNode",
     "hasAttribute", "hasAttributeNS", "hasAttributes",
@@ -1678,12 +1895,28 @@ globalThis.__rbHost = (function () {
     "item", "namedItem", "getPropertyValue", "getPropertyPriority",
     "addEventListener", "removeEventListener",
     "observe", "unobserve", "disconnect", "takeRecords",
+    // Factories and cloners: they mint DETACHED nodes and mutate no existing
+    // node's attributes or tree relations, so no cache can go stale. (A
+    // custom-element constructor running inside createElement/cloneNode can
+    // mutate the DOM, but its writes go through proxies and bump then.)
+    // React's commit calls createElement per node; without this every one
+    // was a full invalidation.
+    "createElement", "createElementNS", "createTextNode", "createComment",
+    "createDocumentFragment", "createCDATASection", "createProcessingInstruction",
+    "createAttribute", "createAttributeNS", "createEvent", "createRange",
+    "createNodeIterator", "createTreeWalker", "cloneNode", "importNode",
   ]);
 
-  function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain, indexedSetter) {
+  function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain, indexedSetter, ifaceName) {
     // Cached constant-prop values (CONST_NODE_PROPS) for a Node proxy; null
     // for non-Node interfaces so the cache check stays out of their get path.
     const constCache = nodeChain ? new Map() : null;
+    // Interface-specific const / epoch-stable prop sets (Attr#name, Attr#value).
+    const constIface = CONST_IFACE_PROPS.get(ifaceName) || null;
+    const stableIface = STABLE_EPOCH_IFACE_PROPS.get(ifaceName) || null;
+    // This interface's host-declined-props Set (shared across its proxies),
+    // resolved once so the set trap's hot path skips per-write key building.
+    const declinedProps = declinedSetFor(ifaceName);
     // Reflected-attribute map, only for Node proxies (elements have the
     // snapshot; other node kinds return null from attrsSnapshot and fall back).
     const reflectAttrs = nodeChain ? REFLECTED_STRING_ATTRS : null;
@@ -1808,6 +2041,88 @@ globalThis.__rbHost = (function () {
                   bumpDomEpoch();
                 }
               };
+            } else if (prop === "dispatchEvent") {
+              // Unlistened-dispatch fast path (docs/event-dispatch-fastpath.md):
+              // one crossing decides AND dispatches a namespaced event nobody
+              // listens for — no epoch bumps (nothing can have mutated the
+              // DOM), and defaultPrevented is planted as an own-prop shadow so
+              // the post-dispatch read doesn't cross either. Everything else
+              // falls back to the classic bump-and-call path.
+              fn = function (ev) {
+                const state = ev !== null && typeof ev === "object" ? ev[JS_EVENT] : undefined;
+                if (state !== undefined) {
+                  if (state.host) {
+                    throw new globalThis.DOMException(
+                      "The event is already being dispatched.", "InvalidStateError");
+                  }
+                  // Unlistened namespaced type: dispatch entirely JS-side —
+                  // the only crossing is the type check itself.
+                  if (typeof globalThis.__rb_host_event_fast === "function" &&
+                      __rb_host_event_fast(state.type) === true) {
+                    state.target = this;
+                    // Dispatch unsets the stop-propagation flags on completion
+                    // (DOM §dispatch), even when nothing listened.
+                    state.stopped = false;
+                    return state.canceled !== true;
+                  }
+                  // Slow path: materialize the host twin (carrying over any
+                  // pre-set canceled/stopped state), register it so listeners
+                  // receive THIS JS object, dispatch, then fold the final
+                  // state back and drop the twin.
+                  const init = { bubbles: state.bubbles, cancelable: state.cancelable, composed: state.composed };
+                  if (state.name === "CustomEvent") init.detail = state.detail;
+                  const twin = rehydrate(__rb_construct(state.name, dehydrateArgs([state.type, init])));
+                  if (state.canceled) twin.preventDefault();
+                  if (state.stopped) twin.stopPropagation();
+                  jsEventByHandle.set(twin[HKEY], ev);
+                  state.host = twin;
+                  bumpDomEpoch();
+                  try {
+                    const r = rehydrate(__rb_host_call(handle, prop, dehydrateArgs([twin])));
+                    // dispatchEvent returns !canceled — fold it back without
+                    // re-reading the twin's defaultPrevented.
+                    state.canceled = r !== true;
+                    return r;
+                  } finally {
+                    bumpDomEpoch();
+                    state.target = twin.target;
+                    // DOM §dispatch unsets the stop-propagation flags when the
+                    // dispatch completes; a reused event object must propagate
+                    // again (the canceled flag, by contrast, persists).
+                    state.stopped = false;
+                    jsEventByHandle.delete(twin[HKEY]);
+                    state.host = null;
+                  }
+                }
+                if (isProxy(ev) && typeof globalThis.__rb_host_dispatch_fast === "function") {
+                  const r = __rb_host_dispatch_fast(handle, ev[HKEY]);
+                  if (r && typeof r === "object" && r.fast === true) {
+                    try { ev.defaultPrevented = r.result !== true; } catch (_) { /* frozen ev */ }
+                    return r.result === true;
+                  }
+                }
+                // A re-dispatch must not read a stale shadow from an earlier
+                // fast dispatch: the slow path defers to the live host value.
+                try { if (isProxy(ev)) delete ev.defaultPrevented; } catch (_) { /* ignore */ }
+                bumpDomEpoch();
+                try {
+                  return rehydrate(__rb_host_call(handle, prop, dehydrateArgs([ev])));
+                } finally {
+                  bumpDomEpoch();
+                }
+              };
+            } else if (CANCELED_STATE_METHODS.has(prop)) {
+              // Every method that can change the event's canceled state
+              // (preventDefault sets it, the legacy init* reinitializers
+              // reset it) drops a fast-dispatch defaultPrevented shadow
+              // first — the next read then reflects the live host value.
+              // None of them can touch the DOM, so no epoch bump.
+              fn = function (...args) {
+                try {
+                  if (this && typeof this === "object") delete this.defaultPrevented;
+                } catch (_) { /* non-configurable shadow can't exist; ignore */ }
+                return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+              };
             } else if (NON_MUTATING_METHODS.has(prop)) {
               fn = (...args) => rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
             } else if (NODE_OR_STRING_METHODS.has(prop)) {
@@ -1862,7 +2177,8 @@ globalThis.__rbHost = (function () {
         // answer from a per-epoch cache so a tree-walk's repeated reads cross
         // once, not once per iteration. The epoch bumps on any mutation or
         // Ruby -> JS entry, so a cached value is never stale.
-        if (nodeChain && STABLE_EPOCH_NODE_PROPS.has(prop)) {
+        if ((nodeChain && STABLE_EPOCH_NODE_PROPS.has(prop)) ||
+            (stableIface !== null && stableIface.has(prop))) {
           if (epochPropsEpoch !== domEpoch) { epochProps = new Map(); epochPropsEpoch = domEpoch; }
           if (epochProps.has(prop)) return epochProps.get(prop);
           const val = rehydrate(__rb_host_get(handle, prop));
@@ -1881,7 +2197,8 @@ globalThis.__rbHost = (function () {
         const v = rehydrate(raw);
         // Cache only a concrete primitive answer (a real node's constant); an
         // absent/null result keeps taking the fallback paths below uncached.
-        if (constCache !== null && !isAbsent && CONST_NODE_PROPS.has(prop) &&
+        if (constCache !== null && !isAbsent &&
+            (CONST_NODE_PROPS.has(prop) || (constIface !== null && constIface.has(prop))) &&
             (typeof v === "string" || typeof v === "number")) {
           constCache.set(prop, v);
         }
@@ -1928,6 +2245,20 @@ globalThis.__rbHost = (function () {
         // A read-only named property (HTMLCollection/NamedNodeMap) likewise
         // rejects — unless an own expando already shadows it (then update it).
         if (named && !named.writable && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
+        // An existing JS expando, or a property the host has already declined
+        // once for this interface: stays JS-side without asking the host
+        // again. Framework bookkeeping (React's __reactFiber$/__reactProps$)
+        // writes these on every node of every commit — previously one
+        // crossing each. Event-handler names and the global window keep
+        // crossing (their handling is value-/state-dependent), as do
+        // writable named collections (routed above).
+        if (typeof prop === "string" && !(named && named.writable) &&
+            !isEventHandlerName(prop) && !isGlobalWindow(handle) &&
+            (Object.hasOwn(t, prop) || (declinedProps !== null && declinedProps.has(prop)))) {
+          t[prop] = value;
+          if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
+          return true;
+        }
         // The global window: a write to a name the host doesn't already
         // resolve becomes a JS global (window.X = … ≡ globalThis.X = …), so
         // window-attached and globalThis-attached globals converge on ONE
@@ -1949,6 +2280,13 @@ globalThis.__rbHost = (function () {
               return true;
             }
           }
+        }
+        // Legacy `returnValue = false` cancels an event host-side; drop a
+        // fast-dispatch defaultPrevented shadow so the next read sees it.
+        // Gated on preventDefault's presence — only events carry it.
+        if (prop === "returnValue" && methods.has("preventDefault") &&
+            Object.hasOwn(t, "defaultPrevented")) {
+          delete t.defaultPrevented;
         }
         // WebIDL [LegacyNullToEmptyString] DOMString setters coerce JS-side
         // (null → "", else ToString — so `innerHTML = 42` / `{toString…}` work and
@@ -1973,6 +2311,16 @@ globalThis.__rbHost = (function () {
           // A genuine JS-side expando: pin the proxy so the node's JS state
           // outlives GC of this proxy (see the `pinned` declaration).
           if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
+          // Remember the decline per (interface, prop): the host's set
+          // dispatch depends only on the wrapper class and name, so future
+          // writes of this prop on this interface skip the crossing. Cap the
+          // set (clearing on overflow just re-declines once) so a long-lived
+          // VM doesn't accumulate per-navigation-random keys forever.
+          if (typeof prop === "string" && declinedProps !== null &&
+              !isEventHandlerName(prop) && !isGlobalWindow(handle)) {
+            if (declinedProps.size >= DECLINED_PROPS_CAP) declinedProps.clear();
+            declinedProps.add(prop);
+          }
         }
         return true;
       },
@@ -2165,7 +2513,7 @@ globalThis.__rbHost = (function () {
     const isNode = !!(desc.chain && desc.chain.indexOf("Node") !== -1);
     const p = new Proxy(target, makeHandler(handle, methods, new Map(),
       ARRAY_LIKE_COLLECTIONS.has(desc.name), NAMED_PROP_COLLECTIONS.get(desc.name) || null,
-      isNode, INDEXED_SETTER_INTERFACES.has(desc.name)));
+      isNode, INDEXED_SETTER_INTERFACES.has(desc.name), desc.name));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
     proxyInterfaces.set(p, desc.name);

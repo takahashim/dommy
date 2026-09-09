@@ -10,10 +10,13 @@ module Dommy
 
       module_function
 
-      def matches?(element, selector_ast, scope: nil)
+      # `verified:` — see #matches_complex?; only passed by fast_query's
+      # single-selector paths, where the one prefilter belongs to the one
+      # complex selector in the list.
+      def matches?(element, selector_ast, scope: nil, verified: nil)
         return false unless element&.respond_to?(:__dommy_backend_node__)
 
-        selector_ast.selectors.any? { |complex| matches_complex?(element, complex, scope: scope) }
+        selector_ast.selectors.any? { |complex| matches_complex?(element, complex, scope: scope, verified: verified) }
       end
 
       # querySelectorAll. The candidate set is exactly `root`'s descendants:
@@ -87,11 +90,15 @@ module Dommy
           scope_node = root.equal?(doc) ? nil : backend_root
           candidates = index.candidates(single, scope_node)
           if candidates
+            # An id/class index hit is an exact test of the prefilter (the
+            # index buckets by id value / class token), so the subject can
+            # skip that attribute re-read; :type stays unverified (superset).
+            verified = %i[id class].include?(single[0]) ? single : nil
             out = []
             catch(:done) do
               candidates.each do |bnode|
                 element = doc.wrap_node(bnode)
-                next unless element && matches?(element, selector_ast, scope: scope)
+                next unless element && matches?(element, selector_ast, scope: scope, verified: verified)
 
                 out << element
                 throw(:done) if first
@@ -108,7 +115,10 @@ module Dommy
             next unless hit
 
             element = doc.wrap_node(bnode)
-            next unless element && matches?(element, selector_ast, scope: scope)
+            # `single` was just tested on this very backend node, so the
+            # subject compound skips its re-read (multi-selector lists don't
+            # know WHICH prefilter passed — they stay unverified).
+            next unless element && matches?(element, selector_ast, scope: scope, verified: single)
 
             out << element
             throw(:done) if first
@@ -138,9 +148,13 @@ module Dommy
       # `anchor:`/`leading:` carry :has() semantics — when the chain is
       # fully consumed, its leftmost element must additionally relate to
       # the anchor via the relative selector's leading combinator.
-      def matches_complex?(element, complex, scope:, anchor: nil, leading: nil)
+      #
+      # `verified:` is a prefilter tuple the caller has ALREADY tested against
+      # the element's backend node (fast_query's gate); the subject compound
+      # skips re-reading that one simple selector's attribute.
+      def matches_complex?(element, complex, scope:, anchor: nil, leading: nil, verified: nil)
         parts = complex.parts
-        return false unless matches_compound?(element, parts.last.compound, scope: scope)
+        return false unless matches_compound?(element, parts.last.compound, scope: scope, verified: verified)
 
         match_left_from(element, parts, parts.length - 1, scope: scope, anchor: anchor, leading: leading)
       end
@@ -220,7 +234,8 @@ module Dommy
         while backend && doc
           if backend.node_type == ELEMENT_NODE && (prefilter.nil? || backend_passes?(backend, prefilter))
             parent = doc.wrap_node(backend)
-            if parent && matches_compound?(parent, compound, scope: scope) &&
+            # The prefilter was just tested on this ancestor's backend node.
+            if parent && matches_compound?(parent, compound, scope: scope, verified: prefilter) &&
                match_left_from(parent, parts, index - 1, scope: scope, anchor: anchor, leading: leading)
               return true
             end
@@ -253,14 +268,46 @@ module Dommy
         end
       end
 
-      def matches_compound?(element, compound, scope:)
+      # `verified:` (a prefilter tuple already tested on the backend node)
+      # lets the one simple selector it proves skip its attribute re-read —
+      # the prefilter's id/class/attr-presence checks are exact, not just
+      # supersets, for that selector (a :type prefilter is a superset, so it
+      # is never passed as verified).
+      def matches_compound?(element, compound, scope:, verified: nil)
         # A pseudo-element subject never matches an element (querySelector*,
         # matches). The cascade strips pseudo-elements before matching and
         # indexes those rules separately.
         return false if compound.pseudo_element
         return false unless matches_type?(element, compound.type)
 
-        compound.subclass_selectors.all? { |selector| matches_simple?(element, selector, scope: scope) }
+        compound.subclass_selectors.all? do |selector|
+          prefilter_proves?(element, selector, verified) || matches_simple?(element, selector, scope: scope)
+        end
+      end
+
+      # Whether the already-tested prefilter tuple proves this simple selector
+      # true, making its own backend read redundant. Only exact-equivalence
+      # cases qualify: same-value id/class (class_attr_token? splits on the
+      # same ASCII whitespace as class_tokens), and bare attribute presence
+      # with no matcher and no namespace (prefilter_for only lifts
+      # namespace-less attribute selectors) — and only on an element whose
+      # attribute names compare case-insensitively: the backend lookup behind
+      # the prefilter is ASCII case-insensitive, so on an SVG/MathML element (or
+      # any element of an XML document) a `[viewbox]` hit may really be
+      # `viewBox`, which matches_simple? must still reject.
+      def prefilter_proves?(element, selector, verified)
+        return false unless verified
+
+        kind, value = verified
+        case kind
+        when :id then selector.is_a?(SelectorAST::IdSelector) && selector.value == value
+        when :class then selector.is_a?(SelectorAST::ClassSelector) && selector.value == value
+        when :attr
+          selector.is_a?(SelectorAST::AttributeSelector) && selector.matcher.nil? &&
+            selector.namespace.nil? && selector.name == value &&
+            !element.__internal_case_sensitive_attribute_names__?
+        else false
+        end
       end
 
       def matches_type?(element, type)

@@ -28,7 +28,7 @@ module Dommy
       # Spec: https://html.spec.whatwg.org/#dom-innerhtml
       def attach(template_element, html)
         content = fragment_for(template_element)
-        parsed = @document.backend_doc.fragment(html.to_s)
+        parsed = Parser.fragment(html.to_s, owner_doc: @document.backend_doc)
         content.__internal_replace_all__(parsed.children.to_a)
         content
       end
@@ -108,7 +108,7 @@ module Dommy
       # `template node -> template contents` mapping is stable: `attach`
       # (innerHTML=) replaces the fragment's children, never the fragment.
       def migrate_one(template_node)
-        fragment = @document.backend_doc.fragment("")
+        fragment = Parser.fragment("", owner_doc: @document.backend_doc)
         Backend.template_content_nodes(template_node).each do |child|
           child.unlink
           fragment.add_child(child)

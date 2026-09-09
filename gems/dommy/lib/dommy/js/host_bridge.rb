@@ -274,6 +274,34 @@ module Dommy
             obj.respond_to?(:__js_set__) ? dommy_handled?(obj.__js_set__(prop, unwrap(value))) : false
           end
         end
+        # Unlistened-dispatch fast path (see dommy-js-quickjs
+        # docs/event-dispatch-fastpath.md): a namespaced event type (contains
+        # ":", so no built-in default action exists for it) with no listener
+        # ever registered for it process-wide dispatches here in ONE crossing,
+        # and the JS side skips its epoch bumps — nothing could have mutated
+        # the DOM. Anything else returns fast:false and takes the classic path.
+        # Type-only variant for JS-side events (docs/js-side-events-design.md):
+        # true when a dispatch of this type can run entirely JS-side (namespaced
+        # type, no listener ever registered for it).
+        @backend.define_host_function("__rb_host_event_fast") do |type|
+          count_crossing(:__rb_host_event_fast)
+          t = type.to_s
+          t.include?(":") && !Dommy::EventTarget.__internal_type_listened__?(t)
+        end
+        @backend.define_host_function("__rb_host_dispatch_fast") do |handle, event_handle|
+          dom_guard do
+            target = host(handle)
+            event = host(event_handle)
+            count_crossing(:__rb_host_dispatch_fast, target)
+            type = event.respond_to?(:type) ? event.type.to_s : ""
+            if type.include?(":") && !Dommy::EventTarget.__internal_type_listened__?(type) &&
+               target.respond_to?(:dispatch_event)
+              {"fast" => true, "result" => target.dispatch_event(event) ? true : false}
+            else
+              {"fast" => false}
+            end
+          end
+        end
         @backend.define_host_function("__rb_host_call") do |handle, method, args|
           dom_guard do
             obj = host(handle)

@@ -201,7 +201,7 @@ module Dommy
         previous_sibling: nil,
         next_sibling: nil
       )
-        @document.__internal_bump_style_generation__
+        @document.__internal_note_tree_mutation__
         target = @document.wrap_node(target_node)
         return nil unless target
         return nil if added_nodes.empty? && removed_nodes.empty?
@@ -266,13 +266,12 @@ module Dommy
 
       # Fire MutationObserver attribute records
       def notify_attribute_mutation(target_node:, attribute_name:, old_value:, namespace: nil)
-        @document.__internal_bump_style_generation__
-        target = @document.wrap_node(target_node)
-        return nil unless target
-
         # A namespaced attribute keeps its local name as-is; a plain HTML
         # attribute is lower-cased.
         attr = namespace ? attribute_name.to_s : attribute_name.to_s.downcase
+        @document.__internal_note_attribute_mutation__(attr, target_node)
+        target = @document.wrap_node(target_node)
+        return nil unless target
         new_value = target_node[attr]
 
         # Custom Element attributeChangedCallback (synchronous)
@@ -301,7 +300,7 @@ module Dommy
 
       # Fire MutationObserver characterData records
       def notify_character_data_mutation(target_node:, old_value:)
-        @document.__internal_bump_style_generation__
+        @document.__internal_note_character_data_mutation__(target_node, old_value)
         target = @document.wrap_node(target_node)
         return nil unless target
 

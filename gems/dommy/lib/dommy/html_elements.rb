@@ -680,6 +680,9 @@ module Dommy
       end
       @__raw_value = raw
       @__value = raw
+      # The IDL value is selector-observable (:invalid / :in-range /
+      # :placeholder-shown) with no attribute mutation behind it.
+      @document&.__internal_note_value_change__
     end
 
     # `files` — for `<input type="file">`. Browsers populate this via
@@ -768,8 +771,9 @@ module Dommy
       # A radio becoming checked unchecks the rest of its radio button group.
       uncheck_radio_group if @__checked && type == "radio"
       # Checkedness is property state (no attribute mutation fires), yet it
-      # is selector-observable via :checked — invalidate computed styles.
-      @document&.__internal_bump_style_generation__
+      # is selector-observable via :checked — invalidate cached query results
+      # and computed styles.
+      @document&.__internal_note_selector_state_change__
     end
 
     # `indeterminate` is pure property state (no content attribute), default
@@ -780,7 +784,7 @@ module Dommy
 
     def indeterminate=(v)
       @__indeterminate = !!v
-      @document&.__internal_bump_style_generation__
+      @document&.__internal_note_selector_state_change__
     end
 
     # --- Click activation behavior (checkbox / radio) -------------------
@@ -814,6 +818,10 @@ module Dommy
       @__raw_value = nil
       @__checked = nil
       @__indeterminate = nil
+      # Value AND checkedness reverted: both are selector-observable, neither
+      # mutates an attribute.
+      @document&.__internal_note_value_change__
+      @document&.__internal_note_selector_state_change__
       nil
     end
 
@@ -870,7 +878,7 @@ module Dommy
     # unchecking peers).
     def __internal_set_checked_silently__(value)
       @__checked = !!value
-      @document&.__internal_bump_style_generation__
+      @document&.__internal_note_selector_state_change__
     end
 
     # Two controls share a form owner when both are formless, or both point at
@@ -2301,11 +2309,13 @@ module Dommy
     def selected=(value)
       @selectedness = !!value
       @selectedness_dirty = true
+      note_selectedness_change
     end
 
     # Set selectedness WITHOUT marking it dirty (the Option constructor's step).
     def __internal_set_selectedness__(value)
       @selectedness = !!value
+      note_selectedness_change
     end
 
     # HTML reset algorithm (run for each option by the owning select): clear the
@@ -2313,7 +2323,7 @@ module Dommy
     def __internal_reset__
       @selectedness = default_selected
       @selectedness_dirty = false
-      nil
+      note_selectedness_change
     end
 
     # Whether selectedness was set via the IDL setter (property), as opposed to
@@ -2354,6 +2364,17 @@ module Dommy
     end
 
     private
+
+    # Selectedness is property state (no attribute mutation announces it), yet
+    # it is selector-observable twice over: as this option's :checked, and as
+    # the owning select's value behind :invalid / :valid. Every selectedness
+    # writer funnels here — `select.value=` and `selected_index=` included,
+    # since they set each option's selectedness — so the caches are invalidated
+    # exactly as a checkbox's `checked=` invalidates them.
+    def note_selectedness_change
+      @document&.__internal_note_selector_state_change__
+      nil
+    end
 
     def collect_option_text(node, parts)
       node.children.each do |child|
@@ -2453,6 +2474,7 @@ module Dommy
     def value=(v)
       @__value = v.to_s
       @__value_dirty = true
+      @document&.__internal_note_value_change__
     end
 
     # HTML reset algorithm: clear the dirty value flag so `value` reverts to the
@@ -2460,6 +2482,7 @@ module Dommy
     def __internal_reset__
       @__value = nil
       @__value_dirty = false
+      @document&.__internal_note_value_change__
       nil
     end
 
