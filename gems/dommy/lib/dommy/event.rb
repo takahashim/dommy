@@ -390,10 +390,16 @@ module Dommy
         next unless phase == :both || (phase == :capture ? entry.capture? : !entry.capture?)
 
         # Spec: a `once` listener is removed BEFORE its callback runs, so a nested
-        # dispatch from within the callback can't invoke it a second time.
+        # dispatch from within the callback can't invoke it a second time — and
+        # it is flagged removed, so an OUTER dispatch still walking its snapshot
+        # (the nested dispatch just consumed a once listener the outer one had
+        # not reached yet) skips it too.
         if entry.once?
           listeners_for(event.type).reject! do |candidate|
-            candidate.listener.equal?(entry.listener) && candidate.capture? == entry.capture?
+            next false unless candidate.listener.equal?(entry.listener) && candidate.capture? == entry.capture?
+
+            candidate.removed = true
+            true
           end
         end
 

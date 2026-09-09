@@ -82,6 +82,22 @@ class TestEventTargetFull < Minitest::Test
     assert_empty(seen)
   end
 
+  # A once listener a NESTED dispatch consumed is flagged removed, so the outer
+  # dispatch still walking its snapshot skips it (WPT remove-all-listeners).
+  def test_a_once_listener_consumed_by_a_nested_dispatch_is_not_run_again
+    counts = Hash.new(0)
+    second = proc { counts[:second] += 1 }
+    first = proc do
+      counts[:first] += 1
+      @btn.dispatch_event(Dommy::Event.new("foo"))
+    end
+    @btn.add_event_listener("foo", first, { "once" => true })
+    @btn.add_event_listener("foo", second, { "once" => true })
+
+    @btn.dispatch_event(Dommy::Event.new("foo"))
+    assert_equal({first: 1, second: 1}, counts)
+  end
+
   def test_throwing_listener_is_reported_as_a_window_error_event
     reported = nil
     @win.add_event_listener("error", proc { |e| reported = e })
