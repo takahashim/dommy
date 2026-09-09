@@ -305,7 +305,7 @@ module Dommy
         when :attr
           selector.is_a?(SelectorAST::AttributeSelector) && selector.matcher.nil? &&
             selector.namespace.nil? && selector.name == value &&
-            !element.case_sensitive_attribute_names?
+            !element.__internal_case_sensitive_attribute_names__?
         else false
         end
       end

@@ -3056,20 +3056,6 @@ module Dommy
       end
     end
 
-    # Attribute name handling depends on the element's namespace:
-    # - HTML: case-insensitive (browser DOM stores everything lowercase).
-    # - SVG / other XML: case-sensitive (`viewBox` ≠ `viewbox`).
-    # Subclasses with a known namespace override `case_sensitive_attribute_names?`
-    # to flip the behavior. Generic Element nodes inspect the namespace
-    # URI directly.
-    # Attribute qualified names are ASCII-lowercased (case-insensitive) only for an
-    # element in the HTML namespace within an HTML document; every other case — a
-    # non-HTML (or null) namespace, or any element in a non-HTML document —
-    # preserves case (WHATWG "set/get/has attribute" lowercasing condition).
-    def case_sensitive_attribute_names?
-      !(namespace_uri == "http://www.w3.org/1999/xhtml" && @document.html_document?)
-    end
-
     def get_attribute(name)
       return nil if name.nil?
       return @__node__[name.to_s.downcase] unless case_sensitive_attribute_names?
@@ -3439,6 +3425,20 @@ module Dommy
       return nil unless @__node__.name == "template"
 
       @document.template_content_fragment(self)
+    end
+
+    # Attribute name handling depends on the element's namespace:
+    # - HTML: case-insensitive (browser DOM stores everything lowercase).
+    # - SVG / other XML: case-sensitive (`viewBox` ≠ `viewbox`).
+    # Subclasses with a known namespace override `case_sensitive_attribute_names?`
+    # to flip the behavior. Generic Element nodes inspect the namespace
+    # URI directly.
+    # Attribute qualified names are ASCII-lowercased (case-insensitive) only for an
+    # element in the HTML namespace within an HTML document; every other case — a
+    # non-HTML (or null) namespace, or any element in a non-HTML document —
+    # preserves case (WHATWG "set/get/has attribute" lowercasing condition).
+    def case_sensitive_attribute_names?
+      !(namespace_uri == "http://www.w3.org/1999/xhtml" && @document.html_document?)
     end
 
     # Insertion / scroll / popover helpers.

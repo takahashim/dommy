@@ -55,6 +55,7 @@ module Dommy
           # over cache hits.
           @attr_deps = {"style" => true}
           @text_sensitive = false
+          @value_sensitive = false
           @all_attr_deps = false
           # The lazy-rule buckets (LazyEntry, keyed by the subject compound's
           # most selective simple selector) and the per-element match memos.
@@ -120,6 +121,14 @@ module Dommy
         # emptiness-flipping characterData edit must invalidate the cascade.
         def text_sensitive?
           @text_sensitive
+        end
+
+        # Whether any indexed selector reads a form control's IDL value
+        # (:valid / :invalid / :in-range / :placeholder-shown …), so assigning
+        # `input.value` — which mutates no attribute — must invalidate the
+        # cascade.
+        def value_sensitive?
+          @value_sensitive
         end
 
         private
@@ -588,17 +597,23 @@ module Dommy
         }.freeze
 
         TEXT_SENSITIVE_PSEUDOS = %w[empty blank].freeze
+        # Pseudo-classes that read a control's IDL value, which changes with no
+        # attribute mutation behind it (typing, `value=`, a form reset).
+        VALUE_SENSITIVE_PSEUDOS = %w[
+          valid invalid user-valid user-invalid in-range out-of-range placeholder-shown
+        ].freeze
         NTH_PSEUDOS = %w[nth-child nth-last-child nth-of-type nth-last-of-type].freeze
         LOGICAL_PSEUDOS = %w[is where not has host host-context].freeze
 
         # Walk a selector AST recording every attribute it can read. An AST
         # node kind this walker doesn't know is treated as "reads anything".
-        # `@all_attr_deps` and `@text_sensitive` are INDEPENDENT invalidation
-        # axes (attribute mutations vs. `:empty`-flipping text edits), so the
-        # walk stops only when BOTH are maxed — an unmapped pseudo that sets
-        # @all_attr_deps must not hide a later `:empty` from text-sensitivity.
+        # `@all_attr_deps`, `@text_sensitive` and `@value_sensitive` are
+        # INDEPENDENT invalidation axes (attribute mutations vs. `:empty`-flipping
+        # text edits vs. IDL value assignments), so the walk stops only when ALL
+        # are maxed — an unmapped pseudo that sets @all_attr_deps must not hide a
+        # later `:empty` from text-sensitivity.
         def collect_dependencies(node)
-          return if (@all_attr_deps && @text_sensitive) || node.nil?
+          return if (@all_attr_deps && @text_sensitive && @value_sensitive) || node.nil?
 
           case node
           when Array # :has() carries its RelativeSelectors as a plain Array
@@ -629,6 +644,10 @@ module Dommy
 
         def collect_pseudo_class_dependencies(pseudo)
           name = pseudo.name
+          # Orthogonal to the attribute axis below: :invalid both reads form
+          # attributes (falling through to @all_attr_deps) and tracks the IDL
+          # value, which no attribute mutation announces.
+          @value_sensitive = true if VALUE_SENSITIVE_PSEUDOS.include?(name)
           if TEXT_SENSITIVE_PSEUDOS.include?(name)
             @text_sensitive = true
           elsif NTH_PSEUDOS.include?(name)

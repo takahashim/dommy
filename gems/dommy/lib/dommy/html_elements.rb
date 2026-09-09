@@ -680,6 +680,9 @@ module Dommy
       end
       @__raw_value = raw
       @__value = raw
+      # The IDL value is selector-observable (:invalid / :in-range /
+      # :placeholder-shown) with no attribute mutation behind it.
+      @document&.__internal_note_value_change__
     end
 
     # `files` — for `<input type="file">`. Browsers populate this via
@@ -815,6 +818,10 @@ module Dommy
       @__raw_value = nil
       @__checked = nil
       @__indeterminate = nil
+      # Value AND checkedness reverted: both are selector-observable, neither
+      # mutates an attribute.
+      @document&.__internal_note_value_change__
+      @document&.__internal_note_selector_state_change__
       nil
     end
 
@@ -2454,6 +2461,7 @@ module Dommy
     def value=(v)
       @__value = v.to_s
       @__value_dirty = true
+      @document&.__internal_note_value_change__
     end
 
     # HTML reset algorithm: clear the dirty value flag so `value` reverts to the
@@ -2461,6 +2469,7 @@ module Dommy
     def __internal_reset__
       @__value = nil
       @__value_dirty = false
+      @document&.__internal_note_value_change__
       nil
     end
 

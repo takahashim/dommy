@@ -462,6 +462,23 @@ module Dommy
       __internal_bump_style_generation__
     end
 
+    # A form control's IDL value changed (typing, `input.value = …`, a form
+    # reset). No attribute mutates, yet the value is selector-observable
+    # through the validity / range / placeholder pseudo-classes, so the
+    # selector epoch always moves — a cached `querySelectorAll(":invalid")`
+    # would otherwise survive the very change that flipped it. The cascade
+    # follows only when a sheet actually uses one of those pseudo-classes.
+    def __internal_note_value_change__
+      __internal_bump_dom_generation__
+      __internal_bump_style_generation__ if __internal_style_value_sensitive__
+      nil
+    end
+
+    def __internal_style_value_sensitive__
+      index = @__css_style_cache__ && @__css_style_cache__[:index]
+      index ? index.value_sensitive? : true
+    end
+
     def __internal_style_affected_by_attribute__(name, target_node)
       owner = target_node.respond_to?(:name) ? target_node.name.to_s.downcase : nil
       return true if owner == "style" || owner == "link"

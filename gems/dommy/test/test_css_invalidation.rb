@@ -179,4 +179,53 @@ class TestCssInvalidation < Minitest::Test
     assert_equal dom_before, doc.dom_generation
     assert_equal style_before, doc.style_generation
   end
+
+  # --- IDL value changes (no attribute mutation behind them) -----------
+
+  # `input.value =` mutates no attribute, yet :invalid / :in-range /
+  # :placeholder-shown all read it. Without a selector-epoch bump a cached
+  # querySelectorAll survives the very change that flipped its result.
+  def test_value_assignment_refreshes_cached_selector_results
+    doc = doc_for('<input id="i" required>')
+    assert_equal 1, doc.query_selector_all(":invalid").length
+
+    doc.get_element_by_id("i").value = "filled"
+    assert_equal 0, doc.query_selector_all(":invalid").length
+
+    doc.get_element_by_id("i").value = ""
+    assert_equal 1, doc.query_selector_all(":invalid").length
+  end
+
+  def test_value_assignment_invalidates_a_value_sensitive_cascade
+    doc = doc_for('<style>input:invalid { color: red }</style><input id="i" required>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "i")["color"]
+
+    doc.get_element_by_id("i").value = "filled"
+    refute_equal "rgb(255, 0, 0)", computed(doc, "i")["color"]
+  end
+
+  def test_a_textarea_value_assignment_refreshes_selector_results
+    doc = doc_for("<textarea id=\"t\" required></textarea>")
+    assert_equal 1, doc.query_selector_all(":invalid").length
+    doc.get_element_by_id("t").value = "filled"
+    assert_equal 0, doc.query_selector_all(":invalid").length
+  end
+
+  # The cascade half is gated: a sheet that reads no value-sensitive
+  # pseudo-class keeps its computed styles across a value assignment.
+  def test_value_assignment_keeps_a_value_neutral_cascade_warm
+    doc = doc_for('<style>.a { color: red }</style><input id="i" class="a" required>')
+    before = computed(doc, "i")
+    doc.get_element_by_id("i").value = "filled"
+    assert_same before, computed(doc, "i")
+  end
+
+  def test_a_form_reset_refreshes_selector_results
+    doc = doc_for('<form id="f"><input id="i" required></form>')
+    doc.get_element_by_id("i").value = "filled"
+    assert_equal 0, doc.query_selector_all("input:invalid").length
+
+    doc.get_element_by_id("f").reset
+    assert_equal 1, doc.query_selector_all("input:invalid").length
+  end
 end
