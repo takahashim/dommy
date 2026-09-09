@@ -196,10 +196,11 @@ module Dommy
       # A select's list of options gained or lost members: run its selectedness
       # setting algorithm. Options (or optgroups holding them) landing in or
       # leaving a select — directly, or under one of its optgroups — affect that
-      # select's list; a select arriving inside an inserted subtree settles its
-      # own list, which the parser (or a detached build) may have left with no
-      # or several selected options. Only the parent and grandparent are
-      # consulted, so an ordinary mutation elsewhere costs two name checks.
+      # select's list. A select arriving inside an inserted subtree has its own
+      # list settled only if that never happened (the fragment parser built it):
+      # inserting or moving the select changes nothing in its list. Only the
+      # parent and grandparent are consulted, so an ordinary mutation elsewhere
+      # costs two name checks.
       def run_select_mutation_steps(target_node, added_nodes, removed_nodes)
         owner = owning_select_node(target_node)
         if owner
@@ -218,7 +219,7 @@ module Dommy
 
           selects.concat(node.css("select").to_a)
         end
-        selects.each { |node| @document.wrap_node(node)&.__internal_settle_selectedness__ }
+        selects.each { |node| @document.wrap_node(node)&.__internal_settle_selectedness_once__ }
       rescue StandardError
         nil
       end

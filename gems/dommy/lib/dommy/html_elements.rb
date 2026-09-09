@@ -2328,9 +2328,12 @@ module Dommy
 
     # The bare write, with no cross-option rule: the owning select's bulk
     # setters (value=, selectedIndex=) and its selectedness setting algorithm
-    # keep the list consistent themselves.
-    def __internal_write_selectedness__(value)
+    # keep the list consistent themselves. `dirty:` is for those setters' one
+    # chosen option — HTML has them set its dirtiness too, so the `selected`
+    # attribute stops driving it from then on.
+    def __internal_write_selectedness__(value, dirty: false)
       @selectedness = !!value
+      @selectedness_dirty = true if dirty
       note_selectedness_change
     end
 
@@ -3175,7 +3178,7 @@ module Dommy
     # here; a list the parser built is settled once, lazily, in case it was
     # never handed the parsed-document steps.
     def __display_selected__
-      __internal_settle_selectedness__ unless @selectedness_settled
+      __internal_settle_selectedness_once__
       options.to_a.select { |o| o.respond_to?(:selected) && o.selected }
     end
 
@@ -3188,11 +3191,14 @@ module Dommy
     end
 
     # `selectedIndex=`: every option's selectedness becomes false, then the one
-    # at `i` (if any) becomes true — bare writes, no reset: an out-of-range
-    # index leaves nothing selected, as in a browser.
+    # at `i` (if any) becomes true and dirty — bare writes, no reset: an
+    # out-of-range index leaves nothing selected, as in a browser.
     def selected_index=(i)
       target = i.to_i
-      options.to_a.each_with_index { |o, idx| o.__internal_write_selectedness__(idx == target) }
+      options.to_a.each_with_index do |o, idx|
+        chosen = idx == target
+        o.__internal_write_selectedness__(chosen, dirty: chosen)
+      end
       nil
     end
 
@@ -3235,6 +3241,16 @@ module Dommy
       __internal_settle_selectedness__
     end
 
+    # A list that was never settled — the parser built it, in a document or a
+    # fragment, and no mutation has touched it since — is settled now. A select
+    # whose list was already settled is left alone: moving or inserting the
+    # select itself changes nothing in its list of options, so an explicit
+    # "nothing selected" (selectedIndex = -1) survives the move.
+    def __internal_settle_selectedness_once__
+      __internal_settle_selectedness__ unless @selectedness_settled
+      nil
+    end
+
     # The selectedness setting algorithm (HTML §4.10.7). Runs when the list of
     # options gains or loses members, when an option asks for a reset, on the
     # select's own reset, and when `multiple` / `size` change. Only for a select
@@ -3263,13 +3279,13 @@ module Dommy
     end
 
     # `value=`: every option's selectedness becomes false, then the first whose
-    # value matches (if any) becomes true — bare writes, no reset: a value no
-    # option has leaves nothing selected, as in a browser.
+    # value matches (if any) becomes true and dirty — bare writes, no reset: a
+    # value no option has leaves nothing selected, as in a browser.
     def value=(new_value)
       opts = options.to_a
       target = opts.find { |o| o.value.to_s == new_value.to_s }
       opts.each { |o| o.__internal_write_selectedness__(false) }
-      target&.__internal_write_selectedness__(true)
+      target&.__internal_write_selectedness__(true, dirty: true)
       nil
     end
 

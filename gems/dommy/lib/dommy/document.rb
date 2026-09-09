@@ -1938,7 +1938,7 @@ module Dommy
 
       elements = @backend_doc.css("details").filter_map { |node| wrap_node(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
-      @backend_doc.css("select").each { |node| wrap_node(node)&.__internal_settle_selectedness__ }
+      @backend_doc.css("select").each { |node| wrap_node(node)&.__internal_settle_selectedness_once__ }
       nil
     end
 

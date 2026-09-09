@@ -120,6 +120,37 @@ class TestSelectSelectedness < Minitest::Test
     assert_empty selected_ids
   end
 
+  # HTML: value= / selectedIndex= set the chosen option's dirtiness too, so its
+  # `selected` attribute no longer drives it afterwards.
+  def test_value_and_selected_index_make_the_chosen_option_dirty
+    select = select_for('<select><option id="a">A</option><option id="b" value="b" selected>B</option></select>')
+    select.value = "b"
+    @doc.get_element_by_id("b").remove_attribute("selected")
+    assert_equal %w[b], selected_ids, "value= made b dirty; losing the attribute changes nothing"
+
+    select = select_for('<select><option id="a">A</option><option id="b" selected>B</option></select>')
+    select.selected_index = 1
+    @doc.get_element_by_id("b").remove_attribute("selected")
+    assert_equal %w[b], selected_ids, "selectedIndex= made b dirty"
+  end
+
+  # Inserting (or moving) the select itself changes nothing in its list of
+  # options, so a list that was already settled is not settled again — an
+  # explicit "nothing selected" survives the insertion.
+  def test_inserting_a_settled_select_does_not_reselect
+    select = @doc.create_element("select")
+    select.append_child(@doc.create_element("option"))
+    select.append_child(@doc.create_element("option"))
+    select.selected_index = -1
+    assert_equal(-1, select.selected_index)
+
+    @doc.body.append_child(select)
+    assert_equal(-1, select.selected_index)
+
+    @doc.body.append_child(@doc.create_element("div")).append_child(select)
+    assert_equal(-1, select.selected_index, "moving it either")
+  end
+
   def test_inserting_options_settles_the_list
     select = select_for("<select></select>")
     a = @doc.create_element("option")
