@@ -96,12 +96,18 @@ module Dommy
         %w[MutationObserver], %w[IntersectionObserver], %w[ResizeObserver],
         %w[PerformanceObserver], %w[AbortController], %w[AbortSignal EventTarget],
         %w[FormData], %w[URL], %w[URLSearchParams], %w[Headers], %w[Request], %w[Response],
-        %w[Blob], %w[File], %w[FileList], %w[FileReader], %w[XMLHttpRequest],
+        %w[Blob], %w[File Blob], %w[FileList], %w[FileReader EventTarget],
+        %w[XMLHttpRequest XMLHttpRequestEventTarget EventTarget],
+        %w[XMLHttpRequestEventTarget EventTarget], %w[XMLHttpRequestUpload XMLHttpRequestEventTarget EventTarget],
         %w[TextEncoder], %w[TextDecoder], %w[DOMParser], %w[XMLSerializer],
-        %w[MessageChannel], %w[BroadcastChannel], %w[WebSocket], %w[EventSource],
-        %w[Notification], %w[Worker], %w[DataTransfer],
+        %w[MessageChannel], %w[BroadcastChannel EventTarget], %w[WebSocket EventTarget],
+        %w[EventSource EventTarget],
+        %w[Notification EventTarget], %w[Worker EventTarget], %w[DataTransfer],
         %w[ReadableStream], %w[WritableStream], %w[TransformStream],
-        %w[Range],
+        # A Range is an AbstractRange (as a StaticRange would be); Dommy models
+        # only the live one, but the base interface still has to exist for
+        # `range instanceof AbstractRange`.
+        %w[AbstractRange], %w[Range AbstractRange],
         # Web Storage: seeded so `localStorage instanceof Storage` resolves and
         # `Storage.prototype` exists (a global constructor, construction routes
         # to the window / throws like the browser's illegal constructor).
@@ -178,12 +184,29 @@ module Dommy
           names << name if name && !names.include?(name)
           klass = klass.superclass
         end
+        # WebIDL bases Dommy has no Ruby class for, so the superclass walk above
+        # cannot find them.
+        IMPLICIT_BASES[names.first]&.each { |base| names << base unless names.include?(base) }
         if defined?(Dommy::Node) && obj.is_a?(Dommy::Node)
           names << "Node" unless names.include?("Node")
+          names << "EventTarget" unless names.include?("EventTarget")
+        elsif defined?(Dommy::EventTarget) && obj.is_a?(Dommy::EventTarget)
+          # Every non-node EventTarget (FileReader, XMLHttpRequest, Worker, …)
+          # inherits EventTarget in its IDL too, but Dommy models EventTarget as
+          # a mixin rather than a superclass, so append it here.
           names << "EventTarget" unless names.include?("EventTarget")
         end
         names
       end
+
+      # WebIDL base interfaces that sit between a Dommy class and its root but
+      # have no Ruby class of their own, keyed by the most-derived interface.
+      # Spliced into the chain so `instanceof` matches the IDL hierarchy.
+      IMPLICIT_BASES = {
+        "Range" => %w[AbstractRange],
+        "XMLHttpRequest" => %w[XMLHttpRequestEventTarget],
+        "XMLHttpRequestUpload" => %w[XMLHttpRequestEventTarget]
+      }.freeze
 
       # Whether this object's WebIDL interface depends on the instance rather
       # than its Ruby class, so callers must not memoize the answer per class.
