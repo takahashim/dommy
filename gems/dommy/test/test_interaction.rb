@@ -224,6 +224,36 @@ class TestInteraction < Minitest::Test
     assert_equal "hi\n", b.find("#t").value
   end
 
+  def test_send_keys_space_toggles_focused_checkbox
+    b = sendkeys_browser("<input type='checkbox' id='c'>")
+    cb = b.find("#c")
+    changes = 0
+    cb.add_event_listener("change", ->(_e) { changes += 1 })
+
+    b.send_keys("#c", :space)
+
+    assert cb.checked, "Space toggles a focused checkbox"
+    assert_equal 1, changes, "the toggle fires change once"
+  end
+
+  def test_send_keys_space_activates_focused_button
+    b = sendkeys_browser("<button type='button' id='b'>x</button>")
+    clicks = 0
+    b.find("#b").add_event_listener("click", ->(_e) { clicks += 1 })
+
+    b.send_keys("#b", :space)
+
+    assert_equal 1, clicks, "Space activates a focused button"
+  end
+
+  def test_send_keys_space_types_a_space_in_a_text_field
+    b = sendkeys_browser("<input id='q' value='a'>")
+
+    b.send_keys("#q", :space)
+
+    assert_equal "a ", b.find("#q").value, "Space types a space in a text field"
+  end
+
   def test_send_keys_focuses_target_once
     b = sendkeys_browser("<input id='q'>")
     field = b.find("#q")
