@@ -90,6 +90,18 @@ module Dommy
         # document.defaultView.DOMException, …).
         @backend.call_js("__rbHost.attachStatics")
         @backend.call_js("__rbHost.exposeConstructorsOnWindow")
+        # Legacy `window.event`: a live accessor on globalThis so a bare `event`
+        # identifier (and `globalThis.event`) resolves to the window's current
+        # event during dispatch — `event.stopPropagation()` in a listener that
+        # takes no parameter. Reads the live globalThis.window on each get, so it
+        # follows a rebound window (a fresh document per WPT file in a reused VM).
+        @backend.eval(<<~JS)
+          Object.defineProperty(globalThis, "event", {
+            configurable: true, enumerable: false,
+            get() { const w = globalThis.window; return w ? w.event : undefined; }
+          });
+          undefined;
+        JS
         wire_scheduler!(win)
         wire_script_runner!(win)
       end
