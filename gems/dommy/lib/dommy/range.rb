@@ -500,27 +500,59 @@ module Dommy
       nil
     end
 
+    # WHATWG "insert a node into a range". The node lands at the range's start,
+    # and a COLLAPSED range then grows to contain it.
+    #
+    # Spec: https://dom.spec.whatwg.org/#concept-range-insert
     def insert_node(node)
-      # Insert at the range start. For a text container, split it at the offset
-      # (when interior) and insert before the split-off tail — matching the spec,
-      # which produces a childList record for the split plus one for the insert.
-      sc = @start_container
-      if text_node?(sc)
-        parent = parent_of(sc)
-        idx = child_index_of(parent, sc)
-        if @start_offset.zero?
-          insert_into_parent_at(parent, idx, node)
-        elsif @start_offset >= length_of(sc)
-          insert_into_parent_at(parent, idx + 1, node)
-        else
-          tail = sc.split_text(@start_offset)
-          parent.insert_before(node, tail)
-        end
-      else
-        insert_into_parent_at(sc, @start_offset, node)
+      start_node = @start_container
+      splitting = text_node?(start_node)
+      # Steps 1-4: what the node goes in front of, and whose child it becomes.
+      reference = splitting ? start_node : child_at(start_node, @start_offset)
+      parent = reference.nil? ? start_node : parent_of(reference)
+      return nil unless parent
+
+      # Step 6: a Text start node is ALWAYS split, including at offset 0 and at
+      # its end — where the split yields an EMPTY Text node that stays beside
+      # the inserted one. (Skipping the split at the boundaries is the tempting
+      # optimization, and it produces a different tree.)
+      reference = start_node.split_text(@start_offset) if splitting
+      # Step 7: inserting the reference itself would leave nothing to insert
+      # before.
+      reference = next_sibling_of(reference) if reference && node.equal?(reference)
+
+      # Steps 9-10, computed BEFORE the insertion: where the range's end has to
+      # land to sit just past the node. A DocumentFragment contributes each of
+      # its children.
+      new_offset = strict_child_index_of(parent, reference) || length_of(parent)
+      new_offset += node_type_of(node) == 11 ? length_of(node) : 1
+
+      # Step 11.
+      if reference
+        parent.insert_before(node, reference)
+      elsif parent.respond_to?(:append_child)
+        parent.append_child(node)
       end
 
+      # Step 12. Evaluated after the mutation, as the spec has it — a range that
+      # was collapsed at the insertion point still is, since both boundaries
+      # moved together.
+      if collapsed?
+        @end_container = parent
+        @end_offset = new_offset
+      end
       nil
+    end
+
+    # The child of `parent` at `index`, or nil past the end.
+    def child_at(parent, index)
+      return nil unless parent.respond_to?(:child_nodes)
+
+      parent.child_nodes.to_a[index]
+    end
+
+    def next_sibling_of(node)
+      node.respond_to?(:next_sibling) ? node.next_sibling : nil
     end
 
     # --- Ordering / containment ------------------------------------
@@ -872,6 +904,14 @@ module Dommy
       return 0 unless parent.respond_to?(:child_nodes)
 
       parent.child_nodes.to_a.index { |n| n.equal?(node) } || 0
+    end
+
+    # Like child_index_of, but nil rather than 0 when `node` is not a child —
+    # insert_node has to tell "not there" apart from "first".
+    def strict_child_index_of(parent, node)
+      return nil unless node && parent.respond_to?(:child_nodes)
+
+      parent.child_nodes.to_a.index { |n| n.equal?(node) }
     end
 
     def ancestor_chain(node)

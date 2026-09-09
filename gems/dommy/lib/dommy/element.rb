@@ -1307,6 +1307,11 @@ module Dommy
           val = stripped.strip
         end
         next if name.empty? || !valid_declaration_value?(val)
+        # Cascade order WITHIN one declaration block: an important declaration
+        # beats a normal one for the same property whatever their order, and
+        # only between declarations of equal importance does the later win. So a
+        # normal declaration never displaces an important one already recorded.
+        next if priority.empty? && out[name]&.last == "important"
 
         out[name] = [val, priority]
       end
