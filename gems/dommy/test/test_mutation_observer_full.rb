@@ -92,6 +92,29 @@ class TestMutationObserverFull < Minitest::Test
     assert_empty(@records)
   end
 
+  # normalize() merges a run of text nodes one sibling at a time, the way every
+  # shipping engine does: a characterData record on the survivor, then the
+  # childList record for the sibling's removal, per sibling — not the single
+  # characterData record a literal reading of the spec's batch steps would give.
+  # https://github.com/takahashim/dommy/issues/24
+  def test_normalize_queues_one_character_data_record_per_merged_sibling
+    texts = %w[A BB CCC DDDD].map { |s| @root.append_child(@doc.create_text_node(s)) }
+    @obs.__js_call__("observe", [@root, {
+      "childList" => true, "characterData" => true, "characterDataOldValue" => true, "subtree" => true
+    }])
+
+    @root.normalize
+    records = @obs.__js_call__("takeRecords", [])
+
+    assert_equal(%w[characterData childList] * 3, records.map { |r| r.__js_get__("type") })
+    assert_equal("ABBCCCDDDD", texts[0].data)
+    data_records = records.each_slice(2).map(&:first)
+    assert_equal(%w[A ABB ABBCCC], data_records.map { |r| r.__js_get__("oldValue") })
+    assert(data_records.all? { |r| r.__js_get__("target").equal?(texts[0]) })
+    removals = records.each_slice(2).map(&:last)
+    assert_equal(texts[1..], removals.map { |r| r.__js_get__("removedNodes").to_a.first })
+  end
+
   def test_records_accessor
     @obs.__js_call__("observe", [@root, {"childList" => true}])
     @root.append_child(@doc.create_element("p"))

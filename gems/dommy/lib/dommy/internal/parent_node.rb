@@ -85,6 +85,23 @@ module Dommy
       # into its first node (preserving that node's identity, so a JS reference
       # to it survives) and drop empty Text nodes. Recurses the whole subtree,
       # so it works for Element, DocumentFragment, and ShadowRoot alike.
+      #
+      # A run is merged one sibling at a time: append the sibling's data to the
+      # survivor (a characterData record), hand its live range boundaries over,
+      # remove it (a childList record), then the next. Read literally, the spec
+      # concatenates every sibling's data first (steps 3-4, one "replace data")
+      # and removes them afterwards (step 7), which would queue ONE
+      # characterData record per run. Every shipping engine merges pairwise
+      # instead — Blink, WebCore and Gecko all answer [characterData, childList,
+      # characterData, childList, …] for a run of four text nodes, confirmed by
+      # running the same script in Chromium 141, WebKitGTK 2.52.6 and Firefox —
+      # and the WPT suite fixes only the childList side, so the records follow
+      # the engines. The tree and every live range boundary end up exactly where
+      # the spec's steps put them: a boundary in a later sibling (or on the
+      # parent, pointing at one) is shifted down by each earlier removal and
+      # then handed over at the survivor's length of that moment, which is the
+      # same offset the batch steps compute up front.
+      # https://github.com/takahashim/dommy/issues/24
       def normalize
         text_nodes = []
         @__node__.traverse { |node| text_nodes << node if node.respond_to?(:text?) && node.text? }
@@ -97,31 +114,23 @@ module Dommy
             next
           end
 
-          merged = []
           sib = node.next
           while sib.respond_to?(:text?) && sib.text?
-            merged << sib
-            sib = sib.next
+            following = sib.next
+            old = node.content.to_s
+            # The offset the sibling's data lands at inside the survivor — the
+            # length of what it already holds, measured before the append.
+            length = @document.wrap_node(node).length
+            node.content = old + sib.content.to_s
+            @document.notify_character_data_mutation(target_node: node, old_value: old)
+            # WHATWG normalize() step 6: the merged-away sibling hands its live
+            # range boundaries to the survivor at that offset BEFORE it is
+            # removed, or the plain removing steps would strand them on the
+            # parent.
+            @document.__internal_ranges_normalize_merge__(node, sib, length)
+            @document.remove_node_with_notify(sib)
+            sib = following
           end
-          next if merged.empty?
-
-          old = node.content.to_s
-          # The offset each merged sibling's data lands at inside the surviving
-          # node — measured BEFORE the concatenation, since it is the length of
-          # what the node already held.
-          length = @document.wrap_node(node).length
-          node.content = old + merged.map { |m| m.content.to_s }.join
-          @document.notify_character_data_mutation(target_node: node, old_value: old)
-          # WHATWG normalize() step 6: each merged-away sibling hands its live
-          # range boundaries to the surviving node at that offset, BEFORE any of
-          # them is removed (the offsets are expressed against the tree with
-          # every sibling still in place). Without this the plain removing steps
-          # below would strand those boundaries on the parent.
-          merged.each do |m|
-            @document.__internal_ranges_normalize_merge__(node, m, length)
-            length += @document.wrap_node(m).length
-          end
-          merged.each { |m| @document.remove_node_with_notify(m) }
         end
 
         nil

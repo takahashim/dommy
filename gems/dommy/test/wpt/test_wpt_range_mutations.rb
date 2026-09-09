@@ -222,6 +222,18 @@ class TestWPTNormalizeRangeMutations < Minitest::Test
     assert_equal([2, 8], [range.start_offset, range.end_offset])
   end
 
+  # A parent boundary past the whole run is shifted down once per removal, one
+  # sibling at a time, and ends up right after the survivor.
+  def test_a_parent_boundary_past_the_run_shifts_down_by_each_removal
+    @div.append_child(@doc.create_element("b"))
+    range = @doc.create_range
+    range.set_start(@div, 4) # points at <b>
+    range.set_end(@div, 5)
+    @div.normalize
+    assert_same(@div, range.start_container)
+    assert_equal([1, 2], [range.start_offset, range.end_offset])
+  end
+
   def test_a_parent_boundary_pointing_at_a_merged_node_lands_at_the_join
     range = @doc.create_range
     range.set_start(@div, 2) # points at "CCC"
