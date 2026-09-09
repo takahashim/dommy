@@ -115,6 +115,25 @@ class TestMutationObserverFull < Minitest::Test
     assert_equal(texts[1..], removals.map { |r| r.__js_get__("removedNodes").to_a.first })
   end
 
+  # An empty sibling in the run appends nothing, so — as in every engine — it is
+  # removed without a characterData record, wherever it sits in the run.
+  def test_normalize_queues_no_character_data_record_for_an_empty_sibling
+    [["A", "", "B"], ["A", "B", ""]].each do |run|
+      root = @doc.create_element("div")
+      @root.append_child(root)
+      run.each { |s| root.append_child(@doc.create_text_node(s)) }
+      obs = Dommy::MutationObserver.new(@win, proc {})
+      obs.__js_call__("observe", [root, {"childList" => true, "characterData" => true, "subtree" => true}])
+
+      root.normalize
+      types = obs.__js_call__("takeRecords", []).map { |r| r.__js_get__("type") }
+
+      expected = run == ["A", "", "B"] ? %w[childList characterData childList] : %w[characterData childList childList]
+      assert_equal(expected, types, run.inspect)
+      assert_equal("AB", root.first_child.data)
+    end
+  end
+
   def test_records_accessor
     @obs.__js_call__("observe", [@root, {"childList" => true}])
     @root.append_child(@doc.create_element("p"))

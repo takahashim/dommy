@@ -117,12 +117,19 @@ module Dommy
           sib = node.next
           while sib.respond_to?(:text?) && sib.text?
             following = sib.next
-            old = node.content.to_s
+            data = sib.content.to_s
             # The offset the sibling's data lands at inside the survivor — the
             # length of what it already holds, measured before the append.
             length = @document.wrap_node(node).length
-            node.content = old + sib.content.to_s
-            @document.notify_character_data_mutation(target_node: node, old_value: old)
+            # An empty sibling has nothing to append: the engines skip the data
+            # step for it (Gecko checks the length, Blink and WebCore behave the
+            # same), so it is removed without a characterData record. Its range
+            # boundaries still move to the survivor's join.
+            unless data.empty?
+              old = node.content.to_s
+              node.content = old + data
+              @document.notify_character_data_mutation(target_node: node, old_value: old)
+            end
             # WHATWG normalize() step 6: the merged-away sibling hands its live
             # range boundaries to the survivor at that offset BEFORE it is
             # removed, or the plain removing steps would strand them on the
