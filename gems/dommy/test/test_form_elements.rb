@@ -44,8 +44,13 @@ class TestHTMLOptionElement < Minitest::Test
   def test_selected_setter
     @opts[0].selected = true
     assert(@opts[0].selected)
+    refute(@opts[1].selected, "a single-select: selecting one option deselects the other")
     @opts[0].selected = false
-    refute(@opts[0].selected)
+    # Deselecting the only selected option asks for a reset, and a single-select
+    # with nothing selected falls back to its first non-disabled option — which
+    # is this one again.
+    assert(@opts[0].selected)
+    refute(@opts[1].selected)
   end
 
   def test_disabled_reflects_attribute

@@ -193,6 +193,52 @@ module Dommy
         nil
       end
 
+      # A select's list of options gained or lost members: run its selectedness
+      # setting algorithm. Options (or optgroups holding them) landing in or
+      # leaving a select — directly, or under one of its optgroups — affect that
+      # select's list. A select arriving inside an inserted subtree has its own
+      # list settled only if that never happened (the fragment parser built it):
+      # inserting or moving the select changes nothing in its list. Only the
+      # parent and grandparent are consulted, so an ordinary mutation elsewhere
+      # costs two name checks.
+      def run_select_mutation_steps(target_node, added_nodes, removed_nodes)
+        owner = owning_select_node(target_node)
+        if owner
+          arrived = added_nodes.select { |node| option_list_member?(node) }
+          if !arrived.empty? || removed_nodes.any? { |node| option_list_member?(node) }
+            @document.wrap_node(owner)&.__internal_options_changed__(arrived)
+          end
+        end
+
+        selects = []
+        added_nodes.each do |node|
+          next unless node.respond_to?(:element?) && node.element?
+
+          selects << node if node.name == "select"
+          next unless node.respond_to?(:first_element_child) && node.first_element_child
+
+          selects.concat(node.css("select").to_a)
+        end
+        selects.each { |node| @document.wrap_node(node)&.__internal_settle_selectedness_once__ }
+      rescue StandardError
+        nil
+      end
+
+      # The select whose list of options a child-list mutation on `node` touches:
+      # the select itself, or the select an optgroup sits in.
+      def owning_select_node(node)
+        return nil unless node.respond_to?(:name)
+        return node if node.name == "select"
+        return nil unless node.name == "optgroup"
+
+        parent = node.respond_to?(:parent) ? node.parent : nil
+        parent if parent.respond_to?(:name) && parent.name == "select"
+      end
+
+      def option_list_member?(node)
+        node.respond_to?(:element?) && node.element? && %w[option optgroup].include?(node.name)
+      end
+
       # Fire MutationObserver childList records
       def notify_child_list_mutation(
         target_node:,
@@ -221,6 +267,7 @@ module Dommy
         # in a connected tree, so an accordion group assembled off-document is
         # already consistent by the time it is attached.
         run_details_insertion_steps(added_nodes)
+        run_select_mutation_steps(target_node, added_nodes, removed_nodes)
 
         # MutationRecords are only needed when something is observing; skip the
         # eager wrapping + record entirely when no observer is registered.

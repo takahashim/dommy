@@ -2318,31 +2318,50 @@ module Dommy
       @selectedness
     end
 
+    # IDL setter: set selectedness, mark it dirty, then ask the owning select
+    # for a reset (its selectedness setting algorithm).
     def selected=(value)
-      @selectedness = !!value
       @selectedness_dirty = true
-      note_selectedness_change
+      __internal_set_selectedness__(value)
+      ask_for_reset
     end
 
-    # Set selectedness WITHOUT marking it dirty (the Option constructor's step).
+    # Set selectedness without touching dirtiness (the Option constructor's
+    # step, the `selected` attribute while not dirty). HTML: in a select
+    # without `multiple`, an option whose selectedness becomes true sets every
+    # other option's to false — right away, before any reset runs, so the
+    # option just set is the one that survives.
     def __internal_set_selectedness__(value)
+      __internal_write_selectedness__(value)
+      owner = __internal_owner_select__
+      owner.__internal_deselect_others__(self) if @selectedness && owner && !owner.multiple
+      nil
+    end
+
+    # The bare write, with no cross-option rule: the owning select's bulk
+    # setters (value=, selectedIndex=) and its selectedness setting algorithm
+    # keep the list consistent themselves. `dirty:` is for those setters' one
+    # chosen option — HTML has them set its dirtiness too, so the `selected`
+    # attribute stops driving it from then on.
+    def __internal_write_selectedness__(value, dirty: false)
       @selectedness = !!value
+      @selectedness_dirty = true if dirty
       note_selectedness_change
     end
 
-    # HTML reset algorithm (run for each option by the owning select): clear the
-    # dirtiness flag and re-sync selectedness to the `selected` content attribute.
+    # HTML reset algorithm (run for each option by the owning select, which then
+    # settles the list): clear the dirtiness flag and re-sync selectedness to
+    # the `selected` content attribute.
     def __internal_reset__
-      @selectedness = default_selected
       @selectedness_dirty = false
-      note_selectedness_change
+      __internal_write_selectedness__(default_selected)
     end
 
-    # Whether selectedness was set via the IDL setter (property), as opposed to
-    # only the content attribute — a single-select shows the most recently
-    # property-selected option in preference to an attribute-selected one.
-    def __selectedness_dirty__
-      @selectedness_dirty || false
+    # The select whose list of options this option is in — nil while detached.
+    # Matches HTMLSelectElement#options, which collects every descendant option.
+    def __internal_owner_select__
+      owner = closest("select")
+      owner.is_a?(HTMLSelectElement) ? owner : nil
     end
 
     # Keep the `selected` content attribute and selectedness in sync (while not
@@ -2359,8 +2378,15 @@ module Dommy
       result
     end
 
+    # The `selected` content attribute came or went: while not dirty,
+    # selectedness follows it. HTML's attribute steps stop there; browsers then
+    # also reset the list (removing the attribute from the only selected option
+    # of a single-select re-selects the first option), so ask for one.
     def sync_selectedness_from_attribute
-      @selectedness = default_selected unless @selectedness_dirty
+      return if @selectedness_dirty
+
+      __internal_set_selectedness__(default_selected)
+      ask_for_reset
     end
 
     def text
@@ -2385,6 +2411,13 @@ module Dommy
     # exactly as a checkbox's `checked=` invalidates them.
     def note_selectedness_change
       @document&.__internal_note_selector_state_change__
+      nil
+    end
+
+    # HTML "ask for a reset": the owning select runs its selectedness setting
+    # algorithm over the whole list.
+    def ask_for_reset
+      __internal_owner_select__&.__internal_settle_selectedness__
       nil
     end
 
@@ -3094,6 +3127,28 @@ module Dommy
       @__node__["size"].to_s.to_i
     end
 
+    # HTML "display size": the `size` attribute when positive, else 4 for a
+    # multiple select and 1 otherwise. Only at display size 1 does a list with
+    # nothing selected fall back to its first option.
+    def display_size
+      n = size
+      n.positive? ? n : (multiple ? 4 : 1)
+    end
+
+    # Losing `multiple`, or a change of `size`, changes which selectedness
+    # rules apply to the list: settle it again.
+    def set_attribute(name, value)
+      result = super
+      __internal_settle_selectedness__ if %w[multiple size].include?(name.to_s.downcase)
+      result
+    end
+
+    def remove_attribute(name)
+      result = super
+      __internal_settle_selectedness__ if %w[multiple size].include?(name.to_s.downcase)
+      result
+    end
+
     # `options` — all <option> descendants (including those inside
     # <optgroup>). Live HTMLOptionsCollection (HTMLCollection +
     # add/remove/selectedIndex/length= helpers).
@@ -3104,9 +3159,8 @@ module Dommy
       end
     end
 
-    # `selectedOptions` — live collection of options with `selected`
-    # attribute. When nothing is explicitly selected, browsers fall
-    # back to the first option for non-multiple selects.
+    # `selectedOptions` — live collection of the options whose selectedness is
+    # true (a settled single-select has at most one).
     def selected_options
       el = self
       @selected_options ||= HTMLCollection.new { el.__display_selected__ }
@@ -3131,25 +3185,13 @@ module Dommy
       closest("form")
     end
 
-    # The option(s) that display as selected, applying the selectedness rules at
-    # read time: a single-select shows the LAST option whose selectedness is
-    # true (last-selected wins), or — if none is — its first option ("ask for
-    # reset"); a multiple select shows every selected option (or none).
+    # The options whose selectedness is true. The list is kept consistent as
+    # it changes (see #__internal_settle_selectedness__), so nothing is derived
+    # here; a list the parser built is settled once, lazily, in case it was
+    # never handed the parsed-document steps.
     def __display_selected__
-      opts = options.to_a
-      chosen = opts.select { |o| o.respond_to?(:selected) && o.selected }
-      if multiple
-        chosen
-      elsif !chosen.empty?
-        # Single-select: the most recently property-selected option wins over an
-        # attribute-selected one; otherwise the last selected in document order.
-        dirty = chosen.select { |o| o.respond_to?(:__selectedness_dirty__) && o.__selectedness_dirty__ }
-        [(dirty.empty? ? chosen : dirty).last]
-      elsif !opts.empty?
-        [opts.first]
-      else
-        []
-      end
+      __internal_settle_selectedness_once__
+      options.to_a.select { |o| o.respond_to?(:selected) && o.selected }
     end
 
     def selected_index
@@ -3160,22 +3202,85 @@ module Dommy
       opts.find_index { |o| o.__dommy_backend_node__.equal?(sel.__dommy_backend_node__) } || -1
     end
 
+    # `selectedIndex=`: every option's selectedness becomes false, then the one
+    # at `i` (if any) becomes true and dirty — bare writes, no reset: an
+    # out-of-range index leaves nothing selected, as in a browser.
     def selected_index=(i)
-      options.to_a.each_with_index { |o, idx| o.selected = (idx == i.to_i) }
+      target = i.to_i
+      options.to_a.each_with_index do |o, idx|
+        chosen = idx == target
+        o.__internal_write_selectedness__(chosen, dirty: chosen)
+      end
+      nil
     end
 
     # HTML reset algorithm: reset every option's selectedness, then run the
-    # selectedness setting algorithm — a single-selection select always ends up
-    # with exactly one option selected, so a reset that clears every `selected`
-    # attribute falls back to the first option.
+    # selectedness setting algorithm — a single-selection select whose options
+    # all lost their `selected` attribute falls back to its first option.
     def __internal_reset__
-      opts = options.to_a
-      opts.each(&:__internal_reset__)
-      return nil if multiple || opts.empty?
-      return nil if opts.any? { |o| o.respond_to?(:selected) && o.selected }
+      options.to_a.each(&:__internal_reset__)
+      __internal_settle_selectedness__
+    end
 
-      first = opts.find { |o| !(o.respond_to?(:disabled) && o.disabled) } || opts.first
-      first.__internal_set_selectedness__(true)
+    # HTML: in a select without `multiple`, "whenever an option element in the
+    # select element's list of options has its selectedness set to true, set
+    # the selectedness of all the other option elements to false".
+    def __internal_deselect_others__(keep)
+      keep_node = keep.__dommy_backend_node__
+      options.to_a.each do |o|
+        next if o.__dommy_backend_node__.equal?(keep_node)
+        next unless o.respond_to?(:selected) && o.selected
+
+        o.__internal_write_selectedness__(false)
+      end
+      nil
+    end
+
+    # The list of options gained (`arrived`: the option / optgroup backend nodes
+    # that landed in it, in tree order) or lost members. HTML: an option added
+    # to the list with its selectedness already true sets every other option's
+    # to false — so of several arriving selected, the last in tree order wins,
+    # wherever in the list they landed — and then the list settles.
+    def __internal_options_changed__(arrived)
+      unless multiple
+        options_in = arrived.flat_map { |node| node.name == "option" ? [node] : node.css("option").to_a }
+        winner = options_in.reverse_each.find do |node|
+          option = @document.wrap_node(node)
+          option.respond_to?(:selected) && option.selected
+        end
+        __internal_deselect_others__(@document.wrap_node(winner)) if winner
+      end
+      __internal_settle_selectedness__
+    end
+
+    # A list that was never settled — the parser built it, in a document or a
+    # fragment, and no mutation has touched it since — is settled now. A select
+    # whose list was already settled is left alone: moving or inserting the
+    # select itself changes nothing in its list of options, so an explicit
+    # "nothing selected" (selectedIndex = -1) survives the move.
+    def __internal_settle_selectedness_once__
+      __internal_settle_selectedness__ unless @selectedness_settled
+      nil
+    end
+
+    # The selectedness setting algorithm (HTML §4.10.7). Runs when the list of
+    # options gains or loses members, when an option asks for a reset, on the
+    # select's own reset, and when `multiple` / `size` change. Only for a select
+    # without `multiple`: a list with nothing selected selects its first
+    # non-disabled option (at display size 1 only); a list with several selected
+    # keeps only the last of them in tree order.
+    def __internal_settle_selectedness__
+      @selectedness_settled = true
+      return nil if multiple
+
+      opts = options.to_a
+      chosen = opts.select { |o| o.respond_to?(:selected) && o.selected }
+      if chosen.empty?
+        first = opts.find { |o| o.respond_to?(:selected) && !option_disabled?(o) } if display_size == 1
+        first&.__internal_write_selectedness__(true)
+      elsif chosen.length > 1
+        chosen[0...-1].each { |o| o.__internal_write_selectedness__(false) }
+      end
       nil
     end
 
@@ -3185,11 +3290,15 @@ module Dommy
       sel ? sel.value.to_s : ""
     end
 
+    # `value=`: every option's selectedness becomes false, then the first whose
+    # value matches (if any) becomes true and dirty — bare writes, no reset: a
+    # value no option has leaves nothing selected, as in a browser.
     def value=(new_value)
       opts = options.to_a
       target = opts.find { |o| o.value.to_s == new_value.to_s }
-      opts.each { |o| o.selected = false }
-      target.selected = true if target
+      opts.each { |o| o.__internal_write_selectedness__(false) }
+      target&.__internal_write_selectedness__(true, dirty: true)
+      nil
     end
 
     # `select.item(i)` — returns the option at index i.
@@ -3339,6 +3448,17 @@ module Dommy
       else
         super
       end
+    end
+
+    private
+
+    # An option is disabled for selection when it carries `disabled` itself or
+    # sits in a disabled optgroup (HTML "disabled" concept for option).
+    def option_disabled?(option)
+      return true if option.respond_to?(:disabled) && option.disabled
+
+      parent = option.parent_element
+      parent.is_a?(HTMLOptGroupElement) && parent.disabled
     end
   end
 

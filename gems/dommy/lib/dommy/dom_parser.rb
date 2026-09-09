@@ -59,7 +59,7 @@ module Dommy
       backend_doc = Backend.parse(str.empty? ? "<html><body></body></html>" : str)
       doc = Document.new(nil, backend_doc: backend_doc)
       doc.task_scheduler = @window.scheduler if @window.respond_to?(:scheduler)
-      doc.__internal_run_parsed_details_steps__
+      doc.__internal_run_parsed_insertion_steps__
       doc
     end
 
