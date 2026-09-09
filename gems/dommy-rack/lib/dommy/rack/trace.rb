@@ -69,9 +69,6 @@ module Dommy
         @action_seq = nil
         @pending_request = nil
         @observers = []
-        @stream_io = nil
-        @stream_owns_io = false
-        @stream_serializer = nil
       end
 
       # Subscribe to the session and (when present) runtime seams. Called by
@@ -111,7 +108,6 @@ module Dommy
         event = Event.new(seq: @seq, t: now_ms, wall_ms: monotonic_ms, type: :action, name: verb,
           action_seq: nil, data: {verb: verb, label: label, source: __internal_caller_source})
         @events << event
-        __internal_stream(event)
         nil
       end
 
@@ -190,50 +186,9 @@ module Dommy
         dir
       end
 
-      # Stream every event as an NDJSON line the moment it is recorded —
-      # append-only, one flush per line — so a live viewer (dommylizer
-      # --follow) tails the run, and a hang or kill still leaves the trace up
-      # to the last completed event. Accepts an IO or a path (opened for
-      # write; closed by #finish_stream). Bracket with #finish_stream to add
-      # the trace_end line.
-      #
-      #   session.trace.stream_to("tmp/live.trace.ndjson")
-      #   ... drive the session ...
-      #   session.trace.finish_stream(status: "ok")
-      def stream_to(path_or_io, metadata: nil)
-        require "json"
-        # Re-opening supersedes a prior stream: close its owned file (an
-        # abandoned, unbracketed document) so the fd doesn't leak.
-        @stream_io.close if @stream_io && @stream_owns_io
-        @stream_owns_io = !path_or_io.respond_to?(:write)
-        io = @stream_owns_io ? ::File.open(path_or_io, "w") : path_or_io
-        @stream_serializer = Ndjson.new(@events, level: @level, metadata: metadata,
-          artifacts: InlineArtifacts.new(@artifacts))
-        io.write(::JSON.generate(@stream_serializer.start_line), "\n")
-        io.flush if io.respond_to?(:flush)
-        @stream_io = io
-        self
-      end
-
-      # True while a live stream is open (finish_stream not yet called) — lets
-      # the Session bracket an un-finished stream on dispose.
-      def streaming? = !@stream_io.nil?
-
-      def finish_stream(status: "ok")
-        io = @stream_io
-        return nil unless io
-
-        @stream_io = nil
-        io.write(::JSON.generate(@stream_serializer.end_line(status.to_s)), "\n")
-        io.flush if io.respond_to?(:flush)
-        io.close if @stream_owns_io
-        nil
-      end
-
       # Lazily shapes an artifact's inline emission fields ({content:,
-      # encoding:}) by seq — the single owner of the inline wire shape, used
-      # by both to_ndjson (whole document) and streaming (per event at write
-      # time, the content captured just before the event lands).
+      # encoding:}) by seq — the single owner of the inline wire shape that
+      # to_ndjson hands the serializer.
       class InlineArtifacts
         def initialize(artifacts)
           @artifacts = artifacts
@@ -270,9 +225,8 @@ module Dommy
       # Emit one event, gated by the recording level, and return it (or nil if
       # gated out). `seq` is the canonical order; `t` is the virtual clock if a
       # window exists.
-      # `artifact:` carries the event's captured content (a DOM snapshot); it
-      # is stored BEFORE the event streams, so a live stream's write-time
-      # lookup (StreamingArtifacts) sees it.
+      # `artifact:` carries the event's captured content (a DOM snapshot),
+      # stored under the event's seq alongside it.
       def __internal_emit(type, data, name: nil, window: nil, artifact: nil)
         return if @level == :off
         return if REALM_TYPES.include?(type) && @level != :verbose
@@ -282,27 +236,7 @@ module Dommy
           name: name, action_seq: @action_seq, data: data)
         @artifacts[event.seq] = artifact if artifact
         @events << event
-        __internal_stream(event)
         event
-      end
-
-      # A dead stream (closed pipe, full disk) must not take the session down:
-      # drop the stream and keep tracing in memory.
-      def __internal_stream(event)
-        return unless @stream_io
-
-        @stream_io.write(::JSON.generate(@stream_serializer.event_line(event)), "\n")
-        @stream_io.flush if @stream_io.respond_to?(:flush)
-      rescue StandardError
-        io = @stream_io
-        @stream_io = nil
-        owned = @stream_owns_io
-        @stream_owns_io = false
-        begin
-          io.close if owned && io.respond_to?(:close)
-        rescue StandardError
-          nil # the write already failed; closing may fail the same way
-        end
       end
 
       # on_request fires before its on_response (per redirect hop, in order),

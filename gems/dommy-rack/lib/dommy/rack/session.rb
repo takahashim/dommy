@@ -186,9 +186,6 @@ module Dommy
       # Full session teardown: the JS runtime(s) plus any live WebSocket
       # transports. Safe to call when JS is disabled, and repeatedly.
       def dispose
-        # Bracket a live trace stream the caller never finished, so the file
-        # ends with its trace_end (the NDJSON contract) instead of truncated.
-        @trace.finish_stream(status: "cancelled") if @trace&.respond_to?(:streaming?) && @trace.streaming?
         Array(@live_websocket_transports).each(&:dispose)
         @live_websocket_transports = nil
         dispose_js
