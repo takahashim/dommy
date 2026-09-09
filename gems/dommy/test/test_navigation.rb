@@ -215,6 +215,27 @@ class TestNavigation < Minitest::Test
     assert_includes(attempt[:params], ["q", "hi"])
   end
 
+  def test_label_click_activates_its_associated_submit_input
+    @win = make_window(
+      "<form action='/reset' method='post'>" \
+      "<input id='resend' type='submit' name='resend' value='1'>" \
+      "</form><label for='resend'>Send reset email</label>"
+    )
+    @doc = @win.document
+    @delegate = @win.navigation_delegate
+
+    label = @doc.query_selector("label")
+    label.click
+
+    attempt = @delegate.attempts.first
+    refute_nil(attempt)
+    assert_equal(@doc.get_element_by_id("resend"), @doc.active_element)
+    assert_equal(:form, attempt[:source])
+    assert_equal("POST", attempt[:method])
+    assert_match(%r{/reset\z}, attempt[:url])
+    assert_includes(attempt[:params], ["resend", "1"])
+  end
+
   # --- N1: pushState fragment change no longer double-signals hashchange ---
 
   def test_pushstate_fragment_does_not_fire_hashchange
