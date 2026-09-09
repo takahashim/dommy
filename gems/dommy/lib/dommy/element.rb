@@ -313,11 +313,14 @@ module Dommy
 
       count = length - off
       new_node = @document.create_text_node(utf16_slice(full, off, count))
-      if @__node__.parent
-        new_bn = new_node.__dommy_backend_node__
+      new_bn = new_node.__dommy_backend_node__
+      parent = @__node__.parent
+      if parent
+        # Step 7.1 — insert the new node right after self. Its live range steps
+        # run here, where the algorithm puts them; its childList RECORD is
+        # queued at the very end instead (see below).
         @__node__.add_next_sibling(new_bn)
-        # The new node is inserted right after self — a childList addition record.
-        @document.notify_child_list_mutation(target_node: @__node__.parent, added_nodes: [new_bn], removed_nodes: [])
+        @document.__internal_ranges_inserted__(parent, [new_bn])
         # Live ranges past the split point move to the tail node (the generic
         # insert step above already shifted boundaries sitting further along).
         # Step 7 only runs for a node that HAS a parent: splitting a detached
@@ -330,6 +333,21 @@ module Dommy
       # range rules (the ones that clamp a boundary in a detached node).
       write_data(utf16_slice(full, 0, off))
       @document.__internal_ranges_replaced_data__(self, off, count, 0)
+      # The one place Dommy queues MutationRecords out of algorithm order. Read
+      # literally, the insertion (step 7.1) precedes the data replacement (step
+      # 8), so the records would be childList then characterData. Every shipping
+      # engine emits them the other way round: Blink's Text::splitText calls
+      # DidModifyData before InsertBefore, WebCore matches it, and Gecko's
+      # Text::SplitText not only matches but says in a comment that nsRange
+      # DEPENDS on the data notification preceding the insertion. Confirmed by
+      # running the same script in all three — Chromium 141, WebKitGTK 2.52.6
+      # and Firefox all answer [characterData, childList], while all three
+      # answer [childList, characterData] for those same two mutations performed
+      # explicitly, so this is specific to splitText and not a general
+      # reordering. Only the record order moves: the tree and every live range
+      # boundary still follow the steps exactly as written.
+      # https://github.com/takahashim/dommy/issues/23
+      @document.queue_child_list_record(target_node: parent, added_nodes: [new_bn], removed_nodes: []) if parent
       new_node
     end
 
