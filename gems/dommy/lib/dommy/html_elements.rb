@@ -2746,11 +2746,14 @@ module Dommy
 
     # HTML: a label's activation behavior runs synthetic click activation steps
     # on its labeled control — which is what makes clicking a label's text check
-    # the checkbox next to it. A click already targeted at interactive content
-    # *inside* the label (the control itself included) is left alone, so the
-    # forwarded click cannot bounce back here. Interactive content the label is
-    # nested in — a label inside an <a> or a <button> — is not a descendant, so
-    # it does not suppress the forwarding.
+    # the checkbox next to it. Browsers also move focus to the control first (a
+    # label that stands in for a visually hidden submit input, Turbo's
+    # confirmation flow for one, relies on it becoming the active element). A
+    # click already targeted at interactive content *inside* the label (the
+    # control itself included) is left alone, so the forwarded click cannot
+    # bounce back here. Interactive content the label is nested in — a label
+    # inside an <a> or a <button> — is not a descendant, so it does not suppress
+    # the forwarding.
     def activation_behavior(_event)
       labeled = control
       return if labeled.nil?
@@ -2759,6 +2762,7 @@ module Dommy
       interactive = origin.closest(INTERACTIVE_CONTENT) if origin.respond_to?(:closest)
       return if interactive && contains?(interactive)
 
+      labeled.focus if labeled.respond_to?(:focus)
       labeled.click
     end
     # `label.control` — the form control associated with this label.

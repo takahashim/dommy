@@ -90,6 +90,18 @@ module Dommy
         # document.defaultView.DOMException, …).
         @backend.call_js("__rbHost.attachStatics")
         @backend.call_js("__rbHost.exposeConstructorsOnWindow")
+        # Legacy `window.event`: a live accessor on globalThis so a bare `event`
+        # identifier (and `globalThis.event`) resolves to the window's current
+        # event during dispatch — `event.stopPropagation()` in a listener that
+        # takes no parameter. Reads the live globalThis.window on each get, so it
+        # follows a rebound window (a fresh document per WPT file in a reused VM).
+        @backend.eval(<<~JS)
+          Object.defineProperty(globalThis, "event", {
+            configurable: true, enumerable: false,
+            get() { const w = globalThis.window; return w ? w.event : undefined; }
+          });
+          undefined;
+        JS
         wire_scheduler!(win)
         wire_script_runner!(win)
       end
@@ -142,9 +154,12 @@ module Dommy
       end
 
       # Invoke a JS EventListener *object*'s handleEvent (see HostEventListener),
-      # passing the dispatched event as a proxy.
+      # passing the dispatched event as a proxy. A thrown value re-raises as a
+      # ThrowValue (identity preserved) so event dispatch can report it as a
+      # window `error` event — EventTarget#invoke_listener_isolated catches it,
+      # rather than letting it escape the dispatch.
       def invoke_js_ref_handle_event(ref, event)
-        unwrap(@backend.call_js("__rbHost.invokeJsRefHandleEvent", ref, wrap(event)))
+        callback_result(@backend.call_js("__rbHost.invokeJsRefHandleEvent", ref, wrap(event)), true)
       end
 
       # Invoke a JS NodeFilter object's acceptNode (see HostNodeFilter). `raising`
@@ -520,6 +535,13 @@ module Dommy
       # NodeFilter, whose exception must propagate out of the traversal method.
       def __js_call_with_raise__(args)
         @bridge.invoke_callback(@id, args, raising: true)
+      end
+
+      # Invoke with an explicit `this` AND re-raise a thrown value — for an event
+      # listener, whose exception the dispatch catches and reports as a window
+      # `error` event rather than swallowing. `this` is the currentTarget.
+      def __js_call_with_this_raise__(args, this_arg)
+        @bridge.invoke_callback(@id, args, this_arg, raising: true)
       end
     end
 

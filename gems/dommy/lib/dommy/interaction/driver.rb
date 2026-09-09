@@ -311,11 +311,33 @@ module Dommy
         unless EventSynthesis.keydown(element, key, code)
           case name
           when :enter then enter_default_action(element)
-          when :space then typed_character_default_action(element, " ", "Space")
+          when :space then space_default_action(element)
           when :backspace then field_interactor.backspace(element)
           end
         end
         EventSynthesis.keyup(element, key, code)
+      end
+
+      # Space's default action: activate a focused button-like control — a
+      # <button>, or an <input> button / checkbox / radio — as if clicked (so
+      # Space toggles a focused checkbox / submits via a focused button), and
+      # type a space anywhere else (a text field). Activation is a bare click
+      # (no pointer/mouse events), like a keyboard-triggered activation.
+      SPACE_ACTIVATED_INPUT_TYPES = %w[button submit reset checkbox radio image].freeze
+      def space_default_action(element)
+        if space_activates?(element)
+          element.click
+        else
+          typed_character_default_action(element, " ", "Space")
+        end
+      end
+
+      def space_activates?(element)
+        name = element.local_name
+        return true if name == "button"
+        return false unless name == "input"
+
+        SPACE_ACTIVATED_INPUT_TYPES.include?(element.type.to_s.downcase)
       end
 
       def send_character(element, char)

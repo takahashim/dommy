@@ -25,15 +25,24 @@ module Dommy
     # that order). A JS function listener's `this` must be the event's
     # currentTarget (the node the listener is attached to), so pass it through
     # when the bridge supports an explicit receiver.
-    def invoke_listener(listener, event, current_target = nil)
+    # `args:` overrides the single-event argument list — the special error
+    # event handler (`window.onerror`) is called with (message, filename,
+    # lineno, colno, error) instead of the event. An EventListener object's
+    # handleEvent always receives the event.
+    def invoke_listener(listener, event, current_target = nil, args: nil)
+      args ||= [event]
       if listener.respond_to?(:handle_event)
         listener.handle_event(event)
       elsif listener.respond_to?(:call) && !listener.is_a?(Module)
-        listener.call(event)
+        listener.call(*args)
+      elsif listener.respond_to?(:__js_call_with_this_raise__)
+        # A JS function listener: surface a thrown value (as a ThrowValue) so the
+        # dispatch reports it as a window `error` event instead of swallowing it.
+        listener.__js_call_with_this_raise__(args, current_target)
       elsif listener.respond_to?(:__js_call_with_this__)
-        listener.__js_call_with_this__([event], current_target)
+        listener.__js_call_with_this__(args, current_target)
       elsif listener.respond_to?(:__js_call__)
-        listener.__js_call__("call", [event])
+        listener.__js_call__("call", args)
       end
     end
   end
