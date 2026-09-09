@@ -467,6 +467,50 @@ class TestWPTLabelActivation < Minitest::Test
     span.click
     assert(box.checked)
   end
+
+  # Every kind of interactive content inside the label — not only form controls
+  # and links — handles its own click (WPT the-label-element/
+  # clicking-interactive-content): a click on it, or on something inside it, is
+  # not forwarded to the label's control. A nested label counts too.
+  def test_other_interactive_content_inside_the_label_is_left_alone
+    %w[<details></details> <video\ controls></video> <audio\ controls></audio> <iframe></iframe>
+       <embed> <img\ usemap='#m'> <label>inner</label>].each do |markup|
+      host = @doc.create_element("div")
+      host.inner_html = "<label><input type='checkbox'>#{markup.tr('\\', '')}</label>"
+      @doc.body.append_child(host)
+      box = host.query_selector("input")
+      other = host.query_selector("label").last_element_child
+
+      other.click
+      refute(box.checked, "a click on #{markup} must not activate the control")
+      inner = @doc.create_element("span")
+      other.append_child(inner)
+      inner.click
+      refute(box.checked, "a click inside #{markup} must not activate the control")
+    end
+  end
+
+  # Being interactive content itself must not make the label ignore a click on
+  # its own text: only a nested interactive element counts.
+  def test_the_label_itself_does_not_count_as_nested_interactive_content
+    box, span = labeled
+    span.click
+    assert(box.checked)
+  end
+
+  # A video or audio WITHOUT controls, and an img without usemap, are not
+  # interactive content: a click on them forwards like any other content.
+  def test_media_without_controls_still_forwards_the_click
+    host = @doc.create_element("div")
+    host.inner_html = "<label><input type='checkbox'><video id='v'></video><img id='i'></label>"
+    @doc.body.append_child(host)
+    box = host.query_selector("input")
+    host.query_selector("#v").click
+    assert(box.checked)
+    box.checked = false
+    host.query_selector("#i").click
+    assert(box.checked)
+  end
 end
 
 # HTML's legacy nested-form dispatch rule: a form stops a `submit`/`reset` event

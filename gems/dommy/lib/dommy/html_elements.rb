@@ -2736,9 +2736,12 @@ module Dommy
   class HTMLLabelElement < HTMLElement
     reflect_string html_for: "for"
 
-    # Interactive content that handles its own click; a click that landed on one
-    # of these inside a label is NOT forwarded again by the label.
-    INTERACTIVE_CONTENT = "a[href], button, input, select, textarea"
+    # HTML "interactive content" (§3.2.5.2.7): a click that landed on one of
+    # these inside a label is NOT forwarded again by the label — the element
+    # handles its own click. An input is interactive unless hidden; a, audio,
+    # img and video only with the attribute that makes them so.
+    INTERACTIVE_CONTENT = "a[href], audio[controls], button, details, embed, iframe, img[usemap], " \
+                          "input:not([type=hidden i]), label, select, textarea, video[controls]"
 
     def activation_target?
       !control.nil?
@@ -2758,9 +2761,13 @@ module Dommy
       labeled = control
       return if labeled.nil?
 
+      # The nearest interactive ancestor of the click's origin, this label
+      # itself excluded: a label is interactive content too, so from a click
+      # on its own text `closest` reaches it — that is the ordinary case, not a
+      # nested interactive element to leave alone.
       origin = _event.__js_get__("target")
       interactive = origin.closest(INTERACTIVE_CONTENT) if origin.respond_to?(:closest)
-      return if interactive && contains?(interactive)
+      return if interactive && !interactive.equal?(self) && contains?(interactive)
 
       labeled.focus if labeled.respond_to?(:focus)
       labeled.click
