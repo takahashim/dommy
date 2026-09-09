@@ -616,7 +616,12 @@ module Dommy
       @cookie_jar = Internal::CookieJar.new
       @template_content_registry = Internal::TemplateContentRegistry.new(self)
       @mutation_coordinator = Internal::MutationCoordinator.new(self, @observer_manager)
-      @node_iterators = []
+      # Weak, like @live_ranges: a NodeIterator is consulted by every removal for
+      # as long as its document holds it, and detach() is a no-op by definition,
+      # so a strong list would mean every iterator ever created keeps costing
+      # work — and keeps its referenceNode's whole detached subtree alive —
+      # forever. A browser collects an unreachable one and stops consulting it.
+      @node_iterators = ObjectSpace::WeakMap.new
       @backend_doc = backend_doc || Backend.parse("<!doctype html><html><head></head><body></body></html>")
       @content_type = "text/html"
       # The document is fully parsed before scripts run (no incremental network
@@ -1260,7 +1265,11 @@ module Dommy
     end
 
     def __internal_track_node_iterator__(iterator)
-      @node_iterators << iterator
+      @node_iterators[iterator] = true
+    end
+
+    def node_iterators?
+      @node_iterators.size.positive?
     end
 
     # `document.doctype` — the node-backed DocumentType wrapping the parsed
@@ -2166,7 +2175,7 @@ module Dommy
     # — this runs once per removed node, and a bulk replaceChildren /
     # textContent= must not pay for machinery nobody is watching.
     def pre_remove_node(node)
-      return nil if @node_iterators.empty? && !live_ranges?
+      return nil if !node_iterators? && !live_ranges?
       return nil unless node.parent
 
       run_node_iterator_pre_remove(node)
@@ -2330,10 +2339,10 @@ module Dommy
     # `backend_node` is detached, so referenceNode/pointerBeforeReferenceNode
     # stay valid. `backend_node` must still be attached (tree intact) here.
     def run_node_iterator_pre_remove(backend_node)
-      return if @node_iterators.empty?
+      return unless node_iterators?
 
       removed = wrap_node(backend_node)
-      @node_iterators.each { |iter| iter.pre_remove(removed) }
+      @node_iterators.each_key { |iter| iter.pre_remove(removed) }
     end
 
     def notify_attribute_mutation(target_node:, attribute_name:, old_value:, namespace: nil)
