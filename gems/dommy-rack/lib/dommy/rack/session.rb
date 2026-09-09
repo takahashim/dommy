@@ -49,7 +49,7 @@ module Dommy
         keyword_init: true
       )
 
-      attr_reader :last_request, :last_response, :history, :trace
+      attr_reader :last_request, :last_response, :history, :trace, :dialog_handler
 
       # A factory `->(session) { js_runtime_host }` that binds a JS runtime to a
       # session for `javascript: true`. dommy-js-quickjs installs one when its
@@ -147,6 +147,14 @@ module Dommy
       # true`). When true, navigation boots `<script>` tags and the interaction
       # verbs drive JS handlers.
       def javascript? = !@js_runtime.nil?
+
+      # Supply native dialog answers to the current page and to every page
+      # subsequently installed while the handler is active. The Capybara driver
+      # uses this around accept_confirm / dismiss_confirm (and alert/prompt).
+      def dialog_handler=(handler)
+        @dialog_handler = handler
+        @current_window.dialog_handler = handler if @current_window
+      end
 
       # The bound JS runtime (a SessionRuntime), or nil when JS is disabled.
       # Exposed for the Trace to subscribe to the runtime's console / js_error /
@@ -769,6 +777,7 @@ module Dommy
         @current_url = final_url
         if response.html?
           @current_window = response.window
+          @current_window.dialog_handler = @dialog_handler
           # Set the geometry mode before scripts boot so the very first
           # getBoundingClientRect a framework calls already sees it.
           @current_window.approximate_layout = @approximate_layout if @approximate_layout

@@ -79,6 +79,13 @@ module Dommy
     # unchanged until an embedder installs a real delegate.
     attr_accessor :navigation_delegate
 
+    # Optional host seam for native JavaScript dialogs. It receives the dialog
+    # type (`:alert`, `:confirm`, or `:prompt`), its message, and (for prompts)
+    # the default value. A headless Window has no user to ask, so the fallback
+    # remains alert -> nil, confirm -> false, prompt -> nil. Browser front ends
+    # can install a handler to supply a deterministic answer.
+    attr_accessor :dialog_handler
+
     def initialize(host = nil, backend_doc: nil)
       @host = host
       @navigation_delegate = Navigation::NullDelegate.new
@@ -288,11 +295,11 @@ module Dommy
       when "scrollBy"
         scroll_by(*args)
       when "alert"
-        nil # headless: no dialog (happy-dom semantics)
+        handle_dialog(:alert, args[0].to_s, nil)
       when "confirm"
-        false # no user -> treated as "Cancel"
+        handle_dialog(:confirm, args[0].to_s, nil)
       when "prompt"
-        nil # no user input
+        handle_dialog(:prompt, args[0].to_s, args[1].nil? ? "" : args[1].to_s)
       when "open"
         nil # cannot open a new browsing context headlessly
       when "reportError"
@@ -425,6 +432,15 @@ module Dommy
     end
 
     private
+
+    # The native-dialog seam behind alert / confirm / prompt: ask the installed
+    # `dialog_handler`, else the headless defaults (alert -> nil, confirm ->
+    # false as "Cancel", prompt -> nil as "no input").
+    def handle_dialog(type, message, default_value)
+      return @dialog_handler.call(type, message, default_value) if @dialog_handler
+
+      type == :confirm ? false : nil
+    end
 
     # Virtual scroll position. There's no real layout, but tracking a logical
     # `(scrollX, scrollY)` makes scroll-dependent behaviour observable: scrollTo/
@@ -618,6 +634,11 @@ module Dommy
         "PerformanceObserver" => Bridge::Constructor.new { |args| PerformanceObserver.new(args[0]) },
         "Request" => Bridge::Constructor.new { |args| Request.new(args[0], args[1], win) },
         "XMLHttpRequest" => Bridge::Constructor.new { |_args| XMLHttpRequest.new(win) },
+        # Constructable Stylesheets (`new CSSStyleSheet()`) are used by web
+        # components to prepare CSS before attaching it to a shadow root. They
+        # have no owner node; CSSOM edits remain available even where
+        # adoptedStyleSheets itself is not implemented yet.
+        "CSSStyleSheet" => Bridge::Constructor.new { |_args| CSSStyleSheet.new },
         "FileReader" => Bridge::Constructor.new { |_args| FileReader.new(win) },
         "MessageChannel" => Bridge::Constructor.new { |_args| MessageChannel.new(win) },
         "BroadcastChannel" => Bridge::Constructor.new { |args| BroadcastChannel.new(win, args[0]) },

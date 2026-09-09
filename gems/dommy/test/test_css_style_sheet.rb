@@ -77,6 +77,25 @@ class TestCSSStyleSheetStub < Minitest::Test
     @doc.body.append_child(style)
     assert_equal(0, style.sheet.css_rules.length)
   end
+
+  def test_constructable_stylesheet_has_no_owner_node
+    sheet = @win.__js_get__("CSSStyleSheet").__js_new__([])
+
+    assert_kind_of(Dommy::CSSStyleSheet, sheet)
+    assert_nil(sheet.owner_node)
+    sheet.replace_sync("p { color: red }")
+    assert_equal("p { color: red; }", sheet.css_rules.item(0).css_text)
+  end
+
+  # The counterpart of the constructor: a constructed sheet has no way to
+  # reach a document yet. Component libraries feature-detect on the DOCUMENT
+  # side, so pinning its absence is what keeps them on the <style> fallback
+  # that Dommy does handle — a stray `adoptedStyleSheets` here would flip
+  # them to a path that silently applies nothing.
+  def test_adopted_style_sheets_is_not_offered_by_the_document
+    refute(@doc.respond_to?(:adopted_style_sheets))
+    assert_equal(Dommy::Bridge::ABSENT, @doc.__js_get__("adoptedStyleSheets"))
+  end
 end
 
 class TestCSSStyleSheetMutation < Minitest::Test
