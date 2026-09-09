@@ -35,10 +35,14 @@ module Dommy
 
       module_function
 
+      # `binds:` is applied on EVERY call, including calls that find the
+      # subscriptions already installed, so a suite hook can turn SQL bind
+      # recording on — and back off — without a way to un-subscribe.
       def install!(binds: false)
-        @include_binds = binds if binds
+        @include_binds = binds
         return false if @installed
         return false unless defined?(::ActiveSupport::Notifications)
+        return false unless ::ActiveSupport::Notifications.respond_to?(:monotonic_subscribe)
 
         TOPICS.each do |topic, kind|
           ::ActiveSupport::Notifications.monotonic_subscribe(topic) do |_name, started, finished, _id, payload|
@@ -49,7 +53,7 @@ module Dommy
       end
 
       def record(kind, topic, duration_ms, payload)
-        trace = Thread.current[:__dommy_active_trace__]
+        trace = Thread.current[active_trace_key]
         return unless trace.respond_to?(:__internal_record_span__)
 
         span = build_span(kind, topic, payload)
@@ -99,17 +103,37 @@ module Dommy
       # when the payload carries no usable binds.
       def masked_binds(payload)
         names = Array(payload[:binds]).map { |b| b.respond_to?(:name) ? b.name.to_s : b.to_s }
-        values = Array(payload[:type_casted_binds])
+        values = Array(type_casted_binds(payload[:type_casted_binds]))
         return nil if names.empty? || names.length != values.length
 
         bind_filter.form_params(names.zip(values))
       end
 
+      # Some adapters/versions publish `type_casted_binds` as a callable that
+      # defers the (potentially expensive) casting until a subscriber asks for
+      # it — exactly what ActiveRecord::LogSubscriber unwraps before reading it.
+      # Without this, a single-bind statement would record the Proc ITSELF as
+      # the bind value, and every other statement would silently drop its binds
+      # on the names/values length check.
+      def type_casted_binds(casted_binds)
+        casted_binds.respond_to?(:call) ? casted_binds.call : casted_binds
+      end
+
       def bind_filter
-        trace = Thread.current[:__dommy_active_trace__]
+        trace = Thread.current[active_trace_key]
         return trace.__internal_param_filter__ if trace.respond_to?(:__internal_param_filter__)
 
         @default_filter ||= Dommy::Rack::Trace::ParamFilter.new(Dommy::Rack::Trace::ParamFilter::DEFAULT)
+      end
+
+      # The Trace owns the thread-local's name; read it from there when
+      # dommy-rack is loaded so the two can never drift apart.
+      def active_trace_key
+        if defined?(::Dommy::Rack::Trace::TRACE_THREAD_KEY)
+          ::Dommy::Rack::Trace::TRACE_THREAD_KEY
+        else
+          :__dommy_active_trace__
+        end
       end
     end
   end

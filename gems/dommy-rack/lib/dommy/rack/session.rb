@@ -130,6 +130,8 @@ module Dommy
         @request_listeners = []
         @response_listeners = []
         @abort_listeners = []
+        @app_start_listeners = []
+        @app_finish_listeners = []
         @document_loaded_listeners = []
         @subresource_allowlist = []        # hosts allowed for cross-origin <script>/fetch/XHR
         @blocked_subresource_hosts = []    # cross-origin hosts declined since the last reset (awaiting a decision)
@@ -524,6 +526,26 @@ module Dommy
         self
       end
 
+      # Register callbacks that BRACKET the Rack app call itself, with the env.
+      # Unlike on_request / on_response (which the async-network path routes
+      # through the scheduler inbox, so they run after the fact on the page
+      # thread), these fire inline on whatever thread calls the app — which is
+      # the only place a hook can install per-request state the app itself will
+      # find, such as the Trace's thread-local. State they need to hand to the
+      # later on_response travels on the env, not on the listener's owner.
+      def on_app_start(&block)
+        @app_start_listeners << block
+        self
+      end
+
+      # The matching close. Runs for a successful AND a raising app call, and
+      # before on_abort so the aborted request's observer sees what the bracket
+      # left on the env.
+      def on_app_finish(&block)
+        @app_finish_listeners << block
+        self
+      end
+
       # Register a callback invoked with the new Window each time a navigation
       # installs an HTML document (visit, redirects, link clicks, form submits,
       # back/forward, reload, meta refresh). This is the page-load lifecycle
@@ -696,6 +718,12 @@ module Dommy
           },
           on_abort: lambda { |env|
             @abort_listeners.each { |cb| cb.call(env) }
+          },
+          on_app_start: lambda { |env|
+            @app_start_listeners.each { |cb| cb.call(env) }
+          },
+          on_app_finish: lambda { |env|
+            @app_finish_listeners.each { |cb| cb.call(env) }
           }
         )
       end
@@ -867,6 +895,16 @@ module Dommy
           },
           on_abort: sched && lambda { |env|
             sched.post_external { @abort_listeners.each { |cb| cb.call(env) } }
+          },
+          # The app-call bracket is NOT posted to the inbox: it has to be open
+          # while the worker thread is inside the app, which a page-thread
+          # callback scheduled for later can never be. Its listeners touch only
+          # thread-locals and the env, so running them off-thread is safe.
+          on_app_start: lambda { |env|
+            @app_start_listeners.each { |cb| cb.call(env) }
+          },
+          on_app_finish: lambda { |env|
+            @app_finish_listeners.each { |cb| cb.call(env) }
           }
         )
       end

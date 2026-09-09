@@ -94,6 +94,39 @@ module Dommy
         db = spans.find { |s| s.data[:kind] == "db" }
         assert_equal({"email" => "a@example.com", "password" => "[FILTERED]"}, db.data[:binds])
       end
+
+      # Subscriptions install once, so `binds:` is the only knob there is —
+      # it has to work in BOTH directions or a suite that opted in once can
+      # never opt back out.
+      def test_binds_can_be_turned_back_off_after_being_enabled
+        TraceInstrumentation.install!(binds: true)
+        TraceInstrumentation.install!(binds: false)
+        session = Dommy::Rack::Session.new(wider_app, trace: true)
+        session.visit "/x"
+
+        db = session.trace.events.find { |e| e.type == :span && e.data[:kind] == "db" }
+        assert_nil db.data[:binds]
+      end
+
+      # Some adapters publish type_casted_binds as a callable that defers the
+      # casting until a subscriber reads it (ActiveRecord::LogSubscriber
+      # unwraps exactly this). Taken literally, a one-bind statement would
+      # record the Proc itself and anything longer would drop its binds.
+      def test_a_deferred_type_casted_binds_callable_is_unwrapped
+        TraceInstrumentation.install!(binds: true)
+        app = lambda do |_env|
+          ::ActiveSupport::Notifications.instrument("sql.active_record",
+            name: "User Load", sql: "SELECT 1",
+            binds: [FakeBind.new("email")],
+            type_casted_binds: -> { ["a@example.com"] }) {}
+          [200, {"Content-Type" => "text/html"}, ["<html><body>ok</body></html>"]]
+        end
+        session = Dommy::Rack::Session.new(app, trace: true)
+        session.visit "/x"
+
+        db = session.trace.events.find { |e| e.type == :span && e.data[:kind] == "db" }
+        assert_equal({"email" => "a@example.com"}, db.data[:binds])
+      end
     end
   end
 end

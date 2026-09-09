@@ -80,6 +80,49 @@ module Dommy
         session.visit "/x"
         refute session.trace.events.any? { |e| e.type == :span && e.data[:label] == "stray" }
       end
+
+      # The async-network path (a JS `fetch` / XHR): the app runs on a network
+      # worker thread and the request/response listeners are posted back to the
+      # page thread's inbox, so the bracket CANNOT be the listeners — it has to
+      # be the app call itself. Regression: with the bracket in on_request, a
+      # subresource fetch saw no thread-local at all and lost every span.
+      def test_a_subresource_fetch_on_a_worker_thread_still_collects_its_spans
+        session = Session.new(instrumented_app, trace: true)
+        session.visit "/x"
+        before = session.trace.events.count { |e| e.type == :span }
+
+        job = session.send(:build_subresource_fetch_job,
+          URI.join(session.current_url, "/x").to_s, method: :get)
+        worker = Thread.new { job.call }
+        worker.join
+        session.document&.default_view&.scheduler&.deliver_external
+
+        spans = session.trace.events.select { |e| e.type == :span }
+        assert_equal before + 2, spans.length, "the worker-thread request contributed no spans"
+        fetched = spans.last(2)
+        http = session.trace.events.select { |e| e.type == :http }.last
+        fetched.each { |span| assert_equal http.seq, span.data[:parent] }
+        assert_equal ["PostsController#index", "Post Load"], fetched.map { |s| s.data[:label] }
+      end
+
+      # A nested request (an app that itself drives a Dommy session) must
+      # restore its caller's bracket, not tear it down: the outer request's
+      # later spans still belong to the outer request.
+      def test_a_nested_request_restores_the_outer_bracket
+        inner = Session.new(app_for("GET /inner" => ->(_req) { html_response("<p>in</p>") }), trace: true)
+        outer_app = app_for("GET /outer" => lambda do |_req|
+          trace = Thread.current[Trace::TRACE_THREAD_KEY]
+          trace&.__internal_record_span__(kind: :db, label: "before", duration_ms: 1)
+          inner.visit "/inner"
+          trace&.__internal_record_span__(kind: :db, label: "after", duration_ms: 1)
+          html_response("<p>out</p>")
+        end)
+        outer = Session.new(outer_app, trace: true)
+        outer.visit "/outer"
+
+        assert_equal %w[before after], outer.trace.events.select { |e| e.type == :span }.map { |e| e.data[:label] }
+        assert_nil Thread.current[Trace::TRACE_THREAD_KEY]
+      end
     end
   end
 end

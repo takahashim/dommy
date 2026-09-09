@@ -23,7 +23,6 @@ if defined?(::RSpec)
     if defined?(::Rails) && ::Rails.respond_to?(:application) && ::Rails.application
       config.include ::Rails.application.routes.url_helpers, type: :browser
     end
-
   end
 
   # When a matcher fails on a trace-enabled session subject (a browser spec's
