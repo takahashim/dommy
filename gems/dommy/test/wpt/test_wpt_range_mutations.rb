@@ -222,6 +222,35 @@ class TestWPTNormalizeRangeMutations < Minitest::Test
     assert_equal([2, 8], [range.start_offset, range.end_offset])
   end
 
+  # A parent boundary past the whole run is shifted down once per removal, one
+  # sibling at a time, and ends up right after the survivor.
+  def test_a_parent_boundary_past_the_run_shifts_down_by_each_removal
+    @div.append_child(@doc.create_element("b"))
+    range = @doc.create_range
+    range.set_start(@div, 4) # points at <b>
+    range.set_end(@div, 5)
+    @div.normalize
+    assert_same(@div, range.start_container)
+    assert_equal([1, 2], [range.start_offset, range.end_offset])
+  end
+
+  # A boundary inside an EMPTY sibling of the run has no data to follow, but
+  # still moves to the survivor's join rather than being stranded on the parent.
+  def test_a_boundary_in_an_empty_sibling_lands_at_the_join
+    div = @doc.create_element("div")
+    @doc.body.append_child(div)
+    ["A", "", "B"].each { |t| div.append_child(@doc.create_text_node(t)) }
+    empty = div.child_nodes[1]
+    range = @doc.create_range
+    range.set_start(empty, 0)
+    range.set_end(empty, 0)
+    div.normalize
+    merged = div.first_child
+    assert_equal("AB", merged.data)
+    assert_same(merged, range.start_container)
+    assert_equal([1, 1], [range.start_offset, range.end_offset])
+  end
+
   def test_a_parent_boundary_pointing_at_a_merged_node_lands_at_the_join
     range = @doc.create_range
     range.set_start(@div, 2) # points at "CCC"
