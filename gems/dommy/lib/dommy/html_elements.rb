@@ -2309,11 +2309,13 @@ module Dommy
     def selected=(value)
       @selectedness = !!value
       @selectedness_dirty = true
+      note_selectedness_change
     end
 
     # Set selectedness WITHOUT marking it dirty (the Option constructor's step).
     def __internal_set_selectedness__(value)
       @selectedness = !!value
+      note_selectedness_change
     end
 
     # HTML reset algorithm (run for each option by the owning select): clear the
@@ -2321,7 +2323,7 @@ module Dommy
     def __internal_reset__
       @selectedness = default_selected
       @selectedness_dirty = false
-      nil
+      note_selectedness_change
     end
 
     # Whether selectedness was set via the IDL setter (property), as opposed to
@@ -2362,6 +2364,17 @@ module Dommy
     end
 
     private
+
+    # Selectedness is property state (no attribute mutation announces it), yet
+    # it is selector-observable twice over: as this option's :checked, and as
+    # the owning select's value behind :invalid / :valid. Every selectedness
+    # writer funnels here — `select.value=` and `selected_index=` included,
+    # since they set each option's selectedness — so the caches are invalidated
+    # exactly as a checkbox's `checked=` invalidates them.
+    def note_selectedness_change
+      @document&.__internal_note_selector_state_change__
+      nil
+    end
 
     def collect_option_text(node, parts)
       node.children.each do |child|

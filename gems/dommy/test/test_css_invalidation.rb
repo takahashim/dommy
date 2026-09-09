@@ -220,6 +220,38 @@ class TestCssInvalidation < Minitest::Test
     assert_same before, computed(doc, "i")
   end
 
+  # Selectedness is the <select> counterpart: it backs both the option's
+  # :checked and the select's value behind :invalid, and every writer —
+  # `select.value=`, `selected_index=`, `option.selected=`, a reset — changes
+  # it without an attribute mutation.
+  def test_a_select_value_assignment_refreshes_selector_results
+    doc = doc_for('<select id="s" required><option value="">--</option><option value="a">A</option></select>')
+    assert_equal 1, doc.query_selector_all("select:invalid").length
+
+    doc.get_element_by_id("s").value = "a"
+    assert_equal 0, doc.query_selector_all("select:invalid").length
+
+    doc.get_element_by_id("s").selected_index = 0
+    assert_equal 1, doc.query_selector_all("select:invalid").length
+  end
+
+  def test_an_option_selected_assignment_refreshes_selector_results
+    doc = doc_for('<select><option id="a" selected>A</option><option id="b">B</option></select>')
+    assert_equal %w[a], doc.query_selector_all("option:checked").map { |o| o.get_attribute("id") }
+
+    doc.get_element_by_id("b").selected = true
+    assert_includes doc.query_selector_all("option:checked").map { |o| o.get_attribute("id") }, "b"
+  end
+
+  def test_a_select_reset_refreshes_selector_results
+    doc = doc_for('<form id="f"><select required><option value="">--</option><option value="a">A</option></select></form>')
+    doc.query_selector("select").value = "a"
+    assert_equal 0, doc.query_selector_all("select:invalid").length
+
+    doc.get_element_by_id("f").reset
+    assert_equal 1, doc.query_selector_all("select:invalid").length
+  end
+
   def test_a_form_reset_refreshes_selector_results
     doc = doc_for('<form id="f"><input id="i" required></form>')
     doc.get_element_by_id("i").value = "filled"
