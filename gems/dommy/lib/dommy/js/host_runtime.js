@@ -178,12 +178,44 @@ globalThis.__rbHost = (function () {
     QUOTA_EXCEEDED_ERR: 22, TIMEOUT_ERR: 23, INVALID_NODE_TYPE_ERR: 24, DATA_CLONE_ERR: 25,
   };
 
+  // CSSOM rule-type [Constant]s. Dommy backs every rule with one class carrying
+  // a numeric `type`, and library code reads these to branch on it
+  // (`rule.type === CSSRule.STYLE_RULE`).
+  const CSSRULE_CONSTANTS = {
+    STYLE_RULE: 1, CHARSET_RULE: 2, IMPORT_RULE: 3, MEDIA_RULE: 4, FONT_FACE_RULE: 5,
+    PAGE_RULE: 6, MARGIN_RULE: 9, NAMESPACE_RULE: 10
+  };
+
+  // EventSource / FileReader ready-state [Constant]s.
+  const EVENTSOURCE_CONSTANTS = { CONNECTING: 0, OPEN: 1, CLOSED: 2 };
+  const FILEREADER_CONSTANTS = { EMPTY: 0, LOADING: 1, DONE: 2 };
+
+  // KeyboardEvent.location [Constant]s.
+  const KEYBOARDEVENT_CONSTANTS = {
+    DOM_KEY_LOCATION_STANDARD: 0x00, DOM_KEY_LOCATION_LEFT: 0x01,
+    DOM_KEY_LOCATION_RIGHT: 0x02, DOM_KEY_LOCATION_NUMPAD: 0x03
+  };
+
+  // HTMLMediaElement networkState / readyState, and HTMLTrackElement readyState.
+  const HTMLMEDIAELEMENT_CONSTANTS = {
+    NETWORK_EMPTY: 0, NETWORK_IDLE: 1, NETWORK_LOADING: 2, NETWORK_NO_SOURCE: 3,
+    HAVE_NOTHING: 0, HAVE_METADATA: 1, HAVE_CURRENT_DATA: 2, HAVE_FUTURE_DATA: 3,
+    HAVE_ENOUGH_DATA: 4
+  };
+  const HTMLTRACKELEMENT_CONSTANTS = { NONE: 0, LOADING: 1, LOADED: 2, ERROR: 3 };
+
   // Interface name -> its [Constant]s (placed on both the interface object and
   // its prototype; instances inherit via the proxy get `prop in target` path).
+  // Kept in step with the WebIDL by test/test_webidl_conformance.rb, which reads
+  // this table and compares it against the specs' own `interfaces/*.idl`.
   const INTERFACE_CONSTANTS = {
     Node: NODE_CONSTANTS, Event: EVENT_CONSTANTS, NodeFilter: NODEFILTER_CONSTANTS,
     WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS, XMLHttpRequest: XHR_CONSTANTS,
-    DOMException: DOMEXCEPTION_CONSTANTS
+    DOMException: DOMEXCEPTION_CONSTANTS, CSSRule: CSSRULE_CONSTANTS,
+    EventSource: EVENTSOURCE_CONSTANTS, FileReader: FILEREADER_CONSTANTS,
+    KeyboardEvent: KEYBOARDEVENT_CONSTANTS,
+    HTMLMediaElement: HTMLMEDIAELEMENT_CONSTANTS,
+    HTMLTrackElement: HTMLTRACKELEMENT_CONSTANTS
   };
 
   // B1: per-interface member names, placed on the interface prototype so
