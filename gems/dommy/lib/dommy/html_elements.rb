@@ -1926,12 +1926,24 @@ module Dommy
 
     # ---- Computed flags ----
 
-    # A control that is disabled or readonly is barred from constraint
-    # validation — none of the "suffering from" flags apply.
-    def host_barred?
+    # Whether the host is IMMUTABLE — disabled or readonly. A text-like control
+    # "suffers from being missing" only while it is mutable, which is why this
+    # gates value_missing (and only value_missing: the checkbox / radio / select
+    # definitions carry no mutability condition, so they report the flag even
+    # when barred).
+    #
+    # "Disabled" here is WHATWG's "actually disabled", so a control inside a
+    # `<fieldset disabled>` counts even though it carries no attribute of its
+    # own — the same state willValidate already reports on.
+    def host_immutable?
       return false unless @host
 
-      disabled = host_attr_present?("disabled")
+      disabled =
+        if @host.respond_to?(:__internal_actually_disabled__)
+          @host.__internal_actually_disabled__
+        else
+          host_attr_present?("disabled")
+        end
       readonly = @host.respond_to?(:readonly) ? @host.readonly : host_attr_present?("readonly")
       disabled || readonly
     end
@@ -1964,7 +1976,7 @@ module Dommy
         @host.respond_to?(:value) && @host.value.to_s.empty?
       else
         # Text-like controls only "suffer from being missing" when mutable.
-        return false if host_barred?
+        return false if host_immutable?
 
         # A date/number type with an unparseable value has no value (its
         # sanitized value is empty), so it counts as missing.

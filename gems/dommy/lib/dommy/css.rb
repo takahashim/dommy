@@ -421,6 +421,11 @@ module Dommy
     # sees) so reads agree with computed style.
     def parse(body_text)
       Internal::CSS::Parser.parse_declarations(body_text.to_s).each_with_object({}) do |decl, out|
+        # Within one block an important declaration outranks a normal one for
+        # the same property regardless of order; only equal importance lets the
+        # later win (see StyleDeclaration#parse_declarations).
+        next if !decl.important && out[decl.name]&.dig(:priority) == "important"
+
         out[decl.name] = {value: decl.value, priority: decl.important ? "important" : ""}
       end
     end
