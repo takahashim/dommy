@@ -91,6 +91,52 @@ class TestSelectorMatcher < Minitest::Test
     assert doc.get_element_by_id("q").matches?(":dir(ltr)")
   end
 
+  # --- backend walk fallback -------------------------------------------------
+
+  # The #fast_query pre-filter walk steps the backend's element-only chain
+  # (first_element_child / next_element), which the XML backend does not
+  # implement. It has to fall back to `element_children` there, the same way
+  # Internal::SelectorIndex#populate does, instead of raising NoMethodError.
+  def xml_doc_for(&block)
+    doc = Dommy.parse("<p></p>").document
+    xml = doc.implementation.create_document(nil, "root", nil)
+    block.call(xml)
+    xml
+  end
+
+  def test_multi_selector_query_walks_an_xml_document
+    xml = xml_doc_for do |x|
+      a = x.create_element("a")
+      a.set_attribute("class", "hit")
+      b = x.create_element("b")
+      b.set_attribute("id", "deep")
+      a.append_child(x.create_text_node("t"))
+      a.append_child(b)
+      b.append_child(x.create_element("c"))
+      x.document_element.append_child(a)
+      x.document_element.append_child(x.create_comment("c"))
+    end
+
+    # A multi-selector list has no single pre-filter, so it takes the walk
+    # rather than the index fast path.
+    assert_equal %w[a b], xml.query_selector_all("a, b").map(&:tag_name)
+    assert_equal %w[c], xml.query_selector_all("c, missing").map(&:tag_name)
+    assert_equal %w[a b], xml.query_selector_all(".hit, #deep").map(&:tag_name)
+    assert_empty xml.query_selector_all("style, link").to_a
+    assert_equal "b", xml.query_selector("b, c").tag_name
+  end
+
+  def test_element_rooted_multi_selector_query_walks_an_xml_subtree
+    xml = xml_doc_for do |x|
+      a = x.create_element("a")
+      a.append_child(x.create_element("b"))
+      a.append_child(x.create_element("c"))
+      x.document_element.append_child(a)
+    end
+
+    assert_equal %w[b c], xml.document_element.query_selector_all("b, c").map(&:tag_name)
+  end
+
   # --- namespace ------------------------------------------------------------
 
   def test_null_namespace_type_selector

@@ -596,15 +596,36 @@ module Dommy
       # excluding `bnode` itself — walking lexbor nodes directly via the
       # first-child / next-sibling chain (no Dommy wrap and, unlike
       # `element_children`, no per-node NodeSet allocation, which dominated GC).
+      # A tree is entirely one backend's nodes, so the capability test runs once
+      # per query here rather than once per node inside the walk.
       def each_backend_descendant(bnode, &block)
+        if bnode.respond_to?(:first_element_child)
+          each_backend_element_descendant(bnode, &block)
+        else
+          each_backend_child_list_descendant(bnode, &block)
+        end
+      end
+
+      def each_backend_element_descendant(bnode, &block)
         child = bnode.first_element_child
         while child
           block.call(child)
-          each_backend_descendant(child, &block)
+          each_backend_element_descendant(child, &block)
           # `next_element` is the backend's native (C) element-only sibling step;
           # it skips intervening text/comment nodes in one call, where a Ruby
           # `.next`-until-element loop cost ~6% of a heavy page's wall time.
           child = child.next_element
+        end
+      end
+
+      # The XML backend has no first_element_child / next_element sibling walk
+      # (a Document there answers neither); its `element_children` list is the
+      # equivalent, at the cost of materializing one array per level. Same
+      # guard as Internal::SelectorIndex#populate.
+      def each_backend_child_list_descendant(bnode, &block)
+        bnode.element_children.each do |child|
+          block.call(child)
+          each_backend_child_list_descendant(child, &block)
         end
       end
 
