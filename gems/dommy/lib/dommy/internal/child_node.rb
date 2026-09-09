@@ -148,7 +148,8 @@ module Dommy
       def detach_dom_nodes(value)
         case value
         when Fragment
-          value.extract_children.map { |n| adopt_into_document(n) }
+          source_document = value.document
+          value.extract_children.map { |n| adopt_into_document(n, source_document) }
         when String
           [@document.create_text_node(value).__dommy_backend_node__]
         else
@@ -173,9 +174,11 @@ module Dommy
       # Nokogiri, an imported copy for Makiri (which can't move nodes between
       # arenas). Used for fragment children, which have no standalone wrapper to
       # reseat.
-      def adopt_into_document(node)
+      def adopt_into_document(node, source_document = nil)
         target = @document.backend_doc
-        node.document == target ? node : Backend.adopt(node, target)
+        return node if node.document == target
+
+        @document.__internal_adopt_backend_node__(node, source_document)
       end
 
       # Detach a node from its current parent, queuing a childList removal
