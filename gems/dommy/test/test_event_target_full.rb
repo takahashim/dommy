@@ -138,6 +138,20 @@ class TestEventTargetFull < Minitest::Test
     assert_equal(1, count, "the error handler runs once, its own throw is not re-reported")
   end
 
+  # The guard must stay up for the WHOLE report: a guarded-out nested call
+  # must not lower it, or the second throwing error listener finds it down and
+  # opens a report of its own, and so on — two such listeners recurse until
+  # something else stops them.
+  def test_error_report_guard_survives_a_second_throwing_error_listener
+    counts = Hash.new(0)
+    @win.add_event_listener("error", proc { counts[:a] += 1; raise "a" })
+    @win.add_event_listener("error", proc { counts[:b] += 1; raise "b" })
+    @btn.add_event_listener("click", proc { raise "first" })
+    @btn.dispatch_event(Dommy::MouseEvent.new("click", "bubbles" => true))
+
+    assert_equal({a: 1, b: 1}, counts)
+  end
+
   def test_dispatch_event_returns_true_when_no_default_prevented
     result = @btn.dispatch_event(Dommy::Event.new("click", "cancelable" => true))
     assert_equal(true, result)
