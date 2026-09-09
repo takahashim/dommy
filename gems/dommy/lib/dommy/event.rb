@@ -397,11 +397,14 @@ module Dommy
           end
         end
 
+        # The special error event handler (`window.onerror`) is called with
+        # (message, filename, lineno, colno, error) rather than the event.
+        args = __internal_error_handler_args__(event) if entry.event_handler?
         result =
           if entry.passive?
-            event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
+            event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self, args: args) }
           else
-            invoke_listener_isolated(entry.listener, event, self)
+            invoke_listener_isolated(entry.listener, event, self, args: args)
           end
         # Event handler processing algorithm: a handler registered via onX has its
         # return value processed — onerror on a global cancels on `true`, every
@@ -420,28 +423,56 @@ module Dommy
     # (left alone); any other handler cancels when it returns exactly false
     # (`return false` from onclick/onsubmit). A non-cancelable event ignores it.
     def __internal_process_event_handler_return__(event, result)
-      if event.type == "error" && defined?(Dommy::Window) && is_a?(Dommy::Window)
+      if special_error_event_handler?(event)
         event.__js_call__("preventDefault", []) if result == true
       elsif event.type != "beforeunload" && result == false
         event.__js_call__("preventDefault", [])
       end
     end
 
+    # WHATWG event handler processing algorithm, step "invoke": the special
+    # error event handler — `onerror` on a Window, for an ErrorEvent — gets
+    # (message, filename, lineno, colno, error); nil means the usual (event).
+    def __internal_error_handler_args__(event)
+      return nil unless special_error_event_handler?(event) && event.is_a?(ErrorEvent)
+
+      [event.message, event.filename, event.lineno, event.colno, event.error]
+    end
+
+    def special_error_event_handler?(event)
+      event.type == "error" && defined?(Dommy::Window) && is_a?(Dommy::Window)
+    end
+
     # Run one listener, isolating a throw so it can't escape the dispatch.
     # WHATWG "inner invoke": if a listener's callback throws, the exception is
-    # *reported* (to the global error handler) and event dispatch continues with
-    # the remaining listeners — a broken handler must not derail the others or
-    # abort whatever Ruby drove the dispatch (a synthetic click from the host).
-    # The engine already swallows this for a JS-initiated dispatchEvent
-    # (HostBridge#invoke_callback, raising:false), but that has proven
-    # engine/Ruby-version-dependent — on some QuickJS/Ruby combinations a JS
-    # listener's throw surfaces as a Ruby exception here — so guard the
-    # host-initiated path too, mirroring MutationObserver#flush.
-    def invoke_listener_isolated(listener, event, current_target = nil)
-      CallableInvoker.invoke_listener(listener, event, current_target)
+    # *reported* (as an `error` event on the relevant global) and event dispatch
+    # continues with the remaining listeners — a broken handler must not derail
+    # the others or abort whatever Ruby drove the dispatch (a synthetic click
+    # from the host). The listener is invoked in its raising form (see
+    # CallableInvoker), so a JS callback's throw surfaces here as a ThrowValue
+    # (carrying the JS error with identity) and a Ruby callback's as a normal
+    # exception; either way it is reported, not swallowed silently.
+    def invoke_listener_isolated(listener, event, current_target = nil, args: nil)
+      CallableInvoker.invoke_listener(listener, event, current_target, args: args)
     rescue StandardError => e
       __dommy_dump_event_failure__(event, listener, e) if ENV["DOMMY_EVENT_DEBUG"]
+      __internal_report_listener_exception__(e)
       nil
+    end
+
+    # WHATWG "report an exception": a listener that threw during dispatch has its
+    # exception reported as an `error` event at the relevant global (the Window),
+    # so `window.onerror` / an "error" listener sees it. The error value is the
+    # thrown value itself — a JS value keeps its identity (via ThrowValue), so
+    # `event.error === thrown`. No window (a node in a windowless document, or a
+    # target that has none) → nothing to report to.
+    def __internal_report_listener_exception__(error)
+      win = window_of(self)
+      return unless win.respond_to?(:__internal_report_exception__)
+
+      value = error.is_a?(Bridge::ThrowValue) ? error.value : error
+      message = value.respond_to?(:message) ? value.message.to_s : value.to_s
+      win.__internal_report_exception__(value, message)
     end
 
     # Diagnostic only (DOMMY_EVENT_DEBUG=<file>): when a listener throws, append

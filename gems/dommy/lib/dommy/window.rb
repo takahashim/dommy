@@ -330,6 +330,23 @@ module Dommy
       nil
     end
 
+    # WHATWG "report an exception": fire an `error` event carrying the thrown
+    # value (`event.error`) and its message at this window, so window.onerror /
+    # an "error" listener observes a listener (or handleEvent) that threw during
+    # dispatch. Re-entrancy is guarded so an "error" handler that itself throws
+    # doesn't recurse into another report: its own throw is dropped.
+    def __internal_report_exception__(error_value, message)
+      return if @__reporting_exception
+
+      @__reporting_exception = true
+      dispatch_event(ErrorEvent.new(
+        "error", "message" => message, "error" => error_value, "cancelable" => true
+      ))
+      nil
+    ensure
+      @__reporting_exception = false
+    end
+
     # Called by History#go and Location.href= to fire popstate /
     # hashchange events. Listeners registered on the Window via
     # `addEventListener("popstate"|"hashchange", cb)` receive them.

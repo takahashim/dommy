@@ -585,14 +585,27 @@ globalThis.__rbHost = (function () {
     try {
       return dehydrateReturn(fn.apply(receiver, rehydrate(args || [])));
     } catch (e) {
-      // Preserve the thrown value's identity through the round trip, even for a
-      // plain object (`throw {name:"x"}`) which dehydrate would otherwise flatten
-      // to a map — assert_throws_exactly compares by identity.
-      const tagged = (e !== null && (typeof e === "object" || typeof e === "function"))
-        ? { __rb_js_ref: registerJsRef(e) }
-        : dehydrate(e);
-      return { __rb_cb_threw__: tagged };
+      return tagThrow(e);
     }
+  }
+
+  // Tag a value thrown by a callback (`{__rb_cb_threw__: …}`) so the Ruby side
+  // can swallow, re-raise, or report it. An object/function keeps its identity
+  // through the round trip via a JS ref — even a plain object (`throw
+  // {name:"x"}`), which dehydrate would flatten to a map and
+  // assert_throws_exactly compares by identity — and carries a best-effort
+  // label (its `.message`, else its String form) so a reported error's
+  // `event.message` is meaningful rather than "[object]".
+  function tagThrow(e) {
+    if (e !== null && (typeof e === "object" || typeof e === "function")) {
+      const tag = { __rb_js_ref: registerJsRef(e) };
+      try {
+        const m = e.message != null ? String(e.message) : String(e);
+        if (m) tag.__rb_js_label = m;
+      } catch (_) { /* a message/toString getter threw: no label */ }
+      return { __rb_cb_threw__: tag };
+    }
+    return { __rb_cb_threw__: dehydrate(e) };
   }
 
   // Enqueue a host-side microtask (by id) onto the engine's native promise-job
@@ -726,12 +739,26 @@ globalThis.__rbHost = (function () {
   // Called from Ruby when a host event dispatch reaches a listener that is an
   // *object* implementing EventListener (handleEvent) rather than a function.
   // Invokes handleEvent with the object itself as `this`; the tagged event is
-  // rehydrated to a proxy first.
+  // rehydrated to a proxy first. WebIDL "call a user object's operation": Get
+  // handleEvent ONCE per invocation (a getter runs each dispatch; a throw while
+  // getting propagates) then require it callable — a non-callable handleEvent
+  // is a TypeError. A thrown value (from the getter, the callability check, or
+  // the call) is tagged with its identity, like invokeCallback, so the Ruby
+  // side re-raises it as a ThrowValue and reports it as a window `error` event
+  // (event.error must be the SAME object per WPT).
   function invokeJsRefHandleEvent(ref, event) {
     bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const o = jsRefs.get(ref);
-    if (!o || typeof o.handleEvent !== "function") return undefined;
-    return dehydrateTop(o.handleEvent(rehydrate(event)));
+    if (!o) return undefined;
+    try {
+      const handler = o.handleEvent;
+      if (typeof handler !== "function") {
+        throw new TypeError("EventListener.handleEvent is not a function");
+      }
+      return dehydrateTop(handler.call(o, rehydrate(event)));
+    } catch (e) {
+      return tagThrow(e);
+    }
   }
 
   // Invoke a NodeFilter object's acceptNode for one node. acceptNode is fetched
@@ -746,10 +773,7 @@ globalThis.__rbHost = (function () {
       const fn = o.acceptNode;
       return dehydrateTop(fn.call(o, rehydrate(node)));
     } catch (e) {
-      const tagged = (e !== null && (typeof e === "object" || typeof e === "function"))
-        ? { __rb_js_ref: registerJsRef(e) }
-        : dehydrate(e);
-      return { __rb_cb_threw__: tagged };
+      return tagThrow(e);
     }
   }
 
