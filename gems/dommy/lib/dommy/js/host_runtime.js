@@ -684,24 +684,25 @@ globalThis.__rbHost = (function () {
       // rather than being flattened to a key→value map (which also loses an
       // Error's non-enumerable message/stack). Plain `{}` objects stay maps so
       // option bags keep behaving like Ruby Hashes.
+      // A callback-interface object — an EventListener ({ handleEvent }, e.g.
+      // Stimulus's action listeners) or a NodeFilter ({ acceptNode }) — crosses
+      // as a live reference even when it is a PLAIN object: it must keep its
+      // identity, be invoked with itself as `this`, have handleEvent /
+      // acceptNode fetched fresh on each call (WebIDL looks the operation up
+      // per invocation, so a getter runs each time and a non-callable one is a
+      // TypeError then), and let a thrown value propagate — none of which
+      // survives flattening to a map. Detected with `in`, never a Get, so
+      // merely registering the listener or constructing the walker runs no
+      // getter.
       const proto = Object.getPrototypeOf(v);
-      if (proto !== Object.prototype && proto !== null) {
+      const isExotic = proto !== Object.prototype && proto !== null;
+      const handlesEvents = "handleEvent" in v;
+      const acceptsNodes = "acceptNode" in v;
+      if (isExotic || handlesEvents || acceptsNodes) {
         const ref = { __rb_js_ref: registerJsRef(v) };
-        // An object implementing the EventListener interface (a `handleEvent`
-        // method — e.g. Stimulus's action listeners) is a valid DOM event
-        // listener. Tag it so the Ruby side wraps it as a listener whose
-        // `handle_event` routes back here to call its handleEvent.
-        if (typeof v.handleEvent === "function") ref.__rb_handle_event = true;
-        if ("acceptNode" in v) ref.__rb_accept_node = true;
+        if (handlesEvents) ref.__rb_handle_event = true;
+        if (acceptsNodes) ref.__rb_accept_node = true;
         return ref;
-      }
-      // A NodeFilter callback-interface object (`{ acceptNode }`) crosses as a
-      // live reference so acceptNode is fetched fresh on each traverse (its
-      // getter runs per call), invoked with `this` = the object, and a thrown
-      // value propagates — none of which survives flattening to a map. Detected
-      // with `in` so merely constructing the walker performs no Get.
-      if ("acceptNode" in v) {
-        return { __rb_js_ref: registerJsRef(v), __rb_accept_node: true };
       }
       const out = {};
       // Scrub lone surrogates in keys too (not just values): a property key is a
