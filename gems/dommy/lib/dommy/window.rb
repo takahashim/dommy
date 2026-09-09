@@ -330,12 +330,6 @@ module Dommy
       nil
     end
 
-    private def handle_dialog(type, message, default_value)
-      return @dialog_handler.call(type, message, default_value) if @dialog_handler
-
-      type == :confirm ? false : nil
-    end
-
     # Called by History#go and Location.href= to fire popstate /
     # hashchange events. Listeners registered on the Window via
     # `addEventListener("popstate"|"hashchange", cb)` receive them.
@@ -438,6 +432,15 @@ module Dommy
     end
 
     private
+
+    # The native-dialog seam behind alert / confirm / prompt: ask the installed
+    # `dialog_handler`, else the headless defaults (alert -> nil, confirm ->
+    # false as "Cancel", prompt -> nil as "no input").
+    def handle_dialog(type, message, default_value)
+      return @dialog_handler.call(type, message, default_value) if @dialog_handler
+
+      type == :confirm ? false : nil
+    end
 
     # Virtual scroll position. There's no real layout, but tracking a logical
     # `(scrollX, scrollY)` makes scroll-dependent behaviour observable: scrollTo/
