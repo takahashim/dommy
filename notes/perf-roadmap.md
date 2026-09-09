@@ -111,7 +111,7 @@ Rails アプリのテストランナーとしての体感を上げる。
 - **JS VM の遅延起動**：script を持たないページでは QuickJS を起動しない（既にそうなっているかをまず確認する）
 - **セッション再利用**：spec 間で app と VM をどこまで再利用できるかを検討する。状態リークとのトレードオフがあるため、opt-in で始める
 - **並列実行との相性確認**：parallelize（プロセス並列）で問題なく動くことをサンプルアプリで確認し、ドキュメント化する
-- **トレースのゼロコスト化**：trace 無効時のオーバーヘッドが実質ゼロであることをベンチマークで保証する（trace-roadmap.md の計装追加と同時に確認する）
+- **トレースのゼロコスト化**：trace 無効時のオーバーヘッドが実質ゼロであることをベンチマークで保証する（notes/trace-roadmap.md の計装追加と同時に確認する）
 
 ## フェーズ 5：dommynx の体感速度
 
@@ -138,5 +138,5 @@ Rails アプリのテストランナーとしての体感を上げる。
 
 - `project.md` / `lightweight-test-browser.md`：全体設計
 - `css-cascade.md` / `css-cascade-selector-ast.md`：cascade 設計（フェーズ 2 の対象）
-- `trace-roadmap.md`：トレース強化計画（フェーズ 4 のゼロコスト化と接点）
+- `notes/trace-roadmap.md`：トレース強化計画（フェーズ 4 のゼロコスト化と接点）
 - `gems/dommy/benchmark/`：既存ベンチマーク（フェーズ 0 の起点）

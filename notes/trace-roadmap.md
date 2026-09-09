@@ -30,7 +30,7 @@ folding、follow、artifact 表示、timing 表示までテスト付きで動い
 
 ### 仕様文書との乖離
 
-`trace-ndjson-spec.md` は span_start/span_end と lane を持つ v1 系の設計を記述しているが、実装は flat な v2 形式を出力しており、すでに乖離している。
+v1 系の設計（span_start/span_end と lane）は実装の flat v2 形式と乖離していたため、現行契約を `gems/dommy-rack/docs/trace-ndjson-spec.md` に、v1 案を `notes/trace-ndjson-v1-draft.md` に分離済み。
 Rails 計装を入れる前に、この契約を確定させる必要がある（後述のフェーズ 1）。
 
 ## ロードマップ
@@ -40,7 +40,7 @@ Rails 計装を入れる前に、この契約を確定させる必要がある�
 
 ### フェーズ 1：NDJSON 契約の再確定 — 完了（2026-07-14）
 
-flat v2 を正として `trace-ndjson-spec.md` に現行契約の章を追加（v1 本文は
+flat v2 を正として `gems/dommy-rack/docs/trace-ndjson-spec.md` に現行契約を置く（v1 本文は
 span 導入時の将来案として保持）。golden fixture
 （`gems/dommy-rack/test/fixtures/contract.trace.ndjson`、生成・正規化・検証は
 `test/support/trace_contract.rb`）を両リポジトリに置き、emitter 側
@@ -52,7 +52,7 @@ flat v2 のまま拡張するか、v1 系の span 形式へ寄せるかをここ
 
 推奨は v2 flat を正とする最小拡張である。
 dommy の Rack 呼び出しは同期実行なので、span_start/span_end に分ける必然性は薄く、完成形 span（`t` + `duration_ms` + `parent`）で表現できる。
-`trace-ndjson-spec.md` を実装に合わせて書き直す。
+`gems/dommy-rack/docs/trace-ndjson-spec.md` を実装に合わせて書き直す。
 
 あわせて、両リポジトリで共有する **golden fixture**（dommy 側で生成したサンプル .trace.ndjson を dommylizer 側でパース検証する契約テスト）を導入する。
 リポジトリ分割時に採った「境界契約で疎結合」方針の trace 版であり、emitter と viewer が互いのコードに依存せず進化できるようになる。
@@ -188,7 +188,8 @@ Rails のリクエスト処理の全行程が 1 ファイルの NDJSON に落ち
 
 ## 関連文書
 
-- `trace-ndjson-spec.md`：NDJSON 仕様（フェーズ 1 で v2 実装に合わせて改訂予定）
+- `gems/dommy-rack/docs/trace-ndjson-spec.md`：NDJSON 仕様（現行契約 = flat v2）
+- `notes/trace-ndjson-v1-draft.md`：未実装の v1 設計案（参照資料）
 - `trace-ndjson.md` / `trace-viewer-tui.md` / `obs.md`：初期の設計メモ
 - emitter 実装：`gems/dommy-rack/lib/dommy/rack/trace.rb` 以下
 - viewer 実装：dommy-tui リポジトリ `gems/dommylizer`
