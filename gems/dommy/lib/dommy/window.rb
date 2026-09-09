@@ -330,15 +330,11 @@ module Dommy
       nil
     end
 
-    private
-
-    def handle_dialog(type, message, default_value)
+    private def handle_dialog(type, message, default_value)
       return @dialog_handler.call(type, message, default_value) if @dialog_handler
 
       type == :confirm ? false : nil
     end
-
-    public
 
     # Called by History#go and Location.href= to fire popstate /
     # hashchange events. Listeners registered on the Window via

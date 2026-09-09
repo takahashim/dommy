@@ -33,6 +33,10 @@ speed and simplicity of a Rack-style driver.
 - Screenshots and browser windows are not supported. Native alerts, confirms,
   and prompts are supported by the JavaScript-enabled variant through
   Capybara's modal helpers.
+- Constructable stylesheets can be built (`new CSSStyleSheet()`), but
+  `adoptedStyleSheets` is not implemented — assigning one applies no style.
+  Component libraries that feature-detect (`'adoptedStyleSheets' in
+  Document.prototype`) fall back to injecting a `<style>`, which is handled.
 - CSS layout is not calculated. Visibility is based on HTML-level rules such as
   `hidden`, `type="hidden"`, and inline `display: none` handling provided by
   `dommy-rack`.

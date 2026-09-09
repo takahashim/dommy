@@ -357,7 +357,10 @@ module Capybara
 
         context[:message]
       ensure
-        modal_contexts.delete(context) if context
+        # By identity: two helper blocks with the same arguments build EQUAL
+        # context hashes, and Array#delete would drop the caller's alongside
+        # this one.
+        modal_contexts.delete_if { |c| c.equal?(context) } if context
         rack_session.dialog_handler = nil if modal_contexts.empty? && @rack_session
       end
 

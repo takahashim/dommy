@@ -244,6 +244,29 @@ RSpec.describe "Capybara::Dommy::Driver with javascript: true" do
       expect(answers).to eq([false])
     end
 
+    it "keeps the outer context when an identical inner helper finds no dialog" do
+      driver = js_driver_for("<button id='confirm'>Delete</button>")
+      answers = []
+      button = confirm_button(driver, ["Are you sure?"]) { |_m, accepted| answers << accepted }
+
+      # Identical arguments build EQUAL context hashes. The inner helper opens
+      # no dialog, so its context never gains the :message that would tell it
+      # apart from the outer one — removing it by value takes the caller's
+      # context with it (and uninstalls the session's handler), and the outer
+      # block's confirm then falls through to the headless default.
+      message = driver.accept_modal(:confirm) do
+        begin
+          driver.accept_modal(:confirm) { nil }
+        rescue Capybara::ModalNotFound
+          nil
+        end
+        button.click
+      end
+
+      expect(message).to eq("Are you sure?")
+      expect(answers).to eq([true])
+    end
+
     it "handles nested modal helper blocks in the order the page opens confirms" do
       driver = js_driver_for("<button id='confirm'>Delete</button>")
       answers = []

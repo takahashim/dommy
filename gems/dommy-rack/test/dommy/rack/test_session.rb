@@ -537,4 +537,33 @@ class Dommy::Rack::TestSession < Minitest::Test
     assert_equal "DELETE", method_seen
     assert_equal "gone", session.at_css("p").text_content
   end
+  # The dialog handler is a SESSION-level seam: the Capybara driver installs it
+  # once around a modal helper block, and the block may navigate. Each new
+  # document gets a fresh Window, so the handler has to be re-installed on it —
+  # otherwise a confirm raised by the page after a navigation falls back to the
+  # headless default and the helper never sees it.
+  def test_dialog_handler_carries_over_to_a_new_document
+    app = app_for(
+      "GET /one" => [200, {"Content-Type" => "text/html"}, ['<html><body><a href="/two">go</a></body></html>']],
+      "GET /two" => [200, {"Content-Type" => "text/html"}, ["<html><body><p>two</p></body></html>"]]
+    )
+    session = Dommy::Rack::Session.new(app)
+    session.visit "/one"
+
+    seen = []
+    session.dialog_handler = lambda do |type, message, _default|
+      seen << [type, message]
+      true
+    end
+    assert_equal true, session.document.default_view.__js_call__("confirm", ["before"])
+
+    session.click_link "go"
+    assert_equal true, session.document.default_view.__js_call__("confirm", ["after"])
+    assert_equal [[:confirm, "before"], [:confirm, "after"]], seen
+
+    # Clearing it puts the new document back on the headless default.
+    session.dialog_handler = nil
+    assert_equal false, session.document.default_view.__js_call__("confirm", ["cleared"])
+  end
+
 end
