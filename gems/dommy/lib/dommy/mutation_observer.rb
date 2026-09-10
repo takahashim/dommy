@@ -114,7 +114,8 @@ module Dommy
         next false unless observed_wrapped
 
         if observed_wrapped.is_a?(Document)
-          Internal::ObserverMatcher.matches_document?(target_wrapped, subtree: e[:subtree])
+          Internal::ObserverMatcher.matches_document?(target_wrapped, subtree: e[:subtree],
+                                                      document: observed_wrapped)
         else
           Internal::ObserverMatcher.matches?(observed_wrapped, target_wrapped, subtree: e[:subtree])
         end
@@ -241,12 +242,14 @@ module Dommy
       target.instance_variable_get(:@document) || @document
     end
 
+    # WHATWG takeRecords(): clone the record queue, empty it, return the clone.
+    # It does NOT end the transient registered observers' lifetime — only the
+    # microtask checkpoint ("notify mutation observers", `flush` below) does, so
+    # a caller that drains records by hand keeps observing a removed subtree.
     def take_records
       out = @records.dup
       @records.clear
       @scheduled = false
-      # A microtask checkpoint ends the transient registrations' lifetime.
-      @transients.clear
       out
     end
 

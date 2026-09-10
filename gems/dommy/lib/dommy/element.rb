@@ -219,7 +219,10 @@ module Dommy
       bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless bn && bn.parent == @__node__
 
-      @document.detach_node(bn)
+      # `remove_node_with_notify`, not the bare `detach_node`: WHATWG remove
+      # step 21 queues a childList record on the parent, and a fragment is a
+      # parent like any other — an observer registered on it must see this.
+      @document.remove_node_with_notify(bn)
       node
     end
 

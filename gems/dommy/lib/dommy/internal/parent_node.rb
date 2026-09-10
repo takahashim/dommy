@@ -23,19 +23,23 @@ module Dommy
         ensure_pre_insertion_validity!(child, nil)
         # An append has a null reference child, so insert step 5 shifts nothing;
         # convert_for_insert still routes through it so every insertion site
-        # reads the same.
+        # reads the same. Step 6's previousSibling is the parent's last child
+        # BEFORE the conversion, which for `parent.appendChild(itsLastChild)` is
+        # the node being appended.
+        record_previous = insertion_previous_sibling(@__node__, nil)
         nodes = convert_for_insert([child], @__node__, nil)
         nodes.each { |n| @__node__.add_child(n) }
-        notify_child_list(added: nodes)
+        notify_child_list(added: nodes, previous_sibling: record_previous)
         child
       end
 
       # ParentNode#append — mixed Node/String args appended in order.
       def append(*args)
         validate_insertion_args!(args)
+        record_previous = insertion_previous_sibling(@__node__, nil)
         nodes = convert_for_insert(args, @__node__, nil)
         nodes.each { |n| @__node__.add_child(n) }
-        notify_child_list(added: nodes)
+        notify_child_list(added: nodes, previous_sibling: record_previous)
         nil
       end
 
@@ -45,6 +49,8 @@ module Dommy
         # The reference child is the CURRENT first child, and insert step 5 is
         # measured against it before the arguments are detached.
         anchor = @__node__.children.first
+        record_previous = insertion_previous_sibling(@__node__, anchor)
+        record_next = wrap_sibling(anchor)
         nodes = convert_for_insert(args, @__node__, anchor)
         anchor = nil if anchor && anchor.parent != @__node__
         if anchor
@@ -55,7 +61,8 @@ module Dommy
         else
           nodes.each { |n| @__node__.add_child(n) }
         end
-        notify_child_list(added: nodes)
+        notify_child_list(added: nodes, previous_sibling: record_previous,
+                          next_sibling: record_next)
         nil
       end
 

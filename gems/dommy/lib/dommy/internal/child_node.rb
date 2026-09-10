@@ -27,10 +27,13 @@ module Dommy
 
         ref = reference_past_args(reference_after(parent, viable_prev), arg_nodes)
         ensure_parent_insertion_validity!(parent, args, ref)
+        record_previous = insertion_previous_sibling(parent, ref)
+        record_next = wrap_sibling(ref)
         nodes = convert_for_insert(args, parent, ref)
         ref = reference_after(parent, viable_prev)
         insert_child_nodes(nodes, ref, parent)
-        notify_child_list(added: nodes, target: parent)
+        notify_child_list(added: nodes, target: parent,
+                          previous_sibling: record_previous, next_sibling: record_next)
         nil
       end
 
@@ -44,9 +47,12 @@ module Dommy
         viable_next = viable_next.next_sibling while viable_next && arg_nodes.any? { |n| n == viable_next }
 
         ensure_parent_insertion_validity!(parent, args, viable_next)
+        record_previous = insertion_previous_sibling(parent, viable_next)
+        record_next = wrap_sibling(viable_next)
         nodes = convert_for_insert(args, parent, viable_next)
         insert_child_nodes(nodes, viable_next, parent)
-        notify_child_list(added: nodes, target: parent)
+        notify_child_list(added: nodes, target: parent,
+                          previous_sibling: record_previous, next_sibling: record_next)
         nil
       end
 
@@ -196,12 +202,28 @@ module Dommy
       # target to this node; beforebegin/afterend/replaceWith/outerHTML
       # callers pass the parent explicitly. The coordinator filters out
       # empty added/removed sets, so this is always safe to call.
-      def notify_child_list(added: [], removed: [], target: @__node__)
+      def notify_child_list(added: [], removed: [], target: @__node__,
+                            previous_sibling: nil, next_sibling: nil)
         @document.notify_child_list_mutation(
           target_node: target,
           added_nodes: added,
-          removed_nodes: removed
+          removed_nodes: removed,
+          previous_sibling: previous_sibling,
+          next_sibling: next_sibling
         )
+      end
+
+      # WHATWG insert step 9's record carries the insertion point: the reference
+      # child as `nextSibling`, and step 6's `previousSibling` — the reference
+      # child's previous sibling, or the parent's last child when appending,
+      # BOTH measured before anything moves.
+      def insertion_previous_sibling(parent, ref)
+        node = ref ? ref.previous_sibling : parent.children.to_a.last
+        node && @document.wrap_node(node)
+      end
+
+      def wrap_sibling(node)
+        node && @document.wrap_node(node)
       end
 
       # Coerce an append/prepend/replaceChildren/before/after argument into raw
