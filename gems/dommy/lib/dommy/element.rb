@@ -3276,10 +3276,13 @@ module Dommy
 
     def insert_before(child, reference)
       coerce_node_argument!(child)
-      # WHATWG: if the reference child is the node being inserted, the reference
-      # becomes that node's next sibling, so "insert x before x" doesn't move x.
-      reference = wrapped_next_sibling(reference) if same_wrapped_node?(reference, child)
+      # WHATWG pre-insert validates the reference the CALLER gave (step 1), and
+      # only then, in step 3, replaces it with the node's next sibling when it is
+      # the node being inserted — so "insert x before x" doesn't move x. Doing
+      # the swap first would accept `insertBefore(x, x)` for an x that is not a
+      # child of this node, which step 3 of the validity check rejects.
       ensure_pre_insertion_validity!(child, reference)
+      reference = wrapped_next_sibling(reference) if same_wrapped_node?(reference, child)
       nodes = detach_dom_nodes(child)
       if reference.nil? || (defined?(Bridge::UNDEFINED) && reference.equal?(Bridge::UNDEFINED))
         append_dom_nodes(nodes)

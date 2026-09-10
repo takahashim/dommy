@@ -148,6 +148,50 @@ class TestWPTChildNodePreInsertionValidity < Minitest::Test
     assert_equal [div, "#text"], [frag.child_nodes.to_a[0], frag.child_nodes.to_a[1].node_name]
   end
 
+  # Step 2 counts the Document among its descendants' ancestors, so inserting it
+  # is a cycle — reported before step 3 notices the reference child is not a
+  # child of this node.
+  def test_insert_before_rejects_the_document_as_a_cycle
+    el = @doc.create_element("div")
+    @doc.body.append_child(el)
+
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { el.insert_before(@doc, @doc) }
+  end
+
+  def test_append_child_rejects_the_document
+    el = @doc.create_element("div")
+    @doc.body.append_child(el)
+
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { el.append_child(@doc) }
+  end
+
+  # Pre-insert step 1 validates the reference the caller gave; only step 3
+  # replaces it when it IS the node being inserted. `insertBefore(x, x)` for an
+  # x that is not a child is therefore a NotFoundError, not a silent append.
+  def test_insert_before_self_reference_requires_the_node_to_be_a_child
+    parent = @doc.create_element("div")
+    @doc.body.append_child(parent)
+    orphan = @doc.create_comment("c")
+
+    assert_raises(Dommy::DOMException::NotFoundError) { parent.insert_before(orphan, orphan) }
+    assert_nil orphan.parent_node
+    assert_equal 0, parent.child_nodes.to_a.size
+  end
+
+  # …and when it IS a child, step 3 does apply and the node stays put.
+  def test_insert_before_self_reference_on_a_child_is_a_no_op
+    parent = @doc.create_element("div")
+    a = @doc.create_element("i")
+    b = @doc.create_element("u")
+    parent.append_child(a)
+    parent.append_child(b)
+    @doc.body.append_child(parent)
+
+    parent.insert_before(a, a)
+
+    assert_equal %w[I U], parent.child_nodes.to_a.map(&:tag_name)
+  end
+
   # The ordinary before/after paths must keep working.
   def test_before_and_after_still_insert_siblings
     mid = @doc.create_element("b")

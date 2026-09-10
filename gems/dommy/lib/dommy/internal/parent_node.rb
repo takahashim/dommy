@@ -232,22 +232,47 @@ module Dommy
       # Raise HierarchyRequestError when the proposed insertion would produce a
       # cycle (inserting the parent itself, or one of its ancestors, into it).
       # Strings and other non-Nodes are always safe.
-      #
-      # Walks `parent` upward rather than asking the backend for `ancestors`:
-      # Makiri omits a DocumentFragment parent from `ancestors`, so a fragment
-      # would never appear to contain its own children. `parent` is consistent
-      # across backends (same reason `contains?` walks it).
       def check_hierarchy!(child)
-        return unless child.respond_to?(:__dommy_backend_node__)
-
-        node = child.__dommy_backend_node__
-        return unless node.is_a?(Backend.node_class)
-        return unless node == @__node__ || Internal::NodeTraversal.ancestor_of?(node, @__node__)
+        node = insertion_backend_node(child)
+        return if node.nil?
+        return unless inclusive_ancestor_of_self?(node)
 
         raise(
           DOMException::HierarchyRequestError,
           "Cannot insert a node as a descendant of itself"
         )
+      end
+
+      # The backend node an insertion argument stands for, or nil for a value
+      # that can never be an ancestor (a String, a non-Node).
+      #
+      # A Dommy::Document has no `__dommy_backend_node__` of its own, but WHATWG
+      # counts it among its descendants' ancestors, so `el.insertBefore(document,
+      # ref)` violates step 2 (a cycle) and must be a HierarchyRequestError
+      # before step 3 gets to complain that `ref` is not a child.
+      def insertion_backend_node(child)
+        return child.backend_doc if child.is_a?(Dommy::Document)
+        return nil unless child.respond_to?(:__dommy_backend_node__)
+
+        node = child.__dommy_backend_node__
+        node.is_a?(Backend.node_class) ? node : nil
+      end
+
+      # Whether `node` is this node or one of its ancestors.
+      #
+      # Walks `parent` upward rather than asking the backend for `ancestors`:
+      # Makiri omits a DocumentFragment parent from `ancestors`, so a fragment
+      # would never appear to contain its own children. The walk also runs past
+      # the document element to the document itself, which
+      # NodeTraversal.each_ancestor deliberately stops short of.
+      def inclusive_ancestor_of_self?(node)
+        cur = @__node__
+        while cur
+          return true if cur == node
+
+          cur = cur.respond_to?(:parent) ? cur.parent : nil
+        end
+        false
       end
 
       # WebIDL coercion for an `appendChild`/`insertBefore`/`replaceChild`
