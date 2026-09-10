@@ -1351,6 +1351,17 @@ module Dommy
       end
     end
 
+    # Document's answer to the ParentNode hook a ChildNode mutation
+    # (`before` / `after` / `replaceWith`) calls on its parent. A Document
+    # parent skips the ancestor rule (it is never a descendant of anything) and
+    # instead carries step 6: at most one element child, no Text child, and a
+    # doctype only ahead of the document element. `replacing` is the child a
+    # `replaceWith` stands in for, which WHATWG "replace" disregards when
+    # counting the existing children.
+    def __internal_ensure_insertion_validity__(args, ref_bn, replacing: nil)
+      ensure_document_insertion_validity!(args, ref_bn, exclude: replacing)
+    end
+
     # Whether any element child precedes `child_bn` in the document's child list.
     def element_before_child?(existing, child_bn)
       idx = child_bn && existing.index { |c| c == child_bn }

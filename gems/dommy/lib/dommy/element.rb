@@ -3469,28 +3469,9 @@ module Dommy
       nodes.each { |node| @__node__.add_child(node) }
     end
 
-    # ParentNode hook: Element enforces the no-cycle hierarchy check that
-    # Fragment / ShadowRoot skip.
-    def check_insertion!(child)
-      check_hierarchy!(child)
-    end
-
-    # Raise HierarchyRequestError when the proposed insertion would
-    # produce a cycle (inserting an ancestor as a descendant of
-    # itself). Strings and Fragments are always safe.
-    def check_hierarchy!(child)
-      return unless child.respond_to?(:__dommy_backend_node__)
-
-      node = child.__dommy_backend_node__
-      return unless node.is_a?(Backend.node_class)
-
-      if node == @__node__ || @__node__.ancestors.any? { |a| a == node }
-        raise(
-          DOMException::HierarchyRequestError,
-          "Cannot insert a node as a descendant of itself"
-        )
-      end
-    end
+    # `check_insertion!` / `check_hierarchy!` now live in Internal::ParentNode:
+    # WHATWG applies the no-cycle rule to every element-like parent, so Fragment
+    # and ShadowRoot need it too and Element has nothing left to override.
 
     def detach_for_insert(value)
       detach_dom_nodes(value).first

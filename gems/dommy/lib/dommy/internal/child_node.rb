@@ -25,8 +25,9 @@ module Dommy
         viable_prev = @__node__.previous_sibling
         viable_prev = viable_prev.previous_sibling while viable_prev && arg_nodes.any? { |n| n == viable_prev }
 
+        ensure_parent_insertion_validity!(parent, args, reference_after(parent, viable_prev))
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
-        ref = viable_prev.nil? ? parent.children.first : viable_prev.next_sibling
+        ref = reference_after(parent, viable_prev)
         insert_child_nodes(nodes, ref, parent)
         notify_child_list(added: nodes, target: parent)
         nil
@@ -41,6 +42,7 @@ module Dommy
         viable_next = @__node__.next_sibling
         viable_next = viable_next.next_sibling while viable_next && arg_nodes.any? { |n| n == viable_next }
 
+        ensure_parent_insertion_validity!(parent, args, viable_next)
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
         insert_child_nodes(nodes, viable_next, parent)
         notify_child_list(added: nodes, target: parent)
@@ -55,6 +57,11 @@ module Dommy
         arg_nodes = backend_nodes_in(args)
         viable_next = @__node__.next_sibling
         viable_next = viable_next.next_sibling while viable_next && arg_nodes.any? { |n| n == viable_next }
+
+        # Step 6 replaces this node within the parent and step 7 pre-inserts
+        # before the viable next sibling; both run the parent's validity checks,
+        # and "replace" is the one that disregards the child being replaced.
+        ensure_parent_insertion_validity!(parent, args, @__node__, replacing: @__node__)
 
         removed = @__node__
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
@@ -103,6 +110,30 @@ module Dommy
       end
 
       private
+
+      # WHATWG "pre-insert" step 1 for a mutation that targets this node's
+      # PARENT (`before` / `after` / `replaceWith`). The constraints belong to
+      # the parent, which may be a Document — whose step 6 forbids a Text child,
+      # a second element and a misplaced doctype — so the check is dispatched on
+      # the parent's wrapper rather than on self.
+      #
+      # It runs before the arguments are converted, so a rejected call leaves
+      # the tree untouched. (The spec converts first, and for two or more
+      # arguments that conversion moves them into a fresh DocumentFragment; the
+      # rejection then comes from the fragment being an ancestor of the parent
+      # instead. Same exception, less collateral damage.)
+      def ensure_parent_insertion_validity!(parent_bn, args, ref_bn, replacing: nil)
+        parent = @document.wrap_node(parent_bn)
+        return unless parent.respond_to?(:__internal_ensure_insertion_validity__)
+
+        parent.__internal_ensure_insertion_validity__(args, ref_bn, replacing: replacing)
+      end
+
+      # WHATWG `before` step 5: the reference child is the viable previous
+      # sibling's next sibling, or the parent's first child when there is none.
+      def reference_after(parent, viable_prev)
+        viable_prev.nil? ? parent.children.first : viable_prev.next_sibling
+      end
 
       # Insert `nodes` (raw backend nodes) into `parent` before `ref`, or append
       # when `ref` is nil. Forward iteration against a fixed anchor preserves

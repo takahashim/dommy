@@ -81,6 +81,24 @@ module Dommy
         nil
       end
 
+      # WHATWG "ensure pre-insertion validity" run on behalf of a ChildNode
+      # mutation (`before` / `after` / `replaceWith`) whose insertion parent is
+      # THIS node rather than the caller. The caller is a sibling (or the child
+      # being replaced), so it cannot run the check itself: the constraints
+      # belong to the parent, and a Document parent has stricter ones
+      # (Document#__internal_ensure_insertion_validity__ overrides this).
+      #
+      # `ref_bn` is the raw backend reference child, nil when appending.
+      # `replacing` is the child a `replaceWith` is standing in for; an
+      # element-like parent has no rule that disregards it, so it is only
+      # meaningful for a Document.
+      def __internal_ensure_insertion_validity__(args, ref_bn, replacing: nil)
+        _ = replacing
+        ref = ref_bn && @document.wrap_node(ref_bn)
+        args.each { |arg| ensure_pre_insertion_validity!(arg, ref) if arg.is_a?(Dommy::Node) }
+        nil
+      end
+
       # Node#normalize — merge each run of adjacent exclusive Text descendants
       # into its first node (preserving that node's identity, so a JS reference
       # to it survives) and drop empty Text nodes. Recurses the whole subtree,
@@ -202,11 +220,34 @@ module Dommy
         nil
       end
 
-      # Hierarchy guard hook. Default no-op (Fragment / ShadowRoot stay
-      # permissive, matching current behavior). Element overrides this to
-      # call its `check_hierarchy!`.
-      def check_insertion!(_child)
-        nil
+      # WHATWG "ensure pre-insertion validity" step 2 — node must not be a
+      # host-including inclusive ancestor of the parent. It applies to every
+      # parent kind the algorithm accepts (Element, DocumentFragment,
+      # ShadowRoot); only Document is exempt, and a Document is never a
+      # descendant of anything, so it has no such rule to run.
+      def check_insertion!(child)
+        check_hierarchy!(child)
+      end
+
+      # Raise HierarchyRequestError when the proposed insertion would produce a
+      # cycle (inserting the parent itself, or one of its ancestors, into it).
+      # Strings and other non-Nodes are always safe.
+      #
+      # Walks `parent` upward rather than asking the backend for `ancestors`:
+      # Makiri omits a DocumentFragment parent from `ancestors`, so a fragment
+      # would never appear to contain its own children. `parent` is consistent
+      # across backends (same reason `contains?` walks it).
+      def check_hierarchy!(child)
+        return unless child.respond_to?(:__dommy_backend_node__)
+
+        node = child.__dommy_backend_node__
+        return unless node.is_a?(Backend.node_class)
+        return unless node == @__node__ || Internal::NodeTraversal.ancestor_of?(node, @__node__)
+
+        raise(
+          DOMException::HierarchyRequestError,
+          "Cannot insert a node as a descendant of itself"
+        )
       end
 
       # WebIDL coercion for an `appendChild`/`insertBefore`/`replaceChild`
