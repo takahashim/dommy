@@ -317,6 +317,7 @@ module Dommy
       return unless node
 
       root = doc.backend_doc.root
+      doc.__internal_ranges_will_insert__(doc.backend_doc, root, 1)
       root ? root.add_previous_sibling(node) : doc.backend_doc.add_child(node)
     end
 
@@ -1384,11 +1385,12 @@ module Dommy
       ensure_document_insertion_validity!([node], nil)
       return node unless node.respond_to?(:__dommy_backend_node__)
 
-      bn = adopted_backend_node(node)
-      return node unless bn
+      # An append has a null reference child, so insert step 5 shifts nothing.
+      nodes = document_insertion_nodes([node])
+      return node if nodes.empty?
 
-      @backend_doc.add_child(bn)
-      notify_document_child_list(added: [bn])
+      nodes.each { |bn| @backend_doc.add_child(bn) }
+      notify_document_child_list(added: nodes)
       node
     end
 
@@ -1397,7 +1399,8 @@ module Dommy
     def document_insert(args, prepend:)
       ref_bn = prepend ? @backend_doc.children.first : nil
       ensure_document_insertion_validity!(args, ref_bn)
-      nodes = args.filter_map { |a| adopted_backend_node(a) }
+      __internal_ranges_will_insert__(@backend_doc, ref_bn, document_insertion_count(args))
+      nodes = document_insertion_nodes(args)
       if prepend && (first = @backend_doc.children.first)
         nodes.reverse_each { |n| first.add_previous_sibling(n) }
       else
@@ -1413,7 +1416,7 @@ module Dommy
       ensure_document_insertion_validity!(args, nil, ignore_existing: true)
       removed = @backend_doc.children.to_a
       removed.each { |child| detach_node(child) }
-      added = args.filter_map { |a| adopted_backend_node(a) }
+      added = document_insertion_nodes(args)
       added.each { |n| @backend_doc.add_child(n) }
       notify_document_child_list(added: added, removed: removed)
       nil
@@ -1440,16 +1443,19 @@ module Dommy
       end
 
       ensure_document_insertion_validity!([node], ref_bn)
-      bn = adopted_backend_node(node)
-      return node unless bn
+      # Insert step 5 runs before step 7's adopt, so the count is taken while the
+      # node (or fragment) still sits wherever it is now.
+      __internal_ranges_will_insert__(@backend_doc, ref_bn, document_insertion_count([node]))
+      nodes = document_insertion_nodes([node])
+      return node if nodes.empty?
 
       ref_node = ref && backend_node(ref)
       if ref_node && ref_node.parent == @backend_doc
-        ref_node.add_previous_sibling(bn)
+        nodes.each { |bn| ref_node.add_previous_sibling(bn) }
       else
-        @backend_doc.add_child(bn)
+        nodes.each { |bn| @backend_doc.add_child(bn) }
       end
-      notify_document_child_list(added: [bn])
+      notify_document_child_list(added: nodes)
       node
     end
 
@@ -1474,6 +1480,9 @@ module Dommy
       # so the old one must be gone before the new one is made.
       new_bn = adopted_backend_node(new_child) unless cross_document
       detach_node(old_bn)
+      # WHATWG "replace" removes the old child (step 10) before the insert
+      # (step 12), so step 5 measures `ref` in the tree the removal leaves.
+      __internal_ranges_will_insert__(@backend_doc, ref && ref.parent == @backend_doc ? ref : nil, 1)
       if cross_document
         new_child = adopt_node(new_child)
         new_bn = backend_node(new_child)
@@ -1499,12 +1508,12 @@ module Dommy
     # (at the document start) or after it (just before the document element).
     def __internal_insert_at_doctype__(nodes, after:)
       bns = nodes.filter_map { |n| backend_node(n) }
+      anchor = after ? @backend_doc.root : @backend_doc.children.first
+      __internal_ranges_will_insert__(@backend_doc, anchor, bns.size)
       if after
-        root = @backend_doc.root
-        root ? bns.each { |n| root.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
+        anchor ? bns.each { |n| anchor.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
       else
-        first = @backend_doc.children.first
-        first ? bns.reverse_each { |n| first.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
+        anchor ? bns.reverse_each { |n| anchor.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
       end
       nil
     end
@@ -1531,6 +1540,40 @@ module Dommy
     # the next add_child, but silently — that is a storage operation, not a DOM
     # removal, so route it through the shared remove primitive instead and let
     # the old parent see its removing steps and its childList record.
+    # WHATWG "insert" steps 1 and 4 for the DOCUMENT's own child list. A
+    # DocumentFragment argument contributes its children, and they are removed
+    # from it first — with their removing steps, so a live range or NodeIterator
+    # inside them follows — before anything is linked here. Every other node is
+    # adopted, which removes it from its old parent.
+    #
+    # Document's insertion paths hand the backend the node they were given, and
+    # the backend splices a fragment's children in silently; without this the
+    # fragment's children would move with no removing steps at all.
+    def document_insertion_nodes(args)
+      args.flat_map do |arg|
+        if arg.is_a?(Dommy::Fragment)
+          source = arg.document
+          arg.extract_children.map do |n|
+            n.document == @backend_doc ? n : __internal_adopt_backend_node__(n, source)
+          end
+        else
+          bn = adopted_backend_node(arg)
+          bn ? [bn] : []
+        end
+      end
+    end
+
+    # How many nodes `args` will contribute, counted BEFORE any of them moves —
+    # insert step 5 needs the count while the fragment still holds its children.
+    def document_insertion_count(args)
+      args.sum do |arg|
+        if arg.is_a?(Dommy::Fragment) then arg.child_nodes.to_a.size
+        elsif arg.respond_to?(:__dommy_backend_node__) then 1
+        else 0
+        end
+      end
+    end
+
     def adopted_backend_node(node)
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
@@ -2139,29 +2182,11 @@ module Dommy
       @mutation_coordinator.unregister_observer(observer)
     end
 
+    # Queue the childList record for a mutation. The live-range insertion steps
+    # are NOT run here: WHATWG puts them at insert step 5, before the nodes are
+    # converted and linked, so every insertion site calls
+    # __internal_ranges_will_insert__ itself, at that point.
     def notify_child_list_mutation(
-      target_node:,
-      added_nodes:,
-      removed_nodes:,
-      previous_sibling: nil,
-      next_sibling: nil
-    )
-      __internal_ranges_inserted__(target_node, added_nodes) unless added_nodes.empty?
-      queue_child_list_record(
-        target_node: target_node,
-        added_nodes: added_nodes,
-        removed_nodes: removed_nodes,
-        previous_sibling: previous_sibling,
-        next_sibling: next_sibling
-      )
-    end
-
-    # The record half of #notify_child_list_mutation, without the live range
-    # insertion steps. Every caller but one wants both together and calls
-    # #notify_child_list_mutation instead; "split a Text node" is the exception,
-    # because there the range steps and the record belong at different points in
-    # the algorithm (see TextNode#split_text).
-    def queue_child_list_record(
       target_node:,
       added_nodes:,
       removed_nodes:,
@@ -2176,6 +2201,7 @@ module Dommy
         next_sibling: next_sibling
       )
     end
+    alias queue_child_list_record notify_child_list_mutation
 
     # WHATWG "removing steps", run while `node` is STILL attached (they are all
     # expressed in terms of the position it is about to vacate). Every path that
@@ -2280,10 +2306,21 @@ module Dommy
       affected.each { |r| r.__internal_apply_remove__(removed, parent_wrapper, index) }
     end
 
-    # WHATWG "insert" step, run after the nodes are in place. Processed in
-    # document order so a multi-node insert shifts a later boundary once per
-    # inserted node.
-    def __internal_ranges_inserted__(parent_backend_node, added_backend_nodes)
+    # WHATWG "insert a node into a parent before a child", step 5 — the
+    # live-range offset shift.
+    #
+    # It runs BEFORE step 7 adopts each node (which removes it from wherever it
+    # is now), so `child`'s index, and every boundary it shifts, are measured
+    # against the tree as it stands before the insertion begins. Running it
+    # afterwards double-counts a boundary that one of those removals has just
+    # moved onto `parent`: `parent.insertBefore(second, first)` with a range
+    # inside `second` leaves that boundary at `(parent, 1)` per spec, but at
+    # `(parent, 2)` if the shift is applied after the move.
+    #
+    # Appending (a null `child`) shifts nothing: a boundary at the parent's end
+    # stays before the new nodes.
+    def __internal_ranges_will_insert__(parent_backend_node, ref_backend_node, count)
+      return if ref_backend_node.nil? || count.zero?
       return unless live_ranges?
 
       parent_wrapper = wrap_node(parent_backend_node)
@@ -2292,14 +2329,10 @@ module Dommy
       affected = live_ranges_where { |r| r.__internal_anchored_at__(parent_wrapper) }
       return if affected.empty?
 
-      children = parent_wrapper.child_nodes.to_a
-      added_backend_nodes.each do |bn|
-        wrapper = wrap_node(bn)
-        index = children.index { |c| c.equal?(wrapper) }
-        next unless index
+      index = child_index_of_wrapper(parent_wrapper, wrap_node(ref_backend_node))
+      return unless index
 
-        affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index) }
-      end
+      affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index, count) }
     end
 
     # WHATWG normalize() steps 6.1-6.4. `current` is a contiguous exclusive Text

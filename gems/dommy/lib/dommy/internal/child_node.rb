@@ -25,8 +25,9 @@ module Dommy
         viable_prev = @__node__.previous_sibling
         viable_prev = viable_prev.previous_sibling while viable_prev && arg_nodes.any? { |n| n == viable_prev }
 
-        ensure_parent_insertion_validity!(parent, args, reference_after(parent, viable_prev))
-        nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
+        ref = reference_past_args(reference_after(parent, viable_prev), arg_nodes)
+        ensure_parent_insertion_validity!(parent, args, ref)
+        nodes = convert_for_insert(args, parent, ref)
         ref = reference_after(parent, viable_prev)
         insert_child_nodes(nodes, ref, parent)
         notify_child_list(added: nodes, target: parent)
@@ -43,7 +44,7 @@ module Dommy
         viable_next = viable_next.next_sibling while viable_next && arg_nodes.any? { |n| n == viable_next }
 
         ensure_parent_insertion_validity!(parent, args, viable_next)
-        nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
+        nodes = convert_for_insert(args, parent, viable_next)
         insert_child_nodes(nodes, viable_next, parent)
         notify_child_list(added: nodes, target: parent)
         nil
@@ -64,23 +65,26 @@ module Dommy
         ensure_parent_insertion_validity!(parent, args, @__node__, replacing: @__node__)
 
         removed = @__node__
+        # WHATWG "replace" runs three removals/insertions in a fixed order:
+        # adopt the replacement (step 6, which removes it from its old parent),
+        # remove the old child (step 7), then insert (step 9) — and only the
+        # insert carries the live-range offset shift, measured against the tree
+        # both removals leave behind. The removal order is observable for
+        # NodeIterator too: the old child's pre-removing steps run against a
+        # tree that does not yet hold the replacements.
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
         if @__node__.parent == parent
-          # `@__node__` survived the conversion (it wasn't among the arguments),
-          # so this is WHATWG "replace a child within a parent": the child is
-          # REMOVED FIRST and the nodes are then inserted before its viable next
-          # sibling. The order is observable — the pre-removing steps run against
-          # a tree that does not yet hold the replacements, so a NodeIterator
-          # anchored inside the old child falls back to the parent rather than to
-          # a node that was not there when the removal happened.
           @document.detach_node(@__node__)
           anchor = viable_next && viable_next.parent == parent ? viable_next : nil
+          @document.__internal_ranges_will_insert__(parent, anchor, nodes.size)
           insert_child_nodes(nodes, anchor, parent)
           notify_child_list(added: nodes, removed: [removed], target: parent)
         else
           # `@__node__` was itself an argument, so the conversion already moved
           # it into `nodes`; pre-insert the set before the viable next sibling.
-          insert_child_nodes(nodes, viable_next, parent)
+          anchor = viable_next && viable_next.parent == parent ? viable_next : nil
+          @document.__internal_ranges_will_insert__(parent, anchor, nodes.size)
+          insert_child_nodes(nodes, anchor, parent)
           notify_child_list(added: nodes, target: parent)
         end
         nil
@@ -133,6 +137,39 @@ module Dommy
       # sibling's next sibling, or the parent's first child when there is none.
       def reference_after(parent, viable_prev)
         viable_prev.nil? ? parent.children.first : viable_prev.next_sibling
+      end
+
+      # WHATWG pre-insert step 3: when the reference child IS one of the nodes
+      # being inserted, it is about to move out of the way, so the reference
+      # advances to its next sibling. This has to happen before insert step 5,
+      # whose offset shift is measured against the reference child's index —
+      # `x.before(x)` shifts boundaries past x's NEXT sibling, not past x.
+      def reference_past_args(ref, arg_nodes)
+        ref = ref.next_sibling while ref && arg_nodes.any? { |n| n == ref }
+        ref
+      end
+
+      # WHATWG insert steps 5 and 7, in spec order: shift the live-range offsets
+      # that sit past `ref` in `parent`, THEN convert the arguments into backend
+      # nodes (which detaches each from wherever it is now, running its own
+      # removing steps). Doing it the other way round double-counts a boundary
+      # that one of those removals has just moved onto `parent`.
+      def convert_for_insert(args, parent, ref)
+        @document.__internal_ranges_will_insert__(parent, ref, insertion_count(args))
+        args.flat_map { |arg| detach_dom_nodes(arg) }
+      end
+
+      # How many nodes `args` will contribute once converted: a DocumentFragment
+      # expands to its children (WHATWG "insert" step 1), a String becomes one
+      # Text node, and anything without a backing node contributes nothing.
+      def insertion_count(args)
+        args.sum do |arg|
+          case arg
+          when Fragment then arg.__dommy_backend_node__.children.to_a.size
+          when String then 1
+          else arg.respond_to?(:__dommy_backend_node__) ? 1 : 0
+          end
+        end
       end
 
       # Insert `nodes` (raw backend nodes) into `parent` before `ref`, or append

@@ -21,7 +21,10 @@ module Dommy
       def append_child(child)
         coerce_node_argument!(child)
         ensure_pre_insertion_validity!(child, nil)
-        nodes = detach_dom_nodes(child)
+        # An append has a null reference child, so insert step 5 shifts nothing;
+        # convert_for_insert still routes through it so every insertion site
+        # reads the same.
+        nodes = convert_for_insert([child], @__node__, nil)
         nodes.each { |n| @__node__.add_child(n) }
         notify_child_list(added: nodes)
         child
@@ -30,7 +33,7 @@ module Dommy
       # ParentNode#append — mixed Node/String args appended in order.
       def append(*args)
         validate_insertion_args!(args)
-        nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
+        nodes = convert_for_insert(args, @__node__, nil)
         nodes.each { |n| @__node__.add_child(n) }
         notify_child_list(added: nodes)
         nil
@@ -39,8 +42,11 @@ module Dommy
       # ParentNode#prepend — insert before the current first child.
       def prepend(*args)
         validate_insertion_args!(args)
-        nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
+        # The reference child is the CURRENT first child, and insert step 5 is
+        # measured against it before the arguments are detached.
         anchor = @__node__.children.first
+        nodes = convert_for_insert(args, @__node__, anchor)
+        anchor = nil if anchor && anchor.parent != @__node__
         if anchor
           # Insert each node before the (fixed) original first child in order:
           # forward iteration keeps document order (n1, n2, … then the old first
@@ -57,8 +63,10 @@ module Dommy
       # append the new set. One mutation record carries both sides.
       def replace_children(*args)
         validate_insertion_args!(args)
+        # "Replace all" removes every child first and then APPENDS, so there is
+        # no reference child and insert step 5 shifts nothing.
         removed = detach_all_children
-        nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
+        nodes = convert_for_insert(args, @__node__, nil)
         nodes.each { |n| @__node__.add_child(n) }
         notify_child_list(added: nodes, removed: removed)
         nil
@@ -75,6 +83,8 @@ module Dommy
       #
       # Spec: https://dom.spec.whatwg.org/#concept-node-replace-all
       def __internal_replace_all__(nodes)
+        # Removes every child, then APPENDS: no reference child, so insert
+        # step 5 shifts nothing.
         removed = detach_all_children
         nodes.each { |n| @__node__.add_child(n) }
         notify_child_list(added: nodes, removed: removed)
@@ -204,17 +214,20 @@ module Dommy
         anchor = old_bn.next_sibling
         new_bn = new_child.respond_to?(:__dommy_backend_node__) ? new_child.__dommy_backend_node__ : nil
         anchor = anchor.next_sibling if anchor && new_bn && anchor == new_bn
+        # WHATWG "replace" order: adopt the replacement (step 6, which removes it
+        # from its old parent), then remove the old child (step 7), then insert
+        # (step 9). Only the insert carries the live-range offset shift, and it
+        # is measured against the tree both removals leave behind.
         nodes = detach_dom_nodes(new_child)
-        anchor = nil if anchor && anchor.parent != @__node__
 
-        # detach_dom_nodes already removed old when new_child === old_child; only
-        # detach (and record the removal) when old is still attached.
         removed = []
         if old_bn.parent == @__node__
           @document.detach_node(old_bn)
           removed = [old_bn]
         end
 
+        anchor = nil if anchor && anchor.parent != @__node__
+        @document.__internal_ranges_will_insert__(@__node__, anchor, nodes.size)
         insert_child_nodes(nodes, anchor, @__node__)
         notify_child_list(added: nodes, removed: removed)
         nil

@@ -122,11 +122,11 @@ module Dommy
       nil
     end
 
-    # "Insert" step: a node inserted at `index` pushes later boundary points in
-    # the same parent along by one.
-    def __internal_apply_insert__(parent, index)
-      @start_offset += 1 if @start_container.equal?(parent) && @start_offset > index
-      @end_offset += 1 if @end_container.equal?(parent) && @end_offset > index
+    # WHATWG "insert" step 5: inserting `count` nodes before the child at
+    # `index` pushes later boundary points in the same parent along by `count`.
+    def __internal_apply_insert__(parent, index, count = 1)
+      @start_offset += count if @start_container.equal?(parent) && @start_offset > index
+      @end_offset += count if @end_container.equal?(parent) && @end_offset > index
       nil
     end
 

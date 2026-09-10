@@ -140,9 +140,13 @@ module Dommy
     # `removeChild` / `replaceChild` against the render root, so a shadow root
     # must support them — not just appendChild.
     def insert_before(node, ref)
-      nodes = detach_dom_nodes(node)
+      ensure_pre_insertion_validity!(node, ref)
       ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
-      if ref_bn && ref_bn.parent == @__node__
+      ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
+      ref_bn = reference_past_args(ref_bn, backend_nodes_in([node]))
+      nodes = convert_for_insert([node], @__node__, ref_bn)
+      ref_bn = nil if ref_bn && ref_bn.parent != @__node__
+      if ref_bn
         nodes.each { |n| ref_bn.add_previous_sibling(n) }
       else
         nodes.each { |n| @__node__.add_child(n) }
@@ -161,6 +165,9 @@ module Dommy
     end
 
     def replace_child(new_child, old_child)
+      # As for a DocumentFragment: the validity check (whose step 2 rejects a
+      # cycle) precedes the reference child's parentage check.
+      ensure_pre_insertion_validity!(new_child, old_child)
       old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this shadow root" unless old_bn && old_bn.parent == @__node__
 

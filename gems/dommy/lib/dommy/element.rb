@@ -221,23 +221,30 @@ module Dommy
     def insert_before(node, ref)
       coerce_node_argument!(node)
       ensure_pre_insertion_validity!(node, ref)
-      nodes = detach_dom_nodes(node)
       ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
-      if ref_bn && ref_bn.parent == @__node__
+      ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
+      ref_bn = reference_past_args(ref_bn, backend_nodes_in([node]))
+      nodes = convert_for_insert([node], @__node__, ref_bn)
+      ref_bn = nil if ref_bn && ref_bn.parent != @__node__
+      if ref_bn
         nodes.each { |n| ref_bn.add_previous_sibling(n) }
       else
         nodes.each { |n| @__node__.add_child(n) }
       end
-      @document.__internal_ranges_inserted__(@__node__, nodes)
       node
     end
 
     def replace_child(new_child, old_child)
       coerce_node_argument!(new_child)
+      # WHATWG "replace" step 1 runs the full ensure-pre-insertion-validity,
+      # whose step 2 (node is an inclusive ancestor of parent — a cycle) comes
+      # BEFORE step 3 (the reference child's parentage). So
+      # `frag.replaceChild(frag, frag)` is a HierarchyRequestError, not the
+      # NotFoundError an up-front parentage guard would raise.
+      ensure_pre_insertion_validity!(new_child, old_child)
       old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless old_bn && old_bn.parent == @__node__
 
-      ensure_pre_insertion_validity!(new_child, old_child)
       replace_child_within(new_child, old_bn)
       old_child
     end
@@ -319,8 +326,10 @@ module Dommy
         # Step 7.1 — insert the new node right after self. Its live range steps
         # run here, where the algorithm puts them; its childList RECORD is
         # queued at the very end instead (see below).
+        # WHATWG "split a Text node" step 7.1 inserts the new node right after
+        # self, so insert step 5 runs first, against self's next sibling.
+        @document.__internal_ranges_will_insert__(parent, @__node__.next, 1)
         @__node__.add_next_sibling(new_bn)
-        @document.__internal_ranges_inserted__(parent, [new_bn])
         # Live ranges past the split point move to the tail node (the generic
         # insert step above already shifted boundaries sitting further along).
         # Step 7 only runs for a node that HAS a parent: splitting a detached
@@ -1698,7 +1707,11 @@ module Dommy
       removed = @__node__
       new_nodes = fragment.children.to_a
       mark_fragment_scripts_started(new_nodes)
+      # "Replace" order: the old element goes first (step 10), then the insert
+      # and its step 5 (step 12) run against the tree that leaves behind.
       @document.detach_node(@__node__)
+      anchor = nil if anchor && anchor.parent != parent
+      @document.__internal_ranges_will_insert__(parent, anchor, new_nodes.size)
       if anchor
         new_nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
       else
@@ -2072,16 +2085,17 @@ module Dommy
         return nil unless parent
 
         validate_adjacent_document_insert!(parent, element)
-        node = detach_for_insert(element)
+        node = convert_for_insert([element], parent, @__node__).first
         @__node__.add_previous_sibling(node)
         notify_child_list(added: [node], target: parent)
       when "afterbegin"
-        node = detach_for_insert(element)
         first = @__node__.children.first
+        node = convert_for_insert([element], @__node__, first).first
+        first = nil if first && first.parent != @__node__
         first ? first.add_previous_sibling(node) : @__node__.add_child(node)
         notify_child_list(added: [node])
       when "beforeend"
-        node = detach_for_insert(element)
+        node = convert_for_insert([element], @__node__, nil).first
         @__node__.add_child(node)
         notify_child_list(added: [node])
       when "afterend"
@@ -2089,7 +2103,7 @@ module Dommy
         return nil unless parent
 
         validate_adjacent_document_insert!(parent, element)
-        node = detach_for_insert(element)
+        node = convert_for_insert([element], parent, @__node__.next).first
         @__node__.add_next_sibling(node)
         notify_child_list(added: [node], target: parent)
       end
@@ -2122,10 +2136,12 @@ module Dommy
       case pos
       when "beforebegin"
         parent = insertion_parent!
+        @document.__internal_ranges_will_insert__(parent, @__node__, nodes.size)
         nodes.each { |n| @__node__.add_previous_sibling(n) }
         notify_child_list(added: nodes, target: parent)
       when "afterbegin"
         first = @__node__.children.first
+        @document.__internal_ranges_will_insert__(@__node__, first, nodes.size)
         if first
           nodes.each { |n| first.add_previous_sibling(n) }
         else
@@ -2138,6 +2154,7 @@ module Dommy
         notify_child_list(added: nodes)
       when "afterend"
         parent = insertion_parent!
+        @document.__internal_ranges_will_insert__(parent, @__node__.next, nodes.size)
         nodes.reverse_each { |n| @__node__.add_next_sibling(n) }
         notify_child_list(added: nodes, target: parent)
       end
@@ -3283,15 +3300,21 @@ module Dommy
       # child of this node, which step 3 of the validity check rejects.
       ensure_pre_insertion_validity!(child, reference)
       reference = wrapped_next_sibling(reference) if same_wrapped_node?(reference, child)
-      nodes = detach_dom_nodes(child)
-      if reference.nil? || (defined?(Bridge::UNDEFINED) && reference.equal?(Bridge::UNDEFINED))
+      ref_node =
+        if reference.nil? || (defined?(Bridge::UNDEFINED) && reference.equal?(Bridge::UNDEFINED))
+          nil
+        else
+          unwrap_dom_node(reference)
+        end
+      nodes = convert_for_insert([child], @__node__, ref_node)
+      ref_node = nil if ref_node && ref_node.parent != @__node__
+      if ref_node.nil?
         append_dom_nodes(nodes)
       else
         # The reference is guaranteed (by validity) to be a child here. Insert in
         # order before it: each new node becomes its immediate previous sibling,
         # so forward iteration yields the original order (reverse would flip a
         # multi-node fragment).
-        ref_node = unwrap_dom_node(reference)
         nodes.each { |node| ref_node.add_previous_sibling(node) }
       end
 
