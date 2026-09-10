@@ -296,6 +296,7 @@ module Dommy
     # `before` / `after` / `replaceWith` (+ their argument coercion) — the same
     # spec-correct implementation Element uses, minus appendChild/insertBefore.
     include Internal::ChildNode
+    include Internal::LeafNode
 
     # The owning Dommy document (as Element exposes), so cross-document adoption
     # checks work for text/comment nodes too.
@@ -596,18 +597,14 @@ module Dommy
         # A leaf node contains only itself (no descendants).
         args[0].respond_to?(:__dommy_backend_node__) &&
           args[0].__dommy_backend_node__ == @__node__
-      when "appendChild", "insertBefore", "replaceChild"
-        # WebIDL coerces the Node argument first (null/non-Node → TypeError);
-        # only then does the leaf reject the insertion. WHATWG pre-insert /
-        # replace step 1 checks the PARENT type before the reference child, so a
-        # leaf parent is a HierarchyRequestError even when `child` isn't a child.
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::HierarchyRequestError, "this node type does not support children"
+      when "appendChild"
+        append_child(args[0])
+      when "insertBefore"
+        insert_before(args[0], args[1])
+      when "replaceChild"
+        replace_child(args[0], args[1])
       when "removeChild"
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
+        remove_child(args[0])
       when "compareDocumentPosition"
         compare_document_position(args[0])
       when "isSameNode"
@@ -2253,6 +2250,9 @@ module Dommy
     def replace_with_nodes(*args)
       child_node_replace_with(args)
     end
+    # WHATWG names this `replaceWith`; `replace_with_nodes` is the older Dommy
+    # spelling, kept because callers use it.
+    alias replace_with replace_with_nodes
 
     # `getInnerHTML()` — happy-dom alias for the `innerHTML` getter.
     # Real browsers add a `{ includeShadowRoots }` option which we

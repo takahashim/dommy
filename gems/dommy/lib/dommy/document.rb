@@ -25,6 +25,7 @@ module Dommy
   #    so it stays tree-DISCONNECTED per its detached nature.
   class DocumentType
     include Node
+    include Internal::LeafNode
 
     # Mixed into a node-backed doctype only, so a synthetic one does NOT respond
     # to `__dommy_backend_node__` — leaving the Node mixin's guards (which key off
@@ -174,6 +175,12 @@ module Dommy
     end
 
     include Bridge::Methods
+    # WHATWG's own wording for a doctype parent.
+    def leaf_insertion_message
+      "a DocumentType may not have children"
+    end
+    private :leaf_insertion_message
+
     js_methods %w[isEqualNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition contains
       cloneNode appendChild insertBefore removeChild replaceChild before after replaceWith remove
       lookupNamespaceURI lookupPrefix isDefaultNamespace
@@ -201,16 +208,14 @@ module Dommy
         get_root_node(args[0])
       when "compareDocumentPosition"
         compare_document_position(args[0])
-      when "appendChild", "insertBefore", "replaceChild"
-        # Pre-insert / replace step 1 rejects a non-parent context node with
-        # HierarchyRequestError before the reference-child check.
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::HierarchyRequestError, "a DocumentType may not have children"
+      when "appendChild"
+        append_child(args[0])
+      when "insertBefore"
+        insert_before(args[0], args[1])
+      when "replaceChild"
+        replace_child(args[0], args[1])
       when "removeChild"
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
+        remove_child(args[0])
       when "before"
         before(*args)
       when "after"
@@ -1298,6 +1303,7 @@ module Dommy
     # from the counts, since replace-all removes them first. `exclude` (replace)
     # is a current child to disregard. Raises HierarchyRequestError on violation.
     def ensure_document_insertion_validity!(args, child_bn, ignore_existing: false, exclude: nil)
+      ensure_not_self_insertion!(args)
       elements = 0
       doctypes = 0
       has_text = false
@@ -1363,6 +1369,20 @@ module Dommy
       ensure_document_insertion_validity!(args, ref_bn, exclude: replacing)
     end
 
+    # WHATWG "ensure pre-insertion validity" step 2 for a Document parent: node
+    # must not be a host-including inclusive ancestor of the parent. A document
+    # is an inclusive ancestor of itself and nothing else can be an ancestor of
+    # one, so this reduces to "you cannot insert the document into itself".
+    #
+    # It is step 2, so it precedes step 3's NotFoundError on the reference
+    # child: `document.replaceChild(document, x)` is a HierarchyRequestError
+    # even when x is not a child of the document.
+    def ensure_not_self_insertion!(args)
+      return unless args.any? { |a| a.equal?(self) }
+
+      raise DOMException::HierarchyRequestError, "Cannot insert a node as a descendant of itself"
+    end
+
     # Whether any element child precedes `child_bn` in the document's child list.
     def element_before_child?(existing, child_bn)
       idx = child_bn && existing.index { |c| c == child_bn }
@@ -1392,6 +1412,34 @@ module Dommy
       nodes.each { |bn| @backend_doc.add_child(bn) }
       notify_document_child_list(added: nodes)
       node
+    end
+
+    # The Node / ParentNode mutation methods under their WHATWG names. The
+    # document's own child list has its own rules (at most one element, no Text,
+    # a doctype only ahead of the document element), so each forwards to the
+    # `document_*` implementation that carries them.
+    def insert_before(node, reference)
+      document_insert_before(node, reference)
+    end
+
+    def replace_child(new_child, old_child)
+      document_replace_child(new_child, old_child)
+    end
+
+    def remove_child(node)
+      document_remove_child(node)
+    end
+
+    def replace_children(*args)
+      document_replace_children(args)
+    end
+
+    def append(*args)
+      document_insert(args, prepend: false)
+    end
+
+    def prepend(*args)
+      document_insert(args, prepend: true)
     end
 
     # ParentNode / Node mutation on the document's direct children (the doctype
@@ -1433,9 +1481,10 @@ module Dommy
     end
 
     def document_insert_before(node, ref)
-      # WHATWG pre-insert order: the reference child must be a child of the
-      # parent (step 3, NotFoundError) BEFORE the node-type / document-hierarchy
-      # checks (steps 4-6).
+      # WHATWG pre-insert order: step 2 (a cycle) first, THEN step 3 (the
+      # reference child must be a child of the parent, NotFoundError), and only
+      # then the node-type / document-hierarchy checks (steps 4-6).
+      ensure_not_self_insertion!([node])
       ref_present = !(ref.nil? || (defined?(Bridge::UNDEFINED) && ref.equal?(Bridge::UNDEFINED)))
       ref_bn = ref_present ? backend_node(ref) : nil
       if ref_present && !(ref_bn && ref_bn.parent == @backend_doc)
@@ -1460,6 +1509,8 @@ module Dommy
     end
 
     def document_replace_child(new_child, old_child)
+      # Step 2 (a cycle) precedes step 3 (the reference child's parentage).
+      ensure_not_self_insertion!([new_child])
       old_bn = backend_node(old_child)
       raise DOMException::NotFoundError, "node is not a child of this document" unless old_bn && old_bn.parent == @backend_doc
 
