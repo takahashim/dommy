@@ -26,6 +26,11 @@ module Dommy
   class DocumentType
     include Node
     include Internal::LeafNode
+    # A node-backed doctype is an ordinary ChildNode of the document, so
+    # `before` / `after` / `replaceWith` go through the shared implementation —
+    # which runs the parent's ensure-pre-insertion-validity and the live-range
+    # insert steps, neither of which the old doctype-specific path did.
+    include Internal::ChildNode
 
     # Mixed into a node-backed doctype only, so a synthetic one does NOT respond
     # to `__dommy_backend_node__` — leaving the Node mixin's guards (which key off
@@ -94,26 +99,38 @@ module Dommy
     end
 
     def before(*nodes)
-      return nil unless @owner_document
+      return synthetic_insert(nodes, after: false) unless @__node__
 
-      @owner_document.__internal_insert_at_doctype__(nodes, after: false)
-      nil
+      child_node_before(nodes)
     end
 
     def after(*nodes)
-      return nil unless @owner_document
+      return synthetic_insert(nodes, after: true) unless @__node__
 
-      @owner_document.__internal_insert_at_doctype__(nodes, after: true)
-      nil
+      child_node_after(nodes)
     end
 
     def replace_with(*nodes)
+      unless @__node__
+        synthetic_insert(nodes, after: false)
+        remove
+        return nil
+      end
+
+      child_node_replace_with(nodes)
+    end
+
+    # A synthetic doctype — the fallback for a backend that cannot create a
+    # doctype node — is not in the tree at all, so WHATWG's ChildNode methods
+    # would return at step 2. Dommy has always inserted around the document
+    # element instead; that stays until the fallback goes away.
+    def synthetic_insert(nodes, after:)
       return nil unless @owner_document
 
-      @owner_document.__internal_insert_at_doctype__(nodes, after: false)
-      remove
+      @owner_document.__internal_insert_at_doctype__(nodes, after: after)
       nil
     end
+    private :synthetic_insert
 
     def __js_get__(key)
       case key
@@ -268,7 +285,16 @@ module Dommy
         rescue ArgumentError
           nil
         end
-      node ? DocumentType.new(backend_node: node, document: @document) : DocumentType.new(qn, pub, sys, owner_document: @document)
+      return DocumentType.new(qn, pub, sys, owner_document: @document) unless node
+
+      # Seed the wrapper cache, or the doctype reached later through the tree
+      # (document.childNodes, document.doctype, a NodeIterator) would be a
+      # DIFFERENT DocumentType object than the one createDocumentType returned,
+      # and `===` / `isSameNode` on the two would be false. Every other
+      # create* goes through the cache; this one built its wrapper directly.
+      wrapper = DocumentType.new(backend_node: node, document: @document)
+      @document.__internal_register_wrapper__(node, wrapper)
+      wrapper
     end
 
     # `hasFeature()` is a no-op that always returns true (DOM Standard).
@@ -2107,6 +2133,13 @@ module Dommy
     # Delegate node wrapping to NodeWrapperCache
     def wrap_node(node)
       @node_wrapper_cache.wrap(node)
+    end
+
+    # Seed the wrapper cache so a wrapper built outside it keeps its identity
+    # when the same backend node is reached through the tree.
+    def __internal_register_wrapper__(node, wrapper)
+      @node_wrapper_cache.register(node, wrapper)
+      wrapper
     end
 
     def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
