@@ -1468,6 +1468,94 @@ module Dommy
       document_insert(args, prepend: true)
     end
 
+    # WHATWG ParentNode.moveBefore(node, child) with the DOCUMENT as the new
+    # parent. The move primitive's steps 5 and 6 bind only here: a Text node may
+    # not become a child of a document, and an Element may only be moved in when
+    # the document has no element child, the reference is not the doctype, and
+    # no doctype follows the reference.
+    #
+    # Spec: https://dom.spec.whatwg.org/#dom-parentnode-movebefore
+    def move_before(node, child = nil)
+      bn = move_backend_node(node)
+      ref_bn = move_backend_node(child)
+      ref_bn = ref_bn.next_sibling if ref_bn && bn && ref_bn == bn
+      ensure_document_move_validity!(node, bn, ref_bn)
+
+      old_parent = bn.parent
+      old_previous = bn.previous_sibling
+      old_next = bn.next_sibling
+      detach_node(bn)                                             # steps 10-11, 14
+      ref_bn = nil if ref_bn && ref_bn.parent != @backend_doc
+      __internal_ranges_will_insert__(@backend_doc, ref_bn, 1)    # step 16
+      new_previous = ref_bn ? ref_bn.previous_sibling : @backend_doc.children.to_a.last
+      ref_bn ? ref_bn.add_previous_sibling(bn) : @backend_doc.add_child(bn) # step 18
+      if old_parent
+        notify_child_list_mutation(
+          target_node: old_parent, added_nodes: [], removed_nodes: [bn],
+          previous_sibling: old_previous && wrap_node(old_previous),
+          next_sibling: old_next && wrap_node(old_next)
+        )
+      end
+      notify_document_child_list(added: [bn], previous_sibling: new_previous && wrap_node(new_previous),
+                                 next_sibling: ref_bn && wrap_node(ref_bn))
+      nil
+    end
+
+    # The backend node an argument to `moveBefore` stands for. A Dommy::Document
+    # has no `__dommy_backend_node__` of its own, but it is a node the algorithm
+    # has to see (step 2 rejects it, step 3 measures its parentage).
+    def move_backend_node(value)
+      return value.backend_doc if value.is_a?(Dommy::Document)
+      return nil unless value.respond_to?(:__dommy_backend_node__)
+
+      value.__dommy_backend_node__
+    end
+
+    # "Move" steps 1-6 with a document new parent.
+    def ensure_document_move_validity!(node, bn, ref_bn)
+      # Step 1 — the same root. A document is its own root, so this says the
+      # node must already be somewhere in this document.
+      root = bn
+      root = root.parent while root.respond_to?(:parent) && root.parent
+      # `==` and not `equal?`: a backend may hand back a fresh Ruby object for
+      # the same underlying node on every `parent` call.
+      unless bn && root == @backend_doc
+        raise DOMException::HierarchyRequestError,
+              "moveBefore requires the node and the new parent to share a root"
+      end
+
+      # Step 2 — a document is its own inclusive ancestor; nothing else can be
+      # an ancestor of one, so this reduces to "not the document itself".
+      ensure_not_self_insertion!([node])
+
+      # Step 3.
+      if ref_bn && ref_bn.parent != @backend_doc
+        raise DOMException::NotFoundError, "The reference child is not a child of this document."
+      end
+
+      # Step 4.
+      unless node.is_a?(Dommy::Element) || node.is_a?(Dommy::CharacterDataNode)
+        raise DOMException::HierarchyRequestError, "this node type cannot be moved"
+      end
+
+      # Step 5.
+      if node.is_a?(Dommy::CharacterDataNode) && node.node_type == 3
+        raise DOMException::HierarchyRequestError, "A Text node cannot be a child of a document."
+      end
+
+      return unless node.is_a?(Dommy::Element)
+
+      # Step 6. The counts are of the CURRENT children, so a document that
+      # already has a document element cannot take another element — not even
+      # by moving that same element to a different slot.
+      existing = @backend_doc.children.to_a
+      return unless existing.any? { |c| c.node_type == 1 } ||
+                    (ref_bn && ref_bn.node_type == 10) ||
+                    doctype_after_child?(existing, ref_bn)
+
+      raise DOMException::HierarchyRequestError, "An element cannot be moved here."
+    end
+
     # ParentNode / Node mutation on the document's direct children (the doctype
     # and the document element).
     def document_insert(args, prepend:)
@@ -1961,7 +2049,7 @@ module Dommy
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
       removeEventListener dispatchEvent write writeln open close isEqualNode isSameNode appendChild
       hasChildNodes contains append prepend replaceChildren removeChild insertBefore replaceChild
-      cloneNode normalize compareDocumentPosition getRootNode
+      cloneNode normalize compareDocumentPosition getRootNode moveBefore
       lookupNamespaceURI lookupPrefix isDefaultNamespace
     ]
     def __js_call__(method, args)
@@ -2007,6 +2095,11 @@ module Dommy
         document_insert_before(args[0], args[1])
       when "replaceChild"
         document_replace_child(args[0], args[1])
+      when "moveBefore"
+        raise Bridge::TypeError, "moveBefore requires 2 arguments." if args.length < 2
+
+        move_before(args[0], args[1])
+        Bridge::UNDEFINED
       when "cloneNode"
         clone_node(args[0])
       when "normalize"
@@ -2311,11 +2404,13 @@ module Dommy
     # document element, a stray comment). Document-level mutation is observable
     # like any other — `observe(document, {childList: true})` is legal — so it
     # goes through the same pipeline rather than only nudging live ranges.
-    def notify_document_child_list(added: [], removed: [])
+    def notify_document_child_list(added: [], removed: [], previous_sibling: nil, next_sibling: nil)
       notify_child_list_mutation(
         target_node: @backend_doc,
         added_nodes: added,
-        removed_nodes: removed
+        removed_nodes: removed,
+        previous_sibling: previous_sibling,
+        next_sibling: next_sibling
       )
     end
 

@@ -266,7 +266,7 @@ module Dommy
 
     include Bridge::Methods
     js_methods %w[
-      querySelector querySelectorAll getElementById append prepend replaceChildren appendChild
+      querySelector querySelectorAll getElementById append prepend replaceChildren moveBefore appendChild
       insertBefore removeChild replaceChild
       getRootNode contains addEventListener removeEventListener dispatchEvent
       isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition
@@ -293,6 +293,11 @@ module Dommy
         append(*args)
       when "prepend"
         prepend(*args)
+      when "moveBefore"
+        raise Bridge::TypeError, "moveBefore requires 2 arguments." if args.length < 2
+
+        move_before(args[0], args[1])
+        Bridge::UNDEFINED
       when "replaceChildren"
         replace_children(*args)
       when "appendChild"

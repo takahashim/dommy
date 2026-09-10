@@ -109,6 +109,53 @@ module Dommy
         nil
       end
 
+      # WHATWG ParentNode.moveBefore(node, child) — §4.2.6, and the "move"
+      # primitive underneath it.
+      #
+      # A move is NOT remove + insert. It runs neither the removing steps nor
+      # the insertion steps (so no disconnected/connected callbacks fire), it
+      # never adopts — step 1 requires the same shadow-including root, so the
+      # node document cannot change — and it carries its own validity checks
+      # instead of "ensure pre-insertion validity". What it does share is the
+      # live range pre-remove steps, the NodeIterator pre-remove steps and the
+      # insert offset shift, so a live range or NodeIterator follows the node.
+      #
+      # Spec: https://dom.spec.whatwg.org/#dom-parentnode-movebefore
+      def move_before(node, child = nil)
+        coerce_node_argument!(node)
+        bn = insertion_backend_node(node)
+        ref_bn = insertion_backend_node(child)
+        # moveBefore step 2: a reference child that IS the node moves out of the
+        # way, so the reference becomes the node's next sibling.
+        ref_bn = ref_bn.next_sibling if ref_bn && bn && ref_bn == bn
+        move_node_before(node, bn, ref_bn)
+        nil
+      end
+
+      # The "move" primitive, steps 1-24, for an element-like new parent.
+      def move_node_before(node, bn, ref_bn)
+        ensure_move_validity!(node, bn, ref_bn)
+
+        old_parent = bn.parent
+        old_previous = bn.previous_sibling
+        old_next = bn.next_sibling
+        # Steps 10-11 and 14. detach_node runs the live range and NodeIterator
+        # pre-remove steps and then unlinks, without queuing a record — the move
+        # queues its own pair at the end (steps 23-24).
+        @document.detach_node(bn)
+
+        ref_bn = nil if ref_bn && ref_bn.parent != @__node__
+        # Step 16 — measured after the removal, which step 14 has already done.
+        @document.__internal_ranges_will_insert__(@__node__, ref_bn, 1)
+        new_previous = ref_bn ? ref_bn.previous_sibling : @__node__.children.last
+        # Step 18.
+        ref_bn ? ref_bn.add_previous_sibling(bn) : @__node__.add_child(bn)
+
+        # Steps 23-24: one record for the old parent, one for the new.
+        notify_move_records(bn, old_parent, old_previous, old_next, new_previous, ref_bn)
+        node
+      end
+
       # Node#normalize — merge each run of adjacent exclusive Text descendants
       # into its first node (preserving that node's identity, so a JS reference
       # to it survives) and drop empty Text nodes. Recurses the whole subtree,
@@ -231,6 +278,63 @@ module Dommy
         insert_child_nodes(nodes, anchor, @__node__)
         notify_child_list(added: nodes, removed: removed)
         nil
+      end
+
+      # "Move" steps 1-6. Steps 5 and 6 only bind for a document new parent, so
+      # they live in Document's own implementation.
+      def ensure_move_validity!(node, bn, ref_bn)
+        # Step 1 — the same shadow-including root, which is what makes a move a
+        # move: the node document cannot change, so nothing is adopted.
+        # `==` and not `equal?`: a backend may hand back a fresh Ruby object for
+        # the same underlying node on every `parent` call.
+        unless bn && shadow_including_root_of(bn) == shadow_including_root_of(@__node__)
+          raise DOMException::HierarchyRequestError,
+                "moveBefore requires the node and the new parent to share a root"
+        end
+
+        # Step 2 — no cycles.
+        check_insertion!(node)
+
+        # Step 3 — a non-null reference child must be a child of the new parent.
+        if ref_bn && ref_bn.parent != @__node__
+          raise DOMException::NotFoundError, "The reference child is not a child of this node."
+        end
+
+        # Step 4 — only an Element or a CharacterData node may be moved.
+        return if node.is_a?(Dommy::Element) || node.is_a?(Dommy::CharacterDataNode)
+
+        raise DOMException::HierarchyRequestError, "this node type cannot be moved"
+      end
+
+      # WHATWG "shadow-including root": the root, and if that is a shadow root,
+      # the shadow-including root of its host.
+      def shadow_including_root_of(backend_node)
+        root = backend_node
+        loop do
+          root = root.parent while root.respond_to?(:parent) && root.parent
+          shadow = @document.__internal_shadow_root_for_fragment__(root)
+          host = shadow && shadow.host
+          break unless host.respond_to?(:__dommy_backend_node__)
+
+          root = host.__dommy_backend_node__
+        end
+        root
+      end
+
+      # "Move" steps 23-24: a removal record on the old parent and an addition
+      # record on the new one, in that order.
+      def notify_move_records(bn, old_parent, old_previous, old_next, new_previous, ref_bn)
+        wrap = ->(n) { n && @document.wrap_node(n) }
+        if old_parent
+          @document.notify_child_list_mutation(
+            target_node: old_parent, added_nodes: [], removed_nodes: [bn],
+            previous_sibling: wrap.call(old_previous), next_sibling: wrap.call(old_next)
+          )
+        end
+        @document.notify_child_list_mutation(
+          target_node: @__node__, added_nodes: [bn], removed_nodes: [],
+          previous_sibling: wrap.call(new_previous), next_sibling: wrap.call(ref_bn)
+        )
       end
 
       # WHATWG "ensure pre-insertion validity" step 2 — node must not be a

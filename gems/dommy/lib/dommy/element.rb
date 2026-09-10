@@ -135,7 +135,7 @@ module Dommy
 
     include Bridge::Methods
     js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild isEqualNode hasChildNodes
-      append prepend replaceChildren removeChild insertBefore replaceChild
+      append prepend replaceChildren moveBefore removeChild insertBefore replaceChild
       isSameNode getRootNode contains normalize compareDocumentPosition
       lookupNamespaceURI lookupPrefix isDefaultNamespace
       addEventListener removeEventListener dispatchEvent]
@@ -169,6 +169,11 @@ module Dommy
         prepend(*args)
       when "replaceChildren"
         replace_children(*args)
+      when "moveBefore"
+        raise Bridge::TypeError, "moveBefore requires 2 arguments." if args.length < 2
+
+        move_before(args[0], args[1])
+        Bridge::UNDEFINED
       when "removeChild"
         remove_child(args[0])
       when "insertBefore"
@@ -2940,7 +2945,7 @@ module Dommy
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches webkitMatchesSelector
       toString getAttributeNode setAttributeNode removeAttributeNode focus blur attachShadow
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
-      replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
+      replaceChild cloneNode append prepend replaceChildren moveBefore before after getInnerHTML getHTML
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
       hasChildNodes hasAttributes getRootNode normalize contains
@@ -3064,6 +3069,11 @@ module Dommy
         prepend(*args)
       when "replaceChildren"
         replace_children(*args)
+      when "moveBefore"
+        raise Bridge::TypeError, "moveBefore requires 2 arguments." if args.length < 2
+
+        move_before(args[0], args[1])
+        Bridge::UNDEFINED
       when "before"
         child_node_before(args)
       when "after"
