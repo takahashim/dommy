@@ -159,8 +159,8 @@ module Dommy
     # Invoke onFinally with no arguments, in raising mode so a throw rejects the
     # finally-chain (run_handler's rescue carries the thrown value through).
     def call_finally(on_finally)
-      if on_finally.respond_to?(:__js_call_with_raise__)
-        on_finally.__js_call_with_raise__([])
+      if on_finally.respond_to?(:__js_invoke__)
+        on_finally.__js_invoke__([], raising: true)
       else
         on_finally.call
       end
@@ -269,8 +269,8 @@ module Dommy
     # thrown value re-raises as a Bridge::ThrowValue (§2.2.7.2) instead of being
     # swallowed; a Ruby callable raises naturally.
     def invoke_handler(callback, value)
-      if callback.respond_to?(:__js_call_with_raise__)
-        callback.__js_call_with_raise__([value])
+      if callback.respond_to?(:__js_invoke__)
+        callback.__js_invoke__([value], raising: true)
       else
         CallableInvoker.invoke(callback, value)
       end

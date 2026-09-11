@@ -363,8 +363,8 @@ module Dommy
     end
 
     def invoke_observer_callback(records)
-      if @callback.respond_to?(:__js_call_with_this__)
-        @callback.__js_call_with_this__([records, self], self)
+      if @callback.respond_to?(:__js_invoke__)
+        @callback.__js_invoke__([records, self], this: self)
       elsif @callback.respond_to?(:__js_call__)
         @callback.__js_call__("call", [records, self])
       elsif @callback.respond_to?(:call)
