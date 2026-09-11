@@ -314,13 +314,18 @@ module Dommy
 
       # Fire MutationObserver attribute records
       def notify_attribute_mutation(target_node:, attribute_name:, old_value:, namespace: nil)
-        # A namespaced attribute keeps its local name as-is; a plain HTML
-        # attribute is lower-cased.
-        attr = namespace ? attribute_name.to_s : attribute_name.to_s.downcase
+        # The name arrives already resolved: `setAttribute` lower-cases it only
+        # when the element is in the HTML namespace AND its node document is an
+        # HTML document (its step 2), and the namespace setters pass the local
+        # name through. Lower-casing again here would rename an attribute on,
+        # say, an SVG element, which keeps `A` as `A`.
+        attr = attribute_name.to_s
         @document.__internal_note_attribute_mutation__(attr, target_node)
         target = @document.wrap_node(target_node)
         return nil unless target
-        new_value = target_node[attr]
+        # Namespace-exact: `target_node[attr]` indexes by local name and would
+        # answer for a prefixed attribute with the same one.
+        new_value = Backend.get_attribute_ns(target_node, namespace, attr)
 
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)

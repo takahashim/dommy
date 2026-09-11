@@ -54,6 +54,39 @@ class TestWPTAttributeQualifiedName < Minitest::Test
     assert_equal [[XML_NS, "xml", "b", "vv"], [nil, nil, "b", ""]], names_and_values
   end
 
+  # setAttribute lower-cases the name only for an element in the HTML namespace
+  # whose node document is an HTML document (its step 2). An SVG element keeps
+  # the case, and so does the mutation record's attributeName.
+  def test_case_is_kept_on_a_non_html_element
+    svg = @doc.create_element_ns("http://www.w3.org/2000/svg", "rect")
+    @doc.body.append_child(svg)
+    records = []
+    mo = Dommy::MutationObserver.new(@win, proc { |rs| records.concat(rs) })
+    mo.__js_call__("observe", [svg, { "attributes" => true }])
+
+    svg.set_attribute("A", "1")
+
+    assert_equal "1", svg.get_attribute("A")
+    assert_nil svg.get_attribute("a")
+    taken = mo.__js_call__("takeRecords", []).to_a
+    assert_equal 1, taken.size
+    assert_equal "A", taken.first.__js_get__("attributeName")
+  end
+
+  def test_case_is_folded_on_an_html_element
+    html = @doc.create_element("div")
+    @doc.body.append_child(html)
+    records = []
+    mo = Dommy::MutationObserver.new(@win, proc { |rs| records.concat(rs) })
+    mo.__js_call__("observe", [html, { "attributes" => true }])
+
+    html.set_attribute("A", "1")
+
+    assert_equal "1", html.get_attribute("a")
+    taken = mo.__js_call__("takeRecords", []).to_a
+    assert_equal "a", taken.first.__js_get__("attributeName")
+  end
+
   # An Attr reads its value through its own (namespace, local name), so the two
   # namesakes do not report each other's value.
   def test_each_namesake_attr_reports_its_own_value
