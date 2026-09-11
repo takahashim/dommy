@@ -372,7 +372,7 @@ module Dommy
       # reordering. Only the record order moves: the tree and every live range
       # boundary still follow the steps exactly as written.
       # https://github.com/takahashim/dommy/issues/23
-      @document.queue_child_list_record(target_node: parent, added_nodes: [new_bn], removed_nodes: []) if parent
+      @document.notify_child_list_mutation(target_node: parent, added_nodes: [new_bn], removed_nodes: []) if parent
       new_node
     end
 
@@ -1158,11 +1158,11 @@ module Dommy
     # CSSOM getPropertyPriority: "important" for a declaration flagged
     # `!important`, "" otherwise (including for an absent property).
     def get_property_priority(name)
-      declarations[name.to_s]&.last.to_s
+      declarations[property_key(name)]&.last.to_s
     end
 
     def get_property_value(name)
-      properties[name.to_s].to_s
+      properties[property_key(name)].to_s
     end
 
     def length
@@ -1176,7 +1176,7 @@ module Dommy
       if key.is_a?(Integer)
         properties.keys[key]
       else
-        properties[key.to_s]
+        properties[property_key(key)]
       end
     end
 
@@ -1260,7 +1260,7 @@ module Dommy
     # Public: `method_missing` treats every unknown name as a CSS property, so a
     # private CSSOM method would be silently swallowed rather than called.
     def set_property(name, value, priority = nil)
-      key = name.to_s
+      key = property_key(name)
       decls = declarations
       if value.nil? || value.to_s.empty?
         # Step 3 runs BEFORE the priority check, so an empty value removes the
@@ -1278,7 +1278,7 @@ module Dommy
 
         # An invalid value is dropped rather than stored, and dropping it is not
         # a change either.
-        return nil unless valid_declaration_value?(value.to_s.strip)
+        return nil unless Internal::CSS::Parser.valid_declaration_value?(value.to_s.strip)
 
         entry = [value.to_s, normalized]
         return nil if decls[key] == entry
@@ -1291,7 +1291,7 @@ module Dommy
     end
 
     def remove_property(name)
-      key = name.to_s
+      key = property_key(name)
       decls = declarations
       # Removing a property that was not set changes nothing, so the style
       # attribute is left as it is — no rewrite, and no mutation record.
@@ -1303,6 +1303,12 @@ module Dommy
     end
 
     private
+
+    # CSSOM normalizes every property name it is handed, the same way the
+    # declaration block's own names are normalized.
+    def property_key(name)
+      Internal::CSS::Parser.property_name(name)
+    end
 
     def method_to_css_name(name)
       s = name.to_s.sub(/=\z/, "")
@@ -1327,82 +1333,15 @@ module Dommy
       Internal::CssPriority.normalize(priority)
     end
 
-    # Parse a declaration block into an ordered { property => [value, priority] }
-    # hash, dropping declarations whose value is invalid (empty, or — like the
-    # second colon in "color:: invalid" — containing a bare colon outside
-    # parentheses).
+    # The block, as the CSSOM sees it: an ordered { property => [value,
+    # priority] } hash. The parsing itself — the name's case rule, the
+    # `!important` split, the value validation, and which of two declarations
+    # for one property survives — is Internal::CSS::Parser's, shared with the
+    # other declaration block the CSSOM exposes (a style rule's).
     def parse_declarations(str)
-      str.to_s.split(";").each_with_object({}) do |entry, out|
-        key, value = entry.split(":", 2)
-        next unless key && value
-
-        name = key.strip
-        val = value.strip
-        # Split the `!important` flag off the value before validating it, so the
-        # flag round-trips through cssText without leaking into the value.
-        priority = ""
-        if (stripped = val[/\A(.*?)!\s*important\s*\z/im, 1])
-          priority = "important"
-          val = stripped.strip
-        end
-        next if name.empty? || !valid_declaration_value?(val)
-        # Cascade order WITHIN one declaration block: an important declaration
-        # beats a normal one for the same property whatever their order, and
-        # only between declarations of equal importance does the later win. So a
-        # normal declaration never displaces an important one already recorded.
-        next if priority.empty? && out[name]&.last == "important"
-
-        out[name] = [val, priority]
+      Internal::CSS::Parser.parse_block(str).transform_values do |decl|
+        [decl.value, decl.important ? "important" : ""]
       end
-    end
-
-    def valid_declaration_value?(value)
-      return false if value.empty?
-
-      depth = 0
-      value.each_char do |c|
-        case c
-        when "(" then depth += 1
-        when ")" then depth -= 1 if depth.positive?
-        when ":" then return false if depth.zero?
-        end
-      end
-      valid_var_functions?(value)
-    end
-
-    # `var()` takes a custom property name and then, optionally, a comma and a
-    # fallback — `var(--x)`, `var(--x,)`, `var(--x, 1px)`. Anything else between
-    # the name and that comma, as in `var(--x ())`, is a syntax error, and a
-    # declaration whose value fails to parse is dropped rather than stored.
-    VAR_ARGUMENTS = /\A\s*--[^\s,()]*\s*(?:,|\z)/m
-
-    def valid_var_functions?(value)
-      index = 0
-      while (start = value.index(/var\(/i, index))
-        open = value.index("(", start)
-        close = matching_paren(value, open)
-        return false if close.nil?
-        return false unless value[(open + 1)...close].match?(VAR_ARGUMENTS)
-
-        # Continue inside the call, so a nested var() in the fallback is checked
-        # by the same rule.
-        index = open + 1
-      end
-      true
-    end
-
-    # The index of the ")" closing the "(" at `open`, or nil when unbalanced.
-    def matching_paren(value, open)
-      depth = 0
-      (open...value.length).each do |i|
-        case value[i]
-        when "(" then depth += 1
-        when ")"
-          depth -= 1
-          return i if depth.zero?
-        end
-      end
-      nil
     end
 
     def serialize_properties(decls)

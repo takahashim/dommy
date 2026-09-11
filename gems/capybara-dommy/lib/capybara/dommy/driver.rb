@@ -250,10 +250,10 @@ module Capybara
       # --- Native dialogs ---
       #
       # A native dialog is synchronous in Dommy, so installing the expected
-      # answer before the triggering block runs is sufficient. Contexts are a
-      # stack: Capybara expresses nested confirms as nested helper blocks, while
-      # the page opens them sequentially in one JS call stack. Consuming the
-      # inner context exposes the outer answer to the next confirm immediately.
+      # answer before the triggering block runs is sufficient. What is expected,
+      # what it answers and what it saw instead live in ModalExpectation; the
+      # stack they sit on, which is the session's dialog handler while a helper
+      # block is running, is ModalStack.
 
       def accept_modal(type, **options, &block)
         respond_to_modal(type, accept: true, **options, &block)
@@ -348,64 +348,23 @@ module Capybara
       end
 
       def respond_to_modal(type, accept:, text: nil, with: nil, **_options)
-        context = {type: type.to_sym, accept: accept, text: text, with: with}
-        modal_contexts << context
-        rack_session.dialog_handler = method(:handle_dialog)
+        expectation = ModalExpectation.new(type: type, accept: accept, text: text, with: with)
+        modals.push(expectation)
+        rack_session.dialog_handler = modals
         yield if block_given?
 
-        raise_modal_not_found!(context) unless context[:message]
+        raise Capybara::ModalNotFound, expectation.not_found_message unless expectation.answered?
 
-        context[:message]
+        expectation.message
       ensure
-        # By identity: two helper blocks with the same arguments build EQUAL
-        # context hashes, and Array#delete would drop the caller's alongside
-        # this one.
-        modal_contexts.delete_if { |c| c.equal?(context) } if context
-        rack_session.dialog_handler = nil if modal_contexts.empty? && @rack_session
-      end
-
-      def modal_contexts
-        @modal_contexts ||= []
-      end
-
-      def handle_dialog(type, message, default_value)
-        context = modal_contexts.last
-        return default_dialog_value(type) unless context
-
-        unless context[:type] == type && modal_text_matches?(context[:text], message)
-          context[:actual] = {type: type, message: message}
-          return default_dialog_value(type)
-        end
-
-        context[:message] = message
-        modal_contexts.pop
-        case type
-        when :confirm then context[:accept]
-        when :prompt then context[:accept] ? (context[:with] || default_value) : nil
+        if expectation
+          modals.delete(expectation)
+          rack_session.dialog_handler = nil if modals.empty? && @rack_session
         end
       end
 
-      def modal_text_matches?(expected, message)
-        return true if expected.nil?
-
-        pattern = expected.is_a?(Regexp) ? expected : Regexp.new(Regexp.escape(expected.to_s))
-        pattern.match?(message)
-      end
-
-      def default_dialog_value(type)
-        type == :confirm ? false : nil
-      end
-
-      def raise_modal_not_found!(context)
-        actual = context[:actual]
-        if actual
-          raise Capybara::ModalNotFound,
-                "Unable to find #{context[:type]} dialog with #{context[:text].inspect} - found " \
-                "#{actual[:type]} dialog with #{actual[:message].inspect} instead."
-        end
-
-        suffix = context[:text] ? " with #{context[:text].inspect}" : ""
-        raise Capybara::ModalNotFound, "Unable to find #{context[:type]} dialog#{suffix}"
+      def modals
+        @modals ||= ModalStack.new
       end
     end
   end

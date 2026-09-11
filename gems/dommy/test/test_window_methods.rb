@@ -40,6 +40,23 @@ class TestWindowMethods < Minitest::Test
     ], seen
   end
 
+  # A handler that does not want this dialog says so — it cannot answer with
+  # nil or false, both of which are answers — and the headless default stands.
+  def test_a_handler_that_declines_leaves_the_headless_default
+    @win.dialog_handler = ->(_type, _message, _default) { Dommy::Window::DIALOG_UNANSWERED }
+
+    assert_nil @win.__js_call__("alert", ["hi"])
+    assert_equal false, @win.__js_call__("confirm", ["ok?"])
+    assert_nil @win.__js_call__("prompt", ["name?", "Guest"])
+  end
+
+  def test_a_handler_may_answer_with_nil_or_false
+    @win.dialog_handler = ->(type, _message, _default) { type == :confirm ? false : nil }
+
+    assert_equal false, @win.__js_call__("confirm", ["ok?"])
+    assert_nil @win.__js_call__("prompt", ["name?", "Guest"])
+  end
+
   def test_get_selection_delegates_to_the_document
     selection = @win.__js_call__("getSelection", [])
     refute_nil selection

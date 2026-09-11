@@ -206,7 +206,7 @@ module Dommy
         if owner
           arrived = added_nodes.select { |node| option_list_member?(node) }
           if !arrived.empty? || removed_nodes.any? { |node| option_list_member?(node) }
-            @document.wrap_node(owner)&.__internal_options_changed__(arrived)
+            @document.wrap_node(owner)&.__internal_options_changed__(arrived_options(arrived))
           end
         end
 
@@ -237,6 +237,17 @@ module Dommy
 
       def option_list_member?(node)
         node.respond_to?(:element?) && node.element? && %w[option optgroup].include?(node.name)
+      end
+
+      # The options an insertion brought into a select's list, wrapped, in tree
+      # order: an arriving option is itself, an arriving optgroup contributes
+      # the options it carries. The backend query stays here, where the rest of
+      # the post-insertion scanning already lives, so the select is handed
+      # elements rather than nodes to go looking through.
+      def arrived_options(arrived)
+        arrived.flat_map { |node|
+          node.name == "option" ? [node] : node.css("option").to_a
+        }.filter_map { |node| @document.wrap_node(node) }
       end
 
       # Fire MutationObserver childList records
@@ -326,6 +337,15 @@ module Dommy
         # Namespace-exact: `target_node[attr]` indexes by local name and would
         # answer for a prefixed attribute with the same one.
         new_value = Backend.get_attribute_ns(target_node, namespace, attr)
+
+        # HTML "attribute change steps": an element that reacts to one of its own
+        # attributes (a details to `open`, an option to `selected`, a select to
+        # `multiple` / `size`) does it here — on EVERY write path, since they all
+        # end up announcing the mutation, where overriding `setAttribute` and
+        # `removeAttribute` in each class missed `setAttributeNS` and its
+        # removal counterpart.
+        target.__internal_attribute_changed__(attr, old_value, new_value, namespace) if
+          target.respond_to?(:__internal_attribute_changed__)
 
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
