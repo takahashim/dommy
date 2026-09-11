@@ -2359,18 +2359,13 @@ module Dommy
       owner.is_a?(HTMLSelectElement) ? owner : nil
     end
 
-    # Keep the `selected` content attribute and selectedness in sync (while not
-    # dirty) by hooking the attribute mutators, the way <details> tracks `open`.
-    def set_attribute(name, value)
-      result = super
-      sync_selectedness_from_attribute if name.to_s.casecmp?("selected")
-      result
-    end
+    # HTML's attribute change steps for an option: while not dirty, selectedness
+    # follows the `selected` content attribute.
+    def __internal_attribute_changed__(name, _old_value, _new_value, namespace)
+      return nil unless namespace.nil? && name.casecmp?("selected")
 
-    def remove_attribute(name)
-      result = super
-      sync_selectedness_from_attribute if name.to_s.casecmp?("selected")
-      result
+      sync_selectedness_from_attribute
+      nil
     end
 
     # The `selected` content attribute came or went: while not dirty,
@@ -3151,18 +3146,16 @@ module Dommy
       n.positive? ? n : (multiple ? 4 : 1)
     end
 
-    # Losing `multiple`, or a change of `size`, changes which selectedness
-    # rules apply to the list: settle it again.
-    def set_attribute(name, value)
-      result = super
-      __internal_settle_selectedness__ if %w[multiple size].include?(name.to_s.downcase)
-      result
-    end
+    # Attributes that decide which selectedness rules the list lives under.
+    SELECTEDNESS_ATTRIBUTES = %w[multiple size].freeze
 
-    def remove_attribute(name)
-      result = super
-      __internal_settle_selectedness__ if %w[multiple size].include?(name.to_s.downcase)
-      result
+    # HTML's attribute change steps for a select: losing `multiple`, or a change
+    # of `size`, changes which rules apply to the list, so settle it again.
+    def __internal_attribute_changed__(name, _old_value, _new_value, namespace)
+      return nil unless namespace.nil? && SELECTEDNESS_ATTRIBUTES.any? { |a| name.casecmp?(a) }
+
+      __internal_settle_selectedness__
+      nil
     end
 
     # `options` — all <option> descendants (including those inside
@@ -3574,17 +3567,21 @@ module Dommy
       set_reflected_boolean("open", v)
     end
 
-    def set_attribute(name, value)
-      result = with_toggle_on_open_change { super }
-      # Renaming moves this element into a different exclusive group. The member
-      # already open in that group keeps its state, so it is this element that
-      # closes — the same rule as arriving there by insertion.
-      yield_to_open_group_peer if name.to_s.casecmp?("name")
-      result
-    end
+    # HTML's attribute change steps for a details element.
+    def __internal_attribute_changed__(name, old_value, new_value, namespace)
+      return nil unless namespace.nil?
 
-    def remove_attribute(name)
-      with_toggle_on_open_change { super }
+      if name.casecmp?("open")
+        # A boolean attribute: its PRESENCE is the state, so a change of value
+        # (`open=""` to `open="x"`) is not a toggle.
+        announce_open_change(!old_value.nil?, !new_value.nil?)
+      elsif name.casecmp?("name")
+        # Renaming moves this element into a different exclusive group. The
+        # member already open in that group keeps its state, so it is this
+        # element that closes — the same rule as arriving there by insertion.
+        yield_to_open_group_peer
+      end
+      nil
     end
 
     # Run the insertion steps over details elements that arrived together — a
@@ -3628,17 +3625,15 @@ module Dommy
 
     private
 
-    def with_toggle_on_open_change
-      was = open
-      result = yield
-      if open != was
-        # This element's own toggle is queued first; only then do the other open
-        # members of its exclusive group (same `name`, same tree scope) close and
-        # queue theirs, so the group's events arrive in the order it settled.
-        queue_toggle_event(was, open)
-        close_open_group_peers if open
-      end
-      result
+    def announce_open_change(was, now)
+      return nil if was == now
+
+      # This element's own toggle is queued first; only then do the other open
+      # members of its exclusive group (same `name`, same tree scope) close and
+      # queue theirs, so the group's events arrive in the order it settled.
+      queue_toggle_event(was, now)
+      close_open_group_peers if now
+      nil
     end
 
     # WHATWG details name-group exclusivity: at most one details per (name, tree
