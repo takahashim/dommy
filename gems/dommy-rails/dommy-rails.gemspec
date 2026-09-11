@@ -14,5 +14,5 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb", "README.md"]
   spec.require_paths = ["lib"]
 
-  spec.add_dependency "dommy", "~> 0.10.0"
+  spec.add_dependency "dommy", "~> 0.11.0"
 end
