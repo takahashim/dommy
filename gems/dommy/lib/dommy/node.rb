@@ -319,6 +319,22 @@ module Dommy
       equal?(other)
     end
 
+    # Re-bind this wrapper onto `backend_node`, now owned by `document` — the
+    # last step of a cross-document adopt. A backend that cannot move a node
+    # between its documents (Makiri: they are separate arenas) hands back an
+    # imported copy instead, and the WRAPPER has to survive the move, because
+    # `destination.adoptNode(x)` must still be `x` to the page script holding it.
+    #
+    # It lives on the node rather than in the adopter because only the node
+    # class knows everything bound to the node it wraps: a DocumentType also
+    # remembers the document it was created with, and nothing outside it should
+    # have to know that.
+    def __internal_reseat__(backend_node, document)
+      @__node__ = backend_node
+      @document = document
+      nil
+    end
+
     # Node.compareDocumentPosition(other) — a bitmask describing where `other`
     # sits relative to this node: 0 for the same node, CONTAINS/CONTAINED_BY for
     # ancestor/descendant, PRECEDING/FOLLOWING for tree order, or DISCONNECTED

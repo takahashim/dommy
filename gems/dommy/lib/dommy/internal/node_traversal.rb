@@ -22,6 +22,16 @@ module Dommy
         false
       end
 
+      # The backend nodes of `root`'s subtree, `root` first, in document order.
+      # Two such lists taken from an original and its copy line up index by
+      # index, which is how the adopt and the cloning steps pair a node with the
+      # copy that stands in for it.
+      def self.subtree_nodes(root)
+        nodes = [root]
+        root.children.each { |child| nodes.concat(subtree_nodes(child)) } if root.respond_to?(:children)
+        nodes
+      end
+
       # Find the first ancestor matching a predicate.
       # Returns the result of the block, not the node itself.
       def self.find_ancestor(node)

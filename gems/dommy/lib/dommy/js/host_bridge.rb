@@ -524,24 +524,21 @@ module Dommy
         @bridge.invoke_callback(@id, args)
       end
 
-      # Invoke with an explicit `this` receiver — e.g. a MutationObserver
-      # callback whose `this` must be the observer, or an event listener whose
-      # `this` is the currentTarget.
-      def __js_call_with_this__(args, this_arg)
-        @bridge.invoke_callback(@id, args, this_arg)
-      end
-
-      # Invoke and re-raise a thrown value instead of swallowing it — for a
-      # NodeFilter, whose exception must propagate out of the traversal method.
-      def __js_call_with_raise__(args)
-        @bridge.invoke_callback(@id, args, raising: true)
-      end
-
-      # Invoke with an explicit `this` AND re-raise a thrown value — for an event
-      # listener, whose exception the dispatch catches and reports as a window
-      # `error` event rather than swallowing. `this` is the currentTarget.
-      def __js_call_with_this_raise__(args, this_arg)
-        @bridge.invoke_callback(@id, args, this_arg, raising: true)
+      # The full invocation, with both of the choices a caller has:
+      #
+      #   this:    the receiver the JS function sees as `this` — a
+      #            MutationObserver callback's is the observer, an event
+      #            listener's is the currentTarget. nil leaves it to the engine.
+      #   raising: re-raise a thrown value (as a ThrowValue, identity intact)
+      #            instead of swallowing it — a NodeFilter's exception has to
+      #            propagate out of the traversal method, and an event
+      #            listener's is caught by the dispatch and reported as a
+      #            window `error` event.
+      #
+      # One method rather than a name per combination: the two choices are
+      # independent, and a third would otherwise double the names again.
+      def __js_invoke__(args, this: nil, raising: false)
+        @bridge.invoke_callback(@id, args, this, raising: raising)
       end
     end
 
@@ -580,8 +577,11 @@ module Dommy
         @bridge.invoke_js_ref_accept_node(@ref, args[0])
       end
 
-      def __js_call_with_raise__(args)
-        @bridge.invoke_js_ref_accept_node(@ref, args[0], raising: true)
+      # `this` is fixed on the JS side (acceptNode is called on the filter
+      # object itself), so only `raising:` is meaningful here.
+      def __js_invoke__(args, this: nil, raising: false)
+        _ = this
+        @bridge.invoke_js_ref_accept_node(@ref, args[0], raising: raising)
       end
     end
   end

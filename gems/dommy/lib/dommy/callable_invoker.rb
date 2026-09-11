@@ -35,12 +35,11 @@ module Dommy
         listener.handle_event(event)
       elsif listener.respond_to?(:call) && !listener.is_a?(Module)
         listener.call(*args)
-      elsif listener.respond_to?(:__js_call_with_this_raise__)
-        # A JS function listener: surface a thrown value (as a ThrowValue) so the
-        # dispatch reports it as a window `error` event instead of swallowing it.
-        listener.__js_call_with_this_raise__(args, current_target)
-      elsif listener.respond_to?(:__js_call_with_this__)
-        listener.__js_call_with_this__(args, current_target)
+      elsif listener.respond_to?(:__js_invoke__)
+        # A JS function listener: `this` is the currentTarget, and a thrown value
+        # surfaces (as a ThrowValue) so the dispatch reports it as a window
+        # `error` event instead of swallowing it.
+        listener.__js_invoke__(args, this: current_target, raising: true)
       elsif listener.respond_to?(:__js_call__)
         listener.__js_call__("call", args)
       end

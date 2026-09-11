@@ -7,6 +7,7 @@ require_relative "internal/mutation_coordinator"
 require_relative "internal/shadow_root_registry"
 require_relative "internal/cookie_jar"
 require_relative "internal/node_traversal"
+require_relative "internal/node_adopter"
 require_relative "internal/observer_manager"
 require_relative "internal/template_content_registry"
 
@@ -63,6 +64,14 @@ module Dommy
     # the node must be adopted (re-created) into the destination backend.
     def document
       @document || @owner_document
+    end
+
+    # A doctype answers `document` from either of two ivars (a synthetic one has
+    # only `@owner_document`), so an adopt has to move both.
+    def __internal_reseat__(backend_node, document)
+      super
+      @owner_document = document
+      nil
     end
 
     def name
@@ -1012,156 +1021,27 @@ module Dommy
       @template_content_registry
     end
 
-    # Move a node from another document into this one. The source
-    # node is detached from its previous owner and its ownerDocument
-    # becomes this. Returns the (possibly re-wrapped) node.
+    # Move a node from another document into this one. The source node is
+    # detached from its previous owner and its ownerDocument becomes this.
+    # Returns the (possibly re-bound) node.
+    #
+    # What "moving" costs depends on the backend — an import plus a walk to
+    # carry the live wrappers and template contents over, where a browser swaps
+    # a pointer — so the whole of it lives in Internal::NodeAdopter.
     def adopt_node(node)
-      # WHATWG adopt: a Document can't be adopted into another document.
-      if node.is_a?(Dommy::Document)
-        raise DOMException::NotSupportedError, "A Document node cannot be adopted."
-      end
-      return nil unless node.respond_to?(:__dommy_backend_node__)
-
-      src = node.__dommy_backend_node__
-      # WHATWG adopt removes the node from its parent first — a full remove, so
-      # the old parent gets its removing steps AND its childList record.
-      remove_node_with_notify(src) if src.parent
-
-      # Same document: just return the wrapper after the detach above.
-      return wrap_node(src) if src.document == @backend_doc
-
-      # Cross-document DocumentType: Makiri can't import a doctype node between
-      # arenas, so re-create it in this document's backend from its public
-      # name / publicId / systemId (as createDocument does), then reseat the
-      # caller's wrapper onto the new node so JS identity survives the move.
-      if node.is_a?(DocumentType)
-        adopted = begin
-          Backend.create_document_type(node.name, node.public_id, node.system_id, @backend_doc)
-        rescue StandardError
-          nil
-        end
-        return node unless adopted
-
-        src_doc_wrapper = node.instance_variable_get(:@document)
-        src_doc_wrapper.__internal_reset_wrapper__(src) if src_doc_wrapper.respond_to?(:__internal_reset_wrapper__)
-        node.instance_variable_set(:@document, self)
-        node.instance_variable_set(:@owner_document, self)
-        node.instance_variable_set(:@__node__, adopted)
-        @node_wrapper_cache.register(adopted, node)
-        return node
-      end
-
-      # Cross-document: hand the detached source to the backend, which
-      # returns the node now owned by this document — an imported copy for
-      # Makiri (a node can't move between arenas). Drop the stale source
-      # wrapper, then reseat the caller's Dommy wrapper onto the adopted
-      # node so `adopt_node(x).equal?(x)` stays true across documents.
-      src_doc_wrapper = node.instance_variable_get(:@document)
-      adopted = Backend.adopt(src, @backend_doc)
-
-      if src_doc_wrapper.respond_to?(:__internal_reset_wrapper__)
-        src_doc_wrapper.__internal_reset_wrapper__(src)
-      end
-      node.instance_variable_set(:@document, self)
-      node.instance_variable_set(:@__node__, adopted)
-      @node_wrapper_cache.register(adopted, node)
-
-      # A deep adopt imports a fresh copy of the whole subtree, so any live
-      # descendant wrapper (held by page script, e.g. an aria element reference)
-      # must be reseated onto its corresponding copy — otherwise it stays bound to
-      # the old document. Import preserves document order, so walk both subtrees in
-      # lockstep.
-      reseat_descendant_wrappers(src, adopted, src_doc_wrapper)
-      __internal_adopt_template_contents__(src, adopted, src_doc_wrapper)
-      node
+      node_adopter.adopt(node)
     end
 
-    # Move each live wrapper for a descendant of `src_root` onto the matching node
-    # in `dst_root` (the imported copy), pruning it from the source document.
-    # `include_root` also reseats the root pair — adopt_node reseats its own root
-    # wrapper by hand, but a template's content fragment has no such caller.
-    def reseat_descendant_wrappers(src_root, dst_root, src_doc, include_root: false)
-      return unless src_doc.respond_to?(:__internal_peek_wrapper__)
-
-      src_nodes = collect_subtree_nodes(src_root)
-      dst_nodes = collect_subtree_nodes(dst_root)
-      return unless src_nodes.length == dst_nodes.length
-
-      src_nodes.zip(dst_nodes).each do |orig, copy|
-        next if orig.equal?(src_root) && !include_root
-
-        reseat_wrapper(orig, copy, src_doc)
-      end
-    end
-
-    def reseat_wrapper(orig, copy, src_doc)
-      return if orig.equal?(copy)
-
-      wrapper = src_doc.__internal_peek_wrapper__(orig)
-      return unless wrapper
-
-      src_doc.__internal_reset_wrapper__(orig)
-      wrapper.instance_variable_set(:@document, self)
-      wrapper.instance_variable_set(:@__node__, copy)
-      @node_wrapper_cache.register(copy, wrapper)
-    end
-
-    # WHATWG adopt for a raw backend node that has no wrapper of its own to
-    # reseat through #adopt_node — a DocumentFragment's children on a
-    # cross-document insert. Beyond the backend move it does what #adopt_node
-    # does for the node it is handed: reseat any live wrapper onto the adopted
-    # node, and carry a `<template>`'s contents across.
+    # Adopt a raw backend node with no wrapper of its own: a DocumentFragment's
+    # children, on a cross-document insert.
     def __internal_adopt_backend_node__(node, source_document)
-      return node if node.document == @backend_doc
-
-      adopted = Backend.adopt(node, @backend_doc)
-      if source_document && !source_document.equal?(self)
-        reseat_wrapper(node, adopted, source_document)
-        reseat_descendant_wrappers(node, adopted, source_document)
-        __internal_adopt_template_contents__(node, adopted, source_document)
-      end
-      adopted
+      node_adopter.adopt_backend_node(node, source_document)
     end
 
-    # HTML: adopting a `<template>` adopts its template contents DocumentFragment
-    # along with it — the SAME fragment object, so `template.content` keeps both
-    # its identity and its children across the move. The contents are not in the
-    # template's child list, so neither the backend's adopt nor the descendant
-    # reseat above ever reaches them; without this the adopted template comes out
-    # empty. Recurses, since a template's contents can hold further templates.
-    # Spec: https://html.spec.whatwg.org/#the-template-element (adopting steps)
-    def __internal_adopt_template_contents__(src_root, dst_root, src_doc)
-      return if src_doc.nil? || src_doc.equal?(self)
-      return unless src_doc.respond_to?(:__internal_template_registry__)
-
-      src_registry = src_doc.__internal_template_registry__
-      src_nodes = collect_subtree_nodes(src_root)
-      dst_nodes = collect_subtree_nodes(dst_root)
-      return unless src_nodes.length == dst_nodes.length
-
-      src_nodes.zip(dst_nodes).each do |orig, copy|
-        src_frag = src_registry.raw_fragment_for(orig)
-        next unless src_frag
-
-        adopt_one_template_content(src_frag, copy, src_doc)
-      end
+    def node_adopter
+      @node_adopter ||= Internal::NodeAdopter.new(self)
     end
-
-    def adopt_one_template_content(src_frag, template_copy, src_doc)
-      frag = Parser.fragment("", owner_doc: @backend_doc)
-      # Snapshot before moving: the backend either relocates each node in place
-      # (Nokogiri) or hands back an imported copy (Makiri, which cannot move a
-      # node between arenas), and the pairs drive the wrapper reseat either way.
-      src_frag.children.to_a.each do |child|
-        moved = Backend.adopt(child, @backend_doc)
-        __internal_adopt_template_contents__(child, moved, src_doc)
-        reseat_wrapper(child, moved, src_doc)
-        reseat_descendant_wrappers(child, moved, src_doc)
-        frag.add_child(moved)
-      end
-      @template_content_registry.store(template_copy, frag)
-      reseat_wrapper(src_frag, frag, src_doc)
-    end
+    private :node_adopter
 
     # HTML "cloning steps": a cloned node copies interface-specific live state
     # that the content attributes don't capture — an input's dirty value and
@@ -1171,8 +1051,8 @@ module Dommy
     # lockstep and copy each live wrapper's cloning state onto its copy. `deep`
     # false processes only the root (a shallow clone has no children).
     def __internal_apply_cloning_steps__(src_root_bn, clone_root_bn, deep)
-      src_nodes = deep ? collect_subtree_nodes(src_root_bn) : [src_root_bn]
-      clone_nodes = deep ? collect_subtree_nodes(clone_root_bn) : [clone_root_bn]
+      src_nodes = deep ? Internal::NodeTraversal.subtree_nodes(src_root_bn) : [src_root_bn]
+      clone_nodes = deep ? Internal::NodeTraversal.subtree_nodes(clone_root_bn) : [clone_root_bn]
       return unless src_nodes.length == clone_nodes.length
 
       src_nodes.zip(clone_nodes).each do |orig, copy|
@@ -1190,14 +1070,6 @@ module Dommy
 
         @node_wrapper_cache.wrap(copy).__apply_cloning_state__(state)
       end
-    end
-
-    # A subtree's nodes in document (depth-first) order — the order Backend.adopt
-    # preserves — so a source node and its imported copy line up by index.
-    def collect_subtree_nodes(root)
-      nodes = [root]
-      root.children.each { |child| nodes.concat(collect_subtree_nodes(child)) } if root.respond_to?(:children)
-      nodes
     end
 
     # Legacy `document.createEvent("EventName")` factory. Returns an
@@ -1292,7 +1164,7 @@ module Dommy
     def node_iterator_document(root)
       return root if root.is_a?(Dommy::Document)
 
-      doc = root.instance_variable_get(:@document)
+      doc = root.document if root.respond_to?(:document)
       doc.is_a?(Dommy::Document) ? doc : self
     end
 
