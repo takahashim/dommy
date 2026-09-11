@@ -2270,7 +2270,6 @@ module Dommy
         next_sibling: next_sibling
       )
     end
-    alias queue_child_list_record notify_child_list_mutation
 
     # WHATWG "removing steps", run while `node` is STILL attached (they are all
     # expressed in terms of the position it is about to vacate). Every path that

@@ -372,7 +372,7 @@ module Dommy
       # reordering. Only the record order moves: the tree and every live range
       # boundary still follow the steps exactly as written.
       # https://github.com/takahashim/dommy/issues/23
-      @document.queue_child_list_record(target_node: parent, added_nodes: [new_bn], removed_nodes: []) if parent
+      @document.notify_child_list_mutation(target_node: parent, added_nodes: [new_bn], removed_nodes: []) if parent
       new_node
     end
 
