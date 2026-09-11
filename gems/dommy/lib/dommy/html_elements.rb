@@ -2396,6 +2396,16 @@ module Dommy
       self.text_content = v
     end
 
+    # HTML's "disabled" concept for an option: the attribute on the option
+    # itself, or on the optgroup it sits in. Asked by the owning select when it
+    # looks for the first option it may select.
+    def __internal_disabled_for_selection__
+      return true if disabled
+
+      parent = parent_element
+      parent.is_a?(HTMLOptGroupElement) && parent.disabled
+    end
+
     private
 
     # Selectedness is property state (no attribute mutation announces it), yet
@@ -3282,7 +3292,7 @@ module Dommy
       opts = options.to_a
       chosen = opts.select { |o| o.respond_to?(:selected) && o.selected }
       if chosen.empty?
-        first = opts.find { |o| o.respond_to?(:selected) && !option_disabled?(o) } if display_size == 1
+        first = opts.find { |o| selectable?(o) } if display_size == 1
         first&.__internal_write_selectedness__(true)
       elsif chosen.length > 1
         chosen[0...-1].each { |o| o.__internal_write_selectedness__(false) }
@@ -3306,6 +3316,14 @@ module Dommy
       target&.__internal_write_selectedness__(true, dirty: true)
       nil
     end
+
+    # An option this select may settle on: one that is not disabled, itself or
+    # through its optgroup. The option answers that; the select only asks.
+    def selectable?(option)
+      option.respond_to?(:__internal_disabled_for_selection__) &&
+        !option.__internal_disabled_for_selection__
+    end
+    private :selectable?
 
     # `select.item(i)` — returns the option at index i.
     def item(i)
@@ -3456,16 +3474,6 @@ module Dommy
       end
     end
 
-    private
-
-    # An option is disabled for selection when it carries `disabled` itself or
-    # sits in a disabled optgroup (HTML "disabled" concept for option).
-    def option_disabled?(option)
-      return true if option.respond_to?(:disabled) && option.disabled
-
-      parent = option.parent_element
-      parent.is_a?(HTMLOptGroupElement) && parent.disabled
-    end
   end
 
   # `<dialog>` — `open` reflected boolean, `show()` / `showModal()` /
