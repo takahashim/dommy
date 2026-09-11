@@ -296,16 +296,17 @@ module Dommy
         )
         # Only observers whose matching registration requested childList get the
         # record (an `attributes`/`characterData`-only observer must not — e.g.
-        # `observe(t, {childList: false, attributes: true})`). A subtree
-        # registration that matched ALSO gains a transient registered observer
-        # for each removed node, so mutations within the just-removed subtree
-        # (before the next microtask checkpoint) are still observed.
+        # `observe(t, {childList: false, attributes: true})`).
+        #
+        # The transient registered observers of remove step 20 are added by the
+        # removal primitive (`Document#detach_node`), not here: that step is not
+        # guarded by suppressObservers, so it must also run for the removals
+        # that queue no record.
         @observer_manager.observers_matching(target).each do |observer|
           entry = observer.find_matching_entry(target)
           next unless entry
 
           observer.enqueue(record) if entry[:child_list]
-          wrapped_removed.each { |removed| observer.add_transient(removed, entry) } if entry[:subtree]
         end
 
         nil

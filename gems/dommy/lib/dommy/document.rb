@@ -2438,8 +2438,34 @@ module Dommy
     # `remove_node_with_notify` is this plus a per-node record.
     def detach_node(node)
       pre_remove_node(node)
+      add_transient_observers_for(node)
       node.unlink
       node
+    end
+
+    # WHATWG remove step 20: every subtree registration reachable from the old
+    # parent's inclusive ancestors gains a transient registered observer on the
+    # node being removed, so a subtree observer keeps seeing mutations inside
+    # the just-removed subtree until the next microtask checkpoint.
+    #
+    # The step is NOT guarded by suppressObservers (only step 21's record is),
+    # so it has to run here, in the removal primitive, rather than alongside the
+    # record. Replace all step 3, insert step 4 and replace step 7 all remove
+    # with observers suppressed.
+    def add_transient_observers_for(node)
+      return unless @observer_manager.any?
+
+      parent = node.parent
+      return unless parent
+
+      target = wrap_node(parent)
+      removed = wrap_node(node)
+      return unless target && removed
+
+      @observer_manager.observers_matching(target).each do |observer|
+        entry = observer.find_matching_entry(target)
+        observer.add_transient(removed, entry) if entry && entry[:subtree]
+      end
     end
 
     # Unlink a backend node from its parent and queue a childList removal record
