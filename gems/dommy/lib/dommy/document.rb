@@ -65,6 +65,14 @@ module Dommy
       @document || @owner_document
     end
 
+    # A doctype answers `document` from either of two ivars (a synthetic one has
+    # only `@owner_document`), so an adopt has to move both.
+    def __internal_reseat__(backend_node, document)
+      super
+      @owner_document = document
+      nil
+    end
+
     def name
       @__node__ ? @__node__.name : @name
     end
@@ -1042,12 +1050,7 @@ module Dommy
         end
         return node unless adopted
 
-        src_doc_wrapper = node.instance_variable_get(:@document)
-        src_doc_wrapper.__internal_reset_wrapper__(src) if src_doc_wrapper.respond_to?(:__internal_reset_wrapper__)
-        node.instance_variable_set(:@document, self)
-        node.instance_variable_set(:@owner_document, self)
-        node.instance_variable_set(:@__node__, adopted)
-        @node_wrapper_cache.register(adopted, node)
+        reseat_known_wrapper(node, src, adopted, node.document)
         return node
       end
 
@@ -1056,15 +1059,10 @@ module Dommy
       # Makiri (a node can't move between arenas). Drop the stale source
       # wrapper, then reseat the caller's Dommy wrapper onto the adopted
       # node so `adopt_node(x).equal?(x)` stays true across documents.
-      src_doc_wrapper = node.instance_variable_get(:@document)
+      src_doc_wrapper = node.respond_to?(:document) ? node.document : nil
       adopted = Backend.adopt(src, @backend_doc)
 
-      if src_doc_wrapper.respond_to?(:__internal_reset_wrapper__)
-        src_doc_wrapper.__internal_reset_wrapper__(src)
-      end
-      node.instance_variable_set(:@document, self)
-      node.instance_variable_set(:@__node__, adopted)
-      @node_wrapper_cache.register(adopted, node)
+      reseat_known_wrapper(node, src, adopted, src_doc_wrapper)
 
       # A deep adopt imports a fresh copy of the whole subtree, so any live
       # descendant wrapper (held by page script, e.g. an aria element reference)
@@ -1096,14 +1094,23 @@ module Dommy
 
     def reseat_wrapper(orig, copy, src_doc)
       return if orig.equal?(copy)
+      return unless src_doc.respond_to?(:__internal_peek_wrapper__)
 
       wrapper = src_doc.__internal_peek_wrapper__(orig)
       return unless wrapper
 
-      src_doc.__internal_reset_wrapper__(orig)
-      wrapper.instance_variable_set(:@document, self)
-      wrapper.instance_variable_set(:@__node__, copy)
+      reseat_known_wrapper(wrapper, orig, copy, src_doc)
+    end
+
+    # Move a wrapper the caller already holds — #adopt_node's own argument —
+    # from `orig` in `src_doc` onto `copy` here: drop the source document's
+    # entry for it, let the wrapper re-bind itself, and record it under the node
+    # it now wraps.
+    def reseat_known_wrapper(wrapper, orig, copy, src_doc)
+      src_doc.__internal_reset_wrapper__(orig) if src_doc.respond_to?(:__internal_reset_wrapper__)
+      wrapper.__internal_reseat__(copy, self)
       @node_wrapper_cache.register(copy, wrapper)
+      wrapper
     end
 
     # WHATWG adopt for a raw backend node that has no wrapper of its own to
@@ -1292,7 +1299,7 @@ module Dommy
     def node_iterator_document(root)
       return root if root.is_a?(Dommy::Document)
 
-      doc = root.instance_variable_get(:@document)
+      doc = root.document if root.respond_to?(:document)
       doc.is_a?(Dommy::Document) ? doc : self
     end
 
