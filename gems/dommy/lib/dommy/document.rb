@@ -2127,13 +2127,6 @@ module Dommy
       @node_wrapper_cache.wrap(node)
     end
 
-    # Seed the wrapper cache so a wrapper built outside it keeps its identity
-    # when the same backend node is reached through the tree.
-    def __internal_register_wrapper__(node, wrapper)
-      @node_wrapper_cache.register(node, wrapper)
-      wrapper
-    end
-
     def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
       @node_wrapper_cache.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
     end
