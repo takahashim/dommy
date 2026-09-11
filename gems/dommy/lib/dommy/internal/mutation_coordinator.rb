@@ -302,11 +302,11 @@ module Dommy
         # removal primitive (`Document#detach_node`), not here: that step is not
         # guarded by suppressObservers, so it must also run for the removals
         # that queue no record.
-        @observer_manager.observers_matching_in_order(target).each do |observer|
-          entry = observer.find_matching_entry(target)
+        @observer_manager.observers_matching_in_order(target, :child_list).each do |observer|
+          entry = observer.find_matching_entry(target, type: :child_list)
           next unless entry
 
-          observer.enqueue(record) if entry[:child_list]
+          observer.enqueue(record)
         end
 
         nil
@@ -325,9 +325,9 @@ module Dommy
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
 
-        @observer_manager.observers_matching_in_order(target).each do |observer|
-          entry = observer.find_matching_entry(target)
-          next unless entry && entry[:attributes]
+        @observer_manager.observers_matching_in_order(target, :attributes).each do |observer|
+          entry = observer.find_matching_entry(target, type: :attributes)
+          next unless entry
 
           filter = entry[:attribute_filter]
           next if filter && !filter.include?(attr)
@@ -352,9 +352,9 @@ module Dommy
         target = @document.wrap_node(target_node)
         return nil unless target
 
-        @observer_manager.observers_matching_in_order(target).each do |observer|
-          entry = observer.find_matching_entry(target)
-          next unless entry && entry[:character_data]
+        @observer_manager.observers_matching_in_order(target, :character_data).each do |observer|
+          entry = observer.find_matching_entry(target, type: :character_data)
+          next unless entry
 
           observer.enqueue(
             MutationRecord.new(

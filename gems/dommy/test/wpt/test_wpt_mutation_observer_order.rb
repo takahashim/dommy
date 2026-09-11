@@ -66,6 +66,54 @@ class TestWPTMutationObserverOrder < Minitest::Test
     assert_equal %i[first second], @order
   end
 
+  # A registration that does not ask for this record type must not shadow
+  # another registration of the same observer that does. WHATWG checks the
+  # scope and the type together, per registration.
+  def test_a_registration_of_the_wrong_type_does_not_shadow_another
+    parent = @doc.create_element("div")
+    text = @doc.create_text_node("t")
+    parent.append_child(text)
+    @doc.body.append_child(parent)
+
+    seen = []
+    mo = Dommy::MutationObserver.new(@win, proc { |records| seen.concat(records.to_a) })
+    # childList on the text node itself: in scope for the mutation below, but
+    # not interested in characterData.
+    mo.__js_call__("observe", [text, { "childList" => true }])
+    # characterData on the parent, with subtree: this is the one that is
+    # interested.
+    mo.__js_call__("observe", [parent, { "characterData" => true, "subtree" => true }])
+
+    text.data = "u"
+    checkpoint
+
+    assert_equal 1, seen.size
+    assert_equal "characterData", seen.first.__js_get__("type")
+  end
+
+  # A transient registered observer is appended to the removed node's own
+  # registered observer list, so it comes after a registration that was already
+  # there — even when its observer was constructed first.
+  def test_a_transient_comes_after_an_existing_registration_on_that_node
+    parent = @doc.create_element("div")
+    child = @doc.create_text_node("t")
+    parent.append_child(child)
+    @doc.body.append_child(parent)
+
+    subtree = observer(:subtree)
+    direct = observer(:direct)
+    subtree.__js_call__("observe", [parent, { "characterData" => true, "subtree" => true }])
+    direct.__js_call__("observe", [child, { "characterData" => true }])
+
+    # The removal gives `child` a transient registration sourced from the
+    # subtree observer, appended after `direct`'s registration.
+    parent.remove_child(child)
+    child.data = "u"
+    checkpoint
+
+    assert_equal %i[direct subtree], @order.uniq
+  end
+
   # The order follows the records, not the observers: an observer that first
   # sees a record earlier in the task is called first.
   def test_the_pending_set_keeps_insertion_order

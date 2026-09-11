@@ -105,52 +105,86 @@ module Dommy
       find_matching_entry(target_wrapped) != nil
     end
 
-    # Find the observer entry that matches target_wrapped.
-    # Returns the entry with options (attributes, attributeFilter, etc.)
-    # or nil if target doesn't match any observed scope.
-    def find_matching_entry(target_wrapped)
-      entry = @observed.find do |e|
-        observed_wrapped = e[:target]
-        next false unless observed_wrapped
+    # A registration's position in a node's registered observer list. WHATWG
+    # appends in creation order, and the order decides which callback runs first
+    # when two registrations sit on the same node.
+    @sequence = 0
 
-        if observed_wrapped.is_a?(Document)
-          Internal::ObserverMatcher.matches_document?(target_wrapped, subtree: e[:subtree],
-                                                      document: observed_wrapped)
-        else
-          Internal::ObserverMatcher.matches?(observed_wrapped, target_wrapped, subtree: e[:subtree])
-        end
+    class << self
+      def next_sequence
+        @sequence = (@sequence || 0) + 1
+      end
+    end
+
+    # WHATWG "queue a mutation record" step 3 checks the registration's scope AND
+    # the record type in one go, so a registration that does not ask for this
+    # type must not shadow a later one of the same observer that does.
+    def entry_wants?(entry, type)
+      return true if type.nil?
+
+      case type
+      when :child_list then !!entry[:child_list]
+      when :character_data then !!entry[:character_data]
+      when :attributes then !!entry[:attributes]
+      else true
+      end
+    end
+
+    def entry_in_scope?(entry, target_wrapped)
+      observed_wrapped = entry[:target]
+      return false unless observed_wrapped
+
+      if observed_wrapped.is_a?(Document)
+        Internal::ObserverMatcher.matches_document?(target_wrapped, subtree: entry[:subtree],
+                                                    document: observed_wrapped)
+      else
+        Internal::ObserverMatcher.matches?(observed_wrapped, target_wrapped,
+                                           subtree: entry[:subtree])
+      end
+    end
+
+    def transient_in_scope?(transient, target_wrapped)
+      root = transient[:root]
+      root && (root.equal?(target_wrapped) ||
+               Internal::ObserverMatcher.matches?(root, target_wrapped, subtree: true))
+    end
+
+    # Find the registration of this observer that WHATWG reaches for a record of
+    # `type` on `target_wrapped`. `type` nil means "any type" (scope only).
+    def find_matching_entry(target_wrapped, type: nil)
+      entry = @observed.find do |e|
+        entry_in_scope?(e, target_wrapped) && entry_wants?(e, type)
       end
       return entry if entry
 
       # A transient registered observer matches the removed node itself and its
       # (now-detached) descendants, with the source registration's options.
       transient = @transients.find do |t|
-        root = t[:root]
-        root && (root.equal?(target_wrapped) || Internal::ObserverMatcher.matches?(root, target_wrapped, subtree: true))
+        transient_in_scope?(t, target_wrapped) && entry_wants?(t[:source], type)
       end
       transient && transient[:source]
     end
 
-    # The index in `chain` (the target's inclusive ancestors, nearest first) of
-    # the nearest node this observer has a matching registration on, or nil.
-    # WHATWG notifies observers in this order, so it decides which callback runs
-    # first when several observers see the same mutation.
-    def matching_chain_index(chain, target_wrapped)
+    # Sort key for the notification order: the index in `chain` (the target's
+    # inclusive ancestors, nearest first) of the nearest node this observer has
+    # an interested registration on, paired with that registration's creation
+    # sequence, which is its position in that node's registered observer list.
+    # Returns nil when no registration of this observer is interested.
+    def matching_key(chain, target_wrapped, type = nil)
       chain.each_with_index do |node, index|
-        on_node = @observed.any? do |e|
-          observed_wrapped = e[:target]
-          next false unless Internal::ObserverMatcher.same_node?(observed_wrapped, node)
-
-          Internal::ObserverMatcher.same_node?(node, target_wrapped) || e[:subtree]
+        on_node = @observed.select do |e|
+          Internal::ObserverMatcher.same_node?(e[:target], node) &&
+            (Internal::ObserverMatcher.same_node?(node, target_wrapped) || e[:subtree]) &&
+            entry_wants?(e, type)
         end
-        return index if on_node
-
         # A transient registered observer lives in the removed node's own
         # registered observer list, so it is reached at that node.
-        transient = @transients.any? do |t|
-          Internal::ObserverMatcher.same_node?(t[:root], node)
+        on_node += @transients.select do |t|
+          Internal::ObserverMatcher.same_node?(t[:root], node) && entry_wants?(t[:source], type)
         end
-        return index if transient
+        next if on_node.empty?
+
+        return [index, on_node.map { |e| e[:seq] || 0 }.min]
       end
       nil
     end
@@ -163,7 +197,8 @@ module Dommy
       return unless root_wrapped && source_entry && source_entry[:subtree]
       return if @transients.any? { |t| t[:root].equal?(root_wrapped) }
 
-      @transients << {root: root_wrapped, source: source_entry}
+      @transients << {root: root_wrapped, source: source_entry,
+                      seq: MutationObserver.next_sequence}
       nil
     end
 
@@ -233,8 +268,12 @@ module Dommy
       # (don't merge or stack).
       existing_index = @observed.index { |e| e[:target].equal?(target) }
       if existing_index
+        # Step 7.1.2 only replaces the options, so the registration keeps its
+        # place in the node's registered observer list.
+        entry[:seq] = @observed[existing_index][:seq]
         @observed[existing_index] = entry
       else
+        entry[:seq] = MutationObserver.next_sequence
         @observed << entry
       end
 

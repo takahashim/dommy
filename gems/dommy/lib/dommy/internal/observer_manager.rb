@@ -26,11 +26,13 @@ module Dommy
       # The same observers, in the order WHATWG reaches their registrations:
       # walking the target's inclusive ancestors from the target upward. Ties
       # (several registrations on the same node) keep registration order.
-      def observers_matching_in_order(target_wrapped)
+      def observers_matching_in_order(target_wrapped, type = nil)
         chain = ObserverMatcher.inclusive_ancestors(target_wrapped)
-        observers_matching(target_wrapped).sort_by.with_index do |observer, index|
-          [observer.matching_chain_index(chain, target_wrapped) || chain.size, index]
+        keyed = @observers.filter_map do |observer|
+          key = observer.matching_key(chain, target_wrapped, type)
+          key && [key, observer]
         end
+        keyed.sort_by { |key, _| key }.map { |_, observer| observer }
       end
 
       def all
