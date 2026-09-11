@@ -2127,13 +2127,6 @@ module Dommy
       @node_wrapper_cache.wrap(node)
     end
 
-    # Seed the wrapper cache so a wrapper built outside it keeps its identity
-    # when the same backend node is reached through the tree.
-    def __internal_register_wrapper__(node, wrapper)
-      @node_wrapper_cache.register(node, wrapper)
-      wrapper
-    end
-
     def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
       @node_wrapper_cache.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
     end
@@ -2277,7 +2270,6 @@ module Dommy
         next_sibling: next_sibling
       )
     end
-    alias queue_child_list_record notify_child_list_mutation
 
     # WHATWG "removing steps", run while `node` is STILL attached (they are all
     # expressed in terms of the position it is about to vacate). Every path that
