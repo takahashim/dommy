@@ -339,15 +339,15 @@ module Dommy
     # the ensure, or every throwing error listener after the first would find
     # the guard down and start a report of its own.
     def __internal_report_exception__(error_value, message)
-      return if @__reporting_exception
+      return if @reporting_exception
 
-      @__reporting_exception = true
+      @reporting_exception = true
       begin
         dispatch_event(ErrorEvent.new(
           "error", "message" => message, "error" => error_value, "cancelable" => true
         ))
       ensure
-        @__reporting_exception = false
+        @reporting_exception = false
       end
       nil
     end
