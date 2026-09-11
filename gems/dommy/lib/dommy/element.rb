@@ -1788,8 +1788,11 @@ module Dommy
     def toggle_attribute(name, force = nil)
       raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
 
-      key = name.to_s.downcase
-      present = @__node__.key?(key)
+      # step 3 looks for the attribute whose QUALIFIED name matches, so an
+      # element carrying only `xml:b` counts as not having `b`. The backend's
+      # `node.key?` answers by local name and would report it present.
+      key = normalize_attr_key(name)
+      present = !Backend.attr_by_qualified_name(@__node__, key).nil?
       desired = force.nil? ? !present : !!force
       if desired
         set_attribute(key, "") unless present
@@ -3116,13 +3119,14 @@ module Dommy
       end
     end
 
+    # WHATWG "get an attribute by name": the first attribute whose QUALIFIED
+    # name matches, after the HTML lower-casing of step 1. The backend's
+    # `node[name]` indexes by local name, so on an element carrying `xml:b` it
+    # would answer a read of `b` with that attribute's value.
     def get_attribute(name)
       return nil if name.nil?
-      return @__node__[name.to_s.downcase] unless case_sensitive_attribute_names?
 
-      qualified = name.to_s
-      value = @__node__[qualified]
-      value.nil? || exact_attribute_name?(qualified) ? value : nil
+      Backend.attr_by_qualified_name(@__node__, normalize_attr_key(name))&.value
     end
 
     def set_attribute(name, value)
@@ -3133,59 +3137,65 @@ module Dommy
       # like "0"/":"/"invalid^Name" are deliberately treated as valid).
       raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
 
-      # A case-sensitive element (non-HTML namespace, or any element in a non-HTML
-      # document) must preserve the attribute name's case, but a plain `node[name]=`
-      # write goes through the HTML backend which ASCII-lowercases it. Route an
-      # upper-cased name through the case-preserving namespace setter (null
-      # namespace) to keep the case; lower-case names take the fast path unchanged.
-      qn = name.to_s
-      if case_sensitive_attribute_names? && qn.match?(/[A-Z]/)
-        old = Backend.get_attribute_ns(@__node__, nil, qn)
-        Backend.set_attribute_ns(@__node__, nil, nil, qn, qn, value.to_s)
-        @document.notify_attribute_mutation(target_node: @__node__, attribute_name: qn, old_value: old)
-        return nil
-      end
-
+      # step 2 (the HTML lower-casing) then step 4: the attribute is the one
+      # whose QUALIFIED name matches. A plain `node[key] = v` write indexes by
+      # local name, so it would land on a prefixed `xml:b` when asked for `b`;
+      # and it goes through the HTML backend, which lower-cases the name a
+      # case-sensitive element must keep. The namespace-aware write does neither.
       key = normalize_attr_key(name)
-      old = @__node__[key]
-      @__node__[key] = value.to_s
+      existing = Backend.attr_by_qualified_name(@__node__, key)
+      if existing
+        # step 5: change the attribute that is already there, keeping its
+        # namespace — this is one attribute, not a new null-namespace one.
+        info = Backend.attribute_ns_info(existing)
+        old = info[:value]
+        Backend.set_attribute_ns(@__node__, info[:namespace_uri], info[:prefix],
+                                 info[:local_name], info[:qualified_name], value.to_s)
+        ns = info[:namespace_uri]
+        recorded_name = ns ? info[:local_name] : key
+      else
+        # step 6-7: a new attribute whose local name is the qualified name.
+        old = nil
+        Backend.set_attribute_ns(@__node__, nil, nil, key, key, value.to_s)
+        ns = nil
+        recorded_name = key
+      end
       # A direct write to an `aria-*` IDREF attribute drops any explicitly-set
       # element reference, so the IDL getter re-resolves the new IDREF.
       clear_aria_element_ref_for(key) if key.start_with?("aria-")
-      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
+      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: recorded_name,
+                                          old_value: old, namespace: ns)
       nil
     end
 
     def has_attribute?(name)
       return false if name.nil?
-      return @__node__.key?(name.to_s.downcase) unless case_sensitive_attribute_names?
 
-      qualified = name.to_s
-      @__node__.key?(qualified) && exact_attribute_name?(qualified)
+      !Backend.attr_by_qualified_name(@__node__, normalize_attr_key(name)).nil?
     end
 
     def remove_attribute(name)
       return nil if name.nil?
 
+      # "remove an attribute by name" matches on the QUALIFIED name, so resolve
+      # the attribute node first and remove it by its own (namespace, localName).
       key = normalize_attr_key(name)
-      return nil unless @__node__.key?(key)
+      removed = Backend.attr_by_qualified_name(@__node__, key)
+      return nil if removed.nil?
 
-      old = @__node__[key]
+      info = Backend.attribute_ns_info(removed)
+      old = info[:value]
       # Detach the cached Attr (caching its value) *before* the backend drop, so a
       # held reference keeps the value it had when removed and reports
-      # `ownerElement === null` (so it's no longer "in use"). An attribute set via
-      # setAttributeNS may carry a namespace, so evict by the removed node's real
-      # (namespace, localName) rather than assuming the null namespace.
-      if @attributes
-        removed = Backend.attribute_nodes(@__node__).find { |a| Backend.attribute_ns_info(a)[:qualified_name] == key }
-        info = removed && Backend.attribute_ns_info(removed)
-        @attributes.__internal_evict__(info ? info[:namespace_uri] : nil, info ? info[:local_name] : key)
-      end
-      @__node__.remove_attribute(key)
+      # `ownerElement === null` (so it's no longer "in use").
+      @attributes&.__internal_evict__(info[:namespace_uri], info[:local_name])
+      Backend.remove_attribute_ns(@__node__, info[:namespace_uri], info[:local_name])
       # Removing an `aria-*` IDREF attribute also clears any explicitly-set
       # element reference (the IDL getter then returns null).
       clear_aria_element_ref_for(key) if key.start_with?("aria-")
-      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
+      @document.notify_attribute_mutation(target_node: @__node__,
+                                          attribute_name: info[:namespace_uri] ? info[:local_name] : key,
+                                          old_value: old, namespace: info[:namespace_uri])
       nil
     end
 

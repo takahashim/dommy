@@ -336,6 +336,13 @@ module Dommy
         node.attribute_nodes
       end
 
+      # Attribute node matching the qualified name exactly. `node[name]` would
+      # also answer for a prefixed attribute with that local name.
+      def attr_by_qualified_name(node, qualified_name)
+        want = qualified_name.to_s
+        node.attribute_nodes.find { |a| a.name == want }
+      end
+
       # Attribute node matching (namespace, local name) case-sensitively; a
       # null/empty namespace matches a null-namespace attribute.
       def attr_by_ns(node, namespace, local_name)

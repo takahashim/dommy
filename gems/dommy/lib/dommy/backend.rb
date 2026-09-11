@@ -235,6 +235,16 @@ module Dommy
 
       # The element's attribute nodes (each readable via attribute_ns_info).
       # The single choke point so DOM code doesn't touch parser internals.
+      # The attribute node whose QUALIFIED name is `qualified_name`, or nil.
+      #
+      # WHATWG's by-name family ("get an attribute by name", `setAttribute`,
+      # `removeAttribute`) matches on the qualified name. A lookup by local name
+      # confuses `b` with a prefixed `xml:b`, so those paths must come through
+      # here rather than through `node[name]`.
+      def attr_by_qualified_name(node, qualified_name)
+        current.attr_by_qualified_name(node, qualified_name)
+      end
+
       def attribute_nodes(node)
         current.attribute_nodes(node)
       end

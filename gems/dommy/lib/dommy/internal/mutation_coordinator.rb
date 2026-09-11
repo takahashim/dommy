@@ -325,12 +325,14 @@ module Dommy
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
 
-        @observer_manager.observers_matching_in_order(target, :attributes).each do |observer|
-          entry = observer.find_matching_entry(target, type: :attributes)
-          next unless entry
-
-          filter = entry[:attribute_filter]
-          next if filter && !filter.include?(attr)
+        # The attributeFilter is part of the per-registration condition, so it is
+        # applied inside `entry_wants?` rather than to the observer as a whole:
+        # a filtered registration must not hide another one of the same observer
+        # that accepts this attribute.
+        @observer_manager.observers_matching_in_order(target, :attributes, attr, namespace)
+                         .each do |observer|
+          next unless observer.find_matching_entry(target, type: :attributes, name: attr,
+                                                           namespace: namespace)
 
           observer.enqueue(
             MutationRecord.new(
@@ -338,7 +340,7 @@ module Dommy
               target: target,
               attribute_name: attr,
               attribute_namespace: namespace,
-              old_value: entry[:attribute_old_value] ? old_value : nil
+              old_value: observer.records_old_value?(target, :attributes, attr, namespace) ? old_value : nil
             )
           )
         end
@@ -360,7 +362,7 @@ module Dommy
             MutationRecord.new(
               type: "characterData",
               target: target,
-              old_value: entry[:character_data_old_value] ? old_value : nil
+              old_value: observer.records_old_value?(target, :character_data) ? old_value : nil
             )
           )
         end

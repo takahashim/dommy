@@ -116,17 +116,40 @@ module Dommy
       end
     end
 
-    # WHATWG "queue a mutation record" step 3 checks the registration's scope AND
-    # the record type in one go, so a registration that does not ask for this
-    # type must not shadow a later one of the same observer that does.
-    def entry_wants?(entry, type)
+    # WHATWG "queue a mutation record" step 2.3 checks the registration's scope
+    # AND the record type in one go, so a registration that does not ask for
+    # this type must not shadow a later one of the same observer that does.
+    #
+    # For "attributes" the attributeFilter is part of that same condition: a
+    # filter that is PRESENT and does not list this attribute's local name — or
+    # a namespaced attribute, which a filter never matches — excludes the
+    # registration rather than the record.
+    def entry_wants?(entry, type, name = nil, namespace = nil)
       return true if type.nil?
 
       case type
       when :child_list then !!entry[:child_list]
       when :character_data then !!entry[:character_data]
-      when :attributes then !!entry[:attributes]
+      when :attributes
+        return false unless entry[:attributes]
+
+        filter = entry[:attribute_filter]
+        filter.nil? || (namespace.nil? && filter.include?(name))
       else true
+      end
+    end
+
+    # WHATWG "queue a mutation record" step 2.3.3 visits EVERY registration of
+    # this observer that is in scope and wants this type; each one asking for
+    # the old value sets it. So the record carries the old value when ANY of
+    # them asks, not only when the first one the search reaches does.
+    def records_old_value?(target_wrapped, type, name = nil, namespace = nil)
+      flag = type == :attributes ? :attribute_old_value : :character_data_old_value
+      @observed.any? do |e|
+        entry_in_scope?(e, target_wrapped) && entry_wants?(e, type, name, namespace) && e[flag]
+      end || @transients.any? do |t|
+        transient_in_scope?(t, target_wrapped) &&
+          entry_wants?(t[:source], type, name, namespace) && t[:source][flag]
       end
     end
 
@@ -151,16 +174,16 @@ module Dommy
 
     # Find the registration of this observer that WHATWG reaches for a record of
     # `type` on `target_wrapped`. `type` nil means "any type" (scope only).
-    def find_matching_entry(target_wrapped, type: nil)
+    def find_matching_entry(target_wrapped, type: nil, name: nil, namespace: nil)
       entry = @observed.find do |e|
-        entry_in_scope?(e, target_wrapped) && entry_wants?(e, type)
+        entry_in_scope?(e, target_wrapped) && entry_wants?(e, type, name, namespace)
       end
       return entry if entry
 
       # A transient registered observer matches the removed node itself and its
       # (now-detached) descendants, with the source registration's options.
       transient = @transients.find do |t|
-        transient_in_scope?(t, target_wrapped) && entry_wants?(t[:source], type)
+        transient_in_scope?(t, target_wrapped) && entry_wants?(t[:source], type, name, namespace)
       end
       transient && transient[:source]
     end
@@ -170,17 +193,18 @@ module Dommy
     # an interested registration on, paired with that registration's creation
     # sequence, which is its position in that node's registered observer list.
     # Returns nil when no registration of this observer is interested.
-    def matching_key(chain, target_wrapped, type = nil)
+    def matching_key(chain, target_wrapped, type = nil, name = nil, namespace = nil)
       chain.each_with_index do |node, index|
         on_node = @observed.select do |e|
           Internal::ObserverMatcher.same_node?(e[:target], node) &&
             (Internal::ObserverMatcher.same_node?(node, target_wrapped) || e[:subtree]) &&
-            entry_wants?(e, type)
+            entry_wants?(e, type, name, namespace)
         end
         # A transient registered observer lives in the removed node's own
         # registered observer list, so it is reached at that node.
         on_node += @transients.select do |t|
-          Internal::ObserverMatcher.same_node?(t[:root], node) && entry_wants?(t[:source], type)
+          Internal::ObserverMatcher.same_node?(t[:root], node) &&
+            entry_wants?(t[:source], type, name, namespace)
         end
         next if on_node.empty?
 
