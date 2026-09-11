@@ -476,7 +476,7 @@ class TestWPTLabelActivation < Minitest::Test
     %w[<details></details> <video\ controls></video> <audio\ controls></audio> <iframe></iframe>
        <embed> <img\ usemap='#m'> <label>inner</label>].each do |markup|
       host = @doc.create_element("div")
-      host.inner_html = "<label><input type='checkbox'>#{markup.tr('\\', '')}</label>"
+      host.inner_html = "<label><input type='checkbox'>#{markup}</label>"
       @doc.body.append_child(host)
       box = host.query_selector("input")
       other = host.query_selector("label").last_element_child
