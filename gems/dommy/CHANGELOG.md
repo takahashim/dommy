@@ -1,5 +1,117 @@
 # Changelog
 
+## 0.11.0 — 2026-09-11
+
+Conformance, mostly. Two sources drove this release: running the same script in
+headless Chromium and in Dommy and diffing the result, and checking Dommy's
+behaviour against a Lean 4 formalization of the DOM standard. Both find things
+WPT does not. The other half is performance on JavaScript-heavy pages.
+
+### Added
+
+#### DOM
+- `ParentNode.moveBefore(node, child)` — relocate a node without removing and re-inserting it: no `disconnectedCallback` / `connectedCallback`, no adoption, and a live Range or NodeIterator follows the node instead of being pushed off it.
+- Every node answers Node's mutation methods from Ruby (`append_child`, `insert_before`, `replace_child`, `remove_child`) and `owner_document`. A leaf node — Text, Comment, DocumentType — rejects an insertion with `HierarchyRequestError`, which is what the spec says, instead of raising `NoMethodError`.
+- A `<!doctype>` is an ordinary child node: `before` / `after` / `replace_with` / `remove` work on it, run the document's own hierarchy checks, and move live ranges like any other child.
+
+#### HTML
+- `<details name="…">` exclusive accordion groups: opening one member closes the others, and a `<details open>` the parser produced gets the `toggle` event it owes.
+
+#### CSSOM
+- `new CSSStyleSheet()` is constructable, for component bundles that prepare their CSS before attaching it. (`adoptedStyleSheets` itself is still unimplemented; such a bundle falls back to injecting a `<style>`, which Dommy handles.)
+
+#### JavaScript
+- Legacy `window.event`: a bare `event` identifier inside a listener resolves to the event being dispatched, so a handler written without a parameter works.
+- A listener that throws is now **reported** instead of silently swallowed — it fires an `error` event at the window, so `window.onerror` and an `"error"` listener see it, and `event.error` is the thrown value itself (identity preserved, so `e.error === thrown`). Dispatch continues with the remaining listeners either way.
+
+#### Host seams
+- `Window#dialog_handler` — supply deterministic answers for `alert` / `confirm` / `prompt`. With no handler, or one that declines a particular dialog, the headless defaults stand (`nil` / `false` / `nil`).
+
+### Changed
+
+- **Attributes are matched by qualified name.** `getAttribute` / `setAttribute` / `removeAttribute` / `hasAttribute` / `toggleAttribute` are defined on an attribute's qualified name, so an element carrying only `xml:b` no longer answers a read of `b`, and writing `b` adds a second attribute instead of overwriting the prefixed one. `setAttribute` also keeps an existing attribute's namespace rather than replacing it with a null-namespace one.
+- **CSS property names follow the CSS rule, in both declaration blocks.** An element's `style` and a style rule's `style` are now parsed by one implementation: a property name is ASCII case-insensitive (`style="COLOR: red"` reads back as `color`) except a custom property, whose name is case-sensitive (`--Foo` and `--foo` stay two properties). The name handed to `getPropertyValue` / `setProperty` / `removeProperty` is normalized the same way, and a declaration whose value cannot be parsed is dropped in a rule as it already was inline.
+- **A `<select>`'s selectedness is settled when its list changes**, rather than derived every time it is read. A single-select ends up with exactly one option selected when the rules call for it and keeps an explicit `selectedIndex = -1`; adding, moving or removing options re-settles the list, as do the `multiple` and `size` attributes.
+- **Requires makiri >= 0.9.0.**
+
+### Fixed
+
+#### Events and dispatch
+- `dispatchEvent` on an event whose dispatch is already in flight throws `InvalidStateError`. A listener that re-dispatched the event it was handling used to recurse until the Ruby stack overflowed.
+- At the target, capture listeners run before bubble listeners, and `stopPropagation` from a capture listener also skips the target's own bubble listeners.
+- A listener removed during a dispatch is not invoked by that dispatch — including a `once` listener that a nested dispatch consumed while an outer dispatch was still walking its snapshot.
+- The event path is built as the spec describes it: a slotted node composes into its assigned slot, a closed tree hides what it should, and `relatedTarget` is retargeted per node.
+- Click activation runs inside dispatch, so a listener can `preventDefault` it; form reset runs as an activation behavior.
+- `click()` on an "actually disabled" form control dispatches nothing — including a control inside a `<fieldset disabled>`, while one in that fieldset's first `<legend>` stays enabled.
+- An element that arrived after boot already carrying `onclick="…"` — through `cloneNode`, `innerHTML`, or a template's content — now runs its handler: content attribute handlers compile lazily, and only the attributes that really are event handlers compile at all.
+- A plain JavaScript object with a `handleEvent` method (Stimulus's action listeners, for instance) crosses as a live listener: it keeps its identity, is called with itself as `this`, and `handleEvent` is looked up fresh on each dispatch.
+- Space activates a focused button-like control (a `<button>`, or an `<input>` button / checkbox / radio) instead of typing a space into it.
+- A label click focuses its control before activating it, which is what a visually hidden submit input behind a label relies on; and a label leaves every kind of interactive content alone (a `<details>`, `<video controls>`, `<iframe>`, a nested `<label>`, …), not only links and form controls.
+
+#### Shadow DOM
+- `event.target` is retargeted per node, so a listener outside a shadow boundary sees the host and one inside sees the real node; an event that never left a shadow tree ends with `target` null instead of leaking an encapsulated node.
+- Wrapping a shadow tree's backing fragment yields its `ShadowRoot`, so a walk out of the tree no longer dead-ends at a host-less fragment.
+
+#### Ranges and traversal
+- `cloneContents` / `extractContents` implement the recursive algorithms: a range ending mid-text yields the part it covers rather than the whole node, and a range with both boundaries in one Text node is no longer empty — which also stops `surroundContents` from destroying the selected text.
+- `surroundContents` validates its arguments, and `setStart` / `setEnd` reject a DocumentType boundary and an out-of-range offset.
+- Live ranges follow the tree through insertion, removal, `replaceData` and `splitText`, and `insertNode` places the node and grows a collapsed range over it per spec. Offsets into text are UTF-16 code units, as the spec requires.
+- A `TreeWalker` rooted at the document can reach its own root, and its filter runs on the way up.
+- Node iterators are tracked weakly, so an unreachable one stops costing work on every removal (live ranges already were).
+
+#### Tree mutation
+- `before` / `after` / `replaceWith` run the parent's pre-insertion validity checks, so an insertion a Document would refuse — a second element child, a Text child, a misplaced doctype — is rejected instead of building an invalid tree.
+- The hierarchy checks run in spec order and count the document among its descendants' ancestors, so `element.insertBefore(document, ref)` is a `HierarchyRequestError` rather than a complaint about `ref`, and `insertBefore(x, x)` is validated before the reference is swapped.
+- `document.replaceChild(fragment, child)` inserts the fragment's children instead of the fragment itself.
+- Mutating a Document's, a ShadowRoot's or a `<template>`'s children runs the same removing steps as anywhere else, so the old parent gets its record, live ranges move, and node iterators follow.
+- The live-range offset shift happens where the spec puts it — before the nodes are moved — so a range inside the node being inserted lands on the right offset.
+
+#### Mutation observers
+- A childList record carries its insertion point: `previousSibling` and `nextSibling`, read before the tree moves — `before` / `after` / `append` / `prepend` / `appendChild` left both null.
+- Observers are notified in the order the spec reaches their registrations (the target's inclusive ancestors, nearest first), matched by scope **and** record type, with each registration's own options — a registration that does not ask for this type no longer shadows another that does.
+- A Document observer with `subtree` no longer matches nodes outside that document: mutating a detached node used to queue a record on it.
+- Removing a node registers the transient observers the spec calls for even when the removal suppresses its own record, and `takeRecords` no longer ends their lifetime — only a microtask checkpoint does.
+- An attribute record keeps the attribute's case and namespace; `splitText` queues its `characterData` record before its `childList` one, as every engine does; `normalize` merges one sibling at a time and queues a record per sibling.
+
+#### Forms and validation
+- A form's named getter (`form.controlName`) follows the spec's past-names map, and a control's form owner is resolved in the right tree scope.
+- `formAction` is a URL-reflecting IDL attribute — it resolves against the document base URL and falls back to the document's own address — and `formEnctype` / `formMethod` / `formTarget` / `formNoValidate` exist on `<input>` as well as `<button>`.
+- `<a>` and `<area>` share the URL-decomposition attributes: `anchor.href = url` writes the content attribute instead of landing on a JS expando, and `area` has the full set (`hash`, `host`, `protocol`, …) resolving properly.
+- `pattern` is compiled as a JavaScript RegExp with the `v` flag and ignored entirely when that throws, and on a `multiple` email control it is matched against each entry rather than the list.
+- `stepMismatch` no longer needs `bigdecimal`, which Ruby 3.4 stopped shipping by default — on 3.4 the check raised `LoadError` in any bundle that did not list the gem.
+
+#### Selectors
+- `:link` / `:any-link` match hyperlinks only (an `a` or `area` with an href), not a `<link href>`; `:target` requires the element to be in the document.
+- An attribute selector's name is ASCII-lowercased only for HTML elements in an HTML document, and class tokens are split on HTML ASCII whitespace.
+- Queries on an XML document no longer raise.
+- Selector state caches are invalidated when an IDL property write changes what matches — an input's `value` or `checked`, an option's `selectedness` — so `:checked` / `:valid` / `:invalid` answer the new state, and `:empty` still sees a text change.
+
+#### CSSOM
+- `var()` has a grammar: `var(--x ())` is a syntax error and the declaration is dropped rather than stored. Setting a value the block refuses, or removing a property that was never set, is not a change, so neither rewrites the `style` attribute nor queues a record.
+- Each rule kind reports its own interface (`CSSStyleRule`, `CSSMediaRule`, `CSSSupportsRule`, …), and rules serialize per spec.
+- Within one declaration block an important declaration beats a normal one for the same property whatever their order; `setProperty` takes a priority, `getPropertyPriority` exists, and `cssText` round-trips `!important` without leaking it into the value.
+
+#### Accessibility
+- ARIA 1.2's `image` is the canonical role and `img` its deprecated synonym (the mapping ran the other way).
+- A `<summary>` is named from its contents whatever role it computes to, a label's encapsulation is respected, and hidden subtrees stay out of the name.
+
+#### Parsing and serialization
+- `createElement` / `createElementNS` accept every valid XML Name.
+- `document.documentElement` is null when the document has no element child, instead of answering with the doctype.
+- A `<template>`'s contents travel with it across documents — `importNode`, `adoptNode` and a cross-document insert — keeping the same content fragment and the children in it.
+- `XMLSerializer` drops an `xmlns` that contradicts the element's real namespace, matching it on its local name, so `setAttribute("xmlns", …)` no longer produces a duplicate declaration.
+- `importNode` of an `Attr` returns a copy rather than null, and a doctype keeps its identity through the factories.
+
+#### JavaScript bridge
+- Dommy's JavaScript-visible surface is now audited against the WebIDL the specs publish (240 interfaces from 10 specs), and the properties and methods that audit found missing or misplaced are in place.
+- A JS event's stop-propagation flag is cleared when dispatch completes, a method extracted from a prototype still routes through the proxy wrappers, and every path that cancels an event goes through one place.
+
+### Performance
+
+- **Style invalidation is split into DOM and style epochs, and plain rules match lazily through a rule hash.** A mutate-then-read loop — the shape of a Turbo morph or an assertion after an edit — went from ~65 ms per operation to ~5 µs for a style-neutral mutation, and from ~63 ms to ~0.7 ms when the mutation really does change what matches.
+- **The JS bridge crosses less.** Events are constructed JS-side with a lazy host twin, framework expandos stay JS-side, an unlistened namespaced event dispatches in one crossing, and interface members are shared through a per-interface prototype: a 300-row Turbo morph went from ~405 ms to ~285 ms.
+- Attribute reads go through the backend's native qualified-name lookup (makiri 0.9.0), and a mutation no longer walks the target's ancestors when no `MutationObserver` is registered.
+
 ## 0.10.0 — 2026-07-13
 
 ### Added

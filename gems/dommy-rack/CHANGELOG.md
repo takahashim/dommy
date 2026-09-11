@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.11.0 — 2026-09-11
+
+### Added
+- `Session#dialog_handler=` — answer the page's `alert` / `confirm` / `prompt`. The handler stays installed across navigations, so it also answers dialogs on pages loaded later.
+- Traced requests now carry spans from inside the app (controller, SQL, render, and the jobs and mails a request triggers), flushed with the request they belong to. See dommy-rails for the Rails-side instrumentation.
+
+### Fixed
+- A request whose app raises still closes its trace bracket, so the trace ends with the failure instead of an open request.
+- A subresource fetch made while a request is in flight keeps its own spans rather than attaching them to the outer request.
+- SQL bind values, when enabled, are masked through the trace's own sensitive-key filter — the same one that masks form params.
+- A snapshot's content is stored before its artifact event is written, so a trace read back straight away is complete.
+
 ## 0.10.0 — 2026-07-13
 
 ### Added
