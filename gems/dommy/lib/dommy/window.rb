@@ -79,11 +79,17 @@ module Dommy
     # unchanged until an embedder installs a real delegate.
     attr_accessor :navigation_delegate
 
+    # What a dialog handler returns to decline a dialog — it is not the one it
+    # is waiting for — leaving the answer to the headless default below. A
+    # handler cannot say that with nil or false: both are answers.
+    DIALOG_UNANSWERED = :__dommy_dialog_unanswered__
+
     # Optional host seam for native JavaScript dialogs. It receives the dialog
     # type (`:alert`, `:confirm`, or `:prompt`), its message, and (for prompts)
-    # the default value. A headless Window has no user to ask, so the fallback
-    # remains alert -> nil, confirm -> false, prompt -> nil. Browser front ends
-    # can install a handler to supply a deterministic answer.
+    # the default value, and answers it — or returns DIALOG_UNANSWERED to pass.
+    # A headless Window has no user to ask, so the fallback remains alert ->
+    # nil, confirm -> false, prompt -> nil. Browser front ends can install a
+    # handler to supply a deterministic answer.
     attr_accessor :dialog_handler
 
     def initialize(host = nil, backend_doc: nil)
@@ -456,10 +462,15 @@ module Dommy
     private
 
     # The native-dialog seam behind alert / confirm / prompt: ask the installed
-    # `dialog_handler`, else the headless defaults (alert -> nil, confirm ->
-    # false as "Cancel", prompt -> nil as "no input").
+    # `dialog_handler`, and fall back to the headless defaults (alert -> nil,
+    # confirm -> false as "Cancel", prompt -> nil as "no input") when there is
+    # none or it declines. The defaults live here alone, so a handler never has
+    # to know them to pass a dialog it does not want.
     def handle_dialog(type, message, default_value)
-      return @dialog_handler.call(type, message, default_value) if @dialog_handler
+      if @dialog_handler
+        answer = @dialog_handler.call(type, message, default_value)
+        return answer unless answer == DIALOG_UNANSWERED
+      end
 
       type == :confirm ? false : nil
     end
