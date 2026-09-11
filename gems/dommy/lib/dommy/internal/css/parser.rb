@@ -243,21 +243,98 @@ module Dommy
           []
         end
 
-        # Parse a bare declaration block (no selector / braces) into
-        # Declarations. Used by the CSSOM RuleStyleDeclaration to read a rule's
-        # `style`; the cascade reaches declarations through parse/normalize_rules.
-        def parse_declarations(text)
-          text.split(";").filter_map do |chunk|
-            name, value = chunk.split(":", 2)
-            next unless name && value
+        # Parse a bare declaration block (no selector / braces) into an ordered
+        # { property => Declaration } hash. The CSSOM's view of both declaration
+        # blocks it exposes — a rule's `style` and an element's `style`
+        # attribute — so the two cannot drift apart.
+        #
+        # Cascade order WITHIN one block: an important declaration beats a
+        # normal one for the same property whatever their order, and only
+        # between declarations of equal importance does the later win. So a
+        # normal declaration never displaces an important one already recorded.
+        def parse_block(text)
+          text.to_s.split(";").each_with_object({}) do |chunk, out|
+            decl = parse_declaration(chunk)
+            next if decl.nil?
+            next if !decl.important && out[decl.name]&.important
 
-            name = name.strip.downcase
-            value = value.strip
-            next if name.empty? || value.empty?
-
-            important = !value.sub!(/\s*!important\s*\z/i, "").nil?
-            Declaration.new(name, value.strip, important)
+            out[decl.name] = decl
           end
+        end
+
+        # One `property: value` (with an optional `!important`), or nil when the
+        # chunk is not a usable declaration.
+        def parse_declaration(chunk)
+          name, value = chunk.split(":", 2)
+          return nil unless name && value
+
+          name = name.strip
+          # A property name is ASCII case-insensitive; a CUSTOM property's is
+          # not (`--Foo` and `--foo` are two properties).
+          name = name.downcase unless name.start_with?("--")
+          value = value.strip
+          # Split the `!important` flag off the value before validating it, so
+          # the flag round-trips through cssText without leaking into the value.
+          important = false
+          if (stripped = value[/\A(.*?)!\s*important\s*\z/im, 1])
+            important = true
+            value = stripped.strip
+          end
+          return nil if name.empty? || !valid_declaration_value?(value)
+
+          Declaration.new(name, value, important)
+        end
+
+        # A value is usable when it is non-empty, has no bare colon outside
+        # parentheses (the second one in "color:: invalid"), and every var() in
+        # it parses. A declaration whose value fails is dropped, not stored.
+        def valid_declaration_value?(value)
+          return false if value.empty?
+
+          depth = 0
+          value.each_char do |c|
+            case c
+            when "(" then depth += 1
+            when ")" then depth -= 1 if depth.positive?
+            when ":" then return false if depth.zero?
+            end
+          end
+          valid_var_functions?(value)
+        end
+
+        # `var()` takes a custom property name and then, optionally, a comma and
+        # a fallback — `var(--x)`, `var(--x,)`, `var(--x, 1px)`. Anything else
+        # between the name and that comma, as in `var(--x ())`, is a syntax
+        # error.
+        VAR_ARGUMENTS = /\A\s*--[^\s,()]*\s*(?:,|\z)/m
+
+        def valid_var_functions?(value)
+          index = 0
+          while (start = value.index(/var\(/i, index))
+            open = value.index("(", start)
+            close = matching_paren(value, open)
+            return false if close.nil?
+            return false unless value[(open + 1)...close].match?(VAR_ARGUMENTS)
+
+            # Continue inside the call, so a nested var() in the fallback is
+            # checked by the same rule.
+            index = open + 1
+          end
+          true
+        end
+
+        # The index of the ")" closing the "(" at `open`, or nil when unbalanced.
+        def matching_paren(value, open)
+          depth = 0
+          (open...value.length).each do |i|
+            case value[i]
+            when "(" then depth += 1
+            when ")"
+              depth -= 1
+              return i if depth.zero?
+            end
+          end
+          nil
         end
       end
     end

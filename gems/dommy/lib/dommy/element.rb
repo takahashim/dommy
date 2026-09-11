@@ -1278,7 +1278,7 @@ module Dommy
 
         # An invalid value is dropped rather than stored, and dropping it is not
         # a change either.
-        return nil unless valid_declaration_value?(value.to_s.strip)
+        return nil unless Internal::CSS::Parser.valid_declaration_value?(value.to_s.strip)
 
         entry = [value.to_s, normalized]
         return nil if decls[key] == entry
@@ -1327,82 +1327,15 @@ module Dommy
       Internal::CssPriority.normalize(priority)
     end
 
-    # Parse a declaration block into an ordered { property => [value, priority] }
-    # hash, dropping declarations whose value is invalid (empty, or — like the
-    # second colon in "color:: invalid" — containing a bare colon outside
-    # parentheses).
+    # The block, as the CSSOM sees it: an ordered { property => [value,
+    # priority] } hash. The parsing itself — the name's case rule, the
+    # `!important` split, the value validation, and which of two declarations
+    # for one property survives — is Internal::CSS::Parser's, shared with the
+    # other declaration block the CSSOM exposes (a style rule's).
     def parse_declarations(str)
-      str.to_s.split(";").each_with_object({}) do |entry, out|
-        key, value = entry.split(":", 2)
-        next unless key && value
-
-        name = key.strip
-        val = value.strip
-        # Split the `!important` flag off the value before validating it, so the
-        # flag round-trips through cssText without leaking into the value.
-        priority = ""
-        if (stripped = val[/\A(.*?)!\s*important\s*\z/im, 1])
-          priority = "important"
-          val = stripped.strip
-        end
-        next if name.empty? || !valid_declaration_value?(val)
-        # Cascade order WITHIN one declaration block: an important declaration
-        # beats a normal one for the same property whatever their order, and
-        # only between declarations of equal importance does the later win. So a
-        # normal declaration never displaces an important one already recorded.
-        next if priority.empty? && out[name]&.last == "important"
-
-        out[name] = [val, priority]
+      Internal::CSS::Parser.parse_block(str).transform_values do |decl|
+        [decl.value, decl.important ? "important" : ""]
       end
-    end
-
-    def valid_declaration_value?(value)
-      return false if value.empty?
-
-      depth = 0
-      value.each_char do |c|
-        case c
-        when "(" then depth += 1
-        when ")" then depth -= 1 if depth.positive?
-        when ":" then return false if depth.zero?
-        end
-      end
-      valid_var_functions?(value)
-    end
-
-    # `var()` takes a custom property name and then, optionally, a comma and a
-    # fallback — `var(--x)`, `var(--x,)`, `var(--x, 1px)`. Anything else between
-    # the name and that comma, as in `var(--x ())`, is a syntax error, and a
-    # declaration whose value fails to parse is dropped rather than stored.
-    VAR_ARGUMENTS = /\A\s*--[^\s,()]*\s*(?:,|\z)/m
-
-    def valid_var_functions?(value)
-      index = 0
-      while (start = value.index(/var\(/i, index))
-        open = value.index("(", start)
-        close = matching_paren(value, open)
-        return false if close.nil?
-        return false unless value[(open + 1)...close].match?(VAR_ARGUMENTS)
-
-        # Continue inside the call, so a nested var() in the fallback is checked
-        # by the same rule.
-        index = open + 1
-      end
-      true
-    end
-
-    # The index of the ")" closing the "(" at `open`, or nil when unbalanced.
-    def matching_paren(value, open)
-      depth = 0
-      (open...value.length).each do |i|
-        case value[i]
-        when "(" then depth += 1
-        when ")"
-          depth -= 1
-          return i if depth.zero?
-        end
-      end
-      nil
     end
 
     def serialize_properties(decls)

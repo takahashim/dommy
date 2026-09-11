@@ -68,4 +68,57 @@ class TestStyle < Minitest::Test
     assert(@el.has_attribute?("style"))
     assert_equal("", @el.get_attribute("style"))
   end
+
+  # A CSS property name is ASCII case-insensitive, so the author's spelling in
+  # the `style` attribute does not decide how the property can be read.
+  def test_a_property_name_is_case_insensitive
+    @el.set_attribute("style", "COLOR: red")
+    assert_equal("red", @el.style.get_property_value("color"))
+    assert_equal("color: red;", @el.style.css_text)
+  end
+
+  # ...except a custom property's, which is case-SENSITIVE: `--Foo` and `--foo`
+  # are two different properties.
+  def test_a_custom_property_name_keeps_its_case
+    @el.set_attribute("style", "--Foo: 1px")
+    assert_equal("1px", @el.style.get_property_value("--Foo"))
+    assert_equal("", @el.style.get_property_value("--foo"))
+    assert_equal("--Foo: 1px;", @el.style.css_text)
+  end
+
+  # The same rules through the other declaration block the CSSOM exposes, a
+  # style rule's — it is the same parser.
+  def test_a_style_rule_follows_the_same_name_rules
+    @doc.head.inner_html = "<style>#x { COLOR: green; --Bar: 2px }</style>"
+    style = @doc.style_sheets.first.css_rules.first.style
+    assert_equal("green", style.get_property_value("color"))
+    assert_equal("2px", style.get_property_value("--Bar"))
+    assert_equal("", style.get_property_value("--bar"))
+  end
+
+  # An important declaration outranks a normal one for the same property
+  # whatever their order, in either block.
+  def test_important_outranks_a_later_normal_declaration
+    @el.set_attribute("style", "color: red !important; color: blue")
+    assert_equal("red", @el.style.get_property_value("color"))
+    assert_equal("important", @el.style.get_property_priority("color"))
+
+    @doc.head.inner_html = "<style>#x { color: red !important; color: blue }</style>"
+    style = @doc.style_sheets.first.css_rules.first.style
+    assert_equal("red", style.get_property_value("color"))
+    assert_equal("important", style.get_property_priority("color"))
+  end
+
+  # A declaration whose value cannot be parsed is dropped rather than stored —
+  # in a style rule too, which used to keep it.
+  def test_an_invalid_value_is_dropped_in_both_blocks
+    @el.set_attribute("style", "color:: red; width: 1px")
+    assert_equal("", @el.style.get_property_value("color"))
+    assert_equal("1px", @el.style.get_property_value("width"))
+
+    @doc.head.inner_html = "<style>#x { color:: red; width: 1px }</style>"
+    style = @doc.style_sheets.first.css_rules.first.style
+    assert_equal("", style.get_property_value("color"))
+    assert_equal("1px", style.get_property_value("width"))
+  end
 end
