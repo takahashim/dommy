@@ -1606,6 +1606,11 @@ module Dommy
       end
 
       ensure_document_insertion_validity!([node], ref_bn)
+      # Insert step 6's insertion point, read BEFORE step 7's adopt moves
+      # anything: the reference child's previous sibling, or the document's last
+      # child when appending.
+      record_previous = document_insertion_previous_sibling(ref_bn)
+      record_next = ref_bn && wrap_node(ref_bn)
       # Insert step 5 runs before step 7's adopt, so the count is taken while the
       # node (or fragment) still sits wherever it is now.
       __internal_ranges_will_insert__(@backend_doc, ref_bn, document_insertion_count([node]))
@@ -1618,7 +1623,8 @@ module Dommy
       else
         nodes.each { |bn| @backend_doc.add_child(bn) }
       end
-      notify_document_child_list(added: nodes)
+      notify_document_child_list(added: nodes, previous_sibling: record_previous,
+                                 next_sibling: record_next)
       node
     end
 
@@ -1633,6 +1639,10 @@ module Dommy
       ensure_document_insertion_validity!([new_child], old_bn, exclude: old_bn)
 
       ref = old_bn.next
+      # Replace step 4's previousSibling: the old child's previous sibling,
+      # read before the adopt below removes anything.
+      record_previous = old_bn.previous && wrap_node(old_bn.previous)
+      record_next = ref && wrap_node(ref)
       cross_document = !Backend.moves_nodes_across_documents? &&
         new_child.respond_to?(:document) && !new_child.document.equal?(self)
 
@@ -1655,7 +1665,8 @@ module Dommy
       if new_bn
         ref && ref.parent == @backend_doc ? ref.add_previous_sibling(new_bn) : @backend_doc.add_child(new_bn)
       end
-      notify_document_child_list(added: new_bn ? [new_bn] : [], removed: [old_bn])
+      notify_document_child_list(added: new_bn ? [new_bn] : [], removed: [old_bn],
+                                 previous_sibling: record_previous, next_sibling: record_next)
       old_child
     end
 
@@ -2404,6 +2415,13 @@ module Dommy
     # document element, a stray comment). Document-level mutation is observable
     # like any other — `observe(document, {childList: true})` is legal — so it
     # goes through the same pipeline rather than only nudging live ranges.
+    # Insert step 6 for a document parent: the reference child's previous
+    # sibling, or the document's last child when appending.
+    def document_insertion_previous_sibling(ref_bn)
+      node = ref_bn ? ref_bn.previous : @backend_doc.children.to_a.last
+      node && wrap_node(node)
+    end
+
     def notify_document_child_list(added: [], removed: [], previous_sibling: nil, next_sibling: nil)
       notify_child_list_mutation(
         target_node: @backend_doc,

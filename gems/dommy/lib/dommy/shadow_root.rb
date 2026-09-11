@@ -144,6 +144,10 @@ module Dommy
       ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
       ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
       ref_bn = reference_past_args(ref_bn, backend_nodes_in([node]))
+      # Insert step 6's insertion point, measured before the conversion moves
+      # anything (see Element#insert_before).
+      record_previous = insertion_previous_sibling(@__node__, ref_bn)
+      record_next = wrap_sibling(ref_bn)
       nodes = convert_for_insert([node], @__node__, ref_bn)
       ref_bn = nil if ref_bn && ref_bn.parent != @__node__
       if ref_bn
@@ -151,7 +155,8 @@ module Dommy
       else
         nodes.each { |n| @__node__.add_child(n) }
       end
-      notify_child_list(added: nodes)
+      notify_child_list(added: nodes, previous_sibling: record_previous,
+                        next_sibling: record_next)
       node
     end
 

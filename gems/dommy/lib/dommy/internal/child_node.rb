@@ -71,6 +71,12 @@ module Dommy
         ensure_parent_insertion_validity!(parent, args, @__node__, replacing: @__node__)
 
         removed = @__node__
+        # Replace step 4's previousSibling is THIS node's previous sibling, and
+        # the pre-insert path's is insert step 6's — both read before the
+        # conversion below detaches anything.
+        record_previous_replace = wrap_sibling(@__node__.previous_sibling)
+        record_previous_insert = insertion_previous_sibling(parent, viable_next)
+        record_next = wrap_sibling(viable_next)
         # WHATWG "replace" runs three removals/insertions in a fixed order:
         # adopt the replacement (step 6, which removes it from its old parent),
         # remove the old child (step 7), then insert (step 9) — and only the
@@ -84,14 +90,18 @@ module Dommy
           anchor = viable_next && viable_next.parent == parent ? viable_next : nil
           @document.__internal_ranges_will_insert__(parent, anchor, nodes.size)
           insert_child_nodes(nodes, anchor, parent)
-          notify_child_list(added: nodes, removed: [removed], target: parent)
+          notify_child_list(added: nodes, removed: [removed], target: parent,
+                            previous_sibling: record_previous_replace,
+                            next_sibling: record_next)
         else
           # `@__node__` was itself an argument, so the conversion already moved
           # it into `nodes`; pre-insert the set before the viable next sibling.
           anchor = viable_next && viable_next.parent == parent ? viable_next : nil
           @document.__internal_ranges_will_insert__(parent, anchor, nodes.size)
           insert_child_nodes(nodes, anchor, parent)
-          notify_child_list(added: nodes, target: parent)
+          notify_child_list(added: nodes, target: parent,
+                            previous_sibling: record_previous_insert,
+                            next_sibling: record_next)
         end
         nil
       end

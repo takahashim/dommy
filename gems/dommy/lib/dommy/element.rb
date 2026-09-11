@@ -232,6 +232,11 @@ module Dommy
       ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
       ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
       ref_bn = reference_past_args(ref_bn, backend_nodes_in([node]))
+      # Insert step 6's insertion point, taken before the conversion detaches
+      # anything, and step 9's record. A fragment is a parent like any other:
+      # an observer registered on it must see the insertion.
+      record_previous = insertion_previous_sibling(@__node__, ref_bn)
+      record_next = wrap_sibling(ref_bn)
       nodes = convert_for_insert([node], @__node__, ref_bn)
       ref_bn = nil if ref_bn && ref_bn.parent != @__node__
       if ref_bn
@@ -239,6 +244,8 @@ module Dommy
       else
         nodes.each { |n| @__node__.add_child(n) }
       end
+      notify_child_list(added: nodes, previous_sibling: record_previous,
+                        next_sibling: record_next)
       node
     end
 
@@ -3319,6 +3326,12 @@ module Dommy
         else
           unwrap_dom_node(reference)
         end
+      # Insert step 6's insertion point, measured BEFORE anything moves: the
+      # reference child's previous sibling, or the parent's last child when
+      # appending. For `parent.insertBefore(itsLastChild, null)` that is the
+      # node being inserted, which a post-hoc look at the new tree cannot give.
+      record_previous = insertion_previous_sibling(@__node__, ref_node)
+      record_next = wrap_sibling(ref_node)
       nodes = convert_for_insert([child], @__node__, ref_node)
       ref_node = nil if ref_node && ref_node.parent != @__node__
       if ref_node.nil?
@@ -3331,7 +3344,8 @@ module Dommy
         nodes.each { |node| ref_node.add_previous_sibling(node) }
       end
 
-      notify_child_list(added: nodes)
+      notify_child_list(added: nodes, previous_sibling: record_previous,
+                        next_sibling: record_next)
       child
     end
 

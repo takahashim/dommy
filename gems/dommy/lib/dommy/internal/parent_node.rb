@@ -272,6 +272,12 @@ module Dommy
         # from its old parent), then remove the old child (step 7), then insert
         # (step 9). Only the insert carries the live-range offset shift, and it
         # is measured against the tree both removals leave behind.
+        # Replace step 4's previousSibling is the OLD child's previous sibling,
+        # read before step 6 adopts the replacement (which removes it from this
+        # same parent when it is already a sibling). Reading it after would give
+        # the sibling one place further back.
+        record_previous = wrap_sibling(old_bn.previous_sibling)
+        record_next = wrap_sibling(anchor)
         nodes = detach_dom_nodes(new_child)
 
         removed = []
@@ -283,7 +289,8 @@ module Dommy
         anchor = nil if anchor && anchor.parent != @__node__
         @document.__internal_ranges_will_insert__(@__node__, anchor, nodes.size)
         insert_child_nodes(nodes, anchor, @__node__)
-        notify_child_list(added: nodes, removed: removed)
+        notify_child_list(added: nodes, removed: removed,
+                          previous_sibling: record_previous, next_sibling: record_next)
         nil
       end
 
