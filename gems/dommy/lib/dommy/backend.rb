@@ -233,8 +233,6 @@ module Dommy
         current.attribute_ns_info(attr_node)
       end
 
-      # The element's attribute nodes (each readable via attribute_ns_info).
-      # The single choke point so DOM code doesn't touch parser internals.
       # The attribute node whose QUALIFIED name is `qualified_name`, or nil.
       #
       # WHATWG's by-name family ("get an attribute by name", `setAttribute`,
@@ -245,6 +243,16 @@ module Dommy
         current.attr_by_qualified_name(node, qualified_name)
       end
 
+      # That attribute's VALUE, or nil when there is no such attribute. The same
+      # match without an attribute node in hand, for the two readers that only
+      # ever wanted the value — `getAttribute` and `hasAttribute` — which run on
+      # every CSS match and every reflected IDL attribute.
+      def attr_value_by_qualified_name(node, qualified_name)
+        current.attr_value_by_qualified_name(node, qualified_name)
+      end
+
+      # The element's attribute nodes (each readable via attribute_ns_info).
+      # The single choke point so DOM code doesn't touch parser internals.
       def attribute_nodes(node)
         current.attribute_nodes(node)
       end

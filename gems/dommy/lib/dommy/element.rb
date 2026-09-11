@@ -1792,7 +1792,7 @@ module Dommy
       # element carrying only `xml:b` counts as not having `b`. The backend's
       # `node.key?` answers by local name and would report it present.
       key = normalize_attr_key(name)
-      present = !Backend.attr_by_qualified_name(@__node__, key).nil?
+      present = !Backend.attr_value_by_qualified_name(@__node__, key).nil?
       desired = force.nil? ? !present : !!force
       if desired
         set_attribute(key, "") unless present
@@ -3126,7 +3126,7 @@ module Dommy
     def get_attribute(name)
       return nil if name.nil?
 
-      Backend.attr_by_qualified_name(@__node__, normalize_attr_key(name))&.value
+      Backend.attr_value_by_qualified_name(@__node__, normalize_attr_key(name))
     end
 
     def set_attribute(name, value)
@@ -3171,7 +3171,7 @@ module Dommy
     def has_attribute?(name)
       return false if name.nil?
 
-      !Backend.attr_by_qualified_name(@__node__, normalize_attr_key(name)).nil?
+      !Backend.attr_value_by_qualified_name(@__node__, normalize_attr_key(name)).nil?
     end
 
     def remove_attribute(name)
