@@ -23,6 +23,16 @@ module Dommy
         @observers.select { |observer| observer.matches_wrapped?(target_wrapped) }
       end
 
+      # The same observers, in the order WHATWG reaches their registrations:
+      # walking the target's inclusive ancestors from the target upward. Ties
+      # (several registrations on the same node) keep registration order.
+      def observers_matching_in_order(target_wrapped)
+        chain = ObserverMatcher.inclusive_ancestors(target_wrapped)
+        observers_matching(target_wrapped).sort_by.with_index do |observer, index|
+          [observer.matching_chain_index(chain, target_wrapped) || chain.size, index]
+        end
+      end
+
       def all
         @observers.dup
       end

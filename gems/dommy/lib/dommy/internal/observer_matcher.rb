@@ -33,6 +33,30 @@ module Dommy
 
         document.contains?(target_wrapped)
       end
+
+      # WHATWG "queue a mutation record" step 2: the target's inclusive
+      # ancestors, nearest first. Steps 3-4 walk this list in order, and the
+      # observers are appended to the pending set in that order — which is the
+      # order their callbacks run at the microtask checkpoint.
+      def inclusive_ancestors(target_wrapped)
+        chain = []
+        node = target_wrapped
+        # A malformed tree must not hang the walk.
+        4096.times do
+          break if node.nil?
+
+          chain << node
+          node = node.respond_to?(:parent_node) ? node.parent_node : nil
+        end
+        chain
+      end
+
+      # Wrappers for the same node are not always the same Ruby object.
+      def same_node?(a, b)
+        return false if a.nil? || b.nil?
+
+        a.equal?(b) || a == b
+      end
     end
   end
 end

@@ -131,6 +131,30 @@ module Dommy
       transient && transient[:source]
     end
 
+    # The index in `chain` (the target's inclusive ancestors, nearest first) of
+    # the nearest node this observer has a matching registration on, or nil.
+    # WHATWG notifies observers in this order, so it decides which callback runs
+    # first when several observers see the same mutation.
+    def matching_chain_index(chain, target_wrapped)
+      chain.each_with_index do |node, index|
+        on_node = @observed.any? do |e|
+          observed_wrapped = e[:target]
+          next false unless Internal::ObserverMatcher.same_node?(observed_wrapped, node)
+
+          Internal::ObserverMatcher.same_node?(node, target_wrapped) || e[:subtree]
+        end
+        return index if on_node
+
+        # A transient registered observer lives in the removed node's own
+        # registered observer list, so it is reached at that node.
+        transient = @transients.any? do |t|
+          Internal::ObserverMatcher.same_node?(t[:root], node)
+        end
+        return index if transient
+      end
+      nil
+    end
+
     # Register a transient registered observer for a node just removed from an
     # observed subtree (see @transients). Carries the matched registration's
     # options so subsequent mutations inside the removed subtree record the same

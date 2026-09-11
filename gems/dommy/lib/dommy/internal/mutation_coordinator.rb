@@ -302,7 +302,7 @@ module Dommy
         # removal primitive (`Document#detach_node`), not here: that step is not
         # guarded by suppressObservers, so it must also run for the removals
         # that queue no record.
-        @observer_manager.observers_matching(target).each do |observer|
+        @observer_manager.observers_matching_in_order(target).each do |observer|
           entry = observer.find_matching_entry(target)
           next unless entry
 
@@ -325,7 +325,7 @@ module Dommy
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
 
-        @observer_manager.observers_matching(target).each do |observer|
+        @observer_manager.observers_matching_in_order(target).each do |observer|
           entry = observer.find_matching_entry(target)
           next unless entry && entry[:attributes]
 
@@ -352,7 +352,7 @@ module Dommy
         target = @document.wrap_node(target_node)
         return nil unless target
 
-        @observer_manager.observers_matching(target).each do |observer|
+        @observer_manager.observers_matching_in_order(target).each do |observer|
           entry = observer.find_matching_entry(target)
           next unless entry && entry[:character_data]
 
