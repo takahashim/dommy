@@ -3252,19 +3252,16 @@ module Dommy
       nil
     end
 
-    # The list of options gained (`arrived`: the option / optgroup backend nodes
-    # that landed in it, in tree order) or lost members. HTML: an option added
-    # to the list with its selectedness already true sets every other option's
-    # to false — so of several arriving selected, the last in tree order wins,
-    # wherever in the list they landed — and then the list settles.
+    # The list of options gained or lost members. `arrived` is the options that
+    # landed in it, in tree order (an arriving optgroup having already been
+    # expanded into the options it carried). HTML: an option added to the list
+    # with its selectedness already true sets every other option's to false — so
+    # of several arriving selected, the last in tree order wins, wherever in the
+    # list they landed — and then the list settles.
     def __internal_options_changed__(arrived)
       unless multiple
-        options_in = arrived.flat_map { |node| node.name == "option" ? [node] : node.css("option").to_a }
-        winner = options_in.reverse_each.find do |node|
-          option = @document.wrap_node(node)
-          option.respond_to?(:selected) && option.selected
-        end
-        __internal_deselect_others__(@document.wrap_node(winner)) if winner
+        winner = arrived.reverse_each.find { |option| option.respond_to?(:selected) && option.selected }
+        __internal_deselect_others__(winner) if winner
       end
       __internal_settle_selectedness__
     end

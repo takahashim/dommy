@@ -206,7 +206,7 @@ module Dommy
         if owner
           arrived = added_nodes.select { |node| option_list_member?(node) }
           if !arrived.empty? || removed_nodes.any? { |node| option_list_member?(node) }
-            @document.wrap_node(owner)&.__internal_options_changed__(arrived)
+            @document.wrap_node(owner)&.__internal_options_changed__(arrived_options(arrived))
           end
         end
 
@@ -237,6 +237,17 @@ module Dommy
 
       def option_list_member?(node)
         node.respond_to?(:element?) && node.element? && %w[option optgroup].include?(node.name)
+      end
+
+      # The options an insertion brought into a select's list, wrapped, in tree
+      # order: an arriving option is itself, an arriving optgroup contributes
+      # the options it carries. The backend query stays here, where the rest of
+      # the post-insertion scanning already lives, so the select is handed
+      # elements rather than nodes to go looking through.
+      def arrived_options(arrived)
+        arrived.flat_map { |node|
+          node.name == "option" ? [node] : node.css("option").to_a
+        }.filter_map { |node| @document.wrap_node(node) }
       end
 
       # Fire MutationObserver childList records
