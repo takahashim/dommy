@@ -1645,6 +1645,7 @@ module Dommy
       record_next = ref && wrap_node(ref)
       cross_document = !Backend.moves_nodes_across_documents? &&
         new_child.respond_to?(:document) && !new_child.document.equal?(self)
+      fragment = new_child.is_a?(Dommy::Fragment)
 
       # Same document: WHATWG replace adopts the incoming node — which removes
       # it from whatever parent it has — BEFORE removing the child it replaces,
@@ -1653,19 +1654,34 @@ module Dommy
       # Cross-document is deferred instead: a doctype has to be re-created in
       # this backend, and Makiri's fail-closed guard refuses a second doctype,
       # so the old one must be gone before the new one is made.
-      new_bn = adopted_backend_node(new_child) unless cross_document
+      #
+      # A DocumentFragment has nothing to adopt at this point: what gets
+      # inserted is its children, and insert step 4 takes them out later, after
+      # step 7 has removed the child being replaced.
+      new_bn = adopted_backend_node(new_child) if !cross_document && !fragment
+      # Insert step 2's count, taken while the fragment still holds its children.
+      count = document_insertion_count([new_child])
       detach_node(old_bn)
-      # WHATWG "replace" removes the old child (step 10) before the insert
-      # (step 12), so step 5 measures `ref` in the tree the removal leaves.
-      __internal_ranges_will_insert__(@backend_doc, ref && ref.parent == @backend_doc ? ref : nil, 1)
-      if cross_document
-        new_child = adopt_node(new_child)
-        new_bn = backend_node(new_child)
+      # Insert step 4: a fragment's children are REMOVED from it, which runs the
+      # live range and NodeIterator pre-remove steps and queues a childList
+      # record on the fragment. Then step 5 shifts the ranges on this document
+      # by the count. WHATWG "replace" removes the old child (step 7) before the
+      # insert (step 9), so step 5 measures `ref` in the tree the removal leaves.
+      nodes =
+        if fragment
+          document_insertion_nodes([new_child])
+        elsif cross_document
+          new_child = adopt_node(new_child)
+          bn = backend_node(new_child)
+          bn ? [bn] : []
+        else
+          new_bn ? [new_bn] : []
+        end
+      __internal_ranges_will_insert__(@backend_doc, ref && ref.parent == @backend_doc ? ref : nil, count)
+      nodes.each do |bn|
+        ref && ref.parent == @backend_doc ? ref.add_previous_sibling(bn) : @backend_doc.add_child(bn)
       end
-      if new_bn
-        ref && ref.parent == @backend_doc ? ref.add_previous_sibling(new_bn) : @backend_doc.add_child(new_bn)
-      end
-      notify_document_child_list(added: new_bn ? [new_bn] : [], removed: [old_bn],
+      notify_document_child_list(added: nodes, removed: [old_bn],
                                  previous_sibling: record_previous, next_sibling: record_next)
       old_child
     end
