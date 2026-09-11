@@ -1158,11 +1158,11 @@ module Dommy
     # CSSOM getPropertyPriority: "important" for a declaration flagged
     # `!important`, "" otherwise (including for an absent property).
     def get_property_priority(name)
-      declarations[name.to_s]&.last.to_s
+      declarations[property_key(name)]&.last.to_s
     end
 
     def get_property_value(name)
-      properties[name.to_s].to_s
+      properties[property_key(name)].to_s
     end
 
     def length
@@ -1176,7 +1176,7 @@ module Dommy
       if key.is_a?(Integer)
         properties.keys[key]
       else
-        properties[key.to_s]
+        properties[property_key(key)]
       end
     end
 
@@ -1260,7 +1260,7 @@ module Dommy
     # Public: `method_missing` treats every unknown name as a CSS property, so a
     # private CSSOM method would be silently swallowed rather than called.
     def set_property(name, value, priority = nil)
-      key = name.to_s
+      key = property_key(name)
       decls = declarations
       if value.nil? || value.to_s.empty?
         # Step 3 runs BEFORE the priority check, so an empty value removes the
@@ -1291,7 +1291,7 @@ module Dommy
     end
 
     def remove_property(name)
-      key = name.to_s
+      key = property_key(name)
       decls = declarations
       # Removing a property that was not set changes nothing, so the style
       # attribute is left as it is — no rewrite, and no mutation record.
@@ -1303,6 +1303,12 @@ module Dommy
     end
 
     private
+
+    # CSSOM normalizes every property name it is handed, the same way the
+    # declaration block's own names are normalized.
+    def property_key(name)
+      Internal::CSS::Parser.property_name(name)
+    end
 
     def method_to_css_name(name)
       s = name.to_s.sub(/=\z/, "")

@@ -77,6 +77,17 @@ class TestStyle < Minitest::Test
     assert_equal("color: red;", @el.style.css_text)
   end
 
+  # The name a reader or writer is HANDED is normalized the same way, so the
+  # two spellings address one property.
+  def test_a_property_name_argument_is_case_insensitive_too
+    @el.style.set_property("COLOR", "red")
+    assert_equal("color: red;", @el.get_attribute("style"))
+    assert_equal("red", @el.style.get_property_value("COLOR"))
+    assert_equal("red", @el.style["Color"])
+    @el.style.remove_property("Color")
+    assert_equal("", @el.style.get_property_value("color"))
+  end
+
   # ...except a custom property's, which is case-SENSITIVE: `--Foo` and `--foo`
   # are two different properties.
   def test_a_custom_property_name_keeps_its_case

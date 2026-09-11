@@ -268,10 +268,7 @@ module Dommy
           name, value = chunk.split(":", 2)
           return nil unless name && value
 
-          name = name.strip
-          # A property name is ASCII case-insensitive; a CUSTOM property's is
-          # not (`--Foo` and `--foo` are two properties).
-          name = name.downcase unless name.start_with?("--")
+          name = property_name(name.strip)
           value = value.strip
           # Split the `!important` flag off the value before validating it, so
           # the flag round-trips through cssText without leaking into the value.
@@ -283,6 +280,15 @@ module Dommy
           return nil if name.empty? || !valid_declaration_value?(value)
 
           Declaration.new(name, value, important)
+        end
+
+        # CSSOM property-name normalization, for a name read from a declaration
+        # block or handed to `getPropertyValue` / `setProperty` alike: ASCII
+        # case-insensitive, except a CUSTOM property, whose name is
+        # case-SENSITIVE (`--Foo` and `--foo` are two properties).
+        def property_name(name)
+          str = name.to_s
+          str.start_with?("--") ? str : str.downcase
         end
 
         # A value is usable when it is non-empty, has no bare colon outside

@@ -293,17 +293,17 @@ module Dommy
     end
 
     def get_property_value(name)
-      entry = @props[name.to_s]
+      entry = @props[property_key(name)]
       entry ? entry[:value] : ""
     end
 
     def get_property_priority(name)
-      entry = @props[name.to_s]
+      entry = @props[property_key(name)]
       entry ? entry[:priority] : ""
     end
 
     def set_property(name, value, priority = nil)
-      key = name.to_s
+      key = property_key(name)
       if value.nil? || value.to_s.empty?
         # CSSOM step 3 — an empty value removes the declaration, and it runs
         # before the priority check, so the priority is irrelevant here.
@@ -321,7 +321,7 @@ module Dommy
     end
 
     def remove_property(name)
-      removed = @props.delete(name.to_s)
+      removed = @props.delete(property_key(name))
       flush!
       removed ? removed[:value] : ""
     end
@@ -410,6 +410,13 @@ module Dommy
     end
 
     private
+
+    # CSSOM normalizes every property name it is handed (see
+    # Internal::CSS::Parser.property_name); `css_name` below is the separate
+    # camelCase / snake_case → kebab conversion for the IDL accessors.
+    def property_key(name)
+      Internal::CSS::Parser.property_name(name)
+    end
 
     def css_name(name)
       str = name.to_s
