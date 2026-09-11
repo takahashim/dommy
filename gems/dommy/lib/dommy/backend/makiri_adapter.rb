@@ -341,28 +341,15 @@ module Dommy
       #
       # This sits under `getAttribute` / `hasAttribute` / `setAttribute` /
       # `removeAttribute`, so it runs on the hottest path in the library — every
-      # CSS match, every reflected IDL attribute. Makiri does the scan natively
-      # when it can; the Ruby fallback below wraps one Attr object per attribute
-      # on the element and calls back into the extension for each `name`, which
-      # costs about five times as much.
-      if ::Makiri::HTML::NodeMethods.method_defined?(:attribute_by_qualified_name)
-        def attr_by_qualified_name(node, qualified_name)
-          node.attribute_by_qualified_name(qualified_name.to_s)
-        end
+      # CSS match, every reflected IDL attribute — and Makiri does the scan
+      # natively (0.9.0). The value-returning spelling is what the two readers
+      # that only want the value ask for: it wraps no Attr at all.
+      def attr_by_qualified_name(node, qualified_name)
+        node.attribute_by_qualified_name(qualified_name.to_s)
+      end
 
-        def attr_value_by_qualified_name(node, qualified_name)
-          node.attribute_value_by_qualified_name(qualified_name.to_s)
-        end
-      else
-        # makiri < 0.9.0.
-        def attr_by_qualified_name(node, qualified_name)
-          want = qualified_name.to_s
-          node.attribute_nodes.find { |a| a.name == want }
-        end
-
-        def attr_value_by_qualified_name(node, qualified_name)
-          attr_by_qualified_name(node, qualified_name)&.value
-        end
+      def attr_value_by_qualified_name(node, qualified_name)
+        node.attribute_value_by_qualified_name(qualified_name.to_s)
       end
 
       # Attribute node matching (namespace, local name) case-sensitively; a
