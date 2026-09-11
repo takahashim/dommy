@@ -196,6 +196,18 @@ class TestSVGElements < Minitest::Test
     assert_equal("0 0 100 100", svg.get_attribute("viewBox"))
   end
 
+  # ...and ONLY that spelling: an SVG element compares attribute names
+  # verbatim, so a lower-cased read finds nothing. The by-qualified-name lookup
+  # under these readers is byte-exact, which is what holds this up now.
+  def test_svg_attribute_names_are_compared_verbatim
+    svg = @doc.query_selector("svg")
+    assert_nil(svg.get_attribute("viewbox"))
+    refute(svg.has_attribute?("viewbox"))
+    assert(svg.has_attribute?("viewBox"))
+    refute(svg.toggle_attribute("viewbox", false))
+    assert_equal("0 0 100 100", svg.get_attribute("viewBox"))
+  end
+
   def test_line_coords
     line = @doc.query_selector("line")
     assert_equal("0", line.x1)

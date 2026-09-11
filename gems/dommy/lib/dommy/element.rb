@@ -3470,16 +3470,6 @@ module Dommy
       case_sensitive_attribute_names? ? s : s.downcase
     end
 
-    # The HTML backend looks an attribute up ASCII case-insensitively, which is
-    # what an HTML element wants — but an element whose attribute names are
-    # compared verbatim (a non-HTML namespace, or any element in an XML document)
-    # must not let `[viewbox]` find `viewBox`. Confirm the qualified name is
-    # spelled exactly as asked. Only reached on a hit, and only for those
-    # elements, so the ordinary HTML read still costs one backend lookup.
-    def exact_attribute_name?(qualified_name)
-      Backend.attribute_nodes(@__node__).any? { |attr| attr.name == qualified_name }
-    end
-
     # WebIDL nullable-DOMString namespace argument (*AttributeNS): JS null and
     # undefined, and the empty string, all denote the null namespace.
     def namespace_arg(namespace)
