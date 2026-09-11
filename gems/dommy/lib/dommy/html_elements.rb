@@ -2359,18 +2359,13 @@ module Dommy
       owner.is_a?(HTMLSelectElement) ? owner : nil
     end
 
-    # Keep the `selected` content attribute and selectedness in sync (while not
-    # dirty) by hooking the attribute mutators, the way <details> tracks `open`.
-    def set_attribute(name, value)
-      result = super
-      sync_selectedness_from_attribute if name.to_s.casecmp?("selected")
-      result
-    end
+    # HTML's attribute change steps for an option: while not dirty, selectedness
+    # follows the `selected` content attribute.
+    def __internal_attribute_changed__(name, _old_value, _new_value, namespace)
+      return nil unless namespace.nil? && name.casecmp?("selected")
 
-    def remove_attribute(name)
-      result = super
-      sync_selectedness_from_attribute if name.to_s.casecmp?("selected")
-      result
+      sync_selectedness_from_attribute
+      nil
     end
 
     # The `selected` content attribute came or went: while not dirty,
@@ -2394,6 +2389,16 @@ module Dommy
 
     def text=(v)
       self.text_content = v
+    end
+
+    # HTML's "disabled" concept for an option: the attribute on the option
+    # itself, or on the optgroup it sits in. Asked by the owning select when it
+    # looks for the first option it may select.
+    def __internal_disabled_for_selection__
+      return true if disabled
+
+      parent = parent_element
+      parent.is_a?(HTMLOptGroupElement) && parent.disabled
     end
 
     private
@@ -3141,18 +3146,16 @@ module Dommy
       n.positive? ? n : (multiple ? 4 : 1)
     end
 
-    # Losing `multiple`, or a change of `size`, changes which selectedness
-    # rules apply to the list: settle it again.
-    def set_attribute(name, value)
-      result = super
-      __internal_settle_selectedness__ if %w[multiple size].include?(name.to_s.downcase)
-      result
-    end
+    # Attributes that decide which selectedness rules the list lives under.
+    SELECTEDNESS_ATTRIBUTES = %w[multiple size].freeze
 
-    def remove_attribute(name)
-      result = super
-      __internal_settle_selectedness__ if %w[multiple size].include?(name.to_s.downcase)
-      result
+    # HTML's attribute change steps for a select: losing `multiple`, or a change
+    # of `size`, changes which rules apply to the list, so settle it again.
+    def __internal_attribute_changed__(name, _old_value, _new_value, namespace)
+      return nil unless namespace.nil? && SELECTEDNESS_ATTRIBUTES.any? { |a| name.casecmp?(a) }
+
+      __internal_settle_selectedness__
+      nil
     end
 
     # `options` — all <option> descendants (including those inside
@@ -3242,19 +3245,16 @@ module Dommy
       nil
     end
 
-    # The list of options gained (`arrived`: the option / optgroup backend nodes
-    # that landed in it, in tree order) or lost members. HTML: an option added
-    # to the list with its selectedness already true sets every other option's
-    # to false — so of several arriving selected, the last in tree order wins,
-    # wherever in the list they landed — and then the list settles.
+    # The list of options gained or lost members. `arrived` is the options that
+    # landed in it, in tree order (an arriving optgroup having already been
+    # expanded into the options it carried). HTML: an option added to the list
+    # with its selectedness already true sets every other option's to false — so
+    # of several arriving selected, the last in tree order wins, wherever in the
+    # list they landed — and then the list settles.
     def __internal_options_changed__(arrived)
       unless multiple
-        options_in = arrived.flat_map { |node| node.name == "option" ? [node] : node.css("option").to_a }
-        winner = options_in.reverse_each.find do |node|
-          option = @document.wrap_node(node)
-          option.respond_to?(:selected) && option.selected
-        end
-        __internal_deselect_others__(@document.wrap_node(winner)) if winner
+        winner = arrived.reverse_each.find { |option| option.respond_to?(:selected) && option.selected }
+        __internal_deselect_others__(winner) if winner
       end
       __internal_settle_selectedness__
     end
@@ -3282,7 +3282,7 @@ module Dommy
       opts = options.to_a
       chosen = opts.select { |o| o.respond_to?(:selected) && o.selected }
       if chosen.empty?
-        first = opts.find { |o| o.respond_to?(:selected) && !option_disabled?(o) } if display_size == 1
+        first = opts.find { |o| selectable?(o) } if display_size == 1
         first&.__internal_write_selectedness__(true)
       elsif chosen.length > 1
         chosen[0...-1].each { |o| o.__internal_write_selectedness__(false) }
@@ -3306,6 +3306,14 @@ module Dommy
       target&.__internal_write_selectedness__(true, dirty: true)
       nil
     end
+
+    # An option this select may settle on: one that is not disabled, itself or
+    # through its optgroup. The option answers that; the select only asks.
+    def selectable?(option)
+      option.respond_to?(:__internal_disabled_for_selection__) &&
+        !option.__internal_disabled_for_selection__
+    end
+    private :selectable?
 
     # `select.item(i)` — returns the option at index i.
     def item(i)
@@ -3456,16 +3464,6 @@ module Dommy
       end
     end
 
-    private
-
-    # An option is disabled for selection when it carries `disabled` itself or
-    # sits in a disabled optgroup (HTML "disabled" concept for option).
-    def option_disabled?(option)
-      return true if option.respond_to?(:disabled) && option.disabled
-
-      parent = option.parent_element
-      parent.is_a?(HTMLOptGroupElement) && parent.disabled
-    end
   end
 
   # `<dialog>` — `open` reflected boolean, `show()` / `showModal()` /
@@ -3569,17 +3567,21 @@ module Dommy
       set_reflected_boolean("open", v)
     end
 
-    def set_attribute(name, value)
-      result = with_toggle_on_open_change { super }
-      # Renaming moves this element into a different exclusive group. The member
-      # already open in that group keeps its state, so it is this element that
-      # closes — the same rule as arriving there by insertion.
-      yield_to_open_group_peer if name.to_s.casecmp?("name")
-      result
-    end
+    # HTML's attribute change steps for a details element.
+    def __internal_attribute_changed__(name, old_value, new_value, namespace)
+      return nil unless namespace.nil?
 
-    def remove_attribute(name)
-      with_toggle_on_open_change { super }
+      if name.casecmp?("open")
+        # A boolean attribute: its PRESENCE is the state, so a change of value
+        # (`open=""` to `open="x"`) is not a toggle.
+        announce_open_change(!old_value.nil?, !new_value.nil?)
+      elsif name.casecmp?("name")
+        # Renaming moves this element into a different exclusive group. The
+        # member already open in that group keeps its state, so it is this
+        # element that closes — the same rule as arriving there by insertion.
+        yield_to_open_group_peer
+      end
+      nil
     end
 
     # Run the insertion steps over details elements that arrived together — a
@@ -3623,17 +3625,15 @@ module Dommy
 
     private
 
-    def with_toggle_on_open_change
-      was = open
-      result = yield
-      if open != was
-        # This element's own toggle is queued first; only then do the other open
-        # members of its exclusive group (same `name`, same tree scope) close and
-        # queue theirs, so the group's events arrive in the order it settled.
-        queue_toggle_event(was, open)
-        close_open_group_peers if open
-      end
-      result
+    def announce_open_change(was, now)
+      return nil if was == now
+
+      # This element's own toggle is queued first; only then do the other open
+      # members of its exclusive group (same `name`, same tree scope) close and
+      # queue theirs, so the group's events arrive in the order it settled.
+      queue_toggle_event(was, now)
+      close_open_group_peers if now
+      nil
     end
 
     # WHATWG details name-group exclusivity: at most one details per (name, tree

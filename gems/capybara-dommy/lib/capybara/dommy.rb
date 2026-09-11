@@ -8,6 +8,7 @@ require_relative "dommy/version"
 require_relative "dommy/errors"
 require_relative "dommy/configuration"
 require_relative "dommy/text_extractor"
+require_relative "dommy/modal"
 require_relative "dommy/node"
 require_relative "dommy/driver"
 
