@@ -155,7 +155,6 @@
       "execCommand",
       "fgColor",
       "linkColor",
-      "moveBefore",
       "onabort",
       "onauxclick",
       "onbeforeinput",
@@ -241,9 +240,6 @@
       "releaseEvents",
       "vlinkColor"
     ],
-    "DocumentFragment": [
-      "moveBefore"
-    ],
     "Element": [
       "ariaActiveDescendantElement",
       "ariaAtomic",
@@ -298,7 +294,6 @@
       "ariaValueNow",
       "ariaValueText",
       "customElementRegistry",
-      "moveBefore",
       "setHTML",
       "setHTMLUnsafe"
     ],

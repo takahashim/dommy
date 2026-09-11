@@ -23,6 +23,24 @@ module Dommy
         @observers.select { |observer| observer.matches_wrapped?(target_wrapped) }
       end
 
+      # The same observers, in the order WHATWG reaches their registrations:
+      # walking the target's inclusive ancestors from the target upward. Ties
+      # (several registrations on the same node) keep registration order.
+      def observers_matching_in_order(target_wrapped, type = nil, name = nil, namespace = nil)
+        # Every mutation asks, and most documents never register an observer.
+        # Walking the target's ancestors first would make that walk — one wrapper
+        # per level, on every characterData edit and every setAttribute — the
+        # price of merely having a MutationObserver API.
+        return [] if @observers.empty?
+
+        chain = ObserverMatcher.inclusive_ancestors(target_wrapped)
+        keyed = @observers.filter_map do |observer|
+          key = observer.matching_key(chain, target_wrapped, type, name, namespace)
+          key && [key, observer]
+        end
+        keyed.sort_by { |key, _| key }.map { |_, observer| observer }
+      end
+
       def all
         @observers.dup
       end

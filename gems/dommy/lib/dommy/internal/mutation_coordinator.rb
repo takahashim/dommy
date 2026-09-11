@@ -296,16 +296,17 @@ module Dommy
         )
         # Only observers whose matching registration requested childList get the
         # record (an `attributes`/`characterData`-only observer must not — e.g.
-        # `observe(t, {childList: false, attributes: true})`). A subtree
-        # registration that matched ALSO gains a transient registered observer
-        # for each removed node, so mutations within the just-removed subtree
-        # (before the next microtask checkpoint) are still observed.
-        @observer_manager.observers_matching(target).each do |observer|
-          entry = observer.find_matching_entry(target)
+        # `observe(t, {childList: false, attributes: true})`).
+        #
+        # The transient registered observers of remove step 20 are added by the
+        # removal primitive (`Document#detach_node`), not here: that step is not
+        # guarded by suppressObservers, so it must also run for the removals
+        # that queue no record.
+        @observer_manager.observers_matching_in_order(target, :child_list).each do |observer|
+          entry = observer.find_matching_entry(target, type: :child_list)
           next unless entry
 
-          observer.enqueue(record) if entry[:child_list]
-          wrapped_removed.each { |removed| observer.add_transient(removed, entry) } if entry[:subtree]
+          observer.enqueue(record)
         end
 
         nil
@@ -313,23 +314,30 @@ module Dommy
 
       # Fire MutationObserver attribute records
       def notify_attribute_mutation(target_node:, attribute_name:, old_value:, namespace: nil)
-        # A namespaced attribute keeps its local name as-is; a plain HTML
-        # attribute is lower-cased.
-        attr = namespace ? attribute_name.to_s : attribute_name.to_s.downcase
+        # The name arrives already resolved: `setAttribute` lower-cases it only
+        # when the element is in the HTML namespace AND its node document is an
+        # HTML document (its step 2), and the namespace setters pass the local
+        # name through. Lower-casing again here would rename an attribute on,
+        # say, an SVG element, which keeps `A` as `A`.
+        attr = attribute_name.to_s
         @document.__internal_note_attribute_mutation__(attr, target_node)
         target = @document.wrap_node(target_node)
         return nil unless target
-        new_value = target_node[attr]
+        # Namespace-exact: `target_node[attr]` indexes by local name and would
+        # answer for a prefixed attribute with the same one.
+        new_value = Backend.get_attribute_ns(target_node, namespace, attr)
 
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
 
-        @observer_manager.observers_matching(target).each do |observer|
-          entry = observer.find_matching_entry(target)
-          next unless entry && entry[:attributes]
-
-          filter = entry[:attribute_filter]
-          next if filter && !filter.include?(attr)
+        # The attributeFilter is part of the per-registration condition, so it is
+        # applied inside `entry_wants?` rather than to the observer as a whole:
+        # a filtered registration must not hide another one of the same observer
+        # that accepts this attribute.
+        @observer_manager.observers_matching_in_order(target, :attributes, attr, namespace)
+                         .each do |observer|
+          next unless observer.find_matching_entry(target, type: :attributes, name: attr,
+                                                           namespace: namespace)
 
           observer.enqueue(
             MutationRecord.new(
@@ -337,7 +345,7 @@ module Dommy
               target: target,
               attribute_name: attr,
               attribute_namespace: namespace,
-              old_value: entry[:attribute_old_value] ? old_value : nil
+              old_value: observer.records_old_value?(target, :attributes, attr, namespace) ? old_value : nil
             )
           )
         end
@@ -351,15 +359,15 @@ module Dommy
         target = @document.wrap_node(target_node)
         return nil unless target
 
-        @observer_manager.observers_matching(target).each do |observer|
-          entry = observer.find_matching_entry(target)
-          next unless entry && entry[:character_data]
+        @observer_manager.observers_matching_in_order(target, :character_data).each do |observer|
+          entry = observer.find_matching_entry(target, type: :character_data)
+          next unless entry
 
           observer.enqueue(
             MutationRecord.new(
               type: "characterData",
               target: target,
-              old_value: entry[:character_data_old_value] ? old_value : nil
+              old_value: observer.records_old_value?(target, :character_data) ? old_value : nil
             )
           )
         end

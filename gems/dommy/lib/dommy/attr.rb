@@ -71,11 +71,10 @@ module Dommy
 
     def value
       if @owner
-        if @namespace_uri
-          Backend.get_attribute_ns(@owner.__dommy_backend_node__, @namespace_uri, @local_name).to_s
-        else
-          @owner.__dommy_backend_node__[@name].to_s
-        end
+        # Both branches go through the namespace-aware read: the backend's
+        # `node[name]` indexes by local name, so a null-namespace `b` would read
+        # back the value of a prefixed `xml:b` sitting on the same element.
+        Backend.get_attribute_ns(@owner.__dommy_backend_node__, @namespace_uri, @local_name).to_s
       else
         @detached_value
       end

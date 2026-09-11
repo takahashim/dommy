@@ -4319,6 +4319,7 @@ module Dommy
         anchor = list[idx]
         section = anchor.__dommy_backend_node__.parent
         if section
+          @document.__internal_ranges_will_insert__(section, anchor.__dommy_backend_node__, 1)
           anchor.__dommy_backend_node__.add_previous_sibling(tr.__dommy_backend_node__)
           @document.notify_child_list_mutation(target_node: section, added_nodes: [tr.__dommy_backend_node__], removed_nodes: [])
         end

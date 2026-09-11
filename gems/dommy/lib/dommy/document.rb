@@ -25,6 +25,12 @@ module Dommy
   #    so it stays tree-DISCONNECTED per its detached nature.
   class DocumentType
     include Node
+    include Internal::LeafNode
+    # A node-backed doctype is an ordinary ChildNode of the document, so
+    # `before` / `after` / `replaceWith` go through the shared implementation —
+    # which runs the parent's ensure-pre-insertion-validity and the live-range
+    # insert steps, neither of which the old doctype-specific path did.
+    include Internal::ChildNode
 
     # Mixed into a node-backed doctype only, so a synthetic one does NOT respond
     # to `__dommy_backend_node__` — leaving the Node mixin's guards (which key off
@@ -93,26 +99,38 @@ module Dommy
     end
 
     def before(*nodes)
-      return nil unless @owner_document
+      return synthetic_insert(nodes, after: false) unless @__node__
 
-      @owner_document.__internal_insert_at_doctype__(nodes, after: false)
-      nil
+      child_node_before(nodes)
     end
 
     def after(*nodes)
-      return nil unless @owner_document
+      return synthetic_insert(nodes, after: true) unless @__node__
 
-      @owner_document.__internal_insert_at_doctype__(nodes, after: true)
-      nil
+      child_node_after(nodes)
     end
 
     def replace_with(*nodes)
+      unless @__node__
+        synthetic_insert(nodes, after: false)
+        remove
+        return nil
+      end
+
+      child_node_replace_with(nodes)
+    end
+
+    # A synthetic doctype — the fallback for a backend that cannot create a
+    # doctype node — is not in the tree at all, so WHATWG's ChildNode methods
+    # would return at step 2. Dommy has always inserted around the document
+    # element instead; that stays until the fallback goes away.
+    def synthetic_insert(nodes, after:)
       return nil unless @owner_document
 
-      @owner_document.__internal_insert_at_doctype__(nodes, after: false)
-      remove
+      @owner_document.__internal_insert_at_doctype__(nodes, after: after)
       nil
     end
+    private :synthetic_insert
 
     def __js_get__(key)
       case key
@@ -174,6 +192,12 @@ module Dommy
     end
 
     include Bridge::Methods
+    # WHATWG's own wording for a doctype parent.
+    def leaf_insertion_message
+      "a DocumentType may not have children"
+    end
+    private :leaf_insertion_message
+
     js_methods %w[isEqualNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition contains
       cloneNode appendChild insertBefore removeChild replaceChild before after replaceWith remove
       lookupNamespaceURI lookupPrefix isDefaultNamespace
@@ -201,16 +225,14 @@ module Dommy
         get_root_node(args[0])
       when "compareDocumentPosition"
         compare_document_position(args[0])
-      when "appendChild", "insertBefore", "replaceChild"
-        # Pre-insert / replace step 1 rejects a non-parent context node with
-        # HierarchyRequestError before the reference-child check.
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::HierarchyRequestError, "a DocumentType may not have children"
+      when "appendChild"
+        append_child(args[0])
+      when "insertBefore"
+        insert_before(args[0], args[1])
+      when "replaceChild"
+        replace_child(args[0], args[1])
       when "removeChild"
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
+        remove_child(args[0])
       when "before"
         before(*args)
       when "after"
@@ -263,7 +285,16 @@ module Dommy
         rescue ArgumentError
           nil
         end
-      node ? DocumentType.new(backend_node: node, document: @document) : DocumentType.new(qn, pub, sys, owner_document: @document)
+      return DocumentType.new(qn, pub, sys, owner_document: @document) unless node
+
+      # Seed the wrapper cache, or the doctype reached later through the tree
+      # (document.childNodes, document.doctype, a NodeIterator) would be a
+      # DIFFERENT DocumentType object than the one createDocumentType returned,
+      # and `===` / `isSameNode` on the two would be false. Every other
+      # create* goes through the cache; this one built its wrapper directly.
+      wrapper = DocumentType.new(backend_node: node, document: @document)
+      @document.__internal_register_wrapper__(node, wrapper)
+      wrapper
     end
 
     # `hasFeature()` is a no-op that always returns true (DOM Standard).
@@ -317,6 +348,7 @@ module Dommy
       return unless node
 
       root = doc.backend_doc.root
+      doc.__internal_ranges_will_insert__(doc.backend_doc, root, 1)
       root ? root.add_previous_sibling(node) : doc.backend_doc.add_child(node)
     end
 
@@ -1297,6 +1329,7 @@ module Dommy
     # from the counts, since replace-all removes them first. `exclude` (replace)
     # is a current child to disregard. Raises HierarchyRequestError on violation.
     def ensure_document_insertion_validity!(args, child_bn, ignore_existing: false, exclude: nil)
+      ensure_not_self_insertion!(args)
       elements = 0
       doctypes = 0
       has_text = false
@@ -1351,6 +1384,31 @@ module Dommy
       end
     end
 
+    # Document's answer to the ParentNode hook a ChildNode mutation
+    # (`before` / `after` / `replaceWith`) calls on its parent. A Document
+    # parent skips the ancestor rule (it is never a descendant of anything) and
+    # instead carries step 6: at most one element child, no Text child, and a
+    # doctype only ahead of the document element. `replacing` is the child a
+    # `replaceWith` stands in for, which WHATWG "replace" disregards when
+    # counting the existing children.
+    def __internal_ensure_insertion_validity__(args, ref_bn, replacing: nil)
+      ensure_document_insertion_validity!(args, ref_bn, exclude: replacing)
+    end
+
+    # WHATWG "ensure pre-insertion validity" step 2 for a Document parent: node
+    # must not be a host-including inclusive ancestor of the parent. A document
+    # is an inclusive ancestor of itself and nothing else can be an ancestor of
+    # one, so this reduces to "you cannot insert the document into itself".
+    #
+    # It is step 2, so it precedes step 3's NotFoundError on the reference
+    # child: `document.replaceChild(document, x)` is a HierarchyRequestError
+    # even when x is not a child of the document.
+    def ensure_not_self_insertion!(args)
+      return unless args.any? { |a| a.equal?(self) }
+
+      raise DOMException::HierarchyRequestError, "Cannot insert a node as a descendant of itself"
+    end
+
     # Whether any element child precedes `child_bn` in the document's child list.
     def element_before_child?(existing, child_bn)
       idx = child_bn && existing.index { |c| c == child_bn }
@@ -1373,12 +1431,129 @@ module Dommy
       ensure_document_insertion_validity!([node], nil)
       return node unless node.respond_to?(:__dommy_backend_node__)
 
-      bn = adopted_backend_node(node)
-      return node unless bn
+      # An append has a null reference child, so insert step 5 shifts nothing.
+      nodes = document_insertion_nodes([node])
+      return node if nodes.empty?
 
-      @backend_doc.add_child(bn)
-      notify_document_child_list(added: [bn])
+      nodes.each { |bn| @backend_doc.add_child(bn) }
+      notify_document_child_list(added: nodes)
       node
+    end
+
+    # The Node / ParentNode mutation methods under their WHATWG names. The
+    # document's own child list has its own rules (at most one element, no Text,
+    # a doctype only ahead of the document element), so each forwards to the
+    # `document_*` implementation that carries them.
+    def insert_before(node, reference)
+      document_insert_before(node, reference)
+    end
+
+    def replace_child(new_child, old_child)
+      document_replace_child(new_child, old_child)
+    end
+
+    def remove_child(node)
+      document_remove_child(node)
+    end
+
+    def replace_children(*args)
+      document_replace_children(args)
+    end
+
+    def append(*args)
+      document_insert(args, prepend: false)
+    end
+
+    def prepend(*args)
+      document_insert(args, prepend: true)
+    end
+
+    # WHATWG ParentNode.moveBefore(node, child) with the DOCUMENT as the new
+    # parent. The move primitive's steps 5 and 6 bind only here: a Text node may
+    # not become a child of a document, and an Element may only be moved in when
+    # the document has no element child, the reference is not the doctype, and
+    # no doctype follows the reference.
+    #
+    # Spec: https://dom.spec.whatwg.org/#dom-parentnode-movebefore
+    def move_before(node, child = nil)
+      bn = move_backend_node(node)
+      ref_bn = move_backend_node(child)
+      ref_bn = ref_bn.next_sibling if ref_bn && bn && ref_bn == bn
+      ensure_document_move_validity!(node, bn, ref_bn)
+
+      old_parent = bn.parent
+      old_previous = bn.previous_sibling
+      old_next = bn.next_sibling
+      detach_node(bn)                                             # steps 10-11, 14
+      ref_bn = nil if ref_bn && ref_bn.parent != @backend_doc
+      __internal_ranges_will_insert__(@backend_doc, ref_bn, 1)    # step 16
+      new_previous = ref_bn ? ref_bn.previous_sibling : @backend_doc.children.to_a.last
+      ref_bn ? ref_bn.add_previous_sibling(bn) : @backend_doc.add_child(bn) # step 18
+      if old_parent
+        notify_child_list_mutation(
+          target_node: old_parent, added_nodes: [], removed_nodes: [bn],
+          previous_sibling: old_previous && wrap_node(old_previous),
+          next_sibling: old_next && wrap_node(old_next)
+        )
+      end
+      notify_document_child_list(added: [bn], previous_sibling: new_previous && wrap_node(new_previous),
+                                 next_sibling: ref_bn && wrap_node(ref_bn))
+      nil
+    end
+
+    # The backend node an argument to `moveBefore` stands for. A Dommy::Document
+    # has no `__dommy_backend_node__` of its own, but it is a node the algorithm
+    # has to see (step 2 rejects it, step 3 measures its parentage).
+    def move_backend_node(value)
+      return value.backend_doc if value.is_a?(Dommy::Document)
+      return nil unless value.respond_to?(:__dommy_backend_node__)
+
+      value.__dommy_backend_node__
+    end
+
+    # "Move" steps 1-6 with a document new parent.
+    def ensure_document_move_validity!(node, bn, ref_bn)
+      # Step 1 — the same root. A document is its own root, so this says the
+      # node must already be somewhere in this document.
+      root = bn
+      root = root.parent while root.respond_to?(:parent) && root.parent
+      # `==` and not `equal?`: a backend may hand back a fresh Ruby object for
+      # the same underlying node on every `parent` call.
+      unless bn && root == @backend_doc
+        raise DOMException::HierarchyRequestError,
+              "moveBefore requires the node and the new parent to share a root"
+      end
+
+      # Step 2 — a document is its own inclusive ancestor; nothing else can be
+      # an ancestor of one, so this reduces to "not the document itself".
+      ensure_not_self_insertion!([node])
+
+      # Step 3.
+      if ref_bn && ref_bn.parent != @backend_doc
+        raise DOMException::NotFoundError, "The reference child is not a child of this document."
+      end
+
+      # Step 4.
+      unless node.is_a?(Dommy::Element) || node.is_a?(Dommy::CharacterDataNode)
+        raise DOMException::HierarchyRequestError, "this node type cannot be moved"
+      end
+
+      # Step 5.
+      if node.is_a?(Dommy::CharacterDataNode) && node.node_type == 3
+        raise DOMException::HierarchyRequestError, "A Text node cannot be a child of a document."
+      end
+
+      return unless node.is_a?(Dommy::Element)
+
+      # Step 6. The counts are of the CURRENT children, so a document that
+      # already has a document element cannot take another element — not even
+      # by moving that same element to a different slot.
+      existing = @backend_doc.children.to_a
+      return unless existing.any? { |c| c.node_type == 1 } ||
+                    (ref_bn && ref_bn.node_type == 10) ||
+                    doctype_after_child?(existing, ref_bn)
+
+      raise DOMException::HierarchyRequestError, "An element cannot be moved here."
     end
 
     # ParentNode / Node mutation on the document's direct children (the doctype
@@ -1386,7 +1561,8 @@ module Dommy
     def document_insert(args, prepend:)
       ref_bn = prepend ? @backend_doc.children.first : nil
       ensure_document_insertion_validity!(args, ref_bn)
-      nodes = args.filter_map { |a| adopted_backend_node(a) }
+      __internal_ranges_will_insert__(@backend_doc, ref_bn, document_insertion_count(args))
+      nodes = document_insertion_nodes(args)
       if prepend && (first = @backend_doc.children.first)
         nodes.reverse_each { |n| first.add_previous_sibling(n) }
       else
@@ -1402,7 +1578,7 @@ module Dommy
       ensure_document_insertion_validity!(args, nil, ignore_existing: true)
       removed = @backend_doc.children.to_a
       removed.each { |child| detach_node(child) }
-      added = args.filter_map { |a| adopted_backend_node(a) }
+      added = document_insertion_nodes(args)
       added.each { |n| @backend_doc.add_child(n) }
       notify_document_child_list(added: added, removed: removed)
       nil
@@ -1419,9 +1595,10 @@ module Dommy
     end
 
     def document_insert_before(node, ref)
-      # WHATWG pre-insert order: the reference child must be a child of the
-      # parent (step 3, NotFoundError) BEFORE the node-type / document-hierarchy
-      # checks (steps 4-6).
+      # WHATWG pre-insert order: step 2 (a cycle) first, THEN step 3 (the
+      # reference child must be a child of the parent, NotFoundError), and only
+      # then the node-type / document-hierarchy checks (steps 4-6).
+      ensure_not_self_insertion!([node])
       ref_present = !(ref.nil? || (defined?(Bridge::UNDEFINED) && ref.equal?(Bridge::UNDEFINED)))
       ref_bn = ref_present ? backend_node(ref) : nil
       if ref_present && !(ref_bn && ref_bn.parent == @backend_doc)
@@ -1429,20 +1606,31 @@ module Dommy
       end
 
       ensure_document_insertion_validity!([node], ref_bn)
-      bn = adopted_backend_node(node)
-      return node unless bn
+      # Insert step 6's insertion point, read BEFORE step 7's adopt moves
+      # anything: the reference child's previous sibling, or the document's last
+      # child when appending.
+      record_previous = document_insertion_previous_sibling(ref_bn)
+      record_next = ref_bn && wrap_node(ref_bn)
+      # Insert step 5 runs before step 7's adopt, so the count is taken while the
+      # node (or fragment) still sits wherever it is now.
+      __internal_ranges_will_insert__(@backend_doc, ref_bn, document_insertion_count([node]))
+      nodes = document_insertion_nodes([node])
+      return node if nodes.empty?
 
       ref_node = ref && backend_node(ref)
       if ref_node && ref_node.parent == @backend_doc
-        ref_node.add_previous_sibling(bn)
+        nodes.each { |bn| ref_node.add_previous_sibling(bn) }
       else
-        @backend_doc.add_child(bn)
+        nodes.each { |bn| @backend_doc.add_child(bn) }
       end
-      notify_document_child_list(added: [bn])
+      notify_document_child_list(added: nodes, previous_sibling: record_previous,
+                                 next_sibling: record_next)
       node
     end
 
     def document_replace_child(new_child, old_child)
+      # Step 2 (a cycle) precedes step 3 (the reference child's parentage).
+      ensure_not_self_insertion!([new_child])
       old_bn = backend_node(old_child)
       raise DOMException::NotFoundError, "node is not a child of this document" unless old_bn && old_bn.parent == @backend_doc
 
@@ -1451,8 +1639,13 @@ module Dommy
       ensure_document_insertion_validity!([new_child], old_bn, exclude: old_bn)
 
       ref = old_bn.next
+      # Replace step 4's previousSibling: the old child's previous sibling,
+      # read before the adopt below removes anything.
+      record_previous = old_bn.previous && wrap_node(old_bn.previous)
+      record_next = ref && wrap_node(ref)
       cross_document = !Backend.moves_nodes_across_documents? &&
         new_child.respond_to?(:document) && !new_child.document.equal?(self)
+      fragment = new_child.is_a?(Dommy::Fragment)
 
       # Same document: WHATWG replace adopts the incoming node — which removes
       # it from whatever parent it has — BEFORE removing the child it replaces,
@@ -1461,16 +1654,35 @@ module Dommy
       # Cross-document is deferred instead: a doctype has to be re-created in
       # this backend, and Makiri's fail-closed guard refuses a second doctype,
       # so the old one must be gone before the new one is made.
-      new_bn = adopted_backend_node(new_child) unless cross_document
+      #
+      # A DocumentFragment has nothing to adopt at this point: what gets
+      # inserted is its children, and insert step 4 takes them out later, after
+      # step 7 has removed the child being replaced.
+      new_bn = adopted_backend_node(new_child) if !cross_document && !fragment
+      # Insert step 2's count, taken while the fragment still holds its children.
+      count = document_insertion_count([new_child])
       detach_node(old_bn)
-      if cross_document
-        new_child = adopt_node(new_child)
-        new_bn = backend_node(new_child)
+      # Insert step 4: a fragment's children are REMOVED from it, which runs the
+      # live range and NodeIterator pre-remove steps and queues a childList
+      # record on the fragment. Then step 5 shifts the ranges on this document
+      # by the count. WHATWG "replace" removes the old child (step 7) before the
+      # insert (step 9), so step 5 measures `ref` in the tree the removal leaves.
+      nodes =
+        if fragment
+          document_insertion_nodes([new_child])
+        elsif cross_document
+          new_child = adopt_node(new_child)
+          bn = backend_node(new_child)
+          bn ? [bn] : []
+        else
+          new_bn ? [new_bn] : []
+        end
+      __internal_ranges_will_insert__(@backend_doc, ref && ref.parent == @backend_doc ? ref : nil, count)
+      nodes.each do |bn|
+        ref && ref.parent == @backend_doc ? ref.add_previous_sibling(bn) : @backend_doc.add_child(bn)
       end
-      if new_bn
-        ref && ref.parent == @backend_doc ? ref.add_previous_sibling(new_bn) : @backend_doc.add_child(new_bn)
-      end
-      notify_document_child_list(added: new_bn ? [new_bn] : [], removed: [old_bn])
+      notify_document_child_list(added: nodes, removed: [old_bn],
+                                 previous_sibling: record_previous, next_sibling: record_next)
       old_child
     end
 
@@ -1488,12 +1700,12 @@ module Dommy
     # (at the document start) or after it (just before the document element).
     def __internal_insert_at_doctype__(nodes, after:)
       bns = nodes.filter_map { |n| backend_node(n) }
+      anchor = after ? @backend_doc.root : @backend_doc.children.first
+      __internal_ranges_will_insert__(@backend_doc, anchor, bns.size)
       if after
-        root = @backend_doc.root
-        root ? bns.each { |n| root.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
+        anchor ? bns.each { |n| anchor.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
       else
-        first = @backend_doc.children.first
-        first ? bns.reverse_each { |n| first.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
+        anchor ? bns.reverse_each { |n| anchor.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
       end
       nil
     end
@@ -1520,6 +1732,40 @@ module Dommy
     # the next add_child, but silently — that is a storage operation, not a DOM
     # removal, so route it through the shared remove primitive instead and let
     # the old parent see its removing steps and its childList record.
+    # WHATWG "insert" steps 1 and 4 for the DOCUMENT's own child list. A
+    # DocumentFragment argument contributes its children, and they are removed
+    # from it first — with their removing steps, so a live range or NodeIterator
+    # inside them follows — before anything is linked here. Every other node is
+    # adopted, which removes it from its old parent.
+    #
+    # Document's insertion paths hand the backend the node they were given, and
+    # the backend splices a fragment's children in silently; without this the
+    # fragment's children would move with no removing steps at all.
+    def document_insertion_nodes(args)
+      args.flat_map do |arg|
+        if arg.is_a?(Dommy::Fragment)
+          source = arg.document
+          arg.extract_children.map do |n|
+            n.document == @backend_doc ? n : __internal_adopt_backend_node__(n, source)
+          end
+        else
+          bn = adopted_backend_node(arg)
+          bn ? [bn] : []
+        end
+      end
+    end
+
+    # How many nodes `args` will contribute, counted BEFORE any of them moves —
+    # insert step 5 needs the count while the fragment still holds its children.
+    def document_insertion_count(args)
+      args.sum do |arg|
+        if arg.is_a?(Dommy::Fragment) then arg.child_nodes.to_a.size
+        elsif arg.respond_to?(:__dommy_backend_node__) then 1
+        else 0
+        end
+      end
+    end
+
     def adopted_backend_node(node)
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
@@ -1830,7 +2076,7 @@ module Dommy
       adoptNode hasFocus getSelection elementFromPoint queryCommandSupported addEventListener
       removeEventListener dispatchEvent write writeln open close isEqualNode isSameNode appendChild
       hasChildNodes contains append prepend replaceChildren removeChild insertBefore replaceChild
-      cloneNode normalize compareDocumentPosition getRootNode
+      cloneNode normalize compareDocumentPosition getRootNode moveBefore
       lookupNamespaceURI lookupPrefix isDefaultNamespace
     ]
     def __js_call__(method, args)
@@ -1876,6 +2122,11 @@ module Dommy
         document_insert_before(args[0], args[1])
       when "replaceChild"
         document_replace_child(args[0], args[1])
+      when "moveBefore"
+        raise Bridge::TypeError, "moveBefore requires 2 arguments." if args.length < 2
+
+        move_before(args[0], args[1])
+        Bridge::UNDEFINED
       when "cloneNode"
         clone_node(args[0])
       when "normalize"
@@ -2004,6 +2255,13 @@ module Dommy
       @node_wrapper_cache.wrap(node)
     end
 
+    # Seed the wrapper cache so a wrapper built outside it keeps its identity
+    # when the same backend node is reached through the tree.
+    def __internal_register_wrapper__(node, wrapper)
+      @node_wrapper_cache.register(node, wrapper)
+      wrapper
+    end
+
     def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
       @node_wrapper_cache.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
     end
@@ -2128,29 +2386,11 @@ module Dommy
       @mutation_coordinator.unregister_observer(observer)
     end
 
+    # Queue the childList record for a mutation. The live-range insertion steps
+    # are NOT run here: WHATWG puts them at insert step 5, before the nodes are
+    # converted and linked, so every insertion site calls
+    # __internal_ranges_will_insert__ itself, at that point.
     def notify_child_list_mutation(
-      target_node:,
-      added_nodes:,
-      removed_nodes:,
-      previous_sibling: nil,
-      next_sibling: nil
-    )
-      __internal_ranges_inserted__(target_node, added_nodes) unless added_nodes.empty?
-      queue_child_list_record(
-        target_node: target_node,
-        added_nodes: added_nodes,
-        removed_nodes: removed_nodes,
-        previous_sibling: previous_sibling,
-        next_sibling: next_sibling
-      )
-    end
-
-    # The record half of #notify_child_list_mutation, without the live range
-    # insertion steps. Every caller but one wants both together and calls
-    # #notify_child_list_mutation instead; "split a Text node" is the exception,
-    # because there the range steps and the record belong at different points in
-    # the algorithm (see TextNode#split_text).
-    def queue_child_list_record(
       target_node:,
       added_nodes:,
       removed_nodes:,
@@ -2165,6 +2405,7 @@ module Dommy
         next_sibling: next_sibling
       )
     end
+    alias queue_child_list_record notify_child_list_mutation
 
     # WHATWG "removing steps", run while `node` is STILL attached (they are all
     # expressed in terms of the position it is about to vacate). Every path that
@@ -2190,11 +2431,20 @@ module Dommy
     # document element, a stray comment). Document-level mutation is observable
     # like any other — `observe(document, {childList: true})` is legal — so it
     # goes through the same pipeline rather than only nudging live ranges.
-    def notify_document_child_list(added: [], removed: [])
+    # Insert step 6 for a document parent: the reference child's previous
+    # sibling, or the document's last child when appending.
+    def document_insertion_previous_sibling(ref_bn)
+      node = ref_bn ? ref_bn.previous : @backend_doc.children.to_a.last
+      node && wrap_node(node)
+    end
+
+    def notify_document_child_list(added: [], removed: [], previous_sibling: nil, next_sibling: nil)
       notify_child_list_mutation(
         target_node: @backend_doc,
         added_nodes: added,
-        removed_nodes: removed
+        removed_nodes: removed,
+        previous_sibling: previous_sibling,
+        next_sibling: next_sibling
       )
     end
 
@@ -2204,8 +2454,34 @@ module Dommy
     # `remove_node_with_notify` is this plus a per-node record.
     def detach_node(node)
       pre_remove_node(node)
+      add_transient_observers_for(node)
       node.unlink
       node
+    end
+
+    # WHATWG remove step 20: every subtree registration reachable from the old
+    # parent's inclusive ancestors gains a transient registered observer on the
+    # node being removed, so a subtree observer keeps seeing mutations inside
+    # the just-removed subtree until the next microtask checkpoint.
+    #
+    # The step is NOT guarded by suppressObservers (only step 21's record is),
+    # so it has to run here, in the removal primitive, rather than alongside the
+    # record. Replace all step 3, insert step 4 and replace step 7 all remove
+    # with observers suppressed.
+    def add_transient_observers_for(node)
+      return unless @observer_manager.any?
+
+      parent = node.parent
+      return unless parent
+
+      target = wrap_node(parent)
+      removed = wrap_node(node)
+      return unless target && removed
+
+      @observer_manager.observers_matching(target).each do |observer|
+        entry = observer.find_matching_entry(target)
+        observer.add_transient(removed, entry) if entry && entry[:subtree]
+      end
     end
 
     # Unlink a backend node from its parent and queue a childList removal record
@@ -2269,10 +2545,21 @@ module Dommy
       affected.each { |r| r.__internal_apply_remove__(removed, parent_wrapper, index) }
     end
 
-    # WHATWG "insert" step, run after the nodes are in place. Processed in
-    # document order so a multi-node insert shifts a later boundary once per
-    # inserted node.
-    def __internal_ranges_inserted__(parent_backend_node, added_backend_nodes)
+    # WHATWG "insert a node into a parent before a child", step 5 — the
+    # live-range offset shift.
+    #
+    # It runs BEFORE step 7 adopts each node (which removes it from wherever it
+    # is now), so `child`'s index, and every boundary it shifts, are measured
+    # against the tree as it stands before the insertion begins. Running it
+    # afterwards double-counts a boundary that one of those removals has just
+    # moved onto `parent`: `parent.insertBefore(second, first)` with a range
+    # inside `second` leaves that boundary at `(parent, 1)` per spec, but at
+    # `(parent, 2)` if the shift is applied after the move.
+    #
+    # Appending (a null `child`) shifts nothing: a boundary at the parent's end
+    # stays before the new nodes.
+    def __internal_ranges_will_insert__(parent_backend_node, ref_backend_node, count)
+      return if ref_backend_node.nil? || count.zero?
       return unless live_ranges?
 
       parent_wrapper = wrap_node(parent_backend_node)
@@ -2281,14 +2568,10 @@ module Dommy
       affected = live_ranges_where { |r| r.__internal_anchored_at__(parent_wrapper) }
       return if affected.empty?
 
-      children = parent_wrapper.child_nodes.to_a
-      added_backend_nodes.each do |bn|
-        wrapper = wrap_node(bn)
-        index = children.index { |c| c.equal?(wrapper) }
-        next unless index
+      index = child_index_of_wrapper(parent_wrapper, wrap_node(ref_backend_node))
+      return unless index
 
-        affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index) }
-      end
+      affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index, count) }
     end
 
     # WHATWG normalize() steps 6.1-6.4. `current` is a contiguous exclusive Text

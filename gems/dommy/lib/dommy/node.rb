@@ -303,6 +303,17 @@ module Dommy
       Internal::NodeEquality.equal?(self, other)
     end
 
+    # WHATWG Node.ownerDocument — null when this is a document, this node's
+    # node document otherwise. The IDL puts the attribute on Node, so every node
+    # class needs it; only Element and Attr defined it before, which left
+    # Text, Comment, ProcessingInstruction, CDATASection, DocumentFragment and
+    # DocumentType without one.
+    def owner_document
+      return nil if is_a?(Dommy::Document)
+
+      document
+    end
+
     # Node.isSameNode — strict reference identity (deprecated alias for `===`).
     def is_same_node(other)
       equal?(other)

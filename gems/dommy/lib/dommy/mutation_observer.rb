@@ -105,29 +105,112 @@ module Dommy
       find_matching_entry(target_wrapped) != nil
     end
 
-    # Find the observer entry that matches target_wrapped.
-    # Returns the entry with options (attributes, attributeFilter, etc.)
-    # or nil if target doesn't match any observed scope.
-    def find_matching_entry(target_wrapped)
-      entry = @observed.find do |e|
-        observed_wrapped = e[:target]
-        next false unless observed_wrapped
+    # A registration's position in a node's registered observer list. WHATWG
+    # appends in creation order, and the order decides which callback runs first
+    # when two registrations sit on the same node.
+    @sequence = 0
 
-        if observed_wrapped.is_a?(Document)
-          Internal::ObserverMatcher.matches_document?(target_wrapped, subtree: e[:subtree])
-        else
-          Internal::ObserverMatcher.matches?(observed_wrapped, target_wrapped, subtree: e[:subtree])
-        end
+    class << self
+      def next_sequence
+        @sequence = (@sequence || 0) + 1
+      end
+    end
+
+    # WHATWG "queue a mutation record" step 2.3 checks the registration's scope
+    # AND the record type in one go, so a registration that does not ask for
+    # this type must not shadow a later one of the same observer that does.
+    #
+    # For "attributes" the attributeFilter is part of that same condition: a
+    # filter that is PRESENT and does not list this attribute's local name — or
+    # a namespaced attribute, which a filter never matches — excludes the
+    # registration rather than the record.
+    def entry_wants?(entry, type, name = nil, namespace = nil)
+      return true if type.nil?
+
+      case type
+      when :child_list then !!entry[:child_list]
+      when :character_data then !!entry[:character_data]
+      when :attributes
+        return false unless entry[:attributes]
+
+        filter = entry[:attribute_filter]
+        filter.nil? || (namespace.nil? && filter.include?(name))
+      else true
+      end
+    end
+
+    # WHATWG "queue a mutation record" step 2.3.3 visits EVERY registration of
+    # this observer that is in scope and wants this type; each one asking for
+    # the old value sets it. So the record carries the old value when ANY of
+    # them asks, not only when the first one the search reaches does.
+    def records_old_value?(target_wrapped, type, name = nil, namespace = nil)
+      flag = type == :attributes ? :attribute_old_value : :character_data_old_value
+      @observed.any? do |e|
+        entry_in_scope?(e, target_wrapped) && entry_wants?(e, type, name, namespace) && e[flag]
+      end || @transients.any? do |t|
+        transient_in_scope?(t, target_wrapped) &&
+          entry_wants?(t[:source], type, name, namespace) && t[:source][flag]
+      end
+    end
+
+    def entry_in_scope?(entry, target_wrapped)
+      observed_wrapped = entry[:target]
+      return false unless observed_wrapped
+
+      if observed_wrapped.is_a?(Document)
+        Internal::ObserverMatcher.matches_document?(target_wrapped, subtree: entry[:subtree],
+                                                    document: observed_wrapped)
+      else
+        Internal::ObserverMatcher.matches?(observed_wrapped, target_wrapped,
+                                           subtree: entry[:subtree])
+      end
+    end
+
+    def transient_in_scope?(transient, target_wrapped)
+      root = transient[:root]
+      root && (root.equal?(target_wrapped) ||
+               Internal::ObserverMatcher.matches?(root, target_wrapped, subtree: true))
+    end
+
+    # Find the registration of this observer that WHATWG reaches for a record of
+    # `type` on `target_wrapped`. `type` nil means "any type" (scope only).
+    def find_matching_entry(target_wrapped, type: nil, name: nil, namespace: nil)
+      entry = @observed.find do |e|
+        entry_in_scope?(e, target_wrapped) && entry_wants?(e, type, name, namespace)
       end
       return entry if entry
 
       # A transient registered observer matches the removed node itself and its
       # (now-detached) descendants, with the source registration's options.
       transient = @transients.find do |t|
-        root = t[:root]
-        root && (root.equal?(target_wrapped) || Internal::ObserverMatcher.matches?(root, target_wrapped, subtree: true))
+        transient_in_scope?(t, target_wrapped) && entry_wants?(t[:source], type, name, namespace)
       end
       transient && transient[:source]
+    end
+
+    # Sort key for the notification order: the index in `chain` (the target's
+    # inclusive ancestors, nearest first) of the nearest node this observer has
+    # an interested registration on, paired with that registration's creation
+    # sequence, which is its position in that node's registered observer list.
+    # Returns nil when no registration of this observer is interested.
+    def matching_key(chain, target_wrapped, type = nil, name = nil, namespace = nil)
+      chain.each_with_index do |node, index|
+        on_node = @observed.select do |e|
+          Internal::ObserverMatcher.same_node?(e[:target], node) &&
+            (Internal::ObserverMatcher.same_node?(node, target_wrapped) || e[:subtree]) &&
+            entry_wants?(e, type, name, namespace)
+        end
+        # A transient registered observer lives in the removed node's own
+        # registered observer list, so it is reached at that node.
+        on_node += @transients.select do |t|
+          Internal::ObserverMatcher.same_node?(t[:root], node) &&
+            entry_wants?(t[:source], type, name, namespace)
+        end
+        next if on_node.empty?
+
+        return [index, on_node.map { |e| e[:seq] || 0 }.min]
+      end
+      nil
     end
 
     # Register a transient registered observer for a node just removed from an
@@ -138,7 +221,8 @@ module Dommy
       return unless root_wrapped && source_entry && source_entry[:subtree]
       return if @transients.any? { |t| t[:root].equal?(root_wrapped) }
 
-      @transients << {root: root_wrapped, source: source_entry}
+      @transients << {root: root_wrapped, source: source_entry,
+                      seq: MutationObserver.next_sequence}
       nil
     end
 
@@ -208,8 +292,12 @@ module Dommy
       # (don't merge or stack).
       existing_index = @observed.index { |e| e[:target].equal?(target) }
       if existing_index
+        # Step 7.1.2 only replaces the options, so the registration keeps its
+        # place in the node's registered observer list.
+        entry[:seq] = @observed[existing_index][:seq]
         @observed[existing_index] = entry
       else
+        entry[:seq] = MutationObserver.next_sequence
         @observed << entry
       end
 
@@ -241,12 +329,14 @@ module Dommy
       target.instance_variable_get(:@document) || @document
     end
 
+    # WHATWG takeRecords(): clone the record queue, empty it, return the clone.
+    # It does NOT end the transient registered observers' lifetime — only the
+    # microtask checkpoint ("notify mutation observers", `flush` below) does, so
+    # a caller that drains records by hand keeps observing a removed subtree.
     def take_records
       out = @records.dup
       @records.clear
       @scheduled = false
-      # A microtask checkpoint ends the transient registrations' lifetime.
-      @transients.clear
       out
     end
 

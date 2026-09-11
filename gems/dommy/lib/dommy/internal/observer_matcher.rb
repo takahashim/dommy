@@ -19,14 +19,43 @@ module Dommy
         observed_wrapped.contains?(target_wrapped)
       end
 
-      # Special case: Document observation. `subtree` covers the whole tree; a
-      # plain registration still matches the Document node ITSELF, whose child
-      # list is the doctype, the document element and any stray comment —
-      # `observe(document, {childList: true})` is a legal way to watch those.
-      def matches_document?(target_wrapped, subtree:)
-        return true if subtree
+      # Special case: Document observation. A plain registration matches the
+      # Document node ITSELF, whose child list is the doctype, the document
+      # element and any stray comment — `observe(document, {childList: true})`
+      # is a legal way to watch those. `subtree` covers the whole tree, but only
+      # the tree: WHATWG walks the mutation target's INCLUSIVE ANCESTORS looking
+      # for registrations, so a node that is not in this document (a detached
+      # one, or one in a fragment) never reaches a registration on it.
+      def matches_document?(target_wrapped, subtree:, document: nil)
+        return true if target_wrapped.is_a?(Dommy::Document)
+        return false unless subtree
+        return true if document.nil?
 
-        target_wrapped.is_a?(Dommy::Document)
+        document.contains?(target_wrapped)
+      end
+
+      # WHATWG "queue a mutation record" step 2: the target's inclusive
+      # ancestors, nearest first. Steps 3-4 walk this list in order, and the
+      # observers are appended to the pending set in that order — which is the
+      # order their callbacks run at the microtask checkpoint.
+      def inclusive_ancestors(target_wrapped)
+        chain = []
+        node = target_wrapped
+        # A malformed tree must not hang the walk.
+        4096.times do
+          break if node.nil?
+
+          chain << node
+          node = node.respond_to?(:parent_node) ? node.parent_node : nil
+        end
+        chain
+      end
+
+      # Wrappers for the same node are not always the same Ruby object.
+      def same_node?(a, b)
+        return false if a.nil? || b.nil?
+
+        a.equal?(b) || a == b
       end
     end
   end

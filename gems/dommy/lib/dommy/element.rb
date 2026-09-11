@@ -135,7 +135,7 @@ module Dommy
 
     include Bridge::Methods
     js_methods %w[cloneNode querySelector querySelectorAll getElementById appendChild isEqualNode hasChildNodes
-      append prepend replaceChildren removeChild insertBefore replaceChild
+      append prepend replaceChildren moveBefore removeChild insertBefore replaceChild
       isSameNode getRootNode contains normalize compareDocumentPosition
       lookupNamespaceURI lookupPrefix isDefaultNamespace
       addEventListener removeEventListener dispatchEvent]
@@ -169,6 +169,11 @@ module Dommy
         prepend(*args)
       when "replaceChildren"
         replace_children(*args)
+      when "moveBefore"
+        raise Bridge::TypeError, "moveBefore requires 2 arguments." if args.length < 2
+
+        move_before(args[0], args[1])
+        Bridge::UNDEFINED
       when "removeChild"
         remove_child(args[0])
       when "insertBefore"
@@ -214,30 +219,47 @@ module Dommy
       bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless bn && bn.parent == @__node__
 
-      @document.detach_node(bn)
+      # `remove_node_with_notify`, not the bare `detach_node`: WHATWG remove
+      # step 21 queues a childList record on the parent, and a fragment is a
+      # parent like any other — an observer registered on it must see this.
+      @document.remove_node_with_notify(bn)
       node
     end
 
     def insert_before(node, ref)
       coerce_node_argument!(node)
       ensure_pre_insertion_validity!(node, ref)
-      nodes = detach_dom_nodes(node)
       ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
-      if ref_bn && ref_bn.parent == @__node__
+      ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
+      ref_bn = reference_past_args(ref_bn, backend_nodes_in([node]))
+      # Insert step 6's insertion point, taken before the conversion detaches
+      # anything, and step 9's record. A fragment is a parent like any other:
+      # an observer registered on it must see the insertion.
+      record_previous = insertion_previous_sibling(@__node__, ref_bn)
+      record_next = wrap_sibling(ref_bn)
+      nodes = convert_for_insert([node], @__node__, ref_bn)
+      ref_bn = nil if ref_bn && ref_bn.parent != @__node__
+      if ref_bn
         nodes.each { |n| ref_bn.add_previous_sibling(n) }
       else
         nodes.each { |n| @__node__.add_child(n) }
       end
-      @document.__internal_ranges_inserted__(@__node__, nodes)
+      notify_child_list(added: nodes, previous_sibling: record_previous,
+                        next_sibling: record_next)
       node
     end
 
     def replace_child(new_child, old_child)
       coerce_node_argument!(new_child)
+      # WHATWG "replace" step 1 runs the full ensure-pre-insertion-validity,
+      # whose step 2 (node is an inclusive ancestor of parent — a cycle) comes
+      # BEFORE step 3 (the reference child's parentage). So
+      # `frag.replaceChild(frag, frag)` is a HierarchyRequestError, not the
+      # NotFoundError an up-front parentage guard would raise.
+      ensure_pre_insertion_validity!(new_child, old_child)
       old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless old_bn && old_bn.parent == @__node__
 
-      ensure_pre_insertion_validity!(new_child, old_child)
       replace_child_within(new_child, old_bn)
       old_child
     end
@@ -289,6 +311,7 @@ module Dommy
     # `before` / `after` / `replaceWith` (+ their argument coercion) — the same
     # spec-correct implementation Element uses, minus appendChild/insertBefore.
     include Internal::ChildNode
+    include Internal::LeafNode
 
     # The owning Dommy document (as Element exposes), so cross-document adoption
     # checks work for text/comment nodes too.
@@ -319,8 +342,10 @@ module Dommy
         # Step 7.1 — insert the new node right after self. Its live range steps
         # run here, where the algorithm puts them; its childList RECORD is
         # queued at the very end instead (see below).
+        # WHATWG "split a Text node" step 7.1 inserts the new node right after
+        # self, so insert step 5 runs first, against self's next sibling.
+        @document.__internal_ranges_will_insert__(parent, @__node__.next, 1)
         @__node__.add_next_sibling(new_bn)
-        @document.__internal_ranges_inserted__(parent, [new_bn])
         # Live ranges past the split point move to the tail node (the generic
         # insert step above already shifted boundaries sitting further along).
         # Step 7 only runs for a node that HAS a parent: splitting a detached
@@ -587,18 +612,14 @@ module Dommy
         # A leaf node contains only itself (no descendants).
         args[0].respond_to?(:__dommy_backend_node__) &&
           args[0].__dommy_backend_node__ == @__node__
-      when "appendChild", "insertBefore", "replaceChild"
-        # WebIDL coerces the Node argument first (null/non-Node → TypeError);
-        # only then does the leaf reject the insertion. WHATWG pre-insert /
-        # replace step 1 checks the PARENT type before the reference child, so a
-        # leaf parent is a HierarchyRequestError even when `child` isn't a child.
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::HierarchyRequestError, "this node type does not support children"
+      when "appendChild"
+        append_child(args[0])
+      when "insertBefore"
+        insert_before(args[0], args[1])
+      when "replaceChild"
+        replace_child(args[0], args[1])
       when "removeChild"
-        raise Bridge::TypeError, "Argument is not a Node." unless args[0].is_a?(Dommy::Node)
-
-        raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
+        remove_child(args[0])
       when "compareDocumentPosition"
         compare_document_position(args[0])
       when "isSameNode"
@@ -1698,7 +1719,11 @@ module Dommy
       removed = @__node__
       new_nodes = fragment.children.to_a
       mark_fragment_scripts_started(new_nodes)
+      # "Replace" order: the old element goes first (step 10), then the insert
+      # and its step 5 (step 12) run against the tree that leaves behind.
       @document.detach_node(@__node__)
+      anchor = nil if anchor && anchor.parent != parent
+      @document.__internal_ranges_will_insert__(parent, anchor, new_nodes.size)
       if anchor
         new_nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
       else
@@ -1763,8 +1788,11 @@ module Dommy
     def toggle_attribute(name, force = nil)
       raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
 
-      key = name.to_s.downcase
-      present = @__node__.key?(key)
+      # step 3 looks for the attribute whose QUALIFIED name matches, so an
+      # element carrying only `xml:b` counts as not having `b`. The backend's
+      # `node.key?` answers by local name and would report it present.
+      key = normalize_attr_key(name)
+      present = !Backend.attr_by_qualified_name(@__node__, key).nil?
       desired = force.nil? ? !present : !!force
       if desired
         set_attribute(key, "") unless present
@@ -2072,16 +2100,17 @@ module Dommy
         return nil unless parent
 
         validate_adjacent_document_insert!(parent, element)
-        node = detach_for_insert(element)
+        node = convert_for_insert([element], parent, @__node__).first
         @__node__.add_previous_sibling(node)
         notify_child_list(added: [node], target: parent)
       when "afterbegin"
-        node = detach_for_insert(element)
         first = @__node__.children.first
+        node = convert_for_insert([element], @__node__, first).first
+        first = nil if first && first.parent != @__node__
         first ? first.add_previous_sibling(node) : @__node__.add_child(node)
         notify_child_list(added: [node])
       when "beforeend"
-        node = detach_for_insert(element)
+        node = convert_for_insert([element], @__node__, nil).first
         @__node__.add_child(node)
         notify_child_list(added: [node])
       when "afterend"
@@ -2089,7 +2118,7 @@ module Dommy
         return nil unless parent
 
         validate_adjacent_document_insert!(parent, element)
-        node = detach_for_insert(element)
+        node = convert_for_insert([element], parent, @__node__.next).first
         @__node__.add_next_sibling(node)
         notify_child_list(added: [node], target: parent)
       end
@@ -2122,10 +2151,12 @@ module Dommy
       case pos
       when "beforebegin"
         parent = insertion_parent!
+        @document.__internal_ranges_will_insert__(parent, @__node__, nodes.size)
         nodes.each { |n| @__node__.add_previous_sibling(n) }
         notify_child_list(added: nodes, target: parent)
       when "afterbegin"
         first = @__node__.children.first
+        @document.__internal_ranges_will_insert__(@__node__, first, nodes.size)
         if first
           nodes.each { |n| first.add_previous_sibling(n) }
         else
@@ -2138,6 +2169,7 @@ module Dommy
         notify_child_list(added: nodes)
       when "afterend"
         parent = insertion_parent!
+        @document.__internal_ranges_will_insert__(parent, @__node__.next, nodes.size)
         nodes.reverse_each { |n| @__node__.add_next_sibling(n) }
         notify_child_list(added: nodes, target: parent)
       end
@@ -2236,6 +2268,9 @@ module Dommy
     def replace_with_nodes(*args)
       child_node_replace_with(args)
     end
+    # WHATWG names this `replaceWith`; `replace_with_nodes` is the older Dommy
+    # spelling, kept because callers use it.
+    alias replace_with replace_with_nodes
 
     # `getInnerHTML()` — happy-dom alias for the `innerHTML` getter.
     # Real browsers add a `{ includeShadowRoots }` option which we
@@ -2923,7 +2958,7 @@ module Dommy
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches webkitMatchesSelector
       toString getAttributeNode setAttributeNode removeAttributeNode focus blur attachShadow
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
-      replaceChild cloneNode append prepend replaceChildren before after getInnerHTML getHTML
+      replaceChild cloneNode append prepend replaceChildren moveBefore before after getInnerHTML getHTML
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
       scrollTo scrollBy requestFullscreen showPopover hidePopover togglePopover isEqualNode
       hasChildNodes hasAttributes getRootNode normalize contains
@@ -3047,6 +3082,11 @@ module Dommy
         prepend(*args)
       when "replaceChildren"
         replace_children(*args)
+      when "moveBefore"
+        raise Bridge::TypeError, "moveBefore requires 2 arguments." if args.length < 2
+
+        move_before(args[0], args[1])
+        Bridge::UNDEFINED
       when "before"
         child_node_before(args)
       when "after"
@@ -3079,13 +3119,14 @@ module Dommy
       end
     end
 
+    # WHATWG "get an attribute by name": the first attribute whose QUALIFIED
+    # name matches, after the HTML lower-casing of step 1. The backend's
+    # `node[name]` indexes by local name, so on an element carrying `xml:b` it
+    # would answer a read of `b` with that attribute's value.
     def get_attribute(name)
       return nil if name.nil?
-      return @__node__[name.to_s.downcase] unless case_sensitive_attribute_names?
 
-      qualified = name.to_s
-      value = @__node__[qualified]
-      value.nil? || exact_attribute_name?(qualified) ? value : nil
+      Backend.attr_by_qualified_name(@__node__, normalize_attr_key(name))&.value
     end
 
     def set_attribute(name, value)
@@ -3096,59 +3137,65 @@ module Dommy
       # like "0"/":"/"invalid^Name" are deliberately treated as valid).
       raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
 
-      # A case-sensitive element (non-HTML namespace, or any element in a non-HTML
-      # document) must preserve the attribute name's case, but a plain `node[name]=`
-      # write goes through the HTML backend which ASCII-lowercases it. Route an
-      # upper-cased name through the case-preserving namespace setter (null
-      # namespace) to keep the case; lower-case names take the fast path unchanged.
-      qn = name.to_s
-      if case_sensitive_attribute_names? && qn.match?(/[A-Z]/)
-        old = Backend.get_attribute_ns(@__node__, nil, qn)
-        Backend.set_attribute_ns(@__node__, nil, nil, qn, qn, value.to_s)
-        @document.notify_attribute_mutation(target_node: @__node__, attribute_name: qn, old_value: old)
-        return nil
-      end
-
+      # step 2 (the HTML lower-casing) then step 4: the attribute is the one
+      # whose QUALIFIED name matches. A plain `node[key] = v` write indexes by
+      # local name, so it would land on a prefixed `xml:b` when asked for `b`;
+      # and it goes through the HTML backend, which lower-cases the name a
+      # case-sensitive element must keep. The namespace-aware write does neither.
       key = normalize_attr_key(name)
-      old = @__node__[key]
-      @__node__[key] = value.to_s
+      existing = Backend.attr_by_qualified_name(@__node__, key)
+      if existing
+        # step 5: change the attribute that is already there, keeping its
+        # namespace — this is one attribute, not a new null-namespace one.
+        info = Backend.attribute_ns_info(existing)
+        old = info[:value]
+        Backend.set_attribute_ns(@__node__, info[:namespace_uri], info[:prefix],
+                                 info[:local_name], info[:qualified_name], value.to_s)
+        ns = info[:namespace_uri]
+        recorded_name = ns ? info[:local_name] : key
+      else
+        # step 6-7: a new attribute whose local name is the qualified name.
+        old = nil
+        Backend.set_attribute_ns(@__node__, nil, nil, key, key, value.to_s)
+        ns = nil
+        recorded_name = key
+      end
       # A direct write to an `aria-*` IDREF attribute drops any explicitly-set
       # element reference, so the IDL getter re-resolves the new IDREF.
       clear_aria_element_ref_for(key) if key.start_with?("aria-")
-      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
+      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: recorded_name,
+                                          old_value: old, namespace: ns)
       nil
     end
 
     def has_attribute?(name)
       return false if name.nil?
-      return @__node__.key?(name.to_s.downcase) unless case_sensitive_attribute_names?
 
-      qualified = name.to_s
-      @__node__.key?(qualified) && exact_attribute_name?(qualified)
+      !Backend.attr_by_qualified_name(@__node__, normalize_attr_key(name)).nil?
     end
 
     def remove_attribute(name)
       return nil if name.nil?
 
+      # "remove an attribute by name" matches on the QUALIFIED name, so resolve
+      # the attribute node first and remove it by its own (namespace, localName).
       key = normalize_attr_key(name)
-      return nil unless @__node__.key?(key)
+      removed = Backend.attr_by_qualified_name(@__node__, key)
+      return nil if removed.nil?
 
-      old = @__node__[key]
+      info = Backend.attribute_ns_info(removed)
+      old = info[:value]
       # Detach the cached Attr (caching its value) *before* the backend drop, so a
       # held reference keeps the value it had when removed and reports
-      # `ownerElement === null` (so it's no longer "in use"). An attribute set via
-      # setAttributeNS may carry a namespace, so evict by the removed node's real
-      # (namespace, localName) rather than assuming the null namespace.
-      if @attributes
-        removed = Backend.attribute_nodes(@__node__).find { |a| Backend.attribute_ns_info(a)[:qualified_name] == key }
-        info = removed && Backend.attribute_ns_info(removed)
-        @attributes.__internal_evict__(info ? info[:namespace_uri] : nil, info ? info[:local_name] : key)
-      end
-      @__node__.remove_attribute(key)
+      # `ownerElement === null` (so it's no longer "in use").
+      @attributes&.__internal_evict__(info[:namespace_uri], info[:local_name])
+      Backend.remove_attribute_ns(@__node__, info[:namespace_uri], info[:local_name])
       # Removing an `aria-*` IDREF attribute also clears any explicitly-set
       # element reference (the IDL getter then returns null).
       clear_aria_element_ref_for(key) if key.start_with?("aria-")
-      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: key, old_value: old)
+      @document.notify_attribute_mutation(target_node: @__node__,
+                                          attribute_name: info[:namespace_uri] ? info[:local_name] : key,
+                                          old_value: old, namespace: info[:namespace_uri])
       nil
     end
 
@@ -3276,23 +3323,39 @@ module Dommy
 
     def insert_before(child, reference)
       coerce_node_argument!(child)
-      # WHATWG: if the reference child is the node being inserted, the reference
-      # becomes that node's next sibling, so "insert x before x" doesn't move x.
-      reference = wrapped_next_sibling(reference) if same_wrapped_node?(reference, child)
+      # WHATWG pre-insert validates the reference the CALLER gave (step 1), and
+      # only then, in step 3, replaces it with the node's next sibling when it is
+      # the node being inserted — so "insert x before x" doesn't move x. Doing
+      # the swap first would accept `insertBefore(x, x)` for an x that is not a
+      # child of this node, which step 3 of the validity check rejects.
       ensure_pre_insertion_validity!(child, reference)
-      nodes = detach_dom_nodes(child)
-      if reference.nil? || (defined?(Bridge::UNDEFINED) && reference.equal?(Bridge::UNDEFINED))
+      reference = wrapped_next_sibling(reference) if same_wrapped_node?(reference, child)
+      ref_node =
+        if reference.nil? || (defined?(Bridge::UNDEFINED) && reference.equal?(Bridge::UNDEFINED))
+          nil
+        else
+          unwrap_dom_node(reference)
+        end
+      # Insert step 6's insertion point, measured BEFORE anything moves: the
+      # reference child's previous sibling, or the parent's last child when
+      # appending. For `parent.insertBefore(itsLastChild, null)` that is the
+      # node being inserted, which a post-hoc look at the new tree cannot give.
+      record_previous = insertion_previous_sibling(@__node__, ref_node)
+      record_next = wrap_sibling(ref_node)
+      nodes = convert_for_insert([child], @__node__, ref_node)
+      ref_node = nil if ref_node && ref_node.parent != @__node__
+      if ref_node.nil?
         append_dom_nodes(nodes)
       else
         # The reference is guaranteed (by validity) to be a child here. Insert in
         # order before it: each new node becomes its immediate previous sibling,
         # so forward iteration yields the original order (reverse would flip a
         # multi-node fragment).
-        ref_node = unwrap_dom_node(reference)
         nodes.each { |node| ref_node.add_previous_sibling(node) }
       end
 
-      notify_child_list(added: nodes)
+      notify_child_list(added: nodes, previous_sibling: record_previous,
+                        next_sibling: record_next)
       child
     end
 
@@ -3469,28 +3532,9 @@ module Dommy
       nodes.each { |node| @__node__.add_child(node) }
     end
 
-    # ParentNode hook: Element enforces the no-cycle hierarchy check that
-    # Fragment / ShadowRoot skip.
-    def check_insertion!(child)
-      check_hierarchy!(child)
-    end
-
-    # Raise HierarchyRequestError when the proposed insertion would
-    # produce a cycle (inserting an ancestor as a descendant of
-    # itself). Strings and Fragments are always safe.
-    def check_hierarchy!(child)
-      return unless child.respond_to?(:__dommy_backend_node__)
-
-      node = child.__dommy_backend_node__
-      return unless node.is_a?(Backend.node_class)
-
-      if node == @__node__ || @__node__.ancestors.any? { |a| a == node }
-        raise(
-          DOMException::HierarchyRequestError,
-          "Cannot insert a node as a descendant of itself"
-        )
-      end
-    end
+    # `check_insertion!` / `check_hierarchy!` now live in Internal::ParentNode:
+    # WHATWG applies the no-cycle rule to every element-like parent, so Fragment
+    # and ShadowRoot need it too and Element has nothing left to override.
 
     def detach_for_insert(value)
       detach_dom_nodes(value).first
