@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.11.0 — 2026-09-11
+
+### Added
+- **Rails-internals spans in a trace.** A traced request no longer stops at the Rack boundary: controller action, SQL queries, view rendering, and any Active Job enqueue/perform or Action Mailer delivery it triggers appear inside it. `Dommy::Rails::TraceInstrumentation.install!(binds: true)` opts into SQL bind values, masked like form params.
+- The instrumentation installs itself when a test boots its browser — no `rails_helper` line to add.
+- **A failed browser spec leaves a trace bundle.** The failure output names the bundle — `tmp/dommy/failures/<example>/`, holding the page HTML, the trace and its artifacts — and the `dommylizer` command that opens it. One directory per example, so a re-run overwrites rather than piles up, and a failure while saving never masks the real one.
+
 ## 0.10.0 — 2026-07-13
 
 ### Changed

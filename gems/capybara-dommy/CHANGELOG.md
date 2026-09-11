@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.11.0 — 2026-09-11
+
+### Added
+- **Native dialog helpers in JS mode.** `accept_confirm`, `dismiss_confirm`, `accept_alert`, `accept_prompt` (with `with:`) and `dismiss_prompt` work against the page's real `confirm` / `alert` / `prompt`, including a `text:` string or Regexp to say which dialog is expected. Nested helper blocks answer the dialogs in the order the page opens them, and a dialog nobody is waiting for falls back to the headless default, so a stray `confirm` cannot silently accept. A block that opens no matching dialog raises `Capybara::ModalNotFound`, naming what turned up instead.
+
+### Fixed
+- Turbo-driven navigation in JS apps is followed, so `have_current_path` and the matchers after a Turbo visit see the page the app actually moved to.
+- `current_url` advances the virtual clock like the other queries do, so a `have_current_path` poll converges when the navigation settles in a scheduled task rather than a microtask.
+
 ## 0.10.0 — 2026-07-13
 
 ### Added
