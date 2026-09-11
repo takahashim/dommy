@@ -126,13 +126,12 @@ module Dommy
       def record_namespace_information(attrs, map, local_prefixes)
         default_ns = nil
         attrs.each do |attr|
-          next unless attr.namespace == XMLNS_NS
-
-          if attr.prefix.nil?
+          if default_ns_declaration?(attr)
             # xmlns="..." — a default namespace declaration.
             default_ns = attr.value
             next
           end
+          next unless attr.namespace == XMLNS_NS
 
           prefix_def = attr.local_name
           ns_def = attr.value
@@ -144,6 +143,16 @@ module Dommy
           local_prefixes[prefix_def] = ns_def
         end
         default_ns
+      end
+
+      # Whether `attr` is the element's default-namespace declaration, matched on
+      # its LOCAL NAME rather than on its namespace. `setAttribute("xmlns", …)`
+      # creates a NULL-namespace attribute — only `setAttributeNS` puts one in
+      # the XMLNS namespace, and validate-and-extract lets nothing else be named
+      # `xmlns` — yet it is still the declaration the algorithm has to reconcile
+      # with the element's real namespace, and drop when the two disagree.
+      def default_ns_declaration?(attr)
+        attr.prefix.nil? && attr.local_name == "xmlns"
       end
 
       # https://w3c.github.io/DOM-Parsing/#dfn-retrieve-a-preferred-prefix-string
@@ -167,13 +176,17 @@ module Dommy
       def serialize_attributes(attrs, map, prefix_index, local_prefixes, ignore_ns_def)
         result = +""
         attrs.each do |attr|
+          # The element start tag has already settled the default namespace —
+          # either by writing its own `xmlns` or by dropping a declaration that
+          # contradicted it — so this one is not written again, whichever
+          # namespace it carries.
+          next if ignore_ns_def && default_ns_declaration?(attr)
+
           ns = presence(attr.namespace)
           prefix = nil
 
           if ns
             if ns == XMLNS_NS
-              # A default-namespace declaration already emitted by the element.
-              next if attr.prefix.nil? && ignore_ns_def
               # A prefixed declaration that the element already wrote out.
               next if attr.prefix && local_prefixes[attr.local_name] == attr.value && already_emitted_prefix?(attr)
               prefix = attr.prefix # "xmlns" for xmlns:foo, nil for xmlns
