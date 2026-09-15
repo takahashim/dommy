@@ -1688,7 +1688,7 @@ module Dommy
     # inside a shadow tree, returns that ShadowRoot. Otherwise walks
     # until we hit the Nokogiri Document (then returns the Document).
     def root_node(options = nil)
-      composed = options.is_a?(Hash) && EventTarget.js_truthy?(options.key?("composed") ? options["composed"] : options[:composed])
+      composed = Node.composed_option?(options)
       sr = @document.__internal_shadow_root_containing__(@__node__)
       if sr
         # Default: the shadow root is the root. `composed: true` is
