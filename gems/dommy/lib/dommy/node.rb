@@ -385,6 +385,12 @@ module Dommy
       (@document && @document.wrap_node(node)) || self
     end
 
+    # Node.normalize() — a node with no descendants has no Text run to merge.
+    # ParentNode and Document override it.
+    def normalize
+      nil
+    end
+
     HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
     XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
     XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/"
