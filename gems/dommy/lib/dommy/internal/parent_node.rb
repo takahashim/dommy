@@ -19,7 +19,7 @@ module Dommy
       # `appendChild(child)` — detach the node(s) from any current parent
       # and append to the end of this node's child list.
       def append_child(child)
-        coerce_node_argument!(child)
+        WebIDL.node!(child)
         ensure_pre_insertion_validity!(child, nil)
         # An append has a null reference child, so insert step 5 shifts nothing;
         # convert_for_insert still routes through it so every insertion site
@@ -129,7 +129,7 @@ module Dommy
       #
       # Spec: https://dom.spec.whatwg.org/#dom-parentnode-movebefore
       def move_before(node, child = nil)
-        coerce_node_argument!(node)
+        WebIDL.node!(node)
         bn = insertion_backend_node(node)
         ref_bn = insertion_backend_node(child)
         # moveBefore step 2: a reference child that IS the node moves out of the
@@ -404,15 +404,6 @@ module Dommy
           cur = cur.respond_to?(:parent) ? cur.parent : nil
         end
         false
-      end
-
-      # WebIDL coercion for an `appendChild`/`insertBefore`/`replaceChild`
-      # argument typed `Node`: a null / undefined / non-Node value is a
-      # TypeError before any DOM step runs.
-      def coerce_node_argument!(value)
-        return value if value.is_a?(Dommy::Node)
-
-        raise Bridge::TypeError, "Argument is not a Node."
       end
 
       # WHATWG "ensure pre-insertion validity" for an element-like parent

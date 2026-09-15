@@ -186,13 +186,15 @@ module Dommy
       nil
     end
 
-    # WHATWG "set the start/end of a range" steps 1-2: a DocumentType can never
-    # hold a boundary, and the offset is an unsigned long bounded by the node's
-    # length (so a negative JS offset wraps to a huge value and is rejected).
+    # WebIDL converts both arguments before any step runs, so a non-Node is a
+    # TypeError even when the offset is out of range. Then WHATWG "set the
+    # start/end of a range" steps 1-2: a DocumentType can never hold a boundary,
+    # and the offset is an unsigned long bounded by the node's length (so a
+    # negative JS offset wraps to a huge value and is rejected).
     def validate_boundary!(node, offset)
-      raise DOMException::InvalidNodeTypeError, "a DocumentType cannot be a boundary point" if doctype?(node)
-
+      Internal::WebIDL.node!(node)
       value = unsigned_long(offset)
+      raise DOMException::InvalidNodeTypeError, "a DocumentType cannot be a boundary point" if doctype?(node)
       raise DOMException::IndexSizeError, "offset #{value} is past the node's length" if value > length_of(node)
 
       value
@@ -204,6 +206,7 @@ module Dommy
     # parent (a Document, a detached DocumentFragment, a freshly created node)
     # has no such container, and the spec throws rather than inventing one.
     def parent_for_boundary!(node)
+      Internal::WebIDL.node!(node)
       parent = parent_of(node)
       raise DOMException::InvalidNodeTypeError, "node has no parent" if parent.nil?
 
@@ -255,6 +258,7 @@ module Dommy
     # WHATWG "selectNodeContents" step 1: a DocumentType has no contents to
     # select, and cannot be a boundary point either.
     def select_node_contents(node)
+      Internal::WebIDL.node!(node)
       raise DOMException::InvalidNodeTypeError, "a DocumentType cannot be a boundary point" if doctype?(node)
 
       @start_container = node
@@ -494,6 +498,7 @@ module Dommy
 
     # surroundContents(newParent) — wraps the range contents in newParent.
     def surround_contents(new_parent)
+      Internal::WebIDL.node!(new_parent)
       # A non-Text node the range only reaches *into* cannot be surrounded: the
       # result would not be a well-formed tree.
       partial = ancestor_chain(@start_container) + ancestor_chain(@end_container)
@@ -521,6 +526,7 @@ module Dommy
     #
     # Spec: https://dom.spec.whatwg.org/#concept-range-insert
     def insert_node(node)
+      Internal::WebIDL.node!(node)
       start_node = @start_container
       splitting = text_node?(start_node)
       # Steps 1-4: what the node goes in front of, and whose child it becomes.
@@ -578,6 +584,7 @@ module Dommy
       # otherwise truncate toward zero and take modulo 2^16), then require one of
       # the four named constants, else NotSupportedError.
       how = to_unsigned_short(how)
+      Internal::WebIDL.interface!(other, Range)
       unless [START_TO_START, START_TO_END, END_TO_END, END_TO_START].include?(how)
         raise DOMException::NotSupportedError, "invalid comparison type: #{how}"
       end
@@ -599,6 +606,7 @@ module Dommy
     end
 
     def intersects_node(node)
+      Internal::WebIDL.node!(node)
       # WHATWG Range.intersectsNode: a node in a different tree never intersects;
       # a node with no parent (a tree root, e.g. the document) always does.
       return false unless same_root?(node)
@@ -616,7 +624,7 @@ module Dommy
     # range, 0 if inside, 1 if after. offset is a WebIDL unsigned long (so -1
     # wraps to a huge value > length → IndexSizeError).
     def compare_point(node, offset)
-      raise Bridge::TypeError, "argument is not a Node" unless node.is_a?(Dommy::Node)
+      Internal::WebIDL.node!(node)
 
       off = unsigned_long(offset)
       raise DOMException::WrongDocumentError, "node is in a different tree" unless same_root?(node)
@@ -632,6 +640,7 @@ module Dommy
     # WHATWG Range.isPointInRange(node, offset): true iff the point lies within
     # the range (inclusive). A different root returns false (no throw).
     def is_point_in_range(node, offset)
+      Internal::WebIDL.node!(node)
       return false unless same_root?(node)
 
       off = unsigned_long(offset)
@@ -1042,7 +1051,11 @@ module Dommy
       remove_all_ranges
     end
 
+    # `collapse(node, offset)`: `node` is nullable, and a null one clears the
+    # selection instead of placing a caret.
     def collapse(node, offset = 0)
+      return remove_all_ranges if Internal::WebIDL.nullable_node!(node).nil?
+
       range = Range.new(@document)
       range.set_start(node, offset)
       range.set_end(node, offset)

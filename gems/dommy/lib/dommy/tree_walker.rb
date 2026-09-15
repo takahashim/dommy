@@ -226,8 +226,8 @@ module Dommy
     def __js_set__(key, value)
       return Bridge::UNHANDLED unless key == "currentNode"
 
-      # currentNode is a non-null `Node`; non-Node values are a TypeError.
-      raise Bridge::TypeError, "currentNode must be a Node" unless value.is_a?(Dommy::Node)
+      # currentNode is a non-null `Node`.
+      Internal::WebIDL.node!(value)
 
       @current_node = value
       nil
