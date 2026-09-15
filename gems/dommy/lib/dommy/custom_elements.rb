@@ -95,9 +95,7 @@ module Dommy
       @window.document.__internal_each_shadow_including_element__(root.__dommy_backend_node__) do |nk|
         next unless @definitions.key?(nk.name)
 
-        # Force re-wrap by clearing the document's cached wrapper.
-        @window.document.__internal_reset_wrapper__(nk)
-        wrapped = @window.document.wrap_node(nk)
+        wrapped = rewrap_for_upgrade(@window.document, nk)
         next unless wrapped
 
         replay_observed_attributes(wrapped)
@@ -136,6 +134,22 @@ module Dommy
       list&.each { |p| p.fulfill(klass) }
     end
 
+    # Re-wrap `nk` as its definition's class, or nil when there is nothing to
+    # upgrade. An element that is already an instance of the class is left alone:
+    # upgrading an element that is already custom does nothing. The new wrapper
+    # is told which one it replaces, because a script may hold the element — a
+    # JS-defined element upgrades that reference in place.
+    def rewrap_for_upgrade(doc, nk)
+      previous = doc.__internal_peek_wrapper__(nk)
+      klass = @definitions[nk.name]
+      return nil if klass.is_a?(Module) && previous.is_a?(klass)
+
+      doc.__internal_reset_wrapper__(nk)
+      wrapped = doc.wrap_node(nk)
+      wrapped.__internal_upgraded_from__(previous) if previous && wrapped.respond_to?(:__internal_upgraded_from__)
+      wrapped
+    end
+
     # When define() lands after the matching element is already in
     # the document, those nodes need upgrading: re-wrap them with the
     # new class and fire connectedCallback.
@@ -148,8 +162,7 @@ module Dommy
       doc.__internal_each_shadow_including_element__(doc.backend_doc) do |nk|
         next unless nk.name == name
 
-        doc.__internal_reset_wrapper__(nk)
-        wrapped = doc.wrap_node(nk)
+        wrapped = rewrap_for_upgrade(doc, nk)
         next unless wrapped
 
         replay_observed_attributes(wrapped)

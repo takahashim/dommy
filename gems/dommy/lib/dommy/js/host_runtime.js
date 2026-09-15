@@ -2633,6 +2633,19 @@ globalThis.__rbHost = (function () {
     finally { constructionStack.pop(); }
   }
 
+  // Ruby re-wrapped an element its definition now applies to and moved the
+  // element's handle onto the new wrapper (HostBridge#upgrade_in_place). The
+  // proxy a script already holds is upgraded where it stands, and recorded under
+  // the new interface so a later crossing tagged with it keeps the same object.
+  function upgradeInPlace(handle, name, iface) {
+    bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
+    const ref = cache.get(handle);
+    const proxy = ref && ref.deref();
+    if (!proxy) return;
+    if (iface != null) proxyInterfaces.set(proxy, iface);
+    upgradeElement(proxy, name);
+  }
+
   // Ruby calls this when a registered custom element fires a lifecycle reaction.
   // makeProxy upgrades on first crossing, so the constructor has already run.
   function invokeLifecycle(handle, callback, args) {
@@ -2876,7 +2889,7 @@ globalThis.__rbHost = (function () {
     makeHostDeferred,
     // Opt-in rejection-detail capture (see installRejectionTracker).
     installRejectionTracker,
-    seedInterfaces, invokeLifecycle, attachStatics, exposeConstructorsOnWindow,
+    seedInterfaces, invokeLifecycle, upgradeInPlace, attachStatics, exposeConstructorsOnWindow,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,
     wasmTypeof, wasmToString, wasmStrictEqual, wasmIsNull, wasmInstanceof,

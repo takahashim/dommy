@@ -139,6 +139,20 @@ module Dommy
         unwrap(@backend.call_js("__rbHost.invokeLifecycle", handle, callback, wrap(Array(args))))
       end
 
+      # An upgrade replaced `previous`, the element's wrapper from before its
+      # definition existed, with `current`. A script may already hold the
+      # element: its handle moves to the new wrapper and the proxy it holds is
+      # upgraded in place, so it stays the same object and becomes an instance
+      # of the class.
+      def upgrade_in_place(previous, current)
+        handle = @codec.rebind(previous, current)
+        return nil unless handle
+
+        @backend.call_js("__rbHost.upgradeInPlace", handle, current.__js_custom_element_name__,
+                         DomInterfaces.info(current)["name"])
+        nil
+      end
+
       # Invoke a retained live JS function by id (used by HostCallback). The JS
       # side returns a `dehydrate`d (tagged) value, so unwrap it back to Ruby:
       # a callback that returns e.g. a Promise proxy must come back as the live

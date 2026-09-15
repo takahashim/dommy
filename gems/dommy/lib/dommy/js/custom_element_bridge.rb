@@ -81,6 +81,12 @@ module Dommy
         self.class.js_name
       end
 
+      # See CustomElementRegistry#rewrap_for_upgrade: the upgrade replaced
+      # `previous`, which a script may be holding.
+      def __internal_upgraded_from__(previous)
+        self.class.js_bridge.upgrade_in_place(previous, self)
+      end
+
       def connected_callback
         self.class.js_bridge.invoke_lifecycle(self, "connectedCallback", [])
       end

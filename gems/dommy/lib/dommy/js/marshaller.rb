@@ -25,6 +25,7 @@ module Dommy
       # ---- handle table (cross-boundary object identity) ----
 
       def register(obj) = @handles.register(obj)
+      def rebind(old, new) = @handles.rebind(old, new)
       def host(handle) = @handles.fetch(handle)
       def release(handle) = @handles.release(handle)
       def size = @handles.size
