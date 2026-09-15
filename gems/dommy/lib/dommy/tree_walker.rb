@@ -181,12 +181,15 @@ module Dommy
       nil
     end
 
+    # WHATWG parentNode(): climb from current, taking the first accepted
+    # ancestor, until the root is reached. The loop looks only for the root on
+    # the way up, not for a way back to it, so a current that was removed from
+    # under the root climbs the detached subtree it now sits in.
     def parent_node
-      node = wrapped_parent(@current_node)
-      while node && reachable_from_root?(node)
-        return @current_node = node if accept(node) == NodeFilter::FILTER_ACCEPT
-
+      node = @current_node
+      while node && node != @root
         node = wrapped_parent(node)
+        return @current_node = node if node && accept(node) == NodeFilter::FILTER_ACCEPT
       end
 
       nil
@@ -310,17 +313,6 @@ module Dommy
         return nil if node.nil? || node == @root
         return nil if accept(node) == NodeFilter::FILTER_ACCEPT
       end
-    end
-
-    def reachable_from_root?(node)
-      current = node
-      while current
-        return true if current == @root
-
-        current = wrapped_parent(current)
-      end
-
-      false
     end
 
     # The wrapped parent, INCLUDING the Document itself: a walker rooted at the
