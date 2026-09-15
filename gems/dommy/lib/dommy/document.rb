@@ -1992,7 +1992,7 @@ module Dommy
       when "cloneNode"
         clone_node(args[0])
       when "normalize"
-        nil # the document has no text children to merge
+        normalize
       when "writeln"
         write(*(args + ["\n"]))
       when "exitFullscreen"
@@ -2443,6 +2443,73 @@ module Dommy
       __internal_each_live_range__ do |range|
         range.__internal_apply_normalize_merge__(merged_into, current_wrapper, length, parent, index)
       end
+    end
+
+    # Node.normalize() on the document: every Text run in the tree.
+    def normalize
+      __internal_normalize__(@backend_doc)
+    end
+
+    # Node#normalize — merge each run of adjacent exclusive Text descendants
+    # into its first node (preserving that node's identity, so a JS reference
+    # to it survives) and drop empty Text nodes. Recurses the whole subtree,
+    # so it serves Element, DocumentFragment, ShadowRoot and the Document alike.
+    #
+    # A run is merged one sibling at a time: append the sibling's data to the
+    # survivor (a characterData record), hand its live range boundaries over,
+    # remove it (a childList record), then the next. Read literally, the spec
+    # concatenates every sibling's data first (steps 3-4, one "replace data")
+    # and removes them afterwards (step 7), which would queue ONE
+    # characterData record per run. Every shipping engine merges pairwise
+    # instead — Blink, WebCore and Gecko all answer [characterData, childList,
+    # characterData, childList, …] for a run of four text nodes, confirmed by
+    # running the same script in Chromium 141, WebKitGTK 2.52.6 and Firefox —
+    # and the WPT suite fixes only the childList side, so the records follow
+    # the engines. The tree and every live range boundary end up exactly where
+    # the spec's steps put them: a boundary in a later sibling (or on the
+    # parent, pointing at one) is shifted down by each earlier removal and
+    # then handed over at the survivor's length of that moment, which is the
+    # same offset the batch steps compute up front.
+    # https://github.com/takahashim/dommy/issues/24
+    def __internal_normalize__(root)
+      text_nodes = []
+      root.traverse { |node| text_nodes << node if node.respond_to?(:text?) && node.text? }
+
+      text_nodes.each do |node|
+        next unless node.parent # already removed as part of an earlier run
+
+        if node.content.to_s.empty?
+          remove_node_with_notify(node)
+          next
+        end
+
+        sib = node.next
+        while sib.respond_to?(:text?) && sib.text?
+          following = sib.next
+          data = sib.content.to_s
+          # The offset the sibling's data lands at inside the survivor — the
+          # length of what it already holds, measured before the append.
+          length = wrap_node(node).length
+          # An empty sibling has nothing to append: the engines skip the data
+          # step for it (Gecko checks the length, Blink and WebCore behave the
+          # same), so it is removed without a characterData record. Its range
+          # boundaries still move to the survivor's join.
+          unless data.empty?
+            old = node.content.to_s
+            node.content = old + data
+            notify_character_data_mutation(target_node: node, old_value: old)
+          end
+          # WHATWG normalize() step 6: the merged-away sibling hands its live
+          # range boundaries to the survivor at that offset BEFORE it is
+          # removed, or the plain removing steps would strand them on the
+          # parent.
+          __internal_ranges_normalize_merge__(node, sib, length)
+          remove_node_with_notify(sib)
+          sib = following
+        end
+      end
+
+      nil
     end
 
     def __internal_ranges_replaced_data__(node, offset, count, new_length)

@@ -163,66 +163,10 @@ module Dommy
         node
       end
 
-      # Node#normalize — merge each run of adjacent exclusive Text descendants
-      # into its first node (preserving that node's identity, so a JS reference
-      # to it survives) and drop empty Text nodes. Recurses the whole subtree,
-      # so it works for Element, DocumentFragment, and ShadowRoot alike.
-      #
-      # A run is merged one sibling at a time: append the sibling's data to the
-      # survivor (a characterData record), hand its live range boundaries over,
-      # remove it (a childList record), then the next. Read literally, the spec
-      # concatenates every sibling's data first (steps 3-4, one "replace data")
-      # and removes them afterwards (step 7), which would queue ONE
-      # characterData record per run. Every shipping engine merges pairwise
-      # instead — Blink, WebCore and Gecko all answer [characterData, childList,
-      # characterData, childList, …] for a run of four text nodes, confirmed by
-      # running the same script in Chromium 141, WebKitGTK 2.52.6 and Firefox —
-      # and the WPT suite fixes only the childList side, so the records follow
-      # the engines. The tree and every live range boundary end up exactly where
-      # the spec's steps put them: a boundary in a later sibling (or on the
-      # parent, pointing at one) is shifted down by each earlier removal and
-      # then handed over at the survivor's length of that moment, which is the
-      # same offset the batch steps compute up front.
-      # https://github.com/takahashim/dommy/issues/24
+      # Node.normalize(). The algorithm lives on the Document, which is a
+      # receiver too.
       def normalize
-        text_nodes = []
-        @__node__.traverse { |node| text_nodes << node if node.respond_to?(:text?) && node.text? }
-
-        text_nodes.each do |node|
-          next unless node.parent # already removed as part of an earlier run
-
-          if node.content.to_s.empty?
-            @document.remove_node_with_notify(node)
-            next
-          end
-
-          sib = node.next
-          while sib.respond_to?(:text?) && sib.text?
-            following = sib.next
-            data = sib.content.to_s
-            # The offset the sibling's data lands at inside the survivor — the
-            # length of what it already holds, measured before the append.
-            length = @document.wrap_node(node).length
-            # An empty sibling has nothing to append: the engines skip the data
-            # step for it (Gecko checks the length, Blink and WebCore behave the
-            # same), so it is removed without a characterData record. Its range
-            # boundaries still move to the survivor's join.
-            unless data.empty?
-              old = node.content.to_s
-              node.content = old + data
-              @document.notify_character_data_mutation(target_node: node, old_value: old)
-            end
-            # WHATWG normalize() step 6: the merged-away sibling hands its live
-            # range boundaries to the survivor at that offset BEFORE it is
-            # removed, or the plain removing steps would strand them on the
-            # parent.
-            @document.__internal_ranges_normalize_merge__(node, sib, length)
-            @document.remove_node_with_notify(sib)
-            sib = following
-          end
-        end
-
-        nil
+        @document.__internal_normalize__(@__node__)
       end
 
       private

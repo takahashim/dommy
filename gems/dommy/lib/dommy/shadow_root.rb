@@ -293,7 +293,7 @@ module Dommy
       when "hasChildNodes"
         @__node__.children.any?
       when "normalize"
-        nil
+        normalize
       when "append"
         append(*args)
       when "prepend"

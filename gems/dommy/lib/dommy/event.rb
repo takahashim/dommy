@@ -377,8 +377,11 @@ module Dommy
       node.is_a?(ShadowRoot) && node.mode == "closed"
     end
 
+    # Every node answers getRootNode — a CharacterData node and a Document as
+    # much as an Element, whose override also finds its shadow root. A Window
+    # has no root.
     def root_of(node)
-      node.respond_to?(:root_node) ? node.root_node : nil
+      node.respond_to?(:get_root_node) ? node.get_root_node : nil
     end
 
     # `phase` is :capture (capture listeners), :bubble (non-capture), or :both
