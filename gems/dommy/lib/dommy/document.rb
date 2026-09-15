@@ -2314,6 +2314,9 @@ module Dommy
       pre_remove_node(node)
       add_transient_observers_for(node)
       node.unlink
+      # A removal can take a shadow tree, and a selection range in it, out of
+      # the document without moving the range; the selection lets go of it.
+      @__selection&.__internal_node_removed__
       node
     end
 

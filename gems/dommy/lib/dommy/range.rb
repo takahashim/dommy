@@ -172,6 +172,7 @@ module Dommy
       if different_root || compare_points(@start_container, @start_offset, @end_container, @end_offset) > 0
         collapse_to_start
       end
+      boundaries_moved
       nil
     end
 
@@ -183,6 +184,7 @@ module Dommy
       if different_root || compare_points(@start_container, @start_offset, @end_container, @end_offset) > 0
         collapse_to_end
       end
+      boundaries_moved
       nil
     end
 
@@ -252,6 +254,7 @@ module Dommy
       @start_offset = idx
       @end_container = parent
       @end_offset = idx + 1
+      boundaries_moved
       nil
     end
 
@@ -265,6 +268,7 @@ module Dommy
       @start_offset = 0
       @end_container = node
       @end_offset = length_of(node)
+      boundaries_moved
       nil
     end
 
@@ -695,6 +699,13 @@ module Dommy
       length_of(node)
     end
 
+    # The Selection holding this range, if any. It is told whenever a script
+    # moves the boundaries, so it can let go of a range that left the document.
+    def __internal_associate__(selection)
+      @selection = selection
+      nil
+    end
+
     # --- Cloning ---------------------------------------------------
 
     def clone_range
@@ -829,6 +840,10 @@ module Dommy
     def collapse_to_end
       @start_container = @end_container
       @start_offset = @end_offset
+    end
+
+    def boundaries_moved
+      @selection&.__internal_range_moved__(self)
     end
 
     # A Text node in the spec's sense, which includes a CDATASection.

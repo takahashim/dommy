@@ -10,6 +10,17 @@ module Dommy
   # The members that need rendering (modify, the selectionchange event) and
   # getComposedRanges (which returns StaticRanges) are not modelled.
   #
+  # The selection has one state: it has a range, or it is empty. A range that
+  # leaves the document — moved by script into a fragment or another document,
+  # or stranded in a shadow tree whose host was removed — is dropped on the
+  # spot and does not come back if it is moved back in. That is what Blink and
+  # Gecko do (and WPT's selection/*different-root*.tentative.html expects), and
+  # it keeps rangeCount, type, isCollapsed, toString and collapseToStart/End
+  # telling the same story. The spec text instead keeps such a range associated
+  # and hides it member by member. A range in a shadow tree of this document
+  # stays: the spec notes anchor and focus may be there, and the engines report
+  # them.
+  #
   # Spec: https://w3c.github.io/selection-api/
   class Selection
     DIRECTION_NAMES = { forwards: "forward", backwards: "backward", none: "none" }.freeze
@@ -31,25 +42,22 @@ module Dommy
 
     # --- anchor, focus, and what is read off them ---------------------------
 
-    # The anchor and focus as the attributes report them: null (offset 0) once
-    # the point has left the document tree.
     def anchor_node
-      visible(anchor)&.first
+      anchor&.first
     end
 
     def anchor_offset
-      visible(anchor)&.last || 0
+      anchor&.last || 0
     end
 
     def focus_node
-      visible(focus)&.first
+      focus&.first
     end
 
     def focus_offset
-      visible(focus)&.last || 0
+      focus&.last || 0
     end
 
-    # Compares the anchor and focus themselves, wherever they are.
     def is_collapsed
       @range.nil? || @range.collapsed?
     end
@@ -57,11 +65,11 @@ module Dommy
     alias isCollapsed is_collapsed
 
     def range_count
-      in_document_tree? ? 1 : 0
+      @range ? 1 : 0
     end
 
     def type
-      return "None" unless in_document_tree?
+      return "None" if @range.nil?
 
       @range.collapsed? ? "Caret" : "Range"
     end
@@ -71,7 +79,7 @@ module Dommy
     end
 
     def get_range_at(index)
-      unless Internal::WebIDL.unsigned_long(index).zero? && in_document_tree?
+      unless Internal::WebIDL.unsigned_long(index).zero? && @range
         raise DOMException::IndexSizeError, "the selection has no range at index #{index}"
       end
 
@@ -86,11 +94,13 @@ module Dommy
 
     # addRange sets no direction of its own. A forwards one keeps the anchor at
     # the range's start, which is what engines report and WPT
-    # (selection/addRange.htm) checks.
+    # (selection/addRange.htm) checks. The spec wants the range's root to be the
+    # document itself; Blink and Gecko also take a range in one of its shadow
+    # trees, and so does this, as the rest of the selection allows them.
     def add_range(range)
       Internal::WebIDL.interface!(range, Range)
-      return nil unless root_of(range.start_container).equal?(@document)
-      return nil unless range_count.zero?
+      return nil unless connected?(range)
+      return nil unless @range.nil?
 
       replace_range(range, :forwards)
     end
@@ -170,7 +180,9 @@ module Dommy
       return nil unless in_this_document?(anchor_node) && in_this_document?(focus_node)
 
       # Points in different trees are neither before nor after one another, so
-      # they take the "otherwise" branches: focus first, and forwards.
+      # they take the "otherwise" branches: the start is set to the focus, then
+      # the end to the anchor, which carries the range over to the anchor.
+      # Blink and Gecko land there too.
       same_tree = root_of(anchor_node).equal?(root_of(focus_node))
       anchor_first = same_tree && range.__internal_compare_points__(*anchor_point, *focus_point).negative?
       backwards = same_tree && range.__internal_compare_points__(*focus_point, *anchor_point).negative?
@@ -194,7 +206,7 @@ module Dommy
     end
 
     def delete_from_document
-      @range.delete_contents if in_document_tree?
+      @range&.delete_contents
       nil
     end
 
@@ -210,6 +222,21 @@ module Dommy
       inner_start, inner_end = EventTarget.js_truthy?(allow_partial_containment) ? [last, first] : [first, last]
       @range.__internal_compare_points__(*start_point, *inner_start) <= 0 &&
         @range.__internal_compare_points__(*end_point, *inner_end) >= 0
+    end
+
+    # --- keeping the range in the document ---------------------------------------
+
+    # The range told us its boundaries moved.
+    def __internal_range_moved__(range)
+      remove_all_ranges if range.equal?(@range) && !connected?(range)
+      nil
+    end
+
+    # The document removed a node; a shadow host going takes its shadow tree,
+    # and a range in it, out of the document without moving the range.
+    def __internal_node_removed__
+      remove_all_ranges if @range && !connected?(@range)
+      nil
     end
 
     # --- JS bridge ------------------------------------------------------------
@@ -282,9 +309,13 @@ module Dommy
 
     private
 
+    # Associates `range` (or nothing) with the selection. The range reports its
+    # boundary moves to whichever selection holds it.
     def replace_range(range, direction)
+      @range&.__internal_associate__(nil) unless @range.equal?(range)
       @range = range
       @direction = direction
+      range&.__internal_associate__(self)
       nil
     end
 
@@ -314,15 +345,9 @@ module Dommy
       @range && (@direction == :forwards ? end_point : start_point)
     end
 
-    def visible(point)
-      point if point && root_of(point.first).equal?(@document)
-    end
-
-    # Both ends of the range are in the document tree — not in a shadow tree
-    # or a detached subtree. rangeCount, type and getRangeAt all ask this.
-    def in_document_tree?
-      !@range.nil? && root_of(@range.start_container).equal?(@document) &&
-        root_of(@range.end_container).equal?(@document)
+    # A range's two boundaries always share a root, so its start answers for both.
+    def connected?(range)
+      in_this_document?(range.start_container)
     end
 
     # The document is a shadow-including inclusive ancestor of `node`.

@@ -87,17 +87,89 @@ class TestWPTSelectionAPI < Minitest::Test
     assert_raises(Dommy::Bridge::TypeError) { @sel.__js_call__("getRangeAt", []) }
   end
 
-  # A range added by reference can be moved out of the document tree; the
-  # selection then reports nothing, though it still has the range.
-  def test_a_range_that_leaves_the_document_tree_is_not_reported
-    r = range(@ta, 0, @ta, 1)
+  # --- a range that leaves the document -----------------------------------------
+  # Blink and Gecko drop a selection range the moment it leaves the document,
+  # for good, so every member reads the selection as empty.
+
+  def test_a_range_moved_into_a_fragment_leaves_the_selection_empty
+    r = range(@ta, 0, @ta, 3)
+    @sel.add_range(r)
+    fragment = @doc.create_document_fragment
+    div = @doc.create_element("div")
+    div.text_content = "xyz"
+    fragment.append_child(div)
+    r.select_node_contents(div)
+
+    assert_equal([0, "None", nil, true, ""],
+                 [@sel.range_count, @sel.type, @sel.anchor_node, @sel.is_collapsed, @sel.to_s])
+    assert_raises(Dommy::DOMException::IndexSizeError) { @sel.get_range_at(0) }
+    assert_raises(Dommy::DOMException::InvalidStateError) { @sel.collapse_to_start }
+    assert_raises(Dommy::DOMException::InvalidStateError) { @sel.collapse_to_end }
+  end
+
+  def test_a_dropped_range_does_not_come_back_when_moved_back_in
+    r = range(@ta, 0, @ta, 3)
     @sel.add_range(r)
     r.set_start(@doc.create_text_node("elsewhere"), 0)
-
+    r.select_node_contents(@b)
     assert_equal(0, @sel.range_count)
-    assert_equal("None", @sel.type)
-    assert_equal([nil, 0, nil, 0], anchor_and_focus)
-    assert_raises(Dommy::DOMException::IndexSizeError) { @sel.get_range_at(0) }
+
+    replacement = range(@tb, 0, @tb, 1)
+    @sel.add_range(replacement)
+    assert_same(replacement, @sel.get_range_at(0))
+  end
+
+  def test_removing_a_shadow_host_drops_a_range_in_its_tree
+    host = @doc.create_element("div")
+    @doc.body.append_child(host)
+    shadow = host.attach_shadow({ "mode" => "open" })
+    shadow.inner_html = "<span>ABC</span>"
+    text = shadow.first_child.first_child
+    @sel.set_base_and_extent(text, 0, text, 2)
+    r = @sel.get_range_at(0)
+
+    host.remove
+    assert_equal(0, @sel.range_count)
+    assert_equal([text, 0, text, 2], [r.start_container, r.start_offset, r.end_container, r.end_offset])
+  end
+
+  # --- a shadow tree of this document ---------------------------------------------
+
+  def test_a_selection_in_a_shadow_tree_is_reported
+    host = @doc.create_element("div")
+    @doc.body.append_child(host)
+    shadow = host.attach_shadow({ "mode" => "open" })
+    shadow.inner_html = "<span>ABCDE</span>"
+    text = shadow.first_child.first_child
+    @sel.set_base_and_extent(text, 0, text, 5)
+
+    assert_equal([1, "Range", false], [@sel.range_count, @sel.type, @sel.is_collapsed])
+    assert_equal([text, 0, text, 5], anchor_and_focus)
+  end
+
+  # A range cannot span two trees: setting its end to the anchor carries it to
+  # the anchor, as Blink and Gecko have it.
+  def test_set_base_and_extent_across_trees_collapses_at_the_anchor
+    host = @doc.create_element("div")
+    @doc.body.append_child(host)
+    shadow = host.attach_shadow({ "mode" => "open" })
+    shadow.inner_html = "<span>ABCDE</span>"
+    text = shadow.first_child.first_child
+    @sel.set_base_and_extent(text, 2, @ta, 1)
+
+    assert(@sel.is_collapsed)
+    assert_equal([text, 2, text, 2], anchor_and_focus)
+  end
+
+  def test_add_range_takes_a_range_in_a_shadow_tree_of_the_document
+    host = @doc.create_element("div")
+    @doc.body.append_child(host)
+    shadow = host.attach_shadow({ "mode" => "open" })
+    shadow.inner_html = "<span>ABC</span>"
+    r = @doc.create_range
+    r.select_node_contents(shadow.first_child)
+    @sel.add_range(r)
+    assert_same(r, @sel.get_range_at(0))
   end
 
   # --- collapse / setPosition / collapseToStart / collapseToEnd ------------------
