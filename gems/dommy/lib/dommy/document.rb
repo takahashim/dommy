@@ -1097,7 +1097,11 @@ module Dommy
 
     alias has_focus has_focus?
 
+    # A document without a browsing context (one built by DOMParser or
+    # createHTMLDocument) has no selection.
     def get_selection
+      return nil unless @default_view
+
       @__selection ||= Selection.new(self)
     end
 
