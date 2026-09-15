@@ -2213,6 +2213,25 @@ module Dommy
       @shadow_registry.find_for_fragment(fragment_node)
     end
 
+    def __internal_shadow_root_for_host__(host_node)
+      @shadow_registry.find_for_host(host_node)
+    end
+
+    # Every element among `root`'s shadow-including inclusive descendants, as
+    # backend nodes, in shadow-including tree order: an element, then the shadow
+    # tree it hosts, then its children. Each tree's elements are listed up front,
+    # so a callback that changes the tree does not change the walk.
+    def __internal_each_shadow_including_element__(root, &block)
+      elements = root.respond_to?(:element?) && root.element? ? [root] : []
+      elements.concat(root.css("*").to_a) if root.respond_to?(:css)
+      elements.each do |element|
+        yield element
+        shadow = @shadow_registry.find_for_host(element)
+        __internal_each_shadow_including_element__(shadow.__dommy_backend_node__, &block) if shadow
+      end
+      nil
+    end
+
     def __internal_shadow_root_containing__(node)
       @shadow_registry.find_enclosing(node)
     end
