@@ -230,6 +230,17 @@ globalThis.__rbHost = (function () {
   // EventTarget are mixins folded into the Element class there).
   const INTERFACE_MEMBERS = {
     EventTarget: { m: ["addEventListener", "removeEventListener", "dispatchEvent"] },
+    // AbstractRange's attributes live on its prototype, so a StaticRange and a
+    // Range both reach them there; Range adds its operations.
+    AbstractRange: { g: ["startContainer", "startOffset", "endContainer", "endOffset", "collapsed"] },
+    Range: {
+      m: ["setStart", "setEnd", "setStartBefore", "setStartAfter", "setEndBefore", "setEndAfter",
+        "collapse", "selectNode", "selectNodeContents", "compareBoundaryPoints", "deleteContents",
+        "extractContents", "cloneContents", "insertNode", "surroundContents", "cloneRange", "detach",
+        "isPointInRange", "comparePoint", "intersectsNode", "getClientRects", "getBoundingClientRect",
+        "createContextualFragment", "toString"],
+      g: ["commonAncestorContainer"]
+    },
     Selection: {
       m: ["getRangeAt", "addRange", "removeRange", "removeAllRanges", "empty", "getComposedRanges",
         "collapse",
@@ -444,6 +455,11 @@ globalThis.__rbHost = (function () {
     item: 1, namedItem: 1, getNamedItem: 1, getNamedItemNS: 2,
     setNamedItem: 1, setNamedItemNS: 1, removeNamedItem: 1, removeNamedItemNS: 2,
     replace: 2, toggle: 1, supports: 1,
+    // Range. `collapse(optional toStart)` stays 0; Selection overrides it below.
+    setStart: 2, setEnd: 2, setStartBefore: 1, setStartAfter: 1, setEndBefore: 1, setEndAfter: 1,
+    selectNode: 1, selectNodeContents: 1, compareBoundaryPoints: 2, insertNode: 1,
+    surroundContents: 1, isPointInRange: 2, comparePoint: 2, intersectsNode: 1,
+    createContextualFragment: 1,
     moveBefore: 2,
     // Selection. `collapse` depends on the interface; see INTERFACE_METHOD_ARITY.
     getRangeAt: 1, addRange: 1, removeRange: 1, setPosition: 1, extend: 1,
@@ -456,7 +472,10 @@ globalThis.__rbHost = (function () {
   };
   function withArity(fn, name, iface) {
     const own = iface === undefined ? undefined : INTERFACE_METHOD_ARITY[iface];
-    const n = own && Object.prototype.hasOwnProperty.call(own, name) ? own[name] : METHOD_ARITY[name];
+    // Own entries only: a plain-object table would otherwise hand `toString`
+    // (or `constructor`, `valueOf`, ...) the inherited Object.prototype function.
+    const table = own && Object.prototype.hasOwnProperty.call(own, name) ? own : METHOD_ARITY;
+    const n = Object.prototype.hasOwnProperty.call(table, name) ? table[name] : undefined;
     if (n !== undefined) Object.defineProperty(fn, "length", { value: n, configurable: true });
     return fn;
   }
