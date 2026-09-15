@@ -1352,7 +1352,7 @@ module Dommy
       old_parent = bn.parent
       old_previous = bn.previous_sibling
       old_next = bn.next_sibling
-      detach_node(bn)                                             # steps 10-11, 14
+      detach_node(bn, moving: true)                               # steps 10-11, 14
       ref_bn = nil if ref_bn && ref_bn.parent != @backend_doc
       __internal_ranges_will_insert__(@backend_doc, ref_bn, 1)    # step 16
       new_previous = ref_bn ? ref_bn.previous_sibling : @backend_doc.children.to_a.last
@@ -2310,13 +2310,18 @@ module Dommy
     # batch several removals into one childList record (replaceChildren,
     # textContent=, replaceChild) use this and queue the record themselves;
     # `remove_node_with_notify` is this plus a per-node record.
-    def detach_node(node)
+    #
+    # `moving:` marks the first half of the "move" primitive (moveBefore). A
+    # move takes the node out of its old parent's children only to put it
+    # straight back into the same shadow-including tree: it never leaves the
+    # document, so nothing that reacts to a removal from the document may run.
+    def detach_node(node, moving: false)
       pre_remove_node(node)
       add_transient_observers_for(node)
       node.unlink
       # A removal can take a shadow tree, and a selection range in it, out of
       # the document without moving the range; the selection lets go of it.
-      @__selection&.__internal_node_removed__
+      @__selection&.__internal_node_removed__ unless moving
       node
     end
 

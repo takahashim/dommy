@@ -133,6 +133,65 @@ class TestWPTSelectionAPI < Minitest::Test
     assert_equal([text, 0, text, 2], [r.start_container, r.start_offset, r.end_container, r.end_offset])
   end
 
+  # --- moving a node the selection is in ------------------------------------------
+  # Measured in Chrome 149 and Firefox 155. Moving a light-tree node runs the
+  # live range pre-remove steps, so the range lands on the old parent and stays
+  # in the document — whichever way the node travels.
+
+  def build_move_tree
+    @doc.body.inner_html = "<div id='p1'><p id='m'>abc</p><p>def</p></div><div id='p2'></div>"
+    [@doc.get_element_by_id("p1"), @doc.get_element_by_id("p2"), @doc.get_element_by_id("m")]
+  end
+
+  LIGHT_MOVES = {
+    "insertBefore in the same parent" => ->(p1, _p2, node, _doc) { p1.insert_before(node, nil) },
+    "appendChild to another parent" => ->(_p1, p2, node, _doc) { p2.append_child(node) },
+    "through a DocumentFragment" => lambda { |_p1, p2, node, doc|
+      fragment = doc.create_document_fragment
+      fragment.append_child(node)
+      p2.append_child(fragment)
+    },
+    "moveBefore" => ->(_p1, p2, node, _doc) { p2.move_before(node, nil) }
+  }.freeze
+
+  def test_moving_a_light_tree_node_keeps_the_range_on_its_old_parent
+    LIGHT_MOVES.each do |label, move|
+      p1, p2, node = build_move_tree
+      text = node.first_child
+      @sel.set_base_and_extent(text, 1, text, 3)
+      r = @sel.get_range_at(0)
+      move.call(p1, p2, node, @doc)
+
+      assert_same(r, @sel.get_range_at(0), label)
+      assert_equal([p1, 0, p1, 0], [r.start_container, r.start_offset, r.end_container, r.end_offset], label)
+    end
+  end
+
+  # A shadow host moved by remove-then-insert takes its shadow tree out of the
+  # document on the way, and the range in it is dropped (Firefox; Chrome keeps
+  # it). moveBefore never takes the host out of the document: both engines keep
+  # the range, untouched.
+  def test_moving_a_shadow_host_drops_the_range_unless_it_is_moved_with_move_before
+    LIGHT_MOVES.each do |label, move|
+      p1, p2, node = build_move_tree
+      host = @doc.create_element("section")
+      p1.insert_before(host, node)
+      shadow = host.attach_shadow({ "mode" => "open" })
+      shadow.inner_html = "<span>ABCDE</span>"
+      text = shadow.first_child.first_child
+      @sel.set_base_and_extent(text, 1, text, 3)
+      r = @sel.get_range_at(0)
+      move.call(p1, p2, host, @doc)
+
+      if label == "moveBefore"
+        assert_same(r, @sel.get_range_at(0), label)
+        assert_equal([text, 1, text, 3], [r.start_container, r.start_offset, r.end_container, r.end_offset], label)
+      else
+        assert_equal(0, @sel.range_count, label)
+      end
+    end
+  end
+
   # --- a shadow tree of this document ---------------------------------------------
 
   def test_a_selection_in_a_shadow_tree_is_reported
