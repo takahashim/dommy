@@ -7,8 +7,8 @@ module Dommy
   # Every method that selects something new builds a new Range instead of
   # changing the current one; addRange keeps the caller's Range by reference,
   # and deleteFromDocument is the one method that works on the range itself.
-  # The members that need rendering (modify, the selectionchange event) and
-  # getComposedRanges (which returns StaticRanges) are not modelled.
+  # The members that need rendering (modify, the selectionchange event) are not
+  # modelled.
   #
   # The selection has one state: it has a range, or it is empty. A range that
   # leaves the document — moved by script into a fragment or another document,
@@ -32,7 +32,7 @@ module Dommy
     }.freeze
 
     # The bridged operations that return a value; the rest are `undefined`.
-    VALUE_RETURNING = %w[getRangeAt containsNode toString].freeze
+    VALUE_RETURNING = %w[getRangeAt getComposedRanges containsNode toString].freeze
 
     def initialize(document)
       @document = document
@@ -88,6 +88,20 @@ module Dommy
 
     def to_s
       @range ? @range.to_s : ""
+    end
+
+    # `getComposedRanges({shadowRoots})`: the range as a new StaticRange, each
+    # end lifted out of any shadow tree the caller did not list to its host's
+    # place in the parent. A ShadowRoot passed on its own (an older form of the
+    # call) is an object without the member, so it lists nothing — which is how
+    # Blink reads it; Gecko still honours that form.
+    def get_composed_ranges(options = nil)
+      shadow_roots = listed_shadow_roots(options)
+      return [] if @range.nil?
+
+      start_node, start_offset = lift_out_of_unlisted_shadow_trees(*start_point, shadow_roots, 0)
+      end_node, end_offset = lift_out_of_unlisted_shadow_trees(*end_point, shadow_roots, 1)
+      [StaticRange.new(start_node, start_offset, end_node, end_offset)]
     end
 
     # --- setting the range ----------------------------------------------------
@@ -267,7 +281,7 @@ module Dommy
     include Bridge::Methods
     js_methods %w[
       getRangeAt addRange removeRange removeAllRanges empty collapse setPosition collapseToStart collapseToEnd
-      extend setBaseAndExtent selectAllChildren deleteFromDocument containsNode toString
+      extend setBaseAndExtent selectAllChildren deleteFromDocument containsNode getComposedRanges toString
     ]
     def __js_call__(method, args)
       required = REQUIRED_ARGUMENTS.fetch(method, 0)
@@ -301,6 +315,8 @@ module Dommy
           delete_from_document
         when "containsNode"
           contains_node(args[0], args.fetch(1, false))
+        when "getComposedRanges"
+          get_composed_ranges(args[0])
         when "toString"
           to_s
         end
@@ -357,6 +373,50 @@ module Dommy
 
     def root_of(node)
       node.get_root_node
+    end
+
+    # GetComposedRangesOptions, converted: nothing, undefined, or an object
+    # without the member lists no shadow roots; `shadowRoots` has to be a
+    # sequence of ShadowRoots; anything that is not an object is a TypeError.
+    def listed_shadow_roots(options)
+      return [] if options.nil? || options.equal?(Bridge::UNDEFINED)
+      unless options.is_a?(Hash)
+        raise Bridge::TypeError, "GetComposedRangesOptions must be an object" unless options.respond_to?(:__js_get__)
+
+        return []
+      end
+
+      roots = options.fetch("shadowRoots", Bridge::UNDEFINED)
+      return [] if roots.equal?(Bridge::UNDEFINED)
+      raise Bridge::TypeError, "shadowRoots must be a sequence" unless roots.is_a?(Array)
+
+      roots.map { |root| Internal::WebIDL.interface!(root, ShadowRoot) }
+    end
+
+    # getComposedRanges steps 2-3: while the point sits in a shadow tree that
+    # holds none of the listed roots, move it to its host's place in the parent
+    # — before the host for the start (`past` 0), after it for the end (1).
+    def lift_out_of_unlisted_shadow_trees(node, offset, shadow_roots, past)
+      root = root_of(node)
+      while root.is_a?(ShadowRoot) && shadow_roots.none? { |listed| holds_shadow_root?(root, listed) }
+        host = root.host
+        node = host.parent_node
+        offset = node.child_nodes.to_a.index { |child| child.equal?(host) } + past
+        root = root_of(node)
+      end
+      [node, offset]
+    end
+
+    # Whether shadow root `root` is `listed` or a shadow-including ancestor of
+    # it: climbing out of `listed` host by host reaches `root`.
+    def holds_shadow_root?(root, listed)
+      current = listed
+      while current.is_a?(ShadowRoot)
+        return true if current.equal?(root)
+
+        current = root_of(current.host)
+      end
+      false
     end
   end
 end

@@ -230,8 +230,20 @@ globalThis.__rbHost = (function () {
   // EventTarget are mixins folded into the Element class there).
   const INTERFACE_MEMBERS = {
     EventTarget: { m: ["addEventListener", "removeEventListener", "dispatchEvent"] },
+    // AbstractRange's attributes live on its prototype, so a StaticRange and a
+    // Range both reach them there; Range adds its operations.
+    AbstractRange: { g: ["startContainer", "startOffset", "endContainer", "endOffset", "collapsed"] },
+    Range: {
+      m: ["setStart", "setEnd", "setStartBefore", "setStartAfter", "setEndBefore", "setEndAfter",
+        "collapse", "selectNode", "selectNodeContents", "compareBoundaryPoints", "deleteContents",
+        "extractContents", "cloneContents", "insertNode", "surroundContents", "cloneRange", "detach",
+        "isPointInRange", "comparePoint", "intersectsNode", "getClientRects", "getBoundingClientRect",
+        "createContextualFragment", "toString"],
+      g: ["commonAncestorContainer"]
+    },
     Selection: {
-      m: ["getRangeAt", "addRange", "removeRange", "removeAllRanges", "empty", "collapse",
+      m: ["getRangeAt", "addRange", "removeRange", "removeAllRanges", "empty", "getComposedRanges",
+        "collapse",
         "setPosition", "collapseToStart", "collapseToEnd", "extend", "setBaseAndExtent",
         "selectAllChildren", "deleteFromDocument", "containsNode", "toString"],
       g: ["anchorNode", "anchorOffset", "focusNode", "focusOffset", "isCollapsed",
@@ -258,7 +270,7 @@ globalThis.__rbHost = (function () {
         "insertAdjacentHTML", "querySelector", "querySelectorAll",
         "getBoundingClientRect", "getClientRects", "scrollIntoView", "scroll",
         "scrollTo", "scrollBy", "before", "after", "replaceWith", "remove",
-        "prepend", "append", "replaceChildren"],
+        "prepend", "append", "replaceChildren", "moveBefore"],
       g: ["namespaceURI", "prefix", "localName", "tagName", "shadowRoot",
         "assignedSlot", "attributes", "classList", "firstElementChild",
         "lastElementChild", "childElementCount", "children",
@@ -273,7 +285,7 @@ globalThis.__rbHost = (function () {
     },
     Text: { m: ["splitText"], g: ["wholeText", "assignedSlot"] },
     DocumentFragment: { m: ["getElementById", "querySelector", "querySelectorAll",
-      "prepend", "append", "replaceChildren"] },
+      "prepend", "append", "replaceChildren", "moveBefore"] },
     ShadowRoot: { g: ["mode", "host", "delegatesFocus", "activeElement", "styleSheets"] },
     Document: {
       m: ["getElementById", "getElementsByTagName", "getElementsByTagNameNS",
@@ -282,7 +294,7 @@ globalThis.__rbHost = (function () {
         "createCDATASection", "createComment", "createProcessingInstruction",
         "createAttribute", "createAttributeNS", "importNode", "adoptNode",
         "createEvent", "createRange", "createNodeIterator", "createTreeWalker",
-        "querySelector", "querySelectorAll"],
+        "querySelector", "querySelectorAll", "moveBefore"],
       g: ["documentElement", "doctype", "implementation", "compatMode",
         "characterSet", "contentType", "URL", "documentURI"],
       p: ["title"]
@@ -443,13 +455,27 @@ globalThis.__rbHost = (function () {
     item: 1, namedItem: 1, getNamedItem: 1, getNamedItemNS: 2,
     setNamedItem: 1, setNamedItemNS: 1, removeNamedItem: 1, removeNamedItemNS: 2,
     replace: 2, toggle: 1, supports: 1,
-    // Selection. `collapse` is left out: the table is keyed by name, and
-    // Range.collapse (length 0) shares it with Selection.collapse (length 1).
+    // Range. `collapse(optional toStart)` stays 0; Selection overrides it below.
+    setStart: 2, setEnd: 2, setStartBefore: 1, setStartAfter: 1, setEndBefore: 1, setEndAfter: 1,
+    selectNode: 1, selectNodeContents: 1, compareBoundaryPoints: 2, insertNode: 1,
+    surroundContents: 1, isPointInRange: 2, comparePoint: 2, intersectsNode: 1,
+    createContextualFragment: 1,
+    moveBefore: 2,
+    // Selection. `collapse` depends on the interface; see INTERFACE_METHOD_ARITY.
     getRangeAt: 1, addRange: 1, removeRange: 1, setPosition: 1, extend: 1,
     setBaseAndExtent: 4, selectAllChildren: 1, containsNode: 1,
   };
-  function withArity(fn, name) {
-    const n = METHOD_ARITY[name];
+  // An operation whose length depends on the interface declaring it. Stubs are
+  // made per interface, so an entry here overrides the per-name table above.
+  const INTERFACE_METHOD_ARITY = {
+    Selection: { collapse: 1 } // Range.collapse(optional toStart) stays 0
+  };
+  function withArity(fn, name, iface) {
+    const own = iface === undefined ? undefined : INTERFACE_METHOD_ARITY[iface];
+    // Own entries only: a plain-object table would otherwise hand `toString`
+    // (or `constructor`, `valueOf`, ...) the inherited Object.prototype function.
+    const table = own && Object.prototype.hasOwnProperty.call(own, name) ? own : METHOD_ARITY;
+    const n = Object.prototype.hasOwnProperty.call(table, name) ? table[name] : undefined;
     if (n !== undefined) Object.defineProperty(fn, "length", { value: n, configurable: true });
     return fn;
   }
@@ -460,7 +486,7 @@ globalThis.__rbHost = (function () {
   // caches around a mutating call exactly as the proxy's own get trap does —
   // otherwise the DOM changes underneath a cached parentNode / attribute
   // snapshot and the next read hands back the state from before the call.
-  function memberMethodStub(name) {
+  function memberMethodStub(name, iface) {
     const coerce = NODE_OR_STRING_METHODS.has(name);
     const readOnly = NON_MUTATING_METHODS.has(name);
     const stub = withArity(function (...args) {
@@ -478,7 +504,7 @@ globalThis.__rbHost = (function () {
       }
       const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
       return readOnly ? rehydrate(__rb_host_call(this[HKEY], name, wire)) : callMutating(this[HKEY], name, wire);
-    }, name);
+    }, name, iface);
     return stub;
   }
 
@@ -520,7 +546,7 @@ globalThis.__rbHost = (function () {
       }
     };
     (members.m || []).forEach((mname) =>
-      def(mname, { value: memberMethodStub(mname), writable: true, enumerable: true, configurable: true }));
+      def(mname, { value: memberMethodStub(mname, name), writable: true, enumerable: true, configurable: true }));
     (members.g || []).forEach((gname) =>
       def(gname, { get: memberGetStub(gname), enumerable: true, configurable: true }));
     (members.p || []).forEach((pname) =>
@@ -2187,7 +2213,7 @@ globalThis.__rbHost = (function () {
                 }
               };
             }
-            withArity(fn, prop);
+            withArity(fn, prop, ifaceName);
             methodCache.set(prop, fn);
           }
           return fn;
@@ -2613,7 +2639,16 @@ globalThis.__rbHost = (function () {
     bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const p = makeProxy(handle);
     const fn = p[callback];
-    if (typeof fn !== "function") return undefined;
+    if (typeof fn !== "function") {
+      // HTML "enqueue a custom element callback reaction": without a
+      // connectedMoveCallback, a move runs disconnectedCallback and then
+      // connectedCallback in its place.
+      if (callback === "connectedMoveCallback") {
+        invokeLifecycle(handle, "disconnectedCallback", []);
+        invokeLifecycle(handle, "connectedCallback", []);
+      }
+      return undefined;
+    }
     return dehydrateTop(fn.apply(p, rehydrate(args || [])));
   }
 
@@ -2685,8 +2720,9 @@ globalThis.__rbHost = (function () {
         throw new TypeError("The custom element constructor's prototype is not an object");
       }
       // Read each lifecycle reaction callback off the prototype, in spec order;
-      // each must be undefined or a function. (connectedMoveCallback is skipped —
-      // Dommy has no moveBefore.)
+      // each must be undefined or a function. connectedMoveCallback is read here
+      // like the rest, though Dommy's moveBefore does not enqueue custom element
+      // reactions yet.
       const readCallback = (cb) => {
         const fn = proto[cb];
         if (fn !== undefined && typeof fn !== "function") {
@@ -2696,6 +2732,7 @@ globalThis.__rbHost = (function () {
       };
       readCallback("connectedCallback");
       readCallback("disconnectedCallback");
+      readCallback("connectedMoveCallback");
       readCallback("adoptedCallback");
       const attributeChanged = readCallback("attributeChangedCallback");
       if (attributeChanged !== undefined) {

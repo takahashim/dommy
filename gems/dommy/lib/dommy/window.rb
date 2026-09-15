@@ -688,6 +688,7 @@ module Dommy
         "DecompressionStream" => Bridge::Constructor.new { |args| DecompressionStream.new(win, args[0]) },
         "URLPattern" => Bridge::Constructor.new { |args| URLPattern.new(args[0], args[1]) },
         "Range" => Bridge::Constructor.new { |_args| Range.new(@document) },
+        "StaticRange" => Bridge::Constructor.new { |args| StaticRange.from_init(args[0]) },
         "URL" => url,
         # Legacy named constructors (HTML `[LegacyFactoryFunction]`): each builds
         # the corresponding element. `new Image()` is `<img>`, `new Audio()` is

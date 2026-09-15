@@ -104,10 +104,9 @@ module Dommy
         %w[EventSource EventTarget],
         %w[Notification EventTarget], %w[Worker EventTarget], %w[DataTransfer],
         %w[ReadableStream], %w[WritableStream], %w[TransformStream],
-        # A Range is an AbstractRange (as a StaticRange would be); Dommy models
-        # only the live one, but the base interface still has to exist for
-        # `range instanceof AbstractRange`.
-        %w[AbstractRange], %w[Range AbstractRange],
+        # Range and StaticRange are both AbstractRanges. The base interface has
+        # no Ruby class, but it still has to exist for `instanceof AbstractRange`.
+        %w[AbstractRange], %w[Range AbstractRange], %w[StaticRange AbstractRange],
         # Seeded so `getSelection() instanceof Selection` resolves.
         %w[Selection],
         # Web Storage: seeded so `localStorage instanceof Storage` resolves and
@@ -204,6 +203,7 @@ module Dommy
       # Spliced into the chain so `instanceof` matches the IDL hierarchy.
       IMPLICIT_BASES = {
         "Range" => %w[AbstractRange],
+        "StaticRange" => %w[AbstractRange],
         "XMLHttpRequest" => %w[XMLHttpRequestEventTarget],
         "XMLHttpRequestUpload" => %w[XMLHttpRequestEventTarget]
       }.freeze

@@ -120,7 +120,8 @@ module Dommy
       # primitive underneath it.
       #
       # A move is NOT remove + insert. It runs neither the removing steps nor
-      # the insertion steps (so no disconnected/connected callbacks fire), it
+      # the insertion steps: a custom element gets connectedMoveCallback (or, with
+      # none defined, disconnectedCallback then connectedCallback) instead, it
       # never adopts — step 1 requires the same shadow-including root, so the
       # node document cannot change — and it carries its own validity checks
       # instead of "ensure pre-insertion validity". What it does share is the
@@ -160,6 +161,9 @@ module Dommy
 
         # Steps 23-24: one record for the old parent, one for the new.
         notify_move_records(bn, old_parent, old_previous, old_next, new_previous, ref_bn)
+        # Step 19.3's custom element reactions, run as the call returns — only
+        # when the new parent is connected.
+        @document.__internal_notify_moved_subtree__(bn) if node.get_root_node({ "composed" => true }).is_a?(Dommy::Document)
         node
       end
 
@@ -286,12 +290,12 @@ module Dommy
         if old_parent
           @document.notify_child_list_mutation(
             target_node: old_parent, added_nodes: [], removed_nodes: [bn],
-            previous_sibling: wrap.call(old_previous), next_sibling: wrap.call(old_next)
+            previous_sibling: wrap.call(old_previous), next_sibling: wrap.call(old_next), moving: true
           )
         end
         @document.notify_child_list_mutation(
           target_node: @__node__, added_nodes: [bn], removed_nodes: [],
-          previous_sibling: wrap.call(new_previous), next_sibling: wrap.call(ref_bn)
+          previous_sibling: wrap.call(new_previous), next_sibling: wrap.call(ref_bn), moving: true
         )
       end
 
