@@ -131,6 +131,7 @@ module Dommy
       # Spec: https://dom.spec.whatwg.org/#dom-parentnode-movebefore
       def move_before(node, child = nil)
         WebIDL.node!(node)
+        WebIDL.nullable_node!(child)
         bn = insertion_backend_node(node)
         ref_bn = insertion_backend_node(child)
         # moveBefore step 2: a reference child that IS the node moves out of the

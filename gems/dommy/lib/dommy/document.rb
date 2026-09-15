@@ -141,6 +141,12 @@ module Dommy
     end
     private :synthetic_insert
 
+    # A doctype is connected when its tree is a document's; a synthetic one is
+    # never in a tree at all.
+    def is_connected?
+      get_root_node.is_a?(Dommy::Document)
+    end
+
     def __js_get__(key)
       case key
       when "name"
@@ -168,6 +174,8 @@ module Dommy
         NodeList.new
       when "firstChild", "lastChild"
         nil
+      when "isConnected"
+        is_connected?
       end
     end
 
@@ -1344,6 +1352,8 @@ module Dommy
     #
     # Spec: https://dom.spec.whatwg.org/#dom-parentnode-movebefore
     def move_before(node, child = nil)
+      Internal::WebIDL.node!(node)
+      Internal::WebIDL.nullable_node!(child)
       bn = move_backend_node(node)
       ref_bn = move_backend_node(child)
       ref_bn = ref_bn.next_sibling if ref_bn && bn && ref_bn == bn
