@@ -231,7 +231,8 @@ globalThis.__rbHost = (function () {
   const INTERFACE_MEMBERS = {
     EventTarget: { m: ["addEventListener", "removeEventListener", "dispatchEvent"] },
     Selection: {
-      m: ["getRangeAt", "addRange", "removeRange", "removeAllRanges", "empty", "collapse",
+      m: ["getRangeAt", "addRange", "removeRange", "removeAllRanges", "empty", "getComposedRanges",
+        "collapse",
         "setPosition", "collapseToStart", "collapseToEnd", "extend", "setBaseAndExtent",
         "selectAllChildren", "deleteFromDocument", "containsNode", "toString"],
       g: ["anchorNode", "anchorOffset", "focusNode", "focusOffset", "isCollapsed",
