@@ -2219,18 +2219,26 @@ module Dommy
 
     # Every element among `root`'s shadow-including inclusive descendants, as
     # backend nodes, in shadow-including tree order: an element, then the shadow
-    # tree it hosts, then its children. Each tree's elements are listed up front,
-    # so a callback that changes the tree does not change the walk.
+    # tree it hosts, then its children. The whole list, shadow trees included, is
+    # taken before the first element is yielded. Callbacks run synchronously here,
+    # and one that attaches a shadow root or inserts elements triggers those
+    # changes' own reactions; walking into them as well would run them twice.
     def __internal_each_shadow_including_element__(root, &block)
+      shadow_including_elements(root).each(&block)
+      nil
+    end
+
+    def shadow_including_elements(root, list = [])
       elements = root.respond_to?(:element?) && root.element? ? [root] : []
       elements.concat(root.css("*").to_a) if root.respond_to?(:css)
       elements.each do |element|
-        yield element
+        list << element
         shadow = @shadow_registry.find_for_host(element)
-        __internal_each_shadow_including_element__(shadow.__dommy_backend_node__, &block) if shadow
+        shadow_including_elements(shadow.__dommy_backend_node__, list) if shadow
       end
-      nil
+      list
     end
+    private :shadow_including_elements
 
     def __internal_shadow_root_containing__(node)
       @shadow_registry.find_enclosing(node)

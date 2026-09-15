@@ -27,6 +27,30 @@ class TestWPTCustomElementShadowIncludingReactions < Minitest::Test
     end
   end
 
+  # Its connectedCallback attaches a shadow tree holding an already-defined
+  # custom element.
+  class AttachingHost < Probe
+    def connected_callback
+      super
+      return if __internal_shadow_root__
+
+      inner = document.create_element("probe-el")
+      inner.id = "inner"
+      attach_shadow({ "mode" => "open" }).append_child(inner)
+    end
+  end
+
+  # Upgraded by define(), its connectedCallback fills a new shadow tree with an
+  # element of its own name.
+  class NestingHost < Probe
+    def connected_callback
+      super
+      return unless id == "outer" && __internal_shadow_root__.nil?
+
+      attach_shadow({ "mode" => "open" }).inner_html = "<nesting-el id='nested'></nesting-el>"
+    end
+  end
+
   def setup
     LOG.clear
     @win = make_window("<div id='p'></div>")
@@ -88,6 +112,24 @@ class TestWPTCustomElementShadowIncludingReactions < Minitest::Test
     assert_kind_of(Probe, upgraded)
     assert_same(shadow, upgraded.shadow_root)
     assert_raises(Dommy::DOMException::NotSupportedError) { upgraded.attach_shadow({ "mode" => "open" }) }
+  end
+
+  # Chrome 149 and Firefox 155 connect the inner element once: its own insertion
+  # does, and the walk that connected the host does not see the tree the callback
+  # attached.
+  def test_a_shadow_tree_attached_by_a_connected_callback_is_not_walked_again
+    @win.custom_elements.define("probe-el", Probe)
+    @win.custom_elements.define("attaching-el", AttachingHost)
+    host = probe("host", tag: "attaching-el")
+
+    assert_equal([["host", :connected], ["inner", :connected]], logged { @p.append_child(host) })
+  end
+
+  def test_define_does_not_upgrade_the_tree_an_upgraded_callback_creates_twice
+    @p.inner_html = "<nesting-el id='outer'></nesting-el>"
+
+    assert_equal([["outer", :connected], ["nested", :connected]],
+                 logged { @win.custom_elements.define("nesting-el", NestingHost) })
   end
 
   def test_upgrade_reaches_into_shadow_trees_of_a_detached_subtree

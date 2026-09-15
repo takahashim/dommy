@@ -86,14 +86,12 @@ module Dommy
       promise
     end
 
-    # Walk `root`'s subtree and re-wrap any nodes whose tag is now
+    # Walk `root`'s shadow-including subtree and re-wrap any nodes whose tag is now
     # registered; fires `connectedCallback` for each upgraded node
     # that's currently attached to a document tree.
     def upgrade(root)
       return nil unless root.respond_to?(:__dommy_backend_node__)
 
-      # The candidates are root's shadow-including inclusive descendants, in
-      # shadow-including tree order.
       @window.document.__internal_each_shadow_including_element__(root.__dommy_backend_node__) do |nk|
         next unless @definitions.key?(nk.name)
 
