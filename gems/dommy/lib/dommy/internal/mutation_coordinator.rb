@@ -133,6 +133,37 @@ module Dommy
         scheduler ? scheduler.queue_microtask(run) : run.call
       end
 
+      # WHATWG "move": each custom element among the moved node's
+      # shadow-including inclusive descendants, in shadow-including tree order,
+      # gets connectedMoveCallback. The caller checks that the new parent is
+      # connected.
+      def notify_moved_subtree(nk)
+        return unless nk.respond_to?(:element?)
+
+        if nk.element? && (wrapped = @document.wrap_node(nk))
+          notify_moved(wrapped)
+          shadow = wrapped.__internal_shadow_root__ if wrapped.respond_to?(:__internal_shadow_root__)
+          notify_moved_subtree(shadow.__dommy_backend_node__) if shadow
+        end
+
+        nk.children.each { |c| notify_moved_subtree(c) } if nk.respond_to?(:children)
+      end
+
+      # HTML "enqueue a custom element callback reaction": a definition without
+      # connectedMoveCallback runs disconnectedCallback and then connectedCallback
+      # in its place. (A JS-defined element always answers the Ruby method; the
+      # bridge falls back on the JS side.)
+      def notify_moved(element)
+        if element.respond_to?(:connected_move_callback)
+          element.connected_move_callback
+        else
+          notify_disconnected(element)
+          notify_connected(element)
+        end
+      rescue StandardError
+        nil
+      end
+
       def notify_disconnected_subtree(nk)
         return unless nk.respond_to?(:element?)
 
@@ -251,12 +282,18 @@ module Dommy
       end
 
       # Fire MutationObserver childList records
+      # `moving:` marks the records of a move (moveBefore). A move runs neither
+      # the insertion nor the removing steps, so the connected / disconnected
+      # walk below — lifecycle callbacks, script execution, blank-iframe load —
+      # is skipped for it; its custom element reactions are the move's own
+      # (notify_moved_subtree).
       def notify_child_list_mutation(
         target_node:,
         added_nodes:,
         removed_nodes:,
         previous_sibling: nil,
-        next_sibling: nil
+        next_sibling: nil,
+        moving: false
       )
         @document.__internal_note_tree_mutation__
         target = @document.wrap_node(target_node)
@@ -269,7 +306,7 @@ module Dommy
         # connectedCallback fires only when connected). So skip the O(subtree)
         # walk for mutations within a still-detached tree — the common case
         # during bulk DOM construction, where nothing in the walk can fire.
-        if !target.respond_to?(:is_connected?) || target.is_connected?
+        if !moving && (!target.respond_to?(:is_connected?) || target.is_connected?)
           added_nodes.each { |nk| notify_connected_subtree(nk) }
           removed_nodes.each { |nk| notify_disconnected_subtree(nk) }
         end

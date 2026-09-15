@@ -89,6 +89,10 @@ module Dommy
         self.class.js_bridge.invoke_lifecycle(self, "disconnectedCallback", [])
       end
 
+      def connected_move_callback
+        self.class.js_bridge.invoke_lifecycle(self, "connectedMoveCallback", [])
+      end
+
       def adopted_callback
         self.class.js_bridge.invoke_lifecycle(self, "adoptedCallback", [])
       end

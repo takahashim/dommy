@@ -1361,11 +1361,12 @@ module Dommy
         notify_child_list_mutation(
           target_node: old_parent, added_nodes: [], removed_nodes: [bn],
           previous_sibling: old_previous && wrap_node(old_previous),
-          next_sibling: old_next && wrap_node(old_next)
+          next_sibling: old_next && wrap_node(old_next), moving: true
         )
       end
       notify_document_child_list(added: [bn], previous_sibling: new_previous && wrap_node(new_previous),
-                                 next_sibling: ref_bn && wrap_node(ref_bn))
+                                 next_sibling: ref_bn && wrap_node(ref_bn), moving: true)
+      __internal_notify_moved_subtree__(bn)                        # step 19.3, into a document
       nil
     end
 
@@ -2229,6 +2230,12 @@ module Dommy
       @mutation_coordinator.notify_connected_subtree(nk)
     end
 
+    # The custom element reactions of a move (moveBefore), for a node that ended
+    # up connected.
+    def __internal_notify_moved_subtree__(nk)
+      @mutation_coordinator.notify_moved_subtree(nk)
+    end
+
     def __internal_notify_disconnected_subtree__(nk)
       @mutation_coordinator.notify_disconnected_subtree(nk)
     end
@@ -2254,14 +2261,16 @@ module Dommy
       added_nodes:,
       removed_nodes:,
       previous_sibling: nil,
-      next_sibling: nil
+      next_sibling: nil,
+      moving: false
     )
       @mutation_coordinator.notify_child_list_mutation(
         target_node: target_node,
         added_nodes: added_nodes,
         removed_nodes: removed_nodes,
         previous_sibling: previous_sibling,
-        next_sibling: next_sibling
+        next_sibling: next_sibling,
+        moving: moving
       )
     end
 
@@ -2296,13 +2305,14 @@ module Dommy
       node && wrap_node(node)
     end
 
-    def notify_document_child_list(added: [], removed: [], previous_sibling: nil, next_sibling: nil)
+    def notify_document_child_list(added: [], removed: [], previous_sibling: nil, next_sibling: nil, moving: false)
       notify_child_list_mutation(
         target_node: @backend_doc,
         added_nodes: added,
         removed_nodes: removed,
         previous_sibling: previous_sibling,
-        next_sibling: next_sibling
+        next_sibling: next_sibling,
+        moving: moving
       )
     end
 

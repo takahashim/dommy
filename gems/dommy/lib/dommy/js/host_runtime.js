@@ -2639,7 +2639,16 @@ globalThis.__rbHost = (function () {
     bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const p = makeProxy(handle);
     const fn = p[callback];
-    if (typeof fn !== "function") return undefined;
+    if (typeof fn !== "function") {
+      // HTML "enqueue a custom element callback reaction": without a
+      // connectedMoveCallback, a move runs disconnectedCallback and then
+      // connectedCallback in its place.
+      if (callback === "connectedMoveCallback") {
+        invokeLifecycle(handle, "disconnectedCallback", []);
+        invokeLifecycle(handle, "connectedCallback", []);
+      }
+      return undefined;
+    }
     return dehydrateTop(fn.apply(p, rehydrate(args || [])));
   }
 
