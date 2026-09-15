@@ -8,7 +8,7 @@ module Dommy
   # (`getBoundingClientRect`, `getClientRects`) return zeroed values.
   # All non-layout operations (selectNode, extractContents,
   # cloneContents, surroundContents, deleteContents, toString,
-  # collapse, compareBoundaryPoints, intersectsNode, containsNode)
+  # collapse, compareBoundaryPoints, intersectsNode)
   # work against the actual DOM tree.
   #
   # Spec: https://dom.spec.whatwg.org/#interface-range
@@ -759,7 +759,7 @@ module Dommy
     js_methods %w[
       setStart setEnd setStartBefore setStartAfter setEndBefore setEndAfter collapse selectNode
       selectNodeContents toString cloneContents extractContents deleteContents surroundContents
-      insertNode compareBoundaryPoints intersectsNode containsNode cloneRange detach
+      insertNode compareBoundaryPoints intersectsNode cloneRange detach
       comparePoint isPointInRange getBoundingClientRect getClientRects createContextualFragment
     ]
     def __js_call__(method, args)
@@ -807,8 +807,6 @@ module Dommy
         compare_point(args[0], args[1])
       when "isPointInRange"
         is_point_in_range(args[0], args[1])
-      when "containsNode"
-        contains_node(args[0], args[1])
       when "cloneRange"
         clone_range
       when "detach"

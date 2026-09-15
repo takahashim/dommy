@@ -65,8 +65,9 @@ module Dommy
         end
       end
 
+      # A Text node in the spec's sense, which a CDATASection is too.
       def text_node?(node)
-        node.respond_to?(:node_type) && node.node_type == 3
+        node.respond_to?(:node_type) && [3, 4].include?(node.node_type)
       end
     end
   end
