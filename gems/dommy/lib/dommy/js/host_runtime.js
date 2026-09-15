@@ -230,6 +230,13 @@ globalThis.__rbHost = (function () {
   // EventTarget are mixins folded into the Element class there).
   const INTERFACE_MEMBERS = {
     EventTarget: { m: ["addEventListener", "removeEventListener", "dispatchEvent"] },
+    Selection: {
+      m: ["getRangeAt", "addRange", "removeRange", "removeAllRanges", "empty", "collapse",
+        "setPosition", "collapseToStart", "collapseToEnd", "extend", "setBaseAndExtent",
+        "selectAllChildren", "deleteFromDocument", "containsNode", "toString"],
+      g: ["anchorNode", "anchorOffset", "focusNode", "focusOffset", "isCollapsed",
+        "rangeCount", "type", "direction"]
+    },
     Node: {
       m: ["getRootNode", "hasChildNodes", "normalize", "cloneNode", "isEqualNode",
         "isSameNode", "compareDocumentPosition", "contains", "lookupPrefix",
@@ -436,6 +443,10 @@ globalThis.__rbHost = (function () {
     item: 1, namedItem: 1, getNamedItem: 1, getNamedItemNS: 2,
     setNamedItem: 1, setNamedItemNS: 1, removeNamedItem: 1, removeNamedItemNS: 2,
     replace: 2, toggle: 1, supports: 1,
+    // Selection. `collapse` is left out: the table is keyed by name, and
+    // Range.collapse (length 0) shares it with Selection.collapse (length 1).
+    getRangeAt: 1, addRange: 1, removeRange: 1, setPosition: 1, extend: 1,
+    setBaseAndExtent: 4, selectAllChildren: 1, containsNode: 1,
   };
   function withArity(fn, name) {
     const n = METHOD_ARITY[name];

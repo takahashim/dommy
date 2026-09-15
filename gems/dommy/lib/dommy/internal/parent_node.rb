@@ -149,7 +149,7 @@ module Dommy
         # Steps 10-11 and 14. detach_node runs the live range and NodeIterator
         # pre-remove steps and then unlinks, without queuing a record — the move
         # queues its own pair at the end (steps 23-24).
-        @document.detach_node(bn)
+        @document.detach_node(bn, moving: true)
 
         ref_bn = nil if ref_bn && ref_bn.parent != @__node__
         # Step 16 — measured after the removal, which step 14 has already done.

@@ -172,6 +172,7 @@ module Dommy
       if different_root || compare_points(@start_container, @start_offset, @end_container, @end_offset) > 0
         collapse_to_start
       end
+      boundaries_moved
       nil
     end
 
@@ -183,6 +184,7 @@ module Dommy
       if different_root || compare_points(@start_container, @start_offset, @end_container, @end_offset) > 0
         collapse_to_end
       end
+      boundaries_moved
       nil
     end
 
@@ -193,7 +195,7 @@ module Dommy
     # negative JS offset wraps to a huge value and is rejected).
     def validate_boundary!(node, offset)
       Internal::WebIDL.node!(node)
-      value = unsigned_long(offset)
+      value = Internal::WebIDL.unsigned_long(offset)
       raise DOMException::InvalidNodeTypeError, "a DocumentType cannot be a boundary point" if doctype?(node)
       raise DOMException::IndexSizeError, "offset #{value} is past the node's length" if value > length_of(node)
 
@@ -252,6 +254,7 @@ module Dommy
       @start_offset = idx
       @end_container = parent
       @end_offset = idx + 1
+      boundaries_moved
       nil
     end
 
@@ -265,6 +268,7 @@ module Dommy
       @start_offset = 0
       @end_container = node
       @end_offset = length_of(node)
+      boundaries_moved
       nil
     end
 
@@ -651,7 +655,7 @@ module Dommy
     def compare_point(node, offset)
       Internal::WebIDL.node!(node)
 
-      off = unsigned_long(offset)
+      off = Internal::WebIDL.unsigned_long(offset)
       raise DOMException::WrongDocumentError, "node is in a different tree" unless same_root?(node)
       raise DOMException::InvalidNodeTypeError, "node is a doctype" if doctype?(node)
       raise DOMException::IndexSizeError, "offset is greater than node length" if off > length_of(node)
@@ -668,7 +672,7 @@ module Dommy
       Internal::WebIDL.node!(node)
       return false unless same_root?(node)
 
-      off = unsigned_long(offset)
+      off = Internal::WebIDL.unsigned_long(offset)
       raise DOMException::InvalidNodeTypeError, "node is a doctype" if doctype?(node)
       raise DOMException::IndexSizeError, "offset is greater than node length" if off > length_of(node)
 
@@ -683,6 +687,23 @@ module Dommy
         # node must be wholly inside the range
         !before?(node) && !after?(node) && fully_inside?(node)
       end
+    end
+
+    # Selection compares boundary points and measures nodes the way a range
+    # does, including for points that are not a range's yet.
+    def __internal_compare_points__(a_container, a_offset, b_container, b_offset)
+      compare_points(a_container, a_offset, b_container, b_offset)
+    end
+
+    def __internal_length_of__(node)
+      length_of(node)
+    end
+
+    # The Selection holding this range, if any. It is told whenever a script
+    # moves the boundaries, so it can let go of a range that left the document.
+    def __internal_associate__(selection)
+      @selection = selection
+      nil
     end
 
     # --- Cloning ---------------------------------------------------
@@ -821,6 +842,10 @@ module Dommy
       @start_offset = @end_offset
     end
 
+    def boundaries_moved
+      @selection&.__internal_range_moved__(self)
+    end
+
     # A Text node in the spec's sense, which includes a CDATASection.
     def text_node?(node)
       [3, 4].include?(node_type_of(node))
@@ -840,11 +865,6 @@ module Dommy
       else
         node.respond_to?(:child_nodes) ? node.child_nodes.length : 0
       end
-    end
-
-    # WebIDL unsigned long: wrap modulo 2^32 (so -1 → 4294967295).
-    def unsigned_long(value)
-      value.to_i % (2**32)
     end
 
     # WebIDL `unsigned short` conversion: ToNumber, then NaN/±0/±Infinity → 0,
@@ -1026,138 +1046,6 @@ module Dommy
       return 0 unless a_branch && b_branch
 
       child_index_of(lca, a_branch) <=> child_index_of(lca, b_branch)
-    end
-  end
-
-  # `Selection` — represents user-selected ranges in the document.
-  # Always at most one range in Dommy's stub implementation
-  # (matching common browser behavior).
-  #
-  # Spec: https://www.w3.org/TR/selection-api/
-  class Selection
-    def initialize(document)
-      @document = document
-      @ranges = []
-    end
-
-    def range_count
-      @ranges.length
-    end
-
-    def get_range_at(index)
-      @ranges[index.to_i]
-    end
-
-    def add_range(range)
-      # Spec says modern browsers ignore add_range if a range already
-      # exists; we keep the behavior simple and replace.
-      @ranges = [range]
-      nil
-    end
-
-    def remove_range(range)
-      @ranges.delete(range)
-      nil
-    end
-
-    def remove_all_ranges
-      @ranges.clear
-      nil
-    end
-
-    def empty
-      remove_all_ranges
-    end
-
-    # `collapse(node, offset)`: `node` is nullable, and a null one clears the
-    # selection instead of placing a caret.
-    def collapse(node, offset = 0)
-      return remove_all_ranges if Internal::WebIDL.nullable_node!(node).nil?
-
-      range = Range.new(@document)
-      range.set_start(node, offset)
-      range.set_end(node, offset)
-      add_range(range)
-      nil
-    end
-
-    def select_all_children(node)
-      range = Range.new(@document)
-      range.select_node_contents(node)
-      add_range(range)
-      nil
-    end
-
-    def to_s
-      @ranges.map(&:to_s).join
-    end
-
-    def anchor_node
-      @ranges.first&.start_container
-    end
-
-    def anchor_offset
-      @ranges.first&.start_offset || 0
-    end
-
-    def focus_node
-      @ranges.first&.end_container
-    end
-
-    def focus_offset
-      @ranges.first&.end_offset || 0
-    end
-
-    def is_collapsed
-      @ranges.empty? || @ranges.first.collapsed?
-    end
-
-    alias isCollapsed is_collapsed
-
-    def __js_get__(key)
-      case key
-      when "rangeCount"
-        range_count
-      when "anchorNode"
-        anchor_node
-      when "anchorOffset"
-        anchor_offset
-      when "focusNode"
-        focus_node
-      when "focusOffset"
-        focus_offset
-      when "isCollapsed"
-        is_collapsed
-      when "type"
-        is_collapsed ? "Caret" : "Range"
-      else
-        Bridge::ABSENT
-      end
-    end
-
-    include Bridge::Methods
-    js_methods %w[
-      getRangeAt addRange removeRange removeAllRanges empty collapse selectAllChildren toString
-    ]
-    def __js_call__(method, args)
-      case method
-      when "getRangeAt"
-        get_range_at(args[0])
-      when "addRange"
-        add_range(args[0])
-      when "removeRange"
-        remove_range(args[0])
-      when "removeAllRanges"
-        remove_all_ranges
-      when "empty"
-        empty
-      when "collapse"
-        collapse(args[0], args[1] || 0)
-      when "selectAllChildren"
-        select_all_children(args[0])
-      when "toString"
-        to_s
-      end
     end
   end
 end

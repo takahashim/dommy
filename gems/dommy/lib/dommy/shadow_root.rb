@@ -186,8 +186,7 @@ module Dommy
     # true})` crosses the shadow boundary and returns the root of the host's
     # tree (the document, or an outer shadow root for nested shadows).
     def get_root_node(options = nil)
-      composed = options.is_a?(Hash) &&
-        EventTarget.js_truthy?(options.key?("composed") ? options["composed"] : options[:composed])
+      composed = Node.composed_option?(options)
       return self unless composed
       return @host.root_node({"composed" => true}) if @host.respond_to?(:root_node)
 

@@ -108,6 +108,8 @@ module Dommy
         # only the live one, but the base interface still has to exist for
         # `range instanceof AbstractRange`.
         %w[AbstractRange], %w[Range AbstractRange],
+        # Seeded so `getSelection() instanceof Selection` resolves.
+        %w[Selection],
         # Web Storage: seeded so `localStorage instanceof Storage` resolves and
         # `Storage.prototype` exists (a global constructor, construction routes
         # to the window / throws like the browser's illegal constructor).

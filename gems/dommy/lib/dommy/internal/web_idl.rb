@@ -26,6 +26,26 @@ module Dommy
         interface!(value, Dommy::Node)
       end
 
+      # `value` converted to `unsigned long`: ToNumber, then NaN and ±Infinity
+      # become 0, and anything else truncates toward zero and wraps modulo 2^32
+      # (so -1 is 4294967295).
+      def unsigned_long(value)
+        number =
+          case value
+          when Integer then value
+          when Float then value.finite? ? value.truncate : 0
+          when true then 1
+          when String then string_to_integer(value)
+          else 0 # null, false, undefined, NaN
+          end
+        number % (2**32)
+      end
+
+      def string_to_integer(value)
+        float = Float(value.strip.empty? ? "0" : value.strip, exception: false)
+        float&.finite? ? float.truncate : 0
+      end
+
       # `value` converted to `Node?`: null and undefined both become nil.
       def nullable_node!(value)
         return nil if value.nil? || value.equal?(Bridge::UNDEFINED)

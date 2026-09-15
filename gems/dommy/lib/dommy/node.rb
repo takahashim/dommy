@@ -371,8 +371,9 @@ module Dommy
     # Node.getRootNode — the topmost ancestor of this node (the document, a
     # ShadowRoot, a detached subtree root, or the node itself). Generic default
     # for any node backed by a Nokogiri node; classes with special roots
-    # (Element's shadow handling) override it.
-    def get_root_node(_options = nil)
+    # (Element's shadow handling) override it. `{composed: true}` asks for the
+    # shadow-including root, so a shadow root hands over to its host's.
+    def get_root_node(options = nil)
       return self unless respond_to?(:__dommy_backend_node__) && instance_variable_defined?(:@document)
 
       node = __dommy_backend_node__
@@ -382,7 +383,16 @@ module Dommy
       # itself.
       return @document if @document && node.equal?(@document.backend_doc)
 
-      (@document && @document.wrap_node(node)) || self
+      root = (@document && @document.wrap_node(node)) || self
+      return root unless root.is_a?(ShadowRoot) && Node.composed_option?(options)
+
+      root.host.get_root_node(options)
+    end
+
+    # `getRootNode(options)`'s `composed` member, read with JS truthiness.
+    def self.composed_option?(options)
+      options.is_a?(Hash) &&
+        EventTarget.js_truthy?(options.key?("composed") ? options["composed"] : options[:composed])
     end
 
     # Node.normalize() — a node with no descendants has no Text run to merge.

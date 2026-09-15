@@ -1,0 +1,371 @@
+# frozen_string_literal: true
+
+require_relative "../test_helper"
+
+# The Selection API method steps. The selection holds at most one range and a
+# direction; the direction decides whether the anchor is the range's start
+# (forwards) or its end (backwards, or directionless).
+#
+# Spec: https://w3c.github.io/selection-api/
+# WPT:  selection/{addRange,collapse,collapseToStartEnd,extend,getRangeAt,
+#       removeRange,selectAllChildren,setBaseAndExtent,type}.* and
+#       selection/shadow-dom/tentative/Selection-direction.html
+class TestWPTSelectionAPI < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window("<p id='a'>abc</p><p id='b'>def</p>")
+    @doc = @win.document
+    @a = @doc.get_element_by_id("a")
+    @b = @doc.get_element_by_id("b")
+    @ta = @a.first_child
+    @tb = @b.first_child
+    @sel = @doc.get_selection
+  end
+
+  def range(start_node, start_offset, end_node, end_offset)
+    r = @doc.create_range
+    r.set_start(start_node, start_offset)
+    r.set_end(end_node, end_offset)
+    r
+  end
+
+  def anchor_and_focus
+    [@sel.anchor_node, @sel.anchor_offset, @sel.focus_node, @sel.focus_offset]
+  end
+
+  # --- the empty selection --------------------------------------------------
+
+  def test_an_empty_selection
+    assert_equal(0, @sel.range_count)
+    assert_equal("None", @sel.type)
+    assert_equal("none", @sel.direction)
+    assert_equal([nil, 0, nil, 0], anchor_and_focus)
+    assert(@sel.is_collapsed)
+    assert_raises(Dommy::DOMException::IndexSizeError) { @sel.get_range_at(0) }
+  end
+
+  # --- addRange / removeRange / getRangeAt ------------------------------------
+
+  def test_add_range_keeps_the_range_by_reference_and_runs_forwards
+    r = range(@ta, 1, @tb, 2)
+    @sel.add_range(r)
+    assert_same(r, @sel.get_range_at(0))
+    assert_equal([@ta, 1, @tb, 2], anchor_and_focus)
+    assert_equal("forward", @sel.direction)
+
+    r.set_start(@ta, 0)
+    assert_equal(0, @sel.anchor_offset)
+  end
+
+  def test_a_second_add_range_is_ignored
+    first = range(@ta, 0, @ta, 1)
+    @sel.add_range(first)
+    @sel.add_range(range(@tb, 0, @tb, 1))
+    assert_same(first, @sel.get_range_at(0))
+  end
+
+  def test_add_range_ignores_a_range_in_another_document
+    foreign = @doc.implementation.create_html_document("")
+    @sel.add_range(foreign.create_range)
+    assert_equal(0, @sel.range_count)
+  end
+
+  def test_remove_range_only_removes_this_selections_range
+    r = range(@ta, 0, @ta, 1)
+    @sel.add_range(r)
+    assert_raises(Dommy::DOMException::NotFoundError) { @sel.remove_range(range(@ta, 0, @ta, 1)) }
+    assert_raises(Dommy::Bridge::TypeError) { @sel.__js_call__("removeRange", [@ta]) }
+    @sel.remove_range(r)
+    assert_equal(0, @sel.range_count)
+  end
+
+  def test_get_range_at_only_answers_index_zero
+    @sel.add_range(range(@ta, 0, @ta, 1))
+    assert_raises(Dommy::DOMException::IndexSizeError) { @sel.get_range_at(1) }
+    assert_raises(Dommy::DOMException::IndexSizeError) { @sel.__js_call__("getRangeAt", [-1]) }
+    assert_raises(Dommy::Bridge::TypeError) { @sel.__js_call__("getRangeAt", []) }
+  end
+
+  # --- a range that leaves the document -----------------------------------------
+  # Blink and Gecko drop a selection range the moment it leaves the document,
+  # for good, so every member reads the selection as empty.
+
+  def test_a_range_moved_into_a_fragment_leaves_the_selection_empty
+    r = range(@ta, 0, @ta, 3)
+    @sel.add_range(r)
+    fragment = @doc.create_document_fragment
+    div = @doc.create_element("div")
+    div.text_content = "xyz"
+    fragment.append_child(div)
+    r.select_node_contents(div)
+
+    assert_equal([0, "None", nil, true, ""],
+                 [@sel.range_count, @sel.type, @sel.anchor_node, @sel.is_collapsed, @sel.to_s])
+    assert_raises(Dommy::DOMException::IndexSizeError) { @sel.get_range_at(0) }
+    assert_raises(Dommy::DOMException::InvalidStateError) { @sel.collapse_to_start }
+    assert_raises(Dommy::DOMException::InvalidStateError) { @sel.collapse_to_end }
+  end
+
+  def test_a_dropped_range_does_not_come_back_when_moved_back_in
+    r = range(@ta, 0, @ta, 3)
+    @sel.add_range(r)
+    r.set_start(@doc.create_text_node("elsewhere"), 0)
+    r.select_node_contents(@b)
+    assert_equal(0, @sel.range_count)
+
+    replacement = range(@tb, 0, @tb, 1)
+    @sel.add_range(replacement)
+    assert_same(replacement, @sel.get_range_at(0))
+  end
+
+  def test_removing_a_shadow_host_drops_a_range_in_its_tree
+    host = @doc.create_element("div")
+    @doc.body.append_child(host)
+    shadow = host.attach_shadow({ "mode" => "open" })
+    shadow.inner_html = "<span>ABC</span>"
+    text = shadow.first_child.first_child
+    @sel.set_base_and_extent(text, 0, text, 2)
+    r = @sel.get_range_at(0)
+
+    host.remove
+    assert_equal(0, @sel.range_count)
+    assert_equal([text, 0, text, 2], [r.start_container, r.start_offset, r.end_container, r.end_offset])
+  end
+
+  # --- moving a node the selection is in ------------------------------------------
+  # Measured in Chrome 149 and Firefox 155. Moving a light-tree node runs the
+  # live range pre-remove steps, so the range lands on the old parent and stays
+  # in the document — whichever way the node travels.
+
+  def build_move_tree
+    @doc.body.inner_html = "<div id='p1'><p id='m'>abc</p><p>def</p></div><div id='p2'></div>"
+    [@doc.get_element_by_id("p1"), @doc.get_element_by_id("p2"), @doc.get_element_by_id("m")]
+  end
+
+  LIGHT_MOVES = {
+    "insertBefore in the same parent" => ->(p1, _p2, node, _doc) { p1.insert_before(node, nil) },
+    "appendChild to another parent" => ->(_p1, p2, node, _doc) { p2.append_child(node) },
+    "through a DocumentFragment" => lambda { |_p1, p2, node, doc|
+      fragment = doc.create_document_fragment
+      fragment.append_child(node)
+      p2.append_child(fragment)
+    },
+    "moveBefore" => ->(_p1, p2, node, _doc) { p2.move_before(node, nil) }
+  }.freeze
+
+  def test_moving_a_light_tree_node_keeps_the_range_on_its_old_parent
+    LIGHT_MOVES.each do |label, move|
+      p1, p2, node = build_move_tree
+      text = node.first_child
+      @sel.set_base_and_extent(text, 1, text, 3)
+      r = @sel.get_range_at(0)
+      move.call(p1, p2, node, @doc)
+
+      assert_same(r, @sel.get_range_at(0), label)
+      assert_equal([p1, 0, p1, 0], [r.start_container, r.start_offset, r.end_container, r.end_offset], label)
+    end
+  end
+
+  # A shadow host moved by remove-then-insert takes its shadow tree out of the
+  # document on the way, and the range in it is dropped (Firefox; Chrome keeps
+  # it). moveBefore never takes the host out of the document: both engines keep
+  # the range, untouched.
+  def test_moving_a_shadow_host_drops_the_range_unless_it_is_moved_with_move_before
+    LIGHT_MOVES.each do |label, move|
+      p1, p2, node = build_move_tree
+      host = @doc.create_element("section")
+      p1.insert_before(host, node)
+      shadow = host.attach_shadow({ "mode" => "open" })
+      shadow.inner_html = "<span>ABCDE</span>"
+      text = shadow.first_child.first_child
+      @sel.set_base_and_extent(text, 1, text, 3)
+      r = @sel.get_range_at(0)
+      move.call(p1, p2, host, @doc)
+
+      if label == "moveBefore"
+        assert_same(r, @sel.get_range_at(0), label)
+        assert_equal([text, 1, text, 3], [r.start_container, r.start_offset, r.end_container, r.end_offset], label)
+      else
+        assert_equal(0, @sel.range_count, label)
+      end
+    end
+  end
+
+  # --- a shadow tree of this document ---------------------------------------------
+
+  def test_a_selection_in_a_shadow_tree_is_reported
+    host = @doc.create_element("div")
+    @doc.body.append_child(host)
+    shadow = host.attach_shadow({ "mode" => "open" })
+    shadow.inner_html = "<span>ABCDE</span>"
+    text = shadow.first_child.first_child
+    @sel.set_base_and_extent(text, 0, text, 5)
+
+    assert_equal([1, "Range", false], [@sel.range_count, @sel.type, @sel.is_collapsed])
+    assert_equal([text, 0, text, 5], anchor_and_focus)
+  end
+
+  # A range cannot span two trees: setting its end to the anchor carries it to
+  # the anchor, as Blink and Gecko have it.
+  def test_set_base_and_extent_across_trees_collapses_at_the_anchor
+    host = @doc.create_element("div")
+    @doc.body.append_child(host)
+    shadow = host.attach_shadow({ "mode" => "open" })
+    shadow.inner_html = "<span>ABCDE</span>"
+    text = shadow.first_child.first_child
+    @sel.set_base_and_extent(text, 2, @ta, 1)
+
+    assert(@sel.is_collapsed)
+    assert_equal([text, 2, text, 2], anchor_and_focus)
+  end
+
+  def test_add_range_takes_a_range_in_a_shadow_tree_of_the_document
+    host = @doc.create_element("div")
+    @doc.body.append_child(host)
+    shadow = host.attach_shadow({ "mode" => "open" })
+    shadow.inner_html = "<span>ABC</span>"
+    r = @doc.create_range
+    r.select_node_contents(shadow.first_child)
+    @sel.add_range(r)
+    assert_same(r, @sel.get_range_at(0))
+  end
+
+  # --- collapse / setPosition / collapseToStart / collapseToEnd ------------------
+
+  def test_collapse_replaces_the_range
+    r = range(@ta, 0, @tb, 1)
+    @sel.add_range(r)
+    @sel.collapse(@tb, 1)
+    refute_same(r, @sel.get_range_at(0))
+    assert_equal([@tb, 1, @tb, 1], anchor_and_focus)
+    assert_equal("Caret", @sel.type)
+  end
+
+  def test_collapse_checks_the_point_before_ignoring_a_node_outside_the_document
+    doctype = @doc.implementation.create_document_type("x", "", "")
+    detached = @doc.create_text_node("xy")
+    assert_raises(Dommy::DOMException::InvalidNodeTypeError) { @sel.collapse(doctype, 0) }
+    assert_raises(Dommy::DOMException::IndexSizeError) { @sel.collapse(detached, 3) }
+
+    @sel.collapse(@ta, 1)
+    @sel.collapse(detached, 1)
+    assert_equal([@ta, 1, @ta, 1], anchor_and_focus)
+  end
+
+  def test_set_position_is_collapse
+    @sel.__js_call__("setPosition", [@ta, 2])
+    assert_equal([@ta, 2, @ta, 2], anchor_and_focus)
+    @sel.__js_call__("setPosition", [nil])
+    assert_equal(0, @sel.range_count)
+  end
+
+  def test_collapse_to_start_and_end_make_a_new_range
+    assert_raises(Dommy::DOMException::InvalidStateError) { @sel.collapse_to_start }
+
+    r = range(@ta, 1, @tb, 2)
+    @sel.add_range(r)
+    @sel.collapse_to_end
+    assert_equal([@tb, 2, @tb, 2], anchor_and_focus)
+    assert_equal([@ta, 1], [r.start_container, r.start_offset])
+
+    @sel.set_base_and_extent(@ta, 1, @tb, 2)
+    @sel.collapse_to_start
+    assert_equal([@ta, 1, @ta, 1], anchor_and_focus)
+  end
+
+  # --- extend -----------------------------------------------------------------
+
+  def test_extend_moves_the_focus_and_keeps_the_anchor
+    @sel.collapse(@ta, 1)
+    @sel.extend_selection(@tb, 2)
+    assert_equal([@ta, 1, @tb, 2], anchor_and_focus)
+    assert_equal("forward", @sel.direction)
+
+    @sel.__js_call__("extend", [@ta, 0])
+    assert_equal([@ta, 1, @ta, 0], anchor_and_focus)
+    assert_equal("backward", @sel.direction)
+    r = @sel.get_range_at(0)
+    assert_equal([@ta, 0, @ta, 1], [r.start_container, r.start_offset, r.end_container, r.end_offset])
+  end
+
+  # Step 1 ignores a node outside the document before step 2 looks for a range.
+  def test_extend_ignores_a_node_outside_the_document_even_when_empty
+    @sel.extend_selection(@doc.create_text_node("xy"), 1)
+    assert_raises(Dommy::DOMException::InvalidStateError) { @sel.extend_selection(@ta, 1) }
+  end
+
+  # --- setBaseAndExtent -------------------------------------------------------
+
+  def test_set_base_and_extent_can_run_backwards
+    @sel.set_base_and_extent(@tb, 2, @ta, 1)
+    assert_equal([@tb, 2, @ta, 1], anchor_and_focus)
+    assert_equal("backward", @sel.direction)
+    r = @sel.get_range_at(0)
+    assert_equal([@ta, 1, @tb, 2], [r.start_container, r.start_offset, r.end_container, r.end_offset])
+  end
+
+  def test_set_base_and_extent_checks_offsets_before_ignoring_a_node_outside_the_document
+    detached = @doc.create_text_node("xy")
+    assert_raises(Dommy::DOMException::IndexSizeError) { @sel.set_base_and_extent(detached, 5, @ta, 0) }
+    @sel.set_base_and_extent(detached, 1, @ta, 0)
+    assert_equal(0, @sel.range_count)
+    assert_raises(Dommy::Bridge::TypeError) { @sel.__js_call__("setBaseAndExtent", [@ta, 0, @ta]) }
+  end
+
+  # --- selectAllChildren ------------------------------------------------------
+
+  def test_select_all_children_spans_the_children_not_the_length
+    @sel.select_all_children(@ta)
+    assert_equal([@ta, 0, @ta, 0], anchor_and_focus)
+
+    @sel.select_all_children(@a)
+    assert_equal([@a, 0, @a, 1], anchor_and_focus)
+    assert_equal("forward", @sel.direction)
+    assert_equal("abc", @sel.to_s)
+  end
+
+  def test_select_all_children_rejects_a_doctype_and_ignores_other_trees
+    doctype = @doc.implementation.create_document_type("x", "", "")
+    assert_raises(Dommy::DOMException::InvalidNodeTypeError) { @sel.select_all_children(doctype) }
+
+    @sel.select_all_children(@a)
+    @sel.select_all_children(@doc.create_element("div"))
+    assert_equal([@a, 0, @a, 1], anchor_and_focus)
+  end
+
+  # --- containsNode / deleteFromDocument ----------------------------------------
+
+  def test_contains_node_wholly_or_partially
+    @sel.set_base_and_extent(@ta, 1, @tb, 2)
+    refute(@sel.contains_node(@a))
+    assert(@sel.contains_node(@a, true))
+
+    @sel.select_all_children(@a)
+    assert(@sel.contains_node(@ta))
+    refute(@sel.contains_node(@b, true))
+    assert(@sel.__js_call__("containsNode", [@ta, Dommy::Bridge::UNDEFINED]))
+    refute(@sel.contains_node(@doc.implementation.create_html_document("").body))
+  end
+
+  def test_delete_from_document_deletes_the_range_contents
+    @sel.set_base_and_extent(@ta, 1, @ta, 3)
+    @sel.delete_from_document
+    assert_equal("a", @ta.data)
+    assert(@sel.is_collapsed)
+  end
+
+  # --- getSelection ---------------------------------------------------------------
+
+  def test_a_document_without_a_browsing_context_has_no_selection
+    assert_nil(@doc.implementation.create_html_document("").get_selection)
+  end
+
+  # --- the bridge ---------------------------------------------------------------
+
+  def test_void_operations_return_undefined_over_the_bridge
+    assert_same(Dommy::Bridge::UNDEFINED, @sel.__js_call__("collapse", [@ta, 0]))
+    assert_same(Dommy::Bridge::UNDEFINED, @sel.__js_call__("extend", [@ta, 1]))
+    assert_equal("forward", @sel.__js_get__("direction"))
+  end
+end
