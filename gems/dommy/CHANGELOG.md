@@ -12,6 +12,7 @@ directly, and Dommy follows them where they agree.
 
 #### DOM
 - `StaticRange` — `new StaticRange({startContainer, startOffset, endContainer, endOffset})`. All four members are required, a DocumentType or Attr container is an `InvalidNodeTypeError`, and nothing else is checked (an offset past the node's length is allowed). It does not follow the tree.
+- `moveBefore` runs the custom element move reactions: `connectedMoveCallback` for each custom element it carries (shadow trees included), or `disconnectedCallback` then `connectedCallback` for one whose definition has none. Nothing reacts when the new parent is not connected.
 - The rest of the Selection API: `setPosition`, `collapseToStart` / `collapseToEnd`, `extend` (`extend_selection` from Ruby), `setBaseAndExtent`, `deleteFromDocument`, `containsNode`, `direction`, and `getComposedRanges({shadowRoots})`, which lifts each end out of any shadow tree not listed.
 
 ### Changed
@@ -40,7 +41,9 @@ directly, and Dommy follows them where they agree.
 - `getRootNode({composed: true})` from a Text or Comment inside a shadow tree reaches the document.
 
 #### JavaScript
-- `moveBefore` is on the Element, Document and DocumentFragment prototypes (length 2), and `customElements.define` reads `connectedMoveCallback`. (The move reactions themselves are not enqueued yet.)
+- `moveBefore` is on the Element, Document and DocumentFragment prototypes (length 2), and `customElements.define` reads `connectedMoveCallback`.
+- AbstractRange's attributes are on `AbstractRange.prototype`, and Range's operations and `commonAncestorContainer` on `Range.prototype`, where they were missing.
+- A prototype method named after an `Object.prototype` member no longer gets that function as its `length` (`Range.prototype.toString.length` and `Selection.prototype.toString.length` are 0).
 - `Selection.prototype.collapse.length` is 1 while `Range.prototype.collapse.length` stays 0.
 
 ## 0.11.0 — 2026-09-11
