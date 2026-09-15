@@ -403,11 +403,17 @@ module Dommy
         return nil
       end
 
-      to_remove = nodes_to_remove
+      # Steps 4-6 read the tree before it changes. Step 7 collapses the range
+      # before anything is mutated, so the live-range updates the mutations
+      # run act on the range where the deletion leaves it.
+      to_remove = nodes_to_remove(sc, ec)
       new_node, new_offset = deletion_collapse_point(sc, so, ec, eo)
+      @start_container = @end_container = new_node
+      @start_offset = @end_offset = new_offset
 
-      # Trim the start boundary text node's tail, remove the contained nodes,
-      # then trim the end boundary text node's head (order matters for records).
+      # Steps 8-10: trim the start boundary text node's tail, remove the
+      # contained nodes, then trim the end boundary text node's head (order
+      # matters for records).
       sc.replace_data(so, length_of(sc) - so, "") if character_data?(sc)
       to_remove.each do |node|
         if node.respond_to?(:__dommy_backend_node__)
@@ -417,19 +423,25 @@ module Dommy
         end
       end
       ec.replace_data(0, eo, "") if character_data?(ec)
-
-      @start_container = @end_container = new_node
-      @start_offset = @end_offset = new_offset
       nil
     end
 
-    # Top-level nodes fully contained in the range (their parent isn't), removed
-    # whole. Deeper contained nodes go with their removed ancestor.
-    def nodes_to_remove
-      ancestor = common_ancestor_container
-      return [] unless ancestor.respond_to?(:child_nodes)
-
-      ancestor.child_nodes.to_a.select { |child| node_fully_contained?(child) }
+    # deleteContents step 4: the nodes contained in the range, in tree order,
+    # less any whose parent is contained too (it goes with that parent). They
+    # are not only children of the common ancestor: below a child the range
+    # merely reaches into, the contained nodes sit deeper. So the walk descends
+    # through partially contained nodes, and skips a subtree that is neither,
+    # since nothing below it can be contained.
+    def nodes_to_remove(sc, ec, parent = common_ancestor_of(sc, ec), found = [])
+      children = parent.respond_to?(:child_nodes) ? parent.child_nodes.to_a : []
+      children.each do |child|
+        if node_fully_contained?(child)
+          found << child
+        elsif partially_contained?(child, sc, ec)
+          nodes_to_remove(sc, ec, child, found)
+        end
+      end
+      found
     end
 
     # A node is contained in the range when its start position is at or after the
@@ -529,34 +541,47 @@ module Dommy
       Internal::WebIDL.node!(node)
       start_node = @start_container
       splitting = text_node?(start_node)
-      # Steps 1-4: what the node goes in front of, and whose child it becomes.
+      # Step 1: the start node has to be somewhere a node can go. A Comment or
+      # ProcessingInstruction takes no children, a Text node with no parent has
+      # no siblings, and a node cannot be inserted next to itself.
+      if [7, 8].include?(node_type_of(start_node)) || (splitting && parent_of(start_node).nil?) ||
+         start_node.equal?(node)
+        raise DOMException::HierarchyRequestError, "the node cannot be inserted at the range's start"
+      end
+
+      # Steps 2-5: what the node goes in front of, and whose child it becomes.
       reference = splitting ? start_node : child_at(start_node, @start_offset)
       parent = reference.nil? ? start_node : parent_of(reference)
-      return nil unless parent
+      # Step 6, ahead of the split: an insertion pre-insert would reject must
+      # not leave the Text node split behind it.
+      ref_bn = reference.respond_to?(:__dommy_backend_node__) ? reference.__dommy_backend_node__ : nil
+      parent.__internal_ensure_insertion_validity__([node], ref_bn)
 
-      # Step 6: a Text start node is ALWAYS split, including at offset 0 and at
+      # Step 7: a Text start node is ALWAYS split, including at offset 0 and at
       # its end — where the split yields an EMPTY Text node that stays beside
       # the inserted one. (Skipping the split at the boundaries is the tempting
       # optimization, and it produces a different tree.)
       reference = start_node.split_text(@start_offset) if splitting
-      # Step 7: inserting the reference itself would leave nothing to insert
+      # Step 8: inserting the reference itself would leave nothing to insert
       # before.
       reference = next_sibling_of(reference) if reference && node.equal?(reference)
+      # Step 9: the node leaves its old place BEFORE the offset is counted, so a
+      # node that sat ahead of the reference in the same parent no longer counts.
+      parent_of(node)&.remove_child(node)
 
-      # Steps 9-10, computed BEFORE the insertion: where the range's end has to
-      # land to sit just past the node. A DocumentFragment contributes each of
-      # its children.
-      new_offset = strict_child_index_of(parent, reference) || length_of(parent)
+      # Steps 10-11: where the range's end has to land to sit just past the
+      # node. A DocumentFragment contributes each of its children.
+      new_offset = reference ? child_index_of(parent, reference) : length_of(parent)
       new_offset += node_type_of(node) == 11 ? length_of(node) : 1
 
-      # Step 11.
+      # Step 12.
       if reference
         parent.insert_before(node, reference)
-      elsif parent.respond_to?(:append_child)
+      else
         parent.append_child(node)
       end
 
-      # Step 12. Evaluated after the mutation, as the spec has it — a range that
+      # Step 13. Evaluated after the mutation, as the spec has it — a range that
       # was collapsed at the insertion point still is, since both boundaries
       # moved together.
       if collapsed?
@@ -796,8 +821,9 @@ module Dommy
       @start_offset = @end_offset
     end
 
+    # A Text node in the spec's sense, which includes a CDATASection.
     def text_node?(node)
-      node_type_of(node) == 3
+      [3, 4].include?(node_type_of(node))
     end
 
     # WHATWG "length of a node": a DocumentType is 0; a CharacterData node
@@ -929,14 +955,6 @@ module Dommy
       return 0 unless parent.respond_to?(:child_nodes)
 
       parent.child_nodes.to_a.index { |n| n.equal?(node) } || 0
-    end
-
-    # Like child_index_of, but nil rather than 0 when `node` is not a child —
-    # insert_node has to tell "not there" apart from "first".
-    def strict_child_index_of(parent, node)
-      return nil unless node && parent.respond_to?(:child_nodes)
-
-      parent.child_nodes.to_a.index { |n| n.equal?(node) }
     end
 
     def ancestor_chain(node)
