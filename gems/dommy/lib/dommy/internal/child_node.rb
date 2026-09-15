@@ -137,11 +137,7 @@ module Dommy
       def validate_insert_before_ref!(args)
         raise Bridge::TypeError, "insertBefore requires 2 arguments." if args.length < 2
 
-        ref = args[1]
-        return if ref.nil? || (defined?(Bridge::UNDEFINED) && ref.equal?(Bridge::UNDEFINED))
-        return if ref.is_a?(Dommy::Node)
-
-        raise Bridge::TypeError, "The reference child is not a Node."
+        WebIDL.nullable_node!(args[1])
       end
 
       private

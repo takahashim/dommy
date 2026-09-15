@@ -26,21 +26,15 @@ module Dommy
       end
 
       def remove_child(node)
-        coerce_leaf_node_argument!(node)
+        WebIDL.node!(node)
         raise DOMException::NotFoundError, "the node to be removed is not a child of this node"
       end
 
       private
 
       def reject_leaf_insertion!(node)
-        coerce_leaf_node_argument!(node)
+        WebIDL.node!(node)
         raise DOMException::HierarchyRequestError, leaf_insertion_message
-      end
-
-      # WebIDL coerces the Node argument first: a null / non-Node value is a
-      # TypeError before any DOM step runs.
-      def coerce_leaf_node_argument!(value)
-        raise Bridge::TypeError, "Argument is not a Node." unless value.is_a?(Dommy::Node)
       end
 
       def leaf_insertion_message

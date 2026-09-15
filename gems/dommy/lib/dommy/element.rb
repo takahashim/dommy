@@ -227,7 +227,7 @@ module Dommy
     end
 
     def insert_before(node, ref)
-      coerce_node_argument!(node)
+      Internal::WebIDL.node!(node)
       ensure_pre_insertion_validity!(node, ref)
       ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
       ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
@@ -250,7 +250,7 @@ module Dommy
     end
 
     def replace_child(new_child, old_child)
-      coerce_node_argument!(new_child)
+      Internal::WebIDL.node!(new_child)
       # WHATWG "replace" step 1 runs the full ensure-pre-insertion-validity,
       # whose step 2 (node is an inclusive ancestor of parent — a cycle) comes
       # BEFORE step 3 (the reference child's parentage). So
@@ -3261,7 +3261,7 @@ module Dommy
     end
 
     def insert_before(child, reference)
-      coerce_node_argument!(child)
+      Internal::WebIDL.node!(child)
       # WHATWG pre-insert validates the reference the CALLER gave (step 1), and
       # only then, in step 3, replaces it with the node's next sibling when it is
       # the node being inserted — so "insert x before x" doesn't move x. Doing
@@ -3299,7 +3299,7 @@ module Dommy
     end
 
     def remove_child(child)
-      coerce_node_argument!(child)
+      Internal::WebIDL.node!(child)
       node = unwrap_dom_node(child)
       unless node&.parent == @__node__
         raise DOMException::NotFoundError, "node is not a child of this element"
@@ -3315,8 +3315,8 @@ module Dommy
     # MutationObserver of both changes in one record so observers
     # see the swap atomically.
     def replace_child(new_child, old_child)
-      coerce_node_argument!(new_child)
-      coerce_node_argument!(old_child)
+      Internal::WebIDL.node!(new_child)
+      Internal::WebIDL.node!(old_child)
       # replaceChild shares the pre-insertion checks (ancestor, node type,
       # doctype placement); the reference child here is old_child, so step 3
       # also enforces that it is actually a child (NotFoundError otherwise).

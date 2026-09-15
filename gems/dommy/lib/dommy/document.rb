@@ -954,15 +954,7 @@ module Dommy
     # Ruby Proc, a JS-bridge callable, or an object with
     # `accept_node` / `acceptNode`.
     def create_tree_walker(root, what_to_show = NodeFilter::SHOW_ALL, filter = nil)
-      TreeWalker.new(require_node_root(root), what_to_show, filter)
-    end
-
-    # The `root` of a TreeWalker / NodeIterator is a non-nullable WebIDL `Node`:
-    # a null or non-Node argument is a TypeError before construction.
-    def require_node_root(root)
-      return root if root.is_a?(Dommy::Node)
-
-      raise Bridge::TypeError, "createTreeWalker/createNodeIterator root must be a Node"
+      TreeWalker.new(Internal::WebIDL.node!(root), what_to_show, filter)
     end
 
     # WebIDL `unsigned long whatToShow = 0xFFFFFFFF`: an omitted or `undefined`
@@ -1147,7 +1139,7 @@ module Dommy
     # `document.createNodeIterator(root, whatToShow?, filter?)` —
     # flat depth-first iteration.
     def create_node_iterator(root, what_to_show = NodeFilter::SHOW_ALL, filter = nil)
-      root = require_node_root(root)
+      root = Internal::WebIDL.node!(root)
       iterator = NodeIterator.new(root, what_to_show, filter)
       # The "NodeIterator pre-removing steps" run for iterators whose root's node
       # document is the removed node's document. Track the iterator on the root's
@@ -1987,9 +1979,7 @@ module Dommy
         document_remove_child(args[0])
       when "insertBefore"
         raise Bridge::TypeError, "insertBefore requires 2 arguments." if args.length < 2
-        unless args[1].nil? || args[1].equal?(Bridge::UNDEFINED) || args[1].is_a?(Dommy::Node)
-          raise Bridge::TypeError, "The reference child is not a Node."
-        end
+        Internal::WebIDL.nullable_node!(args[1])
 
         document_insert_before(args[0], args[1])
       when "replaceChild"
