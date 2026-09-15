@@ -198,23 +198,35 @@ module Dommy
       value
     end
 
-    def set_start_before(node)
+    # WHATWG "setStartBefore/setStartAfter/setEndBefore/setEndAfter" step 1-2 and
+    # "selectNode" step 1-2: these position the range *relative to* a node, so
+    # they need the node's parent as the boundary's container. A node with no
+    # parent (a Document, a detached DocumentFragment, a freshly created node)
+    # has no such container, and the spec throws rather than inventing one.
+    def parent_for_boundary!(node)
       parent = parent_of(node)
+      raise DOMException::InvalidNodeTypeError, "node has no parent" if parent.nil?
+
+      parent
+    end
+
+    def set_start_before(node)
+      parent = parent_for_boundary!(node)
       set_start(parent, child_index_of(parent, node))
     end
 
     def set_start_after(node)
-      parent = parent_of(node)
+      parent = parent_for_boundary!(node)
       set_start(parent, child_index_of(parent, node) + 1)
     end
 
     def set_end_before(node)
-      parent = parent_of(node)
+      parent = parent_for_boundary!(node)
       set_end(parent, child_index_of(parent, node))
     end
 
     def set_end_after(node)
-      parent = parent_of(node)
+      parent = parent_for_boundary!(node)
       set_end(parent, child_index_of(parent, node) + 1)
     end
 
@@ -231,7 +243,7 @@ module Dommy
     end
 
     def select_node(node)
-      parent = parent_of(node)
+      parent = parent_for_boundary!(node)
       idx = child_index_of(parent, node)
       @start_container = parent
       @start_offset = idx
@@ -240,7 +252,11 @@ module Dommy
       nil
     end
 
+    # WHATWG "selectNodeContents" step 1: a DocumentType has no contents to
+    # select, and cannot be a boundary point either.
     def select_node_contents(node)
+      raise DOMException::InvalidNodeTypeError, "a DocumentType cannot be a boundary point" if doctype?(node)
+
       @start_container = node
       @start_offset = 0
       @end_container = node
