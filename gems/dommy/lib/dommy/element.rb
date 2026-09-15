@@ -1982,7 +1982,7 @@ module Dommy
         raise DOMException::NotSupportedError, "<#{tag}> cannot host a shadow root"
       end
 
-      raise DOMException::NotSupportedError, "Shadow root already attached" if @__shadow_root
+      raise DOMException::NotSupportedError, "Shadow root already attached" if __internal_shadow_root__
 
       opts = options.is_a?(Hash) ? options : {}
       mode_raw = opts.key?("mode") ? opts["mode"] : opts[:mode]
@@ -2007,16 +2007,18 @@ module Dommy
     # `el.shadowRoot` — returns the attached ShadowRoot only when
     # mode is "open"; closed shadows are hidden from external code.
     def shadow_root
-      return nil unless @__shadow_root
-      return nil if @__shadow_root.mode == "closed"
+      root = __internal_shadow_root__
+      return nil if root.nil? || root.mode == "closed"
 
-      @__shadow_root
+      root
     end
 
     # Internal — gives access to the shadow root regardless of mode.
-    # Used by event composition / `composedPath()`.
+    # Used by event composition / `composedPath()`. The document's registry
+    # answers for a wrapper that is not the one attachShadow ran on: a custom
+    # element upgrade replaces the host's wrapper, not its shadow root.
     def __internal_shadow_root__
-      @__shadow_root
+      @__shadow_root ||= @document.__internal_shadow_root_for_host__(@__node__)
     end
 
     # `el.insertAdjacentElement(position, element)` — DOM spec positions:

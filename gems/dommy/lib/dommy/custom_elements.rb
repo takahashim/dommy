@@ -86,14 +86,13 @@ module Dommy
       promise
     end
 
-    # Walk `root`'s subtree and re-wrap any nodes whose tag is now
+    # Walk `root`'s shadow-including subtree and re-wrap any nodes whose tag is now
     # registered; fires `connectedCallback` for each upgraded node
     # that's currently attached to a document tree.
     def upgrade(root)
       return nil unless root.respond_to?(:__dommy_backend_node__)
 
-      walk_descendants(root.__dommy_backend_node__) do |nk|
-        next unless nk.element?
+      @window.document.__internal_each_shadow_including_element__(root.__dommy_backend_node__) do |nk|
         next unless @definitions.key?(nk.name)
 
         # Force re-wrap by clearing the document's cached wrapper.
@@ -145,7 +144,8 @@ module Dommy
       # Match by tag name rather than interpolating `name` into a CSS selector:
       # a spec-valid custom element name may contain "." (a CSS class selector
       # char) or other metacharacters, which would corrupt the query.
-      doc.backend_doc.css("*").each do |nk|
+      # Shadow trees included, in shadow-including tree order (define step 18).
+      doc.__internal_each_shadow_including_element__(doc.backend_doc) do |nk|
         next unless nk.name == name
 
         doc.__internal_reset_wrapper__(nk)
@@ -177,13 +177,6 @@ module Dommy
           element, name, nil, element.get_attribute(name)
         )
       end
-    end
-
-    def walk_descendants(node, &blk)
-      yield node
-      return unless node.respond_to?(:children)
-
-      node.children.each { |c| walk_descendants(c, &blk) }
     end
   end
 end

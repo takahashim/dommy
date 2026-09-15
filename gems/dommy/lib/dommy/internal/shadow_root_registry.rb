@@ -9,11 +9,22 @@ module Dommy
     class ShadowRootRegistry
       def initialize
         @shadow_roots = {}
+        @by_host = {}
       end
 
-      # Register a shadow root by its backing fragment node
+      # Register a shadow root by its backing fragment node, and by its host's
+      # node: the host's wrapper can be replaced (a custom element upgrade
+      # re-wraps it) while the shadow root stays attached.
       def register(fragment_node, shadow_root)
         @shadow_roots[Backend.identity_key(fragment_node)] = shadow_root
+        @by_host[Backend.identity_key(shadow_root.host.__dommy_backend_node__)] = shadow_root
+      end
+
+      # The ShadowRoot attached to the element backed by `host_node`, if any.
+      def find_for_host(host_node)
+        return nil unless host_node
+
+        @by_host[Backend.identity_key(host_node)]
       end
 
       # Find the ShadowRoot for a given fragment (if any)

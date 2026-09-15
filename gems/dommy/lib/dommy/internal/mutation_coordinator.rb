@@ -37,20 +37,24 @@ module Dommy
         nil
       end
 
-      # Walk a subtree and fire connected/disconnected callbacks for all elements
+      # Connected callbacks, connected scripts and blank-iframe loads for every
+      # element among the subtree's shadow-including inclusive descendants, in
+      # shadow-including tree order — so the custom elements in an inserted
+      # host's shadow tree connect too.
       def notify_connected_subtree(nk)
-        return unless nk.respond_to?(:element?)
-
-        if nk.element?
-          wrapped = @document.wrap_node(nk)
-          if wrapped
-            notify_connected(wrapped)
-            run_connected_script(wrapped)
-            fire_blank_iframe_load(wrapped)
-          end
+        each_shadow_including_element(nk) do |element|
+          notify_connected(element)
+          run_connected_script(element)
+          fire_blank_iframe_load(element)
         end
+      end
 
-        nk.children.each { |c| notify_connected_subtree(c) } if nk.respond_to?(:children)
+      # The wrapped elements of the document's shadow-including walk.
+      def each_shadow_including_element(nk)
+        @document.__internal_each_shadow_including_element__(nk) do |element_node|
+          wrapped = @document.wrap_node(element_node)
+          yield wrapped if wrapped
+        end
       end
 
       # A srcless ("blank"/about:blank) `<iframe>` connected to the document gets
@@ -138,15 +142,7 @@ module Dommy
       # gets connectedMoveCallback. The caller checks that the new parent is
       # connected.
       def notify_moved_subtree(nk)
-        return unless nk.respond_to?(:element?)
-
-        if nk.element? && (wrapped = @document.wrap_node(nk))
-          notify_moved(wrapped)
-          shadow = wrapped.__internal_shadow_root__ if wrapped.respond_to?(:__internal_shadow_root__)
-          notify_moved_subtree(shadow.__dommy_backend_node__) if shadow
-        end
-
-        nk.children.each { |c| notify_moved_subtree(c) } if nk.respond_to?(:children)
+        each_shadow_including_element(nk) { |element| notify_moved(element) }
       end
 
       # HTML "enqueue a custom element callback reaction": a definition without
@@ -164,15 +160,9 @@ module Dommy
         nil
       end
 
+      # Disconnected callbacks, over the same shadow-including walk.
       def notify_disconnected_subtree(nk)
-        return unless nk.respond_to?(:element?)
-
-        if nk.element?
-          wrapped = @document.wrap_node(nk)
-          notify_disconnected(wrapped) if wrapped
-        end
-
-        nk.children.each { |c| notify_disconnected_subtree(c) } if nk.respond_to?(:children)
+        each_shadow_including_element(nk) { |element| notify_disconnected(element) }
       end
 
       def notify_attribute_changed(element, name, old_value, new_value, namespace = nil)
