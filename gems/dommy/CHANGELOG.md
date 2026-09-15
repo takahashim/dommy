@@ -1,5 +1,48 @@
 # Changelog
 
+## Unreleased
+
+Conformance again. Most of the Range, traversal and event fixes below came
+from the same differential testing against a Lean 4 formalization of the DOM
+standard as in 0.11.0. New this time: where the spec text and the engines part
+ways — the Selection API, above all — Chrome 149 and Firefox 155 were measured
+directly, and Dommy follows them where they agree.
+
+### Added
+
+#### DOM
+- `StaticRange` — `new StaticRange({startContainer, startOffset, endContainer, endOffset})`. All four members are required, a DocumentType or Attr container is an `InvalidNodeTypeError`, and nothing else is checked (an offset past the node's length is allowed). It does not follow the tree.
+- The rest of the Selection API: `setPosition`, `collapseToStart` / `collapseToEnd`, `extend` (`extend_selection` from Ruby), `setBaseAndExtent`, `deleteFromDocument`, `containsNode`, `direction`, and `getComposedRanges({shadowRoots})`, which lifts each end out of any shadow tree not listed.
+
+### Changed
+
+- **Selection follows the Selection API's steps.** It holds one range and a direction; anchor and focus come from the direction. `collapse`, `extend`, `setBaseAndExtent` and `selectAllChildren` build a new range, run its checks first, and ignore a node outside the document. A second `addRange` is ignored rather than replacing the range, `removeRange` and `getRangeAt` throw as specified, and `selectAllChildren` spans a node's children rather than its length.
+- **A selection range that leaves the document is dropped for good**, as Blink and Gecko do: moved by script into a fragment or another document, or stranded in a shadow tree whose host was removed. `rangeCount`, `type`, `isCollapsed`, `toString` and `collapseToStart` / `collapseToEnd` all read the selection as empty then. A selection inside a shadow tree of the document is reported, and `moveBefore` keeps a selection it carries along.
+- `document.getSelection()` is `null` for a document without a browsing context (one from `createHTMLDocument` or `DOMParser`).
+- A Range method given something that is not a Node — `null` and `undefined` included — throws `TypeError` before any other step. It used to leave a range with a null container, throw a different exception, or answer `false`.
+- Range no longer exposes `containsNode` to JavaScript; that operation belongs to Selection. The Ruby method remains.
+
+### Fixed
+
+#### Ranges
+- `selectNode` and `setStartBefore` / `setStartAfter` / `setEndBefore` / `setEndAfter` throw `InvalidNodeTypeError` for a node without a parent, instead of producing a range whose container is null; `selectNodeContents` rejects a doctype.
+- `deleteContents` removes the contained nodes below a child the range only reaches into, not just the common ancestor's children.
+- `insertNode` throws `HierarchyRequestError` for a Comment or ProcessingInstruction start, a detached Text start, or the start node itself; checks pre-insert validity before it splits a Text start; and counts the new end offset after removing a node that was already in the parent. A CDATASection start is split like a Text node.
+- `Range.toString()` includes CDATASection text.
+- `Selection.collapse(null)` empties the selection.
+
+#### Traversal and events
+- `TreeWalker.parentNode()` climbs a subtree that was removed from under the root, instead of returning `null`.
+- Dispatching at a Text, Comment or ProcessingInstruction node builds the event path correctly: ancestors see the capturing and bubbling phases, a non-bubbling event skips their bubble listeners, and `event.target` stays the node.
+
+#### Nodes
+- `normalize()` exists on every node: the Document merges the Text runs in its tree, a ShadowRoot does over the JavaScript bridge too, and a node without descendants does nothing instead of raising `NoMethodError`.
+- `getRootNode({composed: true})` from a Text or Comment inside a shadow tree reaches the document.
+
+#### JavaScript
+- `moveBefore` is on the Element, Document and DocumentFragment prototypes (length 2), and `customElements.define` reads `connectedMoveCallback`. (The move reactions themselves are not enqueued yet.)
+- `Selection.prototype.collapse.length` is 1 while `Range.prototype.collapse.length` stays 0.
+
 ## 0.11.0 — 2026-09-11
 
 Conformance, mostly. Two sources drove this release: running the same script in
