@@ -281,31 +281,24 @@ module Dommy
         return false unless matches_type?(element, compound.type)
 
         compound.subclass_selectors.all? do |selector|
-          prefilter_proves?(element, selector, verified) || matches_simple?(element, selector, scope: scope)
+          prefilter_proves?(selector, verified) || matches_simple?(element, selector, scope: scope)
         end
       end
 
       # Whether the already-tested prefilter tuple proves this simple selector
       # true, making its own backend read redundant. Only exact-equivalence
       # cases qualify: same-value id/class (class_attr_token? splits on the
-      # same ASCII whitespace as class_tokens), and bare attribute presence
-      # with no matcher and no namespace (prefilter_for only lifts
-      # namespace-less attribute selectors) — and only on an element whose
-      # attribute names compare case-insensitively: the backend lookup behind
-      # the prefilter is ASCII case-insensitive, so on an SVG/MathML element (or
-      # any element of an XML document) a `[viewbox]` hit may really be
-      # `viewBox`, which matches_simple? must still reject.
-      def prefilter_proves?(element, selector, verified)
+      # same ASCII whitespace as class_tokens). Attribute presence does NOT —
+      # the backend lookup behind the prefilter answers `[a]` with a namespaced
+      # `xml:a`, and Selectors §6.2 has an unprefixed attribute selector match
+      # only attributes in no namespace, so matches_attribute? has to read it.
+      def prefilter_proves?(selector, verified)
         return false unless verified
 
         kind, value = verified
         case kind
         when :id then selector.is_a?(SelectorAST::IdSelector) && selector.value == value
         when :class then selector.is_a?(SelectorAST::ClassSelector) && selector.value == value
-        when :attr
-          selector.is_a?(SelectorAST::AttributeSelector) && selector.matcher.nil? &&
-            selector.namespace.nil? && selector.name == value &&
-            !element.__internal_case_sensitive_attribute_names__?
         else false
         end
       end
@@ -317,14 +310,16 @@ module Dommy
         return false unless matches_type_namespace?(element, type.namespace)
 
         actual = element.local_name.to_s
-        expected = type.name.to_s
-        # Type selectors are ASCII case-insensitive in an HTML document, case-
-        # sensitive otherwise. `casecmp?` does that comparison WITHOUT allocating
-        # two downcased copies per call — and this runs once per element per
-        # compound, so on a big page (jQuery `.find()` hammering querySelectorAll)
-        # the old `downcase == downcase` was a top allocator (String#downcase +
-        # GC). `==` short-circuits the common exact-match case first.
-        actual == expected || (html_document?(element) && actual.casecmp?(expected))
+        # Selectors §6.1 compares a type selector to the local name exactly; HTML
+        # relaxes that for HTML elements in an HTML document by ASCII-lowercasing
+        # THE SELECTOR — not the element. So `DIV` and `Div` both find the `div`
+        # the parser made, while the `DIV` only createElementNS can make is
+        # unreachable by any spelling (the note in §6.1 says so outright), and an
+        # SVG `rect` keeps its own case.
+        return actual == type.name.to_s if type.already_ascii_lowercase?
+        return actual == type.ascii_lowercased_name if html_element?(element) && html_document?(element)
+
+        actual == type.name.to_s
       end
 
       # Namespace values the parser produces: nil (no prefix and no default
@@ -739,6 +734,10 @@ module Dommy
         node.respond_to?(:tag_name)
       end
 
+      # Text that keeps an element from being `:empty`. Any non-empty text does,
+      # white space included: Selectors 4's wording allows "document white
+      # space", but WPT (dom/nodes/selectors.js, which asserts `<p> </p>` is not
+      # `:empty`) and every engine read it as Selectors 3 did.
       def text_node_content?(node)
         node.respond_to?(:node_type) && node.node_type == 3 && !node.text_content.to_s.empty?
       end

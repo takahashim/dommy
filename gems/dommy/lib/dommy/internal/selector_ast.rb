@@ -69,6 +69,23 @@ module Dommy
 
       TypeSelector = Struct.new(:namespace, :name) do
         def specificity = TYPE
+
+        # HTML matches a type selector against an HTML element by lowercasing
+        # the SELECTOR (see SelectorMatcher#matches_type?). Computed once per
+        # parsed selector — the matcher asks per element per query, and the AST
+        # it asks is the cached one.
+        def ascii_lowercased_name
+          @ascii_lowercased_name ||= name.to_s.downcase(:ascii)
+        end
+
+        # A name with no ASCII uppercase in it — nearly every selector ever
+        # written — is its own lowercased form, so HTML's rule and an exact
+        # comparison agree and the matcher need not ask what it is looking at.
+        def already_ascii_lowercase?
+          return @already_ascii_lowercase unless @already_ascii_lowercase.nil?
+
+          @already_ascii_lowercase = name.to_s == ascii_lowercased_name
+        end
       end
 
       UniversalSelector = Struct.new(:namespace) do

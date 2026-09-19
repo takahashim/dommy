@@ -458,4 +458,49 @@ module Dommy
     "mpath" => SVGMPathElement,
     "discard" => SVGDiscardElement
   }.freeze
+
+  # HTML "adjust SVG tag name" (§13.2.6.5): the HTML parser lower-cases every
+  # tag name it reads, then puts back the camel case of the SVG names that have
+  # one. That is why `querySelector("feMerge")` finds a parsed `<feMerge>` while
+  # `femerge` does not — a type selector is case-sensitive outside the HTML
+  # namespace. Keys are the lower-case form the backend keeps.
+  SVG_ADJUSTED_TAG_NAMES = {
+    "altglyph" => "altGlyph",
+    "altglyphdef" => "altGlyphDef",
+    "altglyphitem" => "altGlyphItem",
+    "animatecolor" => "animateColor",
+    "animatemotion" => "animateMotion",
+    "animatetransform" => "animateTransform",
+    "clippath" => "clipPath",
+    "feblend" => "feBlend",
+    "fecolormatrix" => "feColorMatrix",
+    "fecomponenttransfer" => "feComponentTransfer",
+    "fecomposite" => "feComposite",
+    "feconvolvematrix" => "feConvolveMatrix",
+    "fediffuselighting" => "feDiffuseLighting",
+    "fedisplacementmap" => "feDisplacementMap",
+    "fedistantlight" => "feDistantLight",
+    "fedropshadow" => "feDropShadow",
+    "feflood" => "feFlood",
+    "fefunca" => "feFuncA",
+    "fefuncb" => "feFuncB",
+    "fefuncg" => "feFuncG",
+    "fefuncr" => "feFuncR",
+    "fegaussianblur" => "feGaussianBlur",
+    "feimage" => "feImage",
+    "femerge" => "feMerge",
+    "femergenode" => "feMergeNode",
+    "femorphology" => "feMorphology",
+    "feoffset" => "feOffset",
+    "fepointlight" => "fePointLight",
+    "fespecularlighting" => "feSpecularLighting",
+    "fespotlight" => "feSpotLight",
+    "fetile" => "feTile",
+    "feturbulence" => "feTurbulence",
+    "foreignobject" => "foreignObject",
+    "glyphref" => "glyphRef",
+    "lineargradient" => "linearGradient",
+    "radialgradient" => "radialGradient",
+    "textpath" => "textPath"
+  }.freeze
 end

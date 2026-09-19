@@ -147,6 +147,48 @@ class TestQuerySelectorSweep < Minitest::Test
     assert_operator(list.size, :>=, 1)
   end
 
+  # `:empty` counts element and text children; a comment child leaves an element
+  # empty, and any non-empty text — white space included, which is how WPT and
+  # the engines read Selectors 4's "document white space" wording — does not.
+  def test_empty_pseudo_counts_elements_and_text
+    win = make_window("<div id='c'><p></p><span><!--c--></span><b> </b><i>x</i><u><br></u></div>")
+    matched = win.document.query_selector_all("#c > :empty").map(&:local_name)
+
+    assert_equal(%w[p span], matched)
+  end
+
+  # HTML's case-insensitivity for type selectors lowercases the SELECTOR, not
+  # the element, and only for HTML elements: the upper-case local name that
+  # only createElementNS can make is matched by no spelling, and an SVG element
+  # keeps the default case-sensitive comparison.
+  def test_type_selector_case_follows_the_namespace
+    win = make_window("<div id='c'></div>")
+    doc = win.document
+    container = doc.get_element_by_id("c")
+    container.append_child(doc.create_element_ns(Dommy::Element::HTML_NAMESPACE, "DIV"))
+    container.append_child(doc.create_element_ns("http://www.w3.org/2000/svg", "rect"))
+
+    assert_equal([container], doc.query_selector_all("div").to_a)
+    assert_equal([container], doc.query_selector_all("DIV").to_a)
+    assert_equal([container], doc.query_selector_all("Div").to_a)
+    assert_equal(["rect"], doc.query_selector_all("rect").map(&:local_name))
+    assert_equal([], doc.query_selector_all("RECT").to_a)
+  end
+
+  # Selectors §6.2: an attribute selector with no namespace component matches
+  # only attributes in no namespace. `*|` is the one that asks for any.
+  def test_attribute_selector_without_a_prefix_has_no_namespace
+    win = make_window("<div id='c'><b></b><i></i></div>")
+    doc = win.document
+    namespaced = doc.query_selector("b")
+    plain = doc.query_selector("i")
+    namespaced.set_attribute_ns("http://www.w3.org/XML/1998/namespace", "xml:a", "1")
+    plain.set_attribute("a", "1")
+
+    assert_equal([plain], doc.query_selector_all("#c [a]").to_a)
+    assert_equal([namespaced, plain], doc.query_selector_all("#c [*|a]").to_a)
+  end
+
   def test_returns_array
     assert_kind_of(Array, @doc.query_selector_all("span"))
   end

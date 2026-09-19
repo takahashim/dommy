@@ -119,6 +119,20 @@ class TestSVGElements < Minitest::Test
     assert_kind_of(Dommy::SVGDescElement, @doc.query_selector("desc"))
   end
 
+  # HTML's "adjust SVG tag name" (§13.2.6.5) puts back the camel case the
+  # tokenizer folded away, so a parsed SVG element carries the spec's local
+  # name — and a type selector, case-sensitive outside the HTML namespace,
+  # finds it under that spelling only.
+  def test_parsed_svg_tag_names_keep_their_camel_case
+    win = make_window("<svg><feGaussianBlur/><clipPath/><g/></svg>")
+    doc = win.document
+
+    assert_equal("feGaussianBlur", doc.query_selector("feGaussianBlur").local_name)
+    assert_equal("clipPath", doc.query_selector("clipPath").tag_name)
+    assert_equal("g", doc.query_selector("g").local_name)
+    assert_nil(doc.query_selector("fegaussianblur"))
+  end
+
   def test_unknown_svg_tag_falls_back_to_svgelement_base
     # Deprecated <glyph> is not in our specialized table — should
     # fall through to the base SVGElement.
@@ -641,11 +655,6 @@ class TestSVGElements < Minitest::Test
   end
 
   def test_fedropshadow_dispatch_and_attrs
-    # NOTE: <feDropShadow> is an SVG 2 addition not in Nokogiri::HTML5's
-    # SVG element adjustment table, so its tag is preserved as
-    # lowercase rather than the spec-cased "feDropShadow". Dispatch
-    # still works via the lowercased SVG_ELEMENT_CLASSES key, but
-    # querySelector must use the lowercased name.
     win = make_window(
       <<~HTML
         <svg><filter>
@@ -654,7 +663,7 @@ class TestSVGElements < Minitest::Test
         </filter></svg>
       HTML
     )
-    fe = win.document.query_selector("fedropshadow")
+    fe = win.document.query_selector("feDropShadow")
     assert_kind_of(Dommy::SVGFEDropShadowElement, fe)
     assert_equal("SourceGraphic", fe.in1)
     assert_equal("3", fe.dx)
