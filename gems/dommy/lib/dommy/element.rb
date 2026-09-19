@@ -1786,8 +1786,24 @@ module Dommy
       attributes.set_named_item(attr)
     end
 
+    # setAttributeNodeNS is defined as the very same steps as setAttributeNode
+    # ("set an attribute"): the namespace is the Attr's own, so there is nothing
+    # left for the NS form to do differently. The JS bridge already routed it
+    # here; this is the Ruby caller's way in.
+    def set_attribute_node_ns(attr)
+      set_attribute_node(attr)
+    end
+
+    # removeAttributeNode step 1: "If this's attribute list does not contain
+    # attr, throw a NotFoundError." What counts is the Attr itself, not its
+    # name — one that belongs to another element, or to none, is not in this
+    # list even when this element has an attribute of the same name.
     def remove_attribute_node(attr)
-      return nil unless attr.respond_to?(:name)
+      owner = attr.owner_element if attr.respond_to?(:owner_element)
+      unless owner.equal?(self)
+        raise DOMException::NotFoundError,
+          "the attribute #{attr.respond_to?(:name) ? attr.name.inspect : attr.inspect} is not this element's"
+      end
 
       attributes.remove_named_item(attr.name)
     end

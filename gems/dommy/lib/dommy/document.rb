@@ -988,6 +988,12 @@ module Dommy
     # wrapper is owned by `this`. Per spec, the source node is left
     # in place. `deep: true` copies the entire subtree.
     def import_node(node, deep = false)
+      # Step 1: "If node is a document or shadow root, throw a
+      # NotSupportedError." Neither has anywhere to go in another document.
+      if node.is_a?(Document) || node.is_a?(ShadowRoot)
+        raise DOMException::NotSupportedError, "a #{node.is_a?(Document) ? "document" : "shadow root"} cannot be imported"
+      end
+
       # An Attr is a Node but not a backend-tree node: it is copied by rebuilding
       # it here with the same qualified name, namespace, prefix and value, owned
       # by no element (importNode never attaches the copy to anything).
@@ -1589,11 +1595,18 @@ module Dommy
       nil
     end
 
-    # `document.cloneNode(deep)` → a fresh Document over a (deep) copy of the
-    # Makiri tree, preserving the content type.
+    # `document.cloneNode(deep)` → a fresh Document of the same kind, keeping
+    # the content type. "Clone a single node" creates a document EMPTY, and a
+    # deep clone then copies the original's children into it — so nothing
+    # sprouts an html/head/body of its own, and a document with no children
+    # clones to one with no children.
     def clone_node(deep)
-      copy = deep ? Backend.clone_document(@backend_doc) : Backend.empty_document_like(@backend_doc)
-      Document.new(nil, backend_doc: copy).tap { |d| d.content_type = @content_type }
+      copy = Document.new(nil, backend_doc: Backend.empty_document_like(@backend_doc))
+      copy.content_type = @content_type
+      return copy unless deep
+
+      child_nodes.each { |child| copy.append_child(copy.import_node(child, true)) }
+      copy
     end
 
     def backend_node(node)
@@ -2690,28 +2703,7 @@ module Dommy
     # `deep: true` recurses into children. Used by importNode and
     # adoptNode for cross-document transfer.
     def clone_into_doc(source, deep, source_document = self)
-      copy = if source.element?
-        new_el = Backend.create_element(source.name, @backend_doc)
-        Backend.attribute_nodes(source).each { |a| new_el[a.name] = a.value }
-        new_el
-      elsif source.text?
-        Backend.create_text(source.content, @backend_doc)
-      elsif source.is_a?(Backend.comment_class)
-        Backend.create_comment(source.content, @backend_doc)
-      elsif source.is_a?(Backend.document_fragment_class)
-        # A DocumentFragment clones to a fragment (its children are appended by
-        # the deep pass below), NOT to its first child — `importNode(<template>
-        # .content, true)` must return a fragment so `.firstElementChild` works
-        # (Vue/Alpine x-for clone template content this way). Built via the
-        # document's own `fragment` (as TemplateContentRegistry does) rather than
-        # `document_fragment_class.new`, so it works on backends whose fragment
-        # class isn't directly instantiable (Makiri).
-        Parser.fragment("", owner_doc: @backend_doc)
-      else
-        # Fallback: serialize + reparse via fragment for unusual types.
-        fragment = Parser.fragment(source.to_html, owner_doc: @backend_doc)
-        fragment.children.first || Backend.create_text("", @backend_doc)
-      end
+      copy = clone_single_node_into_doc(source, source_document)
 
       if source.element? && source.name == "template"
         # A <template>'s contents live in a separate content fragment, not its
@@ -2724,6 +2716,92 @@ module Dommy
       end
 
       copy
+    end
+
+    # "Clone a single node" (§4.4): the copy implements the SAME interface as
+    # the original — a ProcessingInstruction clones to one, not to the comment
+    # its serialization looks like — and carries the same data. Elements are
+    # cloned by #clone_element_into_doc; children are the caller's business.
+    def clone_single_node_into_doc(source, source_document)
+      if source.element?
+        clone_element_into_doc(source, source_document)
+      elsif (cdata = Backend.cdata_class) && source.is_a?(cdata)
+        # CDATA is a Text subtype in the backend, so ask about it first.
+        Backend.create_cdata(source.content, @backend_doc)
+      elsif source.text?
+        Backend.create_text(source.content, @backend_doc)
+      elsif source.is_a?(Backend.comment_class)
+        Backend.create_comment(source.content, @backend_doc)
+      elsif source.is_a?(Backend.processing_instruction_class)
+        Backend.create_processing_instruction(source.target, source.content, @backend_doc)
+      elsif source.is_a?(Backend.document_fragment_class)
+        # A DocumentFragment clones to a fragment (its children are appended by
+        # the deep pass), NOT to its first child — `importNode(<template>
+        # .content, true)` must return a fragment so `.firstElementChild` works
+        # (Vue/Alpine x-for clone template content this way). Built via the
+        # document's own `fragment` (as TemplateContentRegistry does) rather than
+        # `document_fragment_class.new`, so it works on backends whose fragment
+        # class isn't directly instantiable (Makiri).
+        Parser.fragment("", owner_doc: @backend_doc)
+      elsif (doctype = Backend.document_type_class) && source.is_a?(doctype)
+        wrapper = source_document.wrap_node(source)
+        Backend.create_document_type(wrapper.name, wrapper.public_id, wrapper.system_id, @backend_doc)
+      else
+        Backend.create_text("", @backend_doc)
+      end
+    end
+
+    # An element's copy keeps its namespace, its prefix and the exact spelling
+    # of its local name. None of that is on the backend node — the HTML backend
+    # tracks no namespace for an element script created, and createElementNS's
+    # case lives on the wrapper — so the original is read through its wrapper
+    # and the copy is given the same metadata.
+    def clone_element_into_doc(source, source_document)
+      wrapper = source_document.wrap_node(source)
+      namespace, prefix, local, qualified = clone_name_parts(wrapper, source)
+      copy = Backend.create_element_loose(qualified, prefix, local, namespace, @backend_doc) ||
+        Backend.create_element(source.name, @backend_doc)
+      copy_attributes_into(source, copy)
+      note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
+      copy
+    end
+
+    # The four parts of the original's name — namespace, prefix, local name and
+    # qualified name. The wrapper's own metadata has them whenever there is
+    # anything to carry (createElementNS's case and prefix, an XML document's,
+    # the HTML parser's SVG names); otherwise the element is an unprefixed one
+    # whose namespace the backend knows.
+    def clone_name_parts(wrapper, source)
+      meta = wrapper.__internal_namespace_metadata__ if wrapper.respond_to?(:__internal_namespace_metadata__)
+      return meta if meta
+
+      local = wrapper ? wrapper.local_name.to_s : source.name
+      [wrapper&.namespace_uri, nil, local, local]
+    end
+
+    # "Clone a single node" step 2.1 clones the attributes one by one, so each
+    # keeps its own namespace and prefix — an `xml:b` must not flatten into an
+    # attribute whose local name is the qualified string "xml:b".
+    def copy_attributes_into(source, copy)
+      Backend.attribute_nodes(source).each do |attr|
+        info = Backend.attribute_ns_info(attr)
+        if info[:namespace_uri]
+          Backend.set_attribute_ns(copy, info[:namespace_uri], info[:prefix], info[:local_name],
+            info[:qualified_name], info[:value])
+        else
+          copy[info[:qualified_name]] = info[:value]
+        end
+      end
+      nil
+    end
+
+    # Give the copy's wrapper the namespace metadata whenever the backend node
+    # alone would report something else (see #clone_element_into_doc).
+    def note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
+      derived = Backend.namespace_of(copy)&.href || (html_document? ? Element::HTML_NAMESPACE : nil)
+      return if derived == namespace && prefix.nil? && local == copy.name
+
+      wrap_cloned_element_ns(copy, namespace, prefix, local, qualified)
     end
 
     # Clone a <template>'s content into a fragment registered as `copy`'s

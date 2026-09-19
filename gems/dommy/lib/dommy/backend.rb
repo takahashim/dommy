@@ -53,11 +53,6 @@ module Dommy
         current.clone_node(node, deep: deep)
       end
 
-      # Deep copy of a whole document (DOM cloneNode on the document).
-      def clone_document(doc)
-        current.clone_document(doc)
-      end
-
       # A fresh, empty HTML-backed document.
       def empty_document
         current.empty_document

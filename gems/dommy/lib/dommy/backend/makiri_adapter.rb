@@ -43,18 +43,6 @@ module Dommy
         node.clone_node(deep)
       end
 
-      # Makiri documents have no node-level clone; re-parsing the serialized
-      # document reproduces the full tree. Dispatch on the document kind so an XML
-      # document round-trips through the XML parser (case/namespaces/CDATA) and an
-      # HTML document through the HTML parser.
-      def clone_document(doc)
-        if doc.is_a?(::Makiri::XML::Document)
-          ::Makiri::XML::Document.parse(doc.to_xml)
-        else
-          ::Makiri::HTML::Document.parse(doc.to_html)
-        end
-      end
-
       # A fresh, empty HTML-backed document (children dropped so it starts with no
       # documentElement). The backing for a shallow clone of an HTML document.
       def empty_document

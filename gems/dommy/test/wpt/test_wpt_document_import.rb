@@ -95,3 +95,84 @@ class TestWPTDocumentImportNodeDeep < Minitest::Test
     assert_equal(1, external.child_nodes.length)
   end
 end
+
+# "Clone a single node" is what importNode copies with, and its steps 2-3 say
+# the copy implements the same interface, in the same namespace, with the same
+# attributes — each attribute keeping its own namespace too.
+class TestWPTDocumentImportNodeKeepsWhatItCopies < Minitest::Test
+  include DommyTestHelper
+
+  SVG = "http://www.w3.org/2000/svg"
+  XML = "http://www.w3.org/XML/1998/namespace"
+
+  def setup
+    @target = make_window.document
+    @source = make_window.document
+  end
+
+  # Step 1: a document cannot be imported.
+  def test_importing_a_document_is_not_supported
+    assert_raises(Dommy::DOMException::NotSupportedError) { @target.import_node(@source, true) }
+  end
+
+  def test_importing_a_shadow_root_is_not_supported
+    host = @source.create_element("div")
+    root = host.attach_shadow(mode: "open")
+
+    assert_raises(Dommy::DOMException::NotSupportedError) { @target.import_node(root, true) }
+  end
+
+  def test_the_copy_keeps_the_interface
+    pi = @source.create_processing_instruction("target", "d")
+    imported = @target.import_node(pi, true)
+
+    assert_instance_of(Dommy::ProcessingInstructionNode, imported)
+    assert_equal("target", imported.target)
+    assert_equal("d", imported.data)
+  end
+
+  def test_the_copy_keeps_the_namespace
+    rect = @source.create_element_ns(SVG, "rect")
+    imported = @target.import_node(rect, true)
+
+    assert_equal(SVG, imported.namespace_uri)
+    assert_equal("rect", imported.local_name)
+    assert_equal("rect", imported.tag_name)
+  end
+
+  def test_the_copy_keeps_each_attribute_namespace
+    div = @source.create_element("div")
+    div.set_attribute("a", "1")
+    div.set_attribute_ns(XML, "xml:b", "vv")
+    imported = @target.import_node(div, true)
+
+    assert_equal("1", imported.get_attribute("a"))
+    assert_equal("vv", imported.get_attribute_ns(XML, "b"))
+    assert_equal(%w[a xml:b], imported.attributes.map(&:name))
+    assert_equal([nil, XML], imported.attributes.map(&:namespace_uri))
+  end
+end
+
+# `document.cloneNode(deep)` — "clone a single node" step 3 creates the copy
+# document empty, so all it ever holds is clones of the original's children.
+class TestWPTDocumentCloneNode < Minitest::Test
+  include DommyTestHelper
+
+  def test_a_shallow_document_clone_has_no_children
+    doc = Dommy.parse("<html><body><div>hi</div></body></html>").document
+    copy = doc.clone_node(false)
+
+    assert_equal(0, copy.child_nodes.length)
+    assert_nil(copy.document_element)
+  end
+
+  def test_a_deep_document_clone_copies_only_its_children
+    doc = Dommy.parse("<html><body><div>hi</div></body></html>").document
+    copy = doc.clone_node(true)
+
+    assert_equal(1, copy.child_nodes.length)
+    assert_equal("HTML", copy.document_element.tag_name)
+    assert_equal("hi", copy.query_selector("div").text_content)
+    refute_same(doc.document_element, copy.document_element)
+  end
+end

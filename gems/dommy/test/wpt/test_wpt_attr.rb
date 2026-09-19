@@ -126,6 +126,31 @@ class TestWPTAttrOnElement < Minitest::Test
     @el.remove_attribute_node(attr)
     refute(@el.has_attribute?("class"))
   end
+
+  # Step 1 of removeAttributeNode: the Attr has to be in THIS element's
+  # attribute list. Another element's — even one with the same name — is a
+  # NotFoundError, and so is an Attr that is attached to nothing.
+  def test_removeAttributeNode_checks_the_element
+    other = @doc.create_element("p")
+    other.set_attribute("class", "c")
+    other_attr = other.get_attribute_node("class")
+
+    assert_raises(Dommy::DOMException::NotFoundError) { @el.remove_attribute_node(other_attr) }
+    assert_raises(Dommy::DOMException::NotFoundError) { @el.remove_attribute_node(@doc.create_attribute("class")) }
+    assert_equal("c", @el.get_attribute("class"))
+    assert_equal("c", other.get_attribute("class"))
+  end
+
+  # setAttributeNodeNS is the same operation as setAttributeNode — the Attr
+  # carries its own namespace — and both are callable from Ruby.
+  def test_setAttributeNodeNS_sets_the_attribute
+    attr = @doc.create_attribute_ns("http://www.w3.org/XML/1998/namespace", "xml:lang")
+    attr.value = "en"
+    @el.set_attribute_node_ns(attr)
+
+    assert_equal("en", @el.get_attribute_ns("http://www.w3.org/XML/1998/namespace", "lang"))
+    assert_same(@el, attr.owner_element)
+  end
 end
 
 class TestWPTNamedNodeMap < Minitest::Test
