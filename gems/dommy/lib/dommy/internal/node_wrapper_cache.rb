@@ -278,8 +278,15 @@ module Dommy
         end
       end
 
-      # Clear cached wrapper (used by customElements.define for upgrades)
+      # Clear cached wrapper (used by customElements.define for upgrades).
+      # An upgrade replaces a node's wrapper without mutating the tree, so
+      # nothing bumps `dom_generation` and the query cache would keep handing
+      # out the wrapper this just retired — a `querySelector` after the upgrade
+      # would answer with the element's pre-upgrade self. Drop the memoized
+      # results too. Upgrades are rare (a handful per page), so clearing the
+      # whole cache costs less than tracking which selectors matched the node.
       def reset_wrapper(nokogiri_node)
+        @query_cache.clear
         @wrappers.delete(identity_key(nokogiri_node))
       end
 

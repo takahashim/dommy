@@ -41,6 +41,23 @@ class TestWPTCustomElementUpgradeInPlace < Minitest::Test
     assert_equal([[:upgraded_from, Dommy::HTMLElement], [:connected, "early"]], LOG)
   end
 
+  # The upgrade mutates no node, so nothing bumps the document's DOM
+  # generation: a query the page ran before the definition landed must not keep
+  # answering with the element's pre-upgrade self (see
+  # NodeWrapperCache#reset_wrapper).
+  def test_a_query_run_before_the_definition_does_not_survive_the_upgrade
+    early = @doc.create_element("probe-el")
+    @p.append_child(early)
+
+    assert_instance_of Dommy::HTMLElement, @doc.query_selector("probe-el")
+    assert_instance_of Dommy::HTMLElement, @doc.query_selector_all("probe-el").first
+
+    @win.custom_elements.define("probe-el", Probe)
+
+    assert_instance_of Probe, @doc.query_selector("probe-el")
+    assert_instance_of Probe, @doc.query_selector_all("probe-el").first
+  end
+
   def test_upgrading_an_element_that_is_already_custom_does_nothing
     @win.custom_elements.define("probe-el", Probe)
     el = @doc.create_element("probe-el")
