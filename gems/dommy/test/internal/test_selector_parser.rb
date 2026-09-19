@@ -171,15 +171,93 @@ class TestSelectorParser < Minitest::Test
     refute SP.valid?(":has(div :has(.x))")
   end
 
-  # An+B: `<integer>` and `n` are one token, so `3 n` is invalid; whitespace
-  # around the operator (`3n + 1`, `+ 3n`) stays valid.
-  def test_an_plus_b_rejects_whitespace_between_integer_and_n
+  # An+B is written in tokens: `3n` is one dimension-token, `-n` one
+  # ident-token, and a sign belongs to the token it precedes. So whitespace
+  # inside any of those (`3 n`, `- n`, `+ 3n`) breaks the production, while
+  # whitespace around the operator before the B part (`3n + 1`) is allowed.
+  def test_an_plus_b_is_read_in_tokens
     refute SP.valid?(":nth-child(3 n)")
     refute SP.valid?(":nth-child(3 n + 1)")
+    refute SP.valid?(":nth-child(- n)")
+    refute SP.valid?(":nth-child(+ 3n)")
+    refute SP.valid?(":nth-child(- 2)")
     assert SP.valid?(":nth-child(3n + 1)")
-    assert SP.valid?(":nth-child(+ 3n)")
+    assert SP.valid?(":nth-child(+3n)")
+    assert SP.valid?(":nth-child(-n)")
+    assert SP.valid?(":nth-child(-n+2)")
     assert SP.valid?(":nth-child(3n)")
     assert SP.valid?(":nth-child( 2n - 1 )")
+  end
+
+  # css-syntax-3 §4.3.11: after a leading U+002D, a second one starts the ident
+  # too — which is how a custom property's name is written as a selector.
+  def test_an_ident_can_start_with_two_hyphens
+    assert SP.valid?(".--foo")
+    assert SP.valid?("#--x")
+    assert SP.valid?("[--data]")
+    refute SP.valid?(".-")
+    refute SP.valid?(".-1")
+  end
+
+  # §4.3.7: a backslash with nothing after it is a parse error whose value is
+  # U+FFFD, not a failure to parse.
+  def test_a_backslash_at_the_end_of_the_input_is_the_replacement_character
+    ast = SP.parse!(".a\\")
+    class_selector = ast.selectors.first.rightmost.subclass_selectors.first
+
+    assert_equal "a\uFFFD", class_selector.value
+  end
+
+  # §3.3 filters the input before the tokenizer runs: a NULL becomes U+FFFD,
+  # which is itself an ident code point. So `.a<NUL>b` names a class.
+  def test_null_is_filtered_to_the_replacement_character
+    ast = SP.parse!(".a\u0000b")
+    class_selector = ast.selectors.first.rightmost.subclass_selectors.first
+
+    assert_equal "a\uFFFDb", class_selector.value
+  end
+
+  # §4.2's non-ASCII ident code points are a list, not "everything from U+0080
+  # up": U+2603 SNOWMAN falls between two of its ranges, so it can only be
+  # written escaped.
+  def test_non_ascii_ident_code_points_are_a_list
+    assert SP.valid?(".\u00E9")  # LATIN SMALL LETTER E WITH ACUTE
+    assert SP.valid?(".\u3042")  # HIRAGANA LETTER A
+    assert SP.valid?(".\\2603 ") # the escaped form of the one below
+    refute SP.valid?(".\u2603")  # SNOWMAN
+  end
+
+  # Selectors §5.1: an id selector's hash-token must carry an identifier, so the
+  # "unrestricted" hash of `#1` is not one.
+  def test_an_id_selector_needs_an_identifier
+    assert SP.valid?("#vv")
+    assert SP.valid?("#\\31 23")
+    refute SP.valid?("#1")
+    refute SP.valid?("#1x")
+  end
+
+  # css-syntax-3 §5.4.7 closes an open block when the input ends, so a selector
+  # cut short mid-block is still read (`:not(` stays invalid — its argument is
+  # then empty, and it is not forgiving).
+  def test_an_unclosed_block_is_closed_at_the_end_of_the_input
+    assert SP.valid?("a[href")
+    assert SP.valid?("a[href='x'")
+    assert SP.valid?(":is(")
+    assert SP.valid?(":is(p")
+    refute SP.valid?("p:not(")
+    refute SP.valid?("div{")
+  end
+
+  # §4.3.2: a comment produces no token, so it can sit between any two tokens —
+  # but it is not whitespace, so it cannot stand in for a descendant combinator.
+  def test_comments_are_removed_by_the_tokenizer
+    assert SP.valid?("/* c */ div")
+    assert SP.valid?("div /* c */ p")
+    assert SP.valid?("div /*x*/ /*y*/ p")
+    assert SP.valid?("/* a */div/* b */ p")
+    assert SP.valid?(".a/* c */.b")
+    assert SP.valid?("div /* unterminated")
+    refute SP.valid?("div/* c */p")
   end
 
   # A pseudo-element ends a compound selector: nothing may follow it.

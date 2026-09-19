@@ -137,9 +137,9 @@ module Dommy
         attr_reader :clauses
 
         def initialize(string, in_has: false, namespaces: nil)
-          @s = string
+          @s = preprocess(string)
           @i = 0
-          @n = string.length
+          @n = @s.length
           @clauses = []
           # True while parsing the argument of a `:has()` — a structurally
           # nested `:has()` is invalid (string occurrences inside quoted
@@ -248,6 +248,7 @@ module Dommy
             saw_any = true
           end
           loop do
+            skip_comments
             c = peek
             break unless c == "#" || c == "." || c == "[" || c == ":"
 
@@ -345,10 +346,12 @@ module Dommy
           raise InvalidSelector, "undeclared namespace"
         end
 
-        # id := '#' <name>  (a hash token; `#` alone or `#` + non-name invalid)
+        # id := '#' <name>, but Selectors §5.1 adds "the <hash-token>'s value must
+        # be an identifier" — so `#1`, whose hash-token is the "unrestricted"
+        # kind, is not an id selector at all (`#\31` is the way to write it).
         def parse_id!
           advance # consume '#'
-          fail!("invalid id") unless name_char_start?(allow_leading_digit: true)
+          fail!("invalid id") unless ident_start?
           SelectorAST::IdSelector.new(consume_name!)
         end
 
@@ -371,7 +374,10 @@ module Dommy
           matcher = nil
           value = nil
           flag = nil
-          unless peek == "]"
+          # CSS Syntax §5.4.7 closes an open block when the input ends, so
+          # `a[href` is read as `a[href]` rather than looking for a matcher that
+          # is not there.
+          unless eof? || peek == "]"
             matcher = consume_attr_matcher!
             skip_ws
             value = consume_attr_value!
@@ -617,16 +623,17 @@ module Dommy
           SelectorAST::NthExpression.new(a, b, of_list)
         end
 
-        # css-syntax An+B: `<integer>` and `n` form a single token (`3n`), so
-        # whitespace between them (`3 n`) is invalid; whitespace around the
-        # operator before the B part (`3n + 1`) is fine.
-        AN_PLUS_B = /\A([+-])?[ \t\r\n\f]*(\d+)?n(?:[ \t\r\n\f]*([+-])[ \t\r\n\f]*(\d+))?\z/
+        # css-syntax An+B: the sign belongs to the token that follows it — `-n` is
+        # one ident-token and `-3n` one dimension-token — so whitespace after the
+        # sign (`- n`, `- 3n`) breaks the production. Whitespace around the
+        # operator before the B part (`3n + 1`) is what the grammar does allow.
+        AN_PLUS_B = /\A([+-])?(\d+)?n(?:[ \t\r\n\f]*([+-])[ \t\r\n\f]*(\d+))?\z/
 
         def parse_an_plus_b(source)
           s = source.strip.downcase
           return [2, 1] if s == "odd"
           return [2, 0] if s == "even"
-          return [0, Integer(s.delete(" \t\r\n\f"))] if s.match?(/\A[+-]?[ \t\r\n\f]*\d+\z/)
+          return [0, Integer(s)] if s.match?(/\A[+-]?\d+\z/)
           if (m = s.match(AN_PLUS_B))
             a = (m[2] ? m[2].to_i : 1)
             a = -a if m[1] == "-"
@@ -643,6 +650,19 @@ module Dommy
         end
 
         # ---- token helpers -------------------------------------------------
+
+        # css-syntax-3 §3.3 "filter code points", the pass that runs before the
+        # tokenizer sees anything: the three newline forms become U+000A, and
+        # U+0000 becomes U+FFFD. The replacement character is itself an ident
+        # code point, so `.a<NUL>b` names the class `a<U+FFFD>b` rather than
+        # being a syntax error.
+        NEEDS_FILTERING = /[\r\f\u0000]/
+
+        def preprocess(string)
+          return string unless string.match?(NEEDS_FILTERING)
+
+          string.gsub(/\r\n|[\r\f]/, "\n").gsub("\u0000", "\uFFFD")
+        end
 
         def consume_string!
           quote = peek
@@ -675,7 +695,11 @@ module Dommy
           start = @i
           # leading hyphen(s)
           advance if peek == "-"
-          if peek == "\\"
+          if peek == "-"
+            # `--foo`: §4.3.11 lets a second U+002D start the ident, so a custom
+            # property's name is a class selector like any other.
+            advance
+          elsif peek == "\\"
             consume_escape!
           elsif ident_letter?(peek)
             advance
@@ -713,7 +737,11 @@ module Dommy
 
         def consume_escape!
           advance # backslash
-          fail!("trailing backslash") if eof?
+          # §4.3.7: a backslash at EOF is a parse error that yields U+FFFD, not a
+          # failure — `.a\` names the class `a<U+FFFD>` (decode_css_identifier
+          # turns the dangling backslash into it).
+          return if eof?
+
           if hex_digit?(peek)
             count = 0
             while count < 6 && hex_digit?(peek)
@@ -738,7 +766,11 @@ module Dommy
             end
 
             i += 1
-            break if i >= value.length
+            # A backslash with nothing after it (the input ended): §4.3.7 again.
+            if i >= value.length
+              out << "\uFFFD"
+              break
+            end
 
             hex = value[i, 6].to_s[/\A[0-9A-Fa-f]{1,6}/]
             if hex
@@ -760,7 +792,9 @@ module Dommy
           c = peek
           return false if c.nil?
           return true if ident_letter?(c)
-          return true if c == "\\" && !eof?(1)
+          # A backslash starts an ident unless a newline follows: §4.3.8 calls
+          # every other pair a valid escape, the end of the input included.
+          return true if c == "\\" && peek(1) != "\n"
           # leading '-' is an ident start if followed by ident-letter / '-' / esc
           if c == "-"
             nxt = peek(1)
@@ -769,29 +803,38 @@ module Dommy
           false
         end
 
-        # A letter, underscore, or non-ASCII (>= U+0080) start char.
+        # css-syntax-3 §4.2 "non-ASCII ident code point". Not everything from
+        # U+0080 up: the spec narrowed it to this list, aligned with HTML's valid
+        # custom element name. U+2603 SNOWMAN falls between two of the ranges, so
+        # it cannot be written into a selector at all except escaped (`.\2603 `).
+        NON_ASCII_IDENT_RANGES = [
+          0xB7..0xB7, 0xC0..0xD6, 0xD8..0xF6, 0xF8..0x37D, 0x37F..0x1FFF,
+          0x200C..0x200D, 0x203F..0x2040, 0x2070..0x218F, 0x2C00..0x2FEF,
+          0x3001..0xD7FF, 0xF900..0xFDCF, 0xFDF0..0xFFFD,
+        ].freeze
+
+        def non_ascii_ident?(c)
+          codepoint = c.ord
+          return false if codepoint < 0x80
+          return true if codepoint >= 0x10000
+
+          NON_ASCII_IDENT_RANGES.any? { |range| range.cover?(codepoint) }
+        end
+
+        # An ident-start code point: a letter, an underscore, or one of the
+        # non-ASCII ident code points.
         def ident_letter?(c)
           return false if c.nil?
 
-          c.match?(/[A-Za-z_]/) || c.ord >= 0x80
+          c.match?(/[A-Za-z_]/) || non_ascii_ident?(c)
         end
 
+        # An ident code point: an ident-start one, a digit, or U+002D.
         def name_char?(c)
           return false if c.nil?
 
-          c.match?(/[A-Za-z0-9_\-]/) || c.ord >= 0x80
+          c.match?(/[A-Za-z0-9_\-]/) || non_ascii_ident?(c)
         end
-
-        def name_char_start?(allow_leading_digit: false)
-          c = peek
-          return false if c.nil?
-          return true if c == "\\" && !eof?(1)
-          return true if name_char?(c) && (allow_leading_digit || !digit?(c))
-
-          false
-        end
-
-        def digit?(c) = !c.nil? && c >= "0" && c <= "9"
 
         def hex_digit?(c) = !c.nil? && c.match?(/[0-9A-Fa-f]/)
 
@@ -812,7 +855,7 @@ module Dommy
               else
                 j += 1 if @s[j]
               end
-            elsif ch.match?(/[A-Za-z0-9_\-]/) || ch.ord >= 0x80
+            elsif name_char?(ch)
               j += 1
             else
               break
@@ -833,13 +876,42 @@ module Dommy
 
         def advance = @i += 1
 
+        # Whitespace, and the comments that may be interleaved with it. Reports
+        # whether any *whitespace* was passed — a comment is not whitespace, so
+        # the caller that turns "there was space here" into a descendant
+        # combinator must not be told one was there.
         def skip_ws
           moved = false
-          while !eof? && WS.include?(peek)
-            advance
-            moved = true
+          loop do
+            if !eof? && WS.include?(peek)
+              advance
+              moved = true
+            elsif at_comment?
+              skip_comment!
+            else
+              return moved
+            end
           end
-          moved
+        end
+
+        # §4.3.2: the tokenizer consumes `/* … */` and emits nothing for it, so a
+        # comment can sit between any two tokens of a selector — including
+        # between the simple selectors of one compound (`.a/* c */.b`).
+        def skip_comments
+          skip_comment! while at_comment?
+        end
+
+        def at_comment? = peek == "/" && peek(1) == "*"
+
+        def skip_comment!
+          advance # '/'
+          advance # '*'
+          advance until eof? || (peek == "*" && peek(1) == "/")
+          # An unterminated comment ends at EOF: a parse error, not a failure.
+          return if eof?
+
+          advance # '*'
+          advance # '/'
         end
 
         def eof?(offset = 0) = (@i + offset) >= @n
