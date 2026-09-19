@@ -33,6 +33,12 @@ module Dommy
 
     # ---- Public Ruby API (ParentNode + DocumentFragment mixin) ----
 
+    # cloneNode step 1: "If this is a shadow root, throw a NotSupportedError."
+    # A shadow tree belongs to its host; there is no copy of it on its own.
+    def clone_node(_deep = false)
+      raise DOMException::NotSupportedError, "a shadow root cannot be cloned"
+    end
+
     def inner_html
       @__node__.children.map(&:to_html).join
     end

@@ -21,6 +21,19 @@ module Dommy
 
     # Public Ruby API (DocumentFragment surface)
 
+    # Node.cloneNode: a fresh, empty fragment, and — when `deep` — a clone of
+    # each child appended in tree order ("clone a node" step 5). Cloning the
+    # children one by one rather than re-parsing the fragment's serialization
+    # keeps each of them its own interface: a comment stays a comment, and a
+    # processing instruction does not come back as one.
+    def clone_node(deep = false)
+      copy = @document.create_document_fragment
+      return copy unless deep
+
+      child_nodes.each { |child| copy.append_child(child.clone_node(true)) }
+      copy
+    end
+
     def children
       element_children
     end
@@ -152,9 +165,7 @@ module Dommy
       when "isDefaultNamespace"
         is_default_namespace(args[0])
       when "cloneNode"
-        deep = args.empty? ? false : !!args[0]
-        deep ? @document.wrap_node(Parser.fragment(@__node__.to_html, owner_doc: @document.backend_doc)) : @document
-          .wrap_node(Parser.fragment("", owner_doc: @document.backend_doc))
+        clone_node(args.first)
       when "querySelector"
         query_selector(Internal.css_query_arg!(args))
       when "querySelectorAll"
@@ -726,12 +737,20 @@ module Dommy
       super
     end
 
+    # Node.cloneNode. CharacterData has no children, so `deep` decides nothing:
+    # the copy is a new node of the SAME interface carrying the same data, owned
+    # by this node's document. Each subclass builds its own kind — a CDATASection
+    # that cloned to a Text would be the wrong node.
+    def clone_node(_deep = false)
+      @document.create_text_node(@__node__.text)
+    end
+
     # Own __js_call__ methods, on top of CharacterDataNode's.
     js_methods %w[cloneNode]
     def __js_call__(method, args)
       case method
       when "cloneNode"
-        @document.create_text_node(@__node__.text)
+        clone_node(args.first)
       else
         super
       end
@@ -744,6 +763,10 @@ module Dommy
     def node_type
       4
     end
+
+    def clone_node(_deep = false)
+      @document.create_cdata_section(@__node__.content)
+    end
   end
 
   class CommentNode < CharacterDataNode
@@ -751,12 +774,16 @@ module Dommy
       8
     end
 
+    def clone_node(_deep = false)
+      @document.create_comment(@__node__.content)
+    end
+
     # Own __js_call__ methods, on top of CharacterDataNode's.
     js_methods %w[cloneNode]
     def __js_call__(method, args)
       case method
       when "cloneNode"
-        @document.create_comment(@__node__.content)
+        clone_node(args.first)
       else
         super
       end
@@ -791,12 +818,16 @@ module Dommy
       end
     end
 
+    def clone_node(_deep = false)
+      @document.create_processing_instruction(@__node__.target, @__node__.content)
+    end
+
     # Own __js_call__ methods, on top of CharacterDataNode's.
     js_methods %w[cloneNode]
     def __js_call__(method, args)
       case method
       when "cloneNode"
-        @document.create_processing_instruction(@__node__.target, @__node__.content)
+        clone_node(args.first)
       else
         super
       end
