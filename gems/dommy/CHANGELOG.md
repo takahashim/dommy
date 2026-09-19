@@ -2,49 +2,29 @@
 
 ## Unreleased
 
-Conformance again. Most of the Range, traversal and event fixes below came
-from the same differential testing against a Lean 4 formalization of the DOM
-standard as in 0.11.0. New this time: where the spec text and the engines part
-ways — the Selection API, above all — Chrome 149 and Firefox 155 were measured
-directly, and Dommy follows them where they agree.
-
 ### Added
 
-#### DOM
-- `StaticRange` — `new StaticRange({startContainer, startOffset, endContainer, endOffset})`. All four members are required, a DocumentType or Attr container is an `InvalidNodeTypeError`, and nothing else is checked (an offset past the node's length is allowed). It does not follow the tree.
-- `moveBefore` runs the custom element move reactions: `connectedMoveCallback` for each custom element it carries (shadow trees included), or `disconnectedCallback` then `connectedCallback` for one whose definition has none. Nothing reacts when the new parent is not connected.
-- The rest of the Selection API: `setPosition`, `collapseToStart` / `collapseToEnd`, `extend` (`extend_selection` from Ruby), `setBaseAndExtent`, `deleteFromDocument`, `containsNode`, `direction`, and `getComposedRanges({shadowRoots})`, which lifts each end out of any shadow tree not listed.
+- `StaticRange`.
+- The rest of the Selection API: `setPosition`, `collapseToStart`, `collapseToEnd`, `extend` (`extend_selection` in Ruby), `setBaseAndExtent`, `deleteFromDocument`, `containsNode`, `direction` and `getComposedRanges`.
+- `moveBefore` runs the custom element move reactions: `connectedMoveCallback`, or `disconnectedCallback` then `connectedCallback` when it is not defined.
 
 ### Changed
 
-- **Selection follows the Selection API's steps.** It holds one range and a direction; anchor and focus come from the direction. `collapse`, `extend`, `setBaseAndExtent` and `selectAllChildren` build a new range, run its checks first, and ignore a node outside the document. A second `addRange` is ignored rather than replacing the range, `removeRange` and `getRangeAt` throw as specified, and `selectAllChildren` spans a node's children rather than its length.
-- **A selection range that leaves the document is dropped for good**, as Blink and Gecko do: moved by script into a fragment or another document, or stranded in a shadow tree whose host was removed. `rangeCount`, `type`, `isCollapsed`, `toString` and `collapseToStart` / `collapseToEnd` all read the selection as empty then. A selection inside a shadow tree of the document is reported, and `moveBefore` keeps a selection it carries along.
-- `document.getSelection()` is `null` for a document without a browsing context (one from `createHTMLDocument` or `DOMParser`).
-- A Range method given something that is not a Node — `null` and `undefined` included — throws `TypeError` before any other step. It used to leave a range with a null container, throw a different exception, or answer `false`.
-- Range no longer exposes `containsNode` to JavaScript; that operation belongs to Selection. The Ruby method remains.
+- Selection holds at most one range: a second `addRange` is ignored, and a range that leaves the document is dropped from the selection.
+- `document.getSelection()` returns `null` for a document without a browsing context.
+- Range methods throw `TypeError` for an argument that is not a Node, `null` included.
+- `Range#containsNode` is no longer exposed to JavaScript.
 
 ### Fixed
 
-#### Ranges
-- `selectNode` and `setStartBefore` / `setStartAfter` / `setEndBefore` / `setEndAfter` throw `InvalidNodeTypeError` for a node without a parent, instead of producing a range whose container is null; `selectNodeContents` rejects a doctype.
-- `deleteContents` removes the contained nodes below a child the range only reaches into, not just the common ancestor's children.
-- `insertNode` throws `HierarchyRequestError` for a Comment or ProcessingInstruction start, a detached Text start, or the start node itself; checks pre-insert validity before it splits a Text start; and counts the new end offset after removing a node that was already in the parent. A CDATASection start is split like a Text node.
-- `Range.toString()` includes CDATASection text.
-- `Selection.collapse(null)` empties the selection.
-
-#### Traversal and events
-- `TreeWalker.parentNode()` climbs a subtree that was removed from under the root, instead of returning `null`.
-- Dispatching at a Text, Comment or ProcessingInstruction node builds the event path correctly: ancestors see the capturing and bubbling phases, a non-bubbling event skips their bubble listeners, and `event.target` stays the node.
-
-#### Nodes
-- `normalize()` exists on every node: the Document merges the Text runs in its tree, a ShadowRoot does over the JavaScript bridge too, and a node without descendants does nothing instead of raising `NoMethodError`.
-- `getRootNode({composed: true})` from a Text or Comment inside a shadow tree reaches the document.
-
-#### JavaScript
-- `moveBefore` is on the Element, Document and DocumentFragment prototypes (length 2), and `customElements.define` reads `connectedMoveCallback`.
-- AbstractRange's attributes are on `AbstractRange.prototype`, and Range's operations and `commonAncestorContainer` on `Range.prototype`, where they were missing.
-- A prototype method named after an `Object.prototype` member no longer gets that function as its `length` (`Range.prototype.toString.length` and `Selection.prototype.toString.length` are 0).
-- `Selection.prototype.collapse.length` is 1 while `Range.prototype.collapse.length` stays 0.
+- Range: `selectNode` and `setStartBefore` / `setStartAfter` / `setEndBefore` / `setEndAfter` on a node without a parent, `selectNodeContents` on a doctype, `deleteContents` with nested contained nodes, `insertNode` validity and end offset, and `toString` with CDATA sections.
+- `TreeWalker.parentNode()` after the current node is removed from under the root.
+- Events dispatched at a Text or Comment node reach its ancestors in the right phase.
+- `normalize()` on the Document and on nodes without children; `getRootNode({composed: true})` from a node in a shadow tree.
+- `moveBefore` throws `TypeError` for a `child` that is not a Node; `doctype.isConnected`.
+- Custom elements in shadow trees get `connectedCallback` / `disconnectedCallback` and are upgraded by `customElements.define()` and `upgrade()`. An upgraded shadow host keeps its `shadowRoot`, and a callback that attaches a shadow tree no longer causes reactions to run twice.
+- An element created before its `customElements.define()` is upgraded in place, so references a script already holds become instances of the class.
+- JavaScript: `moveBefore` and the AbstractRange and Range members are on their prototypes, `Selection.prototype.collapse.length` is 1, and `toString.length` is 0.
 
 ## 0.11.0 — 2026-09-11
 

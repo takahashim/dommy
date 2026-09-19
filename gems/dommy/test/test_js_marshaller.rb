@@ -40,6 +40,19 @@ class TestJsMarshaller < Minitest::Test
     assert_same obj, @m.host(wrapped[WT::HANDLE])
   end
 
+  # A custom element upgrade replaces the node's wrapper while a script may hold
+  # the element: the handle moves to the new object, so its proxy stays valid.
+  def test_rebind_moves_a_handle_to_the_replacement_object
+    old = bridgeable_object
+    handle = @m.wrap(old)[WT::HANDLE]
+    replacement = bridgeable_object
+
+    assert_equal handle, @m.rebind(old, replacement)
+    assert_same replacement, @m.host(handle)
+    assert_equal handle, @m.wrap(replacement)[WT::HANDLE]
+    assert_nil @m.rebind(bridgeable_object, replacement)
+  end
+
   def test_wrap_plain_array_and_hash_recurse
     assert_equal [1, {WT::UNDEFINED => true}], @m.wrap([1, B::UNDEFINED])
     assert_equal({"a" => {WT::UNDEFINED => true}}, @m.wrap({"a" => B::UNDEFINED}))

@@ -30,6 +30,21 @@ module Dommy
         handle
       end
 
+      # Point the handle `old` is registered under at `new`, and return it (nil
+      # when `old` has none). A node's wrapper can be replaced while a script
+      # holds the element — a custom element upgrade re-wraps it — and the JS
+      # proxy is bound to its handle, so moving the handle keeps that proxy the
+      # element.
+      def rebind(old, new)
+        handle = @handle_by_oid[old.object_id]
+        return nil unless handle && @by_handle[handle].equal?(old)
+
+        @handle_by_oid.delete(old.object_id)
+        @by_handle[handle] = new
+        @handle_by_oid[new.object_id] = handle
+        handle
+      end
+
       def fetch(handle)
         @by_handle.fetch(handle.to_i)
       end
