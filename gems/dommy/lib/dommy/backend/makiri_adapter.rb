@@ -221,8 +221,8 @@ module Dommy
       end
 
       # Both Makiri document families (HTML and XML) mint a real PI node and
-      # serialize it (HTML as `<?target data>`, XML as `<?target data?>`), so PIs
-      # — unlike CDATA — need no HTML-document fallback.
+      # serialize it as `<?target data?>`, so PIs — unlike CDATA — need no
+      # HTML-document fallback.
       def create_processing_instruction(target, data, doc)
         doc.create_processing_instruction(target, data)
       end
