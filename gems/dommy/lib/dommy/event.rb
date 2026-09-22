@@ -1376,7 +1376,7 @@ module Dommy
   # `InputEvent` — fired by `input` / `beforeinput`. Carries `data`
   # (the inserted text, if any) and `inputType` (insertText,
   # deleteContentBackward, etc.).
-  class InputEvent < Event
+  class InputEvent < UIEvent
     def initialize(type, init = nil)
       super
       @data = read_init(init, "data")
@@ -1584,7 +1584,7 @@ module Dommy
   # touchcancel. Carries three TouchLists plus modifier keys.
   #
   # Spec: https://w3c.github.io/touch-events/#touchevent-interface
-  class TouchEvent < Event
+  class TouchEvent < UIEvent
     def initialize(type, init = nil)
       super
       @touches = TouchList.new(Array(read_init(init, "touches") || []))

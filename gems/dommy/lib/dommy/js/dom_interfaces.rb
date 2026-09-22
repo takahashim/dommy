@@ -105,6 +105,12 @@ module Dommy
         %w[Notification EventTarget], %w[Worker EventTarget], %w[DataTransfer],
         %w[ReadableStream], %w[WritableStream], %w[TransformStream],
         %w[URLPattern],
+        %w[TextEncoderStream], %w[TextDecoderStream], %w[CompressionStream], %w[DecompressionStream],
+        %w[Animation EventTarget], %w[AnimationEffect], %w[KeyframeEffect AnimationEffect],
+        %w[Touch], %w[TouchEvent UIEvent Event],
+        %w[PointerEvent MouseEvent UIEvent Event], %w[DragEvent MouseEvent UIEvent Event],
+        %w[InputEvent UIEvent Event], %w[ClipboardEvent Event], %w[BeforeUnloadEvent Event],
+        %w[ProgressEvent Event],
         # Range and StaticRange are both AbstractRanges. The base interface has
         # no Ruby class, but it still has to exist for `instanceof AbstractRange`.
         %w[AbstractRange], %w[Range AbstractRange], %w[StaticRange AbstractRange],
@@ -205,6 +211,7 @@ module Dommy
       IMPLICIT_BASES = {
         "Range" => %w[AbstractRange],
         "StaticRange" => %w[AbstractRange],
+        "KeyframeEffect" => %w[AnimationEffect],
         "XMLHttpRequest" => %w[XMLHttpRequestEventTarget],
         "XMLHttpRequestUpload" => %w[XMLHttpRequestEventTarget]
       }.freeze

@@ -35,7 +35,7 @@
 - Selectors: a type selector is case-sensitive except for HTML elements in an HTML document, so `rect` matches an SVG `rect` and `RECT` does not; SVG tag names such as `feMerge` keep their camel case. An attribute selector without a namespace matches only attributes in no namespace, so `[a]` no longer matches `xml:a`.
 - Selector syntax follows CSS Syntax: NULL is U+FFFD and newlines are LF, non-ASCII ident code points are the spec's list, `.--foo` is a selector, a dangling backslash ends in U+FFFD, an unclosed `a[href` is closed at the end of the input instead of raising a `TypeError`, comments sit between any two tokens, `#1` is not an id selector, and a sign binds to the token after it in An+B.
 - JavaScript: `moveBefore` and the AbstractRange and Range members are on their prototypes, `Selection.prototype.collapse.length` is 1, and `toString.length` is 0.
-- `URLPattern` is a window global, and its members are on `URLPattern.prototype`.
+- Every constructor the window has is a global scripts can name. `URLPattern`, `TextDecoderStream`, `TextEncoderStream`, `CompressionStream`, `DecompressionStream`, `PointerEvent`, `InputEvent`, `DragEvent`, `TouchEvent`, `Touch`, `ClipboardEvent`, `BeforeUnloadEvent`, `ProgressEvent`, `Animation` and `KeyframeEffect` were `undefined` in JavaScript, and `URLPattern`'s members are on its prototype. `InputEvent` and `TouchEvent` are UIEvents.
 
 ## 0.11.0 — 2026-09-11
 

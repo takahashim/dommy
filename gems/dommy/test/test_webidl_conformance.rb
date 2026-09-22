@@ -43,6 +43,20 @@ class TestWebIdlInheritance < Minitest::Test
     assert_equal "EventTarget", WebIdlAudit.data["interfaces"]["Node"]["inherits"]
   end
 
+  # HTML's [LegacyFactoryFunction]s and the JS builtins the window hands out
+  # under their own names are constructors without an interface of their own.
+  NOT_INTERFACES = %w[Image Audio Option Error Promise].freeze
+
+  # The JS side creates a global for every seeded interface, so a constructor
+  # the window has but the seed list lacks is `undefined` to a script however
+  # well the Ruby class behind it works. (URLPattern and TextDecoderStream were.)
+  def test_every_window_constructor_is_seeded_as_a_global
+    window = Dommy.parse("<p></p>")
+    names = window.instance_variable_get(:@constructors).names
+    seeded = Dommy::Js::DomInterfaces::BASE_CHAINS.flatten
+    assert_empty names - seeded - NOT_INTERFACES
+  end
+
   # Every seeded prototype chain must be the IDL's own inheritance chain.
   # A wrong one is directly observable: `reader instanceof EventTarget`,
   # `file instanceof Blob`, `range instanceof AbstractRange`.
@@ -51,7 +65,10 @@ class TestWebIdlInheritance < Minitest::Test
       next unless WebIdlAudit.data["interfaces"].key?(name)
 
       want = WebIdlAudit.idl_chain(name)
-      "#{name}: seeded #{chain.join(" > ")} but IDL says #{want.join(" > ")}" unless chain == want
+      # A chain that leaves the fixture (DragEvent > MouseEvent, with UI Events
+      # not distilled) is only known that far.
+      got = WebIdlAudit.data["interfaces"].key?(want.last) ? chain : chain.first(want.length)
+      "#{name}: seeded #{chain.join(" > ")} but IDL says #{want.join(" > ")}" unless got == want
     end
     assert_empty mismatched
   end
