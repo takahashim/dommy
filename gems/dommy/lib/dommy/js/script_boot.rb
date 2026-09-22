@@ -17,10 +17,12 @@ module Dommy
     # in the document (e.g. a Nuxt entry module placed above the inline
     # `window.__NUXT__ = {...}` bootstrap it depends on). Running everything in
     # one document-order pass would execute the module against half-initialized
-    # globals. A failed fetch or a throwing script is isolated; `on_error` is
-    # notified (the Browser collects it for strict mode, the Capybara adapter
-    # ignores it) so the rest of the page still loads. Shared by `Dommy::Browser`
-    # and the Capybara driver so script boot lives in one place.
+    # globals. A failed fetch or a throwing script is isolated so the rest of the
+    # page still loads: a throwing script's exception is REPORTED at the window
+    # (WHATWG "report an exception", so `window.onerror` sees it and the host
+    # hears only what the page left unhandled), while `on_error` stays the
+    # fallback for a windowless document. Shared by `Dommy::Browser` and the
+    # Capybara driver so script boot lives in one place.
     #
     # The module is the stable entry point; the work lives on ScriptBooter, a
     # short-lived instance that holds the runtime / document / resources /
@@ -157,11 +159,28 @@ module Dommy
         end
         dispatch_script_event(element, ran ? "load" : "error")
       rescue StandardError => e
-        @on_error&.call(e)
+        report_exception(e)
         dispatch_script_event(element, "error")
       end
 
       private
+
+      # WHATWG "report an exception" for a script whose EVALUATION threw: the
+      # exception belongs to the page, so it is reported at the global (firing
+      # `window.onerror`, which a page's error reporting listens on) rather than
+      # handed straight to the host. Only a report the page leaves unhandled
+      # reaches the host, through the window's unhandled-error seam.
+      #
+      # `on_error` is the fallback for a document with no window to report to
+      # (nothing else could hear it) and for the internal failures that are not
+      # page exceptions at all.
+      def report_exception(error)
+        window = (@document.default_view if @document.respond_to?(:default_view))
+        return @on_error&.call(error) unless window.respond_to?(:__internal_report_exception__)
+
+        value, message = Dommy::Internal::ExceptionReport.describe(error)
+        window.__internal_report_exception__(value, message, host_error: error)
+      end
 
       # Fire the script's load/error event ASYNCHRONOUSLY (a microtask), like a
       # real browser. Code commonly does `head.appendChild(s); s.onload = …`
@@ -215,7 +234,7 @@ module Dommy
       def run_one(element)
         @on_script.call(element, nil) if run_pending(element) && @on_script
       rescue StandardError => e
-        @on_error&.call(e)
+        report_exception(e)
         @on_script&.call(element, e)
       end
 

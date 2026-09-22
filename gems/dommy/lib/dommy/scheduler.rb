@@ -86,6 +86,14 @@ module Dommy
     # all — vanilla CRuby use) re-raises, so genuine host bugs still surface.
     attr_accessor :timer_error_handler
 
+    # WHATWG "report an exception" for a task, supplied by the Window that owns
+    # this scheduler. A timer / rAF callback that throws is the page's bug, not
+    # the host's: the exception is reported at the global (firing
+    # `window.onerror`) and the event loop carries on with the remaining tasks,
+    # rather than tearing down whatever Ruby drove the clock. Absent in vanilla
+    # CRuby use, where a throwing callback keeps propagating.
+    attr_accessor :exception_reporter
+
     # An optional hook (set by a JS runtime) that drains the ENGINE's microtask
     # (promise-job) queue — the other half of a microtask checkpoint. The
     # scheduler owns only its own `@microtasks`; the real microtask queue lives
@@ -284,18 +292,28 @@ module Dommy
     end
 
 
-    # Run a single timer's callback. A raised error is offered to
-    # `timer_error_handler` (set by the JS runtime); if it swallows the error the
-    # timer is dropped (so a runaway interval cannot re-stall every tick) and
-    # browsing continues. With no handler — or one that declines — the error
-    # propagates, preserving the default crash-on-bug behavior.
+    # Run a single timer's callback. The callback is invoked in its RAISING form
+    # so a JS throw surfaces here instead of being swallowed by the bridge —
+    # WHATWG reports a task's exception at the global and keeps the event loop
+    # running, which a silently dropped throw cannot do. The raised error is then
+    # offered to `timer_error_handler` (set by the JS runtime); if it swallows the
+    # error the timer is dropped (so a runaway interval cannot re-stall every
+    # tick) and browsing continues. With no handler — or one that declines — the
+    # error propagates, preserving the default crash-on-bug behavior for a host
+    # bug, which is not a page exception and must not be reported as one.
     def invoke_timer(timer, *args)
       # Run the callback at this timer's nesting level, so a timer it schedules
       # nests one deeper (driving the 4ms clamp). Restored even if it throws.
       prev_nesting = @nesting_level
       @nesting_level = timer.nesting || 0
-      CallableInvoker.invoke(timer.callback, *args)
+      CallableInvoker.invoke_raising(timer.callback, *args)
     rescue StandardError => e
+      # A page exception is reported and the timer keeps its schedule, like a
+      # browser: an interval whose callback throws goes on firing.
+      return nil if report_task_exception(e)
+      # Otherwise the runtime's handler decides. It swallows the errors it had to
+      # kill (an execution-timeout runaway, a poisoned VM), and those DO drop the
+      # timer so it cannot re-stall every tick. A declined error is a host bug.
       raise unless @timer_error_handler&.call(e, timer)
 
       timer.active = false
@@ -303,6 +321,17 @@ module Dommy
       nil
     ensure
       @nesting_level = prev_nesting
+    end
+
+    # Report a task's exception at the global, per WHATWG. Only a `ThrowValue`
+    # qualifies: it is the one shape that unambiguously came out of page JS, so a
+    # host-side bug (a NoMethodError in Dommy itself) is never disguised as a
+    # page error — it falls through and propagates.
+    def report_task_exception(error)
+      return false unless error.is_a?(Bridge::ThrowValue) && @exception_reporter
+
+      @exception_reporter.call(error)
+      true
     end
   end
 end

@@ -268,8 +268,14 @@ module Dommy
       # The JS engine is pluggable: `@backend` selects a registered runtime
       # (nil → the configured default, QuickJS when dommy-js-quickjs is loaded).
       runtime = Js.build_runtime(@backend)
-      runtime.on_unhandled_rejection { |err| @js_errors << err }
-      runtime.on_callback_error { |err| @js_errors << err } if runtime.respond_to?(:on_callback_error)
+      # Every uncaught error the page produces goes through the window's
+      # "report an exception" / "notify about rejected promises" funnel, and only
+      # what the page left unhandled lands here. A page that installs its own
+      # `window.onerror` / `unhandledrejection` handler and cancels the event
+      # suppresses the failure, exactly as it would in a browser.
+      window.__internal_on_unhandled_error__ { |err| @js_errors << err }
+      runtime.on_unhandled_rejection { |err| report_rejection(window, err) }
+      runtime.on_callback_error { |err| report_exception(window, err) } if runtime.respond_to?(:on_callback_error)
       runtime.on_log { |log| @console << log }
       runtime.define_host_object("document", window.document)
       runtime.install_window(window)
@@ -289,6 +295,8 @@ module Dommy
       end
       return unless @execute_scripts
 
+      # `on_error:` here is only the windowless fallback — a booted document has
+      # a window, so a throwing script reports through it (see ScriptBoot).
       # Dynamically-inserted `<script src>` (webpack/Vite on-demand chunks)
       # fetch + run through the same resources adapter, after boot.
       doc.external_script_runner = lambda do |element, src|
@@ -301,6 +309,21 @@ module Dommy
       # Leave the page in a ready state: run on-load promises, due-now timers,
       # and rAF (not future timers). `settle: false` observes it mid-flight.
       runtime.settle if @settle_after_boot
+    end
+
+    # Route a timer / rAF callback's error (the engine reports it once the
+    # scheduler has isolated it) through the page's own error handling first.
+    def report_exception(window, error)
+      value, message = Internal::ExceptionReport.describe(error)
+      window.__internal_report_exception__(value, message, host_error: error)
+    end
+
+    # Route an unhandled promise rejection through the page's own
+    # `unhandledrejection` handling first. The engine decides WHEN a rejection
+    # counts as unhandled (see Window#__internal_report_rejection__).
+    def report_rejection(window, error)
+      value = Internal::ExceptionReport.error_value(error)
+      window.__internal_report_rejection__(value, host_error: error)
     end
 
     # Perform a recorded navigation: fetch the target (following redirects),

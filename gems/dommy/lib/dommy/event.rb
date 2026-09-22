@@ -473,15 +473,15 @@ module Dommy
     # exception reported as an `error` event at the relevant global (the Window),
     # so `window.onerror` / an "error" listener sees it. The error value is the
     # thrown value itself — a JS value keeps its identity (via ThrowValue), so
-    # `event.error === thrown`. No window (a node in a windowless document, or a
-    # target that has none) → nothing to report to.
+    # `event.error === thrown`; the Ruby exception rides along as `host_error` so
+    # an unhandled report reaches the host with its backtrace. No window (a node
+    # in a windowless document, or a target that has none) → nothing to report to.
     def __internal_report_listener_exception__(error)
       win = window_of(self)
       return unless win.respond_to?(:__internal_report_exception__)
 
-      value = error.is_a?(Bridge::ThrowValue) ? error.value : error
-      message = value.respond_to?(:message) ? value.message.to_s : value.to_s
-      win.__internal_report_exception__(value, message)
+      value, message = Internal::ExceptionReport.describe(error)
+      win.__internal_report_exception__(value, message, host_error: error)
     end
 
     # Diagnostic only (DOMMY_EVENT_DEBUG=<file>): when a listener throws, append

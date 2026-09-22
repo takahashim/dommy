@@ -96,6 +96,9 @@ module Dommy
       @host = host
       @navigation_delegate = Navigation::NullDelegate.new
       @scheduler = Scheduler.new
+      # A timer / rAF callback that throws is reported at this global rather than
+      # tearing down the clock (WHATWG "report an exception"; see Scheduler).
+      @scheduler.exception_reporter = ->(error) { __internal_report_task_exception__(error) }
       @crypto = Crypto.new(self)
       @css_namespace = CSSNamespace.new
       @cookie_store = CookieStore.new(self)
@@ -316,7 +319,13 @@ module Dommy
 
         nil
       when "reportError"
-        nil # swallow programmatic error reports (no uncaught surfacing here)
+        # WHATWG `self.reportError(e)` IS "report an exception" exposed to
+        # authors: it fires the same `error` event an uncaught throw would, so a
+        # library that funnels its own caught errors through it reaches
+        # window.onerror (and, unhandled, the console) like a real one.
+        value, message = Internal::ExceptionReport.describe(args[0])
+        __internal_report_exception__(value, message)
+        nil
       when "getSelection"
         document&.get_selection
       when "postMessage"
@@ -343,25 +352,85 @@ module Dommy
       nil
     end
 
-    # WHATWG "report an exception": fire an `error` event carrying the thrown
-    # value (`event.error`) and its message at this window, so window.onerror /
-    # an "error" listener observes a listener (or handleEvent) that threw during
-    # dispatch. Re-entrancy is guarded so an "error" handler that itself throws
-    # doesn't recurse into another report: its own throw is dropped. Only the
+    # WHATWG "report an exception": fire a cancelable `error` event carrying the
+    # thrown value (`event.error`) and its message at this window, so
+    # window.onerror / an "error" listener observes it. This is the ONE funnel
+    # every uncaught exception goes through — a listener that threw during
+    # dispatch, a `<script>` whose evaluation threw, a timer / rAF callback,
+    # `reportError`. Returns whether the page HANDLED it (canceled the event,
+    # via `preventDefault()` or an `onerror` returning true).
+    #
+    # An unhandled report is then announced to the host through
+    # `__internal_on_unhandled_error__`. That is the browser's "may report the
+    # error to a developer console" step: the console — and, for a test front
+    # end, the error log that fails the test — sees only what the page did not
+    # handle. A page with its own error reporting (Sentry, a deliberate
+    # `window.onerror`) therefore suppresses it exactly as in a browser.
+    #
+    # `host_error` carries the original Ruby exception (with its backtrace) when
+    # the caller has one, since `error_value` is the JS value the page sees and
+    # is not necessarily diagnosable on the Ruby side.
+    #
+    # Re-entrancy is guarded so an "error" handler that itself throws doesn't
+    # recurse into another report: its own throw is dropped and reported as
+    # handled, so the guarded-out call does not reach the host either. Only the
     # call that raised the guard lowers it — a guarded-out call returns before
     # the ensure, or every throwing error listener after the first would find
     # the guard down and start a report of its own.
-    def __internal_report_exception__(error_value, message)
-      return if @reporting_exception
+    def __internal_report_exception__(error_value, message, filename: "", lineno: 0, colno: 0, host_error: nil)
+      return true if @reporting_exception
 
       @reporting_exception = true
-      begin
-        dispatch_event(ErrorEvent.new(
-          "error", "message" => message, "error" => error_value, "cancelable" => true
-        ))
-      ensure
-        @reporting_exception = false
-      end
+      handled =
+        begin
+          event = ErrorEvent.new("error", "message" => message, "error" => error_value,
+            "filename" => filename, "lineno" => lineno, "colno" => colno, "cancelable" => true)
+          !dispatch_event(event)
+        ensure
+          @reporting_exception = false
+        end
+      __internal_notify_unhandled_error__(Internal::ExceptionReport.host_form(error_value, host_error)) unless handled
+      handled
+    end
+
+    # WHATWG "notify about rejected promises": fire a cancelable
+    # `unhandledrejection` at this window for a promise that rejected with no
+    # handler. Returns whether the page handled it; an unhandled one reaches the
+    # host through the same seam as an uncaught exception.
+    #
+    # WHEN this runs is the engine's call, not ours: the spec decides at the end
+    # of a microtask checkpoint, over the promises still unhandled then, so a
+    # `.catch` attached later in the same checkpoint keeps the page silent. An
+    # engine that instead notifies the moment a promise rejects reports handled
+    # code too. `rejectionhandled` (the retraction fired when a handler arrives
+    # after the notification) needs a signal no engine gives us today, so it is
+    # not dispatched.
+    def __internal_report_rejection__(reason_value, host_error: nil, promise: nil)
+      event = PromiseRejectionEvent.new(
+        "unhandledrejection", "promise" => promise, "reason" => reason_value, "cancelable" => true
+      )
+      handled = !dispatch_event(event)
+      __internal_notify_unhandled_error__(Internal::ExceptionReport.host_form(reason_value, host_error)) unless handled
+      handled
+    end
+
+    # Report a timer / rAF callback's exception (the Scheduler's seam). Split out
+    # so the scheduler hands over the raw error and the shaping stays here.
+    def __internal_report_task_exception__(error)
+      value, message = Internal::ExceptionReport.describe(error)
+      __internal_report_exception__(value, message, host_error: error)
+    end
+
+    # Subscribe to exceptions and rejections the PAGE did not handle (the
+    # console / test-error-log seam; see `__internal_report_exception__`). A
+    # window is per-document, so a host re-subscribes after each navigation.
+    def __internal_on_unhandled_error__(&block)
+      (@unhandled_error_listeners ||= []) << block
+      self
+    end
+
+    def __internal_notify_unhandled_error__(error)
+      @unhandled_error_listeners&.each { |listener| listener.call(error) }
       nil
     end
 

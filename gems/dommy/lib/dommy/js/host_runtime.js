@@ -781,6 +781,18 @@ globalThis.__rbHost = (function () {
         const ref = { __rb_js_ref: registerJsRef(v) };
         if (handlesEvents) ref.__rb_handle_event = true;
         if (acceptsNodes) ref.__rb_accept_node = true;
+        // An Error crossing as an opaque ref still needs a readable label: the
+        // host cannot reach through a ref to read `.message`, so an error the
+        // page hands us (`reportError(new Error("boom"))`) would otherwise be
+        // logged — and shown as `event.message` — as "[object]". Only Errors are
+        // labelled, and by brand rather than `instanceof` so one from another
+        // realm is recognised too; every other opaque value is left unlabelled.
+        if (Object.prototype.toString.call(v) === "[object Error]") {
+          try {
+            const m = v.message != null ? String(v.message) : "";
+            if (m) ref.__rb_js_label = m;
+          } catch (_) { /* a message getter threw: no label */ }
+        }
         return ref;
       }
       const out = {};

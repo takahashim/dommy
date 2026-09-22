@@ -20,6 +20,22 @@ module Dommy
       end
     end
 
+    # Invoke `callback` so a JS throw SURFACES as a Ruby exception instead of
+    # being swallowed by the bridge. WHATWG requires a task's exception to be
+    # reported at the global ("report an exception") rather than silently
+    # dropped, so the entry points that own a task — a timer / rAF callback —
+    # invoke this form and report whatever comes out. The plain `invoke` keeps
+    # the swallowing behavior for callers that handle their own errors.
+    def invoke_raising(callback, *args)
+      return if callback.nil?
+
+      if callback.respond_to?(:__js_invoke__)
+        callback.__js_invoke__(args, raising: true)
+      else
+        invoke(callback, *args)
+      end
+    end
+
     # Invoke a DOM event listener per the EventTarget rule: an object with
     # `handle_event`, else a Ruby callable, else a JS-bridged callable (tried in
     # that order). A JS function listener's `this` must be the event's

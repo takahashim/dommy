@@ -126,11 +126,23 @@ module Dommy
 
       def build_runtime(doc)
         rt = Dommy::Js.build_runtime
-        rt.on_unhandled_rejection { |err| record_js_error(err) }
-        rt.on_callback_error { |err| record_js_error(err) } if rt.respond_to?(:on_callback_error)
+        window = doc&.default_view
+        # Uncaught errors and unhandled rejections reach us through the window's
+        # WHATWG report funnel, so the page's own `window.onerror` /
+        # `unhandledrejection` handlers get first refusal — only what it leaves
+        # unhandled is recorded, like a browser console. A document with no
+        # window (nothing to report to) records directly.
+        if window
+          window.__internal_on_unhandled_error__ { |err| record_js_error(err) }
+          rt.on_unhandled_rejection { |err| report_rejection(window, err) }
+          rt.on_callback_error { |err| report_exception(window, err) } if rt.respond_to?(:on_callback_error)
+        else
+          rt.on_unhandled_rejection { |err| record_js_error(err) }
+          rt.on_callback_error { |err| record_js_error(err) } if rt.respond_to?(:on_callback_error)
+        end
         rt.on_log { |log| record_console(log) }
         rt.define_host_object("document", doc)
-        if (window = doc&.default_view)
+        if window
           rt.install_window(window)
           rt.install_browser_globals
           # Page-initiated navigations (JS location.href=, form submit, activated
@@ -180,6 +192,20 @@ module Dommy
       def dispose_all
         @runtimes.each_value(&:dispose)
         @runtimes = {}.compare_by_identity
+      end
+
+      # Route a timer / rAF callback's error through the page's own error
+      # handling first (WHATWG "report an exception").
+      def report_exception(window, error)
+        value, message = ::Dommy::Internal::ExceptionReport.describe(error)
+        window.__internal_report_exception__(value, message, host_error: error)
+      end
+
+      # Route an unhandled promise rejection through the page's own
+      # `unhandledrejection` handling first.
+      def report_rejection(window, error)
+        value = ::Dommy::Internal::ExceptionReport.error_value(error)
+        window.__internal_report_rejection__(value, host_error: error)
       end
 
       # Collect a JS error / console log into the cross-realm streams and fan it
