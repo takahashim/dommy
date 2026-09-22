@@ -29,7 +29,7 @@ Gem::Specification.new do |spec|
   # `node[name]` cannot answer, and brings Makiri::XML onto the DOM namespace
   # model. 0.7.0 added the DocumentType factory Dommy's createDocument(Type)
   # relies on.
-  spec.add_dependency "makiri", ">= 0.9.0"
+  spec.add_dependency "makiri", ">= 0.10.0"
   # used for window.btoa / atob
   spec.add_dependency "base64"
 end
