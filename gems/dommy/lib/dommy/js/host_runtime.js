@@ -241,6 +241,16 @@ globalThis.__rbHost = (function () {
         "createContextualFragment", "toString"],
       g: ["commonAncestorContainer"]
     },
+    ReadableStream: { m: ["getReader", "cancel", "pipeTo", "pipeThrough", "tee"], g: ["locked"] },
+    ReadableStreamDefaultReader: { m: ["read", "releaseLock", "cancel"], g: ["closed"] },
+    ReadableStreamDefaultController: { m: ["enqueue", "close", "error"], g: ["desiredSize"] },
+    WritableStream: { m: ["getWriter", "close", "abort"], g: ["locked"] },
+    WritableStreamDefaultWriter: { m: ["write", "close", "abort", "releaseLock"], g: ["closed", "ready", "desiredSize"] },
+    WritableStreamDefaultController: { m: ["error"] },
+    TransformStream: { g: ["readable", "writable"] },
+    TransformStreamDefaultController: { m: ["enqueue", "terminate", "error"], g: ["desiredSize"] },
+    TextEncoderStream: { g: ["readable", "writable", "encoding"] },
+    TextDecoderStream: { g: ["readable", "writable", "encoding", "fatal", "ignoreBOM"] },
     URLPattern: {
       m: ["test", "exec"],
       g: ["protocol", "username", "password", "hostname", "port", "pathname", "search", "hash",

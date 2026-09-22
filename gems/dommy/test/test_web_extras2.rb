@@ -195,7 +195,7 @@ class TestStreams < Minitest::Test
     reader = stream.get_reader
     assert_equal({"value" => "a", "done" => false}, reader.read.await)
     assert_equal({"value" => "b", "done" => false}, reader.read.await)
-    assert_equal({"value" => nil, "done" => true}, reader.read.await)
+    assert_equal({"value" => Dommy::Bridge::UNDEFINED, "done" => true}, reader.read.await)
   end
 
   def test_writable_stream_invokes_sink_write
@@ -209,7 +209,7 @@ class TestStreams < Minitest::Test
     w = stream.get_writer
     w.write("a")
     w.write("b")
-    w.close
+    w.close.await # the sink runs on the microtask queue, one write at a time
     assert_equal(%w[a b], received)
   end
 
@@ -239,7 +239,7 @@ class TestStreams < Minitest::Test
   def test_text_decoder_stream
     ds = Dommy::TextDecoderStream.new(@win)
     w = ds.writable.get_writer
-    w.write([104, 105])
+    w.write(Dommy::Bridge::Bytes.new([104, 105]))
     w.close
     str = ds.readable.get_reader.read.await["value"]
     assert_equal("hi", str)

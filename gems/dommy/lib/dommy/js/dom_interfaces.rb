@@ -104,6 +104,7 @@ module Dommy
         %w[EventSource EventTarget],
         %w[Notification EventTarget], %w[Worker EventTarget], %w[DataTransfer],
         %w[ReadableStream], %w[WritableStream], %w[TransformStream],
+        %w[CountQueuingStrategy], %w[ByteLengthQueuingStrategy],
         %w[URLPattern],
         %w[TextEncoderStream], %w[TextDecoderStream], %w[CompressionStream], %w[DecompressionStream],
         %w[Animation EventTarget], %w[AnimationEffect], %w[KeyframeEffect AnimationEffect],

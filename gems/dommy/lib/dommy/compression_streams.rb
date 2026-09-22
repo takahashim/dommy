@@ -10,43 +10,18 @@ module Dommy
   # finalizes and emits the compressed/decompressed bytes downstream.
   #
   # Spec: https://wicg.github.io/compression/
-  class CompressionStream
+  class CompressionStream < TransformStream
     SUPPORTED = %w[gzip deflate deflate-raw].freeze
-
-    attr_reader :readable, :writable
 
     def initialize(window, format)
       raise ArgumentError, "unsupported format #{format.inspect}" unless SUPPORTED.include?(format.to_s)
 
-      @buffer = +""
+      buffer = +""
       compressor = build_compressor(format.to_s)
-
-      @readable = ReadableStream.new(window)
-      controller = TransformStreamDefaultController.new(@readable)
-
-      @writable = WritableStream.new(
-        window,
-        {
-          "write" => proc { |chunk| @buffer << coerce(chunk) },
-          "close" => proc do
-            compressed = compressor.call(@buffer)
-            controller.enqueue(compressed)
-            @readable.__internal_close__
-          end,
-          "abort" => proc { |r| @readable.__internal_error__(r) }
-        }
-      )
-    end
-
-    def __js_get__(key)
-      case key
-      when "readable"
-        @readable
-      when "writable"
-        @writable
-      else
-        Bridge::ABSENT
-      end
+      super(window, {
+        "transform" => proc { |chunk, _controller| buffer << coerce(chunk); nil },
+        "flush" => proc { |controller| controller.enqueue(compressor.call(buffer)); nil }
+      })
     end
 
     private
@@ -79,43 +54,18 @@ module Dommy
     end
   end
 
-  class DecompressionStream
+  class DecompressionStream < TransformStream
     SUPPORTED = %w[gzip deflate deflate-raw].freeze
-
-    attr_reader :readable, :writable
 
     def initialize(window, format)
       raise ArgumentError, "unsupported format #{format.inspect}" unless SUPPORTED.include?(format.to_s)
 
-      @buffer = +""
+      buffer = +""
       decompressor = build_decompressor(format.to_s)
-
-      @readable = ReadableStream.new(window)
-      controller = TransformStreamDefaultController.new(@readable)
-
-      @writable = WritableStream.new(
-        window,
-        {
-          "write" => proc { |chunk| @buffer << coerce(chunk) },
-          "close" => proc do
-            plain = decompressor.call(@buffer)
-            controller.enqueue(plain)
-            @readable.__internal_close__
-          end,
-          "abort" => proc { |r| @readable.__internal_error__(r) }
-        }
-      )
-    end
-
-    def __js_get__(key)
-      case key
-      when "readable"
-        @readable
-      when "writable"
-        @writable
-      else
-        Bridge::ABSENT
-      end
+      super(window, {
+        "transform" => proc { |chunk, _controller| buffer << coerce(chunk); nil },
+        "flush" => proc { |controller| controller.enqueue(decompressor.call(buffer)); nil }
+      })
     end
 
     private

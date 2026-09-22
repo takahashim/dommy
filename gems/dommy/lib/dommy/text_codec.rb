@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "encodings"
+require_relative "streams"
 
 module Dommy
   # `TextEncoder` — encodes a String into UTF-8 bytes.
@@ -132,24 +133,36 @@ module Dommy
     end
   end
 
-  # `TextEncoderStream` — Stream-shaped wrapper over `TextEncoder`.
-  # `write(string)` flushes UTF-8 bytes downstream.
-  class TextEncoderStream
-    attr_reader :readable, :writable
-
+  # `TextEncoderStream` — a TransformStream from strings to their UTF-8 bytes.
+  # A chunk is converted to a string the way ToString would; a lone
+  # surrogate has already become U+FFFD on its way over the bridge.
+  #
+  # Spec: https://encoding.spec.whatwg.org/#textencoderstream
+  class TextEncoderStream < TransformStream
     def initialize(window)
       encoder = TextEncoder.new
-      @readable = ReadableStream.new(window)
-      controller = TransformStreamDefaultController.new(@readable)
+      super(window, {
+        "transform" => proc do |chunk, controller|
+          string = TextEncoderStream.to_string(chunk)
+          controller.enqueue(encoder.encode(string)) unless string.empty?
+          nil
+        end
+      })
+    end
 
-      @writable = WritableStream.new(
-        window,
-        {
-          "write" => proc { |chunk| controller.enqueue(encoder.encode(chunk)) },
-          "close" => proc { @readable.__internal_close__ },
-          "abort" => proc { |r| @readable.__internal_error__(r) }
-        }
-      )
+    # ToString for what a bridge hands over: a JS object arrives as a Hash
+    # and an array as an Array.
+    def self.to_string(chunk)
+      case chunk
+      when String then chunk
+      when Hash then "[object Object]"
+      when Array then chunk.map { |element| to_string(element) }.join(",")
+      when nil then "null"
+      when true then "true"
+      when false then "false"
+      when Float then chunk == chunk.to_i ? chunk.to_i.to_s : chunk.to_s
+      else chunk.equal?(Bridge::UNDEFINED) ? "undefined" : chunk.to_s
+      end
     end
 
     def encoding
@@ -157,50 +170,61 @@ module Dommy
     end
 
     def __js_get__(key)
-      case key
-      when "readable"
-        @readable
-      when "writable"
-        @writable
-      when "encoding"
-        encoding
-      else
-        Bridge::ABSENT
-      end
+      key == "encoding" ? encoding : super
     end
   end
 
-  # `TextDecoderStream` — Stream-shaped wrapper over `TextDecoder`.
-  # `write(bytes)` flushes decoded strings downstream.
-  class TextDecoderStream
-    attr_reader :readable, :writable, :encoding
+  # `TextDecoderStream` — a TransformStream from byte chunks to the strings
+  # they decode to, holding a sequence split across chunks until it is
+  # complete. A chunk that is not a BufferSource errors both sides with a
+  # TypeError.
+  #
+  # Spec: https://encoding.spec.whatwg.org/#textdecoderstream
+  class TextDecoderStream < TransformStream
+    def initialize(window, label = "utf-8", options = nil)
+      decoder = TextDecoder.new(label, options)
+      @decoder = decoder
+      super(window, {
+        "transform" => proc do |chunk, controller|
+          string = decoder.decode(TextDecoderStream.buffer_source!(chunk), {"stream" => true})
+          controller.enqueue(string) unless string.empty?
+          nil
+        end,
+        "flush" => proc do |controller|
+          string = decoder.decode
+          controller.enqueue(string) unless string.empty?
+          nil
+        end
+      })
+    end
 
-    def initialize(window, label = "utf-8", _options = nil)
-      decoder = TextDecoder.new(label)
-      @encoding = decoder.encoding
-      @readable = ReadableStream.new(window)
-      controller = TransformStreamDefaultController.new(@readable)
+    # Bytes from a JS ArrayBuffer or TypedArray, or a binary Ruby String.
+    def self.buffer_source!(chunk)
+      case chunk
+      when Bridge::Bytes then chunk.pack_bytes
+      when String then chunk.b
+      else raise Bridge::TypeError, "The chunk is not a BufferSource"
+      end
+    end
 
-      @writable = WritableStream.new(
-        window,
-        {
-          "write" => proc { |chunk| controller.enqueue(decoder.decode(chunk)) },
-          "close" => proc { @readable.__internal_close__ },
-          "abort" => proc { |r| @readable.__internal_error__(r) }
-        }
-      )
+    def encoding
+      @decoder.encoding
+    end
+
+    def fatal?
+      @decoder.fatal?
+    end
+
+    def ignore_bom?
+      @decoder.ignore_bom?
     end
 
     def __js_get__(key)
       case key
-      when "readable"
-        @readable
-      when "writable"
-        @writable
-      when "encoding"
-        @encoding
-      else
-        Bridge::ABSENT
+      when "encoding" then encoding
+      when "fatal" then fatal?
+      when "ignoreBOM" then ignore_bom?
+      else super
       end
     end
   end

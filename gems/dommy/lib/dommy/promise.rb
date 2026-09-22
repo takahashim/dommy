@@ -100,6 +100,10 @@ module Dommy
       end
     end
 
+    def settled?
+      @state != :pending
+    end
+
     private
 
     # Drive the event loop over the work that is ready NOW until this promise
@@ -200,10 +204,6 @@ module Dommy
         ]
       )
       self
-    end
-
-    def settled?
-      @state != :pending
     end
 
     def schedule_flush
