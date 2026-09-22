@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `URLPattern` follows the spec. The constructor takes a pattern string with an optional base URL or an init dictionary, and `ignoreCase`; the component getters return the normalized pattern strings; `hasRegExpGroups` is there; `test` and `exec` take a URL string with an optional base URL, an init dictionary or a URL, and read the components the way the URL parser would. Fixed text is canonicalized per component, so `/café` is `/caf%C3%A9` and `café.com` is `xn--caf-dma.com`, and a pattern that is not well formed, a duplicate name, a regexp ECMAScript rejects or a hostname the URL parser rejects throws `TypeError`. Matching runs in Ruby: the regexps the spec compiles with the `v` flag are translated to Onigmo, keeping ECMAScript's `\s`, `\b`, `.`, anchors, named groups, `[a--b]` and empty-iteration semantics. A relative URL string without a base URL no longer matches. WPT urlpattern: 3 to 391 of 425 subtests; what is left is the tentative `compareComponent` and `generate`.
+- `URLPattern` is a window global, and its members are on `URLPattern.prototype`.
+
 ## 0.12.0 — 2026-09-22
 
 ### Added
