@@ -111,9 +111,13 @@ module Dommy
     "#{@record.scheme}:"
   end
 
+  # Every setter below is the URL Standard's: the value is read by the basic
+  # URL parser from the component's own state into this URL, and a value the
+  # parser rejects leaves the URL as it was.
+  #
+  # Spec: https://url.spec.whatwg.org/#urlutils-members
   def protocol=(value)
-    s = value.to_s.sub(/:\z/, "").downcase
-    @record.scheme = s if s.match?(/\A[a-z][a-z0-9+\-.]*\z/)
+    parse_into("#{value}:", :scheme_start)
   end
 
   def host
@@ -123,13 +127,9 @@ module Dommy
   end
 
   def host=(value)
-    h, sep, p = value.to_s.partition(":")
-    begin
-      @record.host = Internal::UrlParser.parse_host(h, @record.special?)
-    rescue Internal::UrlParser::Failure
-      return
-    end
-    self.port = p unless sep.empty?
+    return if @record.opaque_path?
+
+    parse_into(value, :host)
   end
 
   def hostname
@@ -137,9 +137,9 @@ module Dommy
   end
 
   def hostname=(value)
-    @record.host = Internal::UrlParser.parse_host(value.to_s, @record.special?)
-  rescue Internal::UrlParser::Failure
-    nil
+    return if @record.opaque_path?
+
+    parse_into(value, :hostname)
   end
 
   def port
@@ -147,12 +147,12 @@ module Dommy
   end
 
   def port=(value)
-    v = value.to_s
-    if v.empty?
+    return if cannot_have_credentials?
+
+    if value.to_s.empty?
       @record.port = nil
-    elsif v.match?(/\A[0-9]+\z/)
-      n = v.to_i
-      @record.port = (n == @record.default_port ? nil : n) if n <= 65_535
+    else
+      parse_into(value, :port)
     end
   end
 
@@ -163,13 +163,8 @@ module Dommy
   def pathname=(value)
     return if @record.opaque_path?
 
-    v = value.to_s
-    v = v.tr("\\", "/") if @record.special?
-    segs = v.split("/", -1)
-    segs.shift if segs.first == ""
-    set = Internal::UrlParser.method(:path_set?)
-    @record.path = segs.map { |s| s.each_char.map { |ch| Internal::UrlParser.pe(ch, set) }.join }
-    @record.path = [""] if @record.path.empty? && @record.special?
+    @record.path = []
+    parse_into(value, :path_start)
   end
 
   def search
@@ -178,12 +173,13 @@ module Dommy
   end
 
   def search=(value)
-    v = value.to_s.sub(/\A\?/, "")
+    v = value.to_s
     if v.empty?
       @record.query = nil
     else
-      set = @record.special? ? Internal::UrlParser.method(:special_query_set?) : Internal::UrlParser.method(:query_set?)
-      @record.query = v.each_char.map { |ch| Internal::UrlParser.pe(ch, set) }.join
+      v = v.delete_prefix("?")
+      @record.query = +""
+      parse_into(v, :query)
     end
     @search_params.__internal_replace__(@record.query.to_s)
   end
@@ -194,17 +190,15 @@ module Dommy
   end
 
   def hash=(value)
-    v = value.to_s.sub(/\A#/, "")
+    v = value.to_s
     if v.empty?
       @record.fragment = nil
     else
-      set = Internal::UrlParser.method(:fragment_set?)
-      @record.fragment = v.each_char.map { |ch| Internal::UrlParser.pe(ch, set) }.join
+      @record.fragment = +""
+      parse_into(v.delete_prefix("#"), :fragment)
     end
   end
 
-  # WHATWG URL §origin. Tuple origins for http(s) / ws(s) / ftp; `"null"`
-  # for file/data/javascript/etc. Blob URLs unwrap their inner URL.
   def origin
     scheme = @record.scheme
     return blob_inner_origin if scheme == "blob"
@@ -303,6 +297,14 @@ module Dommy
   TUPLE_ORIGIN_SCHEMES = %w[http https ws wss ftp].freeze
 
   private
+
+  # Run the parser from `state` into this URL's record; a rejected value
+  # changes nothing.
+  def parse_into(value, state)
+    Internal::UrlParser.parse_with_override(value.to_s, @record, state)
+  rescue Internal::UrlParser::Failure
+    nil
+  end
 
   def cannot_have_credentials?
     @record.host.nil? || @record.host == "" || @record.scheme == "file"

@@ -810,11 +810,11 @@ module Dommy
       href = base_el["href"].to_s
       return doc_url if href.empty?
 
-      begin
-        URI.join(doc_url.to_s.empty? ? "about:blank" : doc_url, href).to_s
-      rescue URI::InvalidURIError
-        doc_url
-      end
+      # HTML "document base URL": the frozen base URL is the href parsed
+      # against the document's URL; one that does not parse falls back.
+      URL.new(href, doc_url.to_s.empty? ? nil : doc_url).href
+    rescue Bridge::TypeError
+      doc_url
     end
 
     # `document.domain` — host portion of the URL. Real browsers
