@@ -809,12 +809,12 @@ module Dommy
       str.gsub(/[\r\n]/, "")
     end
 
+    # HTML's value sanitization for number and range: anything that is not a
+    # valid floating-point number, or is out of the finite range, is the
+    # empty string. Ruby's Float() is wider than the spec (" 1", "+1", "1.").
     def sanitize_number(raw)
       s = raw.to_s
-      Float(s)
-      s
-    rescue ArgumentError, TypeError
-      ""
+      parse_valid_float(s).finite? ? s : ""
     end
 
     # Underlying string the user supplied to `value=`, before any
@@ -1205,7 +1205,8 @@ module Dommy
     # WHATWG "valid floating-point number": no surrounding whitespace (unlike
     # Ruby's Float()), optional sign, digits with optional fraction, optional
     # exponent. Anything else — including " 1 " or "1e" — yields NaN.
-    VALID_FLOAT_RE = /\A-?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?\z/
+    # A fraction needs a digit after the dot, so "1." is not a number.
+    VALID_FLOAT_RE = /\A-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?\z/
 
     def parse_valid_float(str)
       s = str.to_s

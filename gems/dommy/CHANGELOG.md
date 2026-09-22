@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- A number or range input's value is sanitized with the spec's valid floating-point number grammar: `" 1"`, `"+1"`, `"1."`, `"1e"` and `"2e308"` are the empty string, not the values Ruby's `Float()` accepts.
 - `Request` has `formData()`, parsing a urlencoded or multipart body the way `Response.formData()` does.
 - A method with no return value (`setAttribute`, `addEventListener`, `append`, `remove`, `preventDefault`, `stepUp` and the rest) returns `undefined` to JavaScript, not `null`.
 - `new FormData(null)`, or with anything but a form element, throws `TypeError`; `new FormData(undefined)` is an empty FormData instead of an error.
