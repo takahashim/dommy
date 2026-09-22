@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.12.0 — 2026-09-22
+
+Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.12.0.
+No functional changes to capybara-dommy itself.
+
 ## 0.11.0 — 2026-09-11
 
 ### Added

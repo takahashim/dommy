@@ -1,15 +1,18 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 — 2026-09-22
 
 ### Added
 
 - `StaticRange`.
 - The rest of the Selection API: `setPosition`, `collapseToStart`, `collapseToEnd`, `extend` (`extend_selection` in Ruby), `setBaseAndExtent`, `deleteFromDocument`, `containsNode`, `direction` and `getComposedRanges`.
 - `moveBefore` runs the custom element move reactions: `connectedMoveCallback`, or `disconnectedCallback` then `connectedCallback` when it is not defined.
+- `cloneNode` on every node: Text, Comment, CDATASection, ProcessingInstruction and DocumentFragment answer it from Ruby, not only Document, Element and DocumentType.
+- `setAttributeNodeNS`.
 
 ### Changed
 
+- Requires `makiri >= 0.10.0`.
 - Selection holds at most one range: a second `addRange` is ignored, and a range that leaves the document is dropped from the selection.
 - `document.getSelection()` returns `null` for a document without a browsing context.
 - Range methods throw `TypeError` for an argument that is not a Node, `null` included.
@@ -24,6 +27,12 @@
 - `moveBefore` throws `TypeError` for a `child` that is not a Node; `doctype.isConnected`.
 - Custom elements in shadow trees get `connectedCallback` / `disconnectedCallback` and are upgraded by `customElements.define()` and `upgrade()`. An upgraded shadow host keeps its `shadowRoot`, and a callback that attaches a shadow tree no longer causes reactions to run twice.
 - An element created before its `customElements.define()` is upgraded in place, so references a script already holds become instances of the class.
+- Cloning and `importNode` keep the interface, namespace and attributes of the original: a ProcessingInstruction no longer comes back as a Comment, an SVG `rect` as an HTML `RECT`, or an `xml:b` attribute as one named `"xml:b"`. A CDATASection clones to a CDATASection over the JS bridge, a shadow root refuses `cloneNode` with `NotSupportedError`, and `importNode` of a document or a shadow root throws `NotSupportedError` instead of returning `null`.
+- `document.cloneNode(true)` holds clones of the original's children and nothing else, instead of a re-parsed document that grew an html/head/body.
+- `removeAttributeNode` throws `NotFoundError` for an Attr that belongs to another element.
+- Processing instructions serialize as `<?target data?>` in HTML documents.
+- Selectors: a type selector is case-sensitive except for HTML elements in an HTML document, so `rect` matches an SVG `rect` and `RECT` does not; SVG tag names such as `feMerge` keep their camel case. An attribute selector without a namespace matches only attributes in no namespace, so `[a]` no longer matches `xml:a`.
+- Selector syntax follows CSS Syntax: NULL is U+FFFD and newlines are LF, non-ASCII ident code points are the spec's list, `.--foo` is a selector, a dangling backslash ends in U+FFFD, an unclosed `a[href` is closed at the end of the input instead of raising a `TypeError`, comments sit between any two tokens, `#1` is not an id selector, and a sign binds to the token after it in An+B.
 - JavaScript: `moveBefore` and the AbstractRange and Range members are on their prototypes, `Selection.prototype.collapse.length` is 1, and `toString.length` is 0.
 
 ## 0.11.0 — 2026-09-11
