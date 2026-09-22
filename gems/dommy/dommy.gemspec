@@ -23,12 +23,7 @@ Gem::Specification.new do |spec|
   spec.files = Dir["lib/**/*.rb", "lib/**/*.js", "README.md"]
   spec.require_paths = ["lib"]
 
-  # Default HTML parser backend. 0.9.0 adds the by-qualified-name attribute
-  # lookups (`attribute_by_qualified_name` / `attribute_value_by_qualified_name`)
-  # that getAttribute / setAttribute / removeAttribute are defined on and that
-  # `node[name]` cannot answer, and brings Makiri::XML onto the DOM namespace
-  # model. 0.7.0 added the DocumentType factory Dommy's createDocument(Type)
-  # relies on.
+  # Default HTML parser backend.
   spec.add_dependency "makiri", ">= 0.10.0"
   # used for window.btoa / atob
   spec.add_dependency "base64"
