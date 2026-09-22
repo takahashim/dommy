@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "url_pattern/regexp_translator"
+
 module Dommy
   # `URLPattern` — pattern matching for URL components, modelled on
   # the WICG URLPattern spec. Supports the path-like syntax familiar
