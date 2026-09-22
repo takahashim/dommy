@@ -1068,10 +1068,15 @@ module Dommy
       return if mn && mx && mn > mx
 
       before = value_as_number
-      base = before.nan? ? (mn || 0.0) : before
+      # The arithmetic runs on the decimal values the attributes spell, not on
+      # their nearest doubles: 0.1 + 0.1 + 0.1 is 0.3, not 0.30000000000000004.
+      allowed = decimal(allowed)
+      mn = decimal(mn) if mn
+      mx = decimal(mx) if mx
+      base = before.nan? ? (mn || 0r) : decimal(before)
       result = base + count * allowed
 
-      step_base = mn || 0.0
+      step_base = mn || 0r
       result = mx - (mx - step_base) % allowed if mx && result > mx
       result = mn + (step_base - mn) % allowed if mn && result < mn
 
@@ -1082,8 +1087,14 @@ module Dommy
         return if count.negative? && result > before
       end
 
-      self.value_as_number = result
+      self.value_as_number = result.to_f
       nil
+    end
+
+    # The decimal number a double stands for: 0.1 is 1/10, not the binary
+    # fraction nearest to it.
+    def decimal(number)
+      number.rationalize(Rational(1, 10**12))
     end
 
     # The scale that turns one declared step into valueAsNumber units (ms for the

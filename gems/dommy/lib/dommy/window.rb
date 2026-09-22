@@ -631,7 +631,7 @@ module Dommy
         "Blob" => Bridge::Constructor.new { |args| Blob.new(args[0] || [], args[1] || {}, win) },
         "File" => Bridge::Constructor.new { |args| File.new(args[0] || [], args[1].to_s, args[2] || {}, win) },
         "FileList" => Bridge::Constructor.new { |args| FileList.new(args[0] || []) },
-        "FormData" => Bridge::Constructor.new { |args| FormData.new(args[0]) },
+        "FormData" => Bridge::Constructor.new { |args| FormData.from_js(args) },
         "DOMParser" => Bridge::Constructor.new { |_args| DOMParser.new(self) },
         "XMLSerializer" => Bridge::Constructor.new { |_args| XMLSerializer.new },
         "URLSearchParams" => Bridge::Constructor.new { |args| URLSearchParams.new(args[0] || "") },

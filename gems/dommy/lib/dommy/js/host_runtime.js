@@ -501,6 +501,31 @@ globalThis.__rbHost = (function () {
   // caches around a mutating call exactly as the proxy's own get trap does —
   // otherwise the DOM changes underneath a cached parentNode / attribute
   // snapshot and the next read hands back the state from before the call.
+  // Operations whose WebIDL return type is undefined, in every interface that
+  // has them. A Ruby method returns nil for "nothing", which crosses as null;
+  // for these the caller must see undefined (`el.setAttribute(...) === undefined`).
+  // Names a stream or another interface gives a real return value (close,
+  // abort, cancel, write, error, enqueue, toggle, reportValidity) stay out.
+  const VOID_METHODS = new Set([
+    "addEventListener", "removeEventListener", "setAttribute", "setAttributeNS", "removeAttribute",
+    "removeAttributeNS", "append", "prepend", "before", "after", "remove", "replaceWith", "replaceChildren",
+    "moveBefore", "normalize", "insertAdjacentElement", "insertAdjacentText", "insertAdjacentHTML",
+    "preventDefault", "stopPropagation", "stopImmediatePropagation", "initEvent", "initCustomEvent",
+    "focus", "blur", "click", "select", "setCustomValidity", "stepUp", "stepDown", "setSelectionRange",
+    "setRangeText", "scrollIntoView", "scroll", "scrollTo", "scrollBy", "setPointerCapture",
+    "releasePointerCapture", "observe", "unobserve", "disconnect", "setStart", "setEnd", "setStartBefore",
+    "setStartAfter", "setEndBefore", "setEndAfter", "selectNode", "selectNodeContents", "deleteContents",
+    "insertNode", "surroundContents", "detach", "removeAllRanges", "addRange", "removeRange", "collapse",
+    "setPosition", "collapseToStart", "collapseToEnd", "extend", "setBaseAndExtent", "selectAllChildren",
+    "deleteFromDocument", "setRequestHeader", "overrideMimeType", "setProperty", "removeProperty",
+    "pushState", "replaceState", "setItem", "removeItem"
+  ]);
+
+  function hostCallResult(name, raw) {
+    const value = rehydrate(raw);
+    return value === null && VOID_METHODS.has(name) ? undefined : value;
+  }
+
   function memberMethodStub(name, iface) {
     const coerce = NODE_OR_STRING_METHODS.has(name);
     const readOnly = NON_MUTATING_METHODS.has(name);
@@ -518,7 +543,7 @@ globalThis.__rbHost = (function () {
         if (typeof fn === "function" && fn !== stub) return fn.apply(this, args);
       }
       const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
-      return readOnly ? rehydrate(__rb_host_call(this[HKEY], name, wire)) : callMutating(this[HKEY], name, wire);
+      return readOnly ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire)) : callMutating(this[HKEY], name, wire);
     }, name, iface);
     return stub;
   }
@@ -526,7 +551,7 @@ globalThis.__rbHost = (function () {
   function callMutating(handle, name, wire) {
     bumpDomEpoch();
     try {
-      return rehydrate(__rb_host_call(handle, name, wire));
+      return hostCallResult(name, __rb_host_call(handle, name, wire));
     } finally {
       bumpDomEpoch();
     }
@@ -2098,7 +2123,7 @@ globalThis.__rbHost = (function () {
             if (prop === "addEventListener" || prop === "removeEventListener") {
               fn = (...args) => {
                 if (args.length >= 3) args[2] = flattenListenerOptions(prop, args[2]);
-                return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+                return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
               };
             } else if (nodeChain && (prop === "getAttribute" || prop === "hasAttribute")) {
               fn = (name) => cachedAttrRead(prop, name);
@@ -2108,7 +2133,7 @@ globalThis.__rbHost = (function () {
               fn = function (...args) {
                 bumpDomEpoch();
                 try {
-                  const r = rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+                  const r = hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
                   const attr = String(args[0] == null ? "" : args[0]);
                   if (/^on[a-z]/i.test(attr)) {
                     wireInlineHandler(this, attr.toLowerCase(), prop === "removeAttribute" ? null : args[1]);
@@ -2198,10 +2223,10 @@ globalThis.__rbHost = (function () {
                 try {
                   if (this && typeof this === "object") delete this.defaultPrevented;
                 } catch (_) { /* non-configurable shadow can't exist; ignore */ }
-                return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+                return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
               };
             } else if (NON_MUTATING_METHODS.has(prop)) {
-              fn = (...args) => rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+              fn = (...args) => hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
             } else if (NODE_OR_STRING_METHODS.has(prop)) {
               // Mutating AND a `(Node or DOMString)...` union: coerce each arg
               // (non-proxy -> ToString) before it crosses, so null/undefined/
@@ -2210,7 +2235,7 @@ globalThis.__rbHost = (function () {
                 const coerced = args.map(coerceNodeOrString);
                 bumpDomEpoch();
                 try {
-                  return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(coerced)));
+                  return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(coerced)));
                 } finally {
                   bumpDomEpoch();
                 }
@@ -2222,7 +2247,7 @@ globalThis.__rbHost = (function () {
               fn = (...args) => {
                 bumpDomEpoch();
                 try {
-                  return rehydrate(__rb_host_call(handle, prop, dehydrateArgs(args)));
+                  return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
                 } finally {
                   bumpDomEpoch();
                 }

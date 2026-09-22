@@ -8,6 +8,12 @@
 - `XMLHttpRequest`'s `responseText` is decoded in the charset the response's Content-Type names, or the one `overrideMimeType` gives, with a byte-order mark taking precedence; it used to be read as UTF-8 whatever the headers said.
 - Streams follow the Streams Standard. `ReadableStream` pulls from its source up to a high water mark, hands a reader `read()` promises and `closed`, and has `pipeTo`, `pipeThrough` and `tee`; `WritableStream` runs one sink write at a time, holds `writer.ready` back under backpressure, and settles `write()`, `close()`, `abort()` and `closed` the way the spec says; `TransformStream` takes a write only once its readable side has been read, and runs `flush` at the close. A callback may return a promise. Errors propagate to both sides and through a pipe, which aborts the destination or cancels the source unless `preventAbort` / `preventCancel` / `preventClose` say otherwise. `CountQueuingStrategy` and `ByteLengthQueuingStrategy` exist. `TextEncoderStream`, `TextDecoderStream`, `CompressionStream` and `DecompressionStream` are TransformStreams; a TextDecoderStream chunk that is not a BufferSource errors the stream with a `TypeError`. A finished read reports `value: undefined`, not `null`.
 
+### Fixed
+
+- A method with no return value (`setAttribute`, `addEventListener`, `append`, `remove`, `preventDefault`, `stepUp` and the rest) returns `undefined` to JavaScript, not `null`.
+- `new FormData(null)`, or with anything but a form element, throws `TypeError`; `new FormData(undefined)` is an empty FormData instead of an error.
+- `stepUp` and `stepDown` do their arithmetic on the decimal values the attributes spell, so three steps of `0.1` give `0.3`, not `0.30000000000000004`.
+
 ## 0.12.0 — 2026-09-22
 
 ### Added

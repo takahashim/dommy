@@ -15,6 +15,16 @@ module Dommy
   class FormData
     include Enumerable
 
+    # `new FormData(form)` from JavaScript: an absent or undefined form means
+    # an empty FormData; null or anything but a form element is a TypeError,
+    # since the argument is a non-nullable HTMLFormElement.
+    def self.from_js(args)
+      return new if args.empty? || args[0].equal?(Bridge::UNDEFINED)
+      raise Bridge::TypeError, "FormData constructor: argument 1 is not an HTMLFormElement" unless args[0].is_a?(HTMLFormElement)
+
+      new(args[0])
+    end
+
     def initialize(form = nil)
       @pairs = []
       collect_from(form) if form
