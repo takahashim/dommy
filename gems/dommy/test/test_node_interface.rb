@@ -152,7 +152,7 @@ class TestNodeInterface < Minitest::Test
     assert(@doc.body.child_nodes.include?(p))
     assert_equal(7, p.__js_get__("nodeType"))
     assert_equal("t", p.__js_get__("nodeName"))
-    assert_includes(@doc.body.inner_html, "<?t ab>")
+    assert_includes(@doc.body.inner_html, "<?t ab?>")
     p.__js_call__("remove", [])
     refute(@doc.body.child_nodes.include?(p))
   end
