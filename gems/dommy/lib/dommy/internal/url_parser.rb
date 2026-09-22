@@ -99,12 +99,19 @@ module Dommy
         # UTF-8-decode-without-BOM the percent-decoded bytes: malformed
         # sequences become U+FFFD (which domain-to-ASCII then rejects),
         # matching the spec rather than crashing on invalid encoding.
-        domain = percent_decode(input).force_encoding("UTF-8").scrub("�")
+        domain = percent_decode(input).force_encoding("UTF-8").scrub("\uFFFD")
+        # The domain parser (beStrict false): an ASCII domain is only
+        # lowercased, whatever UTS #46 would make of it, for web
+        # compatibility; a non-ASCII one goes through ToASCII.
         ascii =
-          begin
-            IDNA.to_ascii(domain, check_hyphens: false, verify_dns_length: false)
-          rescue IDNA::Error, Punycode::Error => e
-            raise Failure, "domain to ASCII: #{e.message}"
+          if domain.ascii_only?
+            domain.downcase
+          else
+            begin
+              IDNA.to_ascii(domain, check_hyphens: false, verify_dns_length: false)
+            rescue IDNA::Error, Punycode::Error => e
+              raise Failure, "domain to ASCII: #{e.message}"
+            end
           end
         raise Failure, "empty domain" if ascii.empty?
         raise Failure, "forbidden domain code point" if ascii.each_char.any? { |ch| forbidden_domain?(ch.ord) }
