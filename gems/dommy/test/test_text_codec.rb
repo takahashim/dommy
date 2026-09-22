@@ -59,8 +59,9 @@ class TestTextCodec < Minitest::Test
   end
 
   def test_decoder_label_normalization
-    assert_equal("iso-8859-1", Dommy::TextDecoder.new("ISO-8859-1").encoding)
-    assert_equal("iso-8859-1", Dommy::TextDecoder.new("latin1").encoding)
+    # The Encoding Standard reads every Latin-1 label as windows-1252.
+    assert_equal("windows-1252", Dommy::TextDecoder.new("ISO-8859-1").encoding)
+    assert_equal("windows-1252", Dommy::TextDecoder.new("latin1").encoding)
     assert_equal("utf-16le", Dommy::TextDecoder.new("utf-16").encoding)
   end
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `TextDecoder` knows every encoding the Encoding Standard names. An unknown label, or one for the `replacement` encoding, throws `RangeError` instead of silently decoding as UTF-8; `encoding` reports the spec's name (`latin1` is `windows-1252`). The legacy single-byte encodings decode from the spec's own index tables, UTF-16LE/BE from the spec's decoder (streaming, with surrogate pairs and a byte-order mark), and Big5, EUC-JP, ISO-2022-JP, Shift_JIS, EUC-KR, GBK and gb18030 through Ruby's converters, which differ from the spec at a few code points and in how many U+FFFD a broken sequence yields.
+- `XMLHttpRequest`'s `responseText` is decoded in the charset the response's Content-Type names, or the one `overrideMimeType` gives, with a byte-order mark taking precedence; it used to be read as UTF-8 whatever the headers said.
+
 ## 0.12.0 — 2026-09-22
 
 ### Added

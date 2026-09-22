@@ -407,7 +407,7 @@ module Dommy
       @status_text = status_text
       @response_headers = headers
       @response_url = @url
-      @response_text = body
+      @response_text = text_response(body)
       @response = decode_response(body)
 
       transition(HEADERS_RECEIVED)
@@ -425,11 +425,22 @@ module Dommy
       dispatch_event(ProgressEvent.new("loadend"))
     end
 
+    # The body as text: decoded in the charset `overrideMimeType` gave, else
+    # the one the response's Content-Type names, else UTF-8, with a
+    # byte-order mark taking precedence over all three.
+    #
+    # Spec: https://xhr.spec.whatwg.org/#text-response
+    def text_response(body)
+      charset = Encodings.charset_of(@override_mime) || Encodings.charset_of(response_content_type)
+      name = charset && Encodings.get(charset)
+      Encodings.decode(body, name || "UTF-8")
+    end
+
     # Decode the body into `response` per `responseType`.
     def decode_response(body)
       case @response_type
       when "", "text"
-        body
+        @response_text
       when "json"
         begin
           # WHATWG "parse JSON from bytes": UTF-8 decode (dropping a leading BOM)
