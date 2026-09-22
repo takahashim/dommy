@@ -172,7 +172,7 @@ class TestBrowser < Minitest::Test
   def test_strict_mode_raises_at_next_checkpoint
     b = open
     b.runtime.emit_unhandled_rejection(RuntimeError.new("boom"))
-    err = assert_raises(Dommy::Browser::JsError) { b.settle }
+    err = assert_raises(Dommy::JsError) { b.settle }
     assert_includes err.message, "boom"
   end
 
@@ -195,7 +195,7 @@ class TestBrowser < Minitest::Test
   def test_dispose_raises_on_unacknowledged_errors_in_strict_mode
     b = browser
     b.runtime.emit_unhandled_rejection(RuntimeError.new("at dispose"))
-    err = assert_raises(Dommy::Browser::JsError) { b.dispose }
+    err = assert_raises(Dommy::JsError) { b.dispose }
     assert_includes err.message, "at dispose"
     @browser = nil # already disposed
   end

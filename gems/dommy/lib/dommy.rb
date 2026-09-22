@@ -110,6 +110,7 @@ require_relative "dommy/js/dom_interfaces"
 require_relative "dommy/js/constructor_resolver"
 require_relative "dommy/js/custom_element_bridge"
 require_relative "dommy/js/host_bridge"
+require_relative "dommy/js/error_log"
 require_relative "dommy/browser"
 
 module Dommy

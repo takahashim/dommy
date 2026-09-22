@@ -23,24 +23,14 @@ module Dommy
     # settle before the next line.
     include Dommy::Interaction::Driver
 
-    # Raised in strict mode when JS errors were collected and not acknowledged.
-    class JsError < StandardError
-      attr_reader :causes
+    attr_reader :window, :runtime, :console
 
-      def initialize(causes)
-        @causes = causes
-        super(build_message(causes))
-      end
+    # The ledger of errors the page left unhandled (`Dommy::Js::ErrorLog`);
+    # shared with the other hosts so strict mode behaves the same everywhere.
+    attr_reader :error_log
 
-      private
-
-      def build_message(causes)
-        lines = causes.map { |e| "  #{e.class}: #{e.message}" }
-        "#{causes.length} uncaught JS error(s):\n#{lines.join("\n")}"
-      end
-    end
-
-    attr_reader :window, :runtime, :js_errors, :console
+    # The errors themselves, as a browser console's scrollback.
+    def js_errors = @error_log.errors
 
     # Build a browser and (unless `execute_scripts: false`) boot its scripts. In
     # block form the browser is yielded and disposed afterward, returning the
@@ -72,16 +62,13 @@ module Dommy
       wasm_memory_shim: false, backend: nil, navigable: false, same_origin: false)
       @resources = resources
       @same_origin = same_origin
-      @strict = strict
       @backend = backend
       @execute_scripts = execute_scripts
       @settle_after_boot = settle
       @wasm_memory_shim = wasm_memory_shim
       @navigable = navigable
-      @js_errors = []
+      @error_log = Js::ErrorLog.new(strict: strict)
       @console = []
-      @acknowledged = 0
-      @allow_errors = false
       @disposed = false
       @pending_navigation = nil
       @runtime = nil
@@ -238,22 +225,19 @@ module Dommy
 
     # Suppress strict-mode failure for JS errors raised inside the block (they
     # stay collected in #js_errors for inspection). For tests that expect errors.
-    def allow_js_errors
-      prev = @allow_errors
-      @allow_errors = true
-      yield
-    ensure
-      @allow_errors = prev
-      @acknowledged = @js_errors.length
+    def allow_js_errors(&block)
+      @error_log.allow(&block)
     end
 
+    # Tear the realm down, then fail on anything the page left unhandled and
+    # nobody has reported. Disposing first means the failure cannot leave a live
+    # VM behind.
     def dispose
       return if @disposed
 
       @disposed = true
-      pending = unacknowledged
       @runtime&.dispose
-      raise JsError, pending if @strict && !pending.empty?
+      @error_log.check!(context: current_url)
     end
 
     private
@@ -273,7 +257,7 @@ module Dommy
       # what the page left unhandled lands here. A page that installs its own
       # `window.onerror` / `unhandledrejection` handler and cancels the event
       # suppresses the failure, exactly as it would in a browser.
-      window.__internal_on_unhandled_error__ { |err| @js_errors << err }
+      window.__internal_on_unhandled_error__ { |err| @error_log.record(err) }
       runtime.on_unhandled_rejection { |err| report_rejection(window, err) }
       runtime.on_callback_error { |err| report_exception(window, err) } if runtime.respond_to?(:on_callback_error)
       runtime.on_log { |log| @console << log }
@@ -291,20 +275,21 @@ module Dommy
       # Installed whenever a runtime is attached — an embedder that drives script
       # boot itself (`execute_scripts: false`) still needs inline handlers wired.
       doc.inline_handler_wirer = lambda do
-        Js::ScriptBoot.wire_inline_handlers(runtime, on_error: ->(e) { @js_errors << e })
+        Js::ScriptBoot.wire_inline_handlers(runtime, on_error: ->(e) { @error_log.record(e) })
       end
       return unless @execute_scripts
 
       # `on_error:` here is only the windowless fallback — a booted document has
       # a window, so a throwing script reports through it (see ScriptBoot).
+
       # Dynamically-inserted `<script src>` (webpack/Vite on-demand chunks)
       # fetch + run through the same resources adapter, after boot.
       doc.external_script_runner = lambda do |element, src|
         Js::ScriptBoot.run_external_script(runtime, doc, element, src,
-          resources: @resources, on_error: ->(e) { @js_errors << e })
+          resources: @resources, on_error: ->(e) { @error_log.record(e) })
       end
       Js::ScriptBoot.run_document_scripts(
-        runtime, doc, resources: @resources, on_error: ->(e) { @js_errors << e }
+        runtime, doc, resources: @resources, on_error: ->(e) { @error_log.record(e) }
       )
       # Leave the page in a ready state: run on-load promises, due-now timers,
       # and rAF (not future timers). `settle: false` observes it mid-flight.
@@ -423,8 +408,6 @@ module Dommy
       content_type.empty? || content_type.include?("html") || content_type.include?("xml")
     end
 
-    def unacknowledged = @js_errors[@acknowledged..] || []
-
     def submit_button?(button)
       if button.tag_name == "BUTTON"
         button.type == "submit"
@@ -433,18 +416,10 @@ module Dommy
       end
     end
 
-    # In strict mode, fail on any JS error collected since the last
-    # acknowledgement. Marks all current errors acknowledged so each is reported
-    # at most once.
+    # In strict mode, fail on anything the page left unhandled since the last
+    # checkpoint. The ledger drains itself, so each error is reported once.
     def check_js_errors!
-      return if @allow_errors
-      return unless @strict
-
-      pending = unacknowledged
-      return if pending.empty?
-
-      @acknowledged = @js_errors.length
-      raise JsError, pending
+      @error_log.check!(context: current_url)
     end
   end
 end
