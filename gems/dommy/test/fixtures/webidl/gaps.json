@@ -773,7 +773,6 @@
       "bodyUsed",
       "destination",
       "duplex",
-      "formData",
       "integrity",
       "isHistoryNavigation",
       "isReloadNavigation",

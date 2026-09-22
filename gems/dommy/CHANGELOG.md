@@ -13,6 +13,7 @@
 
 ### Fixed
 
+- `Request` has `formData()`, parsing a urlencoded or multipart body the way `Response.formData()` does.
 - A method with no return value (`setAttribute`, `addEventListener`, `append`, `remove`, `preventDefault`, `stepUp` and the rest) returns `undefined` to JavaScript, not `null`.
 - `new FormData(null)`, or with anything but a form element, throws `TypeError`; `new FormData(undefined)` is an empty FormData instead of an error.
 - `stepUp` and `stepDown` do their arithmetic on the decimal values the attributes spell, so three steps of `0.1` give `0.3`, not `0.30000000000000004`.
