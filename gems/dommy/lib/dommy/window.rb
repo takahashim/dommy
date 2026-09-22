@@ -686,7 +686,7 @@ module Dommy
         "TextDecoderStream" => Bridge::Constructor.new { |args| TextDecoderStream.new(win, args[0] || "utf-8", args[1]) },
         "CompressionStream" => Bridge::Constructor.new { |args| CompressionStream.new(win, args[0]) },
         "DecompressionStream" => Bridge::Constructor.new { |args| DecompressionStream.new(win, args[0]) },
-        "URLPattern" => Bridge::Constructor.new { |args| URLPattern.new(args[0], args[1]) },
+        "URLPattern" => Bridge::Constructor.new { |args| URLPattern.from_js(args) },
         "Range" => Bridge::Constructor.new { |_args| Range.new(@document) },
         "StaticRange" => Bridge::Constructor.new { |args| StaticRange.from_init(args[0]) },
         "URL" => url,

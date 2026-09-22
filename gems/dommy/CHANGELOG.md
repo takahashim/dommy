@@ -12,6 +12,7 @@
 
 ### Changed
 
+- `URLPattern` follows the spec. The constructor takes a pattern string with an optional base URL or an init dictionary, and `ignoreCase`; the component getters return the normalized pattern strings; `hasRegExpGroups` is there; `test` and `exec` take a URL string with an optional base URL, an init dictionary or a URL, and read the components the way the URL parser would. Fixed text is canonicalized per component, so `/café` is `/caf%C3%A9` and `café.com` is `xn--caf-dma.com`, and a pattern that is not well formed, a duplicate name, a regexp ECMAScript rejects or a hostname the URL parser rejects throws `TypeError`. Matching runs in Ruby: the regexps the spec compiles with the `v` flag are translated to Onigmo, keeping ECMAScript's `\s`, `\b`, `.`, anchors, named groups, `[a--b]` and empty-iteration semantics. A relative URL string without a base URL no longer matches. WPT urlpattern: 3 to 391 of 425 subtests; what is left is the tentative `compareComponent` and `generate`.
 - Requires `makiri >= 0.10.0`.
 - Selection holds at most one range: a second `addRange` is ignored, and a range that leaves the document is dropped from the selection.
 - `document.getSelection()` returns `null` for a document without a browsing context.
@@ -34,6 +35,7 @@
 - Selectors: a type selector is case-sensitive except for HTML elements in an HTML document, so `rect` matches an SVG `rect` and `RECT` does not; SVG tag names such as `feMerge` keep their camel case. An attribute selector without a namespace matches only attributes in no namespace, so `[a]` no longer matches `xml:a`.
 - Selector syntax follows CSS Syntax: NULL is U+FFFD and newlines are LF, non-ASCII ident code points are the spec's list, `.--foo` is a selector, a dangling backslash ends in U+FFFD, an unclosed `a[href` is closed at the end of the input instead of raising a `TypeError`, comments sit between any two tokens, `#1` is not an id selector, and a sign binds to the token after it in An+B.
 - JavaScript: `moveBefore` and the AbstractRange and Range members are on their prototypes, `Selection.prototype.collapse.length` is 1, and `toString.length` is 0.
+- Every constructor the window has is a global scripts can name. `URLPattern`, `TextDecoderStream`, `TextEncoderStream`, `CompressionStream`, `DecompressionStream`, `PointerEvent`, `InputEvent`, `DragEvent`, `TouchEvent`, `Touch`, `ClipboardEvent`, `BeforeUnloadEvent`, `ProgressEvent`, `Animation` and `KeyframeEffect` were `undefined` in JavaScript, and `URLPattern`'s members are on its prototype. `InputEvent` and `TouchEvent` are UIEvents.
 
 ## 0.11.0 — 2026-09-11
 

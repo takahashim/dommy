@@ -241,6 +241,11 @@ globalThis.__rbHost = (function () {
         "createContextualFragment", "toString"],
       g: ["commonAncestorContainer"]
     },
+    URLPattern: {
+      m: ["test", "exec"],
+      g: ["protocol", "username", "password", "hostname", "port", "pathname", "search", "hash",
+        "hasRegExpGroups"]
+    },
     Selection: {
       m: ["getRangeAt", "addRange", "removeRange", "removeAllRanges", "empty", "getComposedRanges",
         "collapse",
