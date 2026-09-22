@@ -45,6 +45,17 @@ class TestOracleFollowups < Minitest::Test
     assert_equal("0.9", input.value) # the next step is past the max, and the last aligned value is where it was
   end
 
+  # --- number value sanitization -----------------------------------------------
+
+  def test_number_value_keeps_only_a_valid_floating_point_number
+    input = @win.document.get_element_by_id("n")
+    {"1e+2" => "1e+2", "-1.5" => "-1.5", ".5" => ".5", "1." => "", "+1" => "", " 1" => "", "1 " => "",
+     "1e" => "", "2e308" => "", "Infinity" => "", "abc" => ""}.each do |raw, expected|
+      input.value = raw
+      assert_equal(expected, input.value, raw.inspect)
+    end
+  end
+
   # --- void methods return undefined over the bridge ---------------------------
 
   def test_the_void_method_set_names_only_operations_without_a_return_value

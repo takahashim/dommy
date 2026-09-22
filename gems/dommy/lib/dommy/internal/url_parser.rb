@@ -36,6 +36,15 @@ module Dommy
         run(input.to_s, base)
       end
 
+      # The basic URL parser with a state override: `input` is read from
+      # `state` into the existing `url`, which the URL API's setters use to
+      # change one component in place. The parser stops where the spec says
+      # a setter stops, and raises Failure where the spec returns failure,
+      # before it has touched `url`.
+      def parse_with_override(input, url, state)
+        run(input.to_s, nil, url: url, state_override: state)
+      end
+
       # ===== percent-encode sets =====
 
       def c0?(cp) = cp <= 0x1F || cp > 0x7E
@@ -90,12 +99,19 @@ module Dommy
         # UTF-8-decode-without-BOM the percent-decoded bytes: malformed
         # sequences become U+FFFD (which domain-to-ASCII then rejects),
         # matching the spec rather than crashing on invalid encoding.
-        domain = percent_decode(input).force_encoding("UTF-8").scrub("�")
+        domain = percent_decode(input).force_encoding("UTF-8").scrub("\uFFFD")
+        # The domain parser (beStrict false): an ASCII domain is only
+        # lowercased, whatever UTS #46 would make of it, for web
+        # compatibility; a non-ASCII one goes through ToASCII.
         ascii =
-          begin
-            IDNA.to_ascii(domain, check_hyphens: false, verify_dns_length: false)
-          rescue IDNA::Error, Punycode::Error => e
-            raise Failure, "domain to ASCII: #{e.message}"
+          if domain.ascii_only?
+            domain.downcase
+          else
+            begin
+              IDNA.to_ascii(domain, check_hyphens: false, verify_dns_length: false)
+            rescue IDNA::Error, Punycode::Error => e
+              raise Failure, "domain to ASCII: #{e.message}"
+            end
           end
         raise Failure, "empty domain" if ascii.empty?
         raise Failure, "forbidden domain code point" if ascii.each_char.any? { |ch| forbidden_domain?(ch.ord) }
@@ -317,17 +333,18 @@ module Dommy
 
       # ===== the basic URL parser state machine =====
 
-      def run(input, base)
+      def run(input, base, url: nil, state_override: nil)
         input = input.dup
-        # Strip leading/trailing C0 controls and spaces, then remove all
-        # ASCII tab/newline.
-        input = input.sub(/\A[\x00-\x20]+/, "").sub(/[\x00-\x20]+\z/, "")
+        # Strip leading/trailing C0 controls and spaces (only for a fresh
+        # parse; a setter's input keeps them), then remove all ASCII
+        # tab/newline.
+        input = input.sub(/\A[\x00-\x20]+/, "").sub(/[\x00-\x20]+\z/, "") if url.nil?
         input = input.gsub(/[\t\n\r]/, "")
 
         chars = input.chars
         len = chars.length
-        state = :scheme_start
-        url = Record.new("", "", "", nil, nil, [], nil, nil)
+        state = state_override || :scheme_start
+        url ||= Record.new("", "", "", nil, nil, [], nil, nil)
         buffer = +""
         at_sign_seen = false
         inside_brackets = false
@@ -344,6 +361,8 @@ module Dommy
             if c&.match?(/[A-Za-z]/)
               buffer << c.downcase
               state = :scheme
+            elsif state_override
+              raise Failure, "scheme must start with a letter"
             else
               state = :no_scheme
               next # reprocess (do not advance)
@@ -353,6 +372,19 @@ module Dommy
             if c&.match?(/[A-Za-z0-9+\-.]/)
               buffer << c.downcase
             elsif c == ":"
+              if state_override
+                # A setter may not move a URL between special and
+                # non-special, onto file with credentials or a port, or off
+                # file with an empty host.
+                return url if SPECIAL.key?(url.scheme) != SPECIAL.key?(buffer)
+                return url if (url.includes_credentials? || !url.port.nil?) && buffer == "file"
+                return url if url.scheme == "file" && url.host == ""
+
+                url.scheme = buffer
+                url.port = nil if url.port == url.default_port
+                return url
+              end
+
               url.scheme = buffer
               buffer = +""
               if url.scheme == "file"
@@ -368,6 +400,8 @@ module Dommy
                 url.path = ""
                 state = :opaque_path
               end
+            elsif state_override
+              raise Failure, "invalid scheme"
             else
               buffer = +""
               state = :no_scheme
@@ -492,8 +526,12 @@ module Dommy
             end
 
           when :host, :hostname
-            if c == ":" && !inside_brackets
+            if state_override && url.scheme == "file"
+              ptr -= 1
+              state = :file_host
+            elsif c == ":" && !inside_brackets
               raise Failure, "empty host" if buffer.empty?
+              raise Failure, "a hostname cannot carry a port" if state_override == :hostname
 
               url.host = parse_host(buffer, url.special?)
               buffer = +""
@@ -501,8 +539,13 @@ module Dommy
             elsif c.nil? || ["/", "?", "#"].include?(c) || (url.special? && c == "\\")
               ptr -= 1
               raise Failure, "empty special host" if url.special? && buffer.empty?
+              if state_override && buffer.empty? && (url.includes_credentials? || !url.port.nil?)
+                raise Failure, "a URL with credentials or a port needs a host"
+              end
 
               url.host = parse_host(buffer, url.special?)
+              return url if state_override
+
               buffer = +""
               state = :path_start
             else
@@ -514,14 +557,17 @@ module Dommy
           when :port
             if c&.match?(/[0-9]/)
               buffer << c
-            elsif c.nil? || ["/", "?", "#"].include?(c) || (url.special? && c == "\\")
+            elsif c.nil? || ["/", "?", "#"].include?(c) || (url.special? && c == "\\") || state_override
               unless buffer.empty?
                 port = buffer.to_i
                 raise Failure, "port out of range" if port > 65_535
 
                 url.port = (port == url.default_port ? nil : port)
                 buffer = +""
+                return url if state_override
               end
+              raise Failure, "empty port" if state_override
+
               state = :path_start
               next
             else
@@ -573,15 +619,19 @@ module Dommy
           when :file_host
             if c.nil? || ["/", "\\", "?", "#"].include?(c)
               ptr -= 1
-              if buffer.match?(/\A[A-Za-z][:|]\z/)
+              if state_override.nil? && buffer.match?(/\A[A-Za-z][:|]\z/)
                 state = :path
               elsif buffer.empty?
                 url.host = ""
+                return url if state_override
+
                 state = :path_start
               else
                 host = parse_host(buffer, true)
                 host = "" if host == "localhost"
                 url.host = host
+                return url if state_override
+
                 buffer = +""
                 state = :path_start
               end
@@ -593,20 +643,22 @@ module Dommy
             if url.special?
               state = :path
               next unless c == "/" || c == "\\"
-            elsif c == "?"
+            elsif state_override.nil? && c == "?"
               url.query = +""
               state = :query
-            elsif c == "#"
+            elsif state_override.nil? && c == "#"
               url.fragment = +""
               state = :fragment
             elsif c
               state = :path
               next unless c == "/"
+            elsif state_override && url.host.nil?
+              url.path << ""
             end
 
           when :path
             if c.nil? || c == "/" || (url.special? && c == "\\") ||
-                c == "?" || c == "#"
+                (state_override.nil? && (c == "?" || c == "#"))
               if double_dot?(buffer)
                 shorten_path(url)
                 url.path << "" unless c == "/" || (url.special? && c == "\\")
@@ -649,7 +701,7 @@ module Dommy
             end
 
           when :query
-            if c.nil? || c == "#"
+            if c.nil? || (state_override.nil? && c == "#")
               set = url.special? ? method(:special_query_set?) : method(:query_set?)
               url.query += buffer.each_char.map { |ch| pe(ch, set) }.join
               buffer = +""

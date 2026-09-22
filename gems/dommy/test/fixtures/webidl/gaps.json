@@ -313,23 +313,19 @@
       "charset",
       "coords",
       "name",
-      "password",
       "ping",
       "referrerPolicy",
       "rev",
       "shape",
-      "text",
-      "username"
+      "text"
     ],
     "HTMLAreaElement": [
       "download",
       "hreflang",
       "noHref",
-      "password",
       "ping",
       "referrerPolicy",
-      "type",
-      "username"
+      "type"
     ],
     "HTMLBRElement": [
       "clear"
@@ -777,7 +773,6 @@
       "bodyUsed",
       "destination",
       "duplex",
-      "formData",
       "integrity",
       "isHistoryNavigation",
       "isReloadNavigation",

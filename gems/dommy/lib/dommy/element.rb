@@ -2623,9 +2623,8 @@ module Dommy
     # so `a.href = "http://example.org/?ä"` reads back percent-encoded — which is
     # what the URL parser produces and what `URI.join` does not.
     def resolve_url(raw)
-      win = @document.default_view
-      base = win&.location ? win.location.href : ""
-      base = nil if base.to_s.empty?
+      base = @document.base_uri.to_s
+      base = nil if base.empty?
       Internal::UrlParser.serialize(Internal::UrlParser.parse(raw.to_s, base))
     rescue Internal::UrlParser::Failure
       raw.to_s
