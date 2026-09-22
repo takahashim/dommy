@@ -49,7 +49,15 @@ module Capybara
           # hosts (e.g. app_host / multi-server specs), so don't enforce origin.
           enforce_same_origin: false
         }
-        @session_options[:javascript] = true if @javascript
+        if @javascript
+          @session_options[:javascript] = true
+          # Everything Capybara does reaches the session through a checkpoint
+          # already — a query pumps the clock, a node interaction drains, and
+          # reset! disposes — so strictness needs no driver-side checks, just
+          # this flag. A JS error then surfaces at the next Capybara command,
+          # like a server error under raise_server_errors.
+          @session_options[:strict_js_errors] = config.raise_js_errors
+        end
         # A JS session needs the virtual clock pumped inside Capybara's
         # synchronize loop, so waiting expectations converge on timer/fetch
         # driven updates. A host-installed pump (the documented seam) wins.
@@ -67,6 +75,17 @@ module Capybara
       def drain_js
         rack_session.after_interaction if @javascript
         nil
+      end
+
+      # Suppress strict-mode failure for JS errors raised inside the block, for
+      # a spec that triggers one deliberately. Reaching for `page.driver` is the
+      # documented exception to keeping specs driver-agnostic: suppressing an
+      # error is inherently driver-specific. A page that handles its own errors
+      # (`window.onerror` + preventDefault) needs nothing here.
+      def allow_js_errors(&block)
+        return yield unless @javascript
+
+        rack_session.allow_js_errors(&block)
       end
 
       # The dommy-rack session. Named `rack_session` to avoid colliding with
@@ -273,8 +292,17 @@ module Capybara
 
       private
 
+      # Advance the virtual clock a slice inside Capybara's retry loop, then
+      # report whatever the page's JavaScript left unhandled while it ran.
+      #
+      # The check belongs here rather than only in the session because a JS
+      # runtime may install its own pump (the documented `time_pump` seam), and
+      # that pump drives the runtime directly instead of going through
+      # `Session#advance_time` — so a timer that throws during a poll would
+      # otherwise sit in the ledger until some later command happened to check.
       def pump!
         @time_pump&.call
+        rack_session.check_js_errors! if @javascript
       end
 
       def frame_stack

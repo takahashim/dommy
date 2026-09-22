@@ -46,6 +46,49 @@ By default, `execute_script`, `evaluate_script`, and
 turn those calls into no-ops with configuration when migrating tests that call
 JavaScript helpers incidentally.
 
+## How this differs from a browser driver
+
+Specs written against `capybara-dommy` use the ordinary Capybara DSL, so most
+of them read the same as they would under selenium or cuprite. A few behaviours
+underneath are genuinely different, and they are the ones worth knowing before
+you port a suite.
+
+**JavaScript errors fail the example.** A `javascript: true` driver fails on
+anything the page's JavaScript left unhandled, at the next Capybara command, the
+way Capybara's own `raise_server_errors` fails on a server exception. "Unhandled"
+is the page's verdict: an error it cancels in `window.onerror` or in an
+`unhandledrejection` listener never reaches the log, exactly as it never reaches
+a browser console. A real browser driver reports nothing here, so this catches
+breakage those drivers let through — usually a Dommy API the page needs and
+Dommy does not implement yet. Turn it off with
+`config.raise_js_errors = false`, or suppress it for one block with
+`page.driver.allow_js_errors { ... }`.
+
+**There are two clocks.** Dommy's timers run on a virtual clock that Capybara's
+retry loop advances a frame at a time, so a debounce or a `setTimeout` resolves
+in a few polls rather than in real time. Nothing advances it outside that loop:
+`sleep` does not, and Rails' `travel_to` does not reach JavaScript's `Date`.
+
+**The app runs in the test process.** There is no server thread and no port, so
+`use_transactional_tests` works unchanged and an exception in the app is raised
+directly in the test. In exchange, `Capybara.server` and anything built on a
+separate app thread has no meaning here.
+
+**There is no layout.** Visibility comes from HTML-level rules and stylesheet
+`display` / `visibility` / `opacity`, never from geometry, so `obscured?`,
+scroll position and element size are unavailable.
+
+**Input is synthesised.** Events are dispatched from Ruby rather than by the OS,
+so `isTrusted` is false and hover, drag and special keys are limited. An
+unanswered `confirm` returns false rather than blocking.
+
+**Frames are fetched, not live.** Switching to a frame re-requests its URL; the
+frame's own scripts do not run.
+
+**Failure artifacts are different.** `save_screenshot` raises (there is nothing
+to paint). A failing example writes the page HTML and a trace bundle instead,
+which `dommy-rails` wires up automatically.
+
 ## Installation
 
 Add the gem to your application's Gemfile:
@@ -121,6 +164,7 @@ Capybara::Dommy.configure do |config|
   config.max_redirects = 5
   config.visibility = :html
   config.raise_on_unsupported_js = true
+  config.raise_js_errors = true
 end
 ```
 
@@ -136,6 +180,9 @@ Available options:
   visible.
 - `raise_on_unsupported_js`: when `true`, JavaScript methods raise
   `Capybara::NotSupportedByDriverError`; when `false`, they return `nil`.
+- `raise_js_errors`: when `true` (the default), a `javascript: true` driver
+  fails the example on JavaScript the page left unhandled. Has no effect on a
+  driver that runs no JavaScript. See "How this differs from a browser driver".
 
 You can also override driver options per registration:
 

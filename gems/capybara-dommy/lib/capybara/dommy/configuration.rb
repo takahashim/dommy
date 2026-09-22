@@ -6,7 +6,7 @@ module Capybara
     # when a keyword argument is omitted.
     class Configuration
       attr_accessor :default_host, :follow_redirects, :max_redirects, :visibility,
-                    :raise_on_unsupported_js, :javascript
+                    :raise_on_unsupported_js, :javascript, :raise_js_errors
 
       def initialize
         @default_host = "http://example.org"
@@ -15,6 +15,11 @@ module Capybara
         @visibility = :html
         @raise_on_unsupported_js = true
         @javascript = false
+        # Fail an example on JavaScript the page left unhandled, the way
+        # Capybara's own raise_server_errors fails one on a server exception.
+        # Only a `javascript: true` driver has any JS to fail on, so this is
+        # invisible to a suite migrating from rack_test.
+        @raise_js_errors = true
       end
     end
 
