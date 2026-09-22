@@ -104,6 +104,7 @@ module Dommy
         %w[EventSource EventTarget],
         %w[Notification EventTarget], %w[Worker EventTarget], %w[DataTransfer],
         %w[ReadableStream], %w[WritableStream], %w[TransformStream],
+        %w[URLPattern],
         # Range and StaticRange are both AbstractRanges. The base interface has
         # no Ruby class, but it still has to exist for `instanceof AbstractRange`.
         %w[AbstractRange], %w[Range AbstractRange], %w[StaticRange AbstractRange],

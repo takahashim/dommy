@@ -329,6 +329,12 @@ class TestURLPatternRegExpTranslator < Minitest::Test
     assert_rejected("[\\q{ab}]", "no Onigmo equivalent")
   end
 
+  def test_optional_groups_are_reported
+    translation = Translator.translate("(a*)?(b)(c*)??(?:d)?(e)*(f){0,1}")
+    assert_equal([1, 3], translation.optional_groups)
+    assert_equal(["", "b", nil], "b".match(translation.regexp).captures.first(3))
+  end
+
   # --- ignoreCase and Onigmo's own limits -----------------------------------
 
   def test_ignore_case_flag

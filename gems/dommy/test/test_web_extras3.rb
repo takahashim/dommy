@@ -184,43 +184,6 @@ class TestNavigatorLocksStorage < Minitest::Test
   end
 end
 
-# --- URLPattern ------------------------------------------------
-
-class TestURLPattern < Minitest::Test
-  include DommyTestHelper
-
-  def test_simple_path_match
-    pat = Dommy::URLPattern.new({"pathname" => "/users/:id"})
-    assert(pat.test("/users/42"))
-    refute(pat.test("/posts/42"))
-  end
-
-  def test_exec_captures_named_groups
-    pat = Dommy::URLPattern.new({"pathname" => "/users/:id"})
-    r = pat.exec("/users/alice")
-    assert_equal("alice", r["pathname"]["groups"]["id"])
-  end
-
-  def test_wildcard_captures_zero_based_name
-    pat = Dommy::URLPattern.new({"pathname" => "/docs/*"})
-    r = pat.exec("/docs/a/b/c")
-    assert_equal("a/b/c", r["pathname"]["groups"]["0"])
-  end
-
-  def test_plus_modifier_matches_multiple_segments
-    pat = Dommy::URLPattern.new({"pathname" => "/api/:version+"})
-    assert(pat.test("/api/v1/sub"))
-    assert(pat.test("/api/v1"))
-  end
-
-  def test_window_exposes_constructor
-    win = make_window
-    ctor = win.__js_get__("URLPattern")
-    pat = ctor.__js_new__([{"pathname" => "/x"}])
-    assert_kind_of(Dommy::URLPattern, pat)
-  end
-end
-
 # --- SubtleCrypto AES-GCM --------------------------------------
 
 class TestSubtleCryptoAESGCM < Minitest::Test

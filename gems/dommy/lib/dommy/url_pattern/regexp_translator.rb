@@ -25,6 +25,13 @@ module Dommy
     #    `\u{…}`, `\cX`, `\xHH`, backreferences, lookaround, `(?:…)`, `(?i:…)`,
     #    nested classes and `&&`.
     #
+    # One difference is not in the regexp but in what it captures: an
+    # iteration of a `?`-quantified group that consumes nothing is rejected
+    # in ECMAScript, so `(a*)?` on "" leaves the group undefined where
+    # Onigmo captures "". The translation reports those groups as
+    # `optional_groups`, and the caller reads an empty capture of one as
+    # undefined.
+    #
     # What is left: a variable-length lookbehind `(?<=a+)` and the string
     # properties of "v" mode (`\p{RGI_Emoji}`, `\q{…}`) have no Onigmo form and
     # raise; Onigmo's `i` folds a little wider than ECMAScript's simple case
@@ -37,14 +44,24 @@ module Dommy
       # the `TypeError` the URLPattern constructor owes.
       class Error < Bridge::TypeError; end
 
+      # What `translate` produces: the Regexp, and the numbers of the
+      # capturing groups quantified by `?`, whose empty capture is undefined.
+      Translation = Struct.new(:regexp, :optional_groups)
+
       # Compile `source` the way `new RegExp(source, flags)` would, flags being
       # "v" plus "i" when `ignore_case`. Onigmo's own rejections (a lookbehind
       # it cannot bound, a property it does not know) surface as Error too.
-      def self.compile(source, ignore_case: false)
-        translated = new(source).translate
-        Regexp.new(translated, ignore_case ? Regexp::IGNORECASE : 0)
+      def self.translate(source, ignore_case: false)
+        translator = new(source)
+        onigmo_source = translator.translate
+        regexp = Regexp.new(onigmo_source, ignore_case ? Regexp::IGNORECASE : 0)
+        Translation.new(regexp, translator.optional_groups)
       rescue RegexpError => e
         raise Error, "Invalid regular expression: /#{source}/v: #{e.message}"
+      end
+
+      def self.compile(source, ignore_case: false)
+        translate(source, ignore_case: ignore_case).regexp
       end
 
       # ECMAScript WhiteSpace + LineTerminator, as a class body. Onigmo's `\s`
@@ -120,16 +137,19 @@ module Dommy
         .to_h { |name| [name, true] }.freeze
       private_constant :LONE_PROPERTY_NAMES, :STRING_PROPERTY_NAMES, :VALUED_PROPERTY_NAMES
 
-      # A capturing group on the stack, or one of the other bracket kinds. Only
-      # `dot_all` carries state: `(?s:…)` is not emitted, it is applied to each
-      # `.` inside.
-      Group = Struct.new(:kind, :dot_all)
+      # A capturing group on the stack (with its number), or one of the other
+      # bracket kinds. `dot_all` carries the one modifier that is not emitted:
+      # `(?s:…)` is applied to each `.` inside.
+      Group = Struct.new(:kind, :dot_all, :number)
       private_constant :Group
 
       # A backreference is emitted after the whole source has been read, once
       # every group it may point at (forward references included) is counted.
       Backref = Struct.new(:name, :number)
       private_constant :Backref
+
+      # The numbers of the capturing groups a `?` quantifies directly.
+      attr_reader :optional_groups
 
       def initialize(source)
         @source = source.to_s
@@ -140,6 +160,8 @@ module Dommy
         @group_count = 0
         @group_names = {}
         @quantifiable = false
+        @just_closed_capture = nil
+        @optional_groups = []
       end
 
       def translate
@@ -176,6 +198,8 @@ module Dommy
 
       def read_term
         c = peek
+        just_closed_capture = @just_closed_capture
+        @just_closed_capture = nil
         case c
         when "\\"
           advance
@@ -208,6 +232,7 @@ module Dommy
           @quantifiable = false
         when "*", "+", "?"
           advance
+          @optional_groups << just_closed_capture if c == "?" && just_closed_capture
           read_quantifier(c)
         when "{"
           read_brace_quantifier
@@ -231,17 +256,17 @@ module Dommy
         when ":"
           advance
           emit("(?:")
-          @groups << Group.new(:noncapture, dot_all?)
+          @groups << Group.new(:noncapture, dot_all?, nil)
         when "=", "!"
           emit("(?#{peek}")
           advance
-          @groups << Group.new(:lookaround, dot_all?)
+          @groups << Group.new(:lookaround, dot_all?, nil)
         when "<"
           advance
           if peek == "=" || peek == "!"
             emit("(?<#{peek}")
             advance
-            @groups << Group.new(:lookaround, dot_all?)
+            @groups << Group.new(:lookaround, dot_all?, nil)
           else
             name = read_group_name
             fail_syntax("Duplicate capture group name") if @group_names.key?(name)
@@ -256,7 +281,7 @@ module Dommy
       def open_capture
         @group_count += 1
         emit("(")
-        @groups << Group.new(:capture, dot_all?)
+        @groups << Group.new(:capture, dot_all?, @group_count)
       end
 
       def dot_all?
@@ -290,7 +315,7 @@ module Dommy
         else
           dot_all?
         end
-        @groups << Group.new(:noncapture, dot_all)
+        @groups << Group.new(:noncapture, dot_all, nil)
       end
 
       def read_modifier_flags
@@ -308,6 +333,7 @@ module Dommy
         fail_syntax("Unmatched ')'") unless group
         emit(")")
         @quantifiable = group.kind != :lookaround
+        @just_closed_capture = group.number
       end
 
       def read_quantifier(kind)
