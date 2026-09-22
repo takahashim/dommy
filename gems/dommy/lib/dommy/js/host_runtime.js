@@ -505,11 +505,13 @@ globalThis.__rbHost = (function () {
   // has them. A Ruby method returns nil for "nothing", which crosses as null;
   // for these the caller must see undefined (`el.setAttribute(...) === undefined`).
   // Names a stream or another interface gives a real return value (close,
-  // abort, cancel, write, error, enqueue, toggle, reportValidity) stay out.
+  // abort, cancel, write, error, enqueue, toggle, reportValidity) stay out,
+  // and so do the ones whose null is an answer: insertAdjacentElement is
+  // Element?, removeProperty returns the removed value.
   const VOID_METHODS = new Set([
     "addEventListener", "removeEventListener", "setAttribute", "setAttributeNS", "removeAttribute",
     "removeAttributeNS", "append", "prepend", "before", "after", "remove", "replaceWith", "replaceChildren",
-    "moveBefore", "normalize", "insertAdjacentElement", "insertAdjacentText", "insertAdjacentHTML",
+    "moveBefore", "normalize", "insertAdjacentText", "insertAdjacentHTML",
     "preventDefault", "stopPropagation", "stopImmediatePropagation", "initEvent", "initCustomEvent",
     "focus", "blur", "click", "select", "setCustomValidity", "stepUp", "stepDown", "setSelectionRange",
     "setRangeText", "scrollIntoView", "scroll", "scrollTo", "scrollBy", "setPointerCapture",
@@ -517,7 +519,7 @@ globalThis.__rbHost = (function () {
     "setStartAfter", "setEndBefore", "setEndAfter", "selectNode", "selectNodeContents", "deleteContents",
     "insertNode", "surroundContents", "detach", "removeAllRanges", "addRange", "removeRange", "collapse",
     "setPosition", "collapseToStart", "collapseToEnd", "extend", "setBaseAndExtent", "selectAllChildren",
-    "deleteFromDocument", "setRequestHeader", "overrideMimeType", "setProperty", "removeProperty",
+    "deleteFromDocument", "setRequestHeader", "overrideMimeType", "setProperty",
     "pushState", "replaceState", "setItem", "removeItem"
   ]);
 

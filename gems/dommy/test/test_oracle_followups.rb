@@ -63,7 +63,8 @@ class TestOracleFollowups < Minitest::Test
     names = runtime[/const VOID_METHODS = new Set\(\[(.*?)\]\);/m, 1].scan(/"([^"]+)"/).flatten
     assert_includes(names, "addEventListener")
     assert_includes(names, "setAttribute")
-    %w[close abort cancel write toggle reportValidity checkValidity dispatchEvent].each do |name|
+    %w[close abort cancel write toggle reportValidity checkValidity dispatchEvent
+       insertAdjacentElement removeProperty].each do |name|
       refute_includes(names, name, "#{name} returns a value somewhere")
     end
   end
