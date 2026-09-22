@@ -69,8 +69,11 @@ module Dommy
     def open(method, url, async = true, _user = nil, _password = nil)
       reset_state
       @method = method.to_s.upcase
-      # XHR resolves the request URL against the document base URL, like fetch.
-      @url = @window.__internal_resolve_url__(url.to_s)
+      # XHR resolves the request URL against the document base URL, like fetch;
+      # one the parser rejects is a SyntaxError.
+      @url = @window.__internal_parse_url__(url.to_s)
+      raise DOMException::SyntaxError, "Invalid URL #{url.to_s.inspect}" if @url.nil?
+
       @async = async.nil? ? true : !!async
       @request_headers = {}
       transition(OPENED)

@@ -49,7 +49,9 @@ module Dommy
     # `navigator.sendBeacon(url, data)` — fire-and-forget POST used for analytics.
     # Dommy does not emit the request (no background egress); it just reports
     # success so callers that feature-detect `sendBeacon` take the beacon path.
-    def send_beacon(_url, _data = nil)
+    def send_beacon(url, _data = nil)
+      raise Bridge::TypeError, "Invalid URL #{url.to_s.inspect}" if @window.__internal_parse_url__(url).nil?
+
       true
     end
 

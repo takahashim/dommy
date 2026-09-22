@@ -307,7 +307,14 @@ module Dommy
       when "prompt"
         handle_dialog(:prompt, args[0].to_s, args[1].nil? ? "" : args[1].to_s)
       when "open"
-        nil # cannot open a new browsing context headlessly
+        # A new browsing context cannot be opened headlessly, but the URL is
+        # still parsed: one the parser rejects is a SyntaxError.
+        url = args[0]
+        if !url.nil? && !url.equal?(Bridge::UNDEFINED) && !url.to_s.empty? && __internal_parse_url__(url).nil?
+          raise DOMException::SyntaxError, "Unable to open a window with invalid URL #{url.to_s.inspect}"
+        end
+
+        nil
       when "reportError"
         nil # swallow programmatic error reports (no uncaught surfacing here)
       when "getSelection"
@@ -402,12 +409,16 @@ module Dommy
     # API base URL of this window's environment, as fetch/XHR use when
     # constructing a request. Returns the input unchanged if it can't resolve.
     def __internal_resolve_url__(url)
-      base = @document&.base_uri
-      return url.to_s if base.to_s.empty?
+      __internal_parse_url__(url) || url.to_s
+    end
 
-      URI.join(base.to_s, url.to_s).to_s
-    rescue URI::Error
-      url.to_s
+    # `url` parsed against the document base URL and serialized, or nil when
+    # the URL parser fails on it.
+    def __internal_parse_url__(url)
+      base = @document&.base_uri.to_s
+      Internal::UrlParser.serialize(Internal::UrlParser.parse(url.to_s, base.empty? ? nil : base))
+    rescue Internal::UrlParser::Failure
+      nil
     end
 
     # The path (with query) of a URL — lets a stub keyed by a path ("/api")

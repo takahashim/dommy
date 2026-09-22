@@ -133,6 +133,13 @@ module Dommy
     # regardless, so this only affects the no-op default.
     def __internal_navigate_to__(raw, source:, replace: false, sync_cross_doc: true)
       target = resolve(raw)
+      if target.nil?
+        # A URL the parser rejects: the Location API throws, following a
+        # hyperlink to one does nothing.
+        raise DOMException::SyntaxError, "#{raw.inspect} is not a valid URL" if source == :location
+
+        return
+      end
       if same_document?(href, target)
         __internal_set_url__(raw)
       else
@@ -143,11 +150,14 @@ module Dommy
 
     private
 
-    # Resolve a possibly-relative URL against the current full URL.
+    # Resolve a possibly-relative URL against the current full URL with the
+    # URL parser; nil when it fails.
     def resolve(raw)
-      URI.join(href, raw).to_s
-    rescue URI::InvalidURIError, ArgumentError
-      raw
+      base = href
+      base = nil unless Internal::UrlParser.parse(base) rescue nil
+      Internal::UrlParser.serialize(Internal::UrlParser.parse(raw, base))
+    rescue Internal::UrlParser::Failure
+      nil
     end
 
     # Two URLs address the same document when everything but the fragment matches.
