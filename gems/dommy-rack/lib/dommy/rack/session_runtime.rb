@@ -19,15 +19,21 @@ module Dommy
       # `current_document` yields the document execute/evaluate should target
       # (the session's current document by default; the Capybara driver passes
       # its own frame-aware accessor).
-      # Uncaught JS errors and unhandled promise rejections collected across
-      # every realm (a host can fail a test when non-empty), and console output.
-      attr_reader :js_errors, :console
+      # Console output collected across every realm.
+      attr_reader :console
+
+      # The ledger of errors the page left unhandled, across every realm. The
+      # Session drives its checkpoints; see Dommy::Js::ErrorLog.
+      attr_reader :error_log
 
       def initialize(session, &current_document)
         @session = session
         @current_document = current_document || -> { session.document }
         @runtimes = {}.compare_by_identity
-        @js_errors = []
+        # Non-strict by default: an embedding browser only reads the errors. A
+        # test front end turns strictness on through the owning Session, which
+        # is also what drives the checkpoints.
+        @error_log = ::Dommy::Js::ErrorLog.new(strict: false)
         @console = []
         @console_listeners = []
         @js_error_listeners = []
@@ -41,6 +47,10 @@ module Dommy
       # here, not on the Session — so the runtime fans them out. `on_document`
       # fires before a freshly loaded page's scripts boot (see on_page_load), so
       # a `:document` marker is ordered ahead of that page's `:script` entries.
+      # Uncaught JS errors and unhandled promise rejections the page did not
+      # handle, as a browser console's scrollback (cleared on navigation).
+      def js_errors = @error_log.errors
+
       def on_console(&block) = @console_listeners << block
       def on_js_error(&block) = @js_error_listeners << block
       def on_script(&block) = @script_listeners << block
@@ -113,8 +123,10 @@ module Dommy
         # own boot errors are retained. (An embedder that wants a running history
         # keeps its own log; e.g. dommynx drains each page's output into its
         # activity log before the next navigation.) Cleared in place so the Trace's
-        # separate live feed is unaffected.
-        @js_errors.clear
+        # separate live feed is unaffected. Only the HISTORY goes: an error this
+        # page produced that nobody has reported yet still has to fail the test,
+        # so the ledger's unacknowledged queue survives the navigation.
+        @error_log.clear_history
         @console.clear
         dispose_all
         # Announce the document BEFORE booting its scripts so a subscriber (the
@@ -211,7 +223,7 @@ module Dommy
       # Collect a JS error / console log into the cross-realm streams and fan it
       # out to any registered observers (the Trace).
       def record_js_error(err)
-        @js_errors << err
+        @error_log.record(err)
         @js_error_listeners.each { |cb| cb.call(err) }
       end
 

@@ -8,17 +8,25 @@ require "dommy/rails/browser_spec"
 # so it needs neither dommy-rack nor a JS runtime. The real JS engine it wraps
 # is covered by dommy-js-quickjs's Session-javascript tests.
 class TestBrowserSpec < Minitest::Test
-  # A stand-in for the JS-enabled session.
+  # A stand-in for the JS-enabled session. It carries a real ErrorLog, because
+  # the strict-mode contract now belongs to the session: disposing is what fails
+  # on whatever the page left unhandled and nobody reported.
   class FakeBrowser
-    attr_reader :js_errors
-    attr_reader :disposed
+    attr_reader :error_log, :disposed
 
     def initialize(errors = [])
-      @js_errors = errors
+      @error_log = Dommy::Js::ErrorLog.new(strict: true)
+      errors.each { |error| @error_log.record(error) }
       @disposed = false
     end
 
-    def dispose = @disposed = true
+    def js_errors = @error_log.errors
+    def allow_js_errors(&block) = @error_log.allow(&block)
+
+    def dispose
+      @disposed = true
+      @error_log.check!
+    end
   end
 
   # A host that mixes in BrowserSpec but supplies a stub browser (so it never
@@ -52,7 +60,7 @@ class TestBrowserSpec < Minitest::Test
   def test_teardown_raises_on_uncaught_js_errors
     browser = FakeBrowser.new([RuntimeError.new("boom")])
     host = Host.new(browser)
-    err = assert_raises(RuntimeError) { host.dommy_browser_teardown }
+    err = assert_raises(Dommy::JsError) { host.dommy_browser_teardown }
     assert_includes err.message, "uncaught JS error"
     assert browser.disposed, "still disposes even when failing"
   end
@@ -60,9 +68,10 @@ class TestBrowserSpec < Minitest::Test
   def test_allow_js_errors_suppresses_failure
     browser = FakeBrowser.new([])
     host = Host.new(browser)
-    host.allow_js_errors { browser.js_errors << RuntimeError.new("expected") }
+    host.allow_js_errors { browser.error_log.record(RuntimeError.new("expected")) }
     host.dommy_browser_teardown # should NOT raise (the error was acknowledged)
     assert browser.disposed
+    assert_equal ["expected"], browser.js_errors.map(&:message), "still inspectable"
   end
 
   # A browser stub carrying a trace, for the failure-artifact path.

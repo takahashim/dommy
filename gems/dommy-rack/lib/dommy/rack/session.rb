@@ -78,6 +78,7 @@ module Dommy
                      follow_meta_refresh: true,
                      load_stylesheets: nil,
                      javascript: false,
+                     strict_js_errors: false,
                      network_executor: nil,
                      cross_origin_subresources: :same_origin,
                      approximate_layout: false,
@@ -86,6 +87,10 @@ module Dommy
                      trace_dom: false,
                      trace_snapshots: false)
         @app = app
+        # Fail on anything the page's JavaScript left unhandled, at the next
+        # checkpoint. Off by default so an embedding browser (which only reads
+        # `js_errors`) is unaffected; a test front end turns it on.
+        @strict_js_errors = strict_js_errors
         # An optional off-thread network executor (responds to
         # `submit(job) { |result| }`, e.g. dommynx's NetworkPool). When present,
         # subresource fetch / XHR run on a worker and resolve via a
@@ -164,11 +169,16 @@ module Dommy
       # Run JS for side effects against the current document's realm.
       def execute_script(script)
         require_js!.execute(script)
+        check_js_errors!
         nil
       end
 
       # Evaluate JS and return the value (DOM nodes decoded to Dommy objects).
-      def evaluate_script(script) = require_js!.evaluate(script)
+      def evaluate_script(script)
+        result = require_js!.evaluate(script)
+        check_js_errors!
+        result
+      end
 
       # Settle work ready at the current virtual time (microtasks + due-now
       # timers + requestAnimationFrame). A future setTimeout(ms) needs
@@ -176,27 +186,54 @@ module Dommy
       def settle
         require_js!.settle
         __flush_page_navigation__
+        check_js_errors!
         self
       end
 
       # Advance virtual time by `ms`, running timers that come due, then settle.
       def advance_time(ms)
         require_js!.advance_time(ms)
+        check_js_errors!
         self
       end
 
       # Uncaught JS errors / unhandled rejections and console output collected
-      # by the JS runtime ([] when JS is disabled). A test integration fails on
-      # non-empty js_errors.
+      # by the JS runtime ([] when JS is disabled). Only what the PAGE left
+      # unhandled is here: an error it cancels in `window.onerror` never reaches
+      # the log, exactly as it stays out of a browser console.
       def js_errors = @js_runtime ? @js_runtime.js_errors : []
       def console = @js_runtime ? @js_runtime.console : []
 
+      # Suppress strict-mode failure for JS errors raised inside the block, for
+      # a test that triggers one on purpose. They stay in `js_errors`. A page
+      # that handles its own errors needs nothing here — it never reaches the
+      # log in the first place.
+      def allow_js_errors(&block)
+        return yield unless @js_runtime
+
+        @js_runtime.error_log.allow(&block)
+      end
+
+      # Fail if the page left JS errors unhandled since the last checkpoint.
+      # Called at every point the page has just been allowed to run: after a
+      # navigation's scripts boot, after an interaction's events, after
+      # settle / advance_time / script evaluation, and at dispose. Each error is
+      # reported at most once (the ledger drains itself).
+      def check_js_errors!
+        @js_runtime&.error_log&.check!(context: @current_url)
+      end
+
       # Full session teardown: the JS runtime(s) plus any live WebSocket
       # transports. Safe to call when JS is disabled, and repeatedly.
+      # Tear the session down, then fail on anything the page left unhandled and
+      # nobody has reported. Disposing first means the failure cannot leave live
+      # realms behind.
       def dispose
         Array(@live_websocket_transports).each(&:dispose)
         @live_websocket_transports = nil
+        log = @js_runtime&.error_log
         dispose_js
+        log&.check!(context: @current_url)
       end
 
       # Dispose the JS runtime(s) only. Safe to call when JS is disabled.
@@ -322,6 +359,9 @@ module Dommy
         @trace&.__internal_open_action(:visit, path)
         result = @navigation.navigate(method: "GET", url: path)
         self.settle if settle && @js_runtime
+        # `settle: false` observes the page mid-flight and settles nothing, but
+        # the new page's scripts have already booted, so a boot error is due now.
+        check_js_errors!
         result
       end
 
@@ -334,6 +374,7 @@ module Dommy
 
         response, final_url = @navigation.run(**@last_request_args)
         apply_navigation_response(response, final_url)
+        check_js_errors!
         response
       end
 
@@ -343,12 +384,20 @@ module Dommy
       # visit runs, no full request; a target across a document boundary
       # re-requests the URL. Returns the destination URL, or nil at the edge.
       # A JS session may need `settle` afterwards for the restoration fetch.
+      # The checkpoint lives here rather than in traverse_history, which a
+      # page-initiated traversal also reaches from inside a drain: raising there
+      # would tear the drain down mid-flight instead of at the enclosing
+      # settle / after_interaction, which checks anyway.
       def back
-        traverse_history(:back)
+        url = traverse_history(:back)
+        check_js_errors!
+        url
       end
 
       def forward
-        traverse_history(:forward)
+        url = traverse_history(:forward)
+        check_js_errors!
+        url
       end
 
       # --- NavigationDelegate port (see Dommy::Navigation) ---
@@ -877,6 +926,7 @@ module Dommy
       def after_interaction
         @js_runtime&.drain
         __flush_page_navigation__
+        check_js_errors!
       end
 
       private
@@ -929,7 +979,9 @@ module Dommy
           raise Error, "javascript: true requires dommy-js-quickjs " \
                        "(add the gem and `require \"dommy/js/quickjs/rack\"`)"
         end
-        factory.call(self)
+        runtime = factory.call(self)
+        runtime.error_log.strict = @strict_js_errors if runtime.respond_to?(:error_log)
+        runtime
       end
 
       def require_js!

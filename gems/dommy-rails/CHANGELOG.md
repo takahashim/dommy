@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `Dommy::Rails::BrowserSpec` runs its session with `strict_js_errors: true` and no longer keeps its own record of which JS errors were acknowledged. A JS error now fails on the line that caused it rather than at teardown, and an error from a page the spec navigated away from is no longer lost.
+
 ## 0.12.0 — 2026-09-22
 
 Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.12.0.

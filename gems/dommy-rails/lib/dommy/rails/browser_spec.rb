@@ -75,8 +75,8 @@ module Dommy
           # Rails-internals spans (controller/SQL/render/job/mail) on every
           # traced request; idempotent, no-op without ActiveSupport.
           Dommy::Rails::TraceInstrumentation.install!
-          ::Dommy::Rack::Session.new(dommy_browser_app, javascript: true, trace: true, trace_dom: true,
-            trace_snapshots: true)
+          ::Dommy::Rack::Session.new(dommy_browser_app, javascript: true, strict_js_errors: true,
+            trace: true, trace_dom: true, trace_snapshots: true)
         end
       end
 
@@ -87,25 +87,24 @@ module Dommy
 
       # Suppress strict JS-error failure for errors raised inside the block (they
       # stay in `browser.js_errors`). For specs that intentionally trigger one.
-      def allow_js_errors
-        @dommy_allow_js_errors = true
-        yield
-      ensure
-        dommy_browser_ack_js_errors
+      # A page that handles its own errors needs nothing here: it never reaches
+      # the log, just as it never reaches a browser console.
+      def allow_js_errors(&block)
+        browser.allow_js_errors(&block)
       end
 
-      # Dispose the browser and fail if uncaught JS errors were collected. Call
-      # from a Minitest #teardown / RSpec after hook (the integration modules
-      # wire this automatically).
+      # Dispose the browser, which fails the spec if the page left JS errors
+      # unhandled and nobody reported them. Call from a Minitest #teardown /
+      # RSpec after hook (the integration modules wire this automatically).
+      #
+      # The session checks at every step too, so a failure normally surfaces on
+      # the line that caused it; this catches whatever the last step produced.
       def dommy_browser_teardown
         return unless browser_started?
 
-        pending = browser.js_errors[(@dommy_browser_acked || 0)..] || []
-        browser.dispose
+        browser_to_dispose = browser
         @dommy_browser = nil
-        return if @dommy_allow_js_errors || pending.empty?
-
-        raise dommy_browser_js_error(pending)
+        browser_to_dispose.dispose
       end
 
       private
@@ -145,15 +144,6 @@ module Dommy
       def dommy_artifact_slug(label)
         slug = label.to_s.strip.downcase.gsub(/[^a-z0-9]+/, "-").gsub(/\A-+|-+\z/, "")
         slug.empty? ? "example" : slug[0, 100]
-      end
-
-      def dommy_browser_ack_js_errors
-        @dommy_browser_acked = browser_started? ? browser.js_errors.length : 0
-      end
-
-      def dommy_browser_js_error(errors)
-        lines = errors.map { |e| "  #{e.class}: #{e.message}" }
-        RuntimeError.new("#{errors.length} uncaught JS error(s) during the spec:\n#{lines.join("\n")}")
       end
     end
   end
