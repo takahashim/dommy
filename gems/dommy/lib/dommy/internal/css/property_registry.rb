@@ -260,6 +260,23 @@ module Dommy
           end
         end
 
+        # calc()/min()/max()/clamp(), resolved against this element's font and
+        # viewport context and serialized. nil when the value is not a math
+        # function, or cannot reduce without layout.
+        def evaluate_calc(value, **ctx)
+          kind, number = Calc.evaluate(value) { |text| resolve_length_px(text, **ctx) }
+          return nil unless kind
+
+          kind == :length ? format_px(number) : format_number(number)
+        end
+
+        # A unitless computed result (e.g. `line-height: calc(1 + 0.5)`),
+        # serialized without a unit and without a trailing ".0".
+        def format_number(number)
+          rounded = number.round(5)
+          rounded == rounded.to_i ? rounded.to_i.to_s : rounded.to_s
+        end
+
         def format_px(number)
           rounded = number.round(3)
           rounded == rounded.to_i ? "#{rounded.to_i}px" : "#{rounded}px"

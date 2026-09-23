@@ -3,48 +3,46 @@
 module Dommy
   module Internal
     module CSS
-      # calc()/min()/max()/clamp() evaluation for the computed-value pipeline,
-      # added to PropertyRegistry. Dommy has no layout, so a math function is
-      # resolved only when every term reduces to an absolute/font-relative/
+      # calc()/min()/max()/clamp() evaluation. Dommy has no layout, so a math
+      # function reduces only when every term is an absolute/font-relative/
       # viewport length or a plain number; a percentage (or any non-reducible
-      # part) leaves the function symbolic (evaluate_calc returns nil and the
-      # caller keeps the specified value) — matching browsers, which keep such
-      # calc()s as-is at computed-value time.
-      module PropertyRegistry
+      # part) leaves the function symbolic — #evaluate answers nil and the caller
+      # keeps the specified value, which is what browsers serialize too.
+      #
+      # Self-contained: the font and viewport context belongs to whoever is
+      # computing a value, so it arrives as the `length_px` block rather than as
+      # a call back into PropertyRegistry.
+      module Calc
         # Raised internally when a sub-expression can't reduce without layout
         # (a %, an unknown unit, a unit clash, or a syntax error).
-        class CalcUnresolvable < StandardError; end
+        class Unresolvable < StandardError; end
+
+        FUNCTION = /\A(?:calc|min|max|clamp)\(/i
 
         module_function
 
-        def evaluate_calc(value, **ctx)
+        # [:length, px] or [:number, n] for a reduced math function; nil when
+        # `value` is not one, or cannot reduce. `length_px` takes one
+        # "<number><unit>" and answers its px magnitude, or nil.
+        def evaluate(value, &length_px)
           value = value.to_s.strip
-          return nil unless value.match?(/\A(?:calc|min|max|clamp)\(/i)
+          return nil unless value.match?(FUNCTION)
 
-          tokens = calc_tokenize(value)
+          tokens = tokenize(value)
           return nil unless tokens
 
-          parser = CalcParser.new(tokens, ctx)
-          kind, number = parser.parse_value
-          return nil unless parser.done?
-
-          kind == :length ? format_px(number) : format_number(number)
-        rescue CalcUnresolvable
+          parser = Parser.new(tokens, length_px)
+          result = parser.parse_value
+          parser.done? ? result : nil
+        rescue Unresolvable
           nil
-        end
-
-        # A unitless calc result (e.g. `line-height: calc(1 + 0.5)`), serialized
-        # without a unit and without a trailing ".0".
-        def format_number(number)
-          rounded = number.round(5)
-          rounded == rounded.to_i ? rounded.to_i.to_s : rounded.to_s
         end
 
         # Tokens: "(" ")" "," operators, {num:, unit:}, {fn:} (an ident, only
         # valid before "("). Returns nil on an unexpected character — or when a
         # binary +/- lacks the whitespace CSS Values 4 §10.1 requires on both
         # sides (`1px+1px` is invalid; a unary sign after (/,/operator is fine).
-        def calc_tokenize(str)
+        def tokenize(str)
           tokens = []
           index = 0
           length = str.length
@@ -60,6 +58,7 @@ module Dommy
             if (char == "+" || char == "-") && binary_operator_position?(tokens.last)
               space_after = index + 1 < length && str[index + 1].match?(/\s/)
               return nil unless space_before && space_after
+
               tokens << char
             elsif "+-*/(),".include?(char)
               tokens << char
@@ -88,153 +87,152 @@ module Dommy
         def binary_operator_position?(previous)
           previous == ")" || (previous.is_a?(Hash) && previous.key?(:num))
         end
-      end
 
-      # Recursive-descent evaluator over calc_tokenize's output. Values are
-      # [kind, number] where kind is :length (px) or :number. Operators follow
-      # CSS Values 4 calc unit algebra: +/- need matching kinds, * needs a
-      # number operand, / needs a number divisor.
-      class CalcParser
-        def initialize(tokens, ctx)
-          @tokens = tokens
-          @ctx = ctx
-          @pos = 0
-        end
+        # Recursive-descent evaluator over #tokenize's output. Values are
+        # [kind, number] where kind is :length (px) or :number. Operators follow
+        # CSS Values 4 calc unit algebra: +/- need matching kinds, * needs a
+        # number operand, / needs a number divisor.
+        class Parser
+          def initialize(tokens, length_px)
+            @tokens = tokens
+            @length_px = length_px
+            @pos = 0
+          end
 
-        def done? = @pos >= @tokens.length
+          def done? = @pos >= @tokens.length
 
-        # <value> = <function> | ( <sum> ) | [+-] <value> | <dimension>
-        def parse_value
-          token = peek
-          if token.is_a?(Hash) && token[:fn]
-            parse_function
-          elsif token == "("
-            advance
-            value = parse_sum
+          # <value> = <function> | ( <sum> ) | [+-] <value> | <dimension>
+          def parse_value
+            token = peek
+            if token.is_a?(Hash) && token[:fn]
+              parse_function
+            elsif token == "("
+              advance
+              value = parse_sum
+              expect(")")
+              value
+            elsif token == "+" || token == "-"
+              advance
+              kind, number = parse_value
+              [kind, token == "-" ? -number : number]
+            elsif token.is_a?(Hash) && token[:num]
+              advance
+              dimension(token)
+            else
+              raise Unresolvable
+            end
+          end
+
+          private
+
+          def parse_function
+            name = advance[:fn]
+            expect("(")
+            case name
+            when "calc"
+              value = parse_sum
+              expect(")")
+              value
+            when "min", "max"
+              combine(name, parse_arguments)
+            when "clamp"
+              args = parse_arguments
+              raise Unresolvable unless args.length == 3
+
+              clamp(*args)
+            else
+              raise Unresolvable
+            end
+          end
+
+          def parse_arguments
+            args = [parse_sum]
+            while peek == ","
+              advance
+              args << parse_sum
+            end
             expect(")")
+            args
+          end
+
+          # <sum> = <product> ( ['+'|'-'] <product> )*
+          def parse_sum
+            value = parse_product
+            while peek == "+" || peek == "-"
+              op = advance
+              value = add(value, parse_product, op)
+            end
             value
-          elsif token == "+" || token == "-"
-            advance
-            kind, number = parse_value
-            [kind, token == "-" ? -number : number]
-          elsif token.is_a?(Hash) && token[:num]
-            advance
-            dimension(token)
-          else
-            raise PropertyRegistry::CalcUnresolvable
           end
-        end
 
-        private
-
-        def parse_function
-          name = advance[:fn]
-          expect("(")
-          case name
-          when "calc"
-            value = parse_sum
-            expect(")")
+          # <product> = <value> ( ['*'|'/'] <value> )*
+          def parse_product
+            value = parse_value
+            while peek == "*" || peek == "/"
+              op = advance
+              value = op == "*" ? multiply(value, parse_value) : divide(value, parse_value)
+            end
             value
-          when "min", "max"
-            value = combine(name, parse_arguments)
-            value
-          when "clamp"
-            args = parse_arguments
-            raise PropertyRegistry::CalcUnresolvable unless args.length == 3
-
-            clamp(*args)
-          else
-            raise PropertyRegistry::CalcUnresolvable
           end
-        end
 
-        def parse_arguments
-          args = [parse_sum]
-          while peek == ","
-            advance
-            args << parse_sum
+          def add((kind_a, num_a), (kind_b, num_b), op)
+            raise Unresolvable unless kind_a == kind_b
+
+            [kind_a, op == "-" ? num_a - num_b : num_a + num_b]
           end
-          expect(")")
-          args
-        end
 
-        # <sum> = <product> ( ['+'|'-'] <product> )*
-        def parse_sum
-          value = parse_product
-          while peek == "+" || peek == "-"
-            op = advance
-            value = add(value, parse_product, op)
+          def multiply((kind_a, num_a), (kind_b, num_b))
+            if kind_b == :number
+              [kind_a, num_a * num_b]
+            elsif kind_a == :number
+              [kind_b, num_a * num_b]
+            else
+              raise Unresolvable # length * length has no computed unit
+            end
           end
-          value
-        end
 
-        # <product> = <value> ( ['*'|'/'] <value> )*
-        def parse_product
-          value = parse_value
-          while peek == "*" || peek == "/"
-            op = advance
-            value = op == "*" ? multiply(value, parse_value) : divide(value, parse_value)
+          def divide((kind_a, num_a), (kind_b, num_b))
+            raise Unresolvable if kind_b != :number || num_b.zero?
+
+            [kind_a, num_a / num_b]
           end
-          value
-        end
 
-        def add((kind_a, num_a), (kind_b, num_b), op)
-          raise PropertyRegistry::CalcUnresolvable unless kind_a == kind_b
+          def combine(name, values)
+            kinds = values.map(&:first).uniq
+            raise Unresolvable unless kinds.length == 1
 
-          [kind_a, op == "-" ? num_a - num_b : num_a + num_b]
-        end
-
-        def multiply((kind_a, num_a), (kind_b, num_b))
-          if kind_b == :number
-            [kind_a, num_a * num_b]
-          elsif kind_a == :number
-            [kind_b, num_a * num_b]
-          else
-            raise PropertyRegistry::CalcUnresolvable # length * length has no computed unit
+            numbers = values.map(&:last)
+            [kinds.first, name == "min" ? numbers.min : numbers.max]
           end
-        end
 
-        def divide((kind_a, num_a), (kind_b, num_b))
-          raise PropertyRegistry::CalcUnresolvable if kind_b != :number || num_b.zero?
+          def clamp((kmin, lo), (kval, val), (kmax, hi))
+            raise Unresolvable unless [kmin, kval, kmax].uniq.length == 1
 
-          [kind_a, num_a / num_b]
-        end
+            [kval, [[val, hi].min, lo].max]
+          end
 
-        def combine(name, values)
-          kinds = values.map(&:first).uniq
-          raise PropertyRegistry::CalcUnresolvable unless kinds.length == 1
+          def dimension(token)
+            unit = token[:unit]
+            return [:number, token[:num]] if unit.empty?
+            raise Unresolvable if unit == "%"
 
-          numbers = values.map(&:last)
-          [kinds.first, name == "min" ? numbers.min : numbers.max]
-        end
+            px = @length_px.call("#{token[:num]}#{unit}")
+            raise Unresolvable unless px
 
-        def clamp((kmin, lo), (kval, val), (kmax, hi))
-          raise PropertyRegistry::CalcUnresolvable unless [kmin, kval, kmax].uniq.length == 1
+            [:length, px]
+          end
 
-          [kval, [[val, hi].min, lo].max]
-        end
+          def peek = @tokens[@pos]
 
-        def dimension(token)
-          unit = token[:unit]
-          return [:number, token[:num]] if unit.empty?
-          raise PropertyRegistry::CalcUnresolvable if unit == "%"
+          def advance
+            token = @tokens[@pos]
+            @pos += 1
+            token
+          end
 
-          px = PropertyRegistry.resolve_length_px("#{token[:num]}#{unit}", **@ctx)
-          raise PropertyRegistry::CalcUnresolvable unless px
-
-          [:length, px]
-        end
-
-        def peek = @tokens[@pos]
-
-        def advance
-          token = @tokens[@pos]
-          @pos += 1
-          token
-        end
-
-        def expect(char)
-          raise PropertyRegistry::CalcUnresolvable unless advance == char
+          def expect(char)
+            raise Unresolvable unless advance == char
+          end
         end
       end
     end
