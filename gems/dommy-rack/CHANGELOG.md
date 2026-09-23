@@ -4,12 +4,13 @@
 
 ### Added
 
-- `Dommy::Rack::Session.new(app, strict_js_errors: true)` fails at the next checkpoint on JavaScript the page left unhandled, so a failure lands on the line that caused it. Checkpoints are the points the page has just been allowed to run: after a navigation's scripts boot, after an interaction's events, after `settle` / `advance_time` / script evaluation, and at `dispose`. `Session#allow_js_errors { ... }` suppresses it for a block. Off by default, so an embedding browser that only reads `js_errors` is unaffected.
+- `Dommy::Rack::Session.new(app, strict_js_errors: true)` fails on JavaScript the page left unhandled, at the next point the page was allowed to run, so the failure lands on the line that caused it. Off by default.
+- `Session#allow_js_errors { ... }` suppresses that failure for a block.
 
 ### Changed
 
-- `js_errors` now holds only what the PAGE left unhandled: an error it cancels in `window.onerror` or in an `unhandledrejection` listener never reaches the log, exactly as it never reaches a browser console.
-- The errors live in a shared `Dommy::Js::ErrorLog`. Navigating still clears the log the way a browser console clears, but an error the outgoing page produced and nobody reported now survives that clear instead of being silently dropped.
+- `js_errors` holds only what the page left unhandled: an error it cancels in `window.onerror` or in an `unhandledrejection` listener never reaches the log.
+- The errors live in a shared `Dommy::Js::ErrorLog`, so an error the outgoing page left unreported survives the clear that navigation performs.
 
 ## 0.12.0 — 2026-09-22
 

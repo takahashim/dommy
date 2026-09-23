@@ -4,28 +4,31 @@
 
 ### Changed
 
-- Promise rejection events now expose the rejected value and promise, dispatch `rejectionhandled` when appropriate, and honor cancellation.
-- Script errors now expose an `Error` with its name, message, and stack as `event.error`.
-- `ErrorEvent` now reports the failing source location through `filename`, `lineno`, and `colno`.
-- A dynamically inserted `<script src>` fires `load` after a successful download even when its evaluation throws; the exception is still reported globally.
-- Uncaught errors and `reportError()` now dispatch cancelable window `error` events; canceled errors are not logged by the host.
-- Exceptions in `setTimeout`, `setInterval`, and `requestAnimationFrame` callbacks are now reported as window errors.
-- **Breaking:** `Dommy::Browser::JsError` has been renamed to `Dommy::JsError` (with no compatibility alias). `Browser#error_log` exposes the shared error log; `Browser#js_errors` remains available.
-- `TextDecoder` now supports all Encoding Standard encodings and validates encoding labels.
-- `XMLHttpRequest#responseText` now honors the response charset, `overrideMimeType`, and byte-order marks.
-- URL component setters and `<a>` / `<area>` URL properties now follow the URL Standard and resolve against the document base URL.
-- URL hosts now use the URL Standard domain parser, including IDNA handling, so an ASCII A-label that does not decode (`https://xn--/`) is a valid host, as in browsers.
-- APIs now reject invalid URLs with their specified errors; invalid hyperlink targets do not navigate.
-- Streams now implement the Streams Standard, including readable, writable, and transform streams; queuing strategies and text/compression transform streams are available.
+- Uncaught JavaScript goes through WHATWG's "report an exception": a cancelable `error` event fires at the window, and only what the page leaves unhandled reaches the host's log.
+- An exception in a timer or animation-frame callback is reported at the window.
+- `reportError()` reports at the window instead of being swallowed.
+- A `<script>` that throws hands the page a real `Error` as `event.error`, so `e.error.message` reads.
+- `ErrorEvent` says where the page failed, in `filename`, `lineno` and `colno`.
+- A `<script src>` that throws after a successful download fires `load`.
+- `unhandledrejection` carries the rejected value as `event.reason`, and `rejectionhandled` fires when a handler arrives late.
+- **Breaking:** `Dommy::Browser::JsError` is `Dommy::JsError`, with no alias for the old name, and the errors live in a shared `Browser#error_log`.
+- `js_errors` holds only what the page left unhandled: an error canceled in `window.onerror` never reaches it.
+- `TextDecoder` throws `RangeError` for a label the Encoding Standard does not name.
+- `XMLHttpRequest#responseText` decodes in the response's charset.
+- A URL component setter leaves the URL unchanged when the parser rejects the value.
+- `<a>` and `<area>` read and write their URL against the document base URL.
+- `new URL("https://xn--/")` parses: an A-label that does not decode is a host, as in browsers.
+- `XMLHttpRequest.open` and `location.href` throw a `SyntaxError` on a URL the parser rejects.
+- Streams follow the Streams Standard.
 
 ### Fixed
 
-- Number and range inputs now sanitize a value the HTML Standard's floating-point grammar rejects to the empty string, instead of taking what Ruby's `Float()` accepts.
-- `Request#formData()` now parses URL-encoded and multipart request bodies.
-- JavaScript methods with no return value now return `undefined`, rather than `null`.
-- `FormData` now validates its constructor argument: anything but a form element throws `TypeError`, while `new FormData(undefined)` is an empty FormData.
-- `stepUp` and `stepDown` now use exact decimal arithmetic.
-- `window.event` now honors an assignment. The attribute is `[Replaceable]`, so a value the page assigns wins from then on; the getter used to ignore it and keep reporting the event being dispatched.
+- A number input sanitizes `" 1"` to `""`.
+- `new FormData(null)` throws `TypeError`, and `new FormData(undefined)` is an empty FormData.
+- A method with no return value answers `undefined` to JavaScript.
+- `stepUp` with `step="0.1"` reaches `0.3`, not `0.30000000000000004`.
+- `window.event` honors an assignment.
+- `Request#formData()` parses a urlencoded or multipart body.
 
 ## 0.12.0 — 2026-09-22
 

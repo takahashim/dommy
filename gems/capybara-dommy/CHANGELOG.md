@@ -4,8 +4,9 @@
 
 ### Added
 
-- `Capybara::Dommy.configuration.raise_js_errors` (default `true`) fails an example on JavaScript the page left unhandled, at the next Capybara command, the way Capybara's own `raise_server_errors` fails one on a server exception. It affects only a `javascript: true` driver, so a suite migrating from rack_test sees no change. `page.driver.allow_js_errors { ... }` suppresses it for a block.
-- README: a "How this differs from a browser driver" section covering the two clocks, in-process execution, JS-error failures, missing layout, synthesised input, fetched frames, and failure artifacts.
+- `Capybara::Dommy.configuration.raise_js_errors` (default `true`) fails an example on JavaScript the page left unhandled, at the next Capybara command, the way Capybara's own `raise_server_errors` fails one on a server exception. It affects only a `javascript: true` driver.
+- `page.driver.allow_js_errors { ... }` suppresses that failure for a block.
+- README: a "How this differs from a browser driver" section.
 
 ## 0.12.0 — 2026-09-22
 
