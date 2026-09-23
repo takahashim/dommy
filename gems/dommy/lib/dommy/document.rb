@@ -749,27 +749,34 @@ module Dommy
 
     # Live HTMLCollection helpers — each call re-queries the
     # document so post-mutation reads reflect the current state.
+    #
+    # Each of these is defined as a collection of HTML ELEMENTS, and a `css`
+    # query matches on local name alone: SVG has its own `a`, `script` and
+    # `image`, so an SVG `<script>` would otherwise arrive in `document.scripts`
+    # as an SVGElement and be asked for `type` (WPT's moveBefore/
+    # script-move-before.html has one, and the NoMethodError took the file's
+    # whole harness with it).
     def links
       HTMLCollection.new do
-        @backend_doc.css("a[href], area[href]").map { |n| wrap_node(n) }.compact
+        @backend_doc.css("a[href], area[href]").filter_map { |n| html_element_wrapper(n) }
       end
     end
 
     def forms
       HTMLCollection.new do
-        @backend_doc.css("form").map { |n| wrap_node(n) }.compact
+        @backend_doc.css("form").filter_map { |n| html_element_wrapper(n) }
       end
     end
 
     def scripts
       HTMLCollection.new do
-        @backend_doc.css("script").map { |n| wrap_node(n) }.compact
+        @backend_doc.css("script").filter_map { |n| html_element_wrapper(n) }
       end
     end
 
     def images
       HTMLCollection.new do
-        @backend_doc.css("img").map { |n| wrap_node(n) }.compact
+        @backend_doc.css("img").filter_map { |n| html_element_wrapper(n) }
       end
     end
 
@@ -2038,10 +2045,21 @@ module Dommy
     def __internal_run_parsed_insertion_steps__
       return nil unless @backend_doc.respond_to?(:css)
 
-      elements = @backend_doc.css("details").filter_map { |node| wrap_node(node) }
+      # HTML-namespace only: a `css` query matches on local name, so a
+      # `<details>` the parser put inside `<svg>` answers it too, as an
+      # SVGElement that has none of these steps.
+      elements = @backend_doc.css("details").filter_map { |node| html_element_wrapper(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
-      @backend_doc.css("select").each { |node| wrap_node(node)&.__internal_settle_selectedness_once__ }
+      @backend_doc.css("select").each { |node| html_element_wrapper(node)&.__internal_settle_selectedness_once__ }
       nil
+    end
+
+    # The wrapper for a backend node, when it is an HTML element. The namespace
+    # lives on the wrapper, not the backend node, so this is the only place it
+    # can be asked.
+    def html_element_wrapper(node)
+      wrapper = wrap_node(node)
+      wrapper if wrapper.is_a?(Element) && Internal::ElementState.html_element?(wrapper)
     end
 
     # Bind an externally built wrapper to its backend node, so later traversals

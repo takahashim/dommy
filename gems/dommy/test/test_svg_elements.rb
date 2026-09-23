@@ -962,3 +962,64 @@ class TestSVGElements < Minitest::Test
     assert_equal("1.2", fe.__js_get__("specularConstant"))
   end
 end
+
+# An SVG element whose local name is also an HTML element's. Every HTML
+# behaviour that finds its elements with a name query — the details insertion
+# steps, a select's list of options, document.scripts — has to ask the
+# namespace, because a backend node carries only the name.
+class TestSVGElementsSharingHtmlNames < Minitest::Test
+  include DommyTestHelper
+
+  SVG_NS = "http://www.w3.org/2000/svg"
+
+  def setup
+    @win = make_window("<body><label id=l></label></body>")
+    @doc = @win.document
+    @label = @doc.get_element_by_id("l")
+  end
+
+  def test_svg_details_insertion_runs_no_html_steps
+    details = @doc.create_element_ns(SVG_NS, "details")
+    @label.append_child(details)
+
+    assert_instance_of(Dommy::SVGElement, details)
+    assert_same(@label, details.parent_node)
+  end
+
+  def test_svg_select_insertion_runs_no_html_steps
+    select = @doc.create_element_ns(SVG_NS, "select")
+    select.append_child(@doc.create_element_ns(SVG_NS, "option"))
+    @label.append_child(select)
+
+    assert_same(@label, select.parent_node)
+  end
+
+  def test_html_details_still_gets_its_insertion_steps
+    details = @doc.create_element("details")
+    details.open = true
+    @label.append_child(details)
+
+    assert(details.open)
+  end
+
+  def test_html_select_still_settles_its_selectedness
+    select = @doc.create_element("select")
+    first = @doc.create_element("option")
+    select.append_child(first)
+    select.append_child(@doc.create_element("option"))
+    @label.append_child(select)
+
+    assert(first.selected)
+    assert_equal(0, select.selected_index)
+  end
+
+  def test_document_collections_are_html_elements_only
+    @label.append_child(@doc.create_element_ns(SVG_NS, "script"))
+    @label.append_child(@doc.create_element_ns(SVG_NS, "a"))
+    html_script = @doc.create_element("script")
+    @label.append_child(html_script)
+
+    assert_equal([html_script], @doc.scripts.to_a)
+    assert_empty(@doc.links.to_a)
+  end
+end

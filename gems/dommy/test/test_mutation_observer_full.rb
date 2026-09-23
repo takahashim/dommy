@@ -44,6 +44,26 @@ class TestMutationObserverFull < Minitest::Test
     assert_operator(@records.size, :>=, 1)
   end
 
+  # The implication is on the member EXISTING, not on its value: the observer
+  # asked about attributes by mentioning attributeOldValue at all.
+  def test_attribute_old_value_false_still_implies_attributes
+    @obs.__js_call__("observe", [@root, {"attributeOldValue" => false}])
+    @root.set_attribute("data-x", "v")
+    drain
+    assert_equal(1, @records.size)
+    assert_nil(@records.first.__js_get__("oldValue"))
+  end
+
+  def test_character_data_old_value_false_still_implies_character_data
+    text = @doc.create_text_node("before")
+    @root.append_child(text)
+    @obs.__js_call__("observe", [text, {"characterDataOldValue" => false}])
+    text.data = "after"
+    drain
+    assert_equal(1, @records.size)
+    assert_nil(@records.first.__js_get__("oldValue"))
+  end
+
   def test_character_data_old_value_implies_character_data
     text = @doc.create_text_node("before")
     @root.append_child(text)

@@ -35,13 +35,13 @@ module Dommy
       # the parser or a script produced them in. A details the parser opened
       # also owes a toggle event, which it has had no attribute change to queue.
       def details_inserted(added_nodes)
-        found = collect_elements(added_nodes, "details")
+        found = collect_elements(added_nodes, "details").filter_map { |backend| wrap_html(backend) }
         return if found.empty?
 
         # One batch across every added node: the whole insertion is a single
         # pass, so a group that arrives together settles on its first open
         # member rather than its last.
-        HTMLDetailsElement.run_insertion_steps(found.filter_map { |backend| @document.wrap_node(backend) })
+        HTMLDetailsElement.run_insertion_steps(found)
       end
 
       # A select's list of options gained or lost members: run its selectedness
@@ -56,12 +56,12 @@ module Dommy
         if (owner = owning_select_node(target_node))
           arrived = added_nodes.select { |node| option_list_member?(node) }
           if !arrived.empty? || removed_nodes.any? { |node| option_list_member?(node) }
-            @document.wrap_node(owner)&.__internal_options_changed__(arrived_options(arrived))
+            wrap_html(owner)&.__internal_options_changed__(arrived_options(arrived))
           end
         end
 
         collect_elements(added_nodes, "select").each do |node|
-          @document.wrap_node(node)&.__internal_settle_selectedness_once__
+          wrap_html(node)&.__internal_settle_selectedness_once__
         end
       end
 
@@ -181,7 +181,24 @@ module Dommy
       end
 
       def option_list_member?(node)
-        node.respond_to?(:element?) && node.element? && %w[option optgroup].include?(node.name)
+        node.respond_to?(:element?) && node.element? && %w[option optgroup].include?(node.name) &&
+          !wrap_html(node).nil?
+      end
+
+      # The wrapper for a backend node, but only when HTML's steps are the ones
+      # that apply to it.
+      #
+      # Every query above matches on local name alone, because that is all a
+      # backend node carries — `createElementNS(SVG_NS, "details")` builds a
+      # node named "details" and the namespace lives on the wrapper. So a
+      # `css("details")` hands back an SVGElement, which has none of the methods
+      # these steps call, and the NoMethodError escapes into the page: WPT's
+      # clicking-noninteractive-unlabelable-content.html appends exactly that
+      # element to a <label>, and testharness turned the whole file's results
+      # into one ERROR.
+      def wrap_html(node)
+        wrapper = @document.wrap_node(node)
+        wrapper if wrapper.is_a?(Dommy::Element) && ElementState.html_element?(wrapper)
       end
 
       # The options an insertion brought into a select's list, wrapped, in tree
@@ -190,7 +207,7 @@ module Dommy
       def arrived_options(arrived)
         arrived.flat_map { |node|
           node.name == "option" ? [node] : node.css("option").to_a
-        }.filter_map { |node| @document.wrap_node(node) }
+        }.filter_map { |node| wrap_html(node) }
       end
     end
   end
