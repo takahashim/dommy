@@ -9,26 +9,10 @@ module Dommy
     # values become text parts. Owns the multipart serialization so the HTTP
     # layer (not Dommy::FormData) is responsible for it.
     module FileUpload
-      MIME_TYPES = {
-        ".txt" => "text/plain",
-        ".html" => "text/html",
-        ".htm" => "text/html",
-        ".json" => "application/json",
-        ".csv" => "text/csv",
-        ".xml" => "application/xml",
-        ".png" => "image/png",
-        ".jpg" => "image/jpeg",
-        ".jpeg" => "image/jpeg",
-        ".gif" => "image/gif",
-        ".pdf" => "application/pdf"
-      }.freeze
-
       module_function
 
       # Guess a MIME type from a file path's extension.
-      def mime_type_for(path)
-        MIME_TYPES.fetch(::File.extname(path).downcase, "application/octet-stream")
-      end
+      def mime_type_for(path) = Dommy::Interaction::MimeTypes.for(path)
 
       # True when any pair value is a File/Blob.
       def multipart?(pairs)
