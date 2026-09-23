@@ -128,11 +128,25 @@ module Dommy
         true
       end
 
+      # `opacity: 0` hides (Selenium's displayed algorithm), and so does any
+      # value that computes to 0 — the property clamps to [0, 1], so a negative
+      # one is 0 too. One number grammar, read by both the computed-value check
+      # above and the inline-style scan below, which used to disagree about
+      # `opacity: -1`.
+      OPACITY_NUMBER = /[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?/
+      INLINE_OPACITY = /opacity\s*:\s*(#{OPACITY_NUMBER})\s*(?:[;!]|\z)/i
+
       def opacity_zero?(value)
         text = value.to_s.strip
-        return false unless text.match?(/\A[+-]?(?:\d+(?:\.\d*)?|\.\d+)%?\z/)
+        return false unless text.match?(/\A#{OPACITY_NUMBER}\z/o)
 
         text.to_f <= 0
+      end
+
+      # The same question asked of a raw `style` attribute.
+      def inline_opacity_zero?(style_text)
+        match = style_text.match(INLINE_OPACITY)
+        match && opacity_zero?(match[1])
       end
 
       # Filter elements by Capybara-style :visible option.
@@ -161,20 +175,19 @@ module Dommy
         style = node["style"].to_s
         style.match?(/display\s*:\s*none/i) ||
           style.match?(/visibility\s*:\s*hidden/i) ||
-          # Inline zero opacity hides too — keeps the fast path consistent
-          # with the CSS-aware check on sheetless documents.
-          style.match?(INLINE_ZERO_OPACITY)
+          # Inline zero opacity hides too — the same number grammar as the
+          # CSS-aware check, so the fast path cannot answer differently.
+          inline_opacity_zero?(style)
       end
 
-      # opacity: 0 / 0.0 / .0 / 0% (and nothing else) as an inline value.
-      INLINE_ZERO_OPACITY = /opacity\s*:\s*\+?(?:0+(?:\.0*)?|\.0+)%?\s*(?:[;!]|\z)/i
+      # Tags a browser never renders — neither the box nor the text inside it.
+      # One list: an element that is invisible and one whose text does not count
+      # as page text are the same element.
+      NON_RENDERED_TAGS = %w[head script style template noscript].freeze
 
       def non_rendering_tag?(node)
-        node.respond_to?(:name) && %w[head script style template].include?(node.name)
+        node.respond_to?(:name) && NON_RENDERED_TAGS.include?(node.name)
       end
-
-      # Tags whose text never renders, so it must not count as page text.
-      NON_RENDERED_TEXT_TAGS = %w[head script style template noscript].freeze
 
       # Visible text of a node's subtree: like `text_content`, but excluding
       # subtrees that never render (script/style/head/template/noscript).
@@ -197,7 +210,7 @@ module Dommy
           # on the JS bridge), so branch on class: recurse into rendered
           # elements, take character data verbatim, skip comments.
           if child.is_a?(Dommy::Element)
-            next if NON_RENDERED_TEXT_TAGS.include?(child.local_name.to_s.downcase)
+            next if NON_RENDERED_TAGS.include?(child.local_name.to_s.downcase)
 
             append_rendered_text(child, out)
           elsif child.respond_to?(:node_type) && child.node_type == Dommy::Node::TEXT_NODE
@@ -206,7 +219,8 @@ module Dommy
         end
       end
 
-      private_class_method :node_invisible_self?, :non_rendering_tag?, :append_rendered_text
+      private_class_method :node_invisible_self?, :non_rendering_tag?, :append_rendered_text,
+        :opacity_zero?, :inline_opacity_zero?
     end
   end
 end

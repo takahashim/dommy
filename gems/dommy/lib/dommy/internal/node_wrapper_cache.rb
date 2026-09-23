@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "bounded_cache"
+require_relative "node_identity"
 
 module Dommy
   module Internal
@@ -272,15 +273,9 @@ module Dommy
         @query_cache[[kind, selector]] = [@document.dom_generation, value]
       end
 
-      # DOM identity key for a backend node, delegated to the backend since
-      # the right key differs: Nokogiri reuses one Ruby wrapper per C node
-      # (object_id stable) and may recycle a freed node's pointer, so it keys
-      # on object_id; Makiri mints fresh wrappers but never frees nodes, so it
-      # keys on the stable node pointer (pointer_id).
-      def identity_key(node)
-        Backend.identity_key(node)
-      end
-
+      # DOM identity key for a backend node. NodeIdentity owns the choice of
+      # key, and why it is not `==` on the nodes themselves.
+      def identity_key(node) = NodeIdentity.key_for(node)
 
       def build_wrapper_for(node)
         case node

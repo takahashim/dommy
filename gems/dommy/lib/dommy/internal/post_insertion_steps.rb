@@ -14,7 +14,7 @@ module Dommy
     # `report` takes an exception the page should hear about (a script it owns
     # threw); the algorithms below have no rescue of their own, because a
     # failure in one of them is a bug here rather than something the page did.
-    class InsertionSteps
+    class PostInsertionSteps
       # A srcless ("blank"/about:blank) iframe is the one we give a document to;
       # a `src` iframe is left to the integration layer.
       BLANK_IFRAME_SRCS = ["", "about:blank"].freeze

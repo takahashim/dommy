@@ -1,13 +1,13 @@
 # frozen_string_literal: true
 
-require_relative "insertion_steps"
+require_relative "post_insertion_steps"
 
 module Dommy
   module Internal
     # Coordinates mutation notification: MutationObserver records, and the
     # custom element reactions a mutation triggers. Isolates both from
     # Document's public API. The element behaviours an insertion also sets off —
-    # a script running, a details group settling — are InsertionSteps'.
+    # a script running, a details group settling — are PostInsertionSteps'.
     #
     # A custom element reaction that throws is the page's exception, so it is
     # REPORTED at the window ("report an exception"), the same seam an event
@@ -16,7 +16,7 @@ module Dommy
       def initialize(document, observer_manager)
         @document = document
         @observer_manager = observer_manager
-        @insertion_steps = InsertionSteps.new(document, method(:report_exception))
+        @post_insertion_steps = PostInsertionSteps.new(document, method(:report_exception))
       end
 
 
@@ -54,7 +54,7 @@ module Dommy
       def notify_connected_subtree(nk)
         each_shadow_including_element(nk) do |element|
           notify_connected(element)
-          @insertion_steps.connected(element)
+          @post_insertion_steps.connected(element)
         end
       end
 
@@ -127,8 +127,8 @@ module Dommy
         # HTML's details insertion steps run wherever the element lands, not only
         # in a connected tree, so an accordion group assembled off-document is
         # already consistent by the time it is attached.
-        @insertion_steps.details_inserted(added_nodes)
-        @insertion_steps.select_mutated(target_node, added_nodes, removed_nodes)
+        @post_insertion_steps.details_inserted(added_nodes)
+        @post_insertion_steps.select_mutated(target_node, added_nodes, removed_nodes)
 
         # MutationRecords are only needed when something is observing; skip the
         # eager wrapping + record entirely when no observer is registered.

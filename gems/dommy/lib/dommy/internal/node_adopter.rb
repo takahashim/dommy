@@ -108,15 +108,13 @@ module Dommy
       # publicId / systemId (as createDocument does), then re-bind the caller's
       # wrapper onto the new node so JS identity survives the move.
       def adopt_doctype(node, src)
-        adopted = begin
-          Backend.create_document_type(node.name, node.public_id, node.system_id, backend_doc)
-        rescue StandardError
-          nil
-        end
-        return node unless adopted
-
+        adopted = Backend.create_document_type(node.name, node.public_id, node.system_id, backend_doc)
         reseat_known_wrapper(node, src, adopted, node.document)
         node
+      rescue StandardError => e
+        # Returning the node unchanged would read as a successful adoption while
+        # its ownerDocument never moved, so the caller hears about it instead.
+        raise DOMException::NotSupportedError, "Cannot adopt this doctype: #{e.message}"
       end
 
       # Hand the detached source to the backend, which returns the node now
