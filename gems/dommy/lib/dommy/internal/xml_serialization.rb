@@ -24,90 +24,137 @@ module Dommy
       # An attribute as the algorithm sees it (regular or a synthesized xmlns).
       Attr = Struct.new(:namespace, :prefix, :local_name, :value)
 
+      # The namespace state the algorithm carries down the tree: the namespace
+      # inherited from the parent element, the prefix map, and the counter that
+      # mints `ns1`, `ns2`, … The counter is shared across the whole
+      # serialization while the map is copied per element, which is why it was a
+      # one-element Array standing in for a mutable integer.
+      #
+      # One object instead of three arguments threaded through four methods,
+      # where forgetting to copy the map is a bug that shows up as a mangled
+      # prefix several elements later.
+      class NamespaceContext
+        attr_reader :inherited, :map
+
+        def initialize(inherited, map, counter = [1])
+          @inherited = inherited
+          @map = map
+          @counter = counter
+        end
+
+        # Entering an element: it gets its own copy of the map, because the
+        # namespaces it declares must not leak to its siblings.
+        def enter_element
+          self.class.new(@inherited, XmlSerialization.copy_map(@map), @counter)
+        end
+
+        # Its children, which inherit the namespace the element resolved and
+        # share the map it has already copied.
+        def for_children(inherited)
+          self.class.new(inherited, @map, @counter)
+        end
+
+        # A fresh `nsN` prefix, unique across the serialization.
+        def mint_prefix
+          prefix = "ns#{@counter[0]}"
+          @counter[0] += 1
+          prefix
+        end
+      end
+
       module_function
 
       def serialize(node)
-        prefix_index = [1]
-        serialize_node(node, nil, { XML_NS => ["xml"] }, prefix_index)
+        serialize_node(node, NamespaceContext.new(nil, { XML_NS => ["xml"] }))
       end
 
-      def serialize_node(node, context_ns, map, prefix_index)
+      def serialize_node(node, ctx)
         case node_type(node)
-        when 1     then serialize_element(node, context_ns, map, prefix_index)
+        when 1     then serialize_element(node, ctx)
         when 3     then escape_text(string_data(node))
         when 4     then "<![CDATA[#{string_data(node)}]]>"
         when 7     then "<?#{node.target} #{string_data(node)}?>"
         when 8     then "<!--#{string_data(node)}-->"
-        when 9, 11 then serialize_children(node, context_ns, map, prefix_index)
+        when 9, 11 then serialize_children(node, ctx)
         when 10    then serialize_doctype(node)
         else ""
         end
       end
 
-      def serialize_children(node, context_ns, map, prefix_index)
-        child_nodes(node).map { |c| serialize_node(c, context_ns, map, prefix_index) }.join
+      def serialize_children(node, ctx)
+        child_nodes(node).map { |child| serialize_node(child, ctx) }.join
       end
 
       # https://w3c.github.io/DOM-Parsing/#xml-serializing-an-element-node
-      def serialize_element(node, context_ns, map, prefix_index)
-        map = copy_map(map)
+      def serialize_element(node, ctx)
+        ctx = ctx.enter_element
         local_prefixes = {}
         attrs = element_attributes(node)
-        local_default_ns = record_namespace_information(attrs, map, local_prefixes)
-        inherited_ns = context_ns
-        ns = presence(element_namespace(node))
-        ignore_ns_def = false
-        markup = +"<"
-        qualified = nil
+        local_default_ns = record_namespace_information(attrs, ctx.map, local_prefixes)
+        start = start_tag(node, ctx, local_default_ns, local_prefixes)
 
-        if inherited_ns == ns
-          ignore_ns_def = true unless local_default_ns.nil?
-          qualified = (ns == XML_NS ? "xml:" : "") + local_name(node)
-          markup << qualified
-        else
-          prefix = presence(element_prefix(node))
-          candidate = retrieve_preferred_prefix(map, ns, prefix)
-
-          if prefix == "xmlns"
-            candidate = "xmlns"
-          end
-
-          if candidate && candidate != "xmlns"
-            qualified = "#{candidate}:#{local_name(node)}"
-            if local_default_ns && local_default_ns != XML_NS
-              inherited_ns = local_default_ns.empty? ? nil : local_default_ns
-            end
-            markup << qualified
-          elsif prefix
-            prefix = generate_prefix(map, ns, prefix_index) if local_prefixes.key?(prefix)
-            (map[ns] ||= []) << prefix
-            qualified = "#{prefix}:#{local_name(node)}"
-            markup << qualified << %( xmlns:#{prefix}="#{escape_attr(ns)}")
-            inherited_ns = (local_default_ns.nil? || local_default_ns.empty? ? nil : local_default_ns) unless local_default_ns.nil?
-          elsif local_default_ns.nil? || local_default_ns != ns.to_s
-            ignore_ns_def = true
-            qualified = local_name(node)
-            inherited_ns = ns
-            markup << qualified << %( xmlns="#{escape_attr(ns.to_s)}")
-          else
-            qualified = local_name(node)
-            inherited_ns = ns
-            markup << qualified
-          end
-        end
-
-        markup << serialize_attributes(attrs, map, prefix_index, local_prefixes, ignore_ns_def)
+        markup = +"<" << start.markup
+        markup << serialize_attributes(attrs, ctx, local_prefixes, start.ignore_ns_def)
 
         children = child_nodes(node)
-        if children.empty?
-          markup << empty_element_close(ns, node, qualified)
-          return markup
-        end
+        ns = presence(element_namespace(node))
+        return markup << empty_element_close(ns, node, start.qualified) if children.empty?
 
         markup << ">"
-        children.each { |c| markup << serialize_node(c, inherited_ns, map, prefix_index) }
-        markup << "</#{qualified}>"
-        markup
+        child_ctx = ctx.for_children(start.inherited)
+        children.each { |child| markup << serialize_node(child, child_ctx) }
+        markup << "</#{start.qualified}>"
+      end
+
+      # What an element's start tag resolves to, which is four answers at once:
+      # the qualified name it is written under (and closed with), the markup up
+      # to its attributes — including any xmlns declaration the choice of prefix
+      # forced — the namespace its children inherit, and whether its own default
+      # xmlns declaration has already been written and must not be repeated.
+      StartTag = Struct.new(:qualified, :markup, :inherited, :ignore_ns_def)
+
+      # https://w3c.github.io/DOM-Parsing/#xml-serializing-an-element-node,
+      # the prefix-resolution half.
+      def start_tag(node, ctx, local_default_ns, local_prefixes)
+        map = ctx.map
+        ns = presence(element_namespace(node))
+        return inherited_namespace_tag(node, ns, ctx.inherited, local_default_ns) if ctx.inherited == ns
+
+        prefix = presence(element_prefix(node))
+        candidate = retrieve_preferred_prefix(map, ns, prefix)
+        candidate = "xmlns" if prefix == "xmlns"
+
+        if candidate && candidate != "xmlns"
+          qualified = "#{candidate}:#{local_name(node)}"
+          inherited = ctx.inherited
+          if local_default_ns && local_default_ns != XML_NS
+            inherited = local_default_ns.empty? ? nil : local_default_ns
+          end
+          StartTag.new(qualified, qualified, inherited, false)
+        elsif prefix
+          prefix = generate_prefix(map, ns, ctx) if local_prefixes.key?(prefix)
+          (map[ns] ||= []) << prefix
+          qualified = "#{prefix}:#{local_name(node)}"
+          inherited = ctx.inherited
+          unless local_default_ns.nil?
+            inherited = local_default_ns.empty? ? nil : local_default_ns
+          end
+          StartTag.new(qualified, qualified + %( xmlns:#{prefix}="#{escape_attr(ns)}"), inherited, false)
+        elsif local_default_ns.nil? || local_default_ns != ns.to_s
+          qualified = local_name(node)
+          StartTag.new(qualified, qualified + %( xmlns="#{escape_attr(ns.to_s)}"), ns, true)
+        else
+          qualified = local_name(node)
+          StartTag.new(qualified, qualified, ns, false)
+        end
+      end
+
+      # The element is already in the namespace its parent handed down, so it
+      # needs no prefix and no declaration — only the `xml:` shorthand, and the
+      # note that its own default xmlns declaration is already accounted for.
+      def inherited_namespace_tag(node, ns, inherited, local_default_ns)
+        qualified = (ns == XML_NS ? "xml:" : "") + local_name(node)
+        StartTag.new(qualified, qualified, inherited, !local_default_ns.nil?)
       end
 
       # WHATWG XML serialization of an empty element: an HTML-namespace void
@@ -165,15 +212,15 @@ module Dommy
       end
 
       # https://w3c.github.io/DOM-Parsing/#dfn-generate-a-prefix
-      def generate_prefix(map, ns, prefix_index)
-        generated = "ns#{prefix_index[0]}"
-        prefix_index[0] += 1
+      def generate_prefix(map, ns, ctx)
+        generated = ctx.mint_prefix
         (map[ns] ||= []) << generated
         generated
       end
 
       # https://w3c.github.io/DOM-Parsing/#xml-serializing-the-attributes
-      def serialize_attributes(attrs, map, prefix_index, local_prefixes, ignore_ns_def)
+      def serialize_attributes(attrs, ctx, local_prefixes, ignore_ns_def)
+        map = ctx.map
         result = +""
         attrs.each do |attr|
           # The element start tag has already settled the default namespace —
@@ -197,7 +244,7 @@ module Dommy
             else
               candidate = retrieve_preferred_prefix(map, ns, presence(attr.prefix))
               if candidate.nil?
-                candidate = generate_prefix(map, ns, prefix_index)
+                candidate = generate_prefix(map, ns, ctx)
                 result << %( xmlns:#{candidate}="#{escape_attr(ns)}")
               end
               prefix = candidate
@@ -321,8 +368,11 @@ module Dommy
         out << ">"
       end
 
+      # Each element serializes against its own copy, so its declarations do
+      # not leak to its siblings. Public because NamespaceContext#descend is
+      # where that copy is taken.
       def copy_map(map)
-        map.each_with_object({}) { |(k, v), out| out[k] = v.dup }
+        map.each_with_object({}) { |(ns, prefixes), out| out[ns] = prefixes.dup }
       end
 
       def presence(value)

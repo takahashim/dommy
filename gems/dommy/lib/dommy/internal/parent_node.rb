@@ -13,6 +13,12 @@ module Dommy
     # coordinator already no-ops on empty added/removed sets and on an
     # unwrappable target, so callers may invoke it unconditionally.
     module ParentNode
+      # Where a moved node was, and where it went: the parent it sits under and
+      # the siblings a mutation record reports around it. Both halves of a move
+      # are the same three facts, which used to arrive as five positional
+      # arguments in two groups.
+      MovePosition = Struct.new(:parent, :previous, :next)
+
       # Argument coercion (`detach_dom_nodes`), childList notification, and the
       # ChildNode `before`/`after`/`replaceWith` surface all live in ChildNode,
       # shared with the leaf CharacterData nodes.
@@ -147,9 +153,7 @@ module Dommy
       def move_node_before(node, bn, ref_bn)
         ensure_move_validity!(node, bn, ref_bn)
 
-        old_parent = bn.parent
-        old_previous = bn.previous_sibling
-        old_next = bn.next_sibling
+        from = MovePosition.new(bn.parent, bn.previous_sibling, bn.next_sibling)
         # Steps 10-11 and 14. detach_node runs the live range and NodeIterator
         # pre-remove steps and then unlinks, without queuing a record — the move
         # queues its own pair at the end (steps 23-24).
@@ -158,12 +162,12 @@ module Dommy
         ref_bn = InsertionPoint.surviving_anchor(ref_bn, @__node__)
         # Step 16 — measured after the removal, which step 14 has already done.
         @document.__internal_ranges_will_insert__(@__node__, ref_bn, 1)
-        new_previous = InsertionPoint.previous_sibling(@__node__, ref_bn)
+        to = MovePosition.new(@__node__, InsertionPoint.previous_sibling(@__node__, ref_bn), ref_bn)
         # Step 18.
         ref_bn ? ref_bn.add_previous_sibling(bn) : @__node__.add_child(bn)
 
         # Steps 23-24: one record for the old parent, one for the new.
-        notify_move_records(bn, old_parent, old_previous, old_next, new_previous, ref_bn)
+        notify_move_records(bn, from, to)
         # Step 19.3's custom element reactions, run as the call returns — only
         # when the new parent is connected.
         @document.__internal_notify_moved_subtree__(bn) if node.get_root_node({ "composed" => true }).is_a?(Dommy::Document)
@@ -258,7 +262,7 @@ module Dommy
         end
 
         # Step 2 — no cycles.
-        check_insertion!(node)
+        check_hierarchy!(node)
 
         # Step 3 — a non-null reference child must be a child of the new parent.
         if ref_bn && ref_bn.parent != @__node__
@@ -288,32 +292,26 @@ module Dommy
 
       # "Move" steps 23-24: a removal record on the old parent and an addition
       # record on the new one, in that order.
-      def notify_move_records(bn, old_parent, old_previous, old_next, new_previous, ref_bn)
+      def notify_move_records(bn, from, to)
         wrap = ->(n) { n && @document.wrap_node(n) }
-        if old_parent
+        if from.parent
           @document.notify_child_list_mutation(
-            target_node: old_parent, added_nodes: [], removed_nodes: [bn],
-            previous_sibling: wrap.call(old_previous), next_sibling: wrap.call(old_next), moving: true
+            target_node: from.parent, added_nodes: [], removed_nodes: [bn],
+            previous_sibling: wrap.call(from.previous), next_sibling: wrap.call(from.next), moving: true
           )
         end
         @document.notify_child_list_mutation(
-          target_node: @__node__, added_nodes: [bn], removed_nodes: [],
-          previous_sibling: wrap.call(new_previous), next_sibling: wrap.call(ref_bn), moving: true
+          target_node: to.parent, added_nodes: [bn], removed_nodes: [],
+          previous_sibling: wrap.call(to.previous), next_sibling: wrap.call(to.next), moving: true
         )
       end
 
       # WHATWG "ensure pre-insertion validity" step 2 — node must not be a
-      # host-including inclusive ancestor of the parent. It applies to every
-      # parent kind the algorithm accepts (Element, DocumentFragment,
-      # ShadowRoot); only Document is exempt, and a Document is never a
-      # descendant of anything, so it has no such rule to run.
-      def check_insertion!(child)
-        check_hierarchy!(child)
-      end
-
-      # Raise HierarchyRequestError when the proposed insertion would produce a
-      # cycle (inserting the parent itself, or one of its ancestors, into it).
-      # Strings and other non-Nodes are always safe.
+      # host-including inclusive ancestor of the parent, which is to say the
+      # insertion must not make a cycle. It applies to every parent kind the
+      # algorithm accepts (Element, DocumentFragment, ShadowRoot); only Document
+      # is exempt, and a Document is never a descendant of anything, so it has
+      # no such rule to run. Strings and other non-Nodes are always safe.
       def check_hierarchy!(child)
         node = insertion_backend_node(child)
         return if node.nil?
@@ -365,7 +363,7 @@ module Dommy
       # placement rule (5).
       def ensure_pre_insertion_validity!(node, child)
         # Step 2 — node must not be an inclusive ancestor of this parent.
-        check_insertion!(node)
+        check_hierarchy!(node)
 
         # Step 3 — a non-null reference child must be a child of this parent.
         unless child.nil? || (defined?(Bridge::UNDEFINED) && child.equal?(Bridge::UNDEFINED))
