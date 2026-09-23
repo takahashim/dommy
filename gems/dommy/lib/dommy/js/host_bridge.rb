@@ -417,6 +417,19 @@ module Dommy
         # when asked) records a rich description of each promise rejection here, at
         # reject time, so #take_rejection_detail can replace the engine's
         # detail-less "[object Object]" unhandled-rejection report with the truth.
+        # The engine's promise-rejection hook (see host_runtime.js
+        # onPromiseRejection). Unlike the Ruby-level `on_unhandled_rejection`,
+        # which hands over an exception the engine already converted, this keeps
+        # the promise and the reason as the values the page threw — so
+        # `event.reason` / `event.promise` are real, and a later "handled" can be
+        # paired with the report it retracts.
+        @backend.define_host_function("__rb_promise_rejection") do |type, promise, reason|
+          window = @window
+          if window.respond_to?(:__internal_handle_promise_rejection__)
+            window.__internal_handle_promise_rejection__(type.to_s, unwrap(reason), promise: unwrap(promise))
+          end
+          nil
+        end
         @backend.define_host_function("__rb_record_rejection_detail") do |detail|
           @rejection_details.push(detail.to_s)
           @rejection_details.shift if @rejection_details.size > 256

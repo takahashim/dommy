@@ -111,13 +111,49 @@ class TestJsErrorLog < Minitest::Test
     assert @log.pending?
   end
 
-  # --- The retraction seam ---
+  # --- Retraction ---
 
   def test_record_returns_a_distinct_id_per_entry
     first = record("one")
     second = record("two")
 
-    refute_equal first, second,
-      "ids identify an entry so a report can be retracted later (rejectionhandled)"
+    refute_equal first, second, "ids identify an entry so a report can be taken back"
+  end
+
+  # HTML's `rejectionhandled`: a promise reported as unhandled, then given a
+  # handler after all, is one the page recovered from.
+  def test_retracting_a_report_stops_it_failing
+    id = record("recovered")
+
+    assert @log.retract(id)
+    assert_nil @log.check!
+  end
+
+  def test_retracting_leaves_the_history_alone
+    @log.retract(record("recovered"))
+
+    assert_equal ["recovered"], @log.errors.map(&:message),
+      "the console keeps the line it already printed"
+  end
+
+  def test_retracting_takes_only_the_named_report
+    kept = record("still broken")
+    @log.retract(record("recovered"))
+
+    error = assert_raises(Dommy::JsError) { @log.check! }
+    assert_equal ["still broken"], error.causes.map(&:message)
+    refute_nil kept
+  end
+
+  def test_retracting_an_unknown_or_missing_id_is_harmless
+    refute @log.retract(nil)
+    refute @log.retract(-1)
+  end
+
+  def test_a_report_already_checked_cannot_be_retracted
+    id = record("boom")
+    assert_raises(Dommy::JsError) { @log.check! }
+
+    refute @log.retract(id), "the checkpoint already reported it"
   end
 end

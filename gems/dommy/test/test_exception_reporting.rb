@@ -196,6 +196,61 @@ class TestExceptionReporting < Minitest::Test
     assert_equal "http://example.test/page", seen.__js_get__("filename")
   end
 
+  # --- Both halves of promise rejection tracking ---
+
+  # The engine hands both halves to one entry point with the real promise, so
+  # the window can pair a later "handled" with the report it takes back.
+  def test_a_reported_rejection_is_retracted_when_it_is_handled
+    records = []
+    retracted = []
+    @win.__internal_on_unhandled_error__ { |_err| records.push(records.length + 1).last }
+    @win.__internal_on_rejection_handled__ { |record| retracted << record }
+    promise = Dommy::Bridge::JSValue.new(7, "the promise")
+
+    @win.__internal_handle_promise_rejection__("unhandledrejection", "reason", promise: promise)
+    @win.__internal_handle_promise_rejection__("rejectionhandled", "reason", promise: promise)
+
+    assert_equal [1], records
+    assert_equal [1], retracted, "the report the page recovered from is taken back"
+  end
+
+  def test_a_handled_notice_for_something_never_reported_is_ignored
+    retracted = []
+    @win.__internal_on_rejection_handled__ { |record| retracted << record }
+    @win.__internal_handle_promise_rejection__("rejectionhandled", "reason",
+      promise: Dommy::Bridge::JSValue.new(9))
+
+    assert_empty retracted
+  end
+
+  def test_a_rejection_the_page_cancels_is_never_recorded_to_retract
+    records = []
+    retracted = []
+    @win.__internal_on_unhandled_error__ { |_err| records << :recorded }
+    @win.__internal_on_rejection_handled__ { |record| retracted << record }
+    @win.add_event_listener("unhandledrejection", proc { |e| e.__js_call__("preventDefault", []) })
+    promise = Dommy::Bridge::JSValue.new(3)
+
+    @win.__internal_handle_promise_rejection__("unhandledrejection", "reason", promise: promise)
+    @win.__internal_handle_promise_rejection__("rejectionhandled", "reason", promise: promise)
+
+    assert_empty records
+    assert_empty retracted, "nothing was reported, so there is nothing to take back"
+  end
+
+  def test_rejectionhandled_reaches_the_page_and_is_not_cancelable
+    seen = nil
+    @win.add_event_listener("rejectionhandled", proc { |e| seen = e })
+    promise = Dommy::Bridge::JSValue.new(5)
+    @win.__internal_handle_promise_rejection__("unhandledrejection", "why", promise: promise)
+    @win.__internal_handle_promise_rejection__("rejectionhandled", "why", promise: promise)
+
+    refute_nil seen
+    assert_same promise, seen.__js_get__("promise")
+    assert_equal "why", seen.__js_get__("reason")
+    refute seen.__js_get__("cancelable"), "the page is being informed, not consulted"
+  end
+
   # --- Re-entrancy ---
 
   def test_an_error_handler_that_throws_is_not_reported_again

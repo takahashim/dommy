@@ -258,6 +258,9 @@ module Dommy
       # `window.onerror` / `unhandledrejection` handler and cancels the event
       # suppresses the failure, exactly as it would in a browser.
       window.__internal_on_unhandled_error__ { |err| @error_log.record(err) }
+      # A rejection the page handled after we reported it is retracted, so it
+      # stops failing anything (WHATWG `rejectionhandled`).
+      window.__internal_on_rejection_handled__ { |record| @error_log.retract(record) }
       runtime.on_unhandled_rejection { |err| report_rejection(window, err) }
       if runtime.respond_to?(:on_callback_error)
         runtime.on_callback_error { |err| Internal::ExceptionReport.report_at(window, err) }

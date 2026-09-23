@@ -99,6 +99,21 @@ module Dommy
 
       def pending? = !@pending.empty?
 
+      # Take back a report, given the id `record` returned for it. HTML needs
+      # this for `rejectionhandled`: a promise reported as unhandled, then given
+      # a handler after all, is one the page recovered from, so it must not fail
+      # anything. Returns whether there was still something to take back.
+      #
+      # Only the unacknowledged queue is touched. The history keeps the entry,
+      # the way a console keeps the line it already printed.
+      def retract(id)
+        return false if id.nil?
+
+        before = @pending.length
+        @pending.reject! { |entry| entry.id == id }
+        @pending.length < before
+      end
+
       # Drop the history, keeping the unacknowledged queue intact. A host calls
       # this when the page navigates: the console's scrollback belongs to the
       # document that just went away, but an error that document produced and

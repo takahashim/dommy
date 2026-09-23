@@ -676,20 +676,54 @@ globalThis.__rbHost = (function () {
   // label (its `.message`, else its String form) so a reported error's
   // `event.message` is meaningful rather than "[object]".
   function tagThrow(e) {
-    if (e !== null && (typeof e === "object" || typeof e === "function")) {
-      const tag = { __rb_js_ref: registerJsRef(e) };
-      try {
-        const m = e.message != null ? String(e.message) : String(e);
-        if (m) tag.__rb_js_label = m;
-      } catch (_) { /* a message/toString getter threw: no label */ }
-      try {
-        // The frames go with the throw because the value itself crosses as an
-        // opaque ref: once it is on the Ruby side, `.stack` is unreachable.
-        if (e.stack) tag.__rb_js_stack = String(e.stack);
-      } catch (_) { /* a stack getter threw: no frames */ }
-      return { __rb_cb_threw__: tag };
-    }
-    return { __rb_cb_threw__: dehydrate(e) };
+    const tagged = tagValue(e);
+    return { __rb_cb_threw__: tagged };
+  }
+
+  // Cross a value to Ruby with its identity intact, carrying the detail Ruby
+  // cannot read back off an opaque ref: its `message` as a label and its
+  // `stack` as frames. A primitive has neither and just dehydrates.
+  function tagValue(v) {
+    if (v === null || (typeof v !== "object" && typeof v !== "function")) return dehydrate(v);
+
+    const tag = { __rb_js_ref: registerJsRef(v) };
+    try {
+      const m = v.message != null ? String(v.message) : String(v);
+      if (m) tag.__rb_js_label = m;
+    } catch (_) { /* a message/toString getter threw: no label */ }
+    try {
+      if (v.stack) tag.__rb_js_stack = String(v.stack);
+    } catch (_) { /* a stack getter threw: no frames */ }
+    try {
+      // The kind of thing it is, for a host log that would otherwise only be
+      // able to name the Ruby wrapper it arrived in.
+      const c = v.constructor;
+      if (c && c.name) tag.__rb_js_name = String(c.name);
+    } catch (_) { /* a constructor getter threw: no name */ }
+    return tag;
+  }
+
+  // Promises reported to the host as unhandled, so a later "handled" for one we
+  // never reported (rejected before the hook was installed) is ignored. A
+  // WeakSet, so remembering a promise does not keep it alive.
+  const reportedRejections = new WeakSet();
+
+  // The engine's promise-rejection hook (see the engine gem's
+  // `promise_rejection_hook=`). Called at the end of a microtask checkpoint with
+  // the REAL promise and reason, which is what lets `event.reason` be the value
+  // the page threw and `event.promise` exist at all.
+  //
+  // Throwing here would drop the rest of the batch, so nothing is allowed out.
+  function onPromiseRejection(type, promise, reason) {
+    try {
+      if (type === "rejectionhandled") {
+        if (!reportedRejections.has(promise)) return;
+        reportedRejections.delete(promise);
+      } else {
+        reportedRejections.add(promise);
+      }
+      __rb_promise_rejection(String(type), tagValue(promise), tagValue(reason));
+    } catch (_) { /* the batch's remaining notifications still go out */ }
   }
 
   // Enqueue a host-side microtask (by id) onto the engine's native promise-job
@@ -2948,6 +2982,8 @@ globalThis.__rbHost = (function () {
     makeHostDeferred,
     // Opt-in rejection-detail capture (see installRejectionTracker).
     installRejectionTracker,
+    // The engine's promise-rejection hook (see onPromiseRejection).
+    onPromiseRejection,
     seedInterfaces, invokeLifecycle, upgradeInPlace, attachStatics, exposeConstructorsOnWindow,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,

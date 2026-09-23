@@ -395,23 +395,58 @@ module Dommy
 
     # WHATWG "notify about rejected promises": fire a cancelable
     # `unhandledrejection` at this window for a promise that rejected with no
-    # handler. Returns whether the page handled it; an unhandled one reaches the
-    # host through the same seam as an uncaught exception.
+    # handler. An unhandled one reaches the host through the same seam as an
+    # uncaught exception.
+    #
+    # Returns whatever the host made of the report (its ledger entry, say), or
+    # nil when the page handled it. That token is what a later `rejectionhandled`
+    # hands back so the host can take the report away again.
     #
     # WHEN this runs is the engine's call, not ours: the spec decides at the end
     # of a microtask checkpoint, over the promises still unhandled then, so a
     # `.catch` attached later in the same checkpoint keeps the page silent. An
     # engine that instead notifies the moment a promise rejects reports handled
-    # code too. `rejectionhandled` (the retraction fired when a handler arrives
-    # after the notification) needs a signal no engine gives us today, so it is
-    # not dispatched.
+    # code too.
     def __internal_report_rejection__(reason_value, host_error: nil, promise: nil)
       event = PromiseRejectionEvent.new(
         "unhandledrejection", "promise" => promise, "reason" => reason_value, "cancelable" => true
       )
-      handled = !dispatch_event(event)
-      __internal_notify_unhandled_error__(Internal::ExceptionReport.host_form(reason_value, host_error)) unless handled
-      handled
+      return nil unless dispatch_event(event)
+
+      __internal_notify_unhandled_error__(Internal::ExceptionReport.host_form(reason_value, host_error))
+    end
+
+    # The engine's promise-rejection hook, carrying the REAL promise and reason
+    # (see the JS side's onPromiseRejection). Both halves of HTML's promise
+    # rejection tracking arrive here.
+    #
+    # A reported promise is remembered against what the host made of the report,
+    # so `rejectionhandled` can hand that token back and have the report
+    # retracted. The map is keyed by the value's bridge ref, which is stable per
+    # JS object, and lives on the window because both the realm and the reports
+    # belong to this document.
+    def __internal_handle_promise_rejection__(type, reason_value, promise: nil)
+      @rejection_records ||= {}
+      key = promise.respond_to?(:ref) ? promise.ref : promise
+      if type == "rejectionhandled"
+        __internal_report_rejection_handled__(reason_value, promise: promise, record: @rejection_records.delete(key))
+      else
+        record = __internal_report_rejection__(reason_value, promise: promise,
+          host_error: Internal::ExceptionReport.thrown_host_error(reason_value))
+        @rejection_records[key] = record unless record.nil?
+      end
+      nil
+    end
+
+    # WHATWG: a promise that was reported as unhandled has since been handled, so
+    # fire `rejectionhandled` and tell the host to take the report back. The
+    # event is NOT cancelable — the page is being informed, not consulted.
+    def __internal_report_rejection_handled__(reason_value, promise: nil, record: nil)
+      dispatch_event(PromiseRejectionEvent.new(
+        "rejectionhandled", "promise" => promise, "reason" => reason_value
+      ))
+      __internal_notify_rejection_handled__(record) unless record.nil?
+      nil
     end
 
     # Report a timer / rAF callback's exception (the Scheduler's seam). Split out
@@ -428,8 +463,21 @@ module Dommy
       self
     end
 
+    # Returns the last listener's value, which is the host's record of the
+    # report (see `__internal_report_rejection__`). nil with no listeners.
     def __internal_notify_unhandled_error__(error)
-      @unhandled_error_listeners&.each { |listener| listener.call(error) }
+      @unhandled_error_listeners&.map { |listener| listener.call(error) }&.last
+    end
+
+    # Subscribe to reports the page has since handled, to take them back. The
+    # block receives the token the unhandled-error seam returned for that report.
+    def __internal_on_rejection_handled__(&block)
+      (@rejection_handled_listeners ||= []) << block
+      self
+    end
+
+    def __internal_notify_rejection_handled__(record)
+      @rejection_handled_listeners&.each { |listener| listener.call(record) }
       nil
     end
 

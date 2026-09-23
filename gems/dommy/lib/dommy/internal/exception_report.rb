@@ -91,6 +91,22 @@ module Dommy
         location.respond_to?(:href) ? location.href.to_s : file
       end
 
+      # A host-loggable exception for a value that came straight off the bridge
+      # with no exception attached — a rejection reason, which the engine hands
+      # over as the JS value itself. `Bridge::ThrowValue` is that shape already:
+      # it is raisable, keeps the value, and takes the JS frames as its backtrace
+      # so the report can still say where the page failed.
+      def thrown_host_error(value)
+        return value if value.is_a?(::Exception)
+
+        name = value.js_name if value.respond_to?(:js_name)
+        text = value.to_s
+        error = Bridge::ThrowValue.new(value, name && name != "Object" ? "#{name}: #{text}" : text)
+        frames = value.respond_to?(:stack_frames) ? value.stack_frames : nil
+        error.set_backtrace(frames) if frames && !frames.empty?
+        error
+      end
+
       # The form the HOST logs. A report's `error` value is whatever the page
       # threw, which for JS code is an opaque `Bridge::JSValue` with no `class` /
       # `message` / backtrace — everything an error log wants. A caller that has

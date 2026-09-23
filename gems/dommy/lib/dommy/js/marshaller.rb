@@ -14,6 +14,13 @@ module Dommy
     # guest bridge, see WireTags) can reuse the exact same logic rather than
     # re-deriving the tag shapes. Engine-agnostic.
     class Marshaller
+      # A JS `stack` string as backtrace lines, or nil when there is none.
+      def self.stack_frames(stack)
+        return nil if stack.nil?
+
+        stack.to_s.lines.map(&:strip).reject(&:empty?)
+      end
+
       def initialize(bridge)
         @bridge = bridge
         @handles = HandleTable.new
@@ -177,7 +184,8 @@ module Dommy
               # An opaque JS value (a non-plain object Ruby just stores and
               # returns, e.g. an abort reason) — kept as a handle so it
               # round-trips with identity rather than being flattened to a Hash.
-              Dommy::Bridge::JSValue.new(ref, value[WireTags::JS_LABEL])
+              Dommy::Bridge::JSValue.new(ref, value[WireTags::JS_LABEL],
+                Marshaller.stack_frames(value[WireTags::JS_STACK]), value[WireTags::JS_NAME])
             end
           elsif value.key?(WireTags::UNDEFINED)
             # A top-level JS `undefined` argument — distinct from JS null (nil).
@@ -248,8 +256,8 @@ module Dommy
       # 0:0, since the value itself is opaque once it has crossed.
       def thrown_value(tag)
         error = Dommy::Bridge::ThrowValue.new(unwrap(tag))
-        frames = tag[WireTags::JS_STACK] if tag.is_a?(Hash)
-        error.set_backtrace(frames.to_s.lines.map(&:strip).reject(&:empty?)) if frames
+        frames = Marshaller.stack_frames(tag[WireTags::JS_STACK]) if tag.is_a?(Hash)
+        error.set_backtrace(frames) if frames && !frames.empty?
         error
       end
     end

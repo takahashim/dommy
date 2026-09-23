@@ -57,9 +57,20 @@ module Dommy
     class JSValue
       attr_reader :ref
 
-      def initialize(ref, label = nil)
+      # `stack_frames` are the value's JS stack, when the tag that crossed
+      # carried one. Ruby cannot reach through a ref to read `.stack`, so an
+      # error-shaped value brings its frames with it (see host_runtime.js
+      # tagValue) and reporting uses them for the source position.
+      attr_reader :stack_frames
+
+      # The value's JS constructor name, when the tag carried one.
+      attr_reader :js_name
+
+      def initialize(ref, label = nil, stack_frames = nil, js_name = nil)
         @ref = ref
         @label = label
+        @stack_frames = stack_frames
+        @js_name = js_name
       end
 
       def to_s = (@label || "[object]").to_s
@@ -75,9 +86,11 @@ module Dommy
     class ThrowValue < RuntimeError
       attr_reader :value
 
-      def initialize(value)
+      # `message` overrides the value's string form, for a caller that can say
+      # more about it than `to_s` can (a JS error's kind, say).
+      def initialize(value, message = nil)
         @value = value
-        super(value.to_s)
+        super(message || value.to_s)
       end
     end
 

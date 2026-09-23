@@ -38,6 +38,9 @@ module Dommy
       # lineno / colno). A JS value crosses as an opaque ref, so Ruby cannot
       # read `.stack` off it afterwards; it has to come over with the throw.
       JS_STACK = "__rb_js_stack"
+      # The value's JS constructor name ("TypeError"), so a host log can say what
+      # kind of thing it holds rather than only naming the Ruby wrapper.
+      JS_NAME = "__rb_js_name"
       # Marks a JS ref that implements the EventListener interface (handleEvent).
       HANDLE_EVENT = "__rb_handle_event"
       # Marks a JS ref that implements the NodeFilter interface (acceptNode).

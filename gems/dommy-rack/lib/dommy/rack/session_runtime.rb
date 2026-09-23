@@ -146,6 +146,9 @@ module Dommy
         # window (nothing to report to) records directly.
         if window
           window.__internal_on_unhandled_error__ { |err| record_js_error(err) }
+            # A rejection the page handled after we reported it is retracted, so it
+            # stops failing anything (WHATWG `rejectionhandled`).
+            window.__internal_on_rejection_handled__ { |record| @error_log.retract(record) }
           rt.on_unhandled_rejection { |err| report_rejection(window, err) }
           if rt.respond_to?(:on_callback_error)
             rt.on_callback_error { |err| ::Dommy::Internal::ExceptionReport.report_at(window, err) }
