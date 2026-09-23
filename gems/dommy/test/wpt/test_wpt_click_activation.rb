@@ -231,6 +231,18 @@ class TestWPTWindowEventGlobal < Minitest::Test
     assert_same(event, outside)
   end
 
+  # `event` is [Replaceable], so an assignment replaces the accessor with a data
+  # property: the value the page set wins from then on, dispatch or not.
+  def test_an_assigned_window_event_wins_over_the_dispatched_one
+    @win.__js_set__("event", "stashed")
+    assert_equal("stashed", @win.__js_get__("event"))
+
+    seen = nil
+    @node.add_event_listener("test") { seen = @win.__js_get__("event") }
+    @node.dispatch_event(Dommy::Event.new("test"))
+    assert_equal("stashed", seen)
+  end
+
   def test_a_nested_dispatch_restores_the_outer_event
     inner_event = Dommy::Event.new("inner")
     outer_event = Dommy::Event.new("outer")

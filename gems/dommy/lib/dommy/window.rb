@@ -143,9 +143,15 @@ module Dommy
 
       case key
       when "event"
-        # Legacy `window.event`: the event currently being dispatched, and
-        # undefined at any other time (or while a shadow tree's listener runs).
-        @current_event || Bridge::UNDEFINED
+        # Legacy `window.event` (DOM "Legacy extensions to the Window
+        # interface"): the event currently being dispatched, and *absent*
+        # (undefined, not null) at any other time — or while a shadow tree's
+        # listener runs — so feature detection like `window.event === undefined`
+        # (React's getCurrentEventPriority) takes the not-supported path instead
+        # of dereferencing null. The attribute is [Replaceable]: an assignment
+        # replaces the accessor with a data property, so a value the page set
+        # wins from then on, dispatch or not.
+        @globals.key?("event") ? @globals["event"] : (@current_event || Bridge::UNDEFINED)
       when "document"
         @document
       when "window", "self", "parent", "top", "frames"
@@ -198,13 +204,6 @@ module Dommy
       when "scrollMaxX", "scrollMaxY"
         # No real content box to scroll past, so the max offset is 0.
         0
-      when "event"
-        # The legacy global current-event is *absent* (undefined, not null) when
-        # no event is being dispatched, so feature detection like
-        # `window.event === undefined` (React's getCurrentEventPriority) takes the
-        # not-supported path instead of dereferencing null. An explicitly-set
-        # value still wins.
-        @globals.key?("event") ? @globals["event"] : Bridge::UNDEFINED
       when /\A\d+\z/
         # `window[i]` / `window.frames[i]` — the i-th child browsing context's
         # window (the i-th `<iframe>`'s contentWindow), or ABSENT past the end.
