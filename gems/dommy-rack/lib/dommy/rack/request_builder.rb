@@ -44,7 +44,7 @@ module Dommy
           "SERVER_NAME" => uri.host.to_s,
           "SERVER_PORT" => uri.port.to_s,
           "SERVER_PROTOCOL" => "HTTP/1.1",
-          "HTTP_HOST" => host_header(uri),
+          "HTTP_HOST" => Url.http_host(uri),
           "CONTENT_LENGTH" => body_string.bytesize.to_s,
           "rack.url_scheme" => uri.scheme || "http",
           "rack.input" => StringIO.new(body_string),
@@ -123,11 +123,6 @@ module Dommy
         when "content-length" then "CONTENT_LENGTH"
         else "HTTP_#{key.upcase.tr("-", "_")}"
         end
-      end
-
-      def host_header(uri)
-        default = uri.scheme == "https" ? 443 : 80
-        uri.port && uri.port != default ? "#{uri.host}:#{uri.port}" : uri.host.to_s
       end
     end
   end

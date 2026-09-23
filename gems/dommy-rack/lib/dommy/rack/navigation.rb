@@ -25,7 +25,7 @@ module Dommy
         # ASCII-only URI parser needs it percent-encoded first (what a browser
         # does), or URI.join raises and the rescue would leak a non-ASCII URL
         # that crashes downstream (cookie matching, request building).
-        URI.join(base, Url.encode_iri(url_or_path)).to_s
+        Url.resolve(base, url_or_path)
       rescue URI::InvalidURIError
         url_or_path.to_s
       end
@@ -43,7 +43,7 @@ module Dommy
 
       def check_same_origin!(url)
         return unless @config.enforce_same_origin
-        return if same_origin?(url, @config.default_host)
+        return if Url.same_origin?(url, @config.default_host)
 
         raise CrossOriginError, "cross-origin request to #{url} is not allowed"
       end
@@ -224,14 +224,6 @@ module Dommy
         when 301, 302 then original == "POST" ? "GET" : original
         else original # 307, 308 keep the method
         end
-      end
-
-      def same_origin?(url_a, url_b)
-        a = URI.parse(url_a)
-        b = URI.parse(url_b)
-        a.scheme == b.scheme && a.host == b.host && a.port == b.port
-      rescue URI::InvalidURIError
-        false
       end
     end
   end

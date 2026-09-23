@@ -44,6 +44,14 @@ module Dommy
         str.b.gsub(/[^\x00-\x7F]/n) { |byte| format("%%%02X", byte.unpack1("C")) }
       end
 
+      # Resolve a possibly-relative, possibly-IRI `url_or_path` against `base`
+      # into an absolute URL string. Raises URI::InvalidURIError on failure —
+      # callers disagree on the right fallback (Navigation keeps the raw
+      # input, Resources declines the subresource), so each rescues its own way.
+      def resolve(base, url_or_path)
+        URI.join(base, encode_iri(url_or_path)).to_s
+      end
+
       # `host` or `host:port`, omitting a default port (the `Host` header /
       # tuple-origin serialization rule shared by HTTP and WebSocket).
       def http_host(uri)
@@ -54,6 +62,17 @@ module Dommy
       # `Origin` header a same-origin WebSocket connection presents).
       def origin(uri)
         "#{uri.scheme}://#{http_host(uri)}"
+      end
+
+      # Whether two URLs (Strings) share scheme/host/port — the core
+      # same-origin check shared by Navigation and Resources. Neither side
+      # being a valid URI counts as not same-origin, never raises.
+      def same_origin?(url_a, url_b)
+        a = URI.parse(url_a)
+        b = URI.parse(url_b)
+        a.scheme == b.scheme && a.host == b.host && a.port == b.port
+      rescue URI::InvalidURIError
+        false
       end
     end
   end
