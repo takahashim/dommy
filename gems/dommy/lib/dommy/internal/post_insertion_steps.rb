@@ -138,13 +138,14 @@ module Dommy
       # inside it work (readyState defaults to "complete"). No-op if it already
       # has one.
       def ensure_blank_content_document(element)
-        return unless element.respond_to?(:__internal_set_content_document__)
+        return unless element.respond_to?(:build_blank_content_document)
         return if element.respond_to?(:content_document) && element.content_document
 
-        srcdoc = (element.srcdoc.to_s if element.respond_to?(:srcdoc))
-        html = srcdoc.nil? || srcdoc.empty? ? "<html><head></head><body></body></html>" : srcdoc
-        win = Dommy::Window.new(backend_doc: Dommy::Backend.parse(html))
-        element.__internal_set_content_document__(win.document)
+        # The frame builds it, not this: the document URL a blank browsing
+        # context gets (about:blank, about:srcdoc) and the base URL it inherits
+        # from its creator are the frame's business, and a second copy here
+        # built a Window at the library's default `http://localhost/`.
+        element.__internal_set_content_document__(element.build_blank_content_document)
       end
 
       # Run at the next microtask checkpoint, or inline when the document has no

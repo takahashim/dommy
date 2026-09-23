@@ -41,11 +41,30 @@ module Dommy
       @content_document = build_blank_content_document
     end
 
-    # Build the blank nested document + its Window, back-linking the Window to
-    # this frame (so getComputedStyle can detect a non-rendered frame's content).
+    BLANK_DOCUMENT_HTML = "<!DOCTYPE html><html><head></head><body></body></html>"
+
+    # Build the nested document + its Window for a browsing context with
+    # nothing to fetch — a blank frame, or one whose content is its `srcdoc`.
+    # Back-links the Window to this frame (so getComputedStyle can detect a
+    # non-rendered frame's content).
+    #
+    # Its document URL is `about:blank` (`about:srcdoc` when the content came
+    # from the attribute), which is what a browser reports and what the frame's
+    # own `location` reads. A Window left at the library's default URL reported
+    # `http://localhost/` instead.
+    #
+    # Its BASE URL is this element's document's, which is the other half of the
+    # same rule: HTML gives a document whose URL is about:blank the base URL of
+    # the document that created it, and without that half every relative URL
+    # inside the frame — a form's action, a link, an image — would resolve
+    # against `about:blank` and go nowhere.
     def build_blank_content_document
-      win = Window.new(nil, backend_doc: Backend.parse("<!DOCTYPE html><html><head></head><body></body></html>"))
+      srcdoc = get_attribute("srcdoc")
+      html = srcdoc.to_s.empty? ? BLANK_DOCUMENT_HTML : srcdoc.to_s
+      win = Window.new(nil, backend_doc: Backend.parse(html))
+      win.location.__internal_set_url__(srcdoc.nil? ? "about:blank" : "about:srcdoc")
       doc = win.document
+      doc.__internal_set_creator_base_url__(owner_document&.base_uri)
       win.frame_element = self if win.respond_to?(:frame_element=)
       doc
     end

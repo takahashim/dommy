@@ -176,6 +176,46 @@ class TestHTMLIFrameElement < Minitest::Test
     assert_equal("<p>x</p>", f.srcdoc)
   end
 
+  # A nested browsing context with nothing to fetch is at about:blank, and
+  # resolves relative URLs against the document that created it — the two
+  # halves of HTML's rule, which is unusable with only one of them.
+  def test_blank_iframe_document_url_is_about_blank
+    @win.location.__internal_set_url__("http://example.com/dir/page.html")
+    f = @doc.create_element("iframe")
+    @doc.body.append_child(f)
+
+    assert_equal("about:blank", f.content_document.url)
+  end
+
+  def test_blank_iframe_base_url_is_its_creators
+    @win.location.__internal_set_url__("http://example.com/dir/page.html")
+    f = @doc.create_element("iframe")
+    @doc.body.append_child(f)
+
+    assert_equal("http://example.com/dir/page.html", f.content_document.base_uri)
+  end
+
+  def test_srcdoc_iframe_document_url_is_about_srcdoc
+    @win.location.__internal_set_url__("http://example.com/dir/page.html")
+    f = @doc.create_element("iframe")
+    f.srcdoc = "<p>hi</p>"
+    @doc.body.append_child(f)
+    nested = f.build_blank_content_document
+
+    assert_equal("about:srcdoc", nested.url)
+    assert_equal("http://example.com/dir/page.html", nested.base_uri)
+    assert_equal("hi", nested.body.text_content)
+  end
+
+  def test_iframe_base_element_resolves_against_the_creator
+    @win.location.__internal_set_url__("http://example.com/dir/page.html")
+    f = @doc.create_element("iframe")
+    f.srcdoc = "<base href=\"/other/\"><p>hi</p>"
+    @doc.body.append_child(f)
+
+    assert_equal("http://example.com/other/", f.build_blank_content_document.base_uri)
+  end
+
   def test_iframe_sandbox
     f = @doc.create_element("iframe")
     f.sandbox = "allow-scripts"

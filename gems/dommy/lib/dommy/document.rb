@@ -709,7 +709,7 @@ module Dommy
     # When `<base href>` is itself absolute, that wins. Browsers also
     # ignore subsequent <base> elements; we mirror that.
     def base_uri
-      doc_url = url
+      doc_url = creator_base_url || url
       base_el = @backend_doc.at_css("base[href]")
       return doc_url unless base_el
 
@@ -721,6 +721,24 @@ module Dommy
       URL.new(href, doc_url.to_s.empty? ? nil : doc_url).href
     rescue Bridge::TypeError
       doc_url
+    end
+
+    # HTML's "fallback base URL": a document whose URL is `about:blank` or
+    # `about:srcdoc` has no URL to resolve anything against, so it uses the base
+    # URL of the document that created it — the iframe's own document. Set when
+    # the nested browsing context is built; nil for a document that was fetched.
+    def __internal_set_creator_base_url__(href)
+      @creator_base_url = href
+      nil
+    end
+
+    # That base URL, but only while this document's URL is still one of the
+    # about: URLs that has nothing to resolve against. A frame that navigates
+    # somewhere real answers from its own URL again.
+    FALLBACK_BASE_URLS = %w[about:blank about:srcdoc].freeze
+
+    private def creator_base_url
+      @creator_base_url if @creator_base_url && FALLBACK_BASE_URLS.include?(url)
     end
 
     # `document.domain` — host portion of the URL. Real browsers
