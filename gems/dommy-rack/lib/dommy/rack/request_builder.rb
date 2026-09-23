@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
 require "stringio"
 require "rack/utils"
 
@@ -20,11 +19,11 @@ module Dommy
         raise ArgumentError, "pass either :params or :body, not both" if params && body
 
         verb = method.to_s.upcase
-        uri = URI.parse(url)
+        uri = Dommy::URL.new(url)
         env_headers = normalize_headers(headers)
 
         body_string, query_extra, content_type = encode_payload(verb, params, body, env_headers)
-        query = merge_query(uri.query, query_extra)
+        query = merge_query(uri.search.delete_prefix("?"), query_extra)
 
         env = base_env(verb, uri, query, body_string)
         apply_default_headers(env, env_headers, cookie_string)
@@ -39,14 +38,14 @@ module Dommy
         {
           "REQUEST_METHOD" => verb,
           "SCRIPT_NAME" => "",
-          "PATH_INFO" => uri.path.to_s.empty? ? "/" : uri.path,
+          "PATH_INFO" => uri.pathname.empty? ? "/" : uri.pathname,
           "QUERY_STRING" => query,
-          "SERVER_NAME" => uri.host.to_s,
-          "SERVER_PORT" => uri.port.to_s,
+          "SERVER_NAME" => uri.hostname,
+          "SERVER_PORT" => Url.server_port(uri),
           "SERVER_PROTOCOL" => "HTTP/1.1",
-          "HTTP_HOST" => Url.http_host(uri),
+          "HTTP_HOST" => uri.host,
           "CONTENT_LENGTH" => body_string.bytesize.to_s,
-          "rack.url_scheme" => uri.scheme || "http",
+          "rack.url_scheme" => uri.protocol.delete_suffix(":"),
           "rack.input" => StringIO.new(body_string),
           "rack.errors" => $stderr
         }

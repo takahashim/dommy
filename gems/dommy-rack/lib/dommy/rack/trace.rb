@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
-
 module Dommy
   module Rack
     # A structured, virtual-time-ordered record of what a Session did: user
@@ -395,9 +393,7 @@ module Dommy
       def path_of(url)
         return nil unless url
 
-        URI.parse(url).path
-      rescue URI::InvalidURIError
-        url
+        Dommy::URL.parse(url)&.pathname || url
       end
 
       # Frames inside Dommy's own gems (and Capybara), skipped when locating the
