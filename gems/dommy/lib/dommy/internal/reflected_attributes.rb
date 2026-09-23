@@ -64,6 +64,13 @@ module Dommy
         # of these classes means there is logic in it, which is worth knowing
         # when you open one.
         #
+        # Element and Document keep their `case` whole, even though about half
+        # of each one's arms are name mappings. They do not include this module
+        # — HTMLElement does — and including it there to declare those halves
+        # would put a second copy of __js_get__ in the ancestry of all
+        # sixty-nine element classes, to save arms in two. Not worth the
+        # precedence it would move.
+        #
         # A String value is the JS name; the default is the camelized one. Use
         # an Array to give one method several JS names (`readonly`/`readOnly`).
         def js_readable(*names, **mapped)

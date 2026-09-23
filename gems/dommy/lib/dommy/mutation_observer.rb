@@ -69,6 +69,7 @@ module Dommy
     end
   end
 
+
   class MutationObserver
     def initialize(window, callback)
       @window = window
@@ -244,52 +245,10 @@ module Dommy
     private
 
     def observe(target, options)
-      opts = options.is_a?(Hash) ? options : {}
-      attribute_filter = opts["attributeFilter"] || opts[:attributeFilter]
-      attribute_filter = attribute_filter.map { |s| s.to_s.downcase } if attribute_filter.is_a?(Array)
-      # `attributes: true` is implied if attributeFilter / attributeOldValue
-      # is supplied; `characterData: true` is implied if
-      # characterDataOldValue is supplied. Matches the spec's option
-      # normalization in MutationObserverInit.
-      # `attributes`/`characterData` are *implied* true only when their
-      # old-value/filter companion is present AND the member itself is omitted.
-      # If the member is present but false, that companion is a TypeError.
-      attr_present = opts.key?("attributes") || opts.key?(:attributes)
-      char_present = opts.key?("characterData") || opts.key?(:characterData)
-      attrs_extras = !attribute_filter.nil? || truthy_option(opts, "attributeOldValue")
-      char_extras = truthy_option(opts, "characterDataOldValue")
+      entry = Internal::ObserverOptions.new(options).to_registration(target)
 
-      if attrs_extras && attr_present && !truthy_option(opts, "attributes")
-        raise Bridge::TypeError, "attributeOldValue/attributeFilter requires attributes to be true"
-      end
-      if char_extras && char_present && !truthy_option(opts, "characterData")
-        raise Bridge::TypeError, "characterDataOldValue requires characterData to be true"
-      end
-
-      attributes_on = truthy_option(opts, "attributes") || (attrs_extras && !attr_present)
-      child_list_on = truthy_option(opts, "childList")
-      character_data_on = truthy_option(opts, "characterData") || (char_extras && !char_present)
-
-      # Per spec, observe() must request at least one of childList,
-      # attributes, or characterData; otherwise TypeError.
-      unless child_list_on || attributes_on || character_data_on
-        raise Bridge::TypeError, "MutationObserver.observe: at least one of childList, attributes, characterData must be true"
-      end
-
-      entry = {
-        target: target,
-        child_list: child_list_on,
-        subtree: truthy_option(opts, "subtree"),
-        attributes: attributes_on,
-        attribute_filter: attribute_filter,
-        attribute_old_value: truthy_option(opts, "attributeOldValue"),
-        character_data: character_data_on,
-        character_data_old_value: truthy_option(opts, "characterDataOldValue")
-      }
-
-      # WHATWG MutationObserver §observe: if `target` is already
-      # observed, replace the existing registration's options
-      # (don't merge or stack).
+      # WHATWG MutationObserver §observe: if `target` is already observed,
+      # replace the existing registration's options (don't merge or stack).
       existing_index = @observed.index { |e| e[:target].equal?(target) }
       if existing_index
         # Step 7.1.2 only replaces the options, so the registration keeps its
@@ -411,16 +370,5 @@ module Dommy
       []
     end
 
-    # A MutationObserverInit member is a WebIDL `boolean`, so its value is
-    # converted with JS ToBoolean — any object (e.g. `attributes: ["abc"]`) is
-    # truthy; only false / 0 / "" / null / undefined / NaN are falsy.
-    def truthy_option(hash, key)
-      value = hash.key?(key) ? hash[key] : hash[key.to_sym]
-      return false if value.nil? || value == false || value == 0 || value == ""
-      return false if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
-      return false if value.is_a?(Float) && value.nan?
-
-      true
-    end
   end
 end
