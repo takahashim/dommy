@@ -92,7 +92,7 @@ module Dommy
         before = session.trace.events.count { |e| e.type == :span }
 
         job = session.send(:build_subresource_fetch_job,
-          URI.join(session.current_url, "/x").to_s, method: :get)
+          Dommy::URL.new("/x", session.current_url).href, method: :get)
         worker = Thread.new { job.call }
         worker.join
         session.document&.default_view&.scheduler&.deliver_external

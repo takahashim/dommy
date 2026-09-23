@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "uri"
 
 class Dommy::Rack::TestWebSocketTransport < Minitest::Test
   include RackTestHelper
@@ -103,7 +102,7 @@ class Dommy::Rack::TestWebSocketTransport < Minitest::Test
   def build_transport(app: echo_ws_app, ws: FakeWebSocket.new, scheduler: Dommy::Scheduler.new)
     transport = Dommy::Rack::WebSocketTransport.new(
       app: app, ws: ws, scheduler: scheduler,
-      url: URI.parse("http://example.org/ws"), origin: "http://example.org"
+      url: Dommy::URL.new("http://example.org/ws"), origin: "http://example.org"
     )
     @transports << transport
     [transport, ws, scheduler]
@@ -192,7 +191,7 @@ class Dommy::Rack::TestWebSocketTransport < Minitest::Test
     # Same-origin ws:// resolves, with the scheme rewritten ws -> http.
     same = Dommy::Rack::WebSocketTransport.rack_target("ws://example.org/cable", base: base)
     assert_equal "http://example.org/cable", same.to_s
-    assert_equal "http", same.scheme
+    assert_equal "http:", same.protocol
 
     relative = Dommy::Rack::WebSocketTransport.rack_target("/cable", base: base)
     assert_equal "http://example.org/cable", relative.to_s

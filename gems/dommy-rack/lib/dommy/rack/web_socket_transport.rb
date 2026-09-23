@@ -3,7 +3,6 @@
 require "socket"
 require "securerandom"
 require "stringio"
-require "uri"
 
 module Dommy
   module Rack
@@ -30,22 +29,23 @@ module Dommy
     class WebSocketTransport
       # Resolve `url` for the connector: an absolute ws(s) URL (http(s) is
       # accepted and treated the same) that is same-origin with `base`.
-      # Returns the URI, or nil (the WebSocket then falls back to the
-      # in-memory stub).
+      # Returns a Dommy::URL with its scheme normalized to http(s) — ws/wss
+      # and http/https share the same default ports (Internal::UrlParser
+      # treats both as "special" schemes), so this is a plain property
+      # assignment, not a re-parse — or nil (the WebSocket then falls back to
+      # the in-memory stub).
       def self.rack_target(url, base:)
-        target = URI.join(base.to_s, url.to_s)
-        scheme = {"ws" => "http", "wss" => "https"}[target.scheme] || target.scheme
-        return nil unless %w[http https].include?(scheme)
+        target = Dommy::URL.parse(url.to_s, base.to_s)
+        return nil unless target
 
-        b = URI.parse(base.to_s)
-        return nil unless b.host == target.host && b.port == target.port
+        scheme = {"ws:" => "http:", "wss:" => "https:"}[target.protocol] || target.protocol
+        return nil unless %w[http: https:].include?(scheme)
 
-        target.scheme = scheme
-        # Re-parse so the return value is a URI::HTTP(S), not a URI::WS whose
-        # scheme string was swapped (URI classes compare by class + value).
-        URI.parse(target.to_s)
-      rescue URI::Error
-        nil
+        b = Dommy::URL.parse(base.to_s)
+        return nil unless b && b.hostname == target.hostname && b.port == target.port
+
+        target.protocol = scheme
+        target
       end
 
       def initialize(app:, ws:, scheduler:, url:, origin:, cookie_string: "")
@@ -95,18 +95,18 @@ module Dommy
         env = {
           "REQUEST_METHOD" => "GET",
           "SCRIPT_NAME" => "",
-          "PATH_INFO" => url.path.empty? ? "/" : url.path,
-          "QUERY_STRING" => url.query.to_s,
-          "SERVER_NAME" => url.host,
-          "SERVER_PORT" => url.port.to_s,
-          "HTTP_HOST" => Url.http_host(url),
+          "PATH_INFO" => url.pathname.empty? ? "/" : url.pathname,
+          "QUERY_STRING" => url.search.delete_prefix("?"),
+          "SERVER_NAME" => url.hostname,
+          "SERVER_PORT" => Url.server_port(url),
+          "HTTP_HOST" => url.host,
           "HTTP_UPGRADE" => "websocket",
           "HTTP_CONNECTION" => "Upgrade",
           "HTTP_SEC_WEBSOCKET_KEY" => SecureRandom.base64(16),
           "HTTP_SEC_WEBSOCKET_VERSION" => "13",
           "HTTP_ORIGIN" => origin,
           "REMOTE_ADDR" => "127.0.0.1",
-          "rack.url_scheme" => url.scheme,
+          "rack.url_scheme" => url.protocol.delete_suffix(":"),
           "rack.input" => StringIO.new(""),
           "rack.errors" => $stderr,
           "rack.multithread" => true,
