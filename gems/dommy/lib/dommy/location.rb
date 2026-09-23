@@ -45,12 +45,19 @@ module Dommy
         protocol
       when "port"
         port
+      when "ancestorOrigins"
+        ancestor_origins
       else
         Bridge::ABSENT
       end
     end
 
     def __js_set__(key, value)
+      # Every setter in HTML's Location begins "if this's relevant Document is
+      # null, then return". A page can hold on to a removed frame's location,
+      # and what it holds is inert: readable, and deaf to every write.
+      return unless browsing_context?
+
       case key
       when "href"
         __internal_navigate_to__(value.to_s, replace: false, source: :location)
@@ -80,8 +87,9 @@ module Dommy
       when "replace"
         __internal_navigate_to__(args[0].to_s, replace: true, source: :location)
       when "reload"
-        # A reload re-requests the current URL (never same-document).
-        @window.__internal_navigate__(url: href, method: "GET", replace: true, source: :reload)
+        # A reload re-requests the current URL (never same-document), and does
+        # nothing at all without a browsing context to reload.
+        @window.__internal_navigate__(url: href, method: "GET", replace: true, source: :reload) if browsing_context?
       when "toString"
         href
       end
@@ -117,6 +125,8 @@ module Dommy
     # NullDelegate). A real delegate rebinds Location on document replacement
     # regardless, so this only affects the no-op default.
     def __internal_navigate_to__(raw, source:, replace: false, sync_cross_doc: true)
+      return unless browsing_context?
+
       target = resolve(raw)
       if target.nil?
         # A URL the parser rejects: the Location API throws, following a
@@ -161,7 +171,35 @@ module Dommy
       @window.fire_hashchange(previous_href, href) if fire_hash && previous_hash != current_hash
     end
 
+    # Whether this Location still has a browsing context to navigate. A nested
+    # one loses it when the frame that held its document leaves the tree — the
+    # Window survives (a script may still hold it), the navigable does not. A
+    # top-level Window has no frame element and always has one.
+    def browsing_context?
+      frame = @window.frame_element
+      frame.nil? || frame.is_connected?
+    end
+
+    # `location.ancestorOrigins` — the origins of this browsing context's
+    # ancestors, innermost first. Empty for a top-level context, and for one
+    # that no longer has a context at all.
+    def ancestor_origins
+      origins = []
+      frame = @window.frame_element if browsing_context?
+      while frame
+        window = frame.owner_document&.default_view
+        break unless window
+
+        origins << window.location.__js_get__("origin")
+        frame = window.frame_element
+      end
+      origins
+    end
+
     def origin
+      # A Location with no browsing context has an opaque origin, which
+      # serializes as "null".
+      return "null" unless browsing_context?
       return "" if @record.host.nil?
 
       port_part = @record.port ? ":#{@record.port}" : ""

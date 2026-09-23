@@ -59,3 +59,64 @@ class TestLocationSetters < Minitest::Test
     assert_nil(@loc.__js_call__("reload", []))
   end
 end
+
+# A Location whose browsing context is gone. HTML starts every setter and every
+# navigation with "if this's relevant Document is null, then return", so a page
+# holding a removed frame's location holds something readable and deaf.
+class TestLocationWithoutBrowsingContext < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window("<body></body>")
+    @doc = @win.document
+    @frame = @doc.create_element("iframe")
+    @doc.body.append_child(@frame)
+    @loc = @frame.content_document.default_view.location
+    @frame.remove
+  end
+
+  def test_setters_do_nothing
+    @loc.__js_set__("href", "https://example.com/")
+    @loc.__js_set__("hash", "x")
+    @loc.__js_set__("protocol", "https")
+
+    assert_equal("about:blank", @loc.__js_get__("href"))
+  end
+
+  def test_assign_and_replace_do_nothing
+    @loc.__js_call__("assign", ["https://example.com/"])
+    @loc.__js_call__("replace", ["https://example.com/"])
+
+    assert_equal("about:blank", @loc.__js_get__("href"))
+  end
+
+  # A URL the parser rejects does not throw either: the setter returned before
+  # it ever looked at the string.
+  def test_an_invalid_url_does_not_raise
+    @loc.__js_set__("href", "http://test:test/")
+
+    assert_equal("about:blank", @loc.__js_get__("href"))
+  end
+
+  def test_origin_is_opaque
+    assert_equal("null", @loc.__js_get__("origin"))
+  end
+
+  def test_ancestor_origins_is_empty
+    assert_empty(@loc.__js_get__("ancestorOrigins"))
+  end
+
+  # While the frame is still in the tree, the same location is live, and lists
+  # the origin it is nested in.
+  def test_a_frame_still_in_the_tree_is_live
+    doc = make_window("<body></body>").document
+    frame = doc.create_element("iframe")
+    doc.body.append_child(frame)
+    loc = frame.content_document.default_view.location
+
+    loc.__js_set__("hash", "x")
+
+    assert_equal("#x", loc.__js_get__("hash"))
+    assert_equal(["http://localhost"], loc.__js_get__("ancestorOrigins"))
+  end
+end

@@ -725,9 +725,6 @@
     "ImageData": [
       "pixelFormat"
     ],
-    "Location": [
-      "ancestorOrigins"
-    ],
     "MessagePort": [
       "onclose",
       "onmessageerror"
