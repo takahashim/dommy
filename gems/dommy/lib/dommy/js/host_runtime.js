@@ -1567,9 +1567,6 @@ globalThis.__rbHost = (function () {
   // (via Symbol.toStringTag) work. Constructable interfaces (Event, DOMException,
   // …) build via Ruby; the rest throw Illegal constructor (HTMLElement until 1d).
   const protos = new Map();
-  // 2d: method name sets are per-interface (class), so cache them by interface
-  // name and reuse across every proxy of that interface instead of rebuilding.
-  const methodsByInterface = new Map();
   // Full per-interface descriptor (name + prototype chain + method names) keyed
   // by interface name. A handle that crosses tagged with its interface (see the
   // marshaller) reuses this instead of a `__rb_host_describe` round trip; the
@@ -2130,16 +2127,251 @@ globalThis.__rbHost = (function () {
     "createNodeIterator", "createTreeWalker", "cloneNode", "importNode",
   ]);
 
-  function makeHandler(handle, methods, methodCache, arrayLike, named, nodeChain, indexedSetter, ifaceName) {
+  // Everything about an interface that every proxy of it shares: its name and
+  // prototype chain, its method-name set, and the traits the traps branch on.
+  // Derived once per interface and memoized, where the handler used to be
+  // handed them as positional arguments recomputed on every crossing.
+  const shapeByInterface = new Map();
+  function interfaceShape(desc) {
+    const cached = (desc.name != null) ? shapeByInterface.get(desc.name) : undefined;
+    if (cached) return cached;
+
+    const methods = new Set(desc.methods);
+    // The maplike iterator methods are served as live iterators from the
+    // prototype (see ENTRIES_ITERABLES), so drop the Ruby array-returning
+    // versions from the method set — otherwise `entries()` would return an
+    // Array (no `.next()`) instead of an iterator.
+    if (ENTRIES_ITERABLES.has(desc.name)) {
+      for (const m of ["entries", "keys", "values"]) methods.delete(m);
+    }
+    const shape = {
+      name: desc.name,
+      chain: desc.chain,
+      methods,
+      arrayLike: ARRAY_LIKE_COLLECTIONS.has(desc.name),
+      named: NAMED_PROP_COLLECTIONS.get(desc.name) || null,
+      nodeChain: !!(desc.chain && desc.chain.indexOf("Node") !== -1),
+      indexedSetter: INDEXED_SETTER_INTERFACES.has(desc.name),
+      constIface: CONST_IFACE_PROPS.get(desc.name) || null,
+      stableIface: STABLE_EPOCH_IFACE_PROPS.get(desc.name) || null,
+      declinedProps: declinedSetFor(desc.name),
+    };
+    // An interface with no name is not a cache key: two unrelated objects would
+    // otherwise share the first one's shape.
+    if (desc.name != null) shapeByInterface.set(desc.name, shape);
+    return shape;
+  }
+
+  // ===== Method stubs =====
+
+  // A proxy's methods are built on first read and memoized per proxy, so that
+  // `el.foo === el.foo`. Most of them are one of four generic shapes; the
+  // handful that need more are the SPECIAL_METHOD_STUBS table below, which is
+  // where a new special case goes rather than into the get trap.
+  //
+  // `ctx` is what a stub can need beyond its own name: the handle it calls on,
+  // whether the object is a Node, its interface name (for the WebIDL arity)
+  // and the proxy's epoch-cached attribute reader.
+
+  // Potentially mutating: bump the epoch before (a reentrant callback during
+  // the call must not read stale snapshots) and after (the call's own mutations
+  // invalidate later reads).
+  function mutatingStub(prop, handle) {
+    return (...args) => {
+      bumpDomEpoch();
+      try {
+        return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+      } finally {
+        bumpDomEpoch();
+      }
+    };
+  }
+
+  function nonMutatingStub(prop, handle) {
+    return (...args) => hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+  }
+
+  // Mutating AND a `(Node or DOMString)...` union: coerce each arg (non-proxy
+  // -> ToString) before it crosses, so null/undefined/numbers become their text
+  // nodes per WebIDL.
+  function nodeOrStringStub(prop, handle) {
+    return (...args) => {
+      const coerced = args.map(coerceNodeOrString);
+      bumpDomEpoch();
+      try {
+        return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(coerced)));
+      } finally {
+        bumpDomEpoch();
+      }
+    };
+  }
+
+  // Every method that can change the event's canceled state (preventDefault
+  // sets it, the legacy init* reinitializers reset it) drops a fast-dispatch
+  // defaultPrevented shadow first — the next read then reflects the live host
+  // value. None of them can touch the DOM, so no epoch bump.
+  function canceledStateStub(prop, handle) {
+    return function (...args) {
+      try {
+        if (this && typeof this === "object") delete this.defaultPrevented;
+      } catch (e) { /* non-configurable shadow can't exist; ignore */ }
+      return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+    };
+  }
+
+  function listenerStub(prop, ctx) {
+    const handle = ctx.handle;
+    return (...args) => {
+      if (args.length >= 3) args[2] = flattenListenerOptions(prop, args[2]);
+      return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+    };
+  }
+
+  // getAttribute / hasAttribute off the element's per-epoch attribute snapshot,
+  // with no crossing. Only a Node has one; anything else takes the generic stub.
+  function cachedAttrStub(prop, ctx) {
+    if (!ctx.nodeChain) return null;
+
+    const read = ctx.cachedAttrRead;
+    return (name) => read(prop, name);
+  }
+
+  // setAttribute / removeAttribute: a mutating attribute op, and additionally
+  // an on* attribute set or removed at runtime (re)compiles or clears the
+  // inline event handler.
+  function attrWriteStub(prop, ctx) {
+    if (!ctx.nodeChain) return null;
+
+    const handle = ctx.handle;
+    return function (...args) {
+      bumpDomEpoch();
+      try {
+        const r = hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+        const attr = String(args[0] == null ? "" : args[0]);
+        if (/^on[a-z]/i.test(attr)) {
+          wireInlineHandler(this, attr.toLowerCase(), prop === "removeAttribute" ? null : args[1]);
+        }
+        return r;
+      } finally {
+        bumpDomEpoch();
+      }
+    };
+  }
+
+  // dispatchEvent has three paths. A JS-side Event (docs/js-side-events-design.md)
+  // whose type nobody listens for never leaves JS; one that is listened for
+  // materializes a host twin for the dispatch and folds the result back. A host
+  // Event proxy tries the unlistened-dispatch fast path
+  // (docs/event-dispatch-fastpath.md), where one crossing both decides and
+  // dispatches; everything else is the classic bump-and-call.
+  function dispatchEventStub(prop, ctx) {
+    const handle = ctx.handle;
+    return function (ev) {
+      const state = ev !== null && typeof ev === "object" ? ev[JS_EVENT] : undefined;
+      if (state !== undefined) return dispatchJsEvent(handle, prop, this, ev, state);
+
+      if (isProxy(ev) && typeof globalThis.__rb_host_dispatch_fast === "function") {
+        const r = __rb_host_dispatch_fast(handle, ev[HKEY]);
+        if (r && typeof r === "object" && r.fast === true) {
+          try { ev.defaultPrevented = r.result !== true; } catch (e) { /* frozen ev */ }
+          return r.result === true;
+        }
+      }
+      // A re-dispatch must not read a stale shadow from an earlier fast
+      // dispatch: the slow path defers to the live host value.
+      try { if (isProxy(ev)) delete ev.defaultPrevented; } catch (e) { /* ignore */ }
+      bumpDomEpoch();
+      try {
+        return rehydrate(__rb_host_call(handle, prop, dehydrateArgs([ev])));
+      } finally {
+        bumpDomEpoch();
+      }
+    };
+  }
+
+  // Dispatching a JS-side Event at a host target.
+  function dispatchJsEvent(handle, prop, target, ev, state) {
+    if (state.host) {
+      throw new globalThis.DOMException("The event is already being dispatched.", "InvalidStateError");
+    }
+    // Unlistened namespaced type: dispatch entirely JS-side — the only
+    // crossing is the type check itself.
+    if (typeof globalThis.__rb_host_event_fast === "function" &&
+        __rb_host_event_fast(state.type) === true) {
+      state.target = target;
+      // Dispatch unsets the stop-propagation flags on completion (DOM
+      // §dispatch), even when nothing listened.
+      state.stopped = false;
+      return state.canceled !== true;
+    }
+    // Slow path: materialize the host twin (carrying over any pre-set
+    // canceled/stopped state), register it so listeners receive THIS JS
+    // object, dispatch, then fold the final state back and drop the twin.
+    const init = { bubbles: state.bubbles, cancelable: state.cancelable, composed: state.composed };
+    if (state.name === "CustomEvent") init.detail = state.detail;
+    const twin = rehydrate(__rb_construct(state.name, dehydrateArgs([state.type, init])));
+    if (state.canceled) twin.preventDefault();
+    if (state.stopped) twin.stopPropagation();
+    jsEventByHandle.set(twin[HKEY], ev);
+    state.host = twin;
+    bumpDomEpoch();
+    try {
+      const r = rehydrate(__rb_host_call(handle, prop, dehydrateArgs([twin])));
+      // dispatchEvent returns !canceled — fold it back without re-reading the
+      // twin's defaultPrevented.
+      state.canceled = r !== true;
+      return r;
+    } finally {
+      bumpDomEpoch();
+      state.target = twin.target;
+      // DOM §dispatch unsets the stop-propagation flags when the dispatch
+      // completes; a reused event object must propagate again (the canceled
+      // flag, by contrast, persists).
+      state.stopped = false;
+      jsEventByHandle.delete(twin[HKEY]);
+      state.host = null;
+    }
+  }
+
+  // Methods whose stub is more than the generic call for their class. A factory
+  // may answer null — `getAttribute` is only special on a Node — and the
+  // generic stub is used then.
+  const SPECIAL_METHOD_STUBS = new Map([
+    ["addEventListener", listenerStub],
+    ["removeEventListener", listenerStub],
+    ["dispatchEvent", dispatchEventStub],
+    ["getAttribute", cachedAttrStub],
+    ["hasAttribute", cachedAttrStub],
+    ["setAttribute", attrWriteStub],
+    ["removeAttribute", attrWriteStub],
+  ]);
+
+  function makeMethodStub(prop, ctx) {
+    const special = SPECIAL_METHOD_STUBS.get(prop);
+    let fn = special ? special(prop, ctx) : null;
+    if (!fn) {
+      if (CANCELED_STATE_METHODS.has(prop)) fn = canceledStateStub(prop, ctx.handle);
+      else if (NON_MUTATING_METHODS.has(prop)) fn = nonMutatingStub(prop, ctx.handle);
+      else if (NODE_OR_STRING_METHODS.has(prop)) fn = nodeOrStringStub(prop, ctx.handle);
+      else fn = mutatingStub(prop, ctx.handle);
+    }
+    withArity(fn, prop, ctx.ifaceName);
+    return fn;
+  }
+
+  // The proxy handler for one host object: `handle` is the object, `shape` is
+  // everything its interface decides (see interfaceShape) and `methodCache`
+  // memoizes its method stubs. The per-interface traits used to arrive as eight
+  // positional arguments, rebuilt on every crossing.
+  function makeHandler(handle, shape, methodCache) {
+    const { methods, arrayLike, named, nodeChain, indexedSetter } = shape;
+    // Per-interface, resolved when the shape was built: the const and
+    // epoch-stable prop sets (Attr#name, Attr#value) and the host-declined-props
+    // Set, which keeps per-write key building out of the set trap's hot path.
+    const { constIface, stableIface, declinedProps } = shape;
     // Cached constant-prop values (CONST_NODE_PROPS) for a Node proxy; null
     // for non-Node interfaces so the cache check stays out of their get path.
     const constCache = nodeChain ? new Map() : null;
-    // Interface-specific const / epoch-stable prop sets (Attr#name, Attr#value).
-    const constIface = CONST_IFACE_PROPS.get(ifaceName) || null;
-    const stableIface = STABLE_EPOCH_IFACE_PROPS.get(ifaceName) || null;
-    // This interface's host-declined-props Set (shared across its proxies),
-    // resolved once so the set trap's hot path skips per-write key building.
-    const declinedProps = declinedSetFor(ifaceName);
     // Reflected-attribute map, only for Node proxies (elements have the
     // snapshot; other node kinds return null from attrsSnapshot and fall back).
     const reflectAttrs = nodeChain ? REFLECTED_STRING_ATTRS : null;
@@ -2219,6 +2451,10 @@ globalThis.__rbHost = (function () {
       const proto = Object.getPrototypeOf(t);
       return proto != null && (prop in proto);
     };
+    // What a method stub can need beyond its own name (see makeMethodStub).
+    const stubContext = {
+      handle, nodeChain, ifaceName: shape.name, cachedAttrRead,
+    };
     return {
       get(t, prop, receiver) {
         if (prop === HKEY) return handle;
@@ -2241,140 +2477,7 @@ globalThis.__rbHost = (function () {
           }
           let fn = methodCache.get(prop);
           if (!fn) {
-            if (prop === "addEventListener" || prop === "removeEventListener") {
-              fn = (...args) => {
-                if (args.length >= 3) args[2] = flattenListenerOptions(prop, args[2]);
-                return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
-              };
-            } else if (nodeChain && (prop === "getAttribute" || prop === "hasAttribute")) {
-              fn = (name) => cachedAttrRead(prop, name);
-            } else if (nodeChain && (prop === "setAttribute" || prop === "removeAttribute")) {
-              // Mutating attribute op; additionally, an on* attribute set/removed
-              // at runtime (re)compiles or clears the inline event handler.
-              fn = function (...args) {
-                bumpDomEpoch();
-                try {
-                  const r = hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
-                  const attr = String(args[0] == null ? "" : args[0]);
-                  if (/^on[a-z]/i.test(attr)) {
-                    wireInlineHandler(this, attr.toLowerCase(), prop === "removeAttribute" ? null : args[1]);
-                  }
-                  return r;
-                } finally {
-                  bumpDomEpoch();
-                }
-              };
-            } else if (prop === "dispatchEvent") {
-              // Unlistened-dispatch fast path (docs/event-dispatch-fastpath.md):
-              // one crossing decides AND dispatches a namespaced event nobody
-              // listens for — no epoch bumps (nothing can have mutated the
-              // DOM), and defaultPrevented is planted as an own-prop shadow so
-              // the post-dispatch read doesn't cross either. Everything else
-              // falls back to the classic bump-and-call path.
-              fn = function (ev) {
-                const state = ev !== null && typeof ev === "object" ? ev[JS_EVENT] : undefined;
-                if (state !== undefined) {
-                  if (state.host) {
-                    throw new globalThis.DOMException(
-                      "The event is already being dispatched.", "InvalidStateError");
-                  }
-                  // Unlistened namespaced type: dispatch entirely JS-side —
-                  // the only crossing is the type check itself.
-                  if (typeof globalThis.__rb_host_event_fast === "function" &&
-                      __rb_host_event_fast(state.type) === true) {
-                    state.target = this;
-                    // Dispatch unsets the stop-propagation flags on completion
-                    // (DOM §dispatch), even when nothing listened.
-                    state.stopped = false;
-                    return state.canceled !== true;
-                  }
-                  // Slow path: materialize the host twin (carrying over any
-                  // pre-set canceled/stopped state), register it so listeners
-                  // receive THIS JS object, dispatch, then fold the final
-                  // state back and drop the twin.
-                  const init = { bubbles: state.bubbles, cancelable: state.cancelable, composed: state.composed };
-                  if (state.name === "CustomEvent") init.detail = state.detail;
-                  const twin = rehydrate(__rb_construct(state.name, dehydrateArgs([state.type, init])));
-                  if (state.canceled) twin.preventDefault();
-                  if (state.stopped) twin.stopPropagation();
-                  jsEventByHandle.set(twin[HKEY], ev);
-                  state.host = twin;
-                  bumpDomEpoch();
-                  try {
-                    const r = rehydrate(__rb_host_call(handle, prop, dehydrateArgs([twin])));
-                    // dispatchEvent returns !canceled — fold it back without
-                    // re-reading the twin's defaultPrevented.
-                    state.canceled = r !== true;
-                    return r;
-                  } finally {
-                    bumpDomEpoch();
-                    state.target = twin.target;
-                    // DOM §dispatch unsets the stop-propagation flags when the
-                    // dispatch completes; a reused event object must propagate
-                    // again (the canceled flag, by contrast, persists).
-                    state.stopped = false;
-                    jsEventByHandle.delete(twin[HKEY]);
-                    state.host = null;
-                  }
-                }
-                if (isProxy(ev) && typeof globalThis.__rb_host_dispatch_fast === "function") {
-                  const r = __rb_host_dispatch_fast(handle, ev[HKEY]);
-                  if (r && typeof r === "object" && r.fast === true) {
-                    try { ev.defaultPrevented = r.result !== true; } catch (_) { /* frozen ev */ }
-                    return r.result === true;
-                  }
-                }
-                // A re-dispatch must not read a stale shadow from an earlier
-                // fast dispatch: the slow path defers to the live host value.
-                try { if (isProxy(ev)) delete ev.defaultPrevented; } catch (_) { /* ignore */ }
-                bumpDomEpoch();
-                try {
-                  return rehydrate(__rb_host_call(handle, prop, dehydrateArgs([ev])));
-                } finally {
-                  bumpDomEpoch();
-                }
-              };
-            } else if (CANCELED_STATE_METHODS.has(prop)) {
-              // Every method that can change the event's canceled state
-              // (preventDefault sets it, the legacy init* reinitializers
-              // reset it) drops a fast-dispatch defaultPrevented shadow
-              // first — the next read then reflects the live host value.
-              // None of them can touch the DOM, so no epoch bump.
-              fn = function (...args) {
-                try {
-                  if (this && typeof this === "object") delete this.defaultPrevented;
-                } catch (_) { /* non-configurable shadow can't exist; ignore */ }
-                return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
-              };
-            } else if (NON_MUTATING_METHODS.has(prop)) {
-              fn = (...args) => hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
-            } else if (NODE_OR_STRING_METHODS.has(prop)) {
-              // Mutating AND a `(Node or DOMString)...` union: coerce each arg
-              // (non-proxy -> ToString) before it crosses, so null/undefined/
-              // numbers become their text nodes per WebIDL.
-              fn = (...args) => {
-                const coerced = args.map(coerceNodeOrString);
-                bumpDomEpoch();
-                try {
-                  return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(coerced)));
-                } finally {
-                  bumpDomEpoch();
-                }
-              };
-            } else {
-              // Potentially mutating: bump the epoch before (a reentrant
-              // callback during the call must not read stale snapshots) and
-              // after (the call's own mutations invalidate later reads).
-              fn = (...args) => {
-                bumpDomEpoch();
-                try {
-                  return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
-                } finally {
-                  bumpDomEpoch();
-                }
-              };
-            }
-            withArity(fn, prop, ifaceName);
+            fn = makeMethodStub(prop, stubContext);
             methodCache.set(prop, fn);
           }
           return fn;
@@ -2701,19 +2804,9 @@ globalThis.__rbHost = (function () {
       if (d.name != null) descByInterface.set(d.name, desc);
       if (ceName === undefined) ceName = d.ce;
     }
-    // 2d: method-name sets are per-interface; reuse across proxies of that type.
-    let methods = methodsByInterface.get(desc.name);
-    if (!methods) {
-      methods = new Set(desc.methods);
-      // The maplike iterator methods are served as live iterators from the
-      // prototype (see ENTRIES_ITERABLES), so drop the Ruby array-returning
-      // versions from the method set — otherwise `entries()` would return an
-      // Array (no `.next()`) instead of an iterator.
-      if (ENTRIES_ITERABLES.has(desc.name)) {
-        for (const m of ["entries", "keys", "values"]) methods.delete(m);
-      }
-      methodsByInterface.set(desc.name, methods);
-    }
+    // 2d: the method-name set and the trap traits are per-interface; reuse them
+    // across every proxy of that type.
+    const shape = interfaceShape(desc);
     const target = (desc.chain && desc.chain.length)
       ? Object.create(protoForChain(desc.chain, 0))
       : {};
@@ -2733,10 +2826,8 @@ globalThis.__rbHost = (function () {
       }
     }
     // 2c: memoize method functions per proxy so `el.foo === el.foo`.
-    const isNode = !!(desc.chain && desc.chain.indexOf("Node") !== -1);
-    const p = new Proxy(target, makeHandler(handle, methods, new Map(),
-      ARRAY_LIKE_COLLECTIONS.has(desc.name), NAMED_PROP_COLLECTIONS.get(desc.name) || null,
-      isNode, INDEXED_SETTER_INTERFACES.has(desc.name), desc.name));
+    const isNode = shape.nodeChain;
+    const p = new Proxy(target, makeHandler(handle, shape, new Map()));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
     proxyInterfaces.set(p, desc.name);
