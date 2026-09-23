@@ -79,13 +79,33 @@ class TestWPTVarParsing < Minitest::Test
 
   def test_the_shapes_var_accepts
     ["var(--x)", "var(--x,)", "var(--x, )", "var(--x, 1px)", "var(--a, var(--b))",
-     "calc(var(--x) * 2)"].each { |value| assert_equal(value, width_after(value), value) }
+     "calc(var(--x) * 2)",
+     # The name argument is read as a custom property name at computed-value
+     # time, not at parse time, so a name that cannot be one still parses.
+     "var(--x ())", "var(--x () )", "var(--x() )", "var(--x (),)", "var(--x(),)",
+     # It may equally be a {} block, whose contents are then the argument.
+     "var({--x})", "var({--x}, 10px)", "var({--x, --y})"].each do |value|
+      assert_equal(value, width_after(value), value)
+    end
   end
 
   def test_the_shapes_var_rejects
-    ["var(--x ())", "var(--x () )", "var(--x() )", "var(--x (),)", "var(--x(),)"].each do |value|
+    # An empty name argument, and a {} block mixed with anything else.
+    ["var()", "var({})", "var({}, 10px)", "var(, 10px)",
+     "var(--x {--y})", "var({--x} --y)", "var(--x {--y}, 10px)"].each do |value|
       assert_equal("", width_after(value), value)
     end
+  end
+
+  # A name that is not a custom property name is invalid at computed-value time,
+  # and the fallback does not rescue it.
+  def test_a_name_that_is_not_a_property_name_computes_to_nothing
+    win = make_window("<style>#t{--x:5px; width:var(--x ()); height:var({--x}, 10px); top:var(--x)}</style>" \
+                      "<div id='t'></div>")
+    style = win.get_computed_style(win.document.get_element_by_id("t"))
+    assert_equal("", style.get_property_value("width"))
+    assert_equal("", style.get_property_value("height"))
+    assert_equal("5px", style.get_property_value("top"))
   end
 
   def test_an_ordinary_value_is_untouched
@@ -99,7 +119,7 @@ class TestWPTVarParsing < Minitest::Test
   def test_a_rejected_write_leaves_the_attribute_alone
     @el.set_attribute("style", "z-index: 50; invalid")
     before = @el.get_attribute("style")
-    @el.style.set_property("width", "var(--x ())")
+    @el.style.set_property("width", "var({--x} --y)")
     @el.style.remove_property("position")
     @el.style.set_property("position", "")
     assert_equal(before, @el.get_attribute("style"))
