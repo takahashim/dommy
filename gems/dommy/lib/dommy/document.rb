@@ -3,6 +3,7 @@
 require "uri"
 
 require_relative "internal/node_wrapper_cache"
+require_relative "internal/node_factory"
 require_relative "internal/mutation_coordinator"
 require_relative "internal/shadow_root_registry"
 require_relative "internal/cookie_jar"
@@ -660,6 +661,7 @@ module Dommy
       @host = host
       @default_view = default_view
       @node_wrapper_cache = Internal::NodeWrapperCache.new(self)
+      @node_factory = Internal::NodeFactory.new(self, @node_wrapper_cache)
       @observer_manager = Internal::ObserverManager.new
       @shadow_registry = Internal::ShadowRootRegistry.new
       @cookie_jar = Internal::CookieJar.new
@@ -950,11 +952,11 @@ module Dommy
     # element. Per spec, name must match the XML Name production —
     # invalid names throw InvalidCharacterError.
     def create_attribute(name)
-      @node_wrapper_cache.create_attribute(name)
+      @node_factory.create_attribute(name)
     end
 
     def create_attribute_ns(namespace_uri, qualified_name)
-      @node_wrapper_cache.create_attribute_ns(namespace_uri, qualified_name)
+      @node_factory.create_attribute_ns(namespace_uri, qualified_name)
     end
 
     # `document.createTreeWalker(root, whatToShow?, filter?)` — stateful
@@ -1200,7 +1202,7 @@ module Dommy
     end
 
     def create_processing_instruction(target, data)
-      @node_wrapper_cache.create_processing_instruction(target, data)
+      @node_factory.create_processing_instruction(target, data)
     end
 
     # WHATWG "ensure pre-insertion validity", step 6 — the Document-parent
@@ -1675,7 +1677,7 @@ module Dommy
     end
 
     def create_element_ns(namespace_uri, qualified_name)
-      @node_wrapper_cache.create_element_ns(namespace_uri, qualified_name)
+      @node_factory.create_element_ns(namespace_uri, qualified_name)
     end
 
     def get_elements_by_tag_name(name)
@@ -1726,7 +1728,7 @@ module Dommy
     # through the same wrap_node identity machinery as Element / TextNode.
     def create_comment(text)
       # WebIDL DOMString: JS null coerces to "null" (undefined -> "undefined").
-      @node_wrapper_cache.create_comment(text.nil? ? "null" : text)
+      @node_factory.create_comment(text.nil? ? "null" : text)
     end
 
     def create_cdata_section(text)
@@ -1738,11 +1740,11 @@ module Dommy
       str = text.to_s
       raise DOMException::InvalidCharacterError, "CDATA section data must not contain ']]>'" if str.include?("]]>")
 
-      @node_wrapper_cache.create_cdata_section(str)
+      @node_factory.create_cdata_section(str)
     end
 
     def create_document_fragment
-      @node_wrapper_cache.create_document_fragment
+      @node_factory.create_document_fragment
     end
 
     def get_elements_by_class_name(name)
@@ -2139,7 +2141,7 @@ module Dommy
     end
 
     def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
-      @node_wrapper_cache.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
+      @node_factory.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
     end
 
     # The task scheduler this document's own tasks run on: its browsing context's
@@ -2636,12 +2638,12 @@ module Dommy
     # Delegate factory methods to NodeWrapperCache
 
     def create_element(name)
-      @node_wrapper_cache.create_element(name)
+      @node_factory.create_element(name)
     end
 
     def create_text_node(text)
       # WebIDL DOMString: JS null coerces to "null" (undefined -> "undefined").
-      @node_wrapper_cache.create_text_node(text.nil? ? "null" : text)
+      @node_factory.create_text_node(text.nil? ? "null" : text)
     end
 
     def query_selector(selector)

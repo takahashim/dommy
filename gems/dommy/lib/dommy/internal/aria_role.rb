@@ -194,8 +194,9 @@ module Dommy
         type = element.get_attribute("type").to_s.downcase
         return "textbox" if type.empty?
 
-        # type=search is searchbox only without a suggestions list; the common
-        # case has no list, so map to searchbox.
+        # `type=search` is `combobox` when the control has a suggestions list
+        # and `searchbox` otherwise; INPUT_ROLES maps it to searchbox, because
+        # Dommy has no list to consult.
         INPUT_ROLES[type]
       end
 

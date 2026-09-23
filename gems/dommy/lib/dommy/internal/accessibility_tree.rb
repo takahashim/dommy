@@ -19,16 +19,27 @@ module Dommy
       # One accessible object. A `:text` node carries its string in `name` and
       # has no children — it is significant text not folded into an ancestor.
       class Node
-        attr_reader :role, :name, :description, :states, :element
+        attr_reader :role, :name, :states, :element
         attr_accessor :children
 
-        def initialize(role:, name: "", description: "", states: {}, element: nil)
+        def initialize(role:, name: "", description: nil, states: {}, element: nil)
           @role = role
           @name = name
           @description = description
           @states = states
           @element = element
           @children = []
+        end
+
+        # Computed on demand. Resolving it means walking an IDREF list and
+        # naming each target, which is a second accessible-name computation per
+        # node — and nothing in a snapshot reads it, so a whole tree used to pay
+        # for it to be thrown away.
+        def description
+          return @description if @description
+          return "" unless element
+
+          @description = AccessibleDescription.compute(element)
         end
 
         def text? = role == :text
@@ -99,7 +110,6 @@ module Dommy
         node = Node.new(
           role: role,
           name: AccessibleName.compute(element),
-          description: AccessibleDescription.compute(element),
           states: AriaState.compute(element, role),
           element: element
         )
