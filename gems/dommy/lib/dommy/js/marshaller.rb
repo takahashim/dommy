@@ -71,8 +71,7 @@ module Dommy
         # rejection reason that must be `instanceof TypeError`): rebuild the real
         # JS error on the other side rather than flattening it to a plain object.
         if value.is_a?(Dommy::Bridge::TypeError) || value.is_a?(Dommy::Bridge::RangeError)
-          name = value.is_a?(Dommy::Bridge::RangeError) ? "RangeError" : "TypeError"
-          return {WireTags::ERROR_VALUE => {"name" => name, "message" => value.message, "js_native" => true}}
+          return {WireTags::ERROR_VALUE => native_error_payload(value)}
         end
         # A JS EventListener object wrapped on the way in returns as that same JS
         # object (so removeEventListener(el, this) reaches the right listener).
@@ -153,52 +152,28 @@ module Dommy
           value.respond_to?(:__js_new__)
       end
 
+      # The tagged Hash shapes #unwrap knows, as tag key -> the builder that
+      # rebuilds the Ruby value. A table rather than an `elsif` chain, so a new
+      # WireTag is one entry here and its mirror in host_runtime.js. A tagged
+      # Hash carries exactly one of these keys (a handle's INTERFACE, a ref's
+      # JS_STACK and friends are decoration), so the first hit is the shape.
+      TAG_BUILDERS = {
+        WireTags::HANDLE => :unwrap_handle,
+        WireTags::CALLBACK => :unwrap_callback,
+        WireTags::JS_REF => :unwrap_js_ref,
+        WireTags::UNDEFINED => :unwrap_undefined,
+        WireTags::ABSENT => :unwrap_absent,
+        WireTags::BYTES => :unwrap_bytes
+      }.freeze
+
       # JS -> Ruby: rebuild tagged handles / callbacks into Ruby objects.
       def unwrap(value)
         case value
         when Array
           value.map { |element| unwrap(element) }
         when Hash
-          if value.key?(WireTags::HANDLE)
-            # Tolerant: an argument referencing a released/invalid node resolves
-            # to nil rather than crashing (e.g. Vue passes a transient handle
-            # during v-model setup). A receiver handle still uses strict #host.
-            @handles.lookup(value[WireTags::HANDLE])
-          elsif value.key?(WireTags::CALLBACK)
-            id = value[WireTags::CALLBACK]
-            @callback_objects[id] ||= HostCallback.new(@bridge, id)
-          elsif value.key?(WireTags::JS_REF)
-            ref = value[WireTags::JS_REF]
-            if value[WireTags::HANDLE_EVENT]
-              # A JS object implementing EventListener (handleEvent). Wrap it as a
-              # Ruby listener whose #handle_event routes back to its handleEvent.
-              # Memoized by ref so the same JS object yields the same wrapper,
-              # letting removeEventListener match the listener by identity.
-              @listener_objects[ref] ||= HostEventListener.new(@bridge, ref, value[WireTags::JS_LABEL])
-            elsif value[WireTags::ACCEPT_NODE]
-              # A NodeFilter callback-interface object. Wrap it so a traversal
-              # invokes acceptNode on the live JS object (fresh getter, this =
-              # object, exceptions propagated).
-              @filter_objects[ref] ||= HostNodeFilter.new(@bridge, ref)
-            else
-              # An opaque JS value (a non-plain object Ruby just stores and
-              # returns, e.g. an abort reason) — kept as a handle so it
-              # round-trips with identity rather than being flattened to a Hash.
-              Dommy::Bridge::JSValue.new(ref, value[WireTags::JS_LABEL],
-                Marshaller.stack_frames(value[WireTags::JS_STACK]), value[WireTags::JS_NAME])
-            end
-          elsif value.key?(WireTags::UNDEFINED)
-            # A top-level JS `undefined` argument — distinct from JS null (nil).
-            Dommy::Bridge::UNDEFINED
-          elsif value.key?(WireTags::ABSENT)
-            # Symmetry with #wrap; an absent marker crossing back is the sentinel.
-            Dommy::Bridge::ABSENT
-          elsif value.key?(WireTags::BYTES)
-            # A JS ArrayBuffer / TypedArray argument arrives as a byte buffer.
-            Dommy::Bridge::Bytes.new(value[WireTags::BYTES])
-          else
-            value.transform_values { |element| unwrap(element) }
-          end
+          builder = tag_builder(value)
+          builder ? send(builder, value) : value.transform_values { |element| unwrap(element) }
         when :undefined
           # A bare JS `undefined` (e.g. a property-set value, marshalled
           # directly rather than through the tagged-args path) arrives as the
@@ -211,6 +186,53 @@ module Dommy
           value
         end
       end
+
+      # Which of TAG_BUILDERS this Hash carries, or nil for a plain object. Walks
+      # the Hash's own keys (a tagged one has very few) instead of probing for
+      # every tag in turn.
+      def tag_builder(hash)
+        hash.each_key do |key|
+          builder = TAG_BUILDERS[key]
+          return builder if builder
+        end
+        nil
+      end
+
+      # Tolerant: an argument referencing a released/invalid node resolves to nil
+      # rather than crashing (e.g. Vue passes a transient handle during v-model
+      # setup). A receiver handle still uses strict #host.
+      def unwrap_handle(value) = @handles.lookup(value[WireTags::HANDLE])
+
+      def unwrap_callback(value)
+        id = value[WireTags::CALLBACK]
+        @callback_objects[id] ||= HostCallback.new(@bridge, id)
+      end
+
+      # A live JS object, in one of the three roles the bridge knows: an
+      # EventListener, a NodeFilter, or an opaque value Ruby only stores and
+      # hands back. The first two are memoized by ref so the same JS object
+      # yields the same Ruby wrapper — that is what lets removeEventListener
+      # match a listener by identity.
+      def unwrap_js_ref(value)
+        ref = value[WireTags::JS_REF]
+        if value[WireTags::HANDLE_EVENT]
+          @listener_objects[ref] ||= HostEventListener.new(@bridge, ref, value[WireTags::JS_LABEL])
+        elsif value[WireTags::ACCEPT_NODE]
+          @filter_objects[ref] ||= HostNodeFilter.new(@bridge, ref)
+        else
+          Dommy::Bridge::JSValue.new(ref, value[WireTags::JS_LABEL],
+            Marshaller.stack_frames(value[WireTags::JS_STACK]), value[WireTags::JS_NAME])
+        end
+      end
+
+      # A top-level JS `undefined` argument — distinct from JS null (nil).
+      def unwrap_undefined(_value) = Dommy::Bridge::UNDEFINED
+
+      # Symmetry with #wrap; an absent marker crossing back is the sentinel.
+      def unwrap_absent(_value) = Dommy::Bridge::ABSENT
+
+      # A JS ArrayBuffer / TypedArray argument arrives as a byte buffer.
+      def unwrap_bytes(value) = Dommy::Bridge::Bytes.new(value[WireTags::BYTES])
 
       # ---- exception / callback-result marshalling ----
 
@@ -228,14 +250,21 @@ module Dommy
         {WireTags::THROW => wrap(e.value)}
       rescue Dommy::DOMException => e
         {WireTags::EXCEPTION => {"name" => e.name, "message" => e.message, "code" => e.code}}
-      rescue Dommy::Bridge::TypeError => e
-        # A deliberate, spec-mandated JS TypeError (e.g. `new URL(bad)`). Tagged
-        # so rehydrate rethrows a real `TypeError` — `assert_throws_js(TypeError,
-        # …)` checks `instanceof TypeError`, which a DOMException/Error fails.
-        {WireTags::EXCEPTION => {"name" => "TypeError", "message" => e.message, "js_native" => true}}
-      rescue Dommy::Bridge::RangeError => e
-        # A spec-mandated JS RangeError (e.g. `new Response(b, {status: 42})`).
-        {WireTags::EXCEPTION => {"name" => "RangeError", "message" => e.message, "js_native" => true}}
+      rescue Dommy::Bridge::TypeError, Dommy::Bridge::RangeError => e
+        # A deliberate, spec-mandated JS TypeError (`new URL(bad)`) or RangeError
+        # (`new Response(b, {status: 42})`). Tagged so rehydrate rethrows the real
+        # constructor — `assert_throws_js(TypeError, …)` checks `instanceof
+        # TypeError`, which a DOMException/Error fails.
+        {WireTags::EXCEPTION => native_error_payload(e)}
+      end
+
+      # The wire shape of a JS-native error. One description for both the thrown
+      # form (EXCEPTION, rethrown JS-side) and the value form (ERROR_VALUE, e.g.
+      # a promise's rejection reason), which differ only in the tag they sit
+      # under — rehydrate builds the same error object from either.
+      def native_error_payload(error)
+        name = error.is_a?(Dommy::Bridge::RangeError) ? "RangeError" : "TypeError"
+        {"name" => name, "message" => error.message, "js_native" => true}
       end
 
       # A callback's return value, or — when the JS side tagged the result as a
