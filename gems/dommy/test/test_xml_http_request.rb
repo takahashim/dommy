@@ -202,6 +202,70 @@ class TestXMLHttpRequest < Minitest::Test
     assert_equal("payload", @win.__js_get__("__last_body__"))
   end
 
+  # Read the request as the network sees it: a __fetch_handler__ is the seam
+  # dommy-rack uses, and the only place the headers a request actually carries
+  # are observable.
+  def captured_request(method, body, author_content_type: nil)
+    seen = nil
+    @win.globals["__fetch_handler__"] = lambda do |_url, request|
+      seen = request
+      {"status" => 200, "body" => "ok"}
+    end
+    xhr = new_xhr
+    xhr.open(method, "/api/foo", false)
+    xhr.set_request_header("Content-Type", author_content_type) if author_content_type
+    xhr.send(body)
+    seen
+  end
+
+  def content_type_of(request)
+    key = request["headers"].keys.find { |k| k.to_s.casecmp?("content-type") }
+    key && request["headers"][key]
+  end
+
+  # WHATWG send(): GET and HEAD carry no body, so neither the bytes nor the
+  # Content-Type the body would have implied are sent.
+  def test_get_sends_no_body_and_no_implied_content_type
+    request = captured_request("GET", Dommy::URLSearchParams.new("a=b"))
+
+    assert_nil(request["body"])
+    assert_nil(content_type_of(request))
+  end
+
+  def test_head_sends_no_body
+    assert_nil(captured_request("HEAD", Dommy::URLSearchParams.new("a=b"))["body"])
+  end
+
+  def test_post_sends_the_body_and_its_implied_content_type
+    request = captured_request("POST", Dommy::URLSearchParams.new("a=b"))
+
+    assert_equal("a=b", request["body"].to_s)
+    assert_equal("application/x-www-form-urlencoded;charset=UTF-8", content_type_of(request))
+  end
+
+  def test_get_keeps_an_author_set_content_type
+    request = captured_request("GET", Dommy::URLSearchParams.new("a=b"), author_content_type: "text/plain")
+
+    assert_nil(request["body"])
+    assert_equal("text/plain", content_type_of(request))
+  end
+
+  # The body was encoded as UTF-8 whatever the author's header says, so the
+  # charset parameter — and only it — is corrected.
+  def test_author_content_type_charset_is_corrected
+    request = captured_request(
+      "POST", Dommy::URLSearchParams.new("a=b"), author_content_type: "text/plain;charset=windows-1252"
+    )
+
+    assert_equal("text/plain;charset=UTF-8", content_type_of(request))
+  end
+
+  def test_author_content_type_without_a_charset_is_left_alone
+    request = captured_request("POST", Dommy::URLSearchParams.new("a=b"), author_content_type: "text/plain")
+
+    assert_equal("text/plain", content_type_of(request))
+  end
+
   def test_set_request_header_before_open_raises
     xhr = new_xhr
     assert_raises(Dommy::XMLHttpRequest::Error) { xhr.set_request_header("X-A", "1") }

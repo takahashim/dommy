@@ -32,12 +32,43 @@ module Dommy
       # The charset parameter, or nil.
       def charset_of(mime_type) = parameter(mime_type, "charset")
 
+      # The MIME type with its `charset` parameter's value replaced, or
+      # unchanged when it has no charset. A splice, not a re-serialization: a
+      # header the author wrote comes back as they wrote it apart from the one
+      # value that is being corrected, quotes and spacing included.
+      def with_charset(mime_type, value)
+        text = mime_type.to_s
+        range = charset_value_range(text)
+        return text unless range
+
+        text.dup.tap { |out| out[range] = value }
+      end
+
       # Every parameter, as [lowercased name, value] pairs in source order.
       def parameters(mime_type)
         mime_type.to_s.scan(PARAMETER).map do |key, quoted, bare|
           [key.downcase, quoted ? quoted.gsub(/\\(.)/, '\1') : bare.to_s.strip]
         end
       end
+
+      # Where the charset parameter's value sits in the source text, inside the
+      # quotes when it is quoted. Found by walking the parameter list rather
+      # than searching for "charset=", so a `;charset=` inside some other
+      # parameter's quoted value is not mistaken for the parameter itself — the
+      # same rule that #parameters follows.
+      def charset_value_range(text)
+        found = nil
+        text.scan(PARAMETER) do
+          match = Regexp.last_match
+          next unless match[1].casecmp?("charset")
+
+          group = match[2] ? 2 : 3
+          found = (match.begin(group)...match.end(group))
+          break
+        end
+        found
+      end
+      private_class_method :charset_value_range
     end
   end
 end

@@ -98,12 +98,21 @@ module Dommy
         raise DOMException::InvalidStateError, "send() requires the OPENED state and an unsent request"
       end
 
+      # WHATWG send() step 4: "if this's request method is GET or HEAD, then set
+      # body to null". A body is not something these methods carry, so neither
+      # the bytes nor the Content-Type they would have implied are sent — an
+      # author-set Content-Type still is, because the author set it.
+      body = nil if %w[GET HEAD].include?(@method.to_s)
+
       @request_body = body
       # WHATWG "extract a body": normalize the body (string / ArrayBuffer /
       # TypedArray / Blob / URLSearchParams / FormData) to bytes once, and default
       # the Content-Type from that extraction unless the author set one.
       @request_body_bytes, default_ct = body.nil? ? [nil, nil] : Response.extract_body(body)
-      if default_ct && @request_headers.none? { |k, _| k.to_s.casecmp?("content-type") }
+      author_ct = @request_headers.keys.find { |k| k.to_s.casecmp?("content-type") }
+      if author_ct
+        reconcile_author_charset(author_ct, body)
+      elsif default_ct
         @request_headers["Content-Type"] = default_ct
       end
       @sent = true
@@ -124,6 +133,27 @@ module Dommy
 
       deliver_resolved(entry, gen)
       nil
+    end
+
+    # WHATWG send(): an author-set Content-Type that names a charset other than
+    # UTF-8 has that parameter corrected, because the body was encoded as UTF-8
+    # whatever the header says. Everything else about the header is left as the
+    # author wrote it — only the charset is theirs to be wrong about.
+    #
+    # The spec limits this to a Document or a string body; Blink, Gecko and
+    # WebKit all do it for URLSearchParams too, which is also always UTF-8, and
+    # xhr/send-usp.any.js tests the browsers' behaviour.
+    def reconcile_author_charset(header_key, body)
+      # A body whose bytes this implementation produced, and produced as UTF-8.
+      # A Blob or a typed array carries bytes the author encoded themselves, so
+      # their charset is not ours to correct.
+      return unless body.is_a?(String) || body.is_a?(URLSearchParams)
+
+      value = @request_headers[header_key].to_s
+      charset = Internal::MimeType.charset_of(value)
+      return if charset.nil? || charset.casecmp?("UTF-8")
+
+      @request_headers[header_key] = Internal::MimeType.with_charset(value, "UTF-8")
     end
 
     # Deliver a resolved response entry (nil -> 404), honoring abort/reopen (the
