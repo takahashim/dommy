@@ -3420,9 +3420,7 @@ module Dommy
     end
 
     def labels
-      return [] if id.empty?
-
-      @document.query_selector_all("label[for='#{id}']")
+      labels_node_list
     end
 
     def type

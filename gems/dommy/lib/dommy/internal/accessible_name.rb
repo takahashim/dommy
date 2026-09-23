@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require_relative "text_flattening"
+require_relative "node_identity"
+require_relative "accessibility_visibility"
+
 module Dommy
   module Internal
     # Computes an element's WAI-ARIA *accessible name* (the "accname"
@@ -29,6 +33,8 @@ module Dommy
       # on it stays a tooltip rather than becoming the name.
       NAME_FROM_CONTENT_TAGS = %w[summary].freeze
 
+      extend TextFlattening
+
       module_function
 
       # The accessible name string ("" when none). ASCII whitespace runs are
@@ -36,11 +42,6 @@ module Dommy
       # flatten an accessible name.
       def compute(element)
         squish(name_of(element, [], referenced: false, allow_content: false))
-      end
-
-      # Collapse ASCII whitespace runs to single spaces and trim.
-      def squish(text)
-        text.to_s.gsub(/\s+/, " ").strip
       end
 
       # `referenced`: this node was reached through aria-labelledby, so it must
@@ -113,7 +114,7 @@ module Dommy
           ref = doc.get_element_by_id(id)
           next "" unless ref
 
-          name_of(ref, visited, referenced: true, allow_content: true, hidden_root: hidden_for_name?(ref))
+          name_of(ref, visited, referenced: true, allow_content: true, hidden_root: AccessibilityVisibility.hidden_for_name?(ref))
         end
         joined = parts.join(" ").strip
         joined.empty? ? nil : joined
@@ -187,21 +188,19 @@ module Dommy
 
         text = labels.map do |label|
           name_of(label, visited, referenced: false, allow_content: true,
-            skip: node, hidden_root: hidden_for_name?(label))
+            skip: node, hidden_root: AccessibilityVisibility.hidden_for_name?(label))
         end.join(" ").strip
         text.empty? ? nil : text
       end
 
+      # A labelable control answers its own `labels` (HTML's live list, which
+      # already covers both the `for=` references and a wrapping label, in
+      # document order). Anything else can still sit inside a label, so the
+      # ancestor walk remains as the fallback.
       def associated_labels(node)
-        labels = []
-        id = node.get_attribute("id").to_s
-        unless id.empty?
-          doc = node.document
-          labels.concat(doc.query_selector_all("label[for='#{id}']").to_a) if doc
-        end
-        ancestor = closest_label(node)
-        labels << ancestor if ancestor && !labels.include?(ancestor)
-        labels
+        return node.labels.to_a if node.respond_to?(:labels) && node.labels
+
+        [closest_label(node)].compact
       end
 
       def closest_label(node)
@@ -230,11 +229,11 @@ module Dommy
             # The control a label names contributes nothing to that label's text
             # — `<label>Name <select>…</select></label>` names the select "Name",
             # not "Name" plus its own options.
-            next "" if skip && Backend.identity_key(skip.__dommy_backend_node__) == Backend.identity_key(child)
+            next "" if skip && NodeIdentity.same_node?(skip, child)
             # A hidden subtree is not part of the name computed from content —
             # unless the traversal started at a hidden node, which brings its
             # whole subtree along.
-            next "" if !hidden_root && hidden_for_name?(wrapped)
+            next "" if !hidden_root && AccessibilityVisibility.hidden_for_name?(wrapped)
 
             name = name_of(wrapped, visited, referenced: false, allow_content: true,
               skip: skip, hidden_root: hidden_root)
@@ -249,19 +248,6 @@ module Dommy
         end.join
 
         pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
-      end
-
-      # Whether this element is excluded from a name computed from content. A
-      # node the author pointed at directly with aria-labelledby is still named
-      # even when hidden — this only governs the traversal INTO a subtree.
-      def hidden_for_name?(element)
-        return true if element.has_attribute?("hidden")
-        return true if element.get_attribute("aria-hidden").to_s == "true"
-
-        style = Internal::CSS::Cascade.computed_style(element)
-        style["display"].to_s == "none" || style["visibility"].to_s == "hidden"
-      rescue StandardError
-        false
       end
 
       # Elements that generate a block-level box by the UA stylesheet — used as

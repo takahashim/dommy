@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "text_flattening"
+
 module Dommy
   module Internal
     # Builds the *accessibility tree* of a DOM scope: the tree of accessible
@@ -42,6 +44,8 @@ module Dommy
           hash
         end
       end
+
+      extend TextFlattening
 
       module_function
 
@@ -186,11 +190,7 @@ module Dommy
       # An element (and its whole subtree) is excluded from the tree when
       # `aria-hidden="true"` or when it is not visually rendered. `visible?`
       # deliberately ignores aria-hidden, so it is checked here.
-      def excluded?(element)
-        return true if element.get_attribute("aria-hidden").to_s.casecmp?("true")
-
-        !DomMatching.visible?(element)
-      end
+      def excluded?(element) = AccessibilityVisibility.hidden?(element)
 
       # A lone, unscoped <th> that is the only cell of the only row of its table
       # is not emitted as a header cell — Chromium folds it into the row's
@@ -209,7 +209,6 @@ module Dommy
         rows.first.query_selector_all("td, th").to_a.size == 1
       end
 
-      def squish(text) = text.to_s.gsub(/\s+/, " ").strip
     end
   end
 end
