@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
 require "time"
 
 module Dommy
@@ -26,7 +25,7 @@ module Dommy
 
       # Parse a single Set-Cookie header value and store the result.
       def store_from_header(set_cookie_string, request_url)
-        uri = URI.parse(request_url)
+        uri = Dommy::URL.new(request_url)
         entry = parse_set_cookie(set_cookie_string, uri)
         return unless entry
 
@@ -92,10 +91,10 @@ module Dommy
 
       # Build the Cookie request header value for the given URL, or "".
       def cookies_for(request_url)
-        uri = URI.parse(request_url)
-        secure_request = uri.scheme == "https"
-        host = uri.host.to_s.downcase
-        path = uri.path.to_s.empty? ? "/" : uri.path
+        uri = Dommy::URL.new(request_url)
+        secure_request = uri.protocol == "https:"
+        host = uri.hostname.downcase
+        path = uri.pathname.empty? ? "/" : uri.pathname
 
         matches = @mutex.synchronize do
           @entries.reject { |e| expired?(e) }.select do |e|
@@ -132,7 +131,7 @@ module Dommy
         return nil if name.empty?
 
         attrs = parse_attributes(segments)
-        request_host = request_uri.host.to_s.downcase
+        request_host = request_uri.hostname.downcase
 
         domain = attrs["domain"]
         host_only = domain.nil? || domain.empty?
@@ -169,7 +168,7 @@ module Dommy
 
       # RFC 6265 default-path: directory portion of the request path.
       def default_path(uri)
-        path = uri.path.to_s
+        path = uri.pathname
         return "/" if path.empty? || !path.start_with?("/")
 
         idx = path.rindex("/")
