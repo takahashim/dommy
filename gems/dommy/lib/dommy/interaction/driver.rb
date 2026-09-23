@@ -66,7 +66,7 @@ module Dommy
       # #submit_button_element?) travels in as a predicate so KeySender
       # doesn't need to know about Driver's duck-typed extension point.
       def key_sender
-        KeySender.new(field_interactor, method(:submit_button_element?))
+        KeySender.new(field_interactor, submit_button_predicate: method(:submit_button_element?))
       end
 
       # The single element matching `selector` in scope (raises if none).

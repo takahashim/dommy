@@ -10,13 +10,13 @@ module Dommy
     # implicit submission. Extracted from Driver so keyboard defaulting has its
     # own home, the way field mutation has FieldInteractor.
     #
-    # `submit_button_predicate` is the includer's (Browser / Rack::Session)
+    # `submit_button_predicate:` is the includer's (Browser / Rack::Session)
     # optional rule for "is this element a submit button", used to pick the
     # form's default submit button for Enter's implicit submission; nil means
     # none is ever a submit button (implicit submission falls back to the
     # HTML no-submitter path).
     class KeySender
-      def initialize(field_interactor, submit_button_predicate = nil)
+      def initialize(field_interactor, submit_button_predicate: nil)
         @field_interactor = field_interactor
         @submit_button_predicate = submit_button_predicate
       end
@@ -106,10 +106,14 @@ module Dommy
       # implicit-submission default action would activate), or nil for a
       # buttonless form.
       def default_submit_button(form)
-        form.query_selector_all("button, input").find { |el| submit_button_element?(el) }
+        form.query_selector_all("button, input").find { |el| submit_button?(el) }
       end
 
-      def submit_button_element?(element)
+      # Thin wrapper around the injected predicate — not a rule of its own,
+      # just "ask whoever handed us one." Named differently from Driver's
+      # submit_button_element? (which IS the rule) so the two don't read as
+      # duplicate logic when scanning across files.
+      def submit_button?(element)
         @submit_button_predicate&.call(element) || false
       end
     end
