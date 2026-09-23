@@ -1,78 +1,58 @@
 # frozen_string_literal: true
 
-require "uri"
-
 module Dommy
   module Rack
-    # IRI → URI normalization. Links and redirect `Location`s on real pages
-    # often carry raw, unescaped UTF-8 (e.g. `https://note.com/hashtag/応援`).
-    # Ruby's stdlib URI parser is ASCII-only and raises `URI::InvalidURIError`
-    # on such a string, which would crash navigation / cookie matching. A
-    # browser percent-encodes the non-ASCII bytes (UTF-8) before parsing; this
-    # does the same.
+    # Thin helpers around `Dommy::URL` (dommy core's WHATWG URL parser) for the
+    # handful of URL operations shared across Session / Navigation / Resources /
+    # WebSocketTransport: resolving a possibly-relative URL against a base,
+    # same-origin comparison, and building the `SERVER_PORT` a Rack env needs
+    # (Dommy::URL#port omits a default port per the URL Standard; a Rack env
+    # needs the effective numeric port either way).
     module Url
       module_function
 
-      # Percent-encode the non-ASCII characters in `url` so the ASCII-only URI
-      # parser accepts it. Already-encoded `%XX` and every ASCII character
-      # (including reserved / sub-delims and `%` itself) are left untouched, so
-      # the result is idempotent. The authority (host[:port]) is left alone: a
-      # non-ASCII host needs IDNA/Punycode, which is a separate concern — only
-      # the path / query / fragment bytes are escaped.
-      def encode_iri(url)
-        str = url.to_s
-        return str if str.ascii_only?
+      # scheme => default port, for the tuple-origin schemes dommy-rack ever
+      # builds a Rack env for. Mirrors Internal::UrlParser::SPECIAL, which
+      # Dommy::URL doesn't expose directly.
+      DEFAULT_PORTS = {"http:" => 80, "https:" => 443, "ws:" => 80, "wss:" => 443}.freeze
 
-        prefix, rest = split_authority(str)
-        prefix + escape_non_ascii(rest)
-      end
-
-      # Split `scheme://authority` (left intact) from the path/query/fragment
-      # remainder. A string with no `scheme://authority` (a relative ref like
-      # `/hashtag/応援`) yields an empty prefix and is escaped whole.
-      def split_authority(str)
-        if (m = str.match(%r{\A([a-zA-Z][a-zA-Z0-9+.\-]*://[^/?#]*)(.*)\z}m))
-          [m[1], m[2]]
-        else
-          ["", str]
-        end
-      end
-
-      # Escape every non-ASCII byte as %XX (UTF-8), so a multibyte character
-      # becomes its sequence of percent-encoded bytes (応 → %E5%BF%9C).
-      def escape_non_ascii(str)
-        str.b.gsub(/[^\x00-\x7F]/n) { |byte| format("%%%02X", byte.unpack1("C")) }
-      end
-
-      # Resolve a possibly-relative, possibly-IRI `url_or_path` against `base`
-      # into an absolute URL string. Raises URI::InvalidURIError on failure —
-      # callers disagree on the right fallback (Navigation keeps the raw
-      # input, Resources declines the subresource), so each rescues its own way.
+      # Resolve a possibly-relative `url_or_path` against `base` (both Strings)
+      # into an absolute href, or nil on failure. Non-throwing — callers
+      # disagree on the right fallback (Navigation keeps the raw input,
+      # Resources declines the subresource), so each picks its own via `||`.
       def resolve(base, url_or_path)
-        URI.join(base, encode_iri(url_or_path)).to_s
+        Dommy::URL.parse(url_or_path, base)&.href
       end
 
-      # `host` or `host:port`, omitting a default port (the `Host` header /
-      # tuple-origin serialization rule shared by HTTP and WebSocket).
-      def http_host(uri)
-        uri.port == uri.default_port ? uri.host : "#{uri.host}:#{uri.port}"
+      # The effective numeric port for a Dommy::URL (or nil when it isn't a
+      # tuple-origin scheme dommy-rack knows how to serve — never expected in
+      # practice, since this is only called for URLs already resolved via
+      # #resolve or the session's own current/default host).
+      def server_port(url)
+        return url.port unless url.port.empty?
+
+        DEFAULT_PORTS[url.protocol].to_s
       end
 
-      # `scheme://host[:port]`, the tuple origin for `uri` (used for the
-      # `Origin` header a same-origin WebSocket connection presents).
-      def origin(uri)
-        "#{uri.scheme}://#{http_host(uri)}"
-      end
+      # `scheme://host[:port]`, the tuple origin for `url` (used for the
+      # `Origin` header a same-origin WebSocket connection presents). `url` is
+      # always http(s)/ws(s) here, all tuple-origin schemes, so this is just
+      # `url.origin` — kept as a named entry point for callers that don't want
+      # to know that.
+      def origin(url) = url.origin
 
       # Whether two URLs (Strings) share scheme/host/port — the core
-      # same-origin check shared by Navigation and Resources. Neither side
-      # being a valid URI counts as not same-origin, never raises.
+      # same-origin check shared by Navigation, Resources, and Session. Deliberately
+      # NOT `Dommy::URL#origin` equality: that returns the literal string
+      # "null" for any non-tuple-origin scheme (data:, javascript:, …), which
+      # would make two unrelated opaque-origin URLs compare as "same origin".
+      # Neither side parsing counts as not same-origin, never raises.
       def same_origin?(url_a, url_b)
-        a = URI.parse(url_a)
-        b = URI.parse(url_b)
-        a.scheme == b.scheme && a.host == b.host && a.port == b.port
-      rescue URI::InvalidURIError
-        false
+        a = Dommy::URL.parse(url_a)
+        b = Dommy::URL.parse(url_b)
+        return false unless a && b
+
+        a.protocol == b.protocol && a.hostname == b.hostname && a.port == b.port
       end
     end
   end
