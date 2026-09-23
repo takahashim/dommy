@@ -172,15 +172,9 @@ globalThis.__rbHost = (function () {
   function unforgeableSetter(name) {
     let fn = unforgeableSetters.get(name);
     if (!fn) {
-      fn = function (value) {
-        // A location setter navigates, which is a DOM mutation like any other.
-        bumpDomEpoch();
-        const handled = __rb_host_set(this[HKEY], name, dehydrateTop(value));
-        bumpDomEpoch();
-        if (handled && typeof handled === "object" && handled.__rb_exception__) {
-          throw makeHostError(handled.__rb_exception__);
-        }
-      };
+      // A location setter navigates, which is a DOM mutation like any other —
+      // hostSet brackets it with the epoch bumps that says so.
+      fn = function (value) { hostSet(this[HKEY], name, value); };
       unforgeableSetters.set(name, fn);
     }
     return fn;
@@ -728,23 +722,38 @@ globalThis.__rbHost = (function () {
       bumpDomEpoch();
     }
   }
+
+  // Every write of a host property is the same four steps, so they live here
+  // rather than at each site that writes one — the proxy's set and defineProperty
+  // traps, the prototype setter stub, a [LegacyUnforgeable] setter, and a
+  // form-control value accessor. A write can mutate the DOM (id / className /
+  // style.color / dataset.x / select.value), so the DOM epoch is bumped on both
+  // sides of it: before, so a reentrant callback the host runs can't read a
+  // stale snapshot, and after, so this write's own mutations invalidate later
+  // reads. A setter the spec says throws comes back tagged and is re-thrown.
+  // The return value is the host's answer to "did I claim this write?" — false
+  // means the caller should keep the value JS-side as an expando.
+  function hostSet(handle, name, value) {
+    bumpDomEpoch();
+    const handled = __rb_host_set(handle, name, dehydrateTop(value));
+    bumpDomEpoch();
+    if (handled && typeof handled === "object" && handled.__rb_exception__) {
+      throw makeHostError(handled.__rb_exception__);
+    }
+    return handled;
+  }
+
   function memberGetStub(name) {
     return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };
   }
   function memberSetStub(name) {
     // Mirror the proxy set trap for a reflected attribute: [LegacyNullToEmptyString]
-    // coercion, DOM-epoch invalidation around the host write (so a cached
-    // attribute snapshot / stable-prop cache doesn't go stale — the set trap
-    // delegates instance writes to this prototype setter), and re-throw a
-    // spec-mandated setter exception. Called with the element as `this`.
+    // coercion, then the shared host write (the set trap delegates instance
+    // writes to this prototype setter, so it must invalidate the same caches).
+    // Called with the element as `this`.
     return function (v) {
       if (NULL_TO_EMPTY_STRING_SETTERS.has(name)) v = v === null ? "" : String(v);
-      bumpDomEpoch();
-      const handled = __rb_host_set(this[HKEY], name, dehydrateTop(v));
-      bumpDomEpoch();
-      if (handled && typeof handled === "object" && handled.__rb_exception__) {
-        throw makeHostError(handled.__rb_exception__);
-      }
+      hostSet(this[HKEY], name, v);
     };
   }
   // Seed interface `name`'s WebIDL members onto its prototype (idempotent — skips
@@ -1924,12 +1933,11 @@ globalThis.__rbHost = (function () {
           configurable: true,
           enumerable: true,
           get() { return rehydrate(__rb_host_get(this[HKEY], field)); },
-          set(v) {
-            const r = __rb_host_set(this[HKEY], field, dehydrateTop(v));
-            // Propagate a throwing host setter (e.g. a file input's value=)
-            // rather than swallowing it, as the general set trap does.
-            if (r && typeof r === "object" && r.__rb_exception__) throw makeHostError(r.__rb_exception__);
-          },
+          // A throwing host setter (a file input's `value =`) propagates, and
+          // the write invalidates the caches like any other — `select.value = x`
+          // reorders the option elements' selectedness, which a stale
+          // per-epoch snapshot would otherwise answer from.
+          set(v) { hostSet(this[HKEY], field, v); },
         });
       }
     }
@@ -2494,16 +2502,230 @@ globalThis.__rbHost = (function () {
     return fn;
   }
 
+  // ===== Named properties (WebIDL legacy platform objects) =====
+  //
+  // The live "supported property names" of a named getter, and the visibility
+  // rule that decides whether one is reachable as a property. Both the traps
+  // (via the per-proxy shorthands in makeHandler) and the set rules below ask
+  // these, so they take the handle and the interface's named-props entry rather
+  // than closing over a particular proxy.
+
+  function namedKeysOf(handle, named) {
+    if (!named) return [];
+    const r = rehydrate(__rb_named_props(handle));
+    return Array.isArray(r) ? r : [];
+  }
+
+  function isNamedKeyOf(handle, named, prop) {
+    return !!named && typeof prop === "string" && namedKeysOf(handle, named).indexOf(prop) !== -1;
+  }
+
+  // WebIDL named-property visibility: a named property is EXPOSED (reachable via
+  // property access / enumeration) only when it is not shadowed by an own
+  // expando or — absent [LegacyOverrideBuiltIns] — a property anywhere on the
+  // prototype chain. So `Storage.prototype.foo = x` hides the stored "foo" from
+  // `storage.foo` while `storage.getItem("foo")` still returns it.
+  function namedShadowedByProtoOf(named, t, prop) {
+    // [LegacyOverrideBuiltIns]: named props are NOT shadowed by the prototype
+    // chain (only by an own expando, which callers check separately).
+    if (named && named.overrideBuiltins) return false;
+    const proto = Object.getPrototypeOf(t);
+    return proto != null && (prop in proto);
+  }
+
+  // ===== Writing to a host proxy =====
+  //
+  // A write is decided by the FIRST rule below that claims it, and that order IS
+  // the algorithm: [LegacyUnforgeable] beats a prototype setter, which beats a
+  // named collection's rejection, which beats the JS-expando fast path, and the
+  // host is asked only once nothing JS-side owns the name. Written as a list,
+  // the order is something you can read and reorder deliberately; written as a
+  // run of `if`s, it was something you had to reconstruct from a comment.
+  //
+  // A rule declines by returning `undefined` ("not my case, ask the next one")
+  // and claims the write by returning the boolean the trap answers with. They
+  // share one argument order — (handle, shape, t, prop, value, receiver) — and
+  // each declares only the prefix it uses. They are module-level functions, not
+  // per-proxy closures, because every DOM node's proxy is pinned for the node's
+  // lifetime: a rules array per handler would be a rules array per node.
+  //
+  // setSymbolKey runs first, so EVERY LATER RULE SEES A STRING KEY.
+
+  // Pin the proxy whenever JS state lands on it, so the node's expandos outlive
+  // GC of this particular proxy (see the `pinned` declaration).
+  function pinIfProxy(handle, receiver) {
+    if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
+  }
+
+  // A symbol key names no DOM property — it is framework bookkeeping, and stays
+  // on the target.
+  function setSymbolKey(handle, shape, t, prop, value, receiver) {
+    if (typeof prop !== "symbol") return undefined;
+    t[prop] = value;
+    pinIfProxy(handle, receiver);
+    return true;
+  }
+
+  // `obj.__proto__ = v` reaches Object.prototype's accessor, whose job is to
+  // call [[SetPrototypeOf]] and throw a TypeError when that answers false — and
+  // QuickJS's does not throw, it ignores. Harmless where the prototype is
+  // settable (nothing to report), but on a fixed shape (Location) the refusal is
+  // the whole point, so raise it here.
+  function setImmutablePrototype(handle, shape, t, prop, value, receiver) {
+    if (!shape.fixedShape || prop !== "__proto__") return undefined;
+    if (Reflect.setPrototypeOf(receiver, value)) return true;
+
+    throw new TypeError("Cannot set the prototype of this object");
+  }
+
+  // A [LegacyUnforgeable] attribute is an OWN accessor on the target, and its
+  // shared setter reads the handle off `this` — so run it with the PROXY as the
+  // receiver rather than assigning into the bare target, which carries no
+  // handle. A readonly one (`location.origin`) rejects.
+  function setUnforgeableAttribute(handle, shape, t, prop, value, receiver) {
+    const attrs = shape.unforgeableAttrs;
+    if (attrs === null || !attrs.has(prop)) return undefined;
+    if (!attrs.get(prop)) return false;
+
+    Reflect.set(t, prop, value, receiver);
+    return true;
+  }
+
+  // A writable named collection (Storage/DOMStringMap) routes every string
+  // assignment through its named setter, which takes precedence over a prototype
+  // accessor — so `storage.x = v` never invokes a `Storage.prototype` setter.
+  // Other objects defer to a matching prototype setter (a framework's reactive
+  // property, e.g. Lit) as usual.
+  function setViaPrototypeSetter(handle, shape, t, prop, value, receiver) {
+    if (shape.named && shape.named.writable) return undefined;
+    if (!settersOf(Object.getPrototypeOf(t)).has(prop)) return undefined;
+
+    Reflect.set(t, prop, value, receiver);
+    return true;
+  }
+
+  // Legacy platform object with NO indexed setter: an array-index assignment
+  // never becomes an expando — it is a no-op (sloppy) / TypeError (strict), so
+  // the trap answers false. Objects WITH one (HTMLSelectElement /
+  // HTMLOptionsCollection) decline here and reach the host, which runs the
+  // WebIDL "set an indexed property" algorithm (add / replace / remove option).
+  function rejectIndexedWrite(handle, shape, t, prop) {
+    if (!shape.arrayLike || shape.indexedSetter || !isArrayIndex(prop)) return undefined;
+
+    return false;
+  }
+
+  // A read-only named property (HTMLCollection / NamedNodeMap) rejects — unless
+  // an own expando already shadows it, in which case that expando is what is
+  // being written and a later rule handles it.
+  function rejectNamedWrite(handle, shape, t, prop) {
+    const named = shape.named;
+    if (!named || named.writable || Object.hasOwn(t, prop)) return undefined;
+    if (!isNamedKeyOf(handle, named, prop)) return undefined;
+
+    return false;
+  }
+
+  // An existing JS expando, or a property the host has already declined once for
+  // this interface: stays JS-side without asking the host again. Framework
+  // bookkeeping (React's __reactFiber$ / __reactProps$) writes these on every
+  // node of every commit — one crossing each before this. Event-handler names
+  // and the global window keep crossing (their handling depends on the value and
+  // on host state, not on the name alone), as do writable named collections.
+  function setJsExpando(handle, shape, t, prop, value, receiver) {
+    if ((shape.named && shape.named.writable) ||
+        isEventHandlerName(prop) || isGlobalWindow(handle)) return undefined;
+    const declined = shape.declinedProps;
+    if (!Object.hasOwn(t, prop) && !(declined !== null && declined.has(prop))) return undefined;
+
+    t[prop] = value;
+    pinIfProxy(handle, receiver);
+    return true;
+  }
+
+  // The global window: a write to a name the host doesn't already resolve
+  // becomes a JS global (`window.X = …` ≡ `globalThis.X = …`), so window-attached
+  // and globalThis-attached globals converge on ONE storage. A host-resolved
+  // property (location, navigator, a Ruby-side stash, …) declines and routes to
+  // the host. (globalThis is NOT this proxy's prototype, so the plain assignment
+  // can't recurse back into the trap.)
+  function setWindowGlobal(handle, shape, t, prop, value) {
+    if (!isGlobalWindow(handle)) return undefined;
+    // Event handler IDL attributes (onload, onresize, …) must reach the host so
+    // it registers a listener that actually fires; they read back as null when
+    // unset, so the null-means-unresolved test below would otherwise divert them
+    // to a plain (never-firing) JS global.
+    if (isEventHandlerName(prop)) return undefined;
+    const cur = __rb_host_get(handle, prop);
+    const absent = cur !== null && typeof cur === "object" && cur.__rb_absent === true;
+    if (!absent && rehydrate(cur) !== null) return undefined;
+
+    globalThis[prop] = value;
+    return true;
+  }
+
+  // The rules that can CLAIM a write, in the order they are asked. A write no
+  // rule claims is a host property write — setHostProperty, which always answers.
+  const SET_RULES = [
+    setSymbolKey,
+    setImmutablePrototype,
+    setUnforgeableAttribute,
+    setViaPrototypeSetter,
+    rejectIndexedWrite,
+    rejectNamedWrite,
+    setJsExpando,
+    setWindowGlobal,
+  ];
+
+  // Ask the host to take the write, and keep it JS-side if it won't. The WebIDL
+  // value coercions live here rather than in the rules above because they matter
+  // only on the way across.
+  function setHostProperty(handle, shape, t, prop, value, receiver) {
+    // Legacy `returnValue = false` cancels an event host-side; drop a
+    // fast-dispatch defaultPrevented shadow so the next read sees it. Gated on
+    // preventDefault's presence — only events carry it.
+    if (prop === "returnValue" && shape.methods.has("preventDefault") &&
+        Object.hasOwn(t, "defaultPrevented")) {
+      delete t.defaultPrevented;
+    }
+    // WebIDL [LegacyNullToEmptyString] DOMString setters coerce JS-side (null →
+    // "", else ToString — so `innerHTML = 42` / `{toString…}` work and a toString
+    // that throws propagates) before the value crosses into Ruby.
+    if (NULL_TO_EMPTY_STRING_SETTERS.has(prop)) value = value === null ? "" : String(value);
+    // A writable named property (Storage/DOMStringMap) has a DOMString named
+    // setter: ToString-coerce too, so `storage.x = 42` stores "42", `= null`
+    // stores "null", and a `{toString}` object's throwing toString propagates.
+    if (shape.named && shape.named.writable) value = String(value);
+    if (hostSet(handle, prop, value)) return true;
+
+    t[prop] = value;
+    pinIfProxy(handle, receiver);
+    rememberDecline(handle, shape, prop);
+    return true;
+  }
+
+  // Remember a decline per (interface, prop): the host's set dispatch is a pure
+  // function of the wrapper class and the property name, so a declined prop never
+  // becomes host-handled later and subsequent writes can stay JS-side without
+  // crossing. Capped — a page writes per-navigation-random keys that never recur,
+  // so on a long-lived VM the Set would otherwise grow without bound, and
+  // clearing an overflowed one costs a single re-decline.
+  function rememberDecline(handle, shape, prop) {
+    const declined = shape.declinedProps;
+    if (declined === null || isEventHandlerName(prop) || isGlobalWindow(handle)) return;
+    if (declined.size >= DECLINED_PROPS_CAP) declined.clear();
+    declined.add(prop);
+  }
+
   // The proxy handler for one host object: `handle` is the object, `shape` is
   // everything its interface decides (see interfaceShape) and `methodCache`
   // memoizes its method stubs. The per-interface traits used to arrive as eight
   // positional arguments, rebuilt on every crossing.
   function makeHandler(handle, shape, methodCache) {
-    const { methods, arrayLike, named, nodeChain, indexedSetter, fixedShape, unforgeableAttrs } = shape;
+    const { methods, arrayLike, named, nodeChain, fixedShape } = shape;
     // Per-interface, resolved when the shape was built: the const and
-    // epoch-stable prop sets (Attr#name, Attr#value) and the host-declined-props
-    // Set, which keeps per-write key building out of the set trap's hot path.
-    const { constIface, stableIface, declinedProps } = shape;
+    // epoch-stable prop sets (Attr#name, Attr#value).
+    const { constIface, stableIface } = shape;
     // Cached constant-prop values (CONST_NODE_PROPS) for a Node proxy; null
     // for non-Node interfaces so the cache check stays out of their get path.
     const constCache = nodeChain ? new Map() : null;
@@ -2564,28 +2786,13 @@ globalThis.__rbHost = (function () {
       liveLenEpoch = domEpoch;
       return liveLenCache;
     };
-    // The live WebIDL "supported property names" (named getter keys), re-queried
-    // each call so it tracks DOM mutations; [] when there is no named getter.
-    const namedKeys = () => {
-      if (!named) return [];
-      const r = rehydrate(__rb_named_props(handle));
-      return Array.isArray(r) ? r : [];
-    };
+    // This proxy's view of the shared named-property helpers (see namedKeysOf):
+    // the live "supported property names", re-queried each call so they track
+    // DOM mutations, and the visibility rule.
+    const namedKeys = () => namedKeysOf(handle, named);
     const isIndexInRange = (prop) => arrayLike && isArrayIndex(prop) && Number(prop) < liveLength();
-    const isNamedKey = (prop) => named && typeof prop === "string" && namedKeys().indexOf(prop) !== -1;
-    // WebIDL named-property visibility: a named property is EXPOSED (reachable
-    // via property access / enumeration) only when it is not shadowed by an own
-    // expando or — absent [LegacyOverrideBuiltIns], which none of our named
-    // collections declare — a property anywhere on the prototype chain. So
-    // `Storage.prototype.foo = x` hides the stored "foo" from `storage.foo`
-    // while `storage.getItem("foo")` still returns it.
-    const namedShadowedByProto = (t, prop) => {
-      // [LegacyOverrideBuiltIns]: named props are NOT shadowed by the prototype
-      // chain (only by an own expando, checked separately before this).
-      if (named && named.overrideBuiltins) return false;
-      const proto = Object.getPrototypeOf(t);
-      return proto != null && (prop in proto);
-    };
+    const isNamedKey = (prop) => isNamedKeyOf(handle, named, prop);
+    const namedShadowedByProto = (t, prop) => namedShadowedByProtoOf(named, t, prop);
     // What a method stub can need beyond its own name (see makeMethodStub).
     const stubContext = {
       handle, nodeChain, ifaceName: shape.name, cachedAttrRead,
@@ -2681,129 +2888,14 @@ globalThis.__rbHost = (function () {
         }
         return v;
       },
+      // Each rule either claims the write or defers to the next; whatever none
+      // of them claims is a host property write. See SET_RULES.
       set(t, prop, value, receiver) {
-        if (typeof prop === "symbol") {
-          t[prop] = value;
-          if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
-          return true;
+        for (let i = 0; i < SET_RULES.length; i++) {
+          const answer = SET_RULES[i](handle, shape, t, prop, value, receiver);
+          if (answer !== undefined) return answer;
         }
-        // `obj.__proto__ = v` reaches Object.prototype's accessor below, whose
-        // job is to call [[SetPrototypeOf]] and throw a TypeError when that
-        // answers false — and QuickJS's does not throw, it ignores. Harmless
-        // where the prototype is settable (nothing to report), but on a fixed
-        // shape the refusal is the whole point, so raise it here.
-        if (fixedShape && prop === "__proto__") {
-          if (Reflect.setPrototypeOf(receiver, value)) return true;
-
-          throw new TypeError("Cannot set the prototype of this object");
-        }
-        // A [LegacyUnforgeable] attribute is an OWN accessor on the target, and
-        // its shared setter reads the handle off `this` — so run it with the
-        // proxy as the receiver rather than assigning into the bare target,
-        // which carries no handle. A readonly one (`location.origin`) rejects.
-        if (unforgeableAttrs !== null && unforgeableAttrs.has(prop)) {
-          if (!unforgeableAttrs.get(prop)) return false;
-
-          Reflect.set(t, prop, value, receiver);
-          return true;
-        }
-        // A writable named collection (Storage/DOMStringMap) routes every string
-        // assignment through its named setter, which takes precedence over a
-        // prototype accessor — so `storage.x = v` never invokes a `Storage.prototype`
-        // setter. Other objects defer to a matching prototype setter as usual.
-        if (!(named && named.writable && typeof prop === "string") &&
-            settersOf(Object.getPrototypeOf(t)).has(prop)) {
-          Reflect.set(t, prop, value, receiver);
-          return true;
-        }
-        // Legacy platform object with NO indexed setter: an array-index
-        // assignment never becomes an expando — it is a no-op (sloppy) /
-        // TypeError (strict), so the trap returns false. Objects WITH an indexed
-        // setter (HTMLSelectElement/HTMLOptionsCollection) instead fall through
-        // to the host set below, which runs the WebIDL "set an indexed property"
-        // algorithm (add / replace / remove option).
-        if (arrayLike && isArrayIndex(prop) && !indexedSetter) return false;
-        // A read-only named property (HTMLCollection/NamedNodeMap) likewise
-        // rejects — unless an own expando already shadows it (then update it).
-        if (named && !named.writable && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
-        // An existing JS expando, or a property the host has already declined
-        // once for this interface: stays JS-side without asking the host
-        // again. Framework bookkeeping (React's __reactFiber$/__reactProps$)
-        // writes these on every node of every commit — previously one
-        // crossing each. Event-handler names and the global window keep
-        // crossing (their handling is value-/state-dependent), as do
-        // writable named collections (routed above).
-        if (typeof prop === "string" && !(named && named.writable) &&
-            !isEventHandlerName(prop) && !isGlobalWindow(handle) &&
-            (Object.hasOwn(t, prop) || (declinedProps !== null && declinedProps.has(prop)))) {
-          t[prop] = value;
-          if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
-          return true;
-        }
-        // The global window: a write to a name the host doesn't already
-        // resolve becomes a JS global (window.X = … ≡ globalThis.X = …), so
-        // window-attached and globalThis-attached globals converge on ONE
-        // storage. A host-resolved property (location, navigator, a Ruby-side
-        // stash, …) keeps routing to the host below. (globalThis is NOT this
-        // proxy's prototype, so the plain assignment can't recurse here.)
-        if (isGlobalWindow(handle)) {
-          // Event handler IDL attributes (onload, onresize, …) must reach the
-          // host so it registers a listener that actually fires; they read back
-          // as null when unset, so the null-means-unresolved rule below would
-          // otherwise divert them to a plain (never-firing) JS global. A
-          // non-handler name still becomes a JS global (window.X ≡ globalThis.X).
-          const isEventHandler = typeof prop === "string" && /^on[a-z]/.test(prop);
-          if (!isEventHandler) {
-            const cur = __rb_host_get(handle, prop);
-            const curAbsent = cur !== null && typeof cur === "object" && cur.__rb_absent === true;
-            if (curAbsent || rehydrate(cur) === null) {
-              globalThis[prop] = value;
-              return true;
-            }
-          }
-        }
-        // Legacy `returnValue = false` cancels an event host-side; drop a
-        // fast-dispatch defaultPrevented shadow so the next read sees it.
-        // Gated on preventDefault's presence — only events carry it.
-        if (prop === "returnValue" && methods.has("preventDefault") &&
-            Object.hasOwn(t, "defaultPrevented")) {
-          delete t.defaultPrevented;
-        }
-        // WebIDL [LegacyNullToEmptyString] DOMString setters coerce JS-side
-        // (null → "", else ToString — so `innerHTML = 42` / `{toString…}` work and
-        // a toString that throws propagates) before the value crosses into Ruby.
-        if (NULL_TO_EMPTY_STRING_SETTERS.has(prop)) value = value === null ? "" : String(value);
-        // A writable named property (Storage/DOMStringMap) has a DOMString named
-        // setter: ToString-coerce the value JS-side (so `storage.x = 42` stores
-        // "42", `= null` stores "null", and a `{toString}` object's throwing
-        // toString propagates) before it crosses into Ruby.
-        if (named && named.writable && typeof prop === "string") value = String(value);
-        // A host property write may mutate the DOM (id/className/innerHTML/
-        // style.color/dataset.x/…): invalidate attribute snapshots around it.
-        bumpDomEpoch();
-        const handled = __rb_host_set(handle, prop, dehydrateTop(value));
-        bumpDomEpoch();
-        // A throwing setter comes back as a tagged exception — re-throw it.
-        if (handled && typeof handled === "object" && handled.__rb_exception__) {
-          throw makeHostError(handled.__rb_exception__);
-        }
-        if (!handled) {
-          t[prop] = value;
-          // A genuine JS-side expando: pin the proxy so the node's JS state
-          // outlives GC of this proxy (see the `pinned` declaration).
-          if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
-          // Remember the decline per (interface, prop): the host's set
-          // dispatch depends only on the wrapper class and name, so future
-          // writes of this prop on this interface skip the crossing. Cap the
-          // set (clearing on overflow just re-declines once) so a long-lived
-          // VM doesn't accumulate per-navigation-random keys forever.
-          if (typeof prop === "string" && declinedProps !== null &&
-              !isEventHandlerName(prop) && !isGlobalWindow(handle)) {
-            if (declinedProps.size >= DECLINED_PROPS_CAP) declinedProps.clear();
-            declinedProps.add(prop);
-          }
-        }
-        return true;
+        return setHostProperty(handle, shape, t, prop, value, receiver);
       },
       // Array-like collections reflect their indices as own enumerable
       // properties so `hasOwnProperty(i)` / `Object.keys` / `{...spread}` see the
@@ -2846,9 +2938,7 @@ globalThis.__rbHost = (function () {
         // see. Only for a plain data descriptor targeting a non-own property.
         if (named && named.writable && typeof prop === "string" && !Object.hasOwn(t, prop) &&
             desc && !desc.get && !desc.set && ("value" in desc)) {
-          bumpDomEpoch();
-          __rb_host_set(handle, prop, dehydrateTop(String(desc.value)));
-          bumpDomEpoch();
+          hostSet(handle, prop, String(desc.value));
           return true;
         }
         return Reflect.defineProperty(t, prop, desc);

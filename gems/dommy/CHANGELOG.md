@@ -13,6 +13,8 @@
 - A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
 - `Bridge::Bytes.new` reads a String as the packed bytes it is, where it used to wrap it and take `to_i` of the whole thing — one zero byte, silently.
 - A static method a `Bridge::Constructor` does not have raises `TypeError` instead of answering null.
+- Setting a form control's `value` through its prototype accessor — the descriptor React's value tracker wraps — invalidates the DOM caches, so a read after `select.value = x` sees the new selection rather than the epoch's stale snapshot.
+- `Object.defineProperty(localStorage, k, {value})` propagates a setter the spec says throws, where it used to swallow it.
 
 - `select.labels` lists the labels that name it, including a wrapping `<label>`, and no longer breaks on an id containing a quote.
 - An element hidden with `aria-hidden="TRUE"` is hidden from its accessible name too, not only from the accessibility tree.
