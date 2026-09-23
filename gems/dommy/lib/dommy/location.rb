@@ -183,14 +183,24 @@ module Dommy
     # `location.ancestorOrigins` — the origins of this browsing context's
     # ancestors, innermost first. Empty for a top-level context, and for one
     # that no longer has a context at all.
+    #
+    # [SameObject], so the list is built once and answers live: a page that
+    # holds `location.ancestorOrigins` holds the same object the next read would
+    # give it, which is what the IDL promises. It is a live list rather than the
+    # DOMStringList the IDL names — indexing, `length` and `item` are there,
+    # `contains` is not, and it reports as a NodeList.
     def ancestor_origins
+      @ancestor_origins ||= LiveNodeList.new { current_ancestor_origins }
+    end
+
+    def current_ancestor_origins
       origins = []
       frame = @window.frame_element if browsing_context?
       while frame
         window = frame.owner_document&.default_view
         break unless window
 
-        origins << window.location.__js_get__("origin")
+        origins << window.origin
         frame = window.frame_element
       end
       origins

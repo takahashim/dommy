@@ -200,7 +200,7 @@ class TestHTMLIFrameElement < Minitest::Test
     f = @doc.create_element("iframe")
     f.srcdoc = "<p>hi</p>"
     @doc.body.append_child(f)
-    nested = f.build_blank_content_document
+    nested = f.__internal_build_blank_content_document__
 
     assert_equal("about:srcdoc", nested.url)
     assert_equal("http://example.com/dir/page.html", nested.base_uri)
@@ -213,7 +213,7 @@ class TestHTMLIFrameElement < Minitest::Test
     f.srcdoc = "<base href=\"/other/\"><p>hi</p>"
     @doc.body.append_child(f)
 
-    assert_equal("http://example.com/other/", f.build_blank_content_document.base_uri)
+    assert_equal("http://example.com/other/", f.__internal_build_blank_content_document__.base_uri)
   end
 
   def test_iframe_sandbox

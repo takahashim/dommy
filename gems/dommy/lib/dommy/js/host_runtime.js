@@ -119,27 +119,29 @@ globalThis.__rbHost = (function () {
   // getter directly. The getter is shared per name (memoized) so its identity is
   // stable across instances — `Object.getOwnPropertyDescriptor(a, x).get ===
   // Object.getOwnPropertyDescriptor(b, x).get`, as the spec requires.
+  // Each entry maps an attribute name to whether it has a setter — a readonly
+  // one must not get one, and writability is a fact about the interface's
+  // member, not about the name, so it travels with it here rather than in a
+  // second table keyed by name alone.
+  const RO = false;
+  const RW = true;
   const UNFORGEABLE_ATTRS = {
-    Event: ["isTrusted"],
+    Event: { isTrusted: RO },
     // EVERY member of Location is [LegacyUnforgeable]. A page must not be able
     // to plant its own `href` on the object that says where it is, so the whole
     // interface is pinned to the instance rather than left on a prototype that
     // could be swapped or shadowed.
-    Location: ["href", "origin", "protocol", "host", "hostname", "port",
-               "pathname", "search", "hash", "ancestorOrigins"],
+    Location: {
+      href: RW, protocol: RW, host: RW, hostname: RW, port: RW,
+      pathname: RW, search: RW, hash: RW,
+      origin: RO, ancestorOrigins: RO,
+    },
     // `document.location` is [LegacyUnforgeable] for the same reason, and
     // [PutForwards=href], so assigning to it navigates. Because the accessor
     // pair is shared per name, two Documents hand back the same getter and the
     // same setter, which is what document_location.html checks.
-    Document: ["location"],
+    Document: { location: RW },
   };
-  // Of the names above, the ones that are not readonly: their own accessor
-  // needs a setter, or `location.href = x` has nowhere to go. Only the names in
-  // UNFORGEABLE_ATTRS are looked up here, so an entry means that interface's
-  // attribute and no other's.
-  const UNFORGEABLE_WRITABLE = new Set(
-    ["href", "protocol", "host", "hostname", "port", "pathname", "search", "hash", "location"]
-  );
   // [LegacyUnforgeable] OPERATIONS are own properties of the instance too, and
   // enumerable — Location's stringifier `toString` among them, which is why
   // `getOwnPropertyDescriptor(location, "toString")` finds one.
@@ -195,7 +197,10 @@ globalThis.__rbHost = (function () {
     let fn = unforgeableMethods.get(key);
     if (!fn) {
       fn = function (...args) {
-        if (!isProxy(this) || proxyInterfaces.get(this) !== iface) {
+        // The chain, not the interface name: an operation an interface declares
+        // is inherited by everything derived from it, and `document.location`'s
+        // neighbours are HTMLDocument instances, not Document ones.
+        if (!isProxy(this) || !interfaceChainOf(this).includes(iface)) {
           throw new TypeError("Illegal invocation: " + iface + "." + name + " called on a different object");
         }
         bumpDomEpoch();
@@ -212,23 +217,33 @@ globalThis.__rbHost = (function () {
     return fn;
   }
 
-  // The [LegacyUnforgeable] attribute names along an interface chain, or null
-  // when it has none — which is every interface but two, so the set trap's
-  // check is a null test on the hot path.
-  function unforgeableAttrNames(chain) {
-    let names = null;
+  // A proxy's interface chain (["HTMLDocument", "Document", "Node", …]), from
+  // the per-interface describe the proxy was built from. Empty for an object
+  // whose interface was never named.
+  function interfaceChainOf(proxy) {
+    const desc = descByInterface.get(proxyInterfaces.get(proxy));
+    return (desc && desc.chain) || [];
+  }
+
+  // The [LegacyUnforgeable] attributes along an interface chain as
+  // name -> writable, or null when it has none — which is every interface but
+  // three, so the set trap's check is a null test on the hot path.
+  function unforgeableAttrsOf(chain) {
+    let attrs = null;
     for (const iface of chain || []) {
-      for (const name of UNFORGEABLE_ATTRS[iface] || []) (names ||= new Set()).add(name);
+      for (const [name, writable] of Object.entries(UNFORGEABLE_ATTRS[iface] || {})) {
+        (attrs ||= new Map()).set(name, writable);
+      }
     }
-    return names;
+    return attrs;
   }
 
   // Plant one interface's [LegacyUnforgeable] members on an instance's target.
   function installUnforgeable(target, iface) {
-    for (const name of UNFORGEABLE_ATTRS[iface] || []) {
+    for (const [name, writable] of Object.entries(UNFORGEABLE_ATTRS[iface] || {})) {
       Object.defineProperty(target, name, {
         get: unforgeableGetter(name),
-        set: UNFORGEABLE_WRITABLE.has(name) ? unforgeableSetter(name) : undefined,
+        set: writable ? unforgeableSetter(name) : undefined,
         enumerable: true, configurable: false,
       });
     }
@@ -2271,9 +2286,10 @@ globalThis.__rbHost = (function () {
       stableIface: STABLE_EPOCH_IFACE_PROPS.get(desc.name) || null,
       declinedProps: declinedSetFor(desc.name),
       fixedShape: FIXED_SHAPE_INTERFACES.has(desc.name),
-      // The [LegacyUnforgeable] attribute names this interface plants as own
-      // accessors, so the set trap knows to run one rather than cross.
-      unforgeableAttrs: unforgeableAttrNames(desc.chain),
+      // The [LegacyUnforgeable] attributes this interface plants as own
+      // accessors (name -> writable), so the set trap knows to run one rather
+      // than cross, and which ones reject.
+      unforgeableAttrs: unforgeableAttrsOf(desc.chain),
     };
     // An interface with no name is not a cache key: two unrelated objects would
     // otherwise share the first one's shape.
@@ -2671,9 +2687,11 @@ globalThis.__rbHost = (function () {
           if (proxyHandles.has(receiver)) pinned.set(handle, receiver);
           return true;
         }
-        // `obj.__proto__ = v` is Object.prototype's accessor, whose whole job is
-        // to call [[SetPrototypeOf]] and throw when that answers false. It never
-        // reaches that accessor through this trap, so do its work here.
+        // `obj.__proto__ = v` reaches Object.prototype's accessor below, whose
+        // job is to call [[SetPrototypeOf]] and throw a TypeError when that
+        // answers false — and QuickJS's does not throw, it ignores. Harmless
+        // where the prototype is settable (nothing to report), but on a fixed
+        // shape the refusal is the whole point, so raise it here.
         if (fixedShape && prop === "__proto__") {
           if (Reflect.setPrototypeOf(receiver, value)) return true;
 
@@ -2684,7 +2702,7 @@ globalThis.__rbHost = (function () {
         // proxy as the receiver rather than assigning into the bare target,
         // which carries no handle. A readonly one (`location.origin`) rejects.
         if (unforgeableAttrs !== null && unforgeableAttrs.has(prop)) {
-          if (!UNFORGEABLE_WRITABLE.has(prop)) return false;
+          if (!unforgeableAttrs.get(prop)) return false;
 
           Reflect.set(t, prop, value, receiver);
           return true;
@@ -2835,14 +2853,14 @@ globalThis.__rbHost = (function () {
         }
         return Reflect.defineProperty(t, prop, desc);
       },
-      // HTML's [[SetPrototypeOf]] and [[PreventExtensions]] for Location both
-      // return false: a page can neither reparent it nor seal it, so it cannot
-      // change what `location` resolves to by changing the object's shape.
-      // `Object.setPrototypeOf` / `Object.preventExtensions` then throw a
-      // TypeError and the `Reflect` forms answer false, which is the difference
-      // between the two spellings.
-      // SetImmutablePrototype: setting it to what it already is succeeds (it
-      // asks for nothing), anything else fails.
+      // HTML gives Location an immutable prototype and refuses to seal it, so a
+      // page cannot change what `location` resolves to by changing the object's
+      // shape. `Object.setPrototypeOf` / `Object.preventExtensions` throw a
+      // TypeError on the refusal and the `Reflect` forms answer false, which is
+      // the whole difference between the two spellings.
+      //
+      // SetImmutablePrototype, not "always false": asking for the prototype it
+      // already has asks for nothing, and succeeds.
       setPrototypeOf(t, proto) {
         return fixedShape ? proto === Reflect.getPrototypeOf(t) : Reflect.setPrototypeOf(t, proto);
       },

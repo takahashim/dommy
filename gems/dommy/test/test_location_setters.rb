@@ -103,7 +103,7 @@ class TestLocationWithoutBrowsingContext < Minitest::Test
   end
 
   def test_ancestor_origins_is_empty
-    assert_empty(@loc.__js_get__("ancestorOrigins"))
+    assert_equal(0, @loc.__js_get__("ancestorOrigins").length)
   end
 
   # While the frame is still in the tree, the same location is live, and lists
@@ -117,6 +117,7 @@ class TestLocationWithoutBrowsingContext < Minitest::Test
     loc.__js_set__("hash", "x")
 
     assert_equal("#x", loc.__js_get__("hash"))
-    assert_equal(["http://localhost"], loc.__js_get__("ancestorOrigins"))
+    assert_equal(["http://localhost"], loc.__js_get__("ancestorOrigins").to_a)
+    assert_same(loc.__js_get__("ancestorOrigins"), loc.__js_get__("ancestorOrigins"))
   end
 end

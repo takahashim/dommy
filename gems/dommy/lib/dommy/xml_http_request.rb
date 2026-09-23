@@ -102,16 +102,16 @@ module Dommy
       # body to null". A body is not something these methods carry, so neither
       # the bytes nor the Content-Type they would have implied are sent — an
       # author-set Content-Type still is, because the author set it.
-      body = nil if %w[GET HEAD].include?(@method.to_s)
+      sent_body = %w[GET HEAD].include?(@method.to_s) ? nil : body
 
-      @request_body = body
+      @request_body = sent_body
       # WHATWG "extract a body": normalize the body (string / ArrayBuffer /
       # TypedArray / Blob / URLSearchParams / FormData) to bytes once, and default
       # the Content-Type from that extraction unless the author set one.
-      @request_body_bytes, default_ct = body.nil? ? [nil, nil] : Response.extract_body(body)
+      @request_body_bytes, default_ct = sent_body.nil? ? [nil, nil] : Response.extract_body(sent_body)
       author_ct = @request_headers.keys.find { |k| k.to_s.casecmp?("content-type") }
       if author_ct
-        reconcile_author_charset(author_ct, body)
+        reconcile_author_charset(author_ct, sent_body)
       elsif default_ct
         @request_headers["Content-Type"] = default_ct
       end

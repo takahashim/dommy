@@ -138,14 +138,14 @@ module Dommy
       # inside it work (readyState defaults to "complete"). No-op if it already
       # has one.
       def ensure_blank_content_document(element)
-        return unless element.respond_to?(:build_blank_content_document)
+        return unless element.respond_to?(:__internal_build_blank_content_document__)
         return if element.respond_to?(:content_document) && element.content_document
 
         # The frame builds it, not this: the document URL a blank browsing
         # context gets (about:blank, about:srcdoc) and the base URL it inherits
         # from its creator are the frame's business, and a second copy here
         # built a Window at the library's default `http://localhost/`.
-        element.__internal_set_content_document__(element.build_blank_content_document)
+        element.__internal_set_content_document__(element.__internal_build_blank_content_document__)
       end
 
       # Run at the next microtask checkpoint, or inline when the document has no
@@ -181,26 +181,22 @@ module Dommy
         parent if parent.respond_to?(:name) && parent.name == "select"
       end
 
+      # An <option> or <optgroup> that joins or leaves a select's list of
+      # options. HTML's: an SVG element of the same name is not one, and the
+      # only way to ask is the wrapper (which the document has cached, so this
+      # costs a lookup rather than a second wrap in `arrived_options`).
       def option_list_member?(node)
-        node.respond_to?(:element?) && node.element? && %w[option optgroup].include?(node.name) &&
-          !wrap_html(node).nil?
+        return false unless node.respond_to?(:element?) && node.element?
+        return false unless %w[option optgroup].include?(node.name)
+
+        !wrap_html(node).nil?
       end
 
-      # The wrapper for a backend node, but only when HTML's steps are the ones
-      # that apply to it.
-      #
-      # Every query above matches on local name alone, because that is all a
-      # backend node carries — `createElementNS(SVG_NS, "details")` builds a
-      # node named "details" and the namespace lives on the wrapper. So a
-      # `css("details")` hands back an SVGElement, which has none of the methods
-      # these steps call, and the NoMethodError escapes into the page: WPT's
-      # clicking-noninteractive-unlabelable-content.html appends exactly that
-      # element to a <label>, and testharness turned the whole file's results
-      # into one ERROR.
-      def wrap_html(node)
-        wrapper = @document.wrap_node(node)
-        wrapper if wrapper.is_a?(Dommy::Element) && ElementState.html_element?(wrapper)
-      end
+      # The wrapper for a backend node, when HTML's steps are the ones that
+      # apply to it — every query here matches on local name alone, and an SVG
+      # `<details>` answers to that name. The document owns the rule (and the
+      # explanation of why there is one).
+      def wrap_html(node) = @document.__internal_html_element_wrapper__(node)
 
       # The options an insertion brought into a select's list, wrapped, in tree
       # order: an arriving option is itself, an arriving optgroup contributes

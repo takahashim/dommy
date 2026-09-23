@@ -38,7 +38,7 @@ module Dommy
       # auto about:blank document here, so we don't shadow a pending navigation.
       return nil unless get_attribute("src").to_s.empty? && get_attribute("srcdoc").nil?
 
-      @content_document = build_blank_content_document
+      @content_document = __internal_build_blank_content_document__
     end
 
     BLANK_DOCUMENT_HTML = "<!DOCTYPE html><html><head></head><body></body></html>"
@@ -58,7 +58,7 @@ module Dommy
     # the document that created it, and without that half every relative URL
     # inside the frame — a form's action, a link, an image — would resolve
     # against `about:blank` and go nowhere.
-    def build_blank_content_document
+    def __internal_build_blank_content_document__
       srcdoc = get_attribute("srcdoc")
       html = srcdoc.to_s.empty? ? BLANK_DOCUMENT_HTML : srcdoc.to_s
       win = Window.new(nil, backend_doc: Backend.parse(html))

@@ -59,6 +59,14 @@ module Dommy
     # whether this document is inside a non-rendered frame.
     attr_accessor :frame_element
 
+    # `window.origin` — this environment's origin, serialized. The one place
+    # that asks the Location object for it: Location keeps its components behind
+    # the bridge ABI on purpose (see its own note), so a Ruby caller that wants
+    # an origin asks the Window, not `location.__js_get__("origin")`.
+    def origin
+      @location ? @location.__js_get__("origin").to_s : ""
+    end
+
     # The child browsing contexts' windows, in document order — one per `<iframe>`
     # (nil for a frame whose content document isn't wired). Backs `window[i]` /
     # `window.frames[i]`.
@@ -183,6 +191,8 @@ module Dommy
         @session_storage
       when "location"
         @location
+      when "origin"
+        origin
       when "history"
         @history
       when "CSS"

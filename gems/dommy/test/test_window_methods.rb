@@ -85,4 +85,18 @@ class TestWindowMethods < Minitest::Test
     # An unknown property is absent (JS undefined), not nil/null.
     assert_equal Dommy::Bridge::ABSENT, screen.__js_get__("totallyMadeUp")
   end
+  # `window.origin` — the one Ruby-level name for this environment's origin.
+  # Location keeps its components behind the bridge ABI on purpose, so callers
+  # that need an origin come here rather than to `location.__js_get__`.
+  def test_origin
+    assert_equal "http://localhost", @win.origin
+    assert_equal "http://localhost", @win.__js_get__("origin")
+  end
+
+  def test_origin_follows_a_navigation
+    @win.location.__internal_set_url__("https://example.com:8443/x")
+
+    assert_equal "https://example.com:8443", @win.origin
+  end
+
 end

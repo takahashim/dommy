@@ -421,6 +421,11 @@ module Dommy
 
     attr_reader :backend_doc
     attr_accessor :default_view
+
+    # The document URLs that have nothing to resolve a relative URL against, and
+    # so borrow their creator's base URL (see #base_uri).
+    FALLBACK_BASE_URLS = %w[about:blank about:srcdoc].freeze
+
     # --- CSS cascade support (Internal::CSS) ---
     # Two invalidation epochs, split so a style-neutral mutation doesn't pay
     # for a cascade rebuild (RuleIndex.build is a full rules x document query):
@@ -732,11 +737,6 @@ module Dommy
       nil
     end
 
-    # That base URL, but only while this document's URL is still one of the
-    # about: URLs that has nothing to resolve against. A frame that navigates
-    # somewhere real answers from its own URL again.
-    FALLBACK_BASE_URLS = %w[about:blank about:srcdoc].freeze
-
     private def creator_base_url
       @creator_base_url if @creator_base_url && FALLBACK_BASE_URLS.include?(url)
     end
@@ -756,7 +756,7 @@ module Dommy
       view = @default_view
       return "" unless view&.location
 
-      view.location.__js_get__("origin").to_s
+      view.origin
     end
 
     # `document.referrer` — Dommy never has a referring page, so this
@@ -776,25 +776,25 @@ module Dommy
     # whole harness with it).
     def links
       HTMLCollection.new do
-        @backend_doc.css("a[href], area[href]").filter_map { |n| html_element_wrapper(n) }
+        @backend_doc.css("a[href], area[href]").filter_map { |n| __internal_html_element_wrapper__(n) }
       end
     end
 
     def forms
       HTMLCollection.new do
-        @backend_doc.css("form").filter_map { |n| html_element_wrapper(n) }
+        @backend_doc.css("form").filter_map { |n| __internal_html_element_wrapper__(n) }
       end
     end
 
     def scripts
       HTMLCollection.new do
-        @backend_doc.css("script").filter_map { |n| html_element_wrapper(n) }
+        @backend_doc.css("script").filter_map { |n| __internal_html_element_wrapper__(n) }
       end
     end
 
     def images
       HTMLCollection.new do
-        @backend_doc.css("img").filter_map { |n| html_element_wrapper(n) }
+        @backend_doc.css("img").filter_map { |n| __internal_html_element_wrapper__(n) }
       end
     end
 
@@ -2066,16 +2066,29 @@ module Dommy
       # HTML-namespace only: a `css` query matches on local name, so a
       # `<details>` the parser put inside `<svg>` answers it too, as an
       # SVGElement that has none of these steps.
-      elements = @backend_doc.css("details").filter_map { |node| html_element_wrapper(node) }
+      elements = @backend_doc.css("details").filter_map { |node| __internal_html_element_wrapper__(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
-      @backend_doc.css("select").each { |node| html_element_wrapper(node)&.__internal_settle_selectedness_once__ }
+      @backend_doc.css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
       nil
     end
 
-    # The wrapper for a backend node, when it is an HTML element. The namespace
-    # lives on the wrapper, not the backend node, so this is the only place it
-    # can be asked.
-    def html_element_wrapper(node)
+    # The wrapper for a backend node, but only when HTML's rules are the ones
+    # that apply to it.
+    #
+    # Every query that finds elements by name — `css("details")`,
+    # `document.scripts`, a select's list of options — finds the SVG ones too,
+    # because a local name is all a backend node carries and the namespace lives
+    # on the wrapper. So `createElementNS(SVG_NS, "details")` answers a
+    # `css("details")` as an SVGElement, which has none of the methods HTML's
+    # steps call, and the NoMethodError escapes into the page: WPT's
+    # clicking-noninteractive-unlabelable-content.html appends exactly that
+    # element to a <label>, and testharness turned the whole file's results into
+    # one ERROR.
+    #
+    # The one place the question can be asked, because the wrapper is where the
+    # answer is — hence a seam rather than a private method: PostInsertionSteps
+    # asks it too.
+    def __internal_html_element_wrapper__(node)
       wrapper = wrap_node(node)
       wrapper if wrapper.is_a?(Element) && Internal::ElementState.html_element?(wrapper)
     end
