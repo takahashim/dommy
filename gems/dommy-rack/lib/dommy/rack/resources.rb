@@ -157,17 +157,13 @@ module Dommy
       def absolute_url(url)
         # Percent-encode raw UTF-8 in a subresource URL (e.g. an <img> whose
         # src has non-ASCII path) so the ASCII-only parser accepts it.
-        URI.join(base_url, Url.encode_iri(url)).to_s
+        Url.resolve(base_url, url)
       rescue URI::InvalidURIError
         nil
       end
 
       def same_origin?(target)
-        t = URI.parse(target)
-        b = URI.parse(base_url)
-        t.scheme == b.scheme && t.host == b.host && t.port == b.port
-      rescue URI::InvalidURIError
-        false
+        Url.same_origin?(target, base_url)
       end
 
       def allowed_cross_origin?(target)

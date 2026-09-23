@@ -138,10 +138,7 @@ module Dommy
         @app_start_listeners = []
         @app_finish_listeners = []
         @document_loaded_listeners = []
-        @subresource_allowlist = []        # hosts allowed for cross-origin <script>/fetch/XHR
-        @blocked_subresource_hosts = []    # cross-origin hosts declined since the last reset (awaiting a decision)
-        @dropped_subresource_hosts = []    # hosts dropped by the denylist (deliberate; never prompted)
-        @subresource_host_blocker = nil    # embedder-supplied ->(host){bool} denylist (e.g. trackers)
+        @subresource_policy = SubresourcePolicy.new
         @js_runtime = build_js_runtime if javascript
         # Built last so it can subscribe to the (already-created) JS runtime's
         # console / js_error / script seams as well as the request/document seams.
@@ -292,60 +289,53 @@ module Dommy
       # Dommy::Rack::Resources). Hosts allowed here also load — an embedding
       # browser prompts the user for a blocked host and reloads. The network
       # backend's SSRF guard still applies, so this never reaches private hosts.
+      # State and rules live in SubresourcePolicy; Session only exposes it.
 
       def allow_subresource_host(host)
-        host = host.to_s
-        @subresource_allowlist << host unless host.empty? || @subresource_allowlist.include?(host)
+        @subresource_policy.allow(host)
         self
       end
 
-      def subresource_host_allowed?(host) = @subresource_allowlist.include?(host.to_s)
+      def subresource_host_allowed?(host) = @subresource_policy.allowed?(host)
 
       # An embedder-owned denylist predicate consulted before any subresource is
       # fetched (even in `:open` mode). A text/headless client uses it to drop
       # tracker/ad hosts it never renders — the host is recorded as blocked so a
       # UI can still surface it. Generic mechanism only: the host set and the
       # matching rule (exact / domain-suffix) live in the embedder.
-      attr_accessor :subresource_host_blocker
+      def subresource_host_blocker = @subresource_policy.host_blocker
 
-      def subresource_host_blocked?(host)
-        blocker = @subresource_host_blocker
-        return false unless blocker
-
-        !!blocker.call(host.to_s)
+      def subresource_host_blocker=(blocker)
+        @subresource_policy.host_blocker = blocker
       end
+
+      def subresource_host_blocked?(host) = @subresource_policy.blocked_by_denylist?(host)
 
       # Hosts the denylist dropped this page. Distinct from
       # blocked_subresource_hosts: a dropped host was refused on purpose (a
       # tracker the embedder never wants), so the UI surfaces it but never offers
       # to load it, whereas a blocked host is a cross-origin candidate awaiting a choice.
-      def dropped_subresource_hosts = @dropped_subresource_hosts.dup
+      def dropped_subresource_hosts = @subresource_policy.dropped_hosts
 
       def reset_dropped_subresource_hosts
-        @dropped_subresource_hosts.clear
+        @subresource_policy.reset_dropped_hosts
         self
       end
 
       # Internal: Resources records a denylist-dropped host here.
-      def __internal_record_dropped_subresource(host)
-        host = host.to_s
-        @dropped_subresource_hosts << host unless host.empty? || @dropped_subresource_hosts.include?(host)
-      end
+      def __internal_record_dropped_subresource(host) = @subresource_policy.record_dropped(host)
 
       # Cross-origin hosts whose subresources were declined since the last reset,
       # so a UI can offer to allow them.
-      def blocked_subresource_hosts = @blocked_subresource_hosts.dup
+      def blocked_subresource_hosts = @subresource_policy.blocked_hosts
 
       def reset_blocked_subresource_hosts
-        @blocked_subresource_hosts.clear
+        @subresource_policy.reset_blocked_hosts
         self
       end
 
       # Internal: Resources records a declined cross-origin host here.
-      def __internal_record_blocked_subresource(host)
-        host = host.to_s
-        @blocked_subresource_hosts << host unless host.empty? || @blocked_subresource_hosts.include?(host)
-      end
+      def __internal_record_blocked_subresource(host) = @subresource_policy.record_blocked(host)
 
       # --- Navigation API ---
 
@@ -765,20 +755,12 @@ module Dommy
           headers: @headers,
           on_request: lambda { |env|
             @last_request = env
-            @request_listeners.each { |cb| cb.call(env) }
+            fire(@request_listeners, env)
           },
-          on_response: lambda { |response|
-            @response_listeners.each { |cb| cb.call(response) }
-          },
-          on_abort: lambda { |env|
-            @abort_listeners.each { |cb| cb.call(env) }
-          },
-          on_app_start: lambda { |env|
-            @app_start_listeners.each { |cb| cb.call(env) }
-          },
-          on_app_finish: lambda { |env|
-            @app_finish_listeners.each { |cb| cb.call(env) }
-          }
+          on_response: ->(response) { fire(@response_listeners, response) },
+          on_abort: ->(env) { fire(@abort_listeners, env) },
+          on_app_start: ->(env) { fire(@app_start_listeners, env) },
+          on_app_finish: ->(env) { fire(@app_finish_listeners, env) }
         )
       end
 
@@ -931,6 +913,18 @@ module Dommy
 
       private
 
+      # Fire `listeners` with `arg`, inline or (with a `sched`) posted to its
+      # inbox so they run later on the page thread. Shared by #page_exchange
+      # and #build_worker_exchange, which otherwise hand-rolled the same
+      # `listeners.each { |cb| cb.call(arg) }` five times each.
+      def fire(listeners, arg, sched: nil)
+        if sched
+          sched.post_external { listeners.each { |cb| cb.call(arg) } }
+        else
+          listeners.each { |cb| cb.call(arg) }
+        end
+      end
+
       # An HttpExchange for a network worker: it reads only thread-safe /
       # immutable state (a detached header snapshot, the frozen Config, the
       # thread-safe CookieJar, the stateless app). Request/response observation
@@ -943,25 +937,15 @@ module Dommy
           config: @config,
           cookie_jar: @cookie_jar,
           headers: @headers.snapshot,
-          on_request: sched && lambda { |env|
-            sched.post_external { @request_listeners.each { |cb| cb.call(env) } }
-          },
-          on_response: sched && lambda { |response|
-            sched.post_external { @response_listeners.each { |cb| cb.call(response) } }
-          },
-          on_abort: sched && lambda { |env|
-            sched.post_external { @abort_listeners.each { |cb| cb.call(env) } }
-          },
+          on_request: sched && ->(env) { fire(@request_listeners, env, sched: sched) },
+          on_response: sched && ->(response) { fire(@response_listeners, response, sched: sched) },
+          on_abort: sched && ->(env) { fire(@abort_listeners, env, sched: sched) },
           # The app-call bracket is NOT posted to the inbox: it has to be open
           # while the worker thread is inside the app, which a page-thread
           # callback scheduled for later can never be. Its listeners touch only
           # thread-locals and the env, so running them off-thread is safe.
-          on_app_start: lambda { |env|
-            @app_start_listeners.each { |cb| cb.call(env) }
-          },
-          on_app_finish: lambda { |env|
-            @app_finish_listeners.each { |cb| cb.call(env) }
-          }
+          on_app_start: ->(env) { fire(@app_start_listeners, env) },
+          on_app_finish: ->(env) { fire(@app_finish_listeners, env) }
         )
       end
 
@@ -1045,12 +1029,11 @@ module Dommy
       # issue a request (browser behavior).
       def same_page_fragment?(target)
         return false unless @current_url
+        return false unless Url.same_origin?(target, @current_url)
 
         t = URI.parse(target)
         c = URI.parse(@current_url)
-        !t.fragment.nil? &&
-          t.scheme == c.scheme && t.host == c.host && t.port == c.port &&
-          t.path == c.path && t.query == c.query
+        !t.fragment.nil? && t.path == c.path && t.query == c.query
       rescue URI::InvalidURIError
         false
       end
