@@ -408,6 +408,9 @@ module Dommy
   # Wrapper caching keeps DOM identity stable across repeated
   # traversals (`body.children[0].parentElement`).
   class Document
+    include Internal::DocumentGenerations
+    include Internal::DocumentLiveRanges
+    include Internal::DocumentInteractionState
     include EventTarget
     include Node
 
@@ -432,39 +435,11 @@ module Dommy
     # `__internal_note_*` seams below, which decide what to bump.
     attr_accessor :__css_style_cache__
 
-    def style_generation
-      @style_generation || 0
-    end
 
-    def dom_generation
-      @dom_generation || 0
-    end
 
-    # Moves only on childList mutations — the coarsest epoch. Keys memos
-    # whose value depends on the element population alone (which elements
-    # exist, in what order), like the document's <style>/<link> list: an
-    # attribute-triggered cascade rebuild can then skip re-walking for them.
-    def tree_generation
-      @tree_generation || 0
-    end
 
-    def __internal_bump_style_generation__
-      @style_generation = style_generation + 1
-      nil
-    end
 
-    def __internal_bump_dom_generation__
-      @dom_generation = dom_generation + 1
-      nil
-    end
 
-    # A childList mutation: tree shape feeds both selector matching and the
-    # rule -> element index, so everything is suspect.
-    def __internal_note_tree_mutation__
-      @tree_generation = tree_generation + 1
-      __internal_bump_dom_generation__
-      __internal_bump_style_generation__
-    end
 
     # The document's <style> and <link> elements in document order (their
     # relative order breaks cascade ties), memoized per tree_generation:
@@ -478,89 +453,13 @@ module Dommy
       @__sheet_elements
     end
 
-    # An attribute mutation: selector results are always suspect (any cached
-    # query could carry an attribute selector), but the cascade only when the
-    # indexed rules read this attribute — or when the attribute belongs to a
-    # <style>/<link>, whose media/disabled/rel gate whole sheets.
-    def __internal_note_attribute_mutation__(name, target_node)
-      __internal_bump_dom_generation__
-      __internal_bump_style_generation__ if __internal_style_affected_by_attribute__(name, target_node)
-    end
 
-    # A characterData mutation. Text participates in matching only through
-    # `:empty` (a text node counts iff its data is non-empty), so nothing is
-    # suspect unless the edit flips that emptiness — except text inside a
-    # <style>, which IS the stylesheet source.
-    def __internal_note_character_data_mutation__(target_node, old_value)
-      # Only a Text node's data participates in :empty; a comment/PI edit
-      # can't change any match. `target_node` is a backend node, so its data
-      # reads through the Nokogiri-compatible #content.
-      text = target_node.respond_to?(:node_type) && target_node.node_type == 3
-      flipped = text && (old_value.to_s.empty? != target_node.content.to_s.empty?)
-      __internal_bump_dom_generation__ if flipped
-      if __internal_inside_style_element__(target_node) ||
-         (flipped && __internal_style_text_sensitive__)
-        __internal_bump_style_generation__
-      end
-      nil
-    end
 
-    # Selector-observable state that lives outside the attribute space
-    # (focus, hover, checkedness…): both cache families are suspect.
-    def __internal_note_selector_state_change__
-      __internal_bump_dom_generation__
-      __internal_bump_style_generation__
-    end
 
-    # A form control's IDL value changed (typing, `input.value = …`, a form
-    # reset). No attribute mutates, yet the value is selector-observable
-    # through the validity / range / placeholder pseudo-classes, so the
-    # selector epoch always moves — a cached `querySelectorAll(":invalid")`
-    # would otherwise survive the very change that flipped it. The cascade
-    # follows only when a sheet actually uses one of those pseudo-classes.
-    def __internal_note_value_change__
-      __internal_bump_dom_generation__
-      __internal_bump_style_generation__ if __internal_style_value_sensitive__
-      nil
-    end
 
-    def __internal_style_value_sensitive__
-      index = @__css_style_cache__&.index
-      index ? index.value_sensitive? : true
-    end
 
-    def __internal_style_affected_by_attribute__(name, target_node)
-      owner = target_node.respond_to?(:name) ? target_node.name.to_s.downcase : nil
-      return true if owner == "style" || owner == "link"
 
-      index = @__css_style_cache__&.index
-      # No RuleIndex yet: the bump is nearly free (at most it drops the
-      # author_css?/counters memos), so stay conservative.
-      return true unless index
 
-      index.attribute_dependency?(name)
-    end
-
-    def __internal_style_text_sensitive__
-      index = @__css_style_cache__&.index
-      index ? index.text_sensitive? : true
-    end
-
-    def __internal_inside_style_element__(node)
-      # No <style> in the document -> a text edit can't be sheet source, so
-      # skip the ancestor walk. The sheet-element list is memoized per
-      # tree_generation (only childList changes it), so a text-editing loop
-      # between childList mutations answers this without re-walking.
-      return false unless __internal_style_sheet_elements__.any? { |el| el.local_name.to_s.casecmp?("style") }
-
-      current = node.respond_to?(:parent) ? node.parent : nil
-      while current
-        return true if current.respond_to?(:name) && current.name.to_s.downcase == "style"
-
-        current = current.respond_to?(:parent) ? current.parent : nil
-      end
-      false
-    end
 
     # A by-id/class/tag index of the backend element tree, memoized per DOM
     # generation, for SelectorMatcher's document-scoped fast path (or nil to tell
@@ -899,11 +798,6 @@ module Dommy
       wrap_node(@backend_doc.root)
     end
 
-    # Currently-focused element (or body if none). Updated via
-    # `el.focus()` / `el.blur()`.
-    def active_element
-      @active_element || body
-    end
 
     # `document.contains(node)` — true if `node` is the document itself or any
     # node attached to its tree (per Node.contains, which all nodes including the
@@ -920,33 +814,9 @@ module Dommy
       !node.nil?
     end
 
-    def __internal_set_active_element__(el)
-      # Focus is selector-observable state (:focus / :focus-within rules), so
-      # a change invalidates cached query results and computed styles.
-      __internal_note_selector_state_change__ unless @active_element.equal?(el)
-      @active_element = el
-    end
 
-    # The explicitly focused element (nil when nothing holds focus) — what
-    # :focus matches. Distinct from #active_element, which falls back to
-    # <body> per spec.
-    def __internal_focused_element__
-      @active_element
-    end
 
-    # The element the (virtual) pointer hovers — :hover matches it and its
-    # ancestors. Set from tests or capybara-dommy's Node#hover; nil clears.
-    def __internal_hovered_element__
-      @hovered_element
-    end
 
-    def __internal_set_hovered_element__(el)
-      return if @hovered_element.equal?(el)
-
-      @hovered_element = el
-      __internal_note_selector_state_change__
-      nil
-    end
 
     # Create a detached Attr. `setAttributeNode` attaches it to an
     # element. Per spec, name must match the XML Name production —
@@ -2430,21 +2300,8 @@ module Dommy
     # designating the same content. They are held weakly, so a range the caller
     # drops is collected rather than pinned for the document's lifetime.
 
-    def __internal_register_range__(range)
-      @live_ranges ||= ObjectSpace::WeakMap.new
-      @live_ranges[range] = true
-      nil
-    end
 
-    def __internal_each_live_range__
-      return if @live_ranges.nil? || @live_ranges.size.zero?
 
-      @live_ranges.each_key { |range| yield range }
-    end
-
-    def live_ranges?
-      !@live_ranges.nil? && @live_ranges.size.positive?
-    end
 
     # WHATWG "removing steps" for live ranges. Must run while `backend_node` is
     # still attached, since the rules are expressed in terms of the position it
@@ -2466,51 +2323,7 @@ module Dommy
       affected.each { |r| r.__internal_apply_remove__(removed, parent_wrapper, index) }
     end
 
-    # WHATWG "insert a node into a parent before a child", step 5 — the
-    # live-range offset shift.
-    #
-    # It runs BEFORE step 7 adopts each node (which removes it from wherever it
-    # is now), so `child`'s index, and every boundary it shifts, are measured
-    # against the tree as it stands before the insertion begins. Running it
-    # afterwards double-counts a boundary that one of those removals has just
-    # moved onto `parent`: `parent.insertBefore(second, first)` with a range
-    # inside `second` leaves that boundary at `(parent, 1)` per spec, but at
-    # `(parent, 2)` if the shift is applied after the move.
-    #
-    # Appending (a null `child`) shifts nothing: a boundary at the parent's end
-    # stays before the new nodes.
-    def __internal_ranges_will_insert__(parent_backend_node, ref_backend_node, count)
-      return if ref_backend_node.nil? || count.zero?
-      return unless live_ranges?
 
-      parent_wrapper = wrap_node(parent_backend_node)
-      return unless parent_wrapper.respond_to?(:child_nodes)
-
-      affected = live_ranges_where { |r| r.__internal_anchored_at__(parent_wrapper) }
-      return if affected.empty?
-
-      index = child_index_of_wrapper(parent_wrapper, wrap_node(ref_backend_node))
-      return unless index
-
-      affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index, count) }
-    end
-
-    # WHATWG normalize() steps 6.1-6.4. `current` is a contiguous exclusive Text
-    # sibling whose data has just been appended to `node` at `length`; its own
-    # boundaries — and a parent-anchored boundary pointing AT it — follow the
-    # data into the merged node. Run for every merged sibling before any of them
-    # is removed, so the indices still describe the pre-removal tree.
-    def __internal_ranges_normalize_merge__(node, current, length)
-      return unless live_ranges?
-
-      merged_into = wrap_node(node)
-      current_wrapper = wrap_node(current)
-      parent = current.parent && wrap_node(current.parent)
-      index = parent && child_index_of_wrapper(parent, current_wrapper)
-      __internal_each_live_range__ do |range|
-        range.__internal_apply_normalize_merge__(merged_into, current_wrapper, length, parent, index)
-      end
-    end
 
     # Node.normalize() on the document: every Text run in the tree.
     def normalize
@@ -2585,29 +2398,8 @@ module Dommy
       __internal_each_live_range__ { |r| r.__internal_apply_replace_data__(node, offset, count, new_length) }
     end
 
-    def __internal_ranges_split_text__(node, offset, new_node)
-      return unless live_ranges?
 
-      parent = node.parent_node
-      # Only the parent-anchored rule needs an index, so resolve one lazily.
-      index =
-        if parent && live_ranges_where { |r| r.__internal_anchored_at__(parent) }.any?
-          child_index_of_wrapper(parent, node)
-        end
-      __internal_each_live_range__ { |r| r.__internal_apply_split__(node, offset, new_node, parent, index) }
-    end
 
-    def live_ranges_where
-      out = []
-      __internal_each_live_range__ { |r| out << r if yield(r) }
-      out
-    end
-
-    def child_index_of_wrapper(parent_wrapper, child_wrapper)
-      return nil unless parent_wrapper.respond_to?(:child_nodes)
-
-      parent_wrapper.child_nodes.to_a.index { |c| c.equal?(child_wrapper) }
-    end
 
     # Run the "NodeIterator pre-removing steps" for every live iterator before
     # `backend_node` is detached, so referenceNode/pointerBeforeReferenceNode
