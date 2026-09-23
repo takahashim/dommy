@@ -191,7 +191,20 @@ module Dommy
         window = (@document.default_view if @document.respond_to?(:default_view))
         return @on_error&.call(error) unless window.respond_to?(:__internal_report_exception__)
 
-        Dommy::Internal::ExceptionReport.report_at(window, error)
+        Dommy::Internal::ExceptionReport.report_at(window, error, value: page_value_for(error))
+      end
+
+      # What the page should see as `event.error`. An engine that raises a host
+      # exception for a script\'s throw has already discarded the JS value, so
+      # there is nothing left to hand over: the page would get an opaque husk
+      # with no `message` or `stack`, and a handler reading either would itself
+      # throw — taking its `preventDefault()` down with it. A runtime that can
+      # rebuild an equivalent Error inside the realm gets to; nil falls back to
+      # whatever was caught.
+      def page_value_for(error)
+        return nil unless @runtime.respond_to?(:rebuild_error)
+
+        @runtime.rebuild_error(error)
       end
 
       # Fire the script's load/error event ASYNCHRONOUSLY (a microtask), like a

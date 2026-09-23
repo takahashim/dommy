@@ -49,7 +49,14 @@ module Dommy
       # Methods a backend may implement but is not required to.
       #   on_callback_error { |e } observe a timer/rAF callback the engine
       #                            force-killed (runaway loop); recorded, not fatal
-      OPTIONAL_METHODS = %i[install_wasm_memory_shim on_callback_error].freeze
+      #   rebuild_error(e)         an engine that raises a HOST exception for a
+      #                            script\'s throw has already discarded the JS
+      #                            value, so the page cannot be handed what it
+      #                            threw. Rebuild an equivalent Error inside the
+      #                            realm and return it (nil when not possible),
+      #                            so `event.error` is a real Error the page can
+      #                            read rather than an opaque husk.
+      OPTIONAL_METHODS = %i[install_wasm_memory_shim on_callback_error rebuild_error].freeze
 
       module_function
 

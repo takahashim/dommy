@@ -65,8 +65,14 @@ module Dommy
       # Every entry point reports through here, so none of them can drift from
       # the others in what the page gets to see. Returns whether the page
       # handled it.
-      def report_at(window, error)
-        value, message = describe(error)
+      # `value` overrides what the page sees as `event.error`, for a caller that
+      # can supply a better one than the raw catch: an engine that converted the
+      # throw to a host exception can rebuild the JS Error the page threw, which
+      # is the difference between a handler reading `.message` and one crashing
+      # on `undefined`.
+      def report_at(window, error, value: nil)
+        value ||= error_value(error)
+        message = message_for(error)
         file, line, column = source_position(error)
         window.__internal_report_exception__(value, message,
           filename: document_source(file, window), lineno: line, colno: column, host_error: error)
