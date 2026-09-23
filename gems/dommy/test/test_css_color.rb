@@ -121,6 +121,33 @@ class TestCssColor < Minitest::Test
     assert_equal "rgb(255, 0, 0)", Color.normalize("rgb(100%, 0%, 0%)")
   end
 
+  # css-color-4 "missing components". A `none` is not a zero, so the color
+  # cannot be converted to the legacy rgb() form: it keeps its own space.
+  def test_none_keeps_the_color_in_its_own_space
+    assert_equal "hsl(none none none)", Color.normalize("hsl(none none none)")
+    assert_equal "hsl(none none none / none)", Color.normalize("hsl(none none none / none)")
+    assert_equal "hsl(120 none 50%)", Color.normalize("hsl(120 none 50%)")
+    assert_equal "hsl(120 80% none)", Color.normalize("hsl(120 80% none)")
+    assert_equal "hsl(120 100% 50% / none)", Color.normalize("hsl(120 100% 50% / none)")
+    assert_equal "rgb(none none none)", Color.normalize("rgb(none none none)")
+  end
+
+  def test_none_in_hsla_serializes_as_hsl
+    assert_equal "hsl(none none none)", Color.normalize("hsla(none none none)")
+  end
+
+  def test_alpha_beside_a_missing_component
+    assert_equal "hsl(120 none 50% / 0.5)", Color.normalize("hsl(120 none 50% / 0.5)")
+    assert_equal "hsl(120 none 50%)", Color.normalize("hsl(120 none 50% / 1)")
+  end
+
+  # The zero the `none` is not: these still convert.
+  def test_zero_components_still_convert_to_rgb
+    assert_equal "rgb(0, 0, 0)", Color.normalize("hsl(0 0% 0%)")
+    assert_equal "rgb(128, 128, 128)", Color.normalize("hsl(120 0% 50%)")
+    assert_equal "rgba(0, 255, 0, 0)", Color.normalize("hsl(120 100% 50% / 0)")
+  end
+
   def test_unknown_values_pass_through
     assert_equal "var(--main-color)", Color.normalize("var(--main-color)")
     assert_equal "currentcolor", Color.normalize("currentcolor")

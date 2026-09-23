@@ -225,9 +225,17 @@ module Dommy
         # Normalize an rgb()/hsl() function body to rgb()/rgba(). Returns nil
         # when the channels don't parse (the caller keeps the original text).
         def normalize_function(name, args)
-          channels, alpha = split_color_args(args)
+          channels, raw_alpha = split_color_args(args)
           return nil unless channels.length == 3
 
+          # css-color-4: a `none` component is MISSING, not zero, and a missing
+          # component does not survive the conversion to the legacy rgb() form
+          # — substituting 0 for it turns `hsl(120 none 50%)` into
+          # `rgb(128, 128, 128)`, a grey the author never wrote. Such a color
+          # computes in its own color space, keeping the keyword.
+          return serialize_missing(name, channels, raw_alpha) if missing_component?(channels, raw_alpha)
+
+          alpha = raw_alpha && parse_alpha(raw_alpha)
           rgb =
             if name.start_with?("rgb")
               channels.map { |channel| rgb_channel(channel) }
@@ -242,15 +250,62 @@ module Dommy
         # [[c1, c2, c3], alpha_or_nil]. Channels are comma- or space-separated;
         # a `/` introduces the alpha (modern syntax), as does a 4th legacy comma
         # value.
+        # The alpha comes back as its source text, not a number: `none` and `0`
+        # are the same alpha and different serializations.
         def split_color_args(args)
           args = args.strip
           if args.include?("/")
             main, alpha = args.split("/", 2)
-            [main.strip.split(/[\s,]+/), parse_alpha(alpha.strip)]
+            [main.strip.split(/[\s,]+/), alpha.strip]
           else
             parts = args.split(/[\s,]+/)
-            parts.length == 4 ? [parts[0, 3], parse_alpha(parts[3])] : [parts, nil]
+            parts.length == 4 ? [parts[0, 3], parts[3]] : [parts, nil]
           end
+        end
+
+        def missing_component?(channels, raw_alpha)
+          channels.any? { |channel| none?(channel) } || (raw_alpha && none?(raw_alpha))
+        end
+
+        # A color with a missing component, serialized in its own color space.
+        # `hsla()` is `hsl()` here: the alpha is a component of the same color,
+        # not a different function.
+        def serialize_missing(name, channels, raw_alpha)
+          components =
+            if name.start_with?("rgb")
+              channels.map { |channel| none?(channel) ? "none" : rgb_channel(channel) }
+            else
+              [none?(channels[0]) ? "none" : format_number(hue(channels[0]))] +
+                channels[1, 2].map { |channel| none?(channel) ? "none" : format_percentage(percentage(channel)) }
+            end
+          return nil if components.any?(&:nil?)
+
+          space = name.start_with?("rgb") ? "rgb" : "hsl"
+          "#{space}(#{(components + missing_alpha_part(raw_alpha)).join(" ")})"
+        end
+
+        # ["/", alpha] when the color carries one worth serializing — an alpha
+        # of 1 is the default and is left off, as it is in rgb().
+        def missing_alpha_part(raw_alpha)
+          return [] if raw_alpha.nil?
+          return ["/", "none"] if none?(raw_alpha)
+
+          alpha = parse_alpha(raw_alpha)
+          return [] if alpha.nil? || alpha == 1
+
+          ["/", format_alpha(alpha)]
+        end
+
+        def format_number(value)
+          return nil if value.nil?
+
+          value == value.to_i ? value.to_i.to_s : value.to_s
+        end
+
+        def format_percentage(fraction)
+          return nil if fraction.nil?
+
+          "#{format_number(fraction * 100)}%"
         end
 
         # The css-color-4 `none` keyword marks a missing component; in the
