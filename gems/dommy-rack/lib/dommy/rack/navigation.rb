@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
-
 module Dommy
   module Rack
     # URL resolution, redirect following, same-origin enforcement, and
@@ -21,19 +19,17 @@ module Dommy
       # Resolve a possibly-relative URL against a base (current URL or host).
       def resolve_url(url_or_path, base_url)
         base = base_url || @config.default_host
-        # A link/redirect target may carry raw UTF-8 (e.g. /hashtag/応援); the
-        # ASCII-only URI parser needs it percent-encoded first (what a browser
-        # does), or URI.join raises and the rescue would leak a non-ASCII URL
-        # that crashes downstream (cookie matching, request building).
-        Url.resolve(base, url_or_path)
-      rescue URI::InvalidURIError
-        url_or_path.to_s
+        # A link/redirect target may carry raw UTF-8 (e.g. /hashtag/応援) —
+        # Dommy::URL (a WHATWG parser, unlike stdlib URI) percent-encodes it
+        # like a browser would rather than rejecting it, so a genuinely
+        # malformed target is the only thing that falls through to nil here.
+        Url.resolve(base, url_or_path) || url_or_path.to_s
       end
 
       # Merge ordered [name, value] params into `url`'s query, preserving any
       # existing query and keeping a fragment last (browser address-bar form).
       def append_query(url, params)
-        encoded = URI.encode_www_form(params)
+        encoded = Dommy::URLSearchParams.new(params).to_s
         return url if encoded.empty?
 
         base, hash, fragment = url.to_s.partition("#")
@@ -199,10 +195,12 @@ module Dommy
         maybe_follow_meta_refresh(next_response, depth + 1) || next_response
       end
 
+      # The bare fragment (no leading "#"), or "" for none/empty, or nil if
+      # `url` doesn't parse. Callers already fold nil and "" together, so
+      # Dommy::URL#hash never distinguishing "no fragment" from "empty
+      # fragment" (both "") doesn't change behavior here.
       def uri_fragment(url)
-        URI.parse(url.to_s).fragment
-      rescue URI::InvalidURIError
-        nil
+        Dommy::URL.parse(url.to_s)&.hash&.delete_prefix("#")
       end
 
       def with_fragment(url, fragment)
