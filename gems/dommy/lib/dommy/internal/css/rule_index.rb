@@ -6,6 +6,7 @@ require_relative "supports"
 require_relative "ua_stylesheet"
 require_relative "../selector_ast"
 require_relative "../selector_matcher"
+require_relative "../bounded_cache"
 require_relative "selector_dependencies"
 
 module Dommy
@@ -178,22 +179,10 @@ module Dommy
         # are read-only value objects, safe to share between builds. (Hash
         # dup+freezes unfrozen String keys, so a later mutation of the
         # source text can't corrupt an entry.)
-        #
-        # Least-recently-used, so a document with more sheets than the cap keeps
-        # the ones it is actually rebuilding from. Clearing wholesale instead
-        # made the 65th sheet throw away the 64 in use, which is exactly the
-        # case a cache is for. Ruby's Hash preserves insertion order, so
-        # re-inserting on a hit is enough to order it by recency.
-        PARSE_CACHE = {}
-        PARSE_CACHE_CAP = 64
+        PARSE_CACHE = Internal::BoundedCache.new(64)
 
         def safe_parse(text)
-          cached = PARSE_CACHE.delete(text)
-          return (PARSE_CACHE[text] = cached) if cached
-
-          rules = Parser.parse(text)
-          PARSE_CACHE.shift while PARSE_CACHE.size >= PARSE_CACHE_CAP
-          PARSE_CACHE[text] = rules
+          PARSE_CACHE.fetch(text) { Parser.parse(text) }
         rescue Parser::Unavailable
           # A missing makiri is not a malformed sheet: it means CSS is
           # unavailable at all, which the caller reports rather than swallows.

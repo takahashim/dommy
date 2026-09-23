@@ -59,6 +59,11 @@ module Dommy
       end
 
       def quote(text) = "\"#{text.to_s.gsub("\\", "\\\\\\\\").gsub("\"", "\\\"")}\""
+
+      # Everything below compute is how it is computed, not API.
+      private_class_method :emit
+      private_class_method :flags
+      private_class_method :quote
     end
   end
 end

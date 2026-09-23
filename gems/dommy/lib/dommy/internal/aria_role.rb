@@ -249,6 +249,20 @@ module Dommy
         else false
         end
       end
+
+      # Everything below compute is how it is computed, not API.
+      private_class_method :explicit_role
+      private_class_method :implicit_role
+      private_class_method :img_role
+      private_class_method :th_role
+      private_class_method :auto_th_role
+      private_class_method :input_role
+      private_class_method :select_role
+      private_class_method :landmark_or_generic
+      private_class_method :named?
+      private_class_method :present?
+      private_class_method :presentation_conflict?
+      private_class_method :focusable?
     end
   end
 end

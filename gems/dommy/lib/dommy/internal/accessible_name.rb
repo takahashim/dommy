@@ -33,6 +33,26 @@ module Dommy
       # on it stays a tooltip rather than becoming the name.
       NAME_FROM_CONTENT_TAGS = %w[summary].freeze
 
+      # The state a name computation carries down the tree: the nodes already
+      # named (the content-cycle guard), the control whose own text a label must
+      # not swallow, and whether the traversal began at a node that was itself
+      # hidden — which accname exempts the whole subtree from the hidden check.
+      #
+      # One object rather than three trailing parameters: they travel together
+      # through every step, and a step that forgot to pass one on would change
+      # the name in a way nothing here would catch.
+      Traversal = Struct.new(:visited, :skip, :hidden_root) do
+        def self.start(skip: nil, hidden_root: false) = new([], skip, hidden_root)
+
+        def seen?(key) = visited.any? { |node| node.equal?(key) }
+
+        def entering(key) = self.class.new(visited + [key], skip, hidden_root)
+
+        # The same visited set, naming something else: a label (whose control's
+        # own text is skipped) or an aria-labelledby target.
+        def naming(skip: nil, hidden_root: false) = self.class.new(visited, skip, hidden_root)
+      end
+
       extend TextFlattening
 
       module_function
@@ -41,7 +61,7 @@ module Dommy
       # collapsed and the result trimmed, matching how browsers / Playwright
       # flatten an accessible name.
       def compute(element)
-        squish(name_of(element, [], referenced: false, allow_content: false))
+        squish(name_of(element, Traversal.start, referenced: false, allow_content: false))
       end
 
       # `referenced`: this node was reached through aria-labelledby, so it must
@@ -49,15 +69,12 @@ module Dommy
       # self-reference fall through to its own aria-label/content).
       # `allow_content`: name-from-content is permitted regardless of role (true
       # for referenced and recursed-into nodes); at the top it is role-gated.
-      # `hidden_root`: this traversal started at a node that was itself hidden (a
-      # directly referenced aria-labelledby target, or a hidden <label>), which
-      # per accname exempts the whole subtree from the hidden check.
-      def name_of(node, visited, referenced:, allow_content:, skip: nil, hidden_root: false)
+      def name_of(node, traversal, referenced:, allow_content:)
         return "" unless node.respond_to?(:__dommy_backend_node__)
 
         # 1. aria-labelledby (not when already inside a labelledby traversal).
         unless referenced
-          labelled = labelledby_name(node, visited)
+          labelled = labelledby_name(node, traversal)
           return labelled unless labelled.nil?
         end
 
@@ -66,7 +83,7 @@ module Dommy
         return aria_label unless aria_label.strip.empty?
 
         # 3. Native host-language labeling.
-        native = native_name(node, visited)
+        native = native_name(node, traversal)
         return native unless native.nil?
 
         # 4. Name from content (role-permitting, or when recursing). Guard
@@ -74,8 +91,8 @@ module Dommy
         key = node.__dommy_backend_node__
         names_from_content = allow_content || NAME_FROM_CONTENT.include?(node.computed_role) ||
                              NAME_FROM_CONTENT_TAGS.include?(node.local_name.to_s.downcase)
-        if names_from_content && visited.none? { |v| v.equal?(key) }
-          content = content_name(node, visited + [key], skip, hidden_root)
+        if names_from_content && !traversal.seen?(key)
+          content = content_name(node, traversal.entering(key))
           # Preserve whitespace-only content: a space deep in the subtree is the
           # separator between sibling text runs ("button" + " " + "label").
           return content unless content.empty?
@@ -94,8 +111,8 @@ module Dommy
 
       # aria-labelledby: join each referenced element's name. Returns nil when
       # the attribute is absent/empty (so the caller falls through).
-      def labelledby_name(node, visited)
-        referenced_names(node, "aria-labelledby", visited)
+      def labelledby_name(node, traversal)
+        referenced_names(node, "aria-labelledby", traversal)
       end
 
       # Join the accessible names of the elements an IDREF-list attribute
@@ -103,7 +120,7 @@ module Dommy
       # attribute is absent/empty or resolves to nothing, so the caller falls
       # through. Each referenced node is named with `referenced: true` (it does
       # not restart a labelledby traversal) and `allow_content: true`.
-      def referenced_names(node, attribute, visited = [])
+      def referenced_names(node, attribute, traversal = Traversal.start)
         ids = node.get_attribute(attribute).to_s.split(/\s+/).reject(&:empty?)
         return nil if ids.empty?
 
@@ -114,54 +131,55 @@ module Dommy
           ref = doc.get_element_by_id(id)
           next "" unless ref
 
-          name_of(ref, visited, referenced: true, allow_content: true, hidden_root: AccessibilityVisibility.hidden_for_name?(ref))
+          name_of(ref, traversal.naming(hidden_root: AccessibilityVisibility.hidden_for_name?(ref)),
+            referenced: true, allow_content: true)
         end
         joined = parts.join(" ").strip
         joined.empty? ? nil : joined
       end
 
       # <label>/alt host-language names. Returns nil when not applicable.
-      def native_name(node, visited)
+      def native_name(node, traversal)
         tag = node.tag_name.to_s.downcase
         case tag
         when "img", "area"
           alt = node.get_attribute("alt")
           alt.nil? ? nil : alt
         when "input"
-          input_native_name(node, visited)
+          input_native_name(node, traversal)
         when "fieldset"
-          child_element_name(node, "legend", visited)
+          child_element_name(node, "legend", traversal)
         when "figure"
-          child_element_name(node, "figcaption", visited)
+          child_element_name(node, "figcaption", traversal)
         when "table"
-          child_element_name(node, "caption", visited)
+          child_element_name(node, "caption", traversal)
         when *LABELABLE
-          label_text(node, visited)
+          label_text(node, traversal)
         end
       end
 
       # The name of the first child element with the given tag (e.g. a
       # <fieldset>'s <legend>, a <table>'s <caption>). nil when absent.
-      def child_element_name(node, tag, visited)
+      def child_element_name(node, tag, traversal)
         bn = node.__dommy_backend_node__
         return nil unless bn.respond_to?(:children)
 
         child = bn.children.find { |c| c.respond_to?(:name) && c.name.to_s.casecmp?(tag) }
         return nil unless child
 
-        name_of(node.document.wrap_node(child), visited, referenced: false, allow_content: true)
+        name_of(node.document.wrap_node(child), traversal, referenced: false, allow_content: true)
       end
 
       # Input types for which the placeholder contributes the accessible name
       # (the text-like inputs); type=number / range / date / … do not.
       PLACEHOLDER_TYPES = %w[text search tel url email password].freeze
 
-      def input_native_name(node, visited)
+      def input_native_name(node, traversal)
         type = node.get_attribute("type").to_s.downcase
         return node.get_attribute("alt") || node.get_attribute("value").to_s if type == "image"
         return node.get_attribute("value").to_s if %w[button submit reset].include?(type)
 
-        label_text(node, visited)
+        label_text(node, traversal)
       end
 
       # The placeholder names a text-like input / textarea, but only as the
@@ -182,13 +200,13 @@ module Dommy
 
       # The concatenated text of the <label>s associated with a control:
       # label[for=id] anywhere, plus an ancestor <label>. nil → no labels.
-      def label_text(node, visited)
+      def label_text(node, traversal)
         labels = associated_labels(node)
         return nil if labels.empty?
 
         text = labels.map do |label|
-          name_of(label, visited, referenced: false, allow_content: true,
-            skip: node, hidden_root: AccessibilityVisibility.hidden_for_name?(label))
+          name_of(label, traversal.naming(skip: node, hidden_root: AccessibilityVisibility.hidden_for_name?(label)),
+            referenced: false, allow_content: true)
         end.join(" ").strip
         text.empty? ? nil : text
       end
@@ -216,7 +234,7 @@ module Dommy
       # Concatenate child text nodes and the names of element children, with the
       # `::before` content prepended and `::after` content appended (accname
       # name-from-content folds in generated content).
-      def content_name(node, visited, skip = nil, hidden_root = false)
+      def content_name(node, traversal)
         bn = node.__dommy_backend_node__
         return "" unless bn.respond_to?(:children)
 
@@ -229,14 +247,13 @@ module Dommy
             # The control a label names contributes nothing to that label's text
             # — `<label>Name <select>…</select></label>` names the select "Name",
             # not "Name" plus its own options.
-            next "" if skip && NodeIdentity.same_node?(skip, child)
+            next "" if traversal.skip && NodeIdentity.same_node?(traversal.skip, child)
             # A hidden subtree is not part of the name computed from content —
             # unless the traversal started at a hidden node, which brings its
             # whole subtree along.
-            next "" if !hidden_root && AccessibilityVisibility.hidden_for_name?(wrapped)
+            next "" if !traversal.hidden_root && AccessibilityVisibility.hidden_for_name?(wrapped)
 
-            name = name_of(wrapped, visited, referenced: false, allow_content: true,
-              skip: skip, hidden_root: hidden_root)
+            name = name_of(wrapped, traversal, referenced: false, allow_content: true)
             # Concatenate contributions directly (inline content glues:
             # "button" + "" + "label" -> "buttonlabel"); a block-level box is
             # padded with spaces so sibling cells / blocks separate
@@ -270,10 +287,13 @@ module Dommy
         !display.start_with?("inline") && !%w[none contents].include?(display)
       end
 
+      # nil when there is no CSS layer to ask, so block_level? falls back to the
+      # UA-default tag set. Only that absence is caught: a failure inside the
+      # cascade is a bug there, and silently guessing `display` would hide it.
       def computed_display(element)
         value = Internal::CSS::Cascade.computed_style(element)["display"].to_s
         value.empty? ? nil : value
-      rescue StandardError
+      rescue Internal::CSS::Parser::Unavailable
         nil
       end
 
@@ -286,7 +306,7 @@ module Dommy
 
         decl = Internal::CSS::ComputedStyleDeclaration.new(node, pseudo_element: pseudo)
         content_text(decl.get_property_value("content"), node)
-      rescue StandardError
+      rescue Internal::CSS::Parser::Unavailable
         ""
       end
 
@@ -319,6 +339,23 @@ module Dommy
           hex ? [hex.to_i(16)].pack("U") : Regexp.last_match(2)
         end
       end
+
+      # Everything below compute is how it is computed, not API.
+      private_class_method :name_of
+      private_class_method :labelledby_name
+      private_class_method :native_name
+      private_class_method :child_element_name
+      private_class_method :input_native_name
+      private_class_method :placeholder_fallback
+      private_class_method :placeholder_name
+      private_class_method :label_text
+      private_class_method :associated_labels
+      private_class_method :closest_label
+      private_class_method :content_name
+      private_class_method :computed_display
+      private_class_method :pseudo_content
+      private_class_method :content_text
+      private_class_method :unescape_css_string
     end
   end
 end

@@ -209,6 +209,20 @@ module Dommy
         rows.first.query_selector_all("td, th").to_a.size == 1
       end
 
+
+      # Everything below compute is how it is computed, not API.
+      private_class_method :finalize_text
+      private_class_method :nodes_for
+      private_class_method :sole_name_text?
+      private_class_method :build_children
+      private_class_method :coalesce_text
+      private_class_method :text_node
+      private_class_method :native_widget_value
+      private_class_method :range_default
+      private_class_method :numeric
+      private_class_method :format_number
+      private_class_method :excluded?
+      private_class_method :lone_unscoped_th?
     end
   end
 end

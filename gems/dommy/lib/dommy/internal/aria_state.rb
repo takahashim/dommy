@@ -146,6 +146,25 @@ module Dommy
 
       def native_option?(element) = element.respond_to?(:selected) && tag?(element, "option")
       def tag?(element, name) = element.local_name.to_s.casecmp?(name)
+
+      # Everything below compute is how it is computed, not API.
+      private_class_method :add
+      private_class_method :checked_state
+      private_class_method :selected_state
+      private_class_method :option_selected?
+      private_class_method :multiple_select?
+      private_class_method :effective_single_selection
+      private_class_method :dropdown?
+      private_class_method :expanded_state
+      private_class_method :disabled_state
+      private_class_method :native_disabled?
+      private_class_method :readonly_state
+      private_class_method :required_state
+      private_class_method :tristate
+      private_class_method :aria_true?
+      private_class_method :native_checkbox_radio?
+      private_class_method :native_option?
+      private_class_method :tag?
     end
   end
 end
