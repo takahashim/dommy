@@ -434,7 +434,8 @@ module Dommy
     #
     # Spec: https://xhr.spec.whatwg.org/#text-response
     def text_response(body)
-      charset = Encodings.charset_of(@override_mime) || Encodings.charset_of(response_content_type)
+      charset = Internal::MimeType.charset_of(@override_mime) ||
+        Internal::MimeType.charset_of(response_content_type)
       name = charset && Encodings.get(charset)
       Encodings.decode(body, name || "UTF-8")
     end

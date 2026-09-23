@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "encodings/tables"
+require_relative "internal/mime_type"
 
 module Dommy
   # The Encoding Standard's encodings: every label it knows, and a decoder for
@@ -38,11 +39,14 @@ module Dommy
       LABELS[label.gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "").downcase]
     end
 
-    # The charset parameter of a MIME type string, or nil.
-    def self.charset_of(mime_type)
-      match = mime_type.to_s.match(/;\s*charset\s*=\s*(?:"([^"]*)"|([^\s;]*))/i)
-      match && (match[1] || match[2])
-    end
+    # The byte-order marks that name their own encoding, longest first.
+    #
+    # Spec: https://encoding.spec.whatwg.org/#decode
+    BOMS = [
+      ["\xEF\xBB\xBF".b, "UTF-8"],
+      ["\xFE\xFF".b, "UTF-16BE"],
+      ["\xFF\xFE".b, "UTF-16LE"]
+    ].freeze
 
     # Bytes to a String in `fallback` (an encoding name), unless they start
     # with a byte-order mark, which names the encoding itself and is dropped.
@@ -52,18 +56,32 @@ module Dommy
     def self.decode(bytes, fallback = "UTF-8")
       bytes = bytes.b
       name = fallback
-      if bytes.start_with?("\xEF\xBB\xBF".b)
-        name = "UTF-8"
-        bytes = bytes.byteslice(3..)
-      elsif bytes.start_with?("\xFE\xFF".b)
-        name = "UTF-16BE"
-        bytes = bytes.byteslice(2..)
-      elsif bytes.start_with?("\xFF\xFE".b)
-        name = "UTF-16LE"
-        bytes = bytes.byteslice(2..)
+      BOMS.each do |mark, marked_name|
+        next unless bytes.start_with?(mark)
+
+        name = marked_name
+        bytes = bytes.byteslice(mark.bytesize..)
+        break
       end
-      decoder_for(name).decode(bytes, flush: true).pack("U*")
+
+      valid_utf8(bytes, name) || decoder_for(name).decode(bytes, flush: true).pack("U*")
     end
+
+    # Already-valid UTF-8 needs no decoding: the spec's decoder would walk it
+    # byte by byte and rebuild it code point by code point, which measures ~40x
+    # the cost of asking Ruby, on the whole-buffer path an XHR response takes.
+    #
+    # Only when the bytes are VALID, because that is where the two agree
+    # exactly. How many U+FFFD a broken sequence yields is the decoder's to say
+    # — Ruby's `scrub` does not always answer the same — so anything invalid
+    # goes the long way.
+    def self.valid_utf8(bytes, name)
+      return nil unless name == "UTF-8"
+
+      text = bytes.dup.force_encoding(::Encoding::UTF_8)
+      text if text.valid_encoding?
+    end
+    private_class_method :valid_utf8
 
     # A fresh decoder for the encoding named `name` (as `get` returns it).
     def self.decoder_for(name, fatal: false)
@@ -77,7 +95,13 @@ module Dommy
         index = SINGLE_BYTE_INDEXES[name]
         return SingleByteDecoder.new(fatal, index) if index
 
-        ConverterDecoder.new(fatal, RUBY_ENCODINGS.fetch(name))
+        ruby_encoding = RUBY_ENCODINGS[name]
+        # `name` comes from ::get, so every spec encoding is covered above. A
+        # name from anywhere else is the caller's mistake, and says so rather
+        # than surfacing a Hash's KeyError.
+        raise ArgumentError, "not an encoding the standard names: #{name.inspect}" unless ruby_encoding
+
+        ConverterDecoder.new(fatal, ruby_encoding)
       end
     end
 
@@ -92,7 +116,11 @@ module Dommy
 
       private
 
-      def error
+      # The code point an error yields — or, in fatal mode, no code point at
+      # all, because it throws. Named for both outcomes: the callers append the
+      # result (`out << replacement!`), and the `!` is the warning that control
+      # may not come back.
+      def replacement!
         raise Bridge::TypeError, "The encoded data was not valid" if @fatal
 
         REPLACEMENT_CHARACTER
@@ -128,7 +156,7 @@ module Dommy
               @needed = 3
               @code_point = byte & 0x07
             else
-              out << error
+              out << replacement!
             end
             next
           end
@@ -136,7 +164,7 @@ module Dommy
           unless byte.between?(@lower, @upper)
             # Not a continuation byte: an error, and the byte is read again.
             reset
-            out << error
+            out << replacement!
             queue.unshift(byte)
             next
           end
@@ -153,7 +181,7 @@ module Dommy
 
         if flush && @needed != 0
           reset
-          out << error
+          out << replacement!
         end
         out
       end
@@ -198,7 +226,7 @@ module Dommy
             end
             # The lead surrogate had no trail: an error, and the code unit's
             # bytes are read again.
-            out << error
+            out << replacement!
             out.concat(decode_code_unit(code_unit))
             next
           end
@@ -209,7 +237,7 @@ module Dommy
         if flush && (@lead_byte || @lead_surrogate)
           @lead_byte = nil
           @lead_surrogate = nil
-          out << error
+          out << replacement!
         end
         out
       end
@@ -221,7 +249,7 @@ module Dommy
           @lead_surrogate = code_unit
           []
         elsif code_unit.between?(0xDC00, 0xDFFF)
-          [error]
+          [replacement!]
         else
           [code_unit]
         end
@@ -240,7 +268,7 @@ module Dommy
           if byte <= 0x7F
             byte
           else
-            @index[byte - 0x80] || error
+            @index[byte - 0x80] || replacement!
           end
         end
       end
@@ -266,7 +294,7 @@ module Dommy
         return [] if bytes.empty? || @reported
 
         @reported = true
-        [error]
+        [replacement!]
       end
     end
 
@@ -289,9 +317,12 @@ module Dommy
         when :incomplete_input, :invalid_byte_sequence, :undefined_conversion
           # Only reached in fatal mode, or by an incomplete sequence at a
           # flush; either way the stream is over.
-          code_points << error
+          code_points << replacement!
         else
-          code_points
+          # :destination_buffer_full and :after_output need a byte limit or an
+          # output filter to occur, and this call passes neither. Reaching here
+          # would mean the converter contract changed under us.
+          raise "unexpected Encoding::Converter result: #{result.inspect}"
         end
       end
     end

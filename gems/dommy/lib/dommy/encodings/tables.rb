@@ -237,11 +237,11 @@ module Dommy
       "utf-16" => "UTF-16LE",
       "utf-16le" => "UTF-16LE",
       "x-user-defined" => "x-user-defined",
-}.freeze
+    }.freeze
 
-# For each legacy single-byte encoding, the code point of byte 0x80 + i,
-# or nil where the byte has no mapping.
-SINGLE_BYTE_INDEXES = {
+    # For each legacy single-byte encoding, the code point of byte 0x80 + i,
+    # or nil where the byte has no mapping.
+    SINGLE_BYTE_INDEXES = {
       "IBM866" => [
         0x0410, 0x0411, 0x0412, 0x0413, 0x0414, 0x0415, 0x0416, 0x0417,
         0x0418, 0x0419, 0x041A, 0x041B, 0x041C, 0x041D, 0x041E, 0x041F,

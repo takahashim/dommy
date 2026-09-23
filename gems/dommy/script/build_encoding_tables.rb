@@ -56,12 +56,16 @@ out = +<<~RUBY
       LABELS = {
 RUBY
 labels.each { |label, name| out << "      #{label.inspect} => #{name.inspect},\n" }
-out << <<~RUBY
-      }.freeze
+# `<<~` strips the block's common indentation, which for a block whose lines
+# all sit at the same depth means all of it — that is how LABELS' closing brace
+# and SINGLE_BYTE_INDEXES ended up at column 0 inside `module Encodings`. These
+# two blocks keep their indentation with `<<-`.
+out << <<-RUBY
+    }.freeze
 
-      # For each legacy single-byte encoding, the code point of byte 0x80 + i,
-      # or nil where the byte has no mapping.
-      SINGLE_BYTE_INDEXES = {
+    # For each legacy single-byte encoding, the code point of byte 0x80 + i,
+    # or nil where the byte has no mapping.
+    SINGLE_BYTE_INDEXES = {
 RUBY
 indexes.each do |name, index|
   out << "      #{name.inspect} => [\n"
@@ -70,10 +74,10 @@ indexes.each do |name, index|
   end
   out << "      ].freeze,\n"
 end
-out << <<~RUBY
-      }.freeze
-    end
+out << <<-RUBY
+    }.freeze
   end
+end
 RUBY
 
 target = File.expand_path("../lib/dommy/encodings/tables.rb", __dir__)

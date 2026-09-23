@@ -8,6 +8,8 @@
 
 ### Fixed
 
+- Decoding a whole buffer of valid UTF-8 — what `XMLHttpRequest#responseText` does — takes Ruby's own path instead of the spec's byte-at-a-time decoder, around 200x faster on a large response.
+- A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
 - `Bridge::Bytes.new` reads a String as the packed bytes it is, where it used to wrap it and take `to_i` of the whole thing — one zero byte, silently.
 - A static method a `Bridge::Constructor` does not have raises `TypeError` instead of answering null.
 

@@ -150,9 +150,21 @@ class TestEncodings < Minitest::Test
   end
 
   def test_charset_of_a_mime_type
-    assert_equal("shift_jis", Dommy::Encodings.charset_of("text/plain; charset=shift_jis"))
-    assert_equal("Windows-1252", Dommy::Encodings.charset_of('text/html;charset="Windows-1252"'))
-    assert_nil(Dommy::Encodings.charset_of("text/plain"))
+    mime = Dommy::Internal::MimeType
+    assert_equal("shift_jis", mime.charset_of("text/plain; charset=shift_jis"))
+    assert_equal("Windows-1252", mime.charset_of('text/html;charset="Windows-1252"'))
+    assert_equal("EUC-JP", mime.charset_of("text/html;CHARSET=EUC-JP"))
+    assert_nil(mime.charset_of("text/plain"))
+  end
+
+  # A `;charset=` inside a quoted parameter value is that value's text, not a
+  # parameter of its own. Scanning the whole string for the name read it as one,
+  # and took the closing quote with it.
+  def test_charset_of_ignores_one_inside_a_quoted_value
+    mime = Dommy::Internal::MimeType
+    assert_nil(mime.charset_of('multipart/form-data; boundary="a;charset=utf-8"'))
+    assert_equal("utf-8", mime.charset_of('multipart/form-data; boundary="a;b"; charset=utf-8'))
+    assert_equal('a"b', mime.charset_of('text/html; charset="a\\"b"'))
   end
 
   def test_xhr_response_text_uses_the_response_charset_then_override_mime_type
@@ -196,5 +208,48 @@ class TestEncodings < Minitest::Test
 
   def test_text_encoder_ignores_its_label
     assert_equal("utf-8", Dommy::TextEncoder.new.encoding)
+  end
+
+  # The legacy multi-byte encodings go through Ruby's converter for the
+  # encoding closest to the spec's index (Encodings::RUBY_ENCODINGS), and
+  # "closest" is not "equal". This records where they land today, so a change
+  # under us — a Ruby upgrade, a different converter — is visible rather than
+  # silent. These are OUR behaviour, not the spec's; the one known divergence
+  # is called out.
+  DIVERGENCES = {
+    # The spec's shift_jis decoder returns the byte itself for 0x00..0x80, so
+    # 0x80 is U+0080. Windows-31J has no mapping for it.
+    ["Shift_JIS", "\x80"] => "\ufffd", # spec: U+0080
+  }.freeze
+
+  AGREEMENTS = {
+    ["Shift_JIS", "\xA1"] => "\uff61",     # halfwidth ideographic full stop
+    ["Shift_JIS", "\xDF"] => "\uff9f",     # halfwidth katakana semi-voiced mark
+    ["Shift_JIS", "\x81\x5F"] => "\uff3c", # fullwidth reverse solidus
+    ["EUC-KR", "\xA1\xA1"] => "\u3000",
+    ["Big5", "\xA1\x40"] => "\u3000",
+    ["GBK", "\x80"] => "\u20ac",           # euro sign
+    ["EUC-JP", "\xFF"] => "\ufffd",
+  }.freeze
+
+  def test_the_converter_approximations_still_land_where_they_did
+    (DIVERGENCES.merge(AGREEMENTS)).each do |(name, bytes), expected|
+      assert_equal(expected, Dommy::Encodings.decode(bytes.b, name), "#{name} #{bytes.b.inspect}")
+    end
+  end
+
+  # Every legacy multi-byte name must have a converter, or decoder_for blows up
+  # at the first byte of such a page.
+  def test_every_legacy_multi_byte_name_resolves_to_a_converter
+    Dommy::Encodings::RUBY_ENCODINGS.each_key do |name|
+      assert_kind_of(Dommy::Encodings::ConverterDecoder, Dommy::Encodings.decoder_for(name), name)
+    end
+  end
+
+  # A name the standard does not know is the caller's mistake, and says so
+  # instead of surfacing a Hash's KeyError.
+  def test_decoder_for_rejects_a_name_outside_the_standard
+    error = assert_raises(ArgumentError) { Dommy::Encodings.decoder_for("Nonexistent") }
+    assert_match(/not an encoding the standard names/, error.message)
   end
 end
