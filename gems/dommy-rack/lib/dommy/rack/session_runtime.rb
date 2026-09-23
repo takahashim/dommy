@@ -147,7 +147,9 @@ module Dommy
         if window
           window.__internal_on_unhandled_error__ { |err| record_js_error(err) }
           rt.on_unhandled_rejection { |err| report_rejection(window, err) }
-          rt.on_callback_error { |err| report_exception(window, err) } if rt.respond_to?(:on_callback_error)
+          if rt.respond_to?(:on_callback_error)
+            rt.on_callback_error { |err| ::Dommy::Internal::ExceptionReport.report_at(window, err) }
+          end
         else
           rt.on_unhandled_rejection { |err| record_js_error(err) }
           rt.on_callback_error { |err| record_js_error(err) } if rt.respond_to?(:on_callback_error)
@@ -204,13 +206,6 @@ module Dommy
       def dispose_all
         @runtimes.each_value(&:dispose)
         @runtimes = {}.compare_by_identity
-      end
-
-      # Route a timer / rAF callback's error through the page's own error
-      # handling first (WHATWG "report an exception").
-      def report_exception(window, error)
-        value, message = ::Dommy::Internal::ExceptionReport.describe(error)
-        window.__internal_report_exception__(value, message, host_error: error)
       end
 
       # Route an unhandled promise rejection through the page's own

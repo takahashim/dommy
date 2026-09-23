@@ -417,8 +417,7 @@ module Dommy
     # Report a timer / rAF callback's exception (the Scheduler's seam). Split out
     # so the scheduler hands over the raw error and the shaping stays here.
     def __internal_report_task_exception__(error)
-      value, message = Internal::ExceptionReport.describe(error)
-      __internal_report_exception__(value, message, host_error: error)
+      Internal::ExceptionReport.report_at(self, error)
     end
 
     # Subscribe to exceptions and rejections the PAGE did not handle (the

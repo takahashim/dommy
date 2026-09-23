@@ -480,8 +480,7 @@ module Dommy
       win = window_of(self)
       return unless win.respond_to?(:__internal_report_exception__)
 
-      value, message = Internal::ExceptionReport.describe(error)
-      win.__internal_report_exception__(value, message, host_error: error)
+      Internal::ExceptionReport.report_at(win, error)
     end
 
     # Diagnostic only (DOMMY_EVENT_DEBUG=<file>): when a listener throws, append

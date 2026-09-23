@@ -147,18 +147,31 @@ module Dommy
         ScriptBoot.wire_inline_handlers(@runtime, on_error: @on_error)
       end
 
-      # Fetch + run a dynamically-inserted external script, then fire `load` (or
-      # `error` if the fetch failed / it threw) so a loader awaiting the script
-      # element's onload resolves. The src was already taken from the element by
-      # the mutation coordinator, so this does not re-consume pending state.
+      # Fetch + run a dynamically-inserted external script, then fire the event a
+      # loader awaiting the element is listening for. The src was already taken
+      # from the element by the mutation coordinator, so this does not re-consume
+      # pending state.
+      #
+      # `error` means the FETCH failed — that is the only thing the element's
+      # event reports. A script that downloaded fine and then threw still fires
+      # `load`, because the load succeeded; its exception is reported at the
+      # global instead. Conflating the two tells a chunk loader (webpack, Vite)
+      # that the network failed, so it retries or gives up on a chunk that is
+      # sitting right there.
       def run_inserted_external(element, src)
-        ran = false
-        if @resources && (url = resolve_url(src)) && (response = @resources.get(url)) && response.success?
+        url = resolve_url(src) if @resources
+        response = (@resources.get(url) if url)
+        return dispatch_script_event(element, "error") unless response&.success?
+
+        begin
           with_current_script(element) { @runtime.load_script_cached(response.body, cache_key: url) }
-          ran = true
+        rescue StandardError => e
+          report_exception(e)
         end
-        dispatch_script_event(element, ran ? "load" : "error")
+        dispatch_script_event(element, "load")
       rescue StandardError => e
+        # The fetch itself blew up (a resources adapter raising, not a page
+        # exception): nothing loaded, so the element reports a failure.
         report_exception(e)
         dispatch_script_event(element, "error")
       end
@@ -178,8 +191,7 @@ module Dommy
         window = (@document.default_view if @document.respond_to?(:default_view))
         return @on_error&.call(error) unless window.respond_to?(:__internal_report_exception__)
 
-        value, message = Dommy::Internal::ExceptionReport.describe(error)
-        window.__internal_report_exception__(value, message, host_error: error)
+        Dommy::Internal::ExceptionReport.report_at(window, error)
       end
 
       # Fire the script's load/error event ASYNCHRONOUSLY (a microtask), like a

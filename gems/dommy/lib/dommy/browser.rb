@@ -259,7 +259,9 @@ module Dommy
       # suppresses the failure, exactly as it would in a browser.
       window.__internal_on_unhandled_error__ { |err| @error_log.record(err) }
       runtime.on_unhandled_rejection { |err| report_rejection(window, err) }
-      runtime.on_callback_error { |err| report_exception(window, err) } if runtime.respond_to?(:on_callback_error)
+      if runtime.respond_to?(:on_callback_error)
+        runtime.on_callback_error { |err| Internal::ExceptionReport.report_at(window, err) }
+      end
       runtime.on_log { |log| @console << log }
       runtime.define_host_object("document", window.document)
       runtime.install_window(window)
@@ -294,13 +296,6 @@ module Dommy
       # Leave the page in a ready state: run on-load promises, due-now timers,
       # and rAF (not future timers). `settle: false` observes it mid-flight.
       runtime.settle if @settle_after_boot
-    end
-
-    # Route a timer / rAF callback's error (the engine reports it once the
-    # scheduler has isolated it) through the page's own error handling first.
-    def report_exception(window, error)
-      value, message = Internal::ExceptionReport.describe(error)
-      window.__internal_report_exception__(value, message, host_error: error)
     end
 
     # Route an unhandled promise rejection through the page's own

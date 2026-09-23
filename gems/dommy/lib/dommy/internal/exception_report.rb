@@ -36,6 +36,55 @@ module Dommy
         [error_value(error), message_for(error)]
       end
 
+      # One JS stack frame, in either of the two forms an engine writes:
+      # `at name (file:line:col)` and the anonymous `at file:line:col`.
+      STACK_FRAME = /\Aat\s+(?:\S+\s+\()?(?<file>.+?):(?<line>\d+):(?<column>\d+)\)?\z/
+
+      # Frames inside Dommy's own JS plumbing. The page did not write them, so
+      # they must not be reported as where its error happened.
+      INTERNAL_SOURCES = %w[host_runtime.js observable_runtime.js].freeze
+
+      # Where the error happened, as `ErrorEvent`'s [filename, lineno, colno].
+      # A JS engine puts its frames on the raised exception's backtrace, so the
+      # topmost frame the PAGE owns is the position to report. Zeroes when there
+      # is no usable frame, which is what the spec says to expose when the
+      # position is unknown.
+      def source_position(error)
+        Array(error.backtrace).each do |frame|
+          match = STACK_FRAME.match(frame.to_s.strip)
+          next unless match
+          next if INTERNAL_SOURCES.any? { |source| match[:file].end_with?(source) }
+
+          return [match[:file], match[:line].to_i, match[:column].to_i]
+        end
+        ["", 0, 0]
+      end
+
+      # WHATWG "report an exception" at `window`, shaping the thrown value, its
+      # message and its source position from whatever the entry point caught.
+      # Every entry point reports through here, so none of them can drift from
+      # the others in what the page gets to see. Returns whether the page
+      # handled it.
+      def report_at(window, error)
+        value, message = describe(error)
+        file, line, column = source_position(error)
+        window.__internal_report_exception__(value, message,
+          filename: document_source(file, window), lineno: line, colno: column, host_error: error)
+      end
+
+      # What an engine calls source it was handed with no name of its own — an
+      # inline `<script>`, an `eval`. A browser reports the document's URL for
+      # those, so the placeholder is swapped for it rather than leaking an
+      # engine-internal name into `ErrorEvent#filename`.
+      ANONYMOUS_SOURCES = ["<code>", "<input>", "<eval>", "<anonymous>"].freeze
+
+      def document_source(file, window)
+        return file unless ANONYMOUS_SOURCES.include?(file)
+
+        location = window.location if window.respond_to?(:location)
+        location.respond_to?(:href) ? location.href.to_s : file
+      end
+
       # The form the HOST logs. A report's `error` value is whatever the page
       # threw, which for JS code is an opaque `Bridge::JSValue` with no `class` /
       # `message` / backtrace — everything an error log wants. A caller that has

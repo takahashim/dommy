@@ -682,6 +682,11 @@ globalThis.__rbHost = (function () {
         const m = e.message != null ? String(e.message) : String(e);
         if (m) tag.__rb_js_label = m;
       } catch (_) { /* a message/toString getter threw: no label */ }
+      try {
+        // The frames go with the throw because the value itself crosses as an
+        // opaque ref: once it is on the Ruby side, `.stack` is unreachable.
+        if (e.stack) tag.__rb_js_stack = String(e.stack);
+      } catch (_) { /* a stack getter threw: no frames */ }
       return { __rb_cb_threw__: tag };
     }
     return { __rb_cb_threw__: dehydrate(e) };

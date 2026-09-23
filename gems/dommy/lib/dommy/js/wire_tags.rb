@@ -33,6 +33,11 @@ module Dommy
       JS_REF = "__rb_js_ref"
       # A human-readable label captured alongside a JS ref (for #to_s/#inspect).
       JS_LABEL = "__rb_js_label"
+      # The thrown value's JS stack, carried alongside a callback's throw so the
+      # host can report WHERE the page failed (see ErrorEvent's filename /
+      # lineno / colno). A JS value crosses as an opaque ref, so Ruby cannot
+      # read `.stack` off it afterwards; it has to come over with the throw.
+      JS_STACK = "__rb_js_stack"
       # Marks a JS ref that implements the EventListener interface (handleEvent).
       HANDLE_EVENT = "__rb_handle_event"
       # Marks a JS ref that implements the NodeFilter interface (acceptNode).

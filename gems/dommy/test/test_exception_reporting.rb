@@ -135,6 +135,67 @@ class TestExceptionReporting < Minitest::Test
       "a page that handles unhandledrejection suppresses it, as in a browser"
   end
 
+  # --- Where the error happened ---
+
+  # A JS engine puts its frames on the raised exception, which is the only place
+  # the position can come from once the thrown value itself has crossed as an
+  # opaque handle.
+  def test_the_source_position_comes_from_the_top_page_frame
+    error = RuntimeError.new("boom")
+    error.set_backtrace(["at inner (http://example.test/app.js:12:5)",
+      "at outer (http://example.test/app.js:30:1)"])
+
+    assert_equal ["http://example.test/app.js", 12, 5],
+      Dommy::Internal::ExceptionReport.source_position(error)
+  end
+
+  def test_dommy_own_frames_are_not_reported_as_the_page_position
+    error = RuntimeError.new("boom")
+    error.set_backtrace(["at <anonymous> (host_runtime.js:696:54)",
+      "at handler (http://example.test/app.js:3:9)"])
+
+    assert_equal ["http://example.test/app.js", 3, 9],
+      Dommy::Internal::ExceptionReport.source_position(error),
+      "the page did not write the bridge's frames"
+  end
+
+  def test_a_frame_without_a_function_name_still_gives_a_position
+    error = RuntimeError.new("boom")
+    error.set_backtrace(["at http://example.test/app.js:7:2"])
+
+    assert_equal ["http://example.test/app.js", 7, 2],
+      Dommy::Internal::ExceptionReport.source_position(error)
+  end
+
+  def test_an_error_with_no_usable_frame_reports_no_position
+    assert_equal ["", 0, 0], Dommy::Internal::ExceptionReport.source_position(RuntimeError.new("boom"))
+  end
+
+  def test_the_report_carries_the_position_to_the_page
+    seen = nil
+    @win.add_event_listener("error", proc { |e| seen = e })
+    error = RuntimeError.new("boom")
+    error.set_backtrace(["at go (http://example.test/app.js:4:11)"])
+    Dommy::Internal::ExceptionReport.report_at(@win, error)
+
+    assert_equal "http://example.test/app.js", seen.__js_get__("filename")
+    assert_equal 4, seen.__js_get__("lineno")
+    assert_equal 11, seen.__js_get__("colno")
+  end
+
+  # An engine names source it was handed with no name of its own `<code>`; a
+  # browser reports the document's URL for an inline script.
+  def test_an_anonymous_source_is_reported_as_the_document_url
+    @win.location.__internal_set_url__("http://example.test/page")
+    seen = nil
+    @win.add_event_listener("error", proc { |e| seen = e })
+    error = RuntimeError.new("boom")
+    error.set_backtrace(["at go (<code>:1:9)"])
+    Dommy::Internal::ExceptionReport.report_at(@win, error)
+
+    assert_equal "http://example.test/page", seen.__js_get__("filename")
+  end
+
   # --- Re-entrancy ---
 
   def test_an_error_handler_that_throws_is_not_reported_again

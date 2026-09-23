@@ -235,11 +235,22 @@ module Dommy
       # swallowed (the default, returning nil).
       def callback_result(raw, raising)
         if raw.is_a?(Hash) && raw.key?(WireTags::CALLBACK_THREW)
-          raise Dommy::Bridge::ThrowValue.new(unwrap(raw[WireTags::CALLBACK_THREW])) if raising
+          raise thrown_value(raw[WireTags::CALLBACK_THREW]) if raising
 
           return nil
         end
         unwrap(raw)
+      end
+
+      # A callback's thrown value as a raisable Ruby error, carrying the JS
+      # frames as its backtrace so the host can report where the page failed.
+      # Without them a listener or timer callback that throws reports position
+      # 0:0, since the value itself is opaque once it has crossed.
+      def thrown_value(tag)
+        error = Dommy::Bridge::ThrowValue.new(unwrap(tag))
+        frames = tag[WireTags::JS_STACK] if tag.is_a?(Hash)
+        error.set_backtrace(frames.to_s.lines.map(&:strip).reject(&:empty?)) if frames
+        error
       end
     end
   end
