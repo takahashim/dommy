@@ -304,7 +304,7 @@ module Dommy
       raw = @__value.nil? ? reflected_string("value") : @__value
       # checkbox/radio use the "default/on" value mode: with no value content
       # attribute (and no assigned value) the IDL value is "on".
-      return "on" if raw.to_s.empty? && !@__node__.key?("value") && %w[checkbox radio].include?(type)
+      return "on" if raw.to_s.empty? && !@__node__.key?("value") && CHECKABLE_TYPES.include?(type)
 
       sanitize_value(raw)
     end
@@ -355,6 +355,32 @@ module Dommy
     # type=email/url trim leading/trailing ASCII whitespace; type=number
     # rejects non-finite floats by returning "" (badInput stays true
     # so validity surfaces the original raw value).
+    # The strategy for this control's `type`: what a number means here, and what
+    # a step is worth. The sixteen `case type` branches that used to answer
+    # these live in Internal::InputType, one class per type.
+    def input_type = Internal::InputType.for(type)
+
+    def value_as_number = input_type.to_number(value.to_s, self)
+
+    def value_as_number=(number)
+      self.value = input_type.from_number(number.to_f, self)
+    end
+
+    def validation_step_base = min_as_number || input_type.step_base
+
+    def numeric_value_type? = input_type.numeric?
+
+    def step_scale_factor = input_type.scale_factor
+
+    def default_step = input_type.default_step
+
+    def step_boundary(attr)
+      raw = @__node__[attr].to_s.strip
+      return nil if raw.empty?
+
+      input_type.boundary(raw)
+    end
+
     def sanitize_value(raw)
       case type
       # The one-line text types "strip newlines from the value" (WHATWG value
@@ -390,7 +416,7 @@ module Dommy
     # empty string. Ruby's Float() is wider than the spec (" 1", "+1", "1.").
     def sanitize_number(raw)
       s = raw.to_s
-      parse_valid_float(s).finite? ? s : ""
+      input_type.to_number(s).finite? ? s : ""
     end
 
     # Underlying string the user supplied to `value=`, before any
@@ -433,7 +459,7 @@ module Dommy
     # when the control is not mutable — `click()` still refuses on a disabled
     # control, but an explicitly dispatched click activates it.
     def activation_target?
-      super || %w[checkbox radio].include?(type) || (type == "reset" && !disabled)
+      super || CHECKABLE_TYPES.include?(type) || (type == "reset" && !disabled)
     end
 
     # HTML "input activation behavior": a submit button submits its form, a reset
@@ -443,7 +469,7 @@ module Dommy
     def activation_behavior(event)
       return super if __submit_button__?
       return form&.reset if type == "reset" && !disabled
-      return unless %w[checkbox radio].include?(type) && is_connected?
+      return unless CHECKABLE_TYPES.include?(type) && is_connected?
 
       dispatch_event(Event.new("input", "bubbles" => true).__internal_mark_trusted__)
       dispatch_event(Event.new("change", "bubbles" => true).__internal_mark_trusted__)
@@ -571,6 +597,22 @@ module Dommy
 
     # Only these input types expose a variable-length text selection; the rest
     # return null for the selection attributes and throw on the setters/methods.
+    # The types whose checkedness is the value the user toggles, rather than
+    # text they type. Three separate `%w[checkbox radio]` literals asked this.
+    CHECKABLE_TYPES = %w[checkbox radio].freeze
+
+    # The JS surface: the computed properties, declared instead of written out
+    # as `when "validity" then validity` arms. Internal::ReflectedAttributes'
+    # shared __js_get__ / __js_set__ answer from this.
+    js_accessor :type, :value, :checked, :indeterminate,
+      value_as_number: "valueAsNumber",
+      selection_start: "selectionStart", selection_end: "selectionEnd",
+      selection_direction: "selectionDirection",
+      max_length: "maxLength", min_length: "minLength",
+      readonly: %w[readonly readOnly]
+    js_readable :labels, :form, :validity, :files, :list,
+      will_validate: "willValidate", validation_message: "validationMessage"
+
     SELECTION_TYPES = %w[text search url tel password].freeze
 
     def supports_selection?
@@ -655,25 +697,9 @@ module Dommy
       %w[forward backward].include?(d) ? d : "none"
     end
 
-    # Input types whose value has a numeric representation (valueAsNumber /
-    # stepUp / stepDown apply).
-    def numeric_value_type?
-      %w[number range date month week time datetime-local].include?(type)
-    end
 
-    def range_min
-      Float(@__node__["min"].to_s) rescue 0.0
-    end
 
-    def range_max
-      Float(@__node__["max"].to_s) rescue 100.0
-    end
 
-    # A range with no (valid) value defaults to the midpoint of its range, or the
-    # minimum when the maximum is below it.
-    def default_range_value(lo, hi)
-      hi < lo ? lo : lo + (hi - lo) / 2.0
-    end
 
     # The declared step (default 1 for number, 1 for range); "any" disables
     # stepping (returns nil).
@@ -735,239 +761,33 @@ module Dommy
       number.rationalize(Rational(1, 10**12))
     end
 
-    # The scale that turns one declared step into valueAsNumber units (ms for the
-    # date/time types, natural units for number/range/month).
-    def step_scale_factor
-      case type
-      when "date" then 86_400_000
-      when "week" then 604_800_000
-      when "time", "datetime-local" then 1000
-      else 1
-      end
-    end
 
-    # The default allowed step (in the type's own step units) when `step` is
-    # absent or invalid: 60 (seconds) for time/datetime-local, 1 otherwise.
-    def default_step
-      %w[time datetime-local].include?(type) ? 60.0 : 1.0
-    end
 
-    # The `min`/`max` boundary as a valueAsNumber, or nil when absent/unparseable.
-    def step_boundary(attr)
-      raw = @__node__[attr].to_s.strip
-      return nil if raw.empty?
 
-      case type
-      when "number", "range" then (Float(raw) rescue nil)
-      when "date" then nan_to_nil(date_string_to_ms(raw))
-      when "time" then nan_to_nil(time_string_to_ms(raw))
-      when "datetime-local" then nan_to_nil(datetime_local_string_to_ms(raw))
-      when "month" then nan_to_nil(month_string_to_number(raw))
-      when "week" then nan_to_nil(week_string_to_ms(raw))
-      end
-    end
 
-    def nan_to_nil(n)
-      n.nan? ? nil : n
-    end
-
-    # JS Number-to-string: an integral value drops the trailing ".0".
-    def number_to_string(n)
-      return "" if n.nan?
-
-      n == n.to_i ? n.to_i.to_s : n.to_s
-    end
 
     # WHATWG "valid floating-point number": no surrounding whitespace (unlike
     # Ruby's Float()), optional sign, digits with optional fraction, optional
     # exponent. Anything else — including " 1 " or "1e" — yields NaN.
     # A fraction needs a digit after the dot, so "1." is not a number.
-    VALID_FLOAT_RE = /\A-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?\z/
 
-    def parse_valid_float(str)
-      s = str.to_s
-      VALID_FLOAT_RE.match?(s) ? (Float(s) rescue ::Float::NAN) : ::Float::NAN
-    end
 
     # --- Date/time "convert a string to a number" algorithms (all UTC) --------
 
-    def date_string_to_ms(s)
-      m = /\A(\d{4,})-(\d{2})-(\d{2})\z/.match(s.strip)
-      return ::Float::NAN unless m
 
-      y, mo, d = m[1].to_i, m[2].to_i, m[3].to_i
-      return ::Float::NAN if y < 1 || !::Date.valid_date?(y, mo, d)
 
-      ::Time.utc(y, mo, d).to_i * 1000.0
-    end
 
-    def time_string_to_ms(s)
-      m = /\A(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/.match(s.strip)
-      return ::Float::NAN unless m
 
-      h, mi, se = m[1].to_i, m[2].to_i, m[3].to_i
-      return ::Float::NAN if h > 23 || mi > 59 || se > 59
-
-      frac = m[4] ? m[4].ljust(3, "0").to_i : 0
-      ((h * 3600 + mi * 60 + se) * 1000 + frac).to_f
-    end
-
-    def datetime_local_string_to_ms(s)
-      # The date/time separator may be "T" or a space (the "parse a local date
-      # and time string" algorithm accepts both).
-      m = /\A(\d{4,})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/.match(s.strip)
-      return ::Float::NAN unless m
-
-      y, mo, d, h, mi, se = m[1].to_i, m[2].to_i, m[3].to_i, m[4].to_i, m[5].to_i, m[6].to_i
-      return ::Float::NAN if y < 1 || !::Date.valid_date?(y, mo, d) || h > 23 || mi > 59 || se > 59
-
-      frac = m[7] ? m[7].ljust(3, "0").to_i : 0
-      (::Time.utc(y, mo, d, h, mi, se).to_i * 1000 + frac).to_f
-    end
-
-    def month_string_to_number(s)
-      m = /\A(\d{4,})-(\d{2})\z/.match(s.strip)
-      return ::Float::NAN unless m
-
-      y, mo = m[1].to_i, m[2].to_i
-      return ::Float::NAN if y < 1 || mo < 1 || mo > 12
-
-      ((y - 1970) * 12 + (mo - 1)).to_f
-    end
-
-    def week_string_to_ms(s)
-      m = /\A(\d{4,})-W(\d{2})\z/.match(s.strip)
-      return ::Float::NAN unless m
-
-      y, w = m[1].to_i, m[2].to_i
-      return ::Float::NAN if y < 1 || w < 1
-
-      # Date.commercial raises for a week beyond the ISO year's 52/53 weeks.
-      d = ::Date.commercial(y, w, 1)
-      ::Time.utc(d.year, d.month, d.day).to_i * 1000.0
-    rescue ::ArgumentError
-      ::Float::NAN
-    end
 
     # --- Inverse: "convert a number to a string" for the date/time types -------
 
-    def utc_time_from_ms(ms)
-      ::Time.at(ms / 1000.0).utc
-    end
 
-    def ms_to_date_string(ms)
-      return "" if ms.nan?
 
-      t = utc_time_from_ms(ms)
-      format("%04d-%02d-%02d", t.year, t.month, t.day)
-    rescue ::RangeError, ::ArgumentError, ::FloatDomainError
-      ""
-    end
 
-    def ms_to_time_string(ms)
-      return "" if ms.nan?
 
-      v = (ms % 86_400_000).to_i
-      h = v / 3_600_000
-      mi = (v % 3_600_000) / 60_000
-      se = (v % 60_000) / 1000
-      frac = v % 1000
-      if se.zero? && frac.zero?
-        format("%02d:%02d", h, mi)
-      elsif frac.zero?
-        format("%02d:%02d:%02d", h, mi, se)
-      else
-        format("%02d:%02d:%02d.%03d", h, mi, se, frac)
-      end
-    end
 
-    def ms_to_datetime_local_string(ms)
-      return "" if ms.nan?
 
-      t = utc_time_from_ms(ms)
-      return "" if t.year < 1 || t.year > 9999
 
-      base = format("%04d-%02d-%02dT%02d:%02d", t.year, t.month, t.day, t.hour, t.min)
-      frac = (ms % 1000).to_i
-      if t.sec.zero? && frac.zero?
-        base
-      elsif frac.zero?
-        base + format(":%02d", t.sec)
-      else
-        base + format(":%02d.%03d", t.sec, frac)
-      end
-    rescue ::RangeError, ::ArgumentError, ::FloatDomainError
-      ""
-    end
-
-    def number_to_month_string(n)
-      return "" if n.nan?
-
-      months = n.to_i
-      y = 1970 + (months.fdiv(12).floor)
-      mo = months % 12
-      format("%04d-%02d", y, mo + 1)
-    end
-
-    def ms_to_week_string(ms)
-      return "" if ms.nan?
-
-      t = utc_time_from_ms(ms)
-      d = ::Date.new(t.year, t.month, t.day)
-      format("%04d-W%02d", d.cwyear, d.cweek)
-    rescue ::RangeError, ::ArgumentError, ::FloatDomainError
-      ""
-    end
-
-    # `valueAsNumber` — the control's value as a number, per the type's
-    # "convert a string to a number" algorithm (NaN when the type has no number
-    # representation or the value doesn't parse). number/range are plain floats;
-    # range additionally defaults to its midpoint and clamps to [min, max].
-    def value_as_number
-      case type
-      when "number"
-        parse_valid_float(value.to_s)
-      when "range"
-        n = parse_valid_float(value.to_s)
-        n = nil if n.nan?
-        lo = range_min
-        hi = range_max
-        n = default_range_value(lo, hi) if n.nil?
-        n.clamp(lo, hi)
-      when "date"
-        date_string_to_ms(value.to_s)
-      when "time"
-        time_string_to_ms(value.to_s)
-      when "datetime-local"
-        datetime_local_string_to_ms(value.to_s)
-      when "month"
-        month_string_to_number(value.to_s)
-      when "week"
-        week_string_to_ms(value.to_s)
-      else
-        ::Float::NAN
-      end
-    end
-
-    def value_as_number=(n)
-      f = n.to_f
-      case type
-      when "number", "range"
-        self.value = f.nan? ? "" : number_to_string(f)
-      when "date"
-        self.value = ms_to_date_string(f)
-      when "time"
-        self.value = ms_to_time_string(f)
-      when "datetime-local"
-        self.value = ms_to_datetime_local_string(f)
-      when "month"
-        self.value = number_to_month_string(f)
-      when "week"
-        self.value = ms_to_week_string(f)
-      else
-        raise DOMException::InvalidStateError, "valueAsNumber is not applicable to input type '#{type}'"
-      end
-    end
 
     # Numeric-domain accessors shared with constraint validation (rangeUnderflow
     # / rangeOverflow / stepMismatch), all in valueAsNumber units.
@@ -988,15 +808,6 @@ module Dommy
       step.nil? ? nil : step * step_scale_factor
     end
 
-    # The step base for validation: the min boundary if present, else 0.
-    def validation_step_base
-      return min_as_number if min_as_number
-
-      # The default step base is 0 for most types, but a `week` control aligns to
-      # the Monday of 1970-W01 (the epoch is mid-week), so an unmatched default
-      # base would report every whole week as a step mismatch.
-      type == "week" ? week_string_to_ms("1970-W01") : 0.0
-    end
 
     # `stepUp(n)` / `stepDown(n)` add/subtract n steps to the current number. The
     # WebIDL default for n is 1 (a missing/undefined arg crosses as nil).
@@ -1055,48 +866,6 @@ module Dommy
       nil
     end
 
-    def __js_get__(key)
-      case key
-      when "type"
-        type
-      when "value"
-        value
-      when "checked"
-        checked
-      when "indeterminate"
-        indeterminate
-      when "readonly", "readOnly"
-        readonly
-      when "labels"
-        labels
-      when "form"
-        form
-      when "validity"
-        validity
-      when "willValidate"
-        will_validate
-      when "validationMessage"
-        validation_message
-      when "files"
-        files
-      when "selectionStart"
-        selection_start
-      when "selectionEnd"
-        selection_end
-      when "selectionDirection"
-        selection_direction
-      when "valueAsNumber"
-        value_as_number
-      when "maxLength"
-        max_length
-      when "minLength"
-        min_length
-      when "list"
-        list
-      else
-        super
-      end
-    end
 
     # HTML "cloning steps" for input: the dirty value flag + value and the dirty
     # checkedness flag + checkedness (plus indeterminate) — the user-modified
@@ -1130,34 +899,6 @@ module Dommy
       element.is_a?(HTMLDataListElement) ? element : nil
     end
 
-    def __js_set__(key, value)
-      case key
-      when "type"
-        set_reflected_string("type", value)
-      when "value"
-        self.value = value
-      when "valueAsNumber"
-        self.value_as_number = value
-      when "selectionStart"
-        self.selection_start = value
-      when "selectionEnd"
-        self.selection_end = value
-      when "selectionDirection"
-        self.selection_direction = value
-      when "checked"
-        self.checked = value
-      when "indeterminate"
-        self.indeterminate = value
-      when "readonly", "readOnly"
-        self.readonly = value
-      when "maxLength"
-        self.max_length = value
-      when "minLength"
-        self.min_length = value
-      else
-        super
-      end
-    end
 
     js_methods %w[
       select setSelectionRange setRangeText stepUp stepDown checkValidity reportValidity
@@ -2349,56 +2090,27 @@ module Dommy
       nil
     end
 
-    def __js_get__(key)
-      case key
-      when "options"
-        options
-      when "length"
-        length
-      when "value"
-        value
-      when "size"
-        size
-      when "selectedIndex"
-        selected_index
-      when "selectedOptions"
-        selected_options
-      when "form"
-        form
-      when "labels"
-        labels
-      when "type"
-        type
-      when "validity"
-        validity
-      when "willValidate"
-        will_validate
-      when "validationMessage"
-        validation_message
-      else
-        # Indexed getter: `select[i]` is the option at index i (WebIDL).
-        return item(key) if key.is_a?(Integer)
-        return item(key.to_i) if key.is_a?(String) && key.match?(/\A\d+\z/)
+    js_accessor :value, selected_index: "selectedIndex", length: "length"
+    js_readable :options, :size, :form, :labels, :type, :validity,
+      selected_options: "selectedOptions",
+      will_validate: "willValidate", validation_message: "validationMessage"
 
-        super
-      end
+    # Indexed getter: `select[i]` is the option at index i (WebIDL).
+    def __js_get__(key)
+      return item(key) if key.is_a?(Integer)
+      return item(key.to_i) if key.is_a?(String) && key.match?(/\A\d+\z/)
+
+      super
     end
 
+    # Indexed setter: `select[i] = option` delegates to the options collection's
+    # WebIDL "set an indexed property" algorithm.
     def __js_set__(key, val)
-      case key
-      when "value"
-        self.value = val
-      when "selectedIndex"
-        self.selected_index = val
-      when "length"
-        self.length = val
-      else
-        # Indexed setter: `select[i] = option` delegates to the options
-        # collection's WebIDL "set an indexed property" algorithm.
-        return options.__set_indexed__(key.to_i, val) if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A\d+\z/))
-
-        super
+      if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A\d+\z/))
+        return options.__set_indexed__(key.to_i, val)
       end
+
+      super
     end
 
     js_methods %w[item namedItem add remove checkValidity reportValidity setCustomValidity]

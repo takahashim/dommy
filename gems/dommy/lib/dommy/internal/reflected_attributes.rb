@@ -48,6 +48,33 @@ module Dommy
           _reflect(:boolean, names, mapped)
         end
 
+        # Register an EXISTING accessor under its JS name, for a property that
+        # is computed rather than mirrored from an attribute — `validity`,
+        # `labels`, `valueAsNumber`. It defines nothing; it only tells the
+        # shared `__js_get__` which Ruby method answers the key, so the
+        # `when "validity" then validity` arms that used to do that can go.
+        #
+        #   js_readable :validity, :labels, will_validate: "willValidate"
+        #
+        # A String value is the JS name; the default is the camelized one. Use
+        # an Array to give one method several JS names (`readonly`/`readOnly`).
+        def js_readable(*names, **mapped)
+          _register_js_properties(names, mapped, writable: false)
+        end
+
+        # The same, for a property JS may also assign.
+        def js_accessor(*names, **mapped)
+          _register_js_properties(names, mapped, writable: true)
+        end
+
+        # The JS names this class lets JS assign, merged across the ancestry.
+        def writable_property_map
+          @__writable_map__ ||= begin
+            inherited = superclass.respond_to?(:writable_property_map) ? superclass.writable_property_map : {}
+            inherited.merge(@__writable_props__ || {})
+          end
+        end
+
         # Merged `js_key => ruby_name` map across the class ancestry (memoized).
         # Recomputed lazily; `_reflect` invalidates the cache when called.
         def reflected_property_map
@@ -59,9 +86,31 @@ module Dommy
 
         private
 
+        def _register_js_properties(names, mapped, writable:)
+          @__reflected_props__ ||= {}
+          @__writable_props__ ||= {}
+          @__reflected_map__ = nil
+          @__writable_map__ = nil
+
+          (names.map { |n| [n, nil] } + mapped.to_a).each do |ruby_name, override|
+            keys = case override
+                   when nil then [_camelize(ruby_name)]
+                   when String then [override]
+                   when Array then override.map(&:to_s)
+                   else raise ArgumentError, "js_readable/js_accessor: unsupported name for #{ruby_name.inspect}"
+                   end
+            keys.each do |key|
+              @__reflected_props__[key] = ruby_name
+              @__writable_props__[key] = ruby_name if writable
+            end
+          end
+        end
+
         def _reflect(type, names, mapped)
           @__reflected_props__ ||= {}
+          @__writable_props__ ||= {}
           @__reflected_map__ = nil # invalidate memoized merge
+          @__writable_map__ = nil
 
           getter = type == :boolean ? :reflected_boolean : :reflected_string
           setter = type == :boolean ? :set_reflected_boolean : :set_reflected_string
@@ -71,6 +120,7 @@ module Dommy
             define_method(ruby_name) { __send__(getter, attr) }
             define_method(:"#{ruby_name}=") { |value| __send__(setter, attr, value) }
             @__reflected_props__[js] = ruby_name
+            @__writable_props__[js] = ruby_name
           end
         end
 
@@ -103,7 +153,7 @@ module Dommy
       end
 
       def __js_set__(key, value)
-        prop = self.class.reflected_property_map[key]
+        prop = self.class.writable_property_map[key]
         return __send__(:"#{prop}=", value) if prop
 
         super
