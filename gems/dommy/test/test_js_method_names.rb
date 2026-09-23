@@ -69,4 +69,27 @@ class TestJsMethodNames < Minitest::Test
   def test_node_list
     assert_includes @doc.query_selector_all("div").__js_method_names__, "item"
   end
+
+  # `remove` is two different operations that share a name: HTMLSelectElement's
+  # drops an option by index, ChildNode's detaches the node. The composed list
+  # carries the name ONCE — which is all the host needs, since it only decides
+  # which property names are callable — while Ruby dispatch, being per class,
+  # still reaches the right one. A dedup that dropped the select's own arm, or
+  # a list that stopped mentioning `remove` at all, would break one of these
+  # silently.
+  def test_remove_is_one_name_and_two_operations
+    window = make_window(
+      '<select id="s"><option>a</option><option>b</option><option>c</option></select><div id="d"></div>'
+    )
+    doc = window.document
+    select = doc.get_element_by_id("s")
+
+    assert_equal 1, select.__js_method_names__.count("remove")
+
+    select.__js_call__("remove", [1])
+    assert_equal %w[a c], select.options.map(&:text_content)
+
+    doc.get_element_by_id("d").__js_call__("remove", [])
+    assert_nil doc.get_element_by_id("d")
+  end
 end
