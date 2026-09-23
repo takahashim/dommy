@@ -34,13 +34,6 @@ module Dommy
         DEFAULT_PORTS[url.protocol].to_s
       end
 
-      # `scheme://host[:port]`, the tuple origin for `url` (used for the
-      # `Origin` header a same-origin WebSocket connection presents). `url` is
-      # always http(s)/ws(s) here, all tuple-origin schemes, so this is just
-      # `url.origin` — kept as a named entry point for callers that don't want
-      # to know that.
-      def origin(url) = url.origin
-
       # Whether two URLs (Strings) share scheme/host/port — the core
       # same-origin check shared by Navigation, Resources, and Session. Deliberately
       # NOT `Dommy::URL#origin` equality: that returns the literal string

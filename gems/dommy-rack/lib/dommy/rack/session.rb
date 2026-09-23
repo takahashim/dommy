@@ -252,7 +252,7 @@ module Dommy
 
           transport = WebSocketTransport.new(
             app: @app, ws: ws, scheduler: window.scheduler, url: target,
-            origin: Url.origin(target), cookie_string: @cookie_jar.cookies_for(target.to_s)
+            origin: target.origin, cookie_string: @cookie_jar.cookies_for(target.to_s)
           )
           (@live_websocket_transports ||= []) << transport
           transport
