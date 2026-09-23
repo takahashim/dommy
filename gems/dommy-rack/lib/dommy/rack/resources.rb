@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
-
 module Dommy
   module Rack
     # `Dommy::Resources` adapter backed by a Rack session: serves same-origin
@@ -155,11 +153,7 @@ module Dommy
       end
 
       def absolute_url(url)
-        # Percent-encode raw UTF-8 in a subresource URL (e.g. an <img> whose
-        # src has non-ASCII path) so the ASCII-only parser accepts it.
         Url.resolve(base_url, url)
-      rescue URI::InvalidURIError
-        nil
       end
 
       def same_origin?(target)
@@ -181,10 +175,12 @@ module Dommy
         @session.__internal_record_dropped_subresource(host) if host
       end
 
+      # nil (not "") when `target` parses but has no host — Dommy::URL#hostname
+      # returns "" rather than nil for a host-less (e.g. opaque-path) URL, and
+      # every caller here treats "no host" as "skip this".
       def host_of(target)
-        URI.parse(target).host
-      rescue URI::InvalidURIError
-        nil
+        host = Dommy::URL.parse(target)&.hostname
+        host unless host.nil? || host.empty?
       end
     end
   end
