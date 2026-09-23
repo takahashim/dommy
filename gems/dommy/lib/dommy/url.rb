@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
-require "uri"
 require_relative "internal/url_parser"
+require_relative "internal/url_record_accessors"
 
 module Dommy
   # `URL` — WHATWG-style URL parsing. Public API mirrors the JS class:
@@ -80,6 +80,11 @@ module Dommy
       end
     end
 
+  # host/hostname/port/protocol/pathname getters+setters, plus the private
+  # `cannot_have_credentials?`/`parse_into` they share, live in the mixin —
+  # identical to Location's, which holds the same kind of record.
+  include Internal::UrlRecordAccessors
+
   attr_reader :search_params
 
   def initialize(input, base = nil)
@@ -107,65 +112,11 @@ module Dommy
     raise Bridge::TypeError, "Invalid URL: #{e.message}"
   end
 
-  def protocol
-    "#{@record.scheme}:"
-  end
-
   # Every setter below is the URL Standard's: the value is read by the basic
   # URL parser from the component's own state into this URL, and a value the
   # parser rejects leaves the URL as it was.
   #
   # Spec: https://url.spec.whatwg.org/#urlutils-members
-  def protocol=(value)
-    parse_into("#{value}:", :scheme_start)
-  end
-
-  def host
-    return "" if @record.host.nil?
-
-    @record.port ? "#{@record.host}:#{@record.port}" : @record.host
-  end
-
-  def host=(value)
-    return if @record.opaque_path?
-
-    parse_into(value, :host)
-  end
-
-  def hostname
-    @record.host.to_s
-  end
-
-  def hostname=(value)
-    return if @record.opaque_path?
-
-    parse_into(value, :hostname)
-  end
-
-  def port
-    @record.port.nil? ? "" : @record.port.to_s
-  end
-
-  def port=(value)
-    return if cannot_have_credentials?
-
-    if value.to_s.empty?
-      @record.port = nil
-    else
-      parse_into(value, :port)
-    end
-  end
-
-  def pathname
-    Internal::UrlParser.serialize_path(@record)
-  end
-
-  def pathname=(value)
-    return if @record.opaque_path?
-
-    @record.path = []
-    parse_into(value, :path_start)
-  end
 
   def search
     q = @record.query
@@ -297,18 +248,6 @@ module Dommy
   TUPLE_ORIGIN_SCHEMES = %w[http https ws wss ftp].freeze
 
   private
-
-  # Run the parser from `state` into this URL's record; a rejected value
-  # changes nothing.
-  def parse_into(value, state)
-    Internal::UrlParser.parse_with_override(value.to_s, @record, state)
-  rescue Internal::UrlParser::Failure
-    nil
-  end
-
-  def cannot_have_credentials?
-    @record.host.nil? || @record.host == "" || @record.scheme == "file"
-  end
 
   # HTML Standard "origin" for a blob: URL — parse the opaque path as a URL and
   # return its origin only when that inner URL's scheme is http/https/file;
