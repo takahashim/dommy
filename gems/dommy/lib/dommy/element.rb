@@ -789,11 +789,27 @@ module Dommy
       # bound to it never runs.
       return false if __internal_actually_disabled__
 
-      # Everything else (picking the activation target, the pre-activation
-      # toggle, running or undoing the activation behavior) is dispatch's job,
-      # so a synthesized `dispatchEvent(new MouseEvent("click"))` behaves
-      # identically to click().
-      dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+      # HTML click(): "if this element's click in progress flag is set, then
+      # return". It is what stops a label from clicking itself to death: the
+      # label's activation behavior clicks its labeled control, the control's
+      # click bubbles back to the label, and the label forwards it again. A
+      # <meter>, <output> or <progress> in a <label> did exactly that until the
+      # stack ran out, because the "leave interactive content alone" guard in
+      # the label does not cover a control that is not interactive content.
+      return false if @__click_in_progress
+
+      @__click_in_progress = true
+      begin
+        # Everything else (picking the activation target, the pre-activation
+        # toggle, running or undoing the activation behavior) is dispatch's job,
+        # so a synthesized `dispatchEvent(new MouseEvent("click"))` behaves
+        # identically to click().
+        dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+      ensure
+        # Not a method-level `ensure`: the early return above must not clear the
+        # flag the click it returned from is still holding.
+        @__click_in_progress = false
+      end
     end
 
     # WHATWG "actually disabled". Only the disable-able form controls can be,

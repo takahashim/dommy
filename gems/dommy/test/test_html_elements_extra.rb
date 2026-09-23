@@ -550,3 +550,44 @@ class TestHTMLIdentitySubclasses < Minitest::Test
     assert_kind_of(Dommy::HTMLBodyElement, @doc.body)
   end
 end
+
+# HTML's "click in progress" flag. Without it a <label> and its labeled control
+# click each other forever: the label forwards to the control, the control's
+# click bubbles back to the label, which forwards again. The label's "leave
+# interactive content alone" guard does not catch it, because <meter>,
+# <output> and <progress> are labelable without being interactive.
+class TestClickReentrancy < Minitest::Test
+  include DommyTestHelper
+
+  def test_noninteractive_labelable_control_in_a_label_clicks_once
+    %w[meter output progress].each do |tag|
+      win = make_window("<body><label id=l><#{tag} id=x></#{tag}></label></body>")
+      control = win.document.get_element_by_id("x")
+      clicks = 0
+      control.add_event_listener("click") { clicks += 1 }
+
+      control.dispatch_event(Dommy::MouseEvent.new("click", "bubbles" => true))
+
+      assert_equal(2, clicks, "<#{tag}>: the original click and the label's one forward")
+    end
+  end
+
+  def test_label_still_activates_its_control
+    win = make_window("<body><label id=l>pick<input type=checkbox id=c></label></body>")
+    doc = win.document
+    doc.get_element_by_id("l").click
+
+    assert(doc.get_element_by_id("c").checked)
+  end
+
+  def test_click_in_progress_is_cleared_for_the_next_click
+    win = make_window("<body><button id=b></button></body>")
+    button = win.document.get_element_by_id("b")
+    clicks = 0
+    button.add_event_listener("click") { clicks += 1 }
+
+    3.times { button.click }
+
+    assert_equal(3, clicks)
+  end
+end
