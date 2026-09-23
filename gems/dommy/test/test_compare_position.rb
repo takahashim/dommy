@@ -44,4 +44,31 @@ class TestComparePosition < Minitest::Test
     result = @a.compare_document_position(detached)
     assert(result & Dommy::Element::DOCUMENT_POSITION_DISCONNECTED != 0)
   end
+
+  # The order between trees is ours to pick, but one side has to say PRECEDING
+  # and the other FOLLOWING — never both the same.
+  def test_disconnected_order_is_anticommutative
+    detached = @doc.create_element("div")
+    pairs = [
+      [@a, detached],
+      [@doc.create_element("i"), @doc.create_element("b")],
+      [@a, make_window("<span id='s'>y</span>").document.get_element_by_id("s")],
+      [@a.get_attribute_node("id"), detached]
+    ]
+    disconnected = Dommy::Element::DOCUMENT_POSITION_DISCONNECTED |
+      Dommy::Element::DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC
+    preceding = disconnected | Dommy::Element::DOCUMENT_POSITION_PRECEDING
+    following = disconnected | Dommy::Element::DOCUMENT_POSITION_FOLLOWING
+    pairs.each do |one, two|
+      forward = one.compare_document_position(two)
+      backward = two.compare_document_position(one)
+      assert_includes([[preceding, following], [following, preceding]], [forward, backward])
+    end
+  end
+
+  def test_disconnected_order_is_stable_across_calls
+    detached = @doc.create_element("div")
+    first = @a.compare_document_position(detached)
+    assert_equal(first, @a.compare_document_position(detached))
+  end
 end

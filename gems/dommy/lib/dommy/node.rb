@@ -338,24 +338,20 @@ module Dommy
     # Node.compareDocumentPosition(other) — a bitmask describing where `other`
     # sits relative to this node: 0 for the same node, CONTAINS/CONTAINED_BY for
     # ancestor/descendant, PRECEDING/FOLLOWING for tree order, or DISCONNECTED
-    # (with a stable IMPLEMENTATION_SPECIFIC|PRECEDING) for unrelated nodes.
-    # Generic over any node with a backing Nokogiri node.
+    # (with IMPLEMENTATION_SPECIFIC and a consistent direction) for unrelated
+    # nodes. Generic over any node with a backing Nokogiri node.
     def compare_document_position(other)
       return 0 if equal?(other)
 
       self_node = compare_backend_node(self)
       other_node = compare_backend_node(other)
-      unless self_node && other_node
-        return DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | DOCUMENT_POSITION_PRECEDING
-      end
+      return disconnected_position(other, self_node, other_node) unless self_node && other_node
 
       self_ancestors = node_ancestor_chain(self_node)
       other_ancestors = node_ancestor_chain(other_node)
 
       common = self_ancestors.find { |a| other_ancestors.include?(a) }
-      unless common
-        return DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | DOCUMENT_POSITION_PRECEDING
-      end
+      return disconnected_position(other, self_node, other_node) unless common
       return DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING if common == self_node
       return DOCUMENT_POSITION_CONTAINS | DOCUMENT_POSITION_PRECEDING if common == other_node
 
@@ -365,7 +361,7 @@ module Dommy
         return DOCUMENT_POSITION_FOLLOWING if child == self_branch
         return DOCUMENT_POSITION_PRECEDING if child == other_branch
       end
-      DOCUMENT_POSITION_DISCONNECTED
+      disconnected_position(other, self_node, other_node)
     end
 
     # Node.getRootNode — the topmost ancestor of this node (the document, a
@@ -477,6 +473,31 @@ module Dommy
       return obj.__dommy_backend_node__ if obj.respond_to?(:__dommy_backend_node__)
 
       obj.backend_doc if obj.is_a?(Dommy::Document)
+    end
+
+    # Nodes in different trees compare in an order the standard leaves to the
+    # implementation, but it has to be an order: the same answer every time, and
+    # opposite directions for the two argument orders. Sorting the pair by a
+    # stable per-node key gives that, so one side reports PRECEDING and the other
+    # FOLLOWING instead of both claiming PRECEDING.
+    def disconnected_position(other, self_node, other_node)
+      direction =
+        if (disconnected_order_key(self, self_node) <=> disconnected_order_key(other, other_node)).negative?
+          DOCUMENT_POSITION_FOLLOWING
+        else
+          DOCUMENT_POSITION_PRECEDING
+        end
+      DOCUMENT_POSITION_DISCONNECTED | DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | direction
+    end
+
+    # The sort key behind that order. A backend node's identity key is its
+    # address, which Makiri never recycles for a live node; an Attr and anything
+    # else without a backend node falls back to its wrapper's identity, which
+    # orders it just as consistently. The wrapper's id also breaks a tie between
+    # two keys drawn from those two different spaces — `equal?` has already
+    # answered for one node against itself, so distinct nodes never tie on both.
+    def disconnected_order_key(wrapper, node)
+      [node ? Backend.identity_key(node) : 0, wrapper.object_id]
     end
 
     # The backend-node chain from `node` up to and INCLUDING the document node.

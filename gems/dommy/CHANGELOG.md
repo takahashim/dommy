@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `compareDocumentPosition` between two trees orders the pair consistently: one node reports PRECEDING and the other FOLLOWING, where both used to say PRECEDING.
+
 ## 0.13.0 — 2026-09-23
 
 ### Changed
