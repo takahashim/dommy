@@ -7,8 +7,7 @@ module Dommy
     # the ones it can actually invalidate, which is the whole point — a text
     # edit inside a <p> must not throw away the rule index.
     #
-    # Document's, but its own subject: the class had thirty-one __internal_*
-    # seams through which every collaborator reached its state.
+    # Host contract: @__css_style_cache__ and #__internal_style_sheet_elements__.
     module DocumentGenerations
       def style_generation
         @style_generation || 0
@@ -98,12 +97,12 @@ module Dommy
       def __internal_style_affected_by_attribute__(name, target_node)
         owner = target_node.respond_to?(:name) ? target_node.name.to_s.downcase : nil
         return true if owner == "style" || owner == "link"
-  
+
         index = @__css_style_cache__&.index
         # No RuleIndex yet: the bump is nearly free (at most it drops the
         # author_css?/counters memos), so stay conservative.
         return true unless index
-  
+
         index.attribute_dependency?(name)
       end
 
@@ -118,11 +117,11 @@ module Dommy
         # tree_generation (only childList changes it), so a text-editing loop
         # between childList mutations answers this without re-walking.
         return false unless __internal_style_sheet_elements__.any? { |el| el.local_name.to_s.casecmp?("style") }
-  
+
         current = node.respond_to?(:parent) ? node.parent : nil
         while current
           return true if current.respond_to?(:name) && current.name.to_s.downcase == "style"
-  
+
           current = current.respond_to?(:parent) ? current.parent : nil
         end
         false

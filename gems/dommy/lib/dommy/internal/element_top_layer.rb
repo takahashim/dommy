@@ -2,12 +2,13 @@
 
 module Dommy
   module Internal
-    # The popover state machine and the fullscreen request beside it —
-    # both are 'show this element on top', and neither renders anything here.
+    # Putting an element in the top layer, and taking it back out: the popover
+    # state machine and the fullscreen request. Neither renders anything here —
+    # what they produce is the event pair and the state a script reads back.
     #
-    # Element's, but not about being an element: it was 2200 lines holding
-    # these four subjects alongside attributes, selectors and serialization.
-    module ElementPopover
+    # Host contract: #dispatch_event, and @document responding to
+    # #__internal_set_fullscreen_element__ / #default_view.
+    module ElementTopLayer
       def request_fullscreen
         @document.__internal_set_fullscreen_element__(self)
         PromiseValue.resolve(@document.default_view, nil)
@@ -31,13 +32,16 @@ module Dommy
         new_state
       end
 
-      # Popover state — modern HTML pattern. `show`/`hide`/`toggle`
-      # fire `beforetoggle` and `toggle` events (no real visual change).
+      private
+
+      # The transition itself: `beforetoggle`, then the new state, then
+      # `toggle`. Private, because the three methods above are the ways in —
+      # a caller that sets the state without the events has skipped the API.
       def toggle_popover_state(open)
         old_state = @__popover_open__ ? "open" : "closed"
         new_state = open ? "open" : "closed"
         return if old_state == new_state
-  
+
         dispatch_event(
           CustomEvent.new(
             "beforetoggle",

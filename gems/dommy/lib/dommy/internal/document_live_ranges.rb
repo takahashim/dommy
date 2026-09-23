@@ -5,8 +5,7 @@ module Dommy
     # The live Ranges registered against this document, and the offset shifts a
     # mutation owes them (DOM §5.5's "live range" steps).
     #
-    # Document's, but its own subject: the class had thirty-one __internal_*
-    # seams through which every collaborator reached its state.
+    # Host contract: #wrap_node.
     module DocumentLiveRanges
       def __internal_register_range__(range)
         @live_ranges ||= ObjectSpace::WeakMap.new
@@ -16,7 +15,7 @@ module Dommy
 
       def __internal_each_live_range__
         return if @live_ranges.nil? || @live_ranges.size.zero?
-  
+
         @live_ranges.each_key { |range| yield range }
       end
 
@@ -31,7 +30,7 @@ module Dommy
       # is removed, so the indices still describe the pre-removal tree.
       def __internal_ranges_normalize_merge__(node, current, length)
         return unless live_ranges?
-  
+
         merged_into = wrap_node(node)
         current_wrapper = wrap_node(current)
         parent = current.parent && wrap_node(current.parent)
@@ -43,7 +42,7 @@ module Dommy
 
       def __internal_ranges_split_text__(node, offset, new_node)
         return unless live_ranges?
-  
+
         parent = node.parent_node
         # Only the parent-anchored rule needs an index, so resolve one lazily.
         index =
@@ -69,16 +68,16 @@ module Dommy
       def __internal_ranges_will_insert__(parent_backend_node, ref_backend_node, count)
         return if ref_backend_node.nil? || count.zero?
         return unless live_ranges?
-  
+
         parent_wrapper = wrap_node(parent_backend_node)
         return unless parent_wrapper.respond_to?(:child_nodes)
-  
+
         affected = live_ranges_where { |r| r.__internal_anchored_at__(parent_wrapper) }
         return if affected.empty?
-  
+
         index = child_index_of_wrapper(parent_wrapper, wrap_node(ref_backend_node))
         return unless index
-  
+
         affected.each { |r| r.__internal_apply_insert__(parent_wrapper, index, count) }
       end
 
@@ -90,7 +89,7 @@ module Dommy
 
       def child_index_of_wrapper(parent_wrapper, child_wrapper)
         return nil unless parent_wrapper.respond_to?(:child_nodes)
-  
+
         parent_wrapper.child_nodes.to_a.index { |c| c.equal?(child_wrapper) }
       end
     end

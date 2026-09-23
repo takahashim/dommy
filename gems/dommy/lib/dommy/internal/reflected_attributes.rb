@@ -64,6 +64,14 @@ module Dommy
         # of these classes means there is logic in it, which is worth knowing
         # when you open one.
         #
+        # A class whose `__js_get__` ends in `Bridge::ABSENT` rather than
+        # `super` — MutationRecord, DOMRect, and sixty-odd other root objects —
+        # keeps its `case` too, however plainly its arms are name mappings.
+        # The `__js_get__` here ends in `super`, so such a class would need a
+        # terminal module underneath it in the ancestry just to answer ABSENT.
+        # Giving the whole family one is a change worth making on its own
+        # terms; giving one of them one is worse than the `case`.
+        #
         # Element and Document keep their `case` whole, even though about half
         # of each one's arms are name mappings. They do not include this module
         # — HTMLElement does — and including it there to declare those halves

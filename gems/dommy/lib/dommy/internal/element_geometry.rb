@@ -5,9 +5,17 @@ module Dommy
     # getBoundingClientRect and friends. Dommy lays nothing out, so these
     # answer from an approximation; the scroll log is what a test reads back.
     #
-    # Element's, but not about being an element: it was 2200 lines holding
-    # these four subjects alongside attributes, selectors and serialization.
+    # Host contract: #text_content, #local_name, and @document responding to
+    # #default_view.
     module ElementGeometry
+      # Estimate {x, y, width, height} (CSS px) without laying out the page:
+      # block elements fill the viewport width; inline elements are sized to
+      # their text; height is the wrapped line count × a nominal line height.
+      INLINE_TAGS = %w[a span b i em strong small code label abbr cite q sub sup time mark u s
+                       tt var samp kbd bdi bdo wbr big font nobr].freeze
+      APPROX_CHAR_PX = 8
+      APPROX_LINE_PX = 20
+
       # No real layout engine. By default geometry getters return zeroed rects;
       # when the window opts into approximate geometry (window.approximate_layout)
       # they return non-zero estimates from a cheap pseudo-layout so a site that
@@ -18,7 +26,7 @@ module Dommy
 
       def get_client_rects
         return [] unless approximate_layout?
-  
+
         box = __internal_approx_box
         box[:width].positive? || box[:height].positive? ? [DOMRect.new(**box)] : []
       end
@@ -28,13 +36,8 @@ module Dommy
         @scroll_log ||= []
       end
 
-      # No real layout — record the scroll request so tests can assert it.
-      def record_scroll(name, args)
-        @scroll_log ||= []
-        @scroll_log << [name, args]
-        nil
-      end
-
+      # Position is the origin (we don't position elements). Used only when
+      # approximate_layout?.
       def __internal_approx_box
         viewport = @document&.default_view&.inner_width.to_i
         viewport = 1280 if viewport <= 0
@@ -49,15 +52,17 @@ module Dommy
       end
 
       def approximate_layout? = !!@document&.default_view&.approximate_layout
-  
-      # Estimate {x, y, width, height} (CSS px) without laying out the page: block
-      # elements fill the viewport width; inline elements are sized to their text;
-      # height is the wrapped line count × a nominal line height. Position is the
-      # origin (we don't position elements). Used only when approximate_layout?.
-      INLINE_TAGS = %w[a span b i em strong small code label abbr cite q sub sup time mark u s
-                       tt var samp kbd bdi bdo wbr big font nobr].freeze
-      APPROX_CHAR_PX = 8
-      APPROX_LINE_PX = 20
+
+      private
+
+      # No real layout — record the scroll request so tests can assert it.
+      # Private: a test reads the log through #__test_scroll_log__, and the
+      # scroll methods are what write to it.
+      def record_scroll(name, args)
+        @scroll_log ||= []
+        @scroll_log << [name, args]
+        nil
       end
+    end
   end
 end

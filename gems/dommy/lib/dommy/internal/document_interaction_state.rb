@@ -6,8 +6,8 @@ module Dommy
     # They are not tree state, but :focus and :hover match on them, so a change
     # has to tell the selector caches.
     #
-    # Document's, but its own subject: the class had thirty-one __internal_*
-    # seams through which every collaborator reached its state.
+    # Host contract: #body, and DocumentGenerations for the epoch bump a
+    # focus or hover change owes the selector caches.
     module DocumentInteractionState
       # Currently-focused element (or body if none). Updated via
       # `el.focus()` / `el.blur()`.
@@ -37,7 +37,7 @@ module Dommy
 
       def __internal_set_hovered_element__(el)
         return if @hovered_element.equal?(el)
-  
+
         @hovered_element = el
         __internal_note_selector_state_change__
         nil

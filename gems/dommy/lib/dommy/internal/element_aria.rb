@@ -5,8 +5,8 @@ module Dommy
     # The ARIA surface: the `role` attribute, the computed role/name/
     # description, and the element-reflecting aria-* properties.
     #
-    # Element's, but not about being an element: it was 2200 lines holding
-    # these four subjects alongside attributes, selectors and serialization.
+    # Host contract: @__node__, @document responding to #wrap_node,
+    # #set_attribute / #remove_attribute, #root_node and #accessibility_tree.
     module ElementAria
       def role
         @__node__["role"].to_s
@@ -52,10 +52,10 @@ module Dommy
           # (or whose target is reparented out of scope) reads as null.
           return aria_ref_in_valid_scope?(explicit) ? explicit : nil
         end
-  
+
         idref = @__node__[content_attr].to_s
         return nil if idref.empty?
-  
+
         aria_find_in_root(idref)
       end
 
@@ -70,7 +70,7 @@ module Dommy
         else
           # WebIDL: the value is an `Element?` — a non-Element throws a TypeError.
           raise Bridge::TypeError, "value is not an Element or null" unless value.is_a?(Dommy::Element)
-  
+
           # set_attribute clears explicit refs via its aria-* hook, so store the
           # new reference afterward.
           set_attribute(content_attr, "")
@@ -85,7 +85,7 @@ module Dommy
       def aria_elements_get(content_attr, key)
         # null when there are neither explicit elements nor a content attribute.
         return nil if aria_elements_current(content_attr, key).nil?
-  
+
         # Otherwise a per-property memoized live list, so repeated reads return the
         # [SameObject] (WebIDL requires a stable FrozenArray) while its contents track
         # the current references/IDREFs.
@@ -107,7 +107,7 @@ module Dommy
           unless value.is_a?(Array) && value.all? { |el| el.is_a?(Dommy::Element) }
             raise Bridge::TypeError, "value is not a sequence of Elements"
           end
-  
+
           set_attribute(content_attr, "")
           refs[key] = value.dup
         end
@@ -122,7 +122,7 @@ module Dommy
         explicit = (@aria_elements_refs ||= {})[key]
         return explicit.select { |el| aria_ref_in_valid_scope?(el) } if explicit
         return nil unless @__node__.key?(content_attr)
-  
+
         @__node__[content_attr].to_s.split(/[ \t\n\f\r]+/).reject(&:empty?).filter_map do |id|
           aria_find_in_root(id)
         end
@@ -145,16 +145,16 @@ module Dommy
       # a shadow tree (or a sibling/detached scope) is not.
       def aria_ref_in_valid_scope?(attr_element)
         return false unless attr_element.respond_to?(:root_node)
-  
+
         target_root = attr_element.root_node
         scope = self
         loop do
           root = scope.root_node
           return true if root.equal?(target_root)
-  
+
           host = root.respond_to?(:host) ? root.host : nil
           return false unless host
-  
+
           scope = host
         end
       end

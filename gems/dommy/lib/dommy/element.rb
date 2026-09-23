@@ -5,12 +5,18 @@ require "uri"
 require_relative "parser"
 
 module Dommy
+  # An element: its attributes, its place in the tree, the selectors it matches
+  # and how it serializes.
+  #
+  # The four Internal mixins below are subjects that were Element's without
+  # being about being an element. The class body was 2217 lines before they
+  # moved out; each one is now readable without the other three.
   class Element
     include EventTarget
     include Node
     include Internal::ParentNode
     include Internal::ElementShadow
-    include Internal::ElementPopover
+    include Internal::ElementTopLayer
     include Internal::ElementGeometry
     include Internal::ElementAria
 

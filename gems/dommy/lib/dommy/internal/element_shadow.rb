@@ -4,8 +4,8 @@ module Dommy
   module Internal
     # Attaching a shadow tree, and the slot a light child is assigned to.
     #
-    # Element's, but not about being an element: it was 2200 lines holding
-    # these four subjects alongside attributes, selectors and serialization.
+    # Host contract: @__node__, @document responding to #wrap_node and
+    # #__internal_shadow_root_for_host__, and #set_attribute.
     module ElementShadow
       # Elements that may host a Shadow DOM tree per the HTML spec.
       # Custom-element-style names (containing "-") are also allowed.
@@ -48,13 +48,13 @@ module Dommy
       def assigned_slot
         parent = @__node__.parent
         return nil unless parent.respond_to?(:element?) && parent.element?
-  
+
         host = @document.wrap_node(parent)
         return nil unless host.respond_to?(:shadow_root)
-  
+
         sr = host.shadow_root
         return nil unless sr
-  
+
         slot_name = @__node__.element? ? @__node__["slot"].to_s : ""
         sr.query_selector_all("slot").find do |slot|
           (slot.respond_to?(:name) ? slot.name.to_s : "") == slot_name
@@ -73,20 +73,20 @@ module Dommy
         unless SHADOW_HOST_TAGS.include?(tag) || tag.include?("-")
           raise DOMException::NotSupportedError, "<#{tag}> cannot host a shadow root"
         end
-  
+
         raise DOMException::NotSupportedError, "Shadow root already attached" if __internal_shadow_root__
-  
+
         opts = options.is_a?(Hash) ? options : {}
         mode_raw = opts.key?("mode") ? opts["mode"] : opts[:mode]
         # `mode` is a required WebIDL dictionary member — omitting it, like an
         # invalid enum value below, is a (JS) TypeError, not a DOMException.
         raise Bridge::TypeError, "attachShadow init dictionary requires 'mode'" if mode_raw.nil?
-  
+
         # `mode` is a WebIDL enum (ShadowRootMode); a value that isn't "open"/
         # "closed" fails enum conversion → TypeError, not a DOMException.
         mode = mode_raw.to_s
         raise Bridge::TypeError, "mode must be 'open' or 'closed'" unless %w[open closed].include?(mode)
-  
+
         @__shadow_root = ShadowRoot.new(
           self,
           mode: mode,
@@ -101,7 +101,7 @@ module Dommy
       def shadow_root
         root = __internal_shadow_root__
         return nil if root.nil? || root.mode == "closed"
-  
+
         root
       end
 

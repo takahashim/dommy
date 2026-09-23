@@ -69,7 +69,6 @@ module Dommy
     end
   end
 
-
   class MutationObserver
     def initialize(window, callback)
       @window = window
@@ -369,6 +368,5 @@ module Dommy
     rescue StandardError
       []
     end
-
   end
 end

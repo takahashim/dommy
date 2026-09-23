@@ -407,6 +407,11 @@ module Dommy
   # `document` — the entry point for DOM construction and querying.
   # Wrapper caching keeps DOM identity stable across repeated
   # traversals (`body.children[0].parentElement`).
+  #
+  # The three Internal mixins below are state the whole DOM reaches into the
+  # document for. It was reached through fifty-eight distinct `__internal_*`
+  # seams, fifty of them called from outside this file; grouping them by
+  # subject is what makes it possible to ask which collaborator needs which.
   class Document
     include Internal::DocumentGenerations
     include Internal::DocumentLiveRanges
