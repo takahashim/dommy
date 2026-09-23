@@ -45,291 +45,306 @@ module Dommy
         run(input.to_s, nil, url: url, state_override: state)
       end
 
-      # ===== percent-encode sets =====
+      # The URL Standard vocabulary the parser is written in: the percent-encode
+      # sets, the host and IPv6 parsers, the serializers, and the path helpers.
+      # Every one is a function of its arguments alone.
+      #
+      # It is a separate module because it has two users with nothing else in
+      # common: UrlParser extends it, so callers outside this file keep writing
+      # `UrlParser.serialize(record)`, and BasicParser includes it, because a
+      # state machine is written in this vocabulary. Including UrlParser itself
+      # would also hand BasicParser `parse` / `run` — the entry points that build
+      # a BasicParser — which is not a vocabulary a parser state should reach for.
+      module Syntax
+        # ===== percent-encode sets =====
 
-      def c0?(cp) = cp <= 0x1F || cp > 0x7E
-      def fragment_set?(cp) = c0?(cp) || [0x20, 0x22, 0x3C, 0x3E, 0x60].include?(cp)
-      def query_set?(cp) = c0?(cp) || [0x20, 0x22, 0x23, 0x3C, 0x3E].include?(cp)
-      def special_query_set?(cp) = query_set?(cp) || cp == 0x27
-      def path_set?(cp) = query_set?(cp) || [0x3F, 0x5E, 0x60, 0x7B, 0x7D].include?(cp)
-      def userinfo_set?(cp) = path_set?(cp) || [0x2F, 0x3A, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x7C].include?(cp)
+        def c0?(cp) = cp <= 0x1F || cp > 0x7E
+        def fragment_set?(cp) = c0?(cp) || [0x20, 0x22, 0x3C, 0x3E, 0x60].include?(cp)
+        def query_set?(cp) = c0?(cp) || [0x20, 0x22, 0x23, 0x3C, 0x3E].include?(cp)
+        def special_query_set?(cp) = query_set?(cp) || cp == 0x27
+        def path_set?(cp) = query_set?(cp) || [0x3F, 0x5E, 0x60, 0x7B, 0x7D].include?(cp)
+        def userinfo_set?(cp) = path_set?(cp) || [0x2F, 0x3A, 0x3B, 0x3D, 0x40, 0x5B, 0x5C, 0x5D, 0x7C].include?(cp)
 
-      # UTF-8 percent-encode a single code point against `set` (a predicate).
-      def pe(char, set)
-        return char unless set.call(char.ord)
+        # UTF-8 percent-encode a single code point against `set` (a predicate).
+        def pe(char, set)
+          return char unless set.call(char.ord)
 
-        char.b.bytes.map { |b| format("%%%02X", b) }.join
-      end
-
-      def percent_decode(str)
-        out = +"".b
-        bytes = str.b
-        i = 0
-        while i < bytes.bytesize
-          b = bytes.getbyte(i)
-          if b == 0x25 && i + 2 < bytes.bytesize &&
-              bytes.byteslice(i + 1, 2) =~ /\A[0-9A-Fa-f]{2}\z/
-            out << bytes.byteslice(i + 1, 2).to_i(16)
-            i += 3
-          else
-            out << b
-            i += 1
-          end
+          char.b.bytes.map { |b| format("%%%02X", b) }.join
         end
-        out
-      end
 
-      # ===== host parsing =====
-
-      FORBIDDEN_HOST = [0x00, 0x09, 0x0A, 0x0D, 0x20, 0x23, 0x2F, 0x3A, 0x3C, 0x3E,
-                        0x3F, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C].freeze
-
-      def forbidden_host?(cp) = FORBIDDEN_HOST.include?(cp)
-      def forbidden_domain?(cp) = forbidden_host?(cp) || cp <= 0x1F || cp == 0x25 || cp == 0x7F
-
-      def parse_host(input, special)
-        if input.start_with?("[")
-          raise Failure, "unclosed IPv6 address" unless input.end_with?("]")
-
-          return "[#{parse_ipv6(input[1...-1])}]"
-        end
-        return parse_opaque_host(input) unless special
-        raise Failure, "empty host" if input.empty?
-
-        # UTF-8-decode-without-BOM the percent-decoded bytes: malformed
-        # sequences become U+FFFD (which domain-to-ASCII then rejects),
-        # matching the spec rather than crashing on invalid encoding.
-        domain = percent_decode(input).force_encoding("UTF-8").scrub("\uFFFD")
-        # The domain parser (beStrict false): an ASCII domain is only
-        # lowercased, whatever UTS #46 would make of it, for web
-        # compatibility; a non-ASCII one goes through ToASCII.
-        ascii =
-          if domain.ascii_only?
-            domain.downcase
-          else
-            begin
-              IDNA.to_ascii(domain, check_hyphens: false, verify_dns_length: false)
-            rescue IDNA::Error, Punycode::Error => e
-              raise Failure, "domain to ASCII: #{e.message}"
+        def percent_decode(str)
+          out = +"".b
+          bytes = str.b
+          i = 0
+          while i < bytes.bytesize
+            b = bytes.getbyte(i)
+            if b == 0x25 && i + 2 < bytes.bytesize &&
+                bytes.byteslice(i + 1, 2) =~ /\A[0-9A-Fa-f]{2}\z/
+              out << bytes.byteslice(i + 1, 2).to_i(16)
+              i += 3
+            else
+              out << b
+              i += 1
             end
           end
-        raise Failure, "empty domain" if ascii.empty?
-        raise Failure, "forbidden domain code point" if ascii.each_char.any? { |ch| forbidden_domain?(ch.ord) }
-
-        if ends_in_number?(ascii)
-          ip = Ipv4Parser.parse(ascii)
-          raise Failure, "invalid IPv4 address" if ip.nil?
-
-          return ip
-        end
-        ascii
-      end
-
-      def parse_opaque_host(input)
-        raise Failure, "forbidden host code point" if input.each_char.any? { |ch| forbidden_host?(ch.ord) }
-
-        input.each_char.map { |ch| pe(ch, method(:c0?)) }.join
-      end
-
-      def ends_in_number?(input)
-        parts = input.split(".", -1)
-        parts.pop if parts.length > 1 && parts.last == ""
-        return false if parts.empty?
-
-        last = parts.last
-        return false if last.empty?
-        return true if last.match?(/\A[0-9]+\z/)
-
-        last.match?(/\A0[xX][0-9A-Fa-f]*\z/)
-      end
-
-      # WHATWG IPv6 parser -> compressed serialized string (no brackets).
-      def parse_ipv6(input)
-        address = [0, 0, 0, 0, 0, 0, 0, 0]
-        piece_index = 0
-        compress = nil
-        chars = input.chars
-        ptr = 0
-        c = ->(i) { i < chars.length ? chars[i] : nil }
-
-        if c.call(ptr) == ":"
-          raise Failure, "IPv6 starts with single colon" unless c.call(ptr + 1) == ":"
-
-          ptr += 2
-          piece_index += 1
-          compress = piece_index
+          out
         end
 
-        while c.call(ptr)
-          raise Failure, "too many IPv6 pieces" if piece_index == 8
+        # ===== host parsing =====
+
+        FORBIDDEN_HOST = [0x00, 0x09, 0x0A, 0x0D, 0x20, 0x23, 0x2F, 0x3A, 0x3C, 0x3E,
+                          0x3F, 0x40, 0x5B, 0x5C, 0x5D, 0x5E, 0x7C].freeze
+
+        def forbidden_host?(cp) = FORBIDDEN_HOST.include?(cp)
+        def forbidden_domain?(cp) = forbidden_host?(cp) || cp <= 0x1F || cp == 0x25 || cp == 0x7F
+
+        def parse_host(input, special)
+          if input.start_with?("[")
+            raise Failure, "unclosed IPv6 address" unless input.end_with?("]")
+
+            return "[#{parse_ipv6(input[1...-1])}]"
+          end
+          return parse_opaque_host(input) unless special
+          raise Failure, "empty host" if input.empty?
+
+          # UTF-8-decode-without-BOM the percent-decoded bytes: malformed
+          # sequences become U+FFFD (which domain-to-ASCII then rejects),
+          # matching the spec rather than crashing on invalid encoding.
+          domain = percent_decode(input).force_encoding("UTF-8").scrub("\uFFFD")
+          # The domain parser (beStrict false): an ASCII domain is only
+          # lowercased, whatever UTS #46 would make of it, for web
+          # compatibility; a non-ASCII one goes through ToASCII.
+          ascii =
+            if domain.ascii_only?
+              domain.downcase
+            else
+              begin
+                IDNA.to_ascii(domain, check_hyphens: false, verify_dns_length: false)
+              rescue IDNA::Error, Punycode::Error => e
+                raise Failure, "domain to ASCII: #{e.message}"
+              end
+            end
+          raise Failure, "empty domain" if ascii.empty?
+          raise Failure, "forbidden domain code point" if ascii.each_char.any? { |ch| forbidden_domain?(ch.ord) }
+
+          if ends_in_number?(ascii)
+            ip = Ipv4Parser.parse(ascii)
+            raise Failure, "invalid IPv4 address" if ip.nil?
+
+            return ip
+          end
+          ascii
+        end
+
+        def parse_opaque_host(input)
+          raise Failure, "forbidden host code point" if input.each_char.any? { |ch| forbidden_host?(ch.ord) }
+
+          input.each_char.map { |ch| pe(ch, method(:c0?)) }.join
+        end
+
+        def ends_in_number?(input)
+          parts = input.split(".", -1)
+          parts.pop if parts.length > 1 && parts.last == ""
+          return false if parts.empty?
+
+          last = parts.last
+          return false if last.empty?
+          return true if last.match?(/\A[0-9]+\z/)
+
+          last.match?(/\A0[xX][0-9A-Fa-f]*\z/)
+        end
+
+        # WHATWG IPv6 parser -> compressed serialized string (no brackets).
+        def parse_ipv6(input)
+          address = [0, 0, 0, 0, 0, 0, 0, 0]
+          piece_index = 0
+          compress = nil
+          chars = input.chars
+          ptr = 0
+          c = ->(i) { i < chars.length ? chars[i] : nil }
 
           if c.call(ptr) == ":"
-            raise Failure, "multiple IPv6 compressions" unless compress.nil?
+            raise Failure, "IPv6 starts with single colon" unless c.call(ptr + 1) == ":"
 
-            ptr += 1
+            ptr += 2
             piece_index += 1
             compress = piece_index
-            next
           end
 
-          value = 0
-          length = 0
-          while length < 4 && c.call(ptr)&.match?(/[0-9A-Fa-f]/)
-            value = value * 16 + c.call(ptr).to_i(16)
-            ptr += 1
-            length += 1
-          end
+          while c.call(ptr)
+            raise Failure, "too many IPv6 pieces" if piece_index == 8
 
-          if c.call(ptr) == "."
-            raise Failure, "IPv4-in-IPv6 with no digits" if length.zero?
+            if c.call(ptr) == ":"
+              raise Failure, "multiple IPv6 compressions" unless compress.nil?
 
-            ptr -= length
-            raise Failure, "too few pieces for embedded IPv4" if piece_index > 6
+              ptr += 1
+              piece_index += 1
+              compress = piece_index
+              next
+            end
 
-            numbers_seen = 0
-            while c.call(ptr)
-              ipv4_piece = nil
-              if numbers_seen.positive?
-                if c.call(ptr) == "." && numbers_seen < 4
+            value = 0
+            length = 0
+            while length < 4 && c.call(ptr)&.match?(/[0-9A-Fa-f]/)
+              value = value * 16 + c.call(ptr).to_i(16)
+              ptr += 1
+              length += 1
+            end
+
+            if c.call(ptr) == "."
+              raise Failure, "IPv4-in-IPv6 with no digits" if length.zero?
+
+              ptr -= length
+              raise Failure, "too few pieces for embedded IPv4" if piece_index > 6
+
+              numbers_seen = 0
+              while c.call(ptr)
+                ipv4_piece = nil
+                if numbers_seen.positive?
+                  if c.call(ptr) == "." && numbers_seen < 4
+                    ptr += 1
+                  else
+                    raise Failure, "invalid embedded IPv4"
+                  end
+                end
+                raise Failure, "invalid embedded IPv4 digit" unless c.call(ptr)&.match?(/[0-9]/)
+
+                while c.call(ptr)&.match?(/[0-9]/)
+                  number = c.call(ptr).to_i
+                  if ipv4_piece.nil?
+                    ipv4_piece = number
+                  elsif ipv4_piece.zero?
+                    raise Failure, "leading zero in embedded IPv4"
+                  else
+                    ipv4_piece = ipv4_piece * 10 + number
+                  end
+                  raise Failure, "embedded IPv4 piece > 255" if ipv4_piece > 255
+
                   ptr += 1
-                else
-                  raise Failure, "invalid embedded IPv4"
                 end
+                address[piece_index] = address[piece_index] * 0x100 + ipv4_piece
+                numbers_seen += 1
+                piece_index += 1 if numbers_seen == 2 || numbers_seen == 4
               end
-              raise Failure, "invalid embedded IPv4 digit" unless c.call(ptr)&.match?(/[0-9]/)
+              raise Failure, "incomplete embedded IPv4" unless numbers_seen == 4
 
-              while c.call(ptr)&.match?(/[0-9]/)
-                number = c.call(ptr).to_i
-                if ipv4_piece.nil?
-                  ipv4_piece = number
-                elsif ipv4_piece.zero?
-                  raise Failure, "leading zero in embedded IPv4"
-                else
-                  ipv4_piece = ipv4_piece * 10 + number
-                end
-                raise Failure, "embedded IPv4 piece > 255" if ipv4_piece > 255
-
-                ptr += 1
-              end
-              address[piece_index] = address[piece_index] * 0x100 + ipv4_piece
-              numbers_seen += 1
-              piece_index += 1 if numbers_seen == 2 || numbers_seen == 4
+              break
+            elsif c.call(ptr) == ":"
+              ptr += 1
+              raise Failure, "trailing colon in IPv6" if c.call(ptr).nil?
+            elsif c.call(ptr)
+              raise Failure, "invalid IPv6 code point"
             end
-            raise Failure, "incomplete embedded IPv4" unless numbers_seen == 4
 
-            break
-          elsif c.call(ptr) == ":"
-            ptr += 1
-            raise Failure, "trailing colon in IPv6" if c.call(ptr).nil?
-          elsif c.call(ptr)
-            raise Failure, "invalid IPv6 code point"
+            address[piece_index] = value
+            piece_index += 1
           end
 
-          address[piece_index] = value
-          piece_index += 1
-        end
-
-        if compress
-          swaps = piece_index - compress
-          piece_index = 7
-          while piece_index != 0 && swaps.positive?
-            address[piece_index], address[compress + swaps - 1] = address[compress + swaps - 1], address[piece_index]
-            piece_index -= 1
-            swaps -= 1
-          end
-        elsif piece_index != 8
-          raise Failure, "too few IPv6 pieces"
-        end
-
-        serialize_ipv6(address)
-      end
-
-      def serialize_ipv6(pieces)
-        # Find the longest run (length > 1) of zero pieces to compress.
-        best_start = nil
-        best_len = 0
-        i = 0
-        while i < 8
-          if pieces[i].zero?
-            j = i
-            j += 1 while j < 8 && pieces[j].zero?
-            if (j - i) > best_len
-              best_len = j - i
-              best_start = i
+          if compress
+            swaps = piece_index - compress
+            piece_index = 7
+            while piece_index != 0 && swaps.positive?
+              address[piece_index], address[compress + swaps - 1] = address[compress + swaps - 1], address[piece_index]
+              piece_index -= 1
+              swaps -= 1
             end
-            i = j
-          else
+          elsif piece_index != 8
+            raise Failure, "too few IPv6 pieces"
+          end
+
+          serialize_ipv6(address)
+        end
+
+        def serialize_ipv6(pieces)
+          # Find the longest run (length > 1) of zero pieces to compress.
+          best_start = nil
+          best_len = 0
+          i = 0
+          while i < 8
+            if pieces[i].zero?
+              j = i
+              j += 1 while j < 8 && pieces[j].zero?
+              if (j - i) > best_len
+                best_len = j - i
+                best_start = i
+              end
+              i = j
+            else
+              i += 1
+            end
+          end
+          best_start = nil if best_len < 2
+
+          out = +""
+          i = 0
+          while i < 8
+            if best_start == i
+              out << (i.zero? ? "::" : ":")
+              i += best_len
+              next
+            end
+            out << pieces[i].to_s(16)
+            out << ":" if i < 7
             i += 1
           end
+          out
         end
-        best_start = nil if best_len < 2
 
-        out = +""
-        i = 0
-        while i < 8
-          if best_start == i
-            out << (i.zero? ? "::" : ":")
-            i += best_len
-            next
+        # ===== serialization =====
+
+        def serialize_path(record)
+          return record.path if record.opaque_path?
+
+          record.path.map { |seg| "/#{seg}" }.join
+        end
+
+        def serialize(record, exclude_fragment: false)
+          out = +"#{record.scheme}:"
+          if record.host
+            out << "//"
+            if record.includes_credentials?
+              out << record.username
+              out << ":#{record.password}" unless record.password.empty?
+              out << "@"
+            end
+            out << record.host
+            out << ":#{record.port}" if record.port
+          elsif !record.opaque_path? && record.path.is_a?(Array) &&
+              record.path.length > 1 && record.path[0] == ""
+            out << "/."
           end
-          out << pieces[i].to_s(16)
-          out << ":" if i < 7
-          i += 1
+          out << serialize_path(record)
+          out << "?#{record.query}" if record.query
+          out << "##{record.fragment}" if record.fragment && !exclude_fragment
+          out
         end
-        out
-      end
 
-      # ===== serialization =====
+        # ===== helpers for path normalization =====
 
-      def serialize_path(record)
-        return record.path if record.opaque_path?
-
-        record.path.map { |seg| "/#{seg}" }.join
-      end
-
-      def serialize(record, exclude_fragment: false)
-        out = +"#{record.scheme}:"
-        if record.host
-          out << "//"
-          if record.includes_credentials?
-            out << record.username
-            out << ":#{record.password}" unless record.password.empty?
-            out << "@"
-          end
-          out << record.host
-          out << ":#{record.port}" if record.port
-        elsif !record.opaque_path? && record.path.is_a?(Array) &&
-            record.path.length > 1 && record.path[0] == ""
-          out << "/."
+        def windows_drive_letter?(seg) = seg.length == 2 && seg[0].match?(/[A-Za-z]/) && [":", "|"].include?(seg[1])
+        def normalized_windows_drive_letter?(seg) = seg.length == 2 && seg[0].match?(/[A-Za-z]/) && seg[1] == ":"
+        def starts_with_windows_drive_letter?(s)
+          s.length >= 2 && s[0].match?(/[A-Za-z]/) && [":", "|"].include?(s[1]) &&
+            (s.length == 2 || ["/", "\\", "?", "#"].include?(s[2]))
         end
-        out << serialize_path(record)
-        out << "?#{record.query}" if record.query
-        out << "##{record.fragment}" if record.fragment && !exclude_fragment
-        out
+
+        def single_dot?(seg) = [".", "%2e"].include?(seg.downcase)
+
+        def double_dot?(seg)
+          ["..", ".%2e", "%2e.", "%2e%2e"].include?(seg.downcase)
+        end
+
+        def shorten_path(record)
+          path = record.path
+          return if path.empty?
+          return if record.scheme == "file" && path.length == 1 && normalized_windows_drive_letter?(path[0])
+
+          path.pop
+        end
       end
 
-      # ===== helpers for path normalization =====
-
-      def windows_drive_letter?(seg) = seg.length == 2 && seg[0].match?(/[A-Za-z]/) && [":", "|"].include?(seg[1])
-      def normalized_windows_drive_letter?(seg) = seg.length == 2 && seg[0].match?(/[A-Za-z]/) && seg[1] == ":"
-      def starts_with_windows_drive_letter?(s)
-        s.length >= 2 && s[0].match?(/[A-Za-z]/) && [":", "|"].include?(s[1]) &&
-          (s.length == 2 || ["/", "\\", "?", "#"].include?(s[2]))
-      end
-
-      def single_dot?(seg) = [".", "%2e"].include?(seg.downcase)
-
-      def double_dot?(seg)
-        ["..", ".%2e", "%2e.", "%2e%2e"].include?(seg.downcase)
-      end
-
-      def shorten_path(record)
-        path = record.path
-        return if path.empty?
-        return if record.scheme == "file" && path.length == 1 && normalized_windows_drive_letter?(path[0])
-
-        path.pop
-      end
+      # So `UrlParser.percent_decode` and friends keep answering.
+      extend Syntax
 
       # ===== the basic URL parser state machine =====
 
@@ -353,7 +368,10 @@ module Dommy
       # element of that block — see the authority state, which walks the
       # buffer's characters.
       class BasicParser
-        include UrlParser
+        include Syntax
+        # Syntax is the parser's vocabulary, not part of its interface: a state
+        # calls `pe` or `shorten_path` on itself, nobody calls them on a parser.
+        private(*Syntax.public_instance_methods)
 
         STATES = {
           scheme_start: :state_scheme_start,
