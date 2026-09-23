@@ -1,14 +1,24 @@
 # frozen_string_literal: true
 
+require_relative "insertion_steps"
+
 module Dommy
   module Internal
-    # Coordinates mutation notification to observers and custom element lifecycle callbacks.
-    # Isolates mutation observation and custom element logic from Document's public API.
+    # Coordinates mutation notification: MutationObserver records, and the
+    # custom element reactions a mutation triggers. Isolates both from
+    # Document's public API. The element behaviours an insertion also sets off —
+    # a script running, a details group settling — are InsertionSteps'.
+    #
+    # A custom element reaction that throws is the page's exception, so it is
+    # REPORTED at the window ("report an exception"), the same seam an event
+    # listener's exception takes. It used to be discarded.
     class MutationCoordinator
       def initialize(document, observer_manager)
         @document = document
         @observer_manager = observer_manager
+        @insertion_steps = InsertionSteps.new(document, method(:report_exception))
       end
+
 
       def register_observer(observer)
         @observer_manager.register(observer)
@@ -25,16 +35,16 @@ module Dommy
         return unless element&.respond_to?(:connected_callback)
 
         element.connected_callback
-      rescue StandardError
-        nil
+      rescue StandardError => e
+        report_exception(e)
       end
 
       def notify_disconnected(element)
         return unless element&.respond_to?(:disconnected_callback)
 
         element.disconnected_callback
-      rescue StandardError
-        nil
+      rescue StandardError => e
+        report_exception(e)
       end
 
       # Connected callbacks, connected scripts and blank-iframe loads for every
@@ -44,98 +54,11 @@ module Dommy
       def notify_connected_subtree(nk)
         each_shadow_including_element(nk) do |element|
           notify_connected(element)
-          run_connected_script(element)
-          fire_blank_iframe_load(element)
+          @insertion_steps.connected(element)
         end
       end
 
-      # The wrapped elements of the document's shadow-including walk.
-      def each_shadow_including_element(nk)
-        @document.__internal_each_shadow_including_element__(nk) do |element_node|
-          wrapped = @document.wrap_node(element_node)
-          yield wrapped if wrapped
-        end
-      end
 
-      # A srcless ("blank"/about:blank) `<iframe>` connected to the document gets
-      # an empty nested browsing context (a real, complete content document) and
-      # fires its `load` event ASYNCHRONOUSLY (a microtask), like a real browser —
-      # handlers are commonly attached after insertion (`appendChild(f); f.onload
-      # = …`). Without this, code that awaits a blank iframe's load and then reads
-      # `iframe.contentWindow.document` hangs: FingerprintJS's `withIframe` (its
-      # font sources) does exactly that, which hung note.com's tracking plugin and
-      # its whole Nuxt hydration. A `src` iframe is left to the integration layer.
-      BLANK_IFRAME_SRCS = ["", "about:blank"].freeze
-
-      def fire_blank_iframe_load(element)
-        return unless element.respond_to?(:local_name) && element.local_name == "iframe"
-        return unless element.respond_to?(:is_connected?) && element.is_connected?
-        return unless element.respond_to?(:src) && BLANK_IFRAME_SRCS.include?(element.src.to_s.strip)
-
-        ensure_blank_content_document(element)
-        fire = proc { element.dispatch_event(Event.new("load")) rescue nil }
-        scheduler = (@document.default_view&.scheduler if @document.respond_to?(:default_view))
-        scheduler ? scheduler.queue_microtask(fire) : fire.call
-      rescue StandardError
-        nil
-      end
-
-      # Give a blank iframe a fresh empty document (or its `srcdoc`) so
-      # `contentWindow` / `contentDocument` resolve and DOM ops + measurement
-      # inside it work (readyState defaults to "complete"). No-op if it already
-      # has one.
-      def ensure_blank_content_document(element)
-        return unless element.respond_to?(:__internal_set_content_document__)
-        return if element.respond_to?(:content_document) && element.content_document
-
-        srcdoc = (element.srcdoc.to_s if element.respond_to?(:srcdoc))
-        html = srcdoc.nil? || srcdoc.empty? ? "<html><head></head><body></body></html>" : srcdoc
-        win = Dommy::Window.new(backend_doc: Dommy::Backend.parse(html))
-        element.__internal_set_content_document__(win.document)
-      end
-
-      # A classic <script> that's now genuinely connected to this document runs:
-      # an inline body through the document's script_runner (wired by the JS
-      # bridge), an external `src` through external_script_runner (wired by the
-      # integration layer, which fetches + runs it — webpack/Vite load on-demand
-      # chunks by injecting `<script src>` this way). Gated on is_connected?
-      # because this walk also fires for additions to a still-detached subtree.
-      def run_connected_script(element)
-        return unless element.respond_to?(:__internal_take_pending_script__) # a <script>
-        return unless element.respond_to?(:is_connected?) && element.is_connected?
-
-        if (runner = @document.script_runner) && (source = element.__internal_take_pending_script__)
-          # A script-inserted INLINE classic script runs synchronously on insertion.
-          runner.call(source)
-        elsif @document.external_script_runner &&
-              element.respond_to?(:__internal_take_pending_src__) &&
-              (src = element.__internal_take_pending_src__)
-          run_external_connected_script(element, src)
-        end
-      rescue StandardError
-        nil
-      end
-
-      # A script-inserted EXTERNAL `<script src>` loads and runs ASYNCHRONOUSLY
-      # (per HTML spec), unlike an inline one. Running it synchronously inside the
-      # insertion steps would (a) execute it mid-render and, worse, (b) make the
-      # engine drain its microtask queue while JS is still on the stack — running
-      # an unrelated queued microtask (e.g. Vue's `nextTick` scheduler flush)
-      # re-entrantly and patching a half-built component tree (note.com's
-      # RecommendTemplate crashed Vue's `isPatchable` this way). Defer to a
-      # microtask so it runs at a proper checkpoint, after the current task
-      # unwinds. Re-check connectedness then (the node may have been removed).
-      def run_external_connected_script(element, src)
-        run = proc do
-          next unless element.respond_to?(:is_connected?) && element.is_connected?
-
-          @document.external_script_runner.call(element, src)
-        rescue StandardError
-          nil
-        end
-        scheduler = (@document.default_view&.scheduler if @document.respond_to?(:default_view))
-        scheduler ? scheduler.queue_microtask(run) : run.call
-      end
 
       # WHATWG "move": each custom element among the moved node's
       # shadow-including inclusive descendants, in shadow-including tree order,
@@ -143,21 +66,6 @@ module Dommy
       # connected.
       def notify_moved_subtree(nk)
         each_shadow_including_element(nk) { |element| notify_moved(element) }
-      end
-
-      # HTML "enqueue a custom element callback reaction": a definition without
-      # connectedMoveCallback runs disconnectedCallback and then connectedCallback
-      # in its place. (A JS-defined element always answers the Ruby method; the
-      # bridge falls back on the JS side.)
-      def notify_moved(element)
-        if element.respond_to?(:connected_move_callback)
-          element.connected_move_callback
-        else
-          notify_disconnected(element)
-          notify_connected(element)
-        end
-      rescue StandardError
-        nil
       end
 
       # Disconnected callbacks, over the same shadow-including walk.
@@ -182,93 +90,8 @@ module Dommy
         else
           element.attribute_changed_callback(name, old_value, new_value)
         end
-      rescue StandardError
-        nil
-      end
-
-      # An open `details` joining an exclusive accordion group that already has an
-      # open member closes itself — the member that was already there wins,
-      # whichever order the parser or a script produced them in. A details the
-      # parser opened also owes a toggle event, which it has had no attribute
-      # change to queue.
-      def run_details_insertion_steps(added_nodes)
-        found = []
-        added_nodes.each do |node|
-          next unless node.respond_to?(:element?) && node.element?
-
-          found << node if node.name == "details"
-          # Only descend when there is something to descend into: appending a
-          # leaf element (the shape of bulk DOM construction) then costs one
-          # name comparison rather than a backend query.
-          next unless node.respond_to?(:first_element_child) && node.first_element_child
-
-          found.concat(node.css("details").to_a)
-        end
-        return if found.empty?
-
-        # One batch across every added node: the whole insertion is a single
-        # pass, so a group that arrives together settles on its first open
-        # member rather than its last.
-        HTMLDetailsElement.run_insertion_steps(found.filter_map { |backend| @document.wrap_node(backend) })
-      rescue StandardError
-        nil
-      end
-
-      # A select's list of options gained or lost members: run its selectedness
-      # setting algorithm. Options (or optgroups holding them) landing in or
-      # leaving a select — directly, or under one of its optgroups — affect that
-      # select's list. A select arriving inside an inserted subtree has its own
-      # list settled only if that never happened (the fragment parser built it):
-      # inserting or moving the select changes nothing in its list. Only the
-      # parent and grandparent are consulted, so an ordinary mutation elsewhere
-      # costs two name checks.
-      def run_select_mutation_steps(target_node, added_nodes, removed_nodes)
-        owner = owning_select_node(target_node)
-        if owner
-          arrived = added_nodes.select { |node| option_list_member?(node) }
-          if !arrived.empty? || removed_nodes.any? { |node| option_list_member?(node) }
-            @document.wrap_node(owner)&.__internal_options_changed__(arrived_options(arrived))
-          end
-        end
-
-        selects = []
-        added_nodes.each do |node|
-          next unless node.respond_to?(:element?) && node.element?
-
-          selects << node if node.name == "select"
-          next unless node.respond_to?(:first_element_child) && node.first_element_child
-
-          selects.concat(node.css("select").to_a)
-        end
-        selects.each { |node| @document.wrap_node(node)&.__internal_settle_selectedness_once__ }
-      rescue StandardError
-        nil
-      end
-
-      # The select whose list of options a child-list mutation on `node` touches:
-      # the select itself, or the select an optgroup sits in.
-      def owning_select_node(node)
-        return nil unless node.respond_to?(:name)
-        return node if node.name == "select"
-        return nil unless node.name == "optgroup"
-
-        parent = node.respond_to?(:parent) ? node.parent : nil
-        parent if parent.respond_to?(:name) && parent.name == "select"
-      end
-
-      def option_list_member?(node)
-        node.respond_to?(:element?) && node.element? && %w[option optgroup].include?(node.name)
-      end
-
-      # The options an insertion brought into a select's list, wrapped, in tree
-      # order: an arriving option is itself, an arriving optgroup contributes
-      # the options it carries. The backend query stays here, where the rest of
-      # the post-insertion scanning already lives, so the select is handed
-      # elements rather than nodes to go looking through.
-      def arrived_options(arrived)
-        arrived.flat_map { |node|
-          node.name == "option" ? [node] : node.css("option").to_a
-        }.filter_map { |node| @document.wrap_node(node) }
+      rescue StandardError => e
+        report_exception(e)
       end
 
       # Fire MutationObserver childList records
@@ -304,8 +127,8 @@ module Dommy
         # HTML's details insertion steps run wherever the element lands, not only
         # in a connected tree, so an accordion group assembled off-document is
         # already consistent by the time it is attached.
-        run_details_insertion_steps(added_nodes)
-        run_select_mutation_steps(target_node, added_nodes, removed_nodes)
+        @insertion_steps.details_inserted(added_nodes)
+        @insertion_steps.select_mutated(target_node, added_nodes, removed_nodes)
 
         # MutationRecords are only needed when something is observing; skip the
         # eager wrapping + record entirely when no observer is registered.
@@ -420,6 +243,42 @@ module Dommy
         end
 
         nil
+      end
+
+      private
+
+      # WHATWG "report an exception" for a reaction or a page script that threw.
+      # A document with no window has nowhere to report to, so the exception
+      # stops here rather than escaping into the mutation that caused it.
+      def report_exception(error)
+        window = (@document.default_view if @document.respond_to?(:default_view))
+        return unless window.respond_to?(:__internal_report_exception__)
+
+        Internal::ExceptionReport.report_at(window, error)
+      end
+
+      # The wrapped elements of the document's shadow-including walk.
+      def each_shadow_including_element(nk)
+        @document.__internal_each_shadow_including_element__(nk) do |element_node|
+          wrapped = @document.wrap_node(element_node)
+          yield wrapped if wrapped
+        end
+      end
+
+
+      # HTML "enqueue a custom element callback reaction": a definition without
+      # connectedMoveCallback runs disconnectedCallback and then connectedCallback
+      # in its place. (A JS-defined element always answers the Ruby method; the
+      # bridge falls back on the JS side.)
+      def notify_moved(element)
+        if element.respond_to?(:connected_move_callback)
+          element.connected_move_callback
+        else
+          notify_disconnected(element)
+          notify_connected(element)
+        end
+      rescue StandardError => e
+        report_exception(e)
       end
     end
   end

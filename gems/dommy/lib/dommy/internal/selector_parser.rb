@@ -101,27 +101,6 @@ module Dommy
         false
       end
 
-      # Return `selector` with the comma-clauses whose subject is a pseudo-element
-      # removed (`::before`, `:first-line` — they match no element, so dropping
-      # them is what querySelector should do; the backend would otherwise error or
-      # mis-parse `::`). If EVERY clause is a pseudo-element, returns a selector
-      # that matches nothing. Assumes `selector` is already known valid. Plain
-      # selectors (no `:`) are returned untouched without re-parsing.
-      def matchable_selector(selector)
-        s = selector.to_s
-        return s unless s.include?(":")
-
-        parser = Parser.new(s)
-        parser.parse_selector_list!
-        clauses = parser.clauses
-        return s unless clauses.any? { |c| c[:pseudo_subject] }
-
-        kept = clauses.reject { |c| c[:pseudo_subject] }
-        kept.empty? ? ":not(*)" : kept.map { |c| c[:text] }.join(", ")
-      rescue InvalidSelector
-        s
-      end
-
       def new_parser(string, namespaces = nil)
         Parser.new(string, namespaces: namespaces)
       end
@@ -131,16 +110,10 @@ module Dommy
       class Parser
         WS = " \t\r\n\f"
 
-        # Per top-level clause: { text:, pseudo_subject: } where pseudo_subject is
-        # true when the clause's subject (rightmost compound) is a pseudo-element
-        # (`::before`, `:first-line`) — such a clause matches no element.
-        attr_reader :clauses
-
         def initialize(string, in_has: false, namespaces: nil)
           @s = preprocess(string)
           @i = 0
           @n = @s.length
-          @clauses = []
           # True while parsing the argument of a `:has()` — a structurally
           # nested `:has()` is invalid (string occurrences inside quoted
           # attribute values are fine).
@@ -158,24 +131,16 @@ module Dommy
           skip_ws
           fail!("empty selector") if eof?
           selectors = []
-          selectors << record_clause { parse_complex_selector! }
+          selectors << parse_complex_selector!
           while peek == ","
             advance
             skip_ws
             fail!("empty selector in list") if eof? || peek == ","
-            selectors << record_clause { parse_complex_selector! }
+            selectors << parse_complex_selector!
           end
           skip_ws
           fail!("unexpected #{peek.inspect}") unless eof?
           SelectorAST::SelectorList.new(selectors)
-        end
-
-        # Capture a clause's source text + whether its subject is a pseudo-element.
-        def record_clause
-          start = @i
-          complex = yield
-          @clauses << {text: @s[start...@i].strip, pseudo_subject: complex.pseudo_element?}
-          complex
         end
 
         # complex := <compound> ( <combinator> <compound> )*

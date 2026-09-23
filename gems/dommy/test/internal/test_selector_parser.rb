@@ -83,22 +83,6 @@ class TestSelectorParser < Minitest::Test
     refute SP.valid?("div % p")
   end
 
-  # matchable_selector drops clauses whose subject is a pseudo-element (they
-  # match no element) and leaves everything else untouched.
-  def test_matchable_selector_drops_pseudo_element_clauses
-    assert_equal ":not(*)", SP.matchable_selector("::before")
-    assert_equal ":not(*)", SP.matchable_selector("#x:first-line") # legacy one-colon
-    assert_equal ":not(*)", SP.matchable_selector("p::after")
-    assert_equal "div", SP.matchable_selector("div, ::before")
-    assert_equal "div, p", SP.matchable_selector("div, ::before, p")
-  end
-
-  def test_matchable_selector_leaves_ordinary_selectors_untouched
-    ["div", "#id .cls", "a:hover", ":not(.x)", "[type=text]", "p:first-child"].each do |sel|
-      assert_equal sel, SP.matchable_selector(sel), sel
-    end
-  end
-
   def test_parse_returns_ast_and_specificity
     ast = SP.parse!("input:checked + label")
     assert_equal [0, 1, 2], ast.specificity.to_a
