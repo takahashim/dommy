@@ -783,6 +783,18 @@ class TestCssCascade < Minitest::Test
     assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
   end
 
+  # The declaration is read-only, so assigning to one of its property readers
+  # is the CSSOM error — but a name that is not a property is just missing.
+  def test_a_computed_declaration_refuses_writes_to_its_properties_only
+    doc = doc_for('<style>#x { color: red }</style><p id="x">x</p>')
+    declaration = doc.default_view.get_computed_style(doc.get_element_by_id("x"))
+
+    assert_equal "rgb(255, 0, 0)", declaration.color
+    assert_raises(Dommy::DOMException::NoModificationAllowedError) { declaration.color = "blue" }
+    assert_raises(NoMethodError) { declaration.not_a_property = 1 }
+    assert_raises(NoMethodError) { declaration.not_a_property }
+  end
+
   def test_js_bridge_get_computed_style
     doc = doc_for('<style>#x { color: red }</style><p id="x">x</p>')
     declaration = doc.default_view.__js_call__("getComputedStyle", [doc.get_element_by_id("x")])

@@ -9,6 +9,15 @@ require "dommy/internal/css/property_registry"
 class TestCssCalc < Minitest::Test
   R = Dommy::Internal::CSS::PropertyRegistry
 
+  # Calc resolves lengths through the block it is given, so it can be driven
+  # with no property registry at all.
+  def test_calc_resolves_lengths_through_its_block
+    result = Dommy::Internal::CSS::Calc.evaluate("calc(2em + 1px)") { |text| text == "2.0em" ? 32.0 : 1.0 }
+    assert_equal [:length, 33.0], result
+    assert_nil Dommy::Internal::CSS::Calc.evaluate("10px") { 10.0 }
+    assert_nil Dommy::Internal::CSS::Calc.evaluate("calc(2em)") { nil }
+  end
+
   # 16px font, 16px root, 1000x500 viewport.
   def calc(expr)
     R.evaluate_calc(expr, font_size: 16.0, root_font_size: 16.0,

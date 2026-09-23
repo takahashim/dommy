@@ -524,7 +524,7 @@ module Dommy
     end
 
     def __internal_style_value_sensitive__
-      index = @__css_style_cache__ && @__css_style_cache__[:index]
+      index = @__css_style_cache__&.index
       index ? index.value_sensitive? : true
     end
 
@@ -532,7 +532,7 @@ module Dommy
       owner = target_node.respond_to?(:name) ? target_node.name.to_s.downcase : nil
       return true if owner == "style" || owner == "link"
 
-      index = @__css_style_cache__ && @__css_style_cache__[:index]
+      index = @__css_style_cache__&.index
       # No RuleIndex yet: the bump is nearly free (at most it drops the
       # author_css?/counters memos), so stay conservative.
       return true unless index
@@ -541,7 +541,7 @@ module Dommy
     end
 
     def __internal_style_text_sensitive__
-      index = @__css_style_cache__ && @__css_style_cache__[:index]
+      index = @__css_style_cache__&.index
       index ? index.text_sensitive? : true
     end
 

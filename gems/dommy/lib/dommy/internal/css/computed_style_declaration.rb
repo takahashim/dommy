@@ -94,18 +94,34 @@ module Dommy
 
         # Ruby-side property readers, e.g. `computed.background_color` or
         # `computed.backgroundColor`.
+        #
+        # A write to one of them is the CSSOM error — the declaration is
+        # read-only — but only to one of them: `computed.anything = 1` used to
+        # raise NoModificationAllowedError for every name ending in "=",
+        # including typos and the `x=` methods a library might add, where a
+        # plain NoMethodError is the truth.
         def method_missing(name, *args)
-          raise_read_only if name.to_s.end_with?("=")
-          return super unless args.empty?
+          property = property_for(name)
+          raise_read_only if property && setter?(name)
+          return super if property.nil? || !args.empty?
 
-          styles.fetch(camel_to_kebab(name.to_s)) { return super }.to_s
+          styles[property].to_s
         end
 
         def respond_to_missing?(name, include_private = false)
-          styles.key?(camel_to_kebab(name.to_s)) || super
+          !property_for(name).nil? || super
         end
 
         private
+
+        # The CSS property `name` reads or writes, or nil when it names none.
+        def property_for(name)
+          text = name.to_s
+          key = camel_to_kebab(setter?(name) ? text.delete_suffix("=") : text)
+          key if styles.key?(key)
+        end
+
+        def setter?(name) = name.to_s.end_with?("=")
 
         def styles
           if @pseudo_element

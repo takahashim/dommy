@@ -5,6 +5,7 @@ require_relative "property_registry"
 require_relative "custom_properties"
 require_relative "counters"
 require_relative "renderability"
+require_relative "style_cache"
 require_relative "computed_style_builder"
 require_relative "rule_index"
 require_relative "computed_style_declaration"
@@ -42,11 +43,11 @@ module Dommy
 
           cache = style_cache(document)
           if pseudo_element
-            cache[:pseudo_computed] ||= {}
-            pseudo_cache = (cache[:pseudo_computed][pseudo_name(pseudo_element)] ||= {}.compare_by_identity)
-            pseudo_cache[element] ||= compute(element, document, pseudo_element: pseudo_element).freeze
+            cache.pseudo_computed(pseudo_name(pseudo_element), element) do
+              compute(element, document, pseudo_element: pseudo_element)
+            end
           else
-            cache[:computed][element] ||= compute(element, document).freeze
+            cache.computed(element) { compute(element, document) }
           end
         end
 
@@ -58,8 +59,8 @@ module Dommy
           return false unless document && Parser.available?
 
           cache = style_cache(document)
-          cache[:author_css] = document_has_author_css?(document) if cache[:author_css].nil?
-          cache[:author_css]
+          cache.author_css = document_has_author_css?(document) if cache.author_css.nil?
+          cache.author_css
         end
 
         # Any <style>, or a <link rel=stylesheet> a host has filled in (an
@@ -74,12 +75,8 @@ module Dommy
 
         def style_cache(document)
           cache = document.__css_style_cache__
-          unless cache && cache[:generation] == document.style_generation
-            cache = {
-              generation: document.style_generation,
-              computed: {}.compare_by_identity,
-              pseudo_computed: {},
-            }
+          unless cache&.current?(document.style_generation)
+            cache = StyleCache.new(document.style_generation)
             document.__css_style_cache__ = cache
           end
           cache
@@ -88,7 +85,8 @@ module Dommy
         # The RuleIndex is built lazily so author_css? (and sheetless
         # documents in general) never pay for UA-sheet selector queries.
         def index_for(document)
-          style_cache(document)[:index] ||= RuleIndex.build(document)
+          cache = style_cache(document)
+          cache.index ||= RuleIndex.build(document)
         end
 
         # The in-scope CSS counter values at `element` ({ name => stack }), for
@@ -98,7 +96,7 @@ module Dommy
           document = element.respond_to?(:owner_document) ? element.owner_document : nil
           return {} unless document && Parser.available?
 
-          map = style_cache(document)[:counters] || build_counters(document)
+          map = style_cache(document).counters || build_counters(document)
           map[element] || {}
         end
 
@@ -109,7 +107,7 @@ module Dommy
         # otherwise land in a hash nobody reads again.
         def build_counters(document)
           map = Counters.build(document, ->(element) { computed_style(element) })
-          style_cache(document)[:counters] = map
+          style_cache(document).counters = map
         end
 
         # The computed style itself is ComputedStyleBuilder's; this module owns
