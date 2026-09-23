@@ -509,171 +509,157 @@
     }
 
     // ---- promise-returning operators ----
+    //
+    // Each is the same subscription (see subscribeForPromise) with a different
+    // observer, so each writes only its observer.
 
     toArray(options) {
-      const source = this;
-      return new Promise((resolve, reject) => {
-        const controller = new AbortController();
-        wireConsumerAbort(options, controller, reject);
-        const signal = controller.signal;
-        if (signal.aborted) return;
+      return subscribeForPromise(this, options, (resolve) => {
         const values = [];
-        source._subscribeWith({
-          next: (v) => values.push(v),
-          error: (e) => reject(e),
-          complete: () => resolve(values),
-        }, { signal });
+        return { next: (v) => values.push(v), complete: () => resolve(values) };
       });
     }
 
     forEach(callback, options) {
-      const source = this;
-      return new Promise((resolve, reject) => {
-        if (!isCallable(callback)) { reject(new TypeError("forEach: callback must be a function")); return; }
-        const controller = new AbortController();
-        wireConsumerAbort(options, controller, reject);
-        const signal = controller.signal;
-        if (signal.aborted) return;
+      return subscribeForPromise(this, options, (resolve, reject, abort) => {
+        if (!isCallable(callback)) return rejectWith(reject, "forEach: callback must be a function");
         let index = 0;
-        source._subscribeWith({
+        return {
           next: (v) => {
             try { callback(v, index++); }
-            catch (e) { reject(e); controller.abort(e); }
+            catch (e) { reject(e); abort(e); }
           },
-          error: (e) => reject(e),
           complete: () => resolve(undefined),
-        }, { signal });
+        };
       });
     }
 
     first(options) {
-      const source = this;
-      return new Promise((resolve, reject) => {
-        const controller = new AbortController();
-        wireConsumerAbort(options, controller, reject);
-        const signal = controller.signal;
-        if (signal.aborted) return;
-        source._subscribeWith({
-          next: (v) => { resolve(v); controller.abort(); },
-          error: (e) => reject(e),
-          complete: () => reject(new RangeError("first(): source completed without emitting a value")),
-        }, { signal });
-      });
+      return subscribeForPromise(this, options, (resolve, reject, abort) => ({
+        next: (v) => { resolve(v); abort(); },
+        complete: () => reject(new RangeError("first(): source completed without emitting a value")),
+      }));
     }
 
     last(options) {
-      const source = this;
-      return new Promise((resolve, reject) => {
-        const controller = new AbortController();
-        wireConsumerAbort(options, controller, reject);
-        const signal = controller.signal;
-        if (signal.aborted) return;
-        let has = false; let lastValue;
-        source._subscribeWith({
+      return subscribeForPromise(this, options, (resolve, reject) => {
+        let has = false;
+        let lastValue;
+        return {
           next: (v) => { has = true; lastValue = v; },
-          error: (e) => reject(e),
           complete: () => {
             if (has) resolve(lastValue);
             else reject(new RangeError("last(): source completed without emitting a value"));
           },
-        }, { signal });
+        };
       });
     }
 
     find(predicate, options) {
-      const source = this;
-      return new Promise((resolve, reject) => {
-        if (!isCallable(predicate)) { reject(new TypeError("find: predicate must be a function")); return; }
-        const controller = new AbortController();
-        wireConsumerAbort(options, controller, reject);
-        const signal = controller.signal;
-        if (signal.aborted) return;
+      return subscribeForPromise(this, options, (resolve, reject, abort) => {
+        if (!isCallable(predicate)) return rejectWith(reject, "find: predicate must be a function");
         let index = 0;
-        source._subscribeWith({
+        return {
           next: (v) => {
             let matched;
             try { matched = predicate(v, index++); }
-            catch (e) { reject(e); controller.abort(); return; }
-            if (matched) { resolve(v); controller.abort(); }
+            catch (e) { reject(e); abort(e); return; }
+            if (matched) { resolve(v); abort(); }
           },
-          error: (e) => reject(e),
           complete: () => resolve(undefined),
-        }, { signal });
+        };
       });
     }
 
     some(predicate, options) {
-      const source = this;
-      return new Promise((resolve, reject) => {
-        if (!isCallable(predicate)) { reject(new TypeError("some: predicate must be a function")); return; }
-        const controller = new AbortController();
-        wireConsumerAbort(options, controller, reject);
-        const signal = controller.signal;
-        if (signal.aborted) return;
+      return subscribeForPromise(this, options, (resolve, reject, abort) => {
+        if (!isCallable(predicate)) return rejectWith(reject, "some: predicate must be a function");
         let index = 0;
-        source._subscribeWith({
+        return {
           next: (v) => {
             let matched;
             try { matched = predicate(v, index++); }
-            catch (e) { reject(e); controller.abort(); return; }
-            if (matched) { resolve(true); controller.abort(); }
+            catch (e) { reject(e); abort(e); return; }
+            if (matched) { resolve(true); abort(); }
           },
-          error: (e) => reject(e),
           complete: () => resolve(false),
-        }, { signal });
+        };
       });
     }
 
     every(predicate, options) {
-      const source = this;
-      return new Promise((resolve, reject) => {
-        if (!isCallable(predicate)) { reject(new TypeError("every: predicate must be a function")); return; }
-        const controller = new AbortController();
-        wireConsumerAbort(options, controller, reject);
-        const signal = controller.signal;
-        if (signal.aborted) return;
+      return subscribeForPromise(this, options, (resolve, reject, abort) => {
+        if (!isCallable(predicate)) return rejectWith(reject, "every: predicate must be a function");
         let index = 0;
-        source._subscribeWith({
+        return {
           next: (v) => {
             let matched;
             try { matched = predicate(v, index++); }
-            catch (e) { reject(e); controller.abort(); return; }
-            if (!matched) { resolve(false); controller.abort(); }
+            catch (e) { reject(e); abort(e); return; }
+            if (!matched) { resolve(false); abort(); }
           },
-          error: (e) => reject(e),
           complete: () => resolve(true),
-        }, { signal });
+        };
       });
     }
 
     reduce(reducer, initialValue, options) {
-      const source = this;
+      // An absent initialValue is not the same as an explicit undefined: without
+      // one the first value becomes the accumulator, and a source that emits
+      // nothing has no answer to give.
       const hasInitial = arguments.length >= 2;
-      return new Promise((resolve, reject) => {
-        if (!isCallable(reducer)) { reject(new TypeError("reduce: reducer must be a function")); return; }
-        const controller = new AbortController();
-        wireConsumerAbort(options, controller, reject);
-        const signal = controller.signal;
-        if (signal.aborted) return;
+      return subscribeForPromise(this, options, (resolve, reject, abort) => {
+        if (!isCallable(reducer)) return rejectWith(reject, "reduce: reducer must be a function");
         let acc = initialValue;
         let hasAcc = hasInitial;
         let index = 0;
-        source._subscribeWith({
+        return {
           next: (v) => {
             if (!hasAcc) { acc = v; hasAcc = true; index++; return; }
-            // A reducer error rejects the promise AND aborts the source, so the
-            // source's teardown runs (matching the spec's abort propagation).
             try { acc = reducer(acc, v, index++); }
-            catch (e) { reject(e); controller.abort(e); }
+            catch (e) { reject(e); abort(e); }
           },
-          error: (e) => reject(e),
           complete: () => {
             if (!hasAcc) reject(new TypeError("reduce: no values and no initial value"));
             else resolve(acc);
           },
-        }, { signal });
+        };
       });
     }
+  }
+
+  // Every promise-returning operator subscribes the same way: with a controller
+  // of its own, so it can stop the producer the moment it has its answer, and
+  // with the caller's signal wired to that controller. What differs is only how
+  // the values are turned into a settlement, so that is all `build` supplies —
+  // the {next, complete} steps, built from the settlement functions and an
+  // `abort` that tears the source subscription down (which is both how an
+  // operator with its answer unsubscribes, and how one whose callback threw
+  // makes the source run its teardown). An error from the source always rejects,
+  // so no operator writes that.
+  //
+  // A build that cannot proceed — a callback argument that is not callable —
+  // rejects and returns null, because the spec asks for a rejected promise
+  // there, not a synchronous throw.
+  function subscribeForPromise(source, options, build) {
+    return new Promise((resolve, reject) => {
+      const controller = new AbortController();
+      wireConsumerAbort(options, controller, reject);
+      const signal = controller.signal;
+      if (signal.aborted) return;
+      const steps = build(resolve, reject, (reason) => controller.abort(reason));
+      if (!steps) return;
+      source._subscribeWith({
+        next: steps.next,
+        error: (e) => reject(e),
+        complete: steps.complete,
+      }, { signal });
+    });
+  }
+
+  function rejectWith(reject, message) {
+    reject(new TypeError(message));
+    return null;
   }
 
   // React to a consumer (downstream) signal aborting. Prefer an abort ALGORITHM
