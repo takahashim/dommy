@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
 require "json"
 require "tmpdir"
 
@@ -518,11 +517,11 @@ module Dommy
       def current_url = @current_url
 
       def current_path
-        @current_url && URI.parse(@current_url).path
+        @current_url && Dommy::URL.parse(@current_url)&.pathname
       end
 
       def current_host
-        @current_url && URI.parse(@current_url).host
+        @current_url && Dommy::URL.parse(@current_url)&.hostname
       end
 
       def status = @last_response&.status
@@ -716,7 +715,8 @@ module Dommy
       def cookies = @cookie_jar.all
 
       def set_cookie(name, value, path: "/", domain: nil, **opts)
-        resolved_domain = domain || (@current_url && URI.parse(@current_url).host) || URI.parse(@config.default_host).host
+        resolved_domain = domain || (@current_url && Dommy::URL.new(@current_url).hostname) ||
+                           Dommy::URL.new(@config.default_host).hostname
         @cookie_jar.set!(name, value, domain: resolved_domain, path: path, **opts)
       end
 
@@ -1020,9 +1020,7 @@ module Dommy
       end
 
       def uri_scheme(url)
-        URI.parse(url).scheme.to_s.downcase
-      rescue URI::InvalidURIError
-        ""
+        Dommy::URL.parse(url)&.protocol&.delete_suffix(":")&.downcase || ""
       end
 
       # A link to the current page that differs only by fragment does not
@@ -1031,11 +1029,14 @@ module Dommy
         return false unless @current_url
         return false unless Url.same_origin?(target, @current_url)
 
-        t = URI.parse(target)
-        c = URI.parse(@current_url)
-        !t.fragment.nil? && t.path == c.path && t.query == c.query
-      rescue URI::InvalidURIError
-        false
+        t = Dommy::URL.parse(target)
+        c = Dommy::URL.parse(@current_url)
+        return false unless t && c
+
+        # Dommy::URL#hash returns "" for both "no fragment" and "bare trailing
+        # #" (WHATWG), so the "does target even have a fragment" check has to
+        # look at the raw string instead of the parsed hash.
+        target.to_s.include?("#") && t.pathname == c.pathname && t.search == c.search
       end
 
       # Resolve a document-relative href/action against <base href> (if any),
@@ -1045,9 +1046,7 @@ module Dommy
         base = document&.base_uri
         base = current_url if base.nil? || base.empty?
         base ||= default_host
-        URI.join(base, href.to_s).to_s
-      rescue URI::InvalidURIError
-        href.to_s
+        Url.resolve(base, href.to_s) || href.to_s
       end
 
       # finder / field_interactor / scope_root / with_scope / scope_text /
