@@ -10,6 +10,10 @@ module Dommy
     # They live apart from HostBridge because the Marshaller builds them while
     # unwrapping — defining them alongside the bridge made the two files depend
     # on each other and on the order dommy.rb requires them in.
+    #
+    # These are the ONLY adapters for a live JS callable. Dommy::Bridge used to
+    # carry a second, never-wired one for an embedder that never arrived; if you
+    # are about to write a third, this is it.
 
     # An event listener backed by a live JS function. Implements only the bridge
     # ABI (__js_call__) — not #call/#handle_event — so Dommy's invoke_listener

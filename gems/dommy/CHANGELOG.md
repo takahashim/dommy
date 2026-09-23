@@ -2,7 +2,14 @@
 
 ## Unreleased
 
+### Changed
+
+- **Breaking for backends:** the wire tags are `Dommy::Bridge::WireTags`, not `Dommy::Js::WireTags` — a tag is true of any host, so it belongs with the protocol. `Dommy::Bridge::Callback`, an adapter for an embedder that never arrived, is removed; `Dommy::Js::HostCallback` is the live one.
+
 ### Fixed
+
+- `Bridge::Bytes.new` reads a String as the packed bytes it is, where it used to wrap it and take `to_i` of the whole thing — one zero byte, silently.
+- A static method a `Bridge::Constructor` does not have raises `TypeError` instead of answering null.
 
 - `select.labels` lists the labels that name it, including a wrapping `<label>`, and no longer breaks on an id containing a quote.
 - An element hidden with `aria-hidden="TRUE"` is hidden from its accessible name too, not only from the accessibility tree.

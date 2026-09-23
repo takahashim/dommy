@@ -1,18 +1,21 @@
 # frozen_string_literal: true
 
 module Dommy
-  module Js
-    # The wire protocol shared by every Ruby<->JS marshaller in this gem: the
-    # tagged-Hash shapes that cross the boundary (a handle, a callback, an opaque
-    # JS ref, a byte buffer, a tagged exception, …). Both Ruby marshallers —
-    # HostBridge#wrap/#unwrap (the Proxy bridge) and WasmBridge#pack/#unpack (the
-    # wasm guest bridge) — build and match these keys, so keeping them as one set
-    # of constants prevents the two sides from drifting apart.
+  module Bridge
+    # The wire protocol: the tagged-Hash shapes that cross the boundary (a
+    # handle, a callback, an opaque JS ref, a byte buffer, a tagged exception,
+    # …). Every marshaller builds and matches these keys — Js::Marshaller for
+    # the Proxy bridge, WasmBridge#pack/#unpack for the wasm guest — so one set
+    # of constants keeps them from drifting apart.
     #
-    # The JS half (host_runtime.js: dehydrate/rehydrate/wasmTag/wasmDeref) mirrors
-    # the SAME string literals. When changing a tag here, update host_runtime.js
-    # in lockstep — these constants are the canonical names; the JS literals are
-    # the mirror.
+    # It is Bridge's rather than Js's for exactly that reason: a tag is true of
+    # any host, not of the one we ship. A backend gem reads these to speak the
+    # protocol without depending on our engine.
+    #
+    # The JS half (host_runtime.js: dehydrate/rehydrate/wasmTag/wasmDeref)
+    # mirrors the SAME string literals. When changing a tag here, update
+    # host_runtime.js in lockstep — these constants are the canonical names; the
+    # JS literals are the mirror.
     module WireTags
       # A bridged Ruby object, referenced by its HandleTable id (becomes an ES
       # Proxy on the JS side).

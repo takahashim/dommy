@@ -51,7 +51,6 @@ require_relative "dommy/static_range"
 require_relative "dommy/selection"
 require_relative "dommy/animation"
 require_relative "dommy/bridge"
-require_relative "dommy/bridge/constructor_registry"
 require_relative "dommy/storage"
 require_relative "dommy/fetch"
 require_relative "dommy/xml_http_request"
@@ -104,7 +103,6 @@ require_relative "dommy/js/script_boot"
 # its collaborators, plus the JS-side runtime bundles. A concrete backend
 # (dommy-js-quickjs) plugs an engine in underneath via the backend contract
 # documented in HostBridge.
-require_relative "dommy/js/wire_tags"
 require_relative "dommy/js/handle_table"
 require_relative "dommy/js/crossing_profile"
 require_relative "dommy/js/host_callbacks"

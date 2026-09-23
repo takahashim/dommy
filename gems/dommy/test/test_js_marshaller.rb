@@ -7,7 +7,7 @@ require_relative "test_helper"
 # #callback_result accept, so a change to an inner key or flag is caught without
 # a JS engine. (The JS side's agreement is BridgeConformance's job.)
 class TestJsMarshaller < Minitest::Test
-  WT = Dommy::Js::WireTags
+  WT = Dommy::Bridge::WireTags
   B = Dommy::Bridge
 
   def setup
