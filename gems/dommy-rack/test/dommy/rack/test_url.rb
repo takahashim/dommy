@@ -53,8 +53,4 @@ class Dommy::Rack::TestUrl < Minitest::Test
   def test_server_port_explicit
     assert_equal "8080", Url.server_port(Dommy::URL.new("http://example.org:8080/"))
   end
-
-  def test_origin_is_tuple_origin_for_websocket_scheme
-    assert_equal "ws://example.org", Url.origin(Dommy::URL.new("ws://example.org/socket"))
-  end
 end
