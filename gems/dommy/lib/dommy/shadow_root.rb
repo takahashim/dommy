@@ -149,7 +149,7 @@ module Dommy
       ensure_pre_insertion_validity!(node, ref)
       ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
       ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
-      ref_bn = reference_past_args(ref_bn, backend_nodes_in([node]))
+      ref_bn = Internal::InsertionPoint.skip_args(ref_bn, backend_nodes_in([node]))
       # Insert step 6's insertion point, measured before the conversion moves
       # anything (see Element#insert_before).
       record_previous = insertion_previous_sibling(@__node__, ref_bn)

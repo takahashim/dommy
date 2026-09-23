@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "insertion_point"
+
 module Dommy
   module Internal
     # Shared ChildNode surface (WHATWG DOM `before` / `after` / `replaceWith`)
@@ -22,10 +24,8 @@ module Dommy
         return nil unless parent
 
         arg_nodes = backend_nodes_in(args)
-        viable_prev = @__node__.previous_sibling
-        viable_prev = viable_prev.previous_sibling while viable_prev && arg_nodes.any? { |n| n == viable_prev }
-
-        ref = reference_past_args(reference_after(parent, viable_prev), arg_nodes)
+        viable_prev = InsertionPoint.skip_args_backwards(@__node__.previous_sibling, arg_nodes)
+        ref = InsertionPoint.skip_args(reference_after(parent, viable_prev), arg_nodes)
         ensure_parent_insertion_validity!(parent, args, ref)
         record_previous = insertion_previous_sibling(parent, ref)
         record_next = wrap_sibling(ref)
@@ -43,8 +43,7 @@ module Dommy
         return nil unless parent
 
         arg_nodes = backend_nodes_in(args)
-        viable_next = @__node__.next_sibling
-        viable_next = viable_next.next_sibling while viable_next && arg_nodes.any? { |n| n == viable_next }
+        viable_next = InsertionPoint.skip_args(@__node__.next_sibling, arg_nodes)
 
         ensure_parent_insertion_validity!(parent, args, viable_next)
         record_previous = insertion_previous_sibling(parent, viable_next)
@@ -62,8 +61,7 @@ module Dommy
         return nil unless parent
 
         arg_nodes = backend_nodes_in(args)
-        viable_next = @__node__.next_sibling
-        viable_next = viable_next.next_sibling while viable_next && arg_nodes.any? { |n| n == viable_next }
+        viable_next = InsertionPoint.skip_args(@__node__.next_sibling, arg_nodes)
 
         # Step 6 replaces this node within the parent and step 7 pre-inserts
         # before the viable next sibling; both run the parent's validity checks,
@@ -92,7 +90,7 @@ module Dommy
         # NodeIterator too: the old child's pre-removing steps run against a
         # tree that does not yet hold the replacements.
         nodes = args.flat_map { |arg| detach_dom_nodes(arg) }
-        anchor = viable_next && viable_next.parent == parent ? viable_next : nil
+        anchor = InsertionPoint.surviving_anchor(viable_next, parent)
 
         if moved_by_conversion
           # `@__node__` was itself an argument of a multi-argument call, so the
@@ -167,36 +165,14 @@ module Dommy
       end
 
       # WHATWG pre-insert step 3: when the reference child IS one of the nodes
-      # being inserted, it is about to move out of the way, so the reference
-      # advances to its next sibling. This has to happen before insert step 5,
-      # whose offset shift is measured against the reference child's index —
-      # `x.before(x)` shifts boundaries past x's NEXT sibling, not past x.
-      def reference_past_args(ref, arg_nodes)
-        ref = ref.next_sibling while ref && arg_nodes.any? { |n| n == ref }
-        ref
-      end
-
       # WHATWG insert steps 5 and 7, in spec order: shift the live-range offsets
       # that sit past `ref` in `parent`, THEN convert the arguments into backend
       # nodes (which detaches each from wherever it is now, running its own
       # removing steps). Doing it the other way round double-counts a boundary
       # that one of those removals has just moved onto `parent`.
       def convert_for_insert(args, parent, ref)
-        @document.__internal_ranges_will_insert__(parent, ref, insertion_count(args))
+        @document.__internal_ranges_will_insert__(parent, ref, InsertionPoint.count(args))
         args.flat_map { |arg| detach_dom_nodes(arg) }
-      end
-
-      # How many nodes `args` will contribute once converted: a DocumentFragment
-      # expands to its children (WHATWG "insert" step 1), a String becomes one
-      # Text node, and anything without a backing node contributes nothing.
-      def insertion_count(args)
-        args.sum do |arg|
-          case arg
-          when Fragment then arg.__dommy_backend_node__.children.to_a.size
-          when String then 1
-          else arg.respond_to?(:__dommy_backend_node__) ? 1 : 0
-          end
-        end
       end
 
       # Insert `nodes` (raw backend nodes) into `parent` before `ref`, or append
@@ -239,8 +215,7 @@ module Dommy
       # child's previous sibling, or the parent's last child when appending,
       # BOTH measured before anything moves.
       def insertion_previous_sibling(parent, ref)
-        node = ref ? ref.previous_sibling : parent.children.to_a.last
-        node && @document.wrap_node(node)
+        wrap_sibling(InsertionPoint.previous_sibling(parent, ref))
       end
 
       def wrap_sibling(node)

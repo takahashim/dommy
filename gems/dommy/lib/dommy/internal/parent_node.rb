@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "insertion_point"
+
 module Dommy
   module Internal
     # Shared ParentNode tree-mutation surface for Element, Fragment, and
@@ -52,7 +54,7 @@ module Dommy
         record_previous = insertion_previous_sibling(@__node__, anchor)
         record_next = wrap_sibling(anchor)
         nodes = convert_for_insert(args, @__node__, anchor)
-        anchor = nil if anchor && anchor.parent != @__node__
+        anchor = InsertionPoint.surviving_anchor(anchor, @__node__)
         if anchor
           # Insert each node before the (fixed) original first child in order:
           # forward iteration keeps document order (n1, n2, … then the old first
@@ -153,10 +155,10 @@ module Dommy
         # queues its own pair at the end (steps 23-24).
         @document.detach_node(bn, moving: true)
 
-        ref_bn = nil if ref_bn && ref_bn.parent != @__node__
+        ref_bn = InsertionPoint.surviving_anchor(ref_bn, @__node__)
         # Step 16 — measured after the removal, which step 14 has already done.
         @document.__internal_ranges_will_insert__(@__node__, ref_bn, 1)
-        new_previous = ref_bn ? ref_bn.previous_sibling : @__node__.children.last
+        new_previous = InsertionPoint.previous_sibling(@__node__, ref_bn)
         # Step 18.
         ref_bn ? ref_bn.add_previous_sibling(bn) : @__node__.add_child(bn)
 
@@ -235,7 +237,7 @@ module Dommy
           removed = [old_bn]
         end
 
-        anchor = nil if anchor && anchor.parent != @__node__
+        anchor = InsertionPoint.surviving_anchor(anchor, @__node__)
         @document.__internal_ranges_will_insert__(@__node__, anchor, nodes.size)
         insert_child_nodes(nodes, anchor, @__node__)
         notify_child_list(added: nodes, removed: removed,

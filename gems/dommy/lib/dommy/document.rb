@@ -1649,14 +1649,7 @@ module Dommy
 
     # How many nodes `args` will contribute, counted BEFORE any of them moves —
     # insert step 5 needs the count while the fragment still holds its children.
-    def document_insertion_count(args)
-      args.sum do |arg|
-        if arg.is_a?(Dommy::Fragment) then arg.child_nodes.to_a.size
-        elsif arg.respond_to?(:__dommy_backend_node__) then 1
-        else 0
-        end
-      end
-    end
+    def document_insertion_count(args) = Internal::InsertionPoint.count(args)
 
     def adopted_backend_node(node)
       return nil unless node.respond_to?(:__dommy_backend_node__)
@@ -2351,7 +2344,7 @@ module Dommy
     # Insert step 6 for a document parent: the reference child's previous
     # sibling, or the document's last child when appending.
     def document_insertion_previous_sibling(ref_bn)
-      node = ref_bn ? ref_bn.previous : @backend_doc.children.to_a.last
+      node = Internal::InsertionPoint.previous_sibling(@backend_doc, ref_bn)
       node && wrap_node(node)
     end
 
