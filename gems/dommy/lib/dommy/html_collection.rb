@@ -119,13 +119,23 @@ module Dommy
       to_a[index.to_i % 4_294_967_296]
     end
 
+    # The supported-property-name a `namedItem` argument stands for. A numeric
+    # argument (`namedItem(2147483648)`) crosses from JS as a Float for values
+    # past int32; format it as an integer string so it matches an `id`/`name`
+    # attribute like "2147483648" (not "2147483648.0").
+    #
+    # Protected rather than inlined because HTMLFormControlsCollection
+    # overrides #named_item, and had its own `name.to_s` — the same rule, minus
+    # this one.
+    def named_key(name)
+      (name.is_a?(Float) && name.finite? && name == name.to_i) ? name.to_i.to_s : name.to_s
+    end
+    protected :named_key
+
     # `namedItem(name)` returns the first element whose `id` or
     # `name` attribute equals `name`. Returns nil if no match.
     def named_item(name)
-      # A numeric argument (`namedItem(2147483648)`) crosses from JS as a Float
-      # for values past int32; format it as an integer string so it matches an
-      # `id`/`name` attribute like "2147483648" (not "2147483648.0").
-      key = (name.is_a?(Float) && name.finite? && name == name.to_i) ? name.to_i.to_s : name.to_s
+      key = named_key(name)
       return nil if key.empty?
 
       to_a.find do |el|
@@ -233,7 +243,7 @@ module Dommy
   # control (e.g. a radio group), and the single control otherwise.
   class HTMLFormControlsCollection < HTMLCollection
     def named_item(name)
-      key = name.to_s
+      key = named_key(name)
       return nil if key.empty?
 
       matches = controls_named(key)
