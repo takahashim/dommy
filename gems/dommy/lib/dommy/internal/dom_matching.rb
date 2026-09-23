@@ -143,7 +143,10 @@ module Dommy
         text.to_f <= 0
       end
 
-      # The same question asked of a raw `style` attribute.
+      # The same question asked of a raw `style` attribute. Public because
+      # dommy-rack asks it too, of elements this module never sees; it used to
+      # reach for the regex constant instead, which broke the moment the two
+      # opacity grammars were unified here.
       def inline_opacity_zero?(style_text)
         match = style_text.match(INLINE_OPACITY)
         match && opacity_zero?(match[1])
@@ -219,8 +222,7 @@ module Dommy
         end
       end
 
-      private_class_method :node_invisible_self?, :non_rendering_tag?, :append_rendered_text,
-        :opacity_zero?, :inline_opacity_zero?
+      private_class_method :node_invisible_self?, :non_rendering_tag?, :append_rendered_text, :opacity_zero?
     end
   end
 end
