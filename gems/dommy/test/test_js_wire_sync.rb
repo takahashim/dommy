@@ -19,8 +19,8 @@ class TestJsWireSync < Minitest::Test
   # Every WireTags tag value (except the JS-optional ones) must appear in
   # host_runtime.js (dehydrate/rehydrate mirror the same string literals).
   def test_wire_tags_are_mirrored_in_host_runtime_js
-    Dommy::Js::WireTags.constants.each do |const|
-      tag = Dommy::Js::WireTags.const_get(const)
+    Dommy::Bridge::WireTags.constants.each do |const|
+      tag = Dommy::Bridge::WireTags.const_get(const)
       next unless tag.is_a?(String)
       next if JS_OPTIONAL_TAGS.include?(tag)
 
@@ -73,7 +73,7 @@ class TestJsWireSync < Minitest::Test
   # `callHost("__rb_...")` / direct-call sites). Excludes the WireTags data keys,
   # which are matched separately above.
   def referenced_host_calls
-    tags = Dommy::Js::WireTags.constants.map { |c| Dommy::Js::WireTags.const_get(c) }.grep(String)
+    tags = Dommy::Bridge::WireTags.constants.map { |c| Dommy::Bridge::WireTags.const_get(c) }.grep(String)
     RUNTIME_JS.scan(/__rb_[a-z_]+/).uniq.reject { |name| tags.include?(name) }
   end
 

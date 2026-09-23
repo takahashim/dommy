@@ -34,24 +34,31 @@ module Dommy
         end
 
         def js_methods(names)
-          own = names.map(&:to_s).freeze
-          const_set(:JS_METHOD_NAMES, own) unless const_defined?(:JS_METHOD_NAMES, false)
+          @own_js_methods = names.map(&:to_s).freeze
+          @js_method_names = nil # a declaration after a first read must win
+          const_set(:JS_METHOD_NAMES, @own_js_methods) unless const_defined?(:JS_METHOD_NAMES, false)
+          @own_js_methods
+        end
 
-          # Capture the ancestor's __js_method_names__ as a real method (if any)
-          # at definition time. We can't use `super` here: classes like
-          # StyleDeclaration define `method_missing`, so `super` would fall
-          # through to it and return a CSS-property String instead of raising.
-          parent =
-            if superclass.method_defined?(:__js_method_names__)
-              superclass.instance_method(:__js_method_names__)
-            end
-
-          define_method(:__js_method_names__) do
-            base = parent ? parent.bind(self).call : []
-            (base + own).uniq.freeze
+        # The class's names plus its ancestors', ancestors first. Composed on
+        # the CLASS, which is where the answer belongs: a per-instance method
+        # could not use `super` to reach the ancestor's copy, because a class
+        # like StyleDeclaration answers `method_missing` for any name and would
+        # hand back a CSS property string instead. Walking `superclass` has no
+        # such problem.
+        def js_method_names
+          @js_method_names ||= begin
+            inherited_names = superclass.respond_to?(:js_method_names) ? superclass.js_method_names : []
+            (inherited_names + own_js_methods).uniq.freeze
           end
         end
+
+        def own_js_methods = @own_js_methods || []
       end
+
+      # The bridge ABI reads this per interface to decide which property names
+      # are callable functions.
+      def __js_method_names__ = self.class.js_method_names
     end
   end
 end

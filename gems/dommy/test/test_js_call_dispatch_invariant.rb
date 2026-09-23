@@ -19,7 +19,6 @@ if defined?(RubyVM::AbstractSyntaxTree) && RUBY_ENGINE == "ruby"
     # Classes whose `__js_call__` is function-style (no `case method` dispatch)
     # or an internal bridge adapter — they expose no enumerable named methods.
     ALLOWLIST = %w[
-      Dommy::Bridge::Callback
       Dommy::Bridge::Constructor
       Dommy::Bridge::PromiseConstructor
       Dommy::Bridge::PromiseSettler

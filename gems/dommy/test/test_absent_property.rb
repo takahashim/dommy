@@ -34,7 +34,7 @@ class TestAbsentProperty < Minitest::Test
     bridge = Dommy::Js::HostBridge.new(@win) rescue nil
     skip "no marshaller available" unless bridge.respond_to?(:marshaller) || defined?(Dommy::Js::Marshaller)
     m = (bridge && bridge.respond_to?(:marshaller) ? bridge.marshaller : Dommy::Js::Marshaller.new(nil))
-    assert_equal({Dommy::Js::WireTags::ABSENT => true}, m.wrap(Dommy::Bridge::ABSENT))
+    assert_equal({Dommy::Bridge::WireTags::ABSENT => true}, m.wrap(Dommy::Bridge::ABSENT))
     assert_equal "undefined", Dommy::Bridge::ABSENT.to_s
   end
 end

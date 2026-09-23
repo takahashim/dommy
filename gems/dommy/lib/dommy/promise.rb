@@ -25,10 +25,6 @@ module Dommy
     end
   end
 
-  # Note: `PromiseConstructor` and `PromiseSettler` live in
-  # `Dommy::Bridge::*` — they're bridge-adapter classes for the
-  # `JS.global[:Promise]` view, not part of the public DOM surface.
-
   class PromiseValue
     Handler = Struct.new(:on_fulfilled, :on_rejected, :child)
 
@@ -278,6 +274,64 @@ module Dommy
 
     def propagate(child)
       @state == :fulfilled ? child.fulfill(@value) : child.reject(@value)
+    end
+  end
+  # The `JS.global[:Promise]` view and its resolve/reject adapters. They speak
+  # the bridge protocol, so they keep the Bridge namespace — but they talk to
+  # nothing except PromiseValue, so they live beside it. bridge.rb used to hold
+  # them, with a comment here saying where they had gone.
+  module Bridge
+    # `JS.global[:Promise]` view. Implements the `resolve` / `reject`
+    # class methods plus `new Promise(executor)` via `__js_new__`.
+    class PromiseConstructor
+      def initialize(window)
+        @window = window
+      end
+
+      def __js_call__(method, args)
+        case method
+        when "resolve"
+          PromiseValue.resolve(@window, args[0])
+        when "reject"
+          PromiseValue.reject(@window, args[0])
+        end
+      end
+
+      # `new Promise(executor)` — runs executor synchronously with
+      # (resolve, reject) callbacks.
+      def __js_new__(args)
+        executor = args[0]
+        promise = PromiseValue.new(@window)
+        resolve = PromiseSettler.new(promise, fulfilled: true)
+        reject = PromiseSettler.new(promise, fulfilled: false)
+        if executor.respond_to?(:__js_call__)
+          executor.__js_call__("call", [resolve, reject])
+        elsif executor.respond_to?(:call)
+          executor.call(resolve, reject)
+        end
+
+        promise
+      end
+    end
+
+    # Adapter so a Ruby-side executor can deliver resolve/reject
+    # through the same `__js_call__("call", args)` interface that
+    # the scheduler and JS bridge use for callbacks.
+    class PromiseSettler
+      def initialize(promise, fulfilled:)
+        @promise = promise
+        @fulfilled = fulfilled
+      end
+
+      def __js_call__(_method, args)
+        if @fulfilled
+          @promise.fulfill(args[0])
+        else
+          @promise.reject(args[0])
+        end
+
+        nil
+      end
     end
   end
 end
