@@ -49,7 +49,7 @@ module Dommy
       style = element.get_attribute("style").to_s.downcase
       style.match?(/display\s*:\s*none/) ||
         style.match?(/visibility\s*:\s*hidden/) ||
-        style.match?(::Dommy::Internal::DomMatching::INLINE_ZERO_OPACITY)
+        ::Dommy::Internal::DomMatching.inline_opacity_zero?(style)
     end
   end
 end
