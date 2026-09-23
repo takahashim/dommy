@@ -224,31 +224,9 @@ module Dommy
       height
     end
 
-    def __js_get__(key)
-      case key
-      when "width"
-        width
-      when "height"
-        height
-      when "videoWidth"
-        video_width
-      when "videoHeight"
-        video_height
-      else
-        super
-      end
-    end
+    js_accessor :width, :height
+    js_readable :video_width, :video_height
 
-    def __js_set__(key, value)
-      case key
-      when "width"
-        self.width = value
-      when "height"
-        self.height = value
-      else
-        super
-      end
-    end
   end
 
   class HTMLSourceElement < HTMLElement
@@ -269,27 +247,8 @@ module Dommy
       set_reflected_string("height", v.to_s)
     end
 
-    def __js_get__(key)
-      case key
-      when "width"
-        width
-      when "height"
-        height
-      else
-        super
-      end
-    end
+    js_accessor :width, :height
 
-    def __js_set__(key, value)
-      case key
-      when "width"
-        self.width = value
-      when "height"
-        self.height = value
-      else
-        super
-      end
-    end
   end
 
   class HTMLTrackElement < HTMLElement
@@ -304,14 +263,7 @@ module Dommy
       NONE
     end
 
-    def __js_get__(key)
-      case key
-      when "readyState"
-        ready_state
-      else
-        super
-      end
-    end
+    js_readable :ready_state
   end
 
   class HTMLPictureElement < HTMLElement

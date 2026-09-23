@@ -222,25 +222,9 @@ module Dommy
       @__sheet if @__sheet && @__sheet_text == text_content.to_s
     end
 
-    def __js_get__(key)
-      case key
-      when "disabled"
-        disabled
-      when "sheet"
-        sheet
-      else
-        super
-      end
-    end
+    js_accessor :disabled
+    js_readable :sheet
 
-    def __js_set__(key, value)
-      case key
-      when "disabled"
-        self.disabled = value
-      else
-        super
-      end
-    end
   end
 
   class HTMLTitleElement < HTMLElement

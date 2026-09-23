@@ -56,6 +56,14 @@ module Dommy
         #
         #   js_readable :validity, :labels, will_validate: "willValidate"
         #
+        # WHERE THE LINE IS: a `__js_get__` whose every arm is nothing but a
+        # name mapping becomes declarations and the method goes. One that does
+        # something first — HTMLFormElement consults its named controls before
+        # the builtins — or whose arms read constants rather than call methods
+        # (HTMLMediaElement's NETWORK_* ) keeps its `case`. So a `case` in one
+        # of these classes means there is logic in it, which is worth knowing
+        # when you open one.
+        #
         # A String value is the JS name; the default is the camelized one. Use
         # an Array to give one method several JS names (`readonly`/`readOnly`).
         def js_readable(*names, **mapped)

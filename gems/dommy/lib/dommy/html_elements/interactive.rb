@@ -55,23 +55,8 @@ module Dommy
       nil
     end
 
-    def __js_get__(key)
-      case key
-      when "returnValue"
-        return_value
-      else
-        super
-      end
-    end
+    js_accessor :return_value
 
-    def __js_set__(key, value)
-      case key
-      when "returnValue"
-        self.return_value = value
-      else
-        super
-      end
-    end
 
     js_methods %w[show showModal close]
     def __js_call__(method, args)
@@ -285,16 +270,7 @@ module Dommy
       nil
     end
 
-    def __js_get__(key)
-      case key
-      when "assignedNodes"
-        assigned_nodes
-      when "assignedElements"
-        assigned_elements
-      else
-        super
-      end
-    end
+    js_readable :assigned_nodes, :assigned_elements
 
     js_methods %w[assignedNodes assignedElements assign]
     def __js_call__(method, args)
@@ -356,14 +332,7 @@ module Dommy
       @document.template_content_fragment(self)
     end
 
-    def __js_get__(key)
-      case key
-      when "content"
-        content
-      else
-        super
-      end
-    end
+    js_readable :content
   end
 
   # `<td>` / `<th>` — single table cell. `cellIndex` is the

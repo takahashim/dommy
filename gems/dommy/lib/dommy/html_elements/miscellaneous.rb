@@ -16,23 +16,8 @@ module Dommy
       set_reflected_string("start", v.to_s)
     end
 
-    def __js_get__(key)
-      case key
-      when "start"
-        start
-      else
-        super
-      end
-    end
+    js_accessor :start
 
-    def __js_set__(key, value)
-      case key
-      when "start"
-        self.start = value
-      else
-        super
-      end
-    end
   end
 
   class HTMLUListElement < HTMLElement

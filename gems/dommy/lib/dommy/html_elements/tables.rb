@@ -36,29 +36,9 @@ module Dommy
     # `scope` / `abbr` are only meaningful on `<th>`, but the IDL
     # exposes them on the cell element either way.
 
-    def __js_get__(key)
-      case key
-      when "cellIndex"
-        cell_index
-      when "colSpan"
-        col_span
-      when "rowSpan"
-        row_span
-      else
-        super
-      end
-    end
+    js_accessor :col_span, :row_span
+    js_readable :cell_index
 
-    def __js_set__(key, value)
-      case key
-      when "colSpan"
-        self.col_span = value
-      when "rowSpan"
-        self.row_span = value
-      else
-        super
-      end
-    end
   end
 
   # `<tr>` — table row. `cells` are direct `<td>`/`<th>` children.
@@ -132,18 +112,7 @@ module Dommy
       !el.respond_to?(:namespace_uri) || el.namespace_uri == HTML_NAMESPACE
     end
 
-    def __js_get__(key)
-      case key
-      when "cells"
-        cells
-      when "rowIndex"
-        row_index
-      when "sectionRowIndex"
-        section_row_index
-      else
-        super
-      end
-    end
+    js_readable :cells, :row_index, :section_row_index
 
     js_methods %w[insertCell deleteCell]
     def __js_call__(method, args)
@@ -459,35 +428,9 @@ module Dommy
       value
     end
 
-    def __js_get__(key)
-      case key
-      when "caption"
-        caption
-      when "tHead"
-        t_head
-      when "tFoot"
-        t_foot
-      when "tBodies"
-        t_bodies
-      when "rows"
-        rows
-      else
-        super
-      end
-    end
+    js_accessor :caption, :t_head, :t_foot
+    js_readable :t_bodies, :rows
 
-    def __js_set__(key, value)
-      case key
-      when "caption"
-        self.caption = value
-      when "tHead"
-        self.t_head = value
-      when "tFoot"
-        self.t_foot = value
-      else
-        super
-      end
-    end
 
     js_methods %w[
       insertRow deleteRow createCaption deleteCaption createTHead deleteTHead createTFoot
