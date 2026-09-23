@@ -336,8 +336,10 @@ module Dommy
         # authors: it fires the same `error` event an uncaught throw would, so a
         # library that funnels its own caught errors through it reaches
         # window.onerror (and, unhandled, the console) like a real one.
-        value, message = Internal::ExceptionReport.describe(args[0])
-        __internal_report_exception__(value, message)
+        # Through the same shaping every other report uses, so the page sees the
+        # position the error carries (its JS frames, minus Dommy's own) rather
+        # than line 0 of nowhere.
+        Internal::ExceptionReport.report_at(self, Internal::ExceptionReport.thrown_host_error(args[0]))
         nil
       when "getSelection"
         document&.get_selection

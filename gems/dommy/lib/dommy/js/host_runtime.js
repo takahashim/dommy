@@ -420,6 +420,18 @@ globalThis.__rbHost = (function () {
     return { __rb_cb_threw__: tagged };
   }
 
+  // An error's `stack`, carried across with it. Ruby cannot reach through an
+  // opaque ref to read the property, and reporting the error needs the frames to
+  // say where the page failed — so both values that might be reported take them
+  // along: one thrown (tagValue) and one merely handed over, like the argument
+  // to `reportError` (dehydrate).
+  function attachJsStack(tag, v) {
+    try {
+      if (v.stack) tag.__rb_js_stack = String(v.stack);
+    } catch (_) { /* a stack getter threw: no frames */ }
+    return tag;
+  }
+
   // Cross a value to Ruby with its identity intact, carrying the detail Ruby
   // cannot read back off an opaque ref: its `message` as a label and its
   // `stack` as frames. A primitive has neither and just dehydrates.
@@ -431,9 +443,7 @@ globalThis.__rbHost = (function () {
       const m = v.message != null ? String(v.message) : String(v);
       if (m) tag.__rb_js_label = m;
     } catch (_) { /* a message/toString getter threw: no label */ }
-    try {
-      if (v.stack) tag.__rb_js_stack = String(v.stack);
-    } catch (_) { /* a stack getter threw: no frames */ }
+    attachJsStack(tag, v);
     try {
       // The kind of thing it is, for a host log that would otherwise only be
       // able to name the Ruby wrapper it arrived in.
@@ -560,17 +570,20 @@ globalThis.__rbHost = (function () {
         const ref = { __rb_js_ref: registerJsRef(v) };
         if (handlesEvents) ref.__rb_handle_event = true;
         if (acceptsNodes) ref.__rb_accept_node = true;
-        // An Error crossing as an opaque ref still needs a readable label: the
-        // host cannot reach through a ref to read `.message`, so an error the
-        // page hands us (`reportError(new Error("boom"))`) would otherwise be
-        // logged — and shown as `event.message` — as "[object]". Only Errors are
-        // labelled, and by brand rather than `instanceof` so one from another
-        // realm is recognised too; every other opaque value is left unlabelled.
+        // An Error crossing as an opaque ref still needs a readable label and its
+        // frames: the host cannot reach through a ref to read `.message` or
+        // `.stack`, so an error the page hands us (`reportError(new
+        // Error("boom"))`) would otherwise be logged — and shown as
+        // `event.message` — as "[object]", and reported at line 0 of nowhere.
+        // Only Errors are described, and by brand rather than `instanceof` so one
+        // from another realm is recognised too; every other opaque value is left
+        // bare.
         if (Object.prototype.toString.call(v) === "[object Error]") {
           try {
             const m = v.message != null ? String(v.message) : "";
             if (m) ref.__rb_js_label = m;
           } catch (_) { /* a message getter threw: no label */ }
+          attachJsStack(ref, v);
         }
         return ref;
       }

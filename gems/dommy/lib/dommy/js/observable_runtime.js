@@ -11,39 +11,23 @@
 
   const kInternal = Symbol("observable-internal");
 
-  // "Report the exception" — dispatch an `error` ErrorEvent on the global so
-  // `self.addEventListener("error", …)` sees unhandled Observable errors.
+  // "Report the exception" — the WHATWG operation, which the page reaches as
+  // `self.reportError`. Handing it the error there rather than building an
+  // ErrorEvent here means an Observable error nobody caught is reported exactly
+  // as one thrown from a listener is: the same `error` event at the window, the
+  // same choice of the frame the PAGE owns for filename/lineno (this file's own
+  // frames are not the page's), and the same console/host notification when the
+  // page doesn't handle it — none of which a bare dispatch from here did.
+  //
+  // Reporting must never throw into the caller, and a realm with no window (a
+  // bare VM, a unit harness) has nowhere to report to.
   function reportException(error) {
-    // A thrown value with no stack (e.g. a string) reports lineno/colno 0;
-    // a real Error carries a stack we parse for a positive position.
-    let lineno = 0, colno = 0, filename = "";
-    const stack = error && typeof error === "object" ? error.stack : undefined;
-    if (typeof stack === "string") {
-      const m = stack.match(/\(?([^()\s]*):(\d+):(\d+)\)?/);
-      if (m) {
-        filename = m[1] || "";
-        lineno = parseInt(m[2], 10) || 0;
-        colno = parseInt(m[3], 10) || 0;
-      }
-    }
-    const message = (error && typeof error === "object" && "message" in error)
-      ? String(error.message) : String(error);
-    const g = globalThis.window || globalThis;
-    let event;
     try {
-      if (typeof globalThis.ErrorEvent === "function") {
-        event = new ErrorEvent("error", { error, message, lineno, colno, filename, cancelable: true });
-      } else {
-        event = new Event("error", { cancelable: true });
-        event.error = error;
-        event.message = message;
-        event.lineno = lineno;
-        event.colno = colno;
-        event.filename = filename;
-      }
-      if (g && typeof g.dispatchEvent === "function") g.dispatchEvent(event);
+      const w = globalThis.window;
+      if (w && typeof w.reportError === "function") w.reportError(error);
     } catch (_e) {
-      // Best effort: swallow — reporting must never throw into the caller.
+      // Best effort: the error being reported must not be replaced by an error
+      // from reporting it.
     }
   }
 
