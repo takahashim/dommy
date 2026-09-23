@@ -62,6 +62,13 @@ module Dommy
         FieldInteractor.new(finder, document)
       end
 
+      # The includer's optional "is this a submit button" rule (see
+      # #submit_button_element?) travels in as a predicate so KeySender
+      # doesn't need to know about Driver's duck-typed extension point.
+      def key_sender
+        KeySender.new(field_interactor, method(:submit_button_element?))
+      end
+
       # The single element matching `selector` in scope (raises if none).
       # The first element matching `selector` in scope (raises if none). `text:`
       # keeps only elements whose text contains the String (or matches the
@@ -117,51 +124,36 @@ module Dommy
         # button submits its owning form (SubmitButtonActivation), an anchor
         # follows its href — so `click "button[type=submit]"` / `click "a"` behave
         # like a real click with no driver-level special-casing.
-        EventSynthesis.click(element)
-        after_interaction
+        with_interaction { EventSynthesis.click(element) }
         element
       end
 
       def fill_in(locator, with:)
-        result = field_interactor.fill_in(locator, with: with)
-        after_interaction
-        result
+        with_interaction { field_interactor.fill_in(locator, with: with) }
       end
 
       def choose(locator)
-        result = field_interactor.choose(locator)
-        after_interaction
-        result
+        with_interaction { field_interactor.choose(locator) }
       end
 
       def check(locator)
-        result = field_interactor.check(locator)
-        after_interaction
-        result
+        with_interaction { field_interactor.check(locator) }
       end
 
       def uncheck(locator)
-        result = field_interactor.uncheck(locator)
-        after_interaction
-        result
+        with_interaction { field_interactor.uncheck(locator) }
       end
 
       def select(value, from:)
-        result = field_interactor.select(value, from: from)
-        after_interaction
-        result
+        with_interaction { field_interactor.select(value, from: from) }
       end
 
       def unselect(value, from:)
-        result = field_interactor.unselect(value, from: from)
-        after_interaction
-        result
+        with_interaction { field_interactor.unselect(value, from: from) }
       end
 
       def attach_file(locator, path)
-        result = field_interactor.attach_file(locator, path)
-        after_interaction
-        result
+        with_interaction { field_interactor.attach_file(locator, path) }
       end
 
       # Type into the element matching `selector` (focusing it first). Each
@@ -184,8 +176,8 @@ module Dommy
       # element (capybara-dommy's Node#send_keys). Same semantics.
       def send_keys_to(element, *keys)
         EventSynthesis.focus(element)
-        keys.each { |key| dispatch_send_key(element, key) }
-        after_interaction
+        sender = key_sender
+        with_interaction { keys.each { |key| sender.dispatch(element, key) } }
         element
       end
 
@@ -251,8 +243,7 @@ module Dommy
       # elements whose text contains the String (or matches the Regexp);
       # `count:` requires an exact number of matches.
       def has_css?(selector, text: nil, count: nil)
-        nodes = scope_root ? scope_root.query_selector_all(selector).to_a : []
-        nodes = nodes.select { |node| text_matches?(node, text) } unless text.nil?
+        nodes = all(selector, text: text)
         count ? nodes.size == count : !nodes.empty?
       end
 
@@ -279,98 +270,21 @@ module Dommy
       private
 
       # The includer (Browser / Rack::Session) may define the actual rule for
-      # "is this a submit button"; treat none as present otherwise. Used to pick
-      # the default submit button for Enter's implicit submission.
+      # "is this a submit button"; treat none as present otherwise. Handed to
+      # KeySender as a predicate so it can pick a form's default submit button
+      # for Enter's implicit submission without knowing about this duck-typed
+      # extension point.
       def submit_button_element?(element)
         respond_to?(:submit_button?, true) && submit_button?(element)
       end
 
-      # The form's first submit button in tree order (the one Enter's
-      # implicit-submission default action would activate), or nil for a
-      # buttonless form.
-      def default_submit_button(form)
-        form.query_selector_all("button, input").find { |el| submit_button_element?(el) }
-      end
-
-      # --- send_keys internals ---
-
-      def dispatch_send_key(element, key)
-        case key
-        when Symbol
-          named = EventSynthesis::NAMED_KEYS[key] ||
-                  raise(ArgumentError, "unknown key #{key.inspect} (known: #{EventSynthesis::NAMED_KEYS.keys.join(", ")})")
-          send_named_key(element, key, named[0], named[1])
-        when String
-          key.each_char { |char| send_character(element, char) }
-        else
-          raise ArgumentError, "send_keys takes Symbols (named keys) or Strings (typed text), got #{key.inspect}"
-        end
-      end
-
-      def send_named_key(element, name, key, code)
-        unless EventSynthesis.keydown(element, key, code)
-          case name
-          when :enter then enter_default_action(element)
-          when :space then space_default_action(element)
-          when :backspace then field_interactor.backspace(element)
-          end
-        end
-        EventSynthesis.keyup(element, key, code)
-      end
-
-      # Space's default action: activate a focused button-like control — a
-      # <button>, or an <input> button / checkbox / radio — as if clicked (so
-      # Space toggles a focused checkbox / submits via a focused button), and
-      # type a space anywhere else (a text field). Activation is a bare click
-      # (no pointer/mouse events), like a keyboard-triggered activation.
-      SPACE_ACTIVATED_INPUT_TYPES = %w[button submit reset checkbox radio image].freeze
-      def space_default_action(element)
-        if space_activates?(element)
-          element.click
-        else
-          typed_character_default_action(element, " ", "Space")
-        end
-      end
-
-      def space_activates?(element)
-        name = element.local_name
-        return true if name == "button"
-        return false unless name == "input"
-
-        SPACE_ACTIVATED_INPUT_TYPES.include?(element.type.to_s.downcase)
-      end
-
-      def send_character(element, char)
-        code = EventSynthesis.char_code(char)
-        typed_character_default_action(element, char, code) unless EventSynthesis.keydown(element, char, code)
-        EventSynthesis.keyup(element, char, code)
-      end
-
-      # An un-prevented printable keydown fires keypress; an un-prevented
-      # keypress inserts the character (beforeinput -> value -> input).
-      def typed_character_default_action(element, char, code)
-        return if EventSynthesis.keypress(element, char, code)
-
-        field_interactor.insert_text(element, char)
-      end
-
-      # Enter's default action: newline in a textarea; elsewhere the owning
-      # form's implicit submission — click the form's default (first) submit
-      # button so its handlers run, or dispatch a cancelable submit event
-      # directly when the form has no submit button (HTML implicit submission).
-      def enter_default_action(element)
-        return field_interactor.insert_text(element, "\n") if element.local_name == "textarea"
-        return unless element.respond_to?(:form) && (form = element.form)
-
-        submitter = default_submit_button(form)
-        if submitter
-          # Clicking the default submit button runs its activation behavior
-          # (form submission); a prevented click naturally submits nothing.
-          EventSynthesis.click(submitter)
-        else
-          # No submit button: HTML implicit submission with no submitter.
-          form.__run_form_submission__(nil)
-        end
+      # Run an interaction step, then settle the includer's JS runtime (see
+      # #after_interaction) before returning the step's result. Shared by
+      # every method that mutates the DOM through a single call.
+      def with_interaction
+        result = yield
+        after_interaction
+        result
       end
 
       # "no element with role …" plus the roles that WERE present (the most
