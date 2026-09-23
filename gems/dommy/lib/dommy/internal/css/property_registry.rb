@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "value_tokens"
 require_relative "color"
 require_relative "calc"
 
@@ -73,7 +74,7 @@ module Dommy
         TEXT_DECORATION_LINES = %w[none underline overline line-through blink].freeze
         TEXT_DECORATION_STYLES = %w[solid double dotted dashed wavy].freeze
 
-        BORDER_SIDES = %w[top right bottom left].freeze
+        BORDER_SIDES = ValueTokens::SIDES
         BORDER_STYLE_KEYWORDS = %w[none hidden dotted dashed solid double groove ridge inset outset].freeze
         BORDER_WIDTH_KEYWORDS = %w[thin medium thick].freeze
 
@@ -267,22 +268,14 @@ module Dommy
         # -- shorthand expansions ------------------------------------------
 
         # CSS box expansion: 1 value -> all sides, 2 -> v/h, 3 -> t/h/b, 4 ->
-        # t/r/b/l. Returns nil for token counts outside 1..4 (or values with
-        # nested whitespace we can't split safely).
+        # t/r/b/l. Returns nil for token counts outside 1..4, and for a value
+        # carrying a function — `margin: calc(1px + 2px)` has whitespace this
+        # plain split cannot tell from a value separator, so it passes through.
         def expand_box(pattern, value)
           tokens = value.split(/\s+/)
-          return nil unless (1..4).cover?(tokens.size) && tokens.none? { |t| t.include?("(") }
+          return nil unless (1..4).cover?(tokens.size) && tokens.none? { |token| token.include?("(") }
 
-          top, right, bottom, left =
-            case tokens.size
-            when 1 then [tokens[0]] * 4
-            when 2 then [tokens[0], tokens[1], tokens[0], tokens[1]]
-            when 3 then [tokens[0], tokens[1], tokens[2], tokens[1]]
-            else tokens
-            end
-          %w[top right bottom left].zip([top, right, bottom, left]).map do |side, v|
-            [format(pattern, side), v]
-          end
+          BORDER_SIDES.zip(ValueTokens.box_sides(tokens)).map { |side, side_value| [format(pattern, side), side_value] }
         end
 
         def expand_overflow(value)
@@ -330,7 +323,7 @@ module Dommy
           lines = []
           style = nil
           color = nil
-          split_tokens(value).each do |token|
+          ValueTokens.split(value).each do |token|
             low = token.downcase
             if TEXT_DECORATION_LINES.include?(low)
               lines << token
@@ -345,45 +338,11 @@ module Dommy
            ["text-decoration-color", color || "currentColor"]]
         end
 
-        # Whitespace split that keeps parenthesized groups intact, so a color
-        # `rgb(0, 0, 0)` or an `url(...)` stays one token.
-        def split_tokens(value)
-          tokens = []
-          current = +""
-          depth = 0
-          value.each_char do |char|
-            if char == "("
-              depth += 1
-              current << char
-            elsif char == ")"
-              depth -= 1 if depth.positive?
-              current << char
-            elsif char.match?(/\s/) && depth.zero?
-              tokens << current unless current.empty?
-              current = +""
-            else
-              current << char
-            end
-          end
-          tokens << current unless current.empty?
-          tokens
-        end
-
-        # 1 value -> all sides, 2 -> v/h, 3 -> t/h/b, 4 -> t/r/b/l.
-        def box_values(tokens)
-          case tokens.size
-          when 1 then [tokens[0]] * 4
-          when 2 then [tokens[0], tokens[1], tokens[0], tokens[1]]
-          when 3 then [tokens[0], tokens[1], tokens[2], tokens[1]]
-          else tokens[0, 4]
-          end
-        end
-
         # Classify the tokens of a `border`/`border-<side>`/`outline` value into
         # {width:, style:, color:} (order-independent, omitted parts nil).
         def parse_border_shorthand(value)
           parts = {width: nil, style: nil, color: nil}
-          split_tokens(value).each do |token|
+          ValueTokens.split(value).each do |token|
             low = token.downcase
             if parts[:style].nil? && BORDER_STYLE_KEYWORDS.include?(low)
               parts[:style] = token
@@ -419,10 +378,10 @@ module Dommy
 
         # `border-width|style|color: <box>` — one kind across the four sides.
         def expand_border_box(kind, value)
-          tokens = split_tokens(value)
+          tokens = ValueTokens.split(value)
           return nil unless (1..4).cover?(tokens.size)
 
-          BORDER_SIDES.zip(box_values(tokens)).map { |side, v| ["border-#{side}-#{kind}", v] }
+          BORDER_SIDES.zip(ValueTokens.box_sides(tokens)).map { |side, v| ["border-#{side}-#{kind}", v] }
         end
 
         def expand_outline(value)
@@ -436,7 +395,7 @@ module Dommy
         # a bare number -> grow 1 0%, etc. Omitted parts take the shorthand's
         # reset values, not the longhand initials.
         def expand_flex(value)
-          tokens = split_tokens(value)
+          tokens = ValueTokens.split(value)
           grow, shrink, basis =
             case tokens.size
             when 1 then flex_one(tokens[0])
@@ -464,7 +423,7 @@ module Dommy
         def expand_flex_flow(value)
           direction = nil
           wrap = nil
-          split_tokens(value).each do |token|
+          ValueTokens.split(value).each do |token|
             low = token.downcase
             if %w[row row-reverse column column-reverse].include?(low)
               direction = token
@@ -480,7 +439,7 @@ module Dommy
         def expand_list_style(value)
           type = position = image = nil
           none = false
-          split_tokens(value).each do |token|
+          ValueTokens.split(value).each do |token|
             low = token.downcase
             if %w[inside outside].include?(low)
               position = token
@@ -503,7 +462,7 @@ module Dommy
         # applies to both. (Multi-keyword alignment values like `safe center`
         # are not split — a documented simplification.)
         def expand_place(suffix, value)
-          tokens = split_tokens(value)
+          tokens = ValueTokens.split(value)
           [["align-#{suffix}", tokens[0]], ["justify-#{suffix}", tokens[1] || tokens[0]]]
         end
       end

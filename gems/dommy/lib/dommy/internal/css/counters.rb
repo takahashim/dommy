@@ -20,12 +20,17 @@ module Dommy
         # element => { counter_name => [outermost..innermost values] } for the
         # whole document, computed in tree order. `counter()` reads the innermost
         # (last) value; `counters()` joins the whole stack.
-        def build(document)
+        #
+        # `style_for` answers an element's computed style. It is a parameter, not
+        # a call into Cascade, because the cascade is what asks for the counters:
+        # taking it as an argument keeps the dependency one-way and lets this
+        # module be read, and tested, on its own.
+        def build(document, style_for)
           result = {}.compare_by_identity
           root = document.respond_to?(:document_element) ? document.document_element : nil
           return result unless root
 
-          walk(root, 0, Hash.new { |hash, key| hash[key] = [] }, result)
+          walk(root, 0, Hash.new { |hash, key| hash[key] = [] }, result, style_for)
           result
         end
 
@@ -35,12 +40,14 @@ module Dommy
         # all of its children — a counter's scope extends to its originating
         # element's following siblings (and their descendants), i.e. to the end
         # of the parent's child list.
-        def walk(element, depth, state, result)
-          created = apply_counter_ops(element, depth, state)
+        def walk(element, depth, state, result, style_for)
+          created = apply_counter_ops(element, depth, state, style_for)
           result[element] = snapshot(state)
 
           children_created = []
-          element_children(element).each { |child| children_created.concat(walk(child, depth + 1, state, result)) }
+          element_children(element).each do |child|
+            children_created.concat(walk(child, depth + 1, state, result, style_for))
+          end
           children_created.reverse_each do |name|
             state[name].pop
             state.delete(name) if state[name].empty?
@@ -55,8 +62,8 @@ module Dommy
         # depth (a preceding sibling at the same nesting level) resets that one in
         # place rather than nesting. counter-increment / counter-set on a name
         # with no in-scope counter implicitly create one (value 0) here.
-        def apply_counter_ops(element, depth, state)
-          style = computed_style_for(element)
+        def apply_counter_ops(element, depth, state, style_for)
+          style = style_for.call(element)
           return [] unless style
 
           created = []
@@ -137,12 +144,6 @@ module Dommy
           return [] unless element.respond_to?(:children)
 
           element.children.to_a
-        end
-
-        def computed_style_for(element)
-          Cascade.computed_style(element)
-        rescue StandardError
-          nil
         end
 
         # ---- counter() / counters() resolution (generated-content text) ----

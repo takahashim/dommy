@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../selector_parser"
+require_relative "custom_properties"
 
 module Dommy
   module Internal
@@ -335,26 +336,12 @@ module Dommy
         # contains no {} block at all. So `var({--x})` and `var(--x ())` pass
         # while `var({--x} --y)`, `var(--x {--y})` and `var({})` do not.
         def valid_var_name_argument?(inner)
-          name = name_argument(inner)
+          name, = CustomProperties.split_args(inner)
           return false if name.empty?
           return !name.match?(/[{}]/) unless name.start_with?("{")
 
           close = matching_bracket(name, 0)
           close == name.length - 1 && !name[1...close].strip.empty?
-        end
-
-        # The part of `var()`'s arguments before the first top-level comma —
-        # nothing there is a separator while a bracket of any kind is open.
-        def name_argument(inner)
-          depth = 0
-          inner.each_char.with_index do |ch, i|
-            case ch
-            when "(", "[", "{" then depth += 1
-            when ")", "]", "}" then depth -= 1
-            when "," then return inner[0...i].strip if depth.zero?
-            end
-          end
-          inner.strip
         end
 
         # The index of the bracket closing the one at `open`, or nil when the

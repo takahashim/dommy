@@ -142,8 +142,18 @@ module Dommy
           document = element.respond_to?(:owner_document) ? element.owner_document : nil
           return {} unless document && Parser.available?
 
-          map = (style_cache(document)[:counters] ||= Counters.build(document))
+          map = style_cache(document)[:counters] || build_counters(document)
           map[element] || {}
+        end
+
+        # Walk the document's counters and memoize them. The cache is fetched
+        # again after the walk rather than assigned into the one we looked in:
+        # building reads computed styles, each of which goes through
+        # style_cache, so were the generation to move mid-walk the entry would
+        # otherwise land in a hash nobody reads again.
+        def build_counters(document)
+          map = Counters.build(document, ->(element) { computed_style(element) })
+          style_cache(document)[:counters] = map
         end
 
         def compute(element, document, pseudo_element: nil)
