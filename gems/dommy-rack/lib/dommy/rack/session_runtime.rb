@@ -170,8 +170,8 @@ module Dommy
           # Off-thread network is opt-in: with a session executor, fetch / XHR
           # resolve through a DeferredResponse on this window's scheduler;
           # without one the handler stays synchronous.
-          window.globals["__fetch_handler__"] = ::Dommy::Resources::FetchHandler.new(
-            resources, executor: @session.network_executor, scheduler: window.scheduler
+          ::Dommy::Rack::NetworkBridge.install(
+            @session, window, resources: resources, executor: @session.network_executor, scheduler: window.scheduler
           )
           # Same-origin WebSockets connect to the Rack app itself (ActionCable
           # et al.); cross-origin ones keep the in-memory stub.
