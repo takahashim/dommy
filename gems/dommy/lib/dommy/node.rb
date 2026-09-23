@@ -397,7 +397,7 @@ module Dommy
       nil
     end
 
-    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+    HTML_NAMESPACE = Internal::Namespaces::HTML
     XML_NAMESPACE = "http://www.w3.org/XML/1998/namespace"
     XMLNS_NAMESPACE = "http://www.w3.org/2000/xmlns/"
 

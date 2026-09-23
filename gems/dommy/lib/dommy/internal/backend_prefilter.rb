@@ -159,6 +159,12 @@ module Dommy
 
         root.document if root.respond_to?(:document)
       end
+
+      # Everything above is the module; everything below is how.
+      private_class_method :each_backend_element_descendant
+      private_class_method :each_backend_child_list_descendant
+      private_class_method :class_attr_token?
+      private_class_method :ascii_ws?
     end
   end
 end

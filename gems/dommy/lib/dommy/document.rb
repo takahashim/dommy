@@ -749,7 +749,7 @@ module Dommy
 
       root.child_nodes.to_a.find do |c|
         c.respond_to?(:local_name) && c.local_name == "head" &&
-          c.respond_to?(:namespace_uri) && c.namespace_uri == "http://www.w3.org/1999/xhtml"
+          c.respond_to?(:namespace_uri) && c.namespace_uri == Internal::Namespaces::HTML
       end
     end
 

@@ -12,7 +12,7 @@ module Dommy
     module XmlSerialization
       XML_NS   = "http://www.w3.org/XML/1998/namespace"
       XMLNS_NS = "http://www.w3.org/2000/xmlns/"
-      HTML_NS  = "http://www.w3.org/1999/xhtml"
+      HTML_NS  = Internal::Namespaces::HTML
 
       # HTML void elements: when empty and in the HTML namespace they self-close
       # with a trailing space in XML serialization (`<br />`).
