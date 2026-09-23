@@ -1,44 +1,41 @@
 # frozen_string_literal: true
 
-require "uri"
+require_relative "internal/url_parser"
 
 module Dommy
   # `window.location` polyfill. The Window owns one Location and one
   # History instance, and they share the same underlying state. Hash
   # / pushState / replaceState all flow through `__internal_set_url__`.
+  #
+  # Backed by an `Internal::UrlParser::Record` (the same WHATWG basic URL
+  # parser `Dommy::URL` uses), never stdlib `URI` — so every getter/setter
+  # matches the URL Standard's parsing and serialization rules exactly.
   class Location
     def initialize(window, origin: "http://localhost", pathname: "/", search: "", hash: "")
       @window = window
-      @origin = origin
-      @pathname = pathname
-      @search = search
-      @hash = hash
+      @record = Internal::UrlParser.parse("#{origin}#{pathname}#{search}#{hash}")
     end
 
     def __js_get__(key)
       case key
       when "origin"
-        @origin
+        origin
       when "pathname"
-        @pathname
+        Internal::UrlParser.serialize_path(@record)
       when "search"
-        @search
+        current_search
       when "hash"
-        @hash
+        current_hash
       when "href"
         href
       when "host"
-        # WHATWG host = hostname, plus ":port" only when the port is non-default.
-        uri = URI(@origin)
-        hostname = uri.host || ""
-        port = origin_port_string(uri)
-        port.empty? ? hostname : "#{hostname}:#{port}"
+        host
       when "hostname"
-        URI(@origin).host || ""
+        @record.host.to_s
       when "protocol"
-        URI(@origin).scheme ? "#{URI(@origin).scheme}:" : ""
+        "#{@record.scheme}:"
       when "port"
-        origin_port_string(URI(@origin))
+        @record.port.nil? ? "" : @record.port.to_s
       else
         Bridge::ABSENT
       end
@@ -49,29 +46,19 @@ module Dommy
       when "href"
         __internal_navigate_to__(value.to_s, replace: false, source: :location)
       when "hash"
-        new_hash = value.to_s
-        new_hash = "##{new_hash}" unless new_hash.empty? || new_hash.start_with?("#")
-        return if new_hash == @hash
-
-        previous_href = href
-        @hash = new_hash
-        # Setting the fragment is always same-document — fire hashchange with the
-        # full URLs before/after (no delegate navigation).
-        @window.fire_hashchange(previous_href, href)
+        set_hash(value.to_s)
       when "pathname"
-        @pathname = value.to_s
+        set_pathname(value.to_s)
       when "search"
-        s = value.to_s
-        @search = s.empty? || s.start_with?("?") ? s : "?#{s}"
+        set_search(value.to_s)
       when "host"
-        # `host` is "hostname[:port]" — split and update origin.
-        update_origin_host(value.to_s)
+        set_host(value.to_s)
       when "hostname"
-        update_origin_hostname(value.to_s)
+        set_hostname(value.to_s)
       when "port"
-        update_origin_port(value.to_s)
+        set_port(value.to_s)
       when "protocol"
-        update_origin_protocol(value.to_s)
+        parse_into("#{value}:", :scheme_start)
       end
     end
 
@@ -92,31 +79,23 @@ module Dommy
     end
 
     def href
-      "#{@origin}#{@pathname}#{@search}#{@hash}"
+      Internal::UrlParser.serialize(@record)
     end
 
-    # Internal — accepts an absolute or relative URL string and updates
-    # pathname / search / hash. Called by History pushState / replaceState
-    # (with `fire_hash: false`, since a pushState never fires hashchange) and by
-    # the same-document navigation path. `fire_hash` gates the hashchange event
-    # so callers that handle the fragment-change signal themselves can suppress it.
+    # Internal — accepts an absolute or relative URL string and updates the
+    # record. Called by History pushState / replaceState (with `fire_hash:
+    # false`, since a pushState never fires hashchange) and by the
+    # same-document navigation path. `fire_hash` gates the hashchange event
+    # so callers that handle the fragment-change signal themselves can
+    # suppress it. A parse failure leaves the record unchanged — every real
+    # caller has already had `raw` validated by `resolve`.
     def __internal_set_url__(raw, fire_hash: true)
-      previous_hash = @hash
+      previous_hash = current_hash
       previous_href = href
-      if raw.start_with?("#")
-        @hash = raw
-      else
-        uri = URI.join(@origin + @pathname + @search + @hash, raw) rescue URI(raw)
-        # An absolute URL (carrying scheme + host) navigates to a new
-        # origin; a relative URL inherits the current origin from the
-        # join base, so rebuilding with the same parts is a no-op.
-        rebuild_origin(scheme: uri.scheme, host: uri.host, port: uri.port) if uri.scheme && uri.host
-        @pathname = uri.path.to_s == "" ? "/" : uri.path
-        @search = uri.query ? "?#{uri.query}" : ""
-        @hash = uri.fragment ? "##{uri.fragment}" : ""
-      end
-
-      @window.fire_hashchange(previous_href, href) if fire_hash && previous_hash != @hash
+      @record = Internal::UrlParser.parse(raw, @record)
+      @window.fire_hashchange(previous_href, href) if fire_hash && previous_hash != current_hash
+    rescue Internal::UrlParser::Failure
+      nil
     end
 
     # `location.href = X` / `assign` / `replace`, and the shared entry point for
@@ -140,79 +119,117 @@ module Dommy
 
         return
       end
-      if same_document?(href, target)
+      if same_document?(@record, target)
         __internal_set_url__(raw)
       else
         __internal_set_url__(raw, fire_hash: false) if sync_cross_doc
-        @window.__internal_navigate__(url: target, method: "GET", replace: replace, source: source)
+        @window.__internal_navigate__(url: Internal::UrlParser.serialize(target), method: "GET", replace: replace, source: source)
       end
     end
 
     private
 
-    # Resolve a possibly-relative URL against the current full URL with the
-    # URL parser; nil when it fails.
+    # Resolve a possibly-relative URL against the current record with the
+    # URL parser; nil when it fails. Returns a Record, not a string, so the
+    # caller can compare fields without a round trip through serialize+parse.
     def resolve(raw)
-      base = href
-      base = nil unless Internal::UrlParser.parse(base) rescue nil
-      Internal::UrlParser.serialize(Internal::UrlParser.parse(raw, base))
+      Internal::UrlParser.parse(raw, @record)
     rescue Internal::UrlParser::Failure
       nil
     end
 
     # Two URLs address the same document when everything but the fragment matches.
     def same_document?(a, b)
-      ua = URI(a)
-      ub = URI(b)
-      ua.scheme == ub.scheme && ua.host == ub.host && ua.port == ub.port &&
-        ua.path == ub.path && ua.query == ub.query
-    rescue URI::InvalidURIError, ArgumentError
-      false
+      a.scheme == b.scheme && a.host == b.host && a.port == b.port &&
+        a.path == b.path && a.query == b.query
     end
 
-    def origin_parts
-      uri = URI(@origin)
-      {scheme: uri.scheme, host: uri.host, port: uri.port}
-    rescue URI::InvalidURIError, ArgumentError
-      {scheme: "http", host: "localhost", port: 80}
+    def origin
+      return "" if @record.host.nil?
+
+      port_part = @record.port ? ":#{@record.port}" : ""
+      "#{@record.scheme}://#{@record.host}#{port_part}"
     end
 
-    # WHATWG: the port is the empty string when it equals the scheme's default
-    # (URI always fills the default in, so compare against it explicitly).
-    def origin_port_string(uri)
-      port = uri.port
-      return "" if port.nil?
+    def host
+      return "" if @record.host.nil?
 
-      default = uri.respond_to?(:default_port) ? uri.default_port : nil
-      port == default ? "" : port.to_s
+      @record.port ? "#{@record.host}:#{@record.port}" : @record.host
     end
 
-    def rebuild_origin(scheme:, host:, port:)
-      default_port = (scheme == "https" ? 443 : 80)
-      port_segment = (port && port != default_port) ? ":#{port}" : ""
-      @origin = "#{scheme}://#{host}#{port_segment}"
+    def current_search
+      q = @record.query
+      q.nil? || q.empty? ? "" : "?#{q}"
     end
 
-    def update_origin_host(value)
-      hostname, port = value.split(":", 2)
-      parts = origin_parts
-      rebuild_origin(scheme: parts[:scheme], host: hostname, port: port&.to_i || parts[:port])
+    def current_hash
+      f = @record.fragment
+      f.nil? || f.empty? ? "" : "##{f}"
     end
 
-    def update_origin_hostname(value)
-      parts = origin_parts
-      rebuild_origin(scheme: parts[:scheme], host: value, port: parts[:port])
+    def set_hash(value)
+      previous_hash = current_hash
+      previous_href = href
+      v = value.delete_prefix("#")
+      if v.empty?
+        @record.fragment = nil
+      else
+        @record.fragment = +""
+        parse_into(v, :fragment)
+      end
+      # Setting the fragment is always same-document — fire hashchange with the
+      # full URLs before/after (no delegate navigation).
+      @window.fire_hashchange(previous_href, href) if current_hash != previous_hash
     end
 
-    def update_origin_port(value)
-      parts = origin_parts
-      rebuild_origin(scheme: parts[:scheme], host: parts[:host], port: value.to_i)
+    def set_pathname(value)
+      return if @record.opaque_path?
+
+      @record.path = []
+      parse_into(value, :path_start)
     end
 
-    def update_origin_protocol(value)
-      parts = origin_parts
-      scheme = value.to_s.sub(/:\z/, "")
-      rebuild_origin(scheme: scheme, host: parts[:host], port: parts[:port])
+    def set_host(value)
+      return if @record.opaque_path?
+
+      parse_into(value, :host)
+    end
+
+    def set_hostname(value)
+      return if @record.opaque_path?
+
+      parse_into(value, :hostname)
+    end
+
+    def set_search(value)
+      if value.empty?
+        @record.query = nil
+      else
+        @record.query = +""
+        parse_into(value.delete_prefix("?"), :query)
+      end
+    end
+
+    def set_port(value)
+      return if cannot_have_credentials?
+
+      if value.empty?
+        @record.port = nil
+      else
+        parse_into(value, :port)
+      end
+    end
+
+    def cannot_have_credentials?
+      @record.host.nil? || @record.host == "" || @record.scheme == "file"
+    end
+
+    # Run the parser from `state` into the current record; a rejected value
+    # changes nothing (WHATWG URLUtils setters).
+    def parse_into(value, state)
+      Internal::UrlParser.parse_with_override(value.to_s, @record, state)
+    rescue Internal::UrlParser::Failure
+      nil
     end
   end
 end
