@@ -334,395 +334,469 @@ module Dommy
       # ===== the basic URL parser state machine =====
 
       def run(input, base, url: nil, state_override: nil)
-        input = input.dup
-        # Strip leading/trailing C0 controls and spaces (only for a fresh
-        # parse; a setter's input keeps them), then remove all ASCII
-        # tab/newline.
-        input = input.sub(/\A[\x00-\x20]+/, "").sub(/[\x00-\x20]+\z/, "") if url.nil?
-        input = input.gsub(/[\t\n\r]/, "")
+        BasicParser.new(input, base, url: url, state_override: state_override).run
+      end
 
-        chars = input.chars
-        len = chars.length
-        state = state_override || :scheme_start
-        url ||= Record.new("", "", "", nil, nil, [], nil, nil)
-        buffer = +""
-        at_sign_seen = false
-        inside_brackets = false
-        password_token_seen = false
-        ptr = 0
+      # The basic URL parser's state machine (url.spec.whatwg.org §4.4), one
+      # method per state.
+      #
+      # It was one 390-line method, which is faithful to the spec's shape but
+      # leaves eight mutable locals whose writers are scattered over twenty
+      # states. As a class the locals are the parser's own state, and each spec
+      # state is a method carrying the spec's name for it, so a state can be
+      # read without reading the other nineteen.
+      #
+      # The two non-linear moves the spec makes are throws the loop catches:
+      # "do not advance, re-run this position in the new state" is
+      # `throw :reprocess`, and a setter that stops early (state_override) is
+      # `throw :done`. A `next` inside a nested block still means the next
+      # element of that block — see the authority state, which walks the
+      # buffer's characters.
+      class BasicParser
+        include UrlParser
 
-        cp = lambda { ptr < len ? chars[ptr] : nil }
+        STATES = {
+          scheme_start: :state_scheme_start,
+          scheme: :state_scheme,
+          no_scheme: :state_no_scheme,
+          special_relative_or_authority: :state_special_relative_or_authority,
+          path_or_authority: :state_path_or_authority,
+          relative: :state_relative,
+          relative_slash: :state_relative_slash,
+          special_authority_slashes: :state_special_authority_slashes,
+          special_authority_ignore_slashes: :state_special_authority_ignore_slashes,
+          authority: :state_authority,
+          host: :state_host,
+          hostname: :state_host,
+          port: :state_port,
+          file: :state_file,
+          file_slash: :state_file_slash,
+          file_host: :state_file_host,
+          path_start: :state_path_start,
+          path: :state_path,
+          opaque_path: :state_opaque_path,
+          query: :state_query,
+          fragment: :state_fragment,
+        }.freeze
 
-        loop do
-          c = cp.call
-
-          case state
-          when :scheme_start
-            if c&.match?(/[A-Za-z]/)
-              buffer << c.downcase
-              state = :scheme
-            elsif state_override
-              raise Failure, "scheme must start with a letter"
-            else
-              state = :no_scheme
-              next # reprocess (do not advance)
-            end
-
-          when :scheme
-            if c&.match?(/[A-Za-z0-9+\-.]/)
-              buffer << c.downcase
-            elsif c == ":"
-              if state_override
-                # A setter may not move a URL between special and
-                # non-special, onto file with credentials or a port, or off
-                # file with an empty host.
-                return url if SPECIAL.key?(url.scheme) != SPECIAL.key?(buffer)
-                return url if (url.includes_credentials? || !url.port.nil?) && buffer == "file"
-                return url if url.scheme == "file" && url.host == ""
-
-                url.scheme = buffer
-                url.port = nil if url.port == url.default_port
-                return url
-              end
-
-              url.scheme = buffer
-              buffer = +""
-              if url.scheme == "file"
-                state = :file
-              elsif url.special? && base && base.scheme == url.scheme
-                state = :special_relative_or_authority
-              elsif url.special?
-                state = :special_authority_slashes
-              elsif input[(ptr + 1)..].to_s.start_with?("/")
-                state = :path_or_authority
-                ptr += 1
-              else
-                url.path = ""
-                state = :opaque_path
-              end
-            elsif state_override
-              raise Failure, "invalid scheme"
-            else
-              buffer = +""
-              state = :no_scheme
-              ptr = -1 # restart from 0 (advance makes it 0)
-            end
-
-          when :no_scheme
-            raise Failure, "missing scheme" if base.nil? || (base.opaque_path? && c != "#")
-
-            if base.opaque_path? && c == "#"
-              url.scheme = base.scheme
-              url.path = base.path
-              url.query = base.query
-              url.fragment = +""
-              state = :fragment
-            elsif base.scheme != "file"
-              state = :relative
-              next
-            else
-              state = :file
-              next
-            end
-
-          when :special_relative_or_authority
-            if c == "/" && input[(ptr + 1)..].to_s.start_with?("/")
-              state = :special_authority_ignore_slashes
-              ptr += 1
-            else
-              state = :relative
-              next
-            end
-
-          when :path_or_authority
-            if c == "/"
-              state = :authority
-            else
-              state = :path
-              next
-            end
-
-          when :relative
-            url.scheme = base.scheme
-            if c == "/"
-              state = :relative_slash
-            elsif url.special? && c == "\\"
-              state = :relative_slash
-            else
-              url.username = base.username
-              url.password = base.password
-              url.host = base.host
-              url.port = base.port
-              url.path = base.path.dup
-              url.query = base.query
-              if c == "?"
-                url.query = +""
-                state = :query
-              elsif c == "#"
-                url.fragment = +""
-                state = :fragment
-              elsif c
-                url.query = nil
-                shorten_path(url)
-                state = :path
-                next
-              end
-            end
-
-          when :relative_slash
-            if url.special? && (c == "/" || c == "\\")
-              state = :special_authority_ignore_slashes
-            elsif c == "/"
-              state = :authority
-            else
-              url.username = base.username
-              url.password = base.password
-              url.host = base.host
-              url.port = base.port
-              state = :path
-              next
-            end
-
-          when :special_authority_slashes
-            if c == "/" && input[(ptr + 1)..].to_s.start_with?("/")
-              state = :special_authority_ignore_slashes
-              ptr += 1
-            else
-              state = :special_authority_ignore_slashes
-              next
-            end
-
-          when :special_authority_ignore_slashes
-            if c != "/" && c != "\\"
-              state = :authority
-              next
-            end
-
-          when :authority
-            if c == "@"
-              buffer = "%40#{buffer}" if at_sign_seen
-              at_sign_seen = true
-              buffer.each_char do |ch|
-                if ch == ":" && !password_token_seen
-                  password_token_seen = true
-                  next
-                end
-                encoded = pe(ch, method(:userinfo_set?))
-                if password_token_seen
-                  url.password += encoded
-                else
-                  url.username += encoded
-                end
-              end
-              buffer = +""
-            elsif c.nil? || ["/", "?", "#"].include?(c) || (url.special? && c == "\\")
-              raise Failure, "empty host with credentials" if at_sign_seen && buffer.empty?
-
-              ptr -= (buffer.length + 1)
-              buffer = +""
-              state = :host
-            else
-              buffer << c
-            end
-
-          when :host, :hostname
-            if state_override && url.scheme == "file"
-              ptr -= 1
-              state = :file_host
-            elsif c == ":" && !inside_brackets
-              raise Failure, "empty host" if buffer.empty?
-              raise Failure, "a hostname cannot carry a port" if state_override == :hostname
-
-              url.host = parse_host(buffer, url.special?)
-              buffer = +""
-              state = :port
-            elsif c.nil? || ["/", "?", "#"].include?(c) || (url.special? && c == "\\")
-              ptr -= 1
-              raise Failure, "empty special host" if url.special? && buffer.empty?
-              if state_override && buffer.empty? && (url.includes_credentials? || !url.port.nil?)
-                raise Failure, "a URL with credentials or a port needs a host"
-              end
-
-              url.host = parse_host(buffer, url.special?)
-              return url if state_override
-
-              buffer = +""
-              state = :path_start
-            else
-              inside_brackets = true if c == "["
-              inside_brackets = false if c == "]"
-              buffer << c
-            end
-
-          when :port
-            if c&.match?(/[0-9]/)
-              buffer << c
-            elsif c.nil? || ["/", "?", "#"].include?(c) || (url.special? && c == "\\") || state_override
-              unless buffer.empty?
-                port = buffer.to_i
-                raise Failure, "port out of range" if port > 65_535
-
-                url.port = (port == url.default_port ? nil : port)
-                buffer = +""
-                return url if state_override
-              end
-              raise Failure, "empty port" if state_override
-
-              state = :path_start
-              next
-            else
-              raise Failure, "invalid port"
-            end
-
-          when :file
-            url.scheme = "file"
-            url.host = ""
-            if c == "/" || c == "\\"
-              state = :file_slash
-            elsif base && base.scheme == "file"
-              url.host = base.host
-              url.path = base.path.dup
-              url.query = base.query
-              if c == "?"
-                url.query = +""
-                state = :query
-              elsif c == "#"
-                url.fragment = +""
-                state = :fragment
-              elsif c
-                url.query = nil
-                shorten_path(url) unless starts_with_windows_drive_letter?(input[ptr..].to_s)
-                url.path = [] if starts_with_windows_drive_letter?(input[ptr..].to_s)
-                state = :path
-                next
-              end
-            else
-              state = :path
-              next
-            end
-
-          when :file_slash
-            if c == "/" || c == "\\"
-              state = :file_host
-            else
-              if base && base.scheme == "file"
-                url.host = base.host
-                if !starts_with_windows_drive_letter?(input[ptr..].to_s) &&
-                    base.path[0] && normalized_windows_drive_letter?(base.path[0])
-                  url.path << base.path[0]
-                end
-              end
-              state = :path
-              next
-            end
-
-          when :file_host
-            if c.nil? || ["/", "\\", "?", "#"].include?(c)
-              ptr -= 1
-              if state_override.nil? && buffer.match?(/\A[A-Za-z][:|]\z/)
-                state = :path
-              elsif buffer.empty?
-                url.host = ""
-                return url if state_override
-
-                state = :path_start
-              else
-                host = parse_host(buffer, true)
-                host = "" if host == "localhost"
-                url.host = host
-                return url if state_override
-
-                buffer = +""
-                state = :path_start
-              end
-            else
-              buffer << c
-            end
-
-          when :path_start
-            if url.special?
-              state = :path
-              next unless c == "/" || c == "\\"
-            elsif state_override.nil? && c == "?"
-              url.query = +""
-              state = :query
-            elsif state_override.nil? && c == "#"
-              url.fragment = +""
-              state = :fragment
-            elsif c
-              state = :path
-              next unless c == "/"
-            elsif state_override && url.host.nil?
-              url.path << ""
-            end
-
-          when :path
-            if c.nil? || c == "/" || (url.special? && c == "\\") ||
-                (state_override.nil? && (c == "?" || c == "#"))
-              if double_dot?(buffer)
-                shorten_path(url)
-                url.path << "" unless c == "/" || (url.special? && c == "\\")
-              elsif single_dot?(buffer)
-                url.path << "" unless c == "/" || (url.special? && c == "\\")
-              else
-                if url.scheme == "file" && url.path.empty? && windows_drive_letter?(buffer)
-                  buffer[1] = ":"
-                end
-                url.path << buffer
-              end
-              buffer = +""
-              if c == "?"
-                url.query = +""
-                state = :query
-              elsif c == "#"
-                url.fragment = +""
-                state = :fragment
-              end
-            else
-              buffer << pe(c, method(:path_set?))
-            end
-
-          when :opaque_path
-            if c == "?"
-              url.query = +""
-              state = :query
-            elsif c == "#"
-              url.fragment = +""
-              state = :fragment
-            elsif c == " "
-              # A space is only percent-encoded when it abuts the end of
-              # the opaque path (a following `?`/`#`); an interior space
-              # stays literal. (Trailing-at-EOF spaces are already gone
-              # via the leading/trailing strip.)
-              nxt = chars[ptr + 1]
-              url.path += (nxt == "?" || nxt == "#") ? "%20" : " "
-            elsif c
-              url.path += pe(c, method(:c0?))
-            end
-
-          when :query
-            if c.nil? || (state_override.nil? && c == "#")
-              set = url.special? ? method(:special_query_set?) : method(:query_set?)
-              url.query += buffer.each_char.map { |ch| pe(ch, set) }.join
-              buffer = +""
-              if c == "#"
-                url.fragment = +""
-                state = :fragment
-              end
-            else
-              buffer << c
-            end
-
-          when :fragment
-            url.fragment += pe(c, method(:fragment_set?)) if c
-          end
-
-          break if ptr >= len
-
-          ptr += 1
+        def initialize(input, base, url: nil, state_override: nil)
+          input = input.dup
+          # Strip leading/trailing C0 controls and spaces (only for a fresh
+          # parse; a setter's input keeps them), then remove all ASCII
+          # tab/newline.
+          input = input.sub(/\A[\x00-\x20]+/, "").sub(/[\x00-\x20]+\z/, "") if url.nil?
+          @input = input.gsub(/[\t\n\r]/, "")
+          @chars = @input.chars
+          @len = @chars.length
+          @base = base
+          @state_override = state_override
+          @state = state_override || :scheme_start
+          @url = url || Record.new("", "", "", nil, nil, [], nil, nil)
+          @buffer = +""
+          @at_sign_seen = false
+          @inside_brackets = false
+          @password_token_seen = false
+          @ptr = 0
         end
 
-        url
+        def run
+          catch(:done) do
+            loop do
+              advanced = catch(:reprocess) do
+                send(STATES.fetch(@state), current_char)
+                true
+              end
+              next unless advanced
+              break if @ptr >= @len
+
+              @ptr += 1
+            end
+            @url
+          end
+        end
+
+        private
+
+        def current_char = @ptr < @len ? @chars[@ptr] : nil
+
+        def state_scheme_start(c)
+          if c&.match?(/[A-Za-z]/)
+            @buffer << c.downcase
+            @state = :scheme
+          elsif @state_override
+            raise Failure, "scheme must start with a letter"
+          else
+            @state = :no_scheme
+            throw :reprocess
+          end
+        end
+
+        def state_scheme(c)
+          if c&.match?(/[A-Za-z0-9+\-.]/)
+            @buffer << c.downcase
+          elsif c == ":"
+            if @state_override
+              # A setter may not move a URL between special and
+              # non-special, onto file with credentials or a port, or off
+              # file with an empty host.
+              throw :done, @url if SPECIAL.key?(@url.scheme) != SPECIAL.key?(@buffer)
+              throw :done, @url if (@url.includes_credentials? || !@url.port.nil?) && @buffer == "file"
+              throw :done, @url if @url.scheme == "file" && @url.host == ""
+
+              @url.scheme = @buffer
+              @url.port = nil if @url.port == @url.default_port
+              throw :done, @url
+            end
+
+            @url.scheme = @buffer
+            @buffer = +""
+            if @url.scheme == "file"
+              @state = :file
+            elsif @url.special? && @base && @base.scheme == @url.scheme
+              @state = :special_relative_or_authority
+            elsif @url.special?
+              @state = :special_authority_slashes
+            elsif @input[(@ptr + 1)..].to_s.start_with?("/")
+              @state = :path_or_authority
+              @ptr += 1
+            else
+              @url.path = ""
+              @state = :opaque_path
+            end
+          elsif @state_override
+            raise Failure, "invalid scheme"
+          else
+            @buffer = +""
+            @state = :no_scheme
+            @ptr = -1 # restart from 0 (advance makes it 0)
+          end
+        end
+
+        def state_no_scheme(c)
+          raise Failure, "missing scheme" if @base.nil? || (@base.opaque_path? && c != "#")
+
+          if @base.opaque_path? && c == "#"
+            @url.scheme = @base.scheme
+            @url.path = @base.path
+            @url.query = @base.query
+            @url.fragment = +""
+            @state = :fragment
+          elsif @base.scheme != "file"
+            @state = :relative
+            throw :reprocess
+          else
+            @state = :file
+            throw :reprocess
+          end
+        end
+
+        def state_special_relative_or_authority(c)
+          if c == "/" && @input[(@ptr + 1)..].to_s.start_with?("/")
+            @state = :special_authority_ignore_slashes
+            @ptr += 1
+          else
+            @state = :relative
+            throw :reprocess
+          end
+        end
+
+        def state_path_or_authority(c)
+          if c == "/"
+            @state = :authority
+          else
+            @state = :path
+            throw :reprocess
+          end
+        end
+
+        def state_relative(c)
+          @url.scheme = @base.scheme
+          if c == "/"
+            @state = :relative_slash
+          elsif @url.special? && c == "\\"
+            @state = :relative_slash
+          else
+            @url.username = @base.username
+            @url.password = @base.password
+            @url.host = @base.host
+            @url.port = @base.port
+            @url.path = @base.path.dup
+            @url.query = @base.query
+            if c == "?"
+              @url.query = +""
+              @state = :query
+            elsif c == "#"
+              @url.fragment = +""
+              @state = :fragment
+            elsif c
+              @url.query = nil
+              shorten_path(@url)
+              @state = :path
+              throw :reprocess
+            end
+          end
+        end
+
+        def state_relative_slash(c)
+          if @url.special? && (c == "/" || c == "\\")
+            @state = :special_authority_ignore_slashes
+          elsif c == "/"
+            @state = :authority
+          else
+            @url.username = @base.username
+            @url.password = @base.password
+            @url.host = @base.host
+            @url.port = @base.port
+            @state = :path
+            throw :reprocess
+          end
+        end
+
+        def state_special_authority_slashes(c)
+          if c == "/" && @input[(@ptr + 1)..].to_s.start_with?("/")
+            @state = :special_authority_ignore_slashes
+            @ptr += 1
+          else
+            @state = :special_authority_ignore_slashes
+            throw :reprocess
+          end
+        end
+
+        def state_special_authority_ignore_slashes(c)
+          if c != "/" && c != "\\"
+            @state = :authority
+            throw :reprocess
+          end
+        end
+
+        def state_authority(c)
+          if c == "@"
+            @buffer = "%40#{@buffer}" if @at_sign_seen
+            @at_sign_seen = true
+            @buffer.each_char do |ch|
+              if ch == ":" && !@password_token_seen
+                @password_token_seen = true
+                next
+              end
+              encoded = pe(ch, method(:userinfo_set?))
+              if @password_token_seen
+                @url.password += encoded
+              else
+                @url.username += encoded
+              end
+            end
+            @buffer = +""
+          elsif c.nil? || ["/", "?", "#"].include?(c) || (@url.special? && c == "\\")
+            raise Failure, "empty host with credentials" if @at_sign_seen && @buffer.empty?
+
+            @ptr -= (@buffer.length + 1)
+            @buffer = +""
+            @state = :host
+          else
+            @buffer << c
+          end
+        end
+
+        def state_host(c)
+          if @state_override && @url.scheme == "file"
+            @ptr -= 1
+            @state = :file_host
+          elsif c == ":" && !@inside_brackets
+            raise Failure, "empty host" if @buffer.empty?
+            raise Failure, "a hostname cannot carry a port" if @state_override == :hostname
+
+            @url.host = parse_host(@buffer, @url.special?)
+            @buffer = +""
+            @state = :port
+          elsif c.nil? || ["/", "?", "#"].include?(c) || (@url.special? && c == "\\")
+            @ptr -= 1
+            raise Failure, "empty special host" if @url.special? && @buffer.empty?
+            if @state_override && @buffer.empty? && (@url.includes_credentials? || !@url.port.nil?)
+              raise Failure, "a URL with credentials or a port needs a host"
+            end
+
+            @url.host = parse_host(@buffer, @url.special?)
+            throw :done, @url if @state_override
+
+            @buffer = +""
+            @state = :path_start
+          else
+            @inside_brackets = true if c == "["
+            @inside_brackets = false if c == "]"
+            @buffer << c
+          end
+        end
+
+        def state_port(c)
+          if c&.match?(/[0-9]/)
+            @buffer << c
+          elsif c.nil? || ["/", "?", "#"].include?(c) || (@url.special? && c == "\\") || @state_override
+            unless @buffer.empty?
+              port = @buffer.to_i
+              raise Failure, "port out of range" if port > 65_535
+
+              @url.port = (port == @url.default_port ? nil : port)
+              @buffer = +""
+              throw :done, @url if @state_override
+            end
+            raise Failure, "empty port" if @state_override
+
+            @state = :path_start
+            throw :reprocess
+          else
+            raise Failure, "invalid port"
+          end
+        end
+
+        def state_file(c)
+          @url.scheme = "file"
+          @url.host = ""
+          if c == "/" || c == "\\"
+            @state = :file_slash
+          elsif @base && @base.scheme == "file"
+            @url.host = @base.host
+            @url.path = @base.path.dup
+            @url.query = @base.query
+            if c == "?"
+              @url.query = +""
+              @state = :query
+            elsif c == "#"
+              @url.fragment = +""
+              @state = :fragment
+            elsif c
+              @url.query = nil
+              shorten_path(@url) unless starts_with_windows_drive_letter?(@input[@ptr..].to_s)
+              @url.path = [] if starts_with_windows_drive_letter?(@input[@ptr..].to_s)
+              @state = :path
+              throw :reprocess
+            end
+          else
+            @state = :path
+            throw :reprocess
+          end
+        end
+
+        def state_file_slash(c)
+          if c == "/" || c == "\\"
+            @state = :file_host
+          else
+            if @base && @base.scheme == "file"
+              @url.host = @base.host
+              if !starts_with_windows_drive_letter?(@input[@ptr..].to_s) &&
+                  @base.path[0] && normalized_windows_drive_letter?(@base.path[0])
+                @url.path << @base.path[0]
+              end
+            end
+            @state = :path
+            throw :reprocess
+          end
+        end
+
+        def state_file_host(c)
+          if c.nil? || ["/", "\\", "?", "#"].include?(c)
+            @ptr -= 1
+            if @state_override.nil? && @buffer.match?(/\A[A-Za-z][:|]\z/)
+              @state = :path
+            elsif @buffer.empty?
+              @url.host = ""
+              throw :done, @url if @state_override
+
+              @state = :path_start
+            else
+              host = parse_host(@buffer, true)
+              host = "" if host == "localhost"
+              @url.host = host
+              throw :done, @url if @state_override
+
+              @buffer = +""
+              @state = :path_start
+            end
+          else
+            @buffer << c
+          end
+        end
+
+        def state_path_start(c)
+          if @url.special?
+            @state = :path
+            throw :reprocess unless c == "/" || c == "\\"
+          elsif @state_override.nil? && c == "?"
+            @url.query = +""
+            @state = :query
+          elsif @state_override.nil? && c == "#"
+            @url.fragment = +""
+            @state = :fragment
+          elsif c
+            @state = :path
+            throw :reprocess unless c == "/"
+          elsif @state_override && @url.host.nil?
+            @url.path << ""
+          end
+        end
+
+        def state_path(c)
+          if c.nil? || c == "/" || (@url.special? && c == "\\") ||
+              (@state_override.nil? && (c == "?" || c == "#"))
+            if double_dot?(@buffer)
+              shorten_path(@url)
+              @url.path << "" unless c == "/" || (@url.special? && c == "\\")
+            elsif single_dot?(@buffer)
+              @url.path << "" unless c == "/" || (@url.special? && c == "\\")
+            else
+              if @url.scheme == "file" && @url.path.empty? && windows_drive_letter?(@buffer)
+                @buffer[1] = ":"
+              end
+              @url.path << @buffer
+            end
+            @buffer = +""
+            if c == "?"
+              @url.query = +""
+              @state = :query
+            elsif c == "#"
+              @url.fragment = +""
+              @state = :fragment
+            end
+          else
+            @buffer << pe(c, method(:path_set?))
+          end
+        end
+
+        def state_opaque_path(c)
+          if c == "?"
+            @url.query = +""
+            @state = :query
+          elsif c == "#"
+            @url.fragment = +""
+            @state = :fragment
+          elsif c == " "
+            # A space is only percent-encoded when it abuts the end of
+            # the opaque path (a following `?`/`#`); an interior space
+            # stays literal. (Trailing-at-EOF spaces are already gone
+            # via the leading/trailing strip.)
+            nxt = @chars[@ptr + 1]
+            @url.path += (nxt == "?" || nxt == "#") ? "%20" : " "
+          elsif c
+            @url.path += pe(c, method(:c0?))
+          end
+        end
+
+        def state_query(c)
+          if c.nil? || (@state_override.nil? && c == "#")
+            set = @url.special? ? method(:special_query_set?) : method(:query_set?)
+            @url.query += @buffer.each_char.map { |ch| pe(ch, set) }.join
+            @buffer = +""
+            if c == "#"
+              @url.fragment = +""
+              @state = :fragment
+            end
+          else
+            @buffer << c
+          end
+        end
+
+        def state_fragment(c)
+          @url.fragment += pe(c, method(:fragment_set?)) if c
+        end
       end
     end
   end
