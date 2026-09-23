@@ -6,6 +6,7 @@ require_relative "supports"
 require_relative "ua_stylesheet"
 require_relative "../selector_ast"
 require_relative "../selector_matcher"
+require_relative "selector_dependencies"
 
 module Dommy
   module Internal
@@ -46,17 +47,9 @@ module Dommy
           @pseudo_index = Hash.new { |h, k| h[k] = {}.compare_by_identity }
           @order = 0
           @imported_urls = {}
-          # Invalidation dependencies, collected while indexing (see
-          # Document#__internal_note_attribute_mutation__): the attribute
-          # names any indexed selector can read ("style" is always one — the
-          # cascade reads the style attribute directly), and whether any
-          # selector is text-sensitive (:empty). An AST construct this
-          # collector doesn't understand sets @all_attr_deps — correctness
-          # over cache hits.
-          @attr_deps = {"style" => true}
-          @text_sensitive = false
-          @value_sensitive = false
-          @all_attr_deps = false
+          # What the indexed selectors read, so a later mutation can be judged
+          # (see Document#__internal_note_attribute_mutation__).
+          @dependencies = SelectorDependencies.new
           # The lazy-rule buckets (LazyEntry, keyed by the subject compound's
           # most selective simple selector) and the per-element match memos.
           @bucket_id = {}
@@ -113,23 +106,17 @@ module Dommy
 
         # Whether a mutation of attribute `name` can change what any indexed
         # selector matches (and so must invalidate the cascade caches).
-        def attribute_dependency?(name)
-          @all_attr_deps || @attr_deps.key?(name.to_s.downcase)
-        end
+        def attribute_dependency?(name) = @dependencies.attribute?(name)
 
         # Whether any indexed selector reads text content (:empty), so an
         # emptiness-flipping characterData edit must invalidate the cascade.
-        def text_sensitive?
-          @text_sensitive
-        end
+        def text_sensitive? = @dependencies.text_sensitive?
 
         # Whether any indexed selector reads a form control's IDL value
         # (:valid / :invalid / :in-range / :placeholder-shown …), so assigning
         # `input.value` — which mutates no attribute — must invalidate the
         # cascade.
-        def value_sensitive?
-          @value_sensitive
-        end
+        def value_sensitive? = @dependencies.value_sensitive?
 
         private
 
@@ -191,19 +178,30 @@ module Dommy
         # are read-only value objects, safe to share between builds. (Hash
         # dup+freezes unfrozen String keys, so a later mutation of the
         # source text can't corrupt an entry.)
+        #
+        # Least-recently-used, so a document with more sheets than the cap keeps
+        # the ones it is actually rebuilding from. Clearing wholesale instead
+        # made the 65th sheet throw away the 64 in use, which is exactly the
+        # case a cache is for. Ruby's Hash preserves insertion order, so
+        # re-inserting on a hit is enough to order it by recency.
         PARSE_CACHE = {}
         PARSE_CACHE_CAP = 64
 
         def safe_parse(text)
-          cached = PARSE_CACHE[text]
-          return cached if cached
+          cached = PARSE_CACHE.delete(text)
+          return (PARSE_CACHE[text] = cached) if cached
 
           rules = Parser.parse(text)
-          PARSE_CACHE.clear if PARSE_CACHE.size >= PARSE_CACHE_CAP
+          PARSE_CACHE.shift while PARSE_CACHE.size >= PARSE_CACHE_CAP
           PARSE_CACHE[text] = rules
         rescue Parser::Unavailable
+          # A missing makiri is not a malformed sheet: it means CSS is
+          # unavailable at all, which the caller reports rather than swallows.
           raise
         rescue StandardError
+          # Lexbor recovers from bad CSS itself, so reaching here means the
+          # normalization above it broke on a shape it did not expect. One
+          # sheet is dropped rather than the page.
           []
         end
 
@@ -245,7 +243,7 @@ module Dommy
             # Classify per complex selector, not per list — `div, ::before`
             # must index its branches separately (element vs pseudo).
             selector.ast.selectors.each do |complex|
-              collect_dependencies(complex)
+              @dependencies.observe(complex)
               spec = complex.specificity.to_a
               if shadow
                 index_shadow_complex(complex, spec, origin, layer, shadow, rule.declarations)
@@ -569,120 +567,10 @@ module Dommy
           ast = Internal::SelectorParser.parse!(text)
           # A scope prelude selector determines the scoping roots/limits, so
           # its reads are invalidation dependencies like any rule selector's.
-          collect_dependencies(ast)
+          @dependencies.observe(ast)
           ast
         rescue DOMException::SyntaxError
           nil
-        end
-
-        # --- invalidation-dependency collection ---------------------------
-
-        # Attribute reads behind each state pseudo-class. A pseudo-class whose
-        # state has its own invalidation path (tree position -> childList
-        # bump; focus/hover/checkedness -> selector-state bump) maps to [].
-        PSEUDO_CLASS_ATTR_DEPS = {
-          "scope" => [], "root" => [],
-          "first-child" => [], "last-child" => [], "only-child" => [],
-          "first-of-type" => [], "last-of-type" => [], "only-of-type" => [],
-          "focus" => [], "focus-visible" => [], "focus-within" => [],
-          "hover" => [], "active" => [], "visited" => [],
-          "link" => %w[href], "any-link" => %w[href],
-          "checked" => %w[checked selected type name],
-          "enabled" => %w[disabled type], "disabled" => %w[disabled type],
-          "required" => %w[required], "optional" => %w[required],
-          "read-only" => %w[readonly disabled contenteditable type],
-          "read-write" => %w[readonly disabled contenteditable type],
-          "lang" => %w[lang xml:lang], "dir" => %w[dir],
-          "target" => %w[id], "target-within" => %w[id],
-        }.freeze
-
-        TEXT_SENSITIVE_PSEUDOS = %w[empty blank].freeze
-        # Pseudo-classes that read a control's IDL value, which changes with no
-        # attribute mutation behind it (typing, `value=`, a form reset).
-        VALUE_SENSITIVE_PSEUDOS = %w[
-          valid invalid user-valid user-invalid in-range out-of-range placeholder-shown
-        ].freeze
-        NTH_PSEUDOS = %w[nth-child nth-last-child nth-of-type nth-last-of-type].freeze
-        LOGICAL_PSEUDOS = %w[is where not has host host-context].freeze
-
-        # Walk a selector AST recording every attribute it can read. An AST
-        # node kind this walker doesn't know is treated as "reads anything".
-        # `@all_attr_deps`, `@text_sensitive` and `@value_sensitive` are
-        # INDEPENDENT invalidation axes (attribute mutations vs. `:empty`-flipping
-        # text edits vs. IDL value assignments), so the walk stops only when ALL
-        # are maxed — an unmapped pseudo that sets @all_attr_deps must not hide a
-        # later `:empty` from text-sensitivity.
-        def collect_dependencies(node)
-          return if (@all_attr_deps && @text_sensitive && @value_sensitive) || node.nil?
-
-          case node
-          when Array # :has() carries its RelativeSelectors as a plain Array
-            node.each { |entry| collect_dependencies(entry) }
-          when Internal::SelectorAST::SelectorList
-            node.selectors.each { |selector| collect_dependencies(selector) }
-          when Internal::SelectorAST::RelativeSelector
-            collect_dependencies(node.complex)
-          when Internal::SelectorAST::ComplexSelector
-            node.parts.each { |part| collect_dependencies(part.compound) }
-          when Internal::SelectorAST::CompoundSelector
-            node.subclass_selectors.each { |selector| collect_dependencies(selector) }
-            collect_pseudo_element_dependencies(node.pseudo_element) if node.pseudo_element
-          when Internal::SelectorAST::TypeSelector, Internal::SelectorAST::UniversalSelector
-            nil
-          when Internal::SelectorAST::IdSelector
-            add_attr_dep("id")
-          when Internal::SelectorAST::ClassSelector
-            add_attr_dep("class")
-          when Internal::SelectorAST::AttributeSelector
-            add_attr_dep(node.name)
-          when Internal::SelectorAST::PseudoClass
-            collect_pseudo_class_dependencies(node)
-          else
-            @all_attr_deps = true
-          end
-        end
-
-        def collect_pseudo_class_dependencies(pseudo)
-          name = pseudo.name
-          # Orthogonal to the attribute axis below: :invalid both reads form
-          # attributes (falling through to @all_attr_deps) and tracks the IDL
-          # value, which no attribute mutation announces.
-          @value_sensitive = true if VALUE_SENSITIVE_PSEUDOS.include?(name)
-          if TEXT_SENSITIVE_PSEUDOS.include?(name)
-            @text_sensitive = true
-          elsif NTH_PSEUDOS.include?(name)
-            of_list = pseudo.argument.respond_to?(:of_selector_list) && pseudo.argument.of_selector_list
-            collect_dependencies(of_list) if of_list
-          elsif LOGICAL_PSEUDOS.include?(name)
-            collect_dependencies(pseudo.argument) if pseudo.argument
-          elsif (deps = PSEUDO_CLASS_ATTR_DEPS[name])
-            deps.each { |dep| add_attr_dep(dep) }
-          else
-            # :valid/:invalid read half the form attributes; anything not
-            # mapped is treated the same way.
-            @all_attr_deps = true
-          end
-        end
-
-        # A pseudo-element gates on presence, not attribute values — except
-        # ::slotted (slot assignment follows the slot/name attributes) and
-        # ::part (the part token list).
-        def collect_pseudo_element_dependencies(pseudo)
-          case pseudo.name
-          when "slotted"
-            add_attr_dep("slot")
-            add_attr_dep("name")
-            collect_dependencies(pseudo.argument) unless pseudo.argument.is_a?(Array)
-          when "part"
-            add_attr_dep("part")
-            add_attr_dep("exportparts")
-          end
-        end
-
-        def add_attr_dep(name)
-          # Once every attribute already invalidates, individual names are
-          # moot — the walk continues only to find text-sensitive pseudos.
-          @attr_deps[name.to_s.downcase] = true unless @all_attr_deps
         end
 
         # In scope for `root`: an inclusive descendant of the root that is not an
