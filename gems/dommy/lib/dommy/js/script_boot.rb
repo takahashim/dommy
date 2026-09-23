@@ -37,9 +37,11 @@ module Dommy
       # Re-run the inline-handler scan. Idempotent — the scan skips an element
       # whose handler is already compiled — so it can be replayed whenever an
       # element carrying an `on*` attribute turns up after boot (cloneNode,
-      # innerHTML, a fragment inserted by a template).
+      # innerHTML, a fragment inserted by a template). The scan itself lives in
+      # host_runtime.js, next to the handler-attribute sets it reads and the
+      # per-attribute compilation the runtime setAttribute path shares with it.
       def wire_inline_handlers(runtime, on_error: nil)
-        runtime.execute(ScriptBooter::WIRE_INLINE_HANDLERS_JS)
+        runtime.execute("__rbHost.wireInlineHandlers();")
       rescue StandardError => e
         on_error&.call(e)
       end
@@ -63,72 +65,6 @@ module Dommy
         @on_script = on_script
         @loader = nil
       end
-
-      # Compile each element's event-handler content attributes (onclick="…",
-      # oninput="…") into an event handler, reusing the working `el.onclick = fn`
-      # IDL path. Runs once at boot, after parsing and before scripts (matching
-      # the spec, where content attributes are set as the document is parsed), so
-      # a listener is live for post-load interaction. `new Function` parses the
-      # code as a function body with an `event` parameter; a syntactically bad
-      # handler is skipped, not fatal.
-      #
-      # Two subtleties: (1) a handler on <body>/<frameset> for a
-      # window-reflected event (onload, onunload, …) belongs on the WINDOW, not
-      # the element — so `<body onload>` fires; it is wired via
-      # window.addEventListener since the element's own load never fires. (2) The
-      # scan targets only elements carrying a known handler attribute (via a
-      # selector) rather than every element, then wires all on* attributes on
-      # each. An element that turns up after boot still gets its handler: a
-      # runtime `setAttribute("on*")` compiles it directly (host_runtime.js), and
-      # one that arrived already carrying the attribute (cloneNode / innerHTML)
-      # is compiled the first time a matching event is dispatched at it, which
-      # replays this scan.
-      # The event handler content attribute sets live in host_runtime.js, which
-      # gates the runtime `setAttribute("on*")` path on exactly the same lists —
-      # one source of truth for what is a handler attribute and what is just an
-      # attribute whose name starts with "on".
-      WIRE_INLINE_HANDLERS_JS = <<~JS
-        (() => {
-          const HANDLERS = __rbHost.elementHandlerAttributes;
-          const REFLECTED = __rbHost.windowReflectedHandlers;
-          // On body/frameset, blur/error/focus/load/resize/scroll are the
-          // Window's handlers too, so they reflect there like the rest.
-          const BODY_REFLECTED = new Set([
-            ...REFLECTED, "onblur", "onerror", "onfocus", "onload", "onresize", "onscroll",
-          ]);
-          const selector = [...HANDLERS, ...REFLECTED].map((name) => `[${name}]`).join(",");
-          const body = document.body;
-          // An inline handler runs with a scope chain of [element, form owner,
-          // document] inside the global, per the HTML "compile" algorithm — so
-          // `onclick="getElementById(...)"` (document) or a form-associated
-          // control's bare member resolve. Reflected (body/window) handlers keep
-          // the plain global scope (their `this` is the window, not the element).
-          const scoped = (el, code) => {
-            let src = `with(this){\n${code}\n}`;
-            if (el.form) src = `with(this.form){\n${src}\n}`;
-            return `with(document){\n${src}\n}`;
-          };
-          for (const el of document.querySelectorAll(selector)) {
-            const onBody = el === body || el.tagName === "FRAMESET";
-            for (const name of el.getAttributeNames()) {
-              if (!HANDLERS.has(name) && !(onBody && REFLECTED.has(name))) continue;
-              const code = el.getAttribute(name);
-              try {
-                if (onBody && BODY_REFLECTED.has(name)) {
-                  window.addEventListener(name.slice(2), new Function("event", code));
-                } else if (typeof el[name] !== "function") {
-                  let fn;
-                  try { fn = new Function("event", scoped(el, code)); }
-                  catch { fn = new Function("event", code); } // fall back to plain scope
-                  el[name] = fn;
-                }
-              } catch {
-                // A syntactically invalid handler is skipped, not fatal.
-              }
-            }
-          }
-        })();
-      JS
 
       def run
         @runtime.set_document_ready_state("loading")

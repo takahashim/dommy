@@ -103,7 +103,6 @@ end
 # WPT: html/webappapis/scripting/events/event-handler-non-content-document-idl-attributes.html
 class TestEventHandlerContentAttributes < Minitest::Test
   RUNTIME_JS = Dommy::Js::HostBridge::HOST_RUNTIME_JS
-  BOOT_JS = Dommy::Js::ScriptBooter::WIRE_INLINE_HANDLERS_JS
 
   def names_in(constant)
     body = RUNTIME_JS[/const #{constant} = new Set\(\[(.*?)\]\);/m, 1]
@@ -142,10 +141,17 @@ class TestEventHandlerContentAttributes < Minitest::Test
     end
   end
 
-  def test_the_boot_wiring_reads_the_sets_rather_than_repeating_them
-    assert_includes(BOOT_JS, "__rbHost.elementHandlerAttributes")
-    assert_includes(BOOT_JS, "__rbHost.windowReflectedHandlers")
-    refute_match(/new Set\(\["on/, BOOT_JS, "the boot wiring must not carry its own copy of the list")
+  # The boot-time scan and the runtime setAttribute path must read one list and
+  # compile handlers one way. They do when the scan lives beside them, so what
+  # this pins is that Ruby carries no second copy of either.
+  def test_the_boot_wiring_lives_with_the_sets_rather_than_repeating_them
+    boot = Dommy::Js::ScriptBoot.method(:wire_inline_handlers).source_location
+    ruby = ::File.read(boot.first)
+    refute_match(/new Set\(\["on/, ruby, "the boot wiring must not carry its own copy of the list")
+    refute_match(/new Function\(/, ruby, "the boot wiring must not compile handlers of its own")
+    assert_includes(RUNTIME_JS, "function wireInlineHandlers()")
+    assert_match(/wireInlineHandler\(el, name, el\.getAttribute\(name\)\)/, RUNTIME_JS,
+      "the boot scan must reuse the per-attribute compilation")
   end
 
   def test_the_runtime_gates_the_set_attribute_path_on_them

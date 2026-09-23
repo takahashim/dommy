@@ -442,6 +442,46 @@ globalThis.__rbHost = (function () {
     } catch (e) { /* syntactically invalid handler: skip, non-fatal */ }
   }
 
+  // On body/frameset, blur/error/focus/load/resize/scroll are the Window's
+  // handlers too, so they reflect there like the rest of WINDOW_REFLECTED.
+  const BODY_REFLECTED_HANDLERS = new Set([
+    ...WINDOW_REFLECTED_HANDLERS,
+    "onblur", "onerror", "onfocus", "onload", "onresize", "onscroll",
+  ]);
+
+  // Compile every on* content attribute already in the document into a live
+  // handler. Run once at boot, after parsing and before scripts (matching the
+  // spec, where content attributes are set as the document is parsed), and
+  // replayed whenever an element carrying one turns up later (cloneNode,
+  // innerHTML, a template's fragment). Idempotent: an element whose handler is
+  // already compiled is left alone.
+  //
+  // The scan is selector-driven — only elements carrying a known handler
+  // attribute — rather than a walk of every element. A handler on body/frameset
+  // for a window-reflected event belongs on the WINDOW, so it is wired with
+  // addEventListener; the element's own load never fires, which is what makes
+  // `<body onload>` work. Everything else goes through wireInlineHandler, the
+  // same compilation the runtime `setAttribute("on*")` path uses.
+  function wireInlineHandlers() {
+    const selector = [...ELEMENT_HANDLER_ATTRIBUTES, ...WINDOW_REFLECTED_HANDLERS]
+      .map((name) => "[" + name + "]").join(",");
+    const body = document.body;
+    for (const el of document.querySelectorAll(selector)) {
+      const onBody = el === body || el.tagName === "FRAMESET";
+      for (const name of el.getAttributeNames()) {
+        if (!ELEMENT_HANDLER_ATTRIBUTES.has(name) &&
+            !(onBody && WINDOW_REFLECTED_HANDLERS.has(name))) continue;
+        if (onBody && BODY_REFLECTED_HANDLERS.has(name)) {
+          try {
+            window.addEventListener(name.slice(2), new Function("event", el.getAttribute(name)));
+          } catch (e) { /* syntactically invalid handler: skip, non-fatal */ }
+        } else if (typeof el[name] !== "function") {
+          wireInlineHandler(el, name, el.getAttribute(name));
+        }
+      }
+    }
+  }
+
   // WebIDL operation `length` = the count of required arguments (it stops at the
   // first optional or variadic one). Our stubs use rest params, so they report 0;
   // stamp the spec length where a WPT test — or a `.length`-branching helper like
@@ -1895,6 +1935,34 @@ globalThis.__rbHost = (function () {
     }
   }
 
+  // Bind a bridged Ruby object to a JS global (the bridge's define_host_object).
+  function defineGlobal(name, handle) {
+    globalThis[name] = makeProxy(handle);
+  }
+
+  // Expose the seeded constructors on a secondary window — an iframe's
+  // contentWindow — given its handle. The proxy is retained in a registry
+  // because the constructors become own properties of its target: were it
+  // collected, a later `iframe.contentWindow` would build a fresh,
+  // constructor-less proxy.
+  function exposeConstructorsOnSubWindow(handle) {
+    const proxy = makeProxy(handle);
+    (globalThis.__rbSubWindows ||= []).push(proxy);
+    exposeConstructorsOnWindow(proxy);
+  }
+
+  // Legacy `window.event`: a live accessor on globalThis, so a bare `event`
+  // identifier (and `globalThis.event`) resolves to the window's current event
+  // during dispatch — `event.stopPropagation()` in a listener that takes no
+  // parameter. It reads the live globalThis.window on each get, so it follows a
+  // rebound window (a fresh document per WPT file in a reused VM).
+  function defineLegacyEventAccessor() {
+    Object.defineProperty(globalThis, "event", {
+      configurable: true, enumerable: false,
+      get() { const w = globalThis.window; return w ? w.event : undefined; },
+    });
+  }
+
   // The engine's native globals that `window.X` must mirror exactly.
   const JS_GLOBALS = [
     "Object", "Array", "Function", "String", "Boolean", "Number", "BigInt",
@@ -2985,13 +3053,12 @@ globalThis.__rbHost = (function () {
     // The engine's promise-rejection hook (see onPromiseRejection).
     onPromiseRejection,
     seedInterfaces, invokeLifecycle, upgradeInPlace, attachStatics, exposeConstructorsOnWindow,
+    // Realm wiring the Ruby bridge drives, kept here rather than as JS built in
+    // Ruby strings (see defineGlobal / defineLegacyEventAccessor).
+    defineGlobal, exposeConstructorsOnSubWindow, defineLegacyEventAccessor, wireInlineHandlers,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,
     wasmTypeof, wasmToString, wasmStrictEqual, wasmIsNull, wasmInstanceof,
     wasmMakeCallback, wasmReleaseRef,
-    // The event handler content attribute sets, so the boot-time inline-handler
-    // wiring (script_boot) works from the same lists this file gates on.
-    elementHandlerAttributes: ELEMENT_HANDLER_ATTRIBUTES,
-    windowReflectedHandlers: WINDOW_REFLECTED_HANDLERS,
   };
 })();
