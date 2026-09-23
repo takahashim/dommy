@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "node_identity"
+
 module Dommy
   module Internal
     # Computes the WAI-ARIA *computed role* of an element — the value WPT's
@@ -44,6 +46,8 @@ module Dommy
       # Sectioning content under which <header>/<footer> are generic rather than
       # banner/contentinfo landmarks.
       SECTIONING = %w[article aside main nav section].freeze
+
+      extend NodeIdentity
 
       module_function
 
@@ -171,10 +175,6 @@ module Dommy
         previous = index.zero? ? nil : cells[index - 1]
         neighbors = [previous, cells[index + 1]].compact
         neighbors.any? { |cell| cell.local_name.to_s.casecmp?("td") } ? "rowheader" : "columnheader"
-      end
-
-      def same_node?(first, second)
-        first && second && first.__dommy_backend_node__ == second.__dommy_backend_node__
       end
 
       INPUT_ROLES = {

@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "node_identity"
+
 module Dommy
   module Internal
     # Computes the ARIA state/property set an accessibility tree exposes for an
@@ -20,6 +22,8 @@ module Dommy
       SELECTABLE = %w[option tab row gridcell treeitem columnheader rowheader].freeze
       READONLY_ROLES = %w[textbox searchbox spinbutton combobox gridcell columnheader rowheader].freeze
       REQUIRED_ROLES = %w[textbox searchbox spinbutton combobox listbox radiogroup checkbox].freeze
+
+      extend NodeIdentity
 
       module_function
 
@@ -90,10 +94,6 @@ module Dommy
 
       def dropdown?(select)
         !multiple_select?(select) && select.get_attribute("size").to_s.to_i <= 1
-      end
-
-      def same_node?(first, second)
-        !!(first && second && first.__dommy_backend_node__ == second.__dommy_backend_node__)
       end
 
       # Expanded comes only from aria-expanded. A native <details open> is NOT

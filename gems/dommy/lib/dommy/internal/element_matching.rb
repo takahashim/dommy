@@ -67,19 +67,13 @@ module Dommy
 
       # Labels associated with a field: a <label for=...> pointing at
       # its id, and/or the nearest <label> ancestor wrapping it.
-      # Scans label elements instead of interpolating the id into a
-      # selector, so ids containing quotes cannot break the query.
+      # The labels associated with a form field. A labelable control answers
+      # HTML's own live `labels` list; anything else may still sit inside a
+      # label, which the ancestor walk finds.
       def field_labels(field)
+        return field.labels.to_a if field.respond_to?(:labels) && field.labels
+
         labels = []
-
-        id = field.get_attribute("id").to_s
-        unless id.empty?
-          for_label = field.owner_document.query_selector_all("label").to_a.find do |label|
-            label.get_attribute("for") == id
-          end
-          labels << for_label if for_label
-        end
-
         parent = field.parent_node
         while parent
           if parent.respond_to?(:tag_name) && parent.tag_name == "LABEL"
@@ -88,7 +82,6 @@ module Dommy
           end
           parent = parent.respond_to?(:parent_node) ? parent.parent_node : nil
         end
-
         labels
       end
 

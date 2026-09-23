@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../internal/text_flattening"
+
 module Dommy
   module Interaction
     # Summarizes the user-facing controls of a DOM scope (a document or any
@@ -13,6 +15,8 @@ module Dommy
     #   #=> [{label: "Save", type: "submit", selector: "button[type=submit]"}]
     #   puts Dommy::Interaction::DomSummary.to_text(document)
     module DomSummary
+      extend Internal::TextFlattening
+
       module_function
 
       # Submit-capable and plain buttons, as {label:, type:, selector:}.
@@ -123,7 +127,6 @@ module Dommy
 
       def hidden_input?(el) = el.tag_name == "INPUT" && el.get_attribute("type") == "hidden"
       def form_method(form) = presence(form.get_attribute("method"))&.downcase
-      def squish(text) = text.to_s.gsub(/\s+/, " ").strip
       def presence(value) = (value.nil? || value.to_s.empty?) ? nil : value
       def quote(value) = value.to_s.inspect
     end

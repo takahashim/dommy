@@ -4,6 +4,8 @@
 
 ### Fixed
 
+- `select.labels` lists the labels that name it, including a wrapping `<label>`, and no longer breaks on an id containing a quote.
+- An element hidden with `aria-hidden="TRUE"` is hidden from its accessible name too, not only from the accessibility tree.
 - A custom element reaction that throws — `connectedCallback`, `disconnectedCallback`, `attributeChangedCallback` — is reported at the window, where it used to vanish.
 
 - `var()` keeps a name argument that is not a custom property name, such as `var(--x ())` or `var({--x})`: the declaration parses and goes invalid at computed-value time, as the CSS Variables grammar asks.

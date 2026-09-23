@@ -187,8 +187,10 @@ module Dommy
 
           if ns
             if ns == XMLNS_NS
-              # A prefixed declaration that the element already wrote out.
-              next if attr.prefix && local_prefixes[attr.local_name] == attr.value && already_emitted_prefix?(attr)
+              # The spec drops an xmlns:foo declaration the start tag already
+              # wrote out when it adopted that prefix. We re-emit it instead:
+              # redundant, not wrong, and `local_prefixes` alone cannot tell the
+              # two apart. Keeping the declaration is the safe half.
               prefix = attr.prefix # "xmlns" for xmlns:foo, nil for xmlns
             elsif ns == XML_NS
               prefix = "xml"
@@ -207,14 +209,6 @@ module Dommy
           result << %(#{attr.local_name}="#{escape_attr(attr.value)}")
         end
         result
-      end
-
-      # An xmlns:foo declaration is re-emitted by serialize_attributes unless the
-      # element start tag already wrote it (when it adopted that prefix). We keep
-      # it simple: the spec drops a redundant declaration whose (prefix, value) is
-      # already in the local prefixes map, which record_namespace_information set.
-      def already_emitted_prefix?(_attr)
-        false
       end
 
       # ---- node data access (backend-agnostic, via Dommy wrappers) ----
