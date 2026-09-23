@@ -278,6 +278,7 @@ module Dommy
 
   # `<input>` — covers the most-used form control surface.
   class HTMLInputElement < HTMLElement
+    include Internal::TextSelection
     include SubmitButtonActivation
     include FormActionUrl
     reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value",
@@ -360,10 +361,14 @@ module Dommy
     # these live in Internal::InputType, one class per type.
     def input_type = Internal::InputType.for(type)
 
-    def value_as_number = input_type.to_number(value.to_s, self)
+    def value_as_number = input_type.value_of(value.to_s, self)
 
     def value_as_number=(number)
-      self.value = input_type.from_number(number.to_f, self)
+      unless input_type.numeric?
+        raise DOMException::InvalidStateError, "valueAsNumber is not applicable to input type '#{type}'"
+      end
+
+      self.value = input_type.from_number(number.to_f)
     end
 
     def validation_step_base = min_as_number || input_type.step_base
@@ -615,42 +620,23 @@ module Dommy
 
     SELECTION_TYPES = %w[text search url tel password].freeze
 
-    def supports_selection?
-      SELECTION_TYPES.include?(type)
+    # Only the one-line text types carry a selection; a checkbox or a number
+    # spinner has none, and its setters raise (HTML "set the selection range").
+    def supports_selection? = SELECTION_TYPES.include?(type)
+
+    private def require_selection!
+      return if supports_selection?
+
+      raise DOMException::InvalidStateError,
+        "The input element's type ('#{type}') does not support selection."
     end
+    public
 
-    def selection_start
-      return nil unless supports_selection?
 
-      @__selection_start ||= value.to_s.length
-    end
 
-    def selection_start=(v)
-      require_selection!
-      @__selection_start = clamp_selection_index(v)
-    end
 
-    def selection_end
-      return nil unless supports_selection?
 
-      @__selection_end ||= value.to_s.length
-    end
 
-    def selection_end=(v)
-      require_selection!
-      @__selection_end = clamp_selection_index(v)
-    end
-
-    def selection_direction
-      return nil unless supports_selection?
-
-      @__selection_direction || "none"
-    end
-
-    def selection_direction=(v)
-      require_selection!
-      @__selection_direction = normalize_selection_direction(v)
-    end
 
     # `select()` selects the whole control on a text control; on any other type
     # it is a silent no-op (it does NOT throw).
@@ -663,39 +649,10 @@ module Dommy
       nil
     end
 
-    def set_selection_range(start, finish, direction = nil)
-      require_selection!
-      len = value.to_s.length
-      e = clamp_selection_index(finish, len)
-      s = [clamp_selection_index(start, len), e].min
-      @__selection_start = s
-      @__selection_end = e
-      @__selection_direction = normalize_selection_direction(direction)
-      nil
-    end
 
-    def set_range_text(_replacement, *_)
-      require_selection!
-      nil
-    end
 
-    # Raise on the selection setters/methods for a type that has no text
-    # selection (email, number, checkbox, …).
-    def require_selection!
-      return if supports_selection?
 
-      raise DOMException::InvalidStateError, "The input element's type ('#{type}') does not support selection."
-    end
 
-    def clamp_selection_index(v, len = value.to_s.length)
-      n = v.to_i
-      n.negative? ? 0 : [n, len].min
-    end
-
-    def normalize_selection_direction(v)
-      d = v.to_s
-      %w[forward backward].include?(d) ? d : "none"
-    end
 
 
 
@@ -1289,6 +1246,7 @@ module Dommy
 
   # `<textarea>` — multi-line text input.
   class HTMLTextAreaElement < HTMLElement
+    include Internal::TextSelection
     reflect_string :name, :placeholder, :wrap, :autocomplete
     # Own __js_call__ methods, on top of Element's.
 
@@ -1391,18 +1349,8 @@ module Dommy
       labels_node_list
     end
 
-    # No real selection — same stub story as input.
-    def select
-      nil
-    end
 
-    def set_selection_range(_s, _e, _direction = nil)
-      nil
-    end
 
-    def set_range_text(_replacement, *_)
-      nil
-    end
 
     def validity
       @__validity ||= ValidityState.new(self)
@@ -1452,6 +1400,12 @@ module Dommy
         max_length
       when "minLength"
         min_length
+      when "selectionStart"
+        selection_start
+      when "selectionEnd"
+        selection_end
+      when "selectionDirection"
+        selection_direction
       when "textLength"
         text_length
       when "type"
@@ -1485,6 +1439,12 @@ module Dommy
         self.max_length = v
       when "minLength"
         self.min_length = v
+      when "selectionStart"
+        self.selection_start = v
+      when "selectionEnd"
+        self.selection_end = v
+      when "selectionDirection"
+        self.selection_direction = v
       else
         super
       end

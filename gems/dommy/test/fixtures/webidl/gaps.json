@@ -710,10 +710,7 @@
       "shadowRootSlotAssignment"
     ],
     "HTMLTextAreaElement": [
-      "dirName",
-      "selectionDirection",
-      "selectionEnd",
-      "selectionStart"
+      "dirName"
     ],
     "HTMLTitleElement": [
       "text"
