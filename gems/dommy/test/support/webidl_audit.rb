@@ -20,7 +20,7 @@ module WebIdlAudit
   FIXTURE_DIR = File.expand_path("../fixtures/webidl", __dir__)
   INTERFACES_PATH = File.join(FIXTURE_DIR, "interfaces.json")
   GAPS_PATH = File.join(FIXTURE_DIR, "gaps.json")
-  HOST_RUNTIME_PATH = File.expand_path("../../lib/dommy/js/host_runtime.js", __dir__)
+  WEBIDL_TABLES_PATH = File.expand_path("../../lib/dommy/js/webidl_tables.js", __dir__)
 
   # Interfaces Dommy models without a Ruby class of the same name: mixins it
   # folds into its node classes, and the CSSOM rule interfaces it backs with one
@@ -145,15 +145,16 @@ module WebIdlAudit
     end
   end
 
-  # --- host_runtime.js [Constant] tables -----------------------------------
-  # The tables live in the JS host runtime (they are placed on the interface
-  # object and its prototype there). Reading them back is a small anchored
+  # --- webidl_tables.js [Constant] tables ----------------------------------
+  # The tables live in the JS half's spec-surface file (the host runtime places
+  # them on the interface object and its prototype). Reading them back is a
+  # small anchored
   # parse; `constant_tables_parsed?` lets the suite fail loudly if the shape
   # this depends on is ever refactored away, rather than silently passing.
 
   def js_constant_tables
     @js_constant_tables ||= begin
-      source = File.read(HOST_RUNTIME_PATH)
+      source = File.read(WEBIDL_TABLES_PATH)
       groups = {}
       source.scan(/const (\w+_CONSTANTS) = \{/) do |(group)|
         body = balanced_block(source, Regexp.last_match.end(0))

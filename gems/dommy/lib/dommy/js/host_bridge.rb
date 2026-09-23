@@ -51,6 +51,10 @@ module Dommy
       # File API class), not Ruby's file class. These bundles are identical
       # across VMs; the backend's #run_bundle keeps them parsed once per process,
       # so the bridge itself stays free of any bytecode/engine knowledge.
+      # The specs' own enumerations (interface members, constants, arities, event
+      # handler attributes), which host_runtime.js destructures — see the file's
+      # header for what belongs there.
+      WEBIDL_TABLES_JS = ::File.read(::File.join(__dir__, "webidl_tables.js")).freeze
       HOST_RUNTIME_JS = ::File.read(::File.join(__dir__, "host_runtime.js")).freeze
       # The WICG Observable polyfill (Observable/Subscriber + EventTarget.when),
       # evaluated after the DOM interface prototypes are seeded.
@@ -417,6 +421,7 @@ module Dommy
       # Run the JS half of the bridge and seed the interface prototypes. Must run
       # after every host function above is registered.
       def seed_runtime!
+        @backend.run_bundle("webidl_tables.js", WEBIDL_TABLES_JS)
         @backend.run_bundle("host_runtime.js", HOST_RUNTIME_JS)
         # Seed base interface prototypes from the single Ruby-side hierarchy.
         @backend.eval("__rbHost.seedInterfaces(#{JSON.generate(DomInterfaces::BASE_CHAINS)});")

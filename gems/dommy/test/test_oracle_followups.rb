@@ -59,8 +59,8 @@ class TestOracleFollowups < Minitest::Test
   # --- void methods return undefined over the bridge ---------------------------
 
   def test_the_void_method_set_names_only_operations_without_a_return_value
-    runtime = Dommy::Js::HostBridge::HOST_RUNTIME_JS
-    names = runtime[/const VOID_METHODS = new Set\(\[(.*?)\]\);/m, 1].scan(/"([^"]+)"/).flatten
+    tables = Dommy::Js::HostBridge::WEBIDL_TABLES_JS
+    names = tables[/const VOID_METHODS = new Set\(\[(.*?)\]\);/m, 1].scan(/"([^"]+)"/).flatten
     assert_includes(names, "addEventListener")
     assert_includes(names, "setAttribute")
     %w[close abort cancel write toggle reportValidity checkValidity dispatchEvent

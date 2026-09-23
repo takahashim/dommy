@@ -42,7 +42,7 @@ module Dommy
 
       # Frames inside Dommy's own JS plumbing. The page did not write them, so
       # they must not be reported as where its error happened.
-      INTERNAL_SOURCES = %w[host_runtime.js observable_runtime.js].freeze
+      INTERNAL_SOURCES = %w[webidl_tables.js host_runtime.js observable_runtime.js].freeze
 
       # Where the error happened, as `ErrorEvent`'s [filename, lineno, colno].
       # A JS engine puts its frames on the raised exception's backtrace, so the

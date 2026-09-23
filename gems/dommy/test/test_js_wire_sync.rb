@@ -96,17 +96,21 @@ class TestJsWireSync < Minitest::Test
   end
 end
 
-# The event handler CONTENT attributes are enumerated once, in host_runtime.js —
-# it gates the runtime `setAttribute("on*")` path on them, and the boot-time
-# inline-handler wiring reads the same sets rather than carrying a second copy.
+# The event handler CONTENT attributes are enumerated once, in webidl_tables.js —
+# host_runtime.js gates the runtime `setAttribute("on*")` path on them, and the
+# boot-time inline-handler wiring reads the same sets rather than carrying a
+# second copy.
 # An `on*` attribute outside them names no event handler and must stay inert.
 # WPT: html/webappapis/scripting/events/event-handler-non-content-document-idl-attributes.html
 class TestEventHandlerContentAttributes < Minitest::Test
+  # The sets are spec surface (webidl_tables.js); the wiring that reads them is
+  # bridge machinery (host_runtime.js).
+  TABLES_JS = Dommy::Js::HostBridge::WEBIDL_TABLES_JS
   RUNTIME_JS = Dommy::Js::HostBridge::HOST_RUNTIME_JS
 
   def names_in(constant)
-    body = RUNTIME_JS[/const #{constant} = new Set\(\[(.*?)\]\);/m, 1]
-    refute_nil(body, "#{constant} is missing from host_runtime.js")
+    body = TABLES_JS[/const #{constant} = new Set\(\[(.*?)\]\);/m, 1]
+    refute_nil(body, "#{constant} is missing from webidl_tables.js")
     body.scan(/"([^"]+)"/).flatten
   end
 
