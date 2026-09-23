@@ -96,6 +96,7 @@ require_relative "dommy/interaction"
 # script-boot orchestration, and the standalone Browser. A concrete JS engine
 # (e.g. dommy-js-quickjs) registers itself through `Dommy::Js.register_runtime`.
 require_relative "dommy/js/runtime"
+require_relative "dommy/js/runtime_registry"
 require_relative "dommy/js/import_map"
 require_relative "dommy/js/module_loader"
 require_relative "dommy/js/script_boot"

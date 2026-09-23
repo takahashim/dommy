@@ -124,10 +124,27 @@ module Dommy
       # (nothing else could hear it) and for the internal failures that are not
       # page exceptions at all.
       def report_exception(error)
-        window = (@document.default_view if @document.respond_to?(:default_view))
-        return @on_error&.call(error) unless window.respond_to?(:__internal_report_exception__)
+        window = reporting_window
+        return @on_error&.call(error) unless window
 
         Dommy::Internal::ExceptionReport.report_at(window, error, value: page_value_for(error))
+      end
+
+      # The window an exception is reported at, or nil when there is none to
+      # report to — a document parsed without a browsing context, or one whose
+      # window predates the unhandled-error seam. Asked here rather than at each
+      # use, so the shape of "this document might not have a window" is written
+      # down once.
+      def reporting_window
+        window = (@document.default_view if @document.respond_to?(:default_view))
+        window if window.respond_to?(:__internal_report_exception__)
+      end
+
+      # The scheduler a deferred step runs on, or nil to run it inline. Same
+      # reason as reporting_window: one place knows how to reach it.
+      def microtask_scheduler
+        window = (@document.default_view if @document.respond_to?(:default_view))
+        window&.scheduler if window.respond_to?(:scheduler)
       end
 
       # What the page should see as `event.error`. An engine that raises a host
@@ -150,11 +167,19 @@ module Dommy
       # hanging a loader that awaits onload (e.g. note.com's gtag plugin, which
       # blocked Nuxt hydration). Deferring to a microtask lets the handler attach
       # first.
+      # A listener that throws is already caught and reported by the dispatch
+      # itself, so what the rescue here covers is the dispatch failing outright
+      # — and by the time it runs, the microtask has no caller left to raise to.
+      # It goes to `on_error` rather than nowhere.
       def dispatch_script_event(element, type)
         return unless element.respond_to?(:dispatch_event)
 
-        fire = proc { element.dispatch_event(Dommy::Event.new(type)) rescue nil }
-        scheduler = (@document.default_view&.scheduler if @document.respond_to?(:default_view))
+        fire = proc do
+          element.dispatch_event(Dommy::Event.new(type))
+        rescue StandardError => e
+          @on_error&.call(e)
+        end
+        scheduler = microtask_scheduler
         scheduler ? scheduler.queue_microtask(fire) : fire.call
       end
 

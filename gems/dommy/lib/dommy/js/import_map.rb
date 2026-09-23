@@ -14,9 +14,18 @@ module Dommy
       # Build from the importmap JSON text (a `<script type=importmap>` body).
       # An empty/invalid map resolves nothing.
       def self.parse(json)
-        data = json.to_s.strip.empty? ? {} : (JSON.parse(json) rescue {})
+        data = json.to_s.strip.empty? ? {} : parse_json(json)
         new(data.is_a?(Hash) ? data : {})
       end
+
+      # A malformed import map is ignored, per the proposal — but only a parse
+      # failure is. Anything else raised here is a bug, not a bad map.
+      def self.parse_json(json)
+        JSON.parse(json)
+      rescue JSON::ParserError
+        {}
+      end
+      private_class_method :parse_json
 
       def initialize(data = {})
         @imports = data["imports"].is_a?(Hash) ? data["imports"] : {}
