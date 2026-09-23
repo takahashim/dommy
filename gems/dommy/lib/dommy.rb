@@ -105,6 +105,7 @@ require_relative "dommy/js/script_boot"
 # documented in HostBridge.
 require_relative "dommy/js/wire_tags"
 require_relative "dommy/js/handle_table"
+require_relative "dommy/js/host_callbacks"
 require_relative "dommy/js/marshaller"
 require_relative "dommy/js/dom_interfaces"
 require_relative "dommy/js/constructor_resolver"
