@@ -1,0 +1,58 @@
+# 9. 非同期を扱う
+
+ページの JavaScript は、すぐには終わらない処理をよく使います。
+`fetch` でデータを取りに行ったり、`setTimeout` で少し待ってから動いたりします。
+Capybara の system spec では、こうした処理の完了を Capybara が自動で待ってくれます。
+`Dommy::Browser` には、その自動待ちがありません。
+代わりに時間は仮想で、いつ非同期処理を進めるかをこちらで決めます。
+そのぶん、待ち時間まかせの不安定さ（flaky）がなく、結果が決まります。
+
+## Dommy が自動で待つ範囲
+
+自動で片付くのは一つだけです。
+操作の直後の promise の反応（microtask）です。
+クリックやフォーム入力のあと、`Promise` の `then` で DOM を書き換えるハンドラは、次の行に進む前に反映されます。
+
+一方、次のものは自動では進みません。
+
+- `setTimeout` などのタイマー
+- `requestAnimationFrame`（rAF）
+- `fetch` の応答
+
+これらを待ちたいときは、次の二つで時間を進めます。
+
+## 保留中の処理を片付ける settle
+
+`settle` は、いま動かせる処理をまとめて片付けます。
+たまっている microtask、今すぐ動くべきタイマー、rAF、そして届いた `fetch` の応答を実行します。
+
+`fetch` のように「すぐ終わる非同期」を起こしたら、`settle` で完了させてから確かめます。
+
+```ruby
+Dommy::Browser.open(html, resources: api) do |browser|
+  browser.click_button("読み込む")
+  browser.settle                      # fetch の応答が届いて反映される
+  expect(browser).to have_text("読み込み完了")
+end
+```
+
+`fetch` の応答を用意する `resources:` は11章で扱います。
+`settle` は、まだ来ていない未来のタイマー（`setTimeout(fn, 300)` など）は動かしません。
+それには `advance_time` を使います。
+
+## 時間を進める advance_time
+
+遅延のある処理（`setTimeout`、デバウンスやスロットル）は、仮想時間を進めて起こします。
+`advance_time(ms)` は時計を `ms` だけ進め、その間に来たタイマーを実行してから settle します。
+
+```ruby
+Dommy::Browser.open(html) do |browser|
+  browser.fill_in("Search", with: "ru")
+  browser.advance_time(300)           # デバウンスの 300ms を越えて絞り込みが走る
+  expect(browser.document).to contain_dom(".result")
+end
+```
+
+---
+
+前章：[テストフレームワークの matcher / assertion](08-matchers.md) / 次章：[JS エラーの扱い](10-js-errors.md)

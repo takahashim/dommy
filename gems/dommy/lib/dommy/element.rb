@@ -1551,29 +1551,29 @@ module Dommy
       @class_list
     end
 
-    # Element + namespace combinations for which a reflected DOMTokenList IDL
-    # attribute is defined; elsewhere the attribute does not exist (→ undefined).
-    REFLECTED_TOKEN_LIST_HOSTS = {
-      "relList" => {html: %w[a area link], svg: %w[a]},
-      "htmlFor" => {html: %w[output]},
-      "sandbox" => {html: %w[iframe]},
-      "sizes" => {html: %w[link]}
-    }.freeze
+    SVG_NAMESPACE = Internal::Namespaces::SVG
 
-    SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+    # Local names for which a reflected DOMTokenList IDL attribute is defined,
+    # per namespace; elsewhere the attribute does not exist (→ undefined). `rel`
+    # is reflected on the `a` of all three namespaces that define one.
+    REFLECTED_TOKEN_LIST_HOSTS = {
+      "relList" => {
+        Internal::Namespaces::HTML => %w[a area link],
+        Internal::Namespaces::SVG => %w[a],
+        Internal::Namespaces::MATHML => %w[a]
+      },
+      "htmlFor" => {Internal::Namespaces::HTML => %w[output]},
+      "sandbox" => {Internal::Namespaces::HTML => %w[iframe]},
+      "sizes" => {Internal::Namespaces::HTML => %w[link]}
+    }.freeze
 
     # A reflected DOMTokenList for `prop` backed by content attribute
     # `attribute`, cached for identity (`el.relList === el.relList`). Returns the
     # UNDEFINED sentinel (→ JS `undefined`) when the attribute is not defined on
     # this element in its namespace.
     def reflected_token_list(prop, attribute)
-      hosts = REFLECTED_TOKEN_LIST_HOSTS[prop]
-      ns = namespace_uri
-      ln = local_name
-      applicable =
-        (ns == HTML_NAMESPACE && hosts[:html].include?(ln)) ||
-        (ns == SVG_NAMESPACE && Array(hosts[:svg]).include?(ln))
-      return Bridge::UNDEFINED unless applicable
+      hosts = REFLECTED_TOKEN_LIST_HOSTS[prop][namespace_uri]
+      return Bridge::UNDEFINED unless hosts&.include?(local_name)
 
       (@reflected_token_lists ||= {})[prop] ||= ClassList.new(self, attribute)
     end

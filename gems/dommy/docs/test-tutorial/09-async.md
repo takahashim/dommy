@@ -1,0 +1,75 @@
+# 9. 非同期を扱う
+
+JavaScript では、すぐには終わらない処理をよく使います。
+`fetch` でデータを取りに行く、あるいは `setTimeout` で少し待ってから動作するといった処理がその典型的な例です。
+Capybara の system spec では、このような処理の完了を自動的に待つよう Capybara に指示できます。
+
+`Dommy::Browser` には、そのように自動的に待たせることができません。
+その代わり、いつ非同期処理を進めるかをテストに記述できます。
+そのおかげで、待ち時間まかせの不安定さ（flaky）がなくなり、結果が決定的になります。
+
+## 仮想時刻と microtask
+
+本章で扱う二つの概念について簡単に説明しておきます。
+
+一つは仮想時刻です。
+`Dommy::Browser` は本物の時計を使わず、テストで明示的に進めた分だけ時間が進みます。
+`setTimeout(fn, 300)` の 300ms も、実際に 300ms 待つのではなく、テストが時間を 300ms 進めて初めて訪れます。
+そのため実時間を待たされず、タイミング次第で結果が揺れることもありません。
+
+もう一つは microtask です。
+`Promise` の `then`（や `await` の続き）が並ぶ、すぐに処理される小さな待ち行列です。
+タイマーやネットワーク応答といった重めの処理（task）より先に、区切りごとにまとめて実行されます。
+
+## Dommy が自主的に待つ範囲
+
+操作メソッドを実行した直後、待ち行列にたまった microtask を実行します。
+そのため、クリックやフォーム入力に続く `Promise` の `then` は、次の行に進む前に必ず反映されます。
+確実に自動的に片付くのは、ここまでです。
+
+microtask でない非同期処理は、自動的には進みません。
+
+- `setTimeout` / `setInterval` のタイマー
+- `requestAnimationFrame`（rAF）
+- `fetch` の応答（ネットワークは別のタスクとして届く）
+
+ハンドラが `fetch` してから DOM を書き換える場合、操作した行のすぐあとでは、まだ書き換わっていないものとして扱います。
+これらの非同期処理を進めるには、次の二つを行います。
+
+## 保留中の処理を片付ける settle
+
+`settle` は、いまの仮想時刻で動かせる処理をすべて実行します。
+残っている microtask、実行時刻が来ているタイマー、rAF のコールバック、届いたネットワーク応答などすべてが実行されます。
+まだ時刻の来ていない未来のタイマー（`setTimeout(fn, 300)` など）は動かしません。
+
+`fetch` や rAF のように、遅延を待たずに起こせる非同期は、`settle` で完了させてから確認します。
+
+```ruby
+Dommy::Browser.open(html, resources: api) do |browser|
+  browser.click_button("読み込む")
+  browser.settle                      # 届いた fetch の応答が反映される
+  expect(browser).to have_text("読み込み完了")
+end
+```
+
+`fetch` の応答を用意する `resources:` は11章で扱います。
+
+## 時間を進める advance_time
+
+遅延を挟む処理（`setTimeout`、デバウンス、スロットル、ポーリング）は、時刻が来るまで `settle` では動きません。
+`advance_time(ms)` は仮想時計を `ms` だけ進め、その間に時刻の来たタイマーを実行し、進めた先で動かせる処理もまとめて片付けます。
+「デバウンスの 300ms を越えるまで待つ」といった時間そのものを、テストで表せます。
+
+```ruby
+Dommy::Browser.open(html) do |browser|
+  browser.fill_in("Search", with: "ru")
+  browser.advance_time(300)           # デバウンスの 300ms を越えて絞り込みが走る
+  expect(browser.document).to contain_dom(".result")
+end
+```
+
+`advance_time` で進める量は、待ちたい遅延時間以上にします。
+
+---
+
+前章：[テストフレームワークの matcher / assertion](08-matchers.md) / 次章：[JS エラーの扱い](10-js-errors.md)
