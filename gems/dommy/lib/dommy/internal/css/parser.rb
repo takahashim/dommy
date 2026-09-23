@@ -308,19 +308,13 @@ module Dommy
           valid_var_functions?(value)
         end
 
-        # `var()` takes a custom property name and then, optionally, a comma and
-        # a fallback — `var(--x)`, `var(--x,)`, `var(--x, 1px)`. Anything else
-        # between the name and that comma, as in `var(--x ())`, is a syntax
-        # error.
-        VAR_ARGUMENTS = /\A\s*--[^\s,()]*\s*(?:,|\z)/m
-
         def valid_var_functions?(value)
           index = 0
           while (start = value.index(/var\(/i, index))
             open = value.index("(", start)
-            close = matching_paren(value, open)
+            close = matching_bracket(value, open)
             return false if close.nil?
-            return false unless value[(open + 1)...close].match?(VAR_ARGUMENTS)
+            return false unless valid_var_name_argument?(value[(open + 1)...close])
 
             # Continue inside the call, so a nested var() in the fallback is
             # checked by the same rule.
@@ -329,13 +323,49 @@ module Dommy
           true
         end
 
-        # The index of the ")" closing the "(" at `open`, or nil when unbalanced.
-        def matching_paren(value, open)
+        # `var()` takes a name and then, optionally, a comma and a fallback. The
+        # name is a free-form production, not yet a custom property name: it is
+        # whatever stands before the first top-level comma, and it only has to be
+        # non-empty. `var(--x ())` is therefore a syntax error no longer — it
+        # parses, is kept, and goes invalid at computed-value time once the name
+        # turns out not to name a property.
+        #
+        # The one shape rule is the {}-wrapping of css-values-5: a free-form
+        # production either is a single {} block with something in it, or
+        # contains no {} block at all. So `var({--x})` and `var(--x ())` pass
+        # while `var({--x} --y)`, `var(--x {--y})` and `var({})` do not.
+        def valid_var_name_argument?(inner)
+          name = name_argument(inner)
+          return false if name.empty?
+          return !name.match?(/[{}]/) unless name.start_with?("{")
+
+          close = matching_bracket(name, 0)
+          close == name.length - 1 && !name[1...close].strip.empty?
+        end
+
+        # The part of `var()`'s arguments before the first top-level comma —
+        # nothing there is a separator while a bracket of any kind is open.
+        def name_argument(inner)
+          depth = 0
+          inner.each_char.with_index do |ch, i|
+            case ch
+            when "(", "[", "{" then depth += 1
+            when ")", "]", "}" then depth -= 1
+            when "," then return inner[0...i].strip if depth.zero?
+            end
+          end
+          inner.strip
+        end
+
+        # The index of the bracket closing the one at `open`, or nil when the
+        # value is unbalanced. Every kind of bracket opens a level, so the ")"
+        # inside `var({a)b})` closes nothing.
+        def matching_bracket(value, open)
           depth = 0
           (open...value.length).each do |i|
             case value[i]
-            when "(" then depth += 1
-            when ")"
+            when "(", "[", "{" then depth += 1
+            when ")", "]", "}"
               depth -= 1
               return i if depth.zero?
             end

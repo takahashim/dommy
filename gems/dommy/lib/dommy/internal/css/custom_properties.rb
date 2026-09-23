@@ -12,6 +12,11 @@ module Dommy
         # character guard keeps identifiers like `novar(` from matching.
         VAR_PATTERN = /(?<![\w-])var\(/i
 
+        # <custom-property-name>: a dashed ident. Ident code points are ASCII
+        # letters, digits, "_", "-" and everything non-ASCII (css-syntax-3 §4.2);
+        # escapes aside, which no caller writes.
+        CUSTOM_PROPERTY_NAME = /\A--[\w\-\u0080-\u{10FFFF}]*\z/
+
         module_function
 
         def contains_var?(value)
@@ -69,6 +74,12 @@ module Dommy
             return nil unless close
 
             name, fallback = split_args(value[(index + 4)...close])
+            # The parser keeps `var(--x ())` and `var({--x})`, because var()'s
+            # first argument is only read as a custom property name here, after
+            # substitution. A name that does not parse makes the declaration
+            # invalid at computed-value time, fallback or no fallback.
+            return nil unless CUSTOM_PROPERTY_NAME.match?(name)
+
             replacement = lookup.call(name)
 
             if replacement.nil?

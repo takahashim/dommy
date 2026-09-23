@@ -4,6 +4,7 @@
 
 ### Fixed
 
+- `var()` keeps a name argument that is not a custom property name, such as `var(--x ())` or `var({--x})`: the declaration parses and goes invalid at computed-value time, as the CSS Variables grammar asks.
 - `relList` on the `a` of the MathML namespace is a DOMTokenList, as it already was in HTML and SVG.
 - `compareDocumentPosition` between two trees orders the pair consistently: one node reports PRECEDING and the other FOLLOWING, where both used to say PRECEDING.
 
