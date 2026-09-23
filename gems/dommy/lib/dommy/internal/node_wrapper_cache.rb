@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "bounded_cache"
+
 module Dommy
   module Internal
     # Manages DOM node identity via wrapper caching.
@@ -33,7 +35,7 @@ module Dommy
         # correctly — so a result tagged with the generation it was computed
         # in stays valid until the next mutation, then is recomputed lazily.
         # Keyed by [kind, selector] => [generation, value].
-        @query_cache = {}
+        @query_cache = BoundedCache.new(QUERY_CACHE_CAP)
       end
 
       # Returns the wrapped node, creating and caching if needed.
@@ -340,10 +342,9 @@ module Dommy
         entry[1]
       end
 
-      # Store `value` for [kind, selector] tagged with the current generation,
-      # clearing the cache wholesale if it has grown past the cap.
+      # Store `value` for [kind, selector] tagged with the generation it was
+      # computed in; a later generation makes the entry a miss.
       def query_cache_set(kind, selector, value)
-        @query_cache.clear if @query_cache.size >= QUERY_CACHE_CAP
         @query_cache[[kind, selector]] = [@document.dom_generation, value]
       end
 
@@ -431,15 +432,25 @@ module Dommy
 
         @wrappers[identity_key(node)] = instance
 
+        # A custom element's constructor is the page's code, so an exception in
+        # it is reported at the window rather than discarded — the wrapper still
+        # exists either way, which is what the caller is owed.
         if ruby_custom && instance.respond_to?(:construct)
           begin
             instance.construct
-          rescue StandardError
-            nil
+          rescue StandardError => e
+            report_construct_exception(e)
           end
         end
 
         instance
+      end
+
+      def report_construct_exception(error)
+        window = (@document.default_view if @document.respond_to?(:default_view))
+        return unless window.respond_to?(:__internal_report_exception__)
+
+        Internal::ExceptionReport.report_at(window, error)
       end
 
       # HTML's "adjust SVG tag name" (§13.2.6.5), the parser step that gives
