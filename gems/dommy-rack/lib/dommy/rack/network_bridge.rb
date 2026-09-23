@@ -14,9 +14,15 @@ module Dommy
     # `Dommy::Resources::FetchHandler` backed by `Dommy::Rack::Resources`, so
     # `fetch` / XHR and `<script src>` loads resolve through the same adapter.
     module NetworkBridge
-      # Wire a bridge for `session` into `window`. Returns the fetch handler.
-      def self.install(session, window)
-        handler = Dommy::Resources::FetchHandler.new(Resources.new(session))
+      # Wire a bridge for `session` into `window`. `resources` defaults to a
+      # fresh Dommy::Rack::Resources for the session; pass one in when the
+      # caller needs to keep using it afterward (SessionRuntime does, for
+      # script prefetch/boot). `executor:`/`scheduler:` opt the handler into
+      # off-thread fetch/XHR resolution (see Dommy::Resources::FetchHandler);
+      # nil (the default) keeps it synchronous. Returns the fetch handler.
+      def self.install(session, window, resources: nil, executor: nil, scheduler: nil)
+        resources ||= Resources.new(session)
+        handler = Dommy::Resources::FetchHandler.new(resources, executor: executor, scheduler: scheduler)
         window.globals["__fetch_handler__"] = handler
         handler
       end
