@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "internal/url_parser"
+require_relative "internal/url_record_accessors"
 
 module Dommy
   # `window.location` polyfill. The Window owns one Location and one
@@ -11,6 +12,14 @@ module Dommy
   # parser `Dommy::URL` uses), never stdlib `URI` — so every getter/setter
   # matches the URL Standard's parsing and serialization rules exactly.
   class Location
+    # host/hostname/port/protocol/pathname (+ the private
+    # cannot_have_credentials?/parse_into they share) come from the mixin —
+    # identical to URL's, which holds the same kind of record. Re-privatized
+    # below: Location, unlike URL, exposes these only through
+    # __js_get__/__js_set__, not as public Ruby methods.
+    include Internal::UrlRecordAccessors
+    private :host, :host=, :hostname, :hostname=, :port, :port=, :protocol, :protocol=, :pathname, :pathname=
+
     def initialize(window, origin: "http://localhost", pathname: "/", search: "", hash: "")
       @window = window
       @record = Internal::UrlParser.parse("#{origin}#{pathname}#{search}#{hash}")
@@ -21,7 +30,7 @@ module Dommy
       when "origin"
         origin
       when "pathname"
-        Internal::UrlParser.serialize_path(@record)
+        pathname
       when "search"
         current_search
       when "hash"
@@ -31,11 +40,11 @@ module Dommy
       when "host"
         host
       when "hostname"
-        @record.host.to_s
+        hostname
       when "protocol"
-        "#{@record.scheme}:"
+        protocol
       when "port"
-        @record.port.nil? ? "" : @record.port.to_s
+        port
       else
         Bridge::ABSENT
       end
@@ -48,17 +57,17 @@ module Dommy
       when "hash"
         set_hash(value.to_s)
       when "pathname"
-        set_pathname(value.to_s)
+        self.pathname = value.to_s
       when "search"
         set_search(value.to_s)
       when "host"
-        set_host(value.to_s)
+        self.host = value.to_s
       when "hostname"
-        set_hostname(value.to_s)
+        self.hostname = value.to_s
       when "port"
-        set_port(value.to_s)
+        self.port = value.to_s
       when "protocol"
-        parse_into("#{value}:", :scheme_start)
+        self.protocol = value.to_s
       end
     end
 
@@ -90,10 +99,7 @@ module Dommy
     # suppress it. A parse failure leaves the record unchanged — every real
     # caller has already had `raw` validated by `resolve`.
     def __internal_set_url__(raw, fire_hash: true)
-      previous_hash = current_hash
-      previous_href = href
-      @record = Internal::UrlParser.parse(raw, @record)
-      @window.fire_hashchange(previous_href, href) if fire_hash && previous_hash != current_hash
+      apply_record(Internal::UrlParser.parse(raw, @record), fire_hash: fire_hash)
     rescue Internal::UrlParser::Failure
       nil
     end
@@ -120,9 +126,9 @@ module Dommy
         return
       end
       if same_document?(@record, target)
-        __internal_set_url__(raw)
+        apply_record(target)
       else
-        __internal_set_url__(raw, fire_hash: false) if sync_cross_doc
+        apply_record(target, fire_hash: false) if sync_cross_doc
         @window.__internal_navigate__(url: Internal::UrlParser.serialize(target), method: "GET", replace: replace, source: source)
       end
     end
@@ -130,8 +136,9 @@ module Dommy
     private
 
     # Resolve a possibly-relative URL against the current record with the
-    # URL parser; nil when it fails. Returns a Record, not a string, so the
-    # caller can compare fields without a round trip through serialize+parse.
+    # URL parser; nil when it fails. Returns a Record, not a string, so
+    # `__internal_navigate_to__` can both compare fields and (via
+    # `apply_record`) adopt it directly, without a second parse.
     def resolve(raw)
       Internal::UrlParser.parse(raw, @record)
     rescue Internal::UrlParser::Failure
@@ -144,17 +151,21 @@ module Dommy
         a.path == b.path && a.query == b.query
     end
 
+    # Replace the record wholesale (a full href/assign/replace/pushState
+    # navigation, as opposed to set_hash's in-place fragment edit), firing
+    # hashchange when the visible hash actually changed.
+    def apply_record(record, fire_hash: true)
+      previous_hash = current_hash
+      previous_href = href
+      @record = record
+      @window.fire_hashchange(previous_href, href) if fire_hash && previous_hash != current_hash
+    end
+
     def origin
       return "" if @record.host.nil?
 
       port_part = @record.port ? ":#{@record.port}" : ""
       "#{@record.scheme}://#{@record.host}#{port_part}"
-    end
-
-    def host
-      return "" if @record.host.nil?
-
-      @record.port ? "#{@record.host}:#{@record.port}" : @record.host
     end
 
     def current_search
@@ -182,25 +193,6 @@ module Dommy
       @window.fire_hashchange(previous_href, href) if current_hash != previous_hash
     end
 
-    def set_pathname(value)
-      return if @record.opaque_path?
-
-      @record.path = []
-      parse_into(value, :path_start)
-    end
-
-    def set_host(value)
-      return if @record.opaque_path?
-
-      parse_into(value, :host)
-    end
-
-    def set_hostname(value)
-      return if @record.opaque_path?
-
-      parse_into(value, :hostname)
-    end
-
     def set_search(value)
       if value.empty?
         @record.query = nil
@@ -208,28 +200,6 @@ module Dommy
         @record.query = +""
         parse_into(value.delete_prefix("?"), :query)
       end
-    end
-
-    def set_port(value)
-      return if cannot_have_credentials?
-
-      if value.empty?
-        @record.port = nil
-      else
-        parse_into(value, :port)
-      end
-    end
-
-    def cannot_have_credentials?
-      @record.host.nil? || @record.host == "" || @record.scheme == "file"
-    end
-
-    # Run the parser from `state` into the current record; a rejected value
-    # changes nothing (WHATWG URLUtils setters).
-    def parse_into(value, state)
-      Internal::UrlParser.parse_with_override(value.to_s, @record, state)
-    rescue Internal::UrlParser::Failure
-      nil
     end
   end
 end
