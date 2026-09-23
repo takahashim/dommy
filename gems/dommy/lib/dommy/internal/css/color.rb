@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "value_tokens"
+
 module Dommy
   module Internal
     module CSS
@@ -206,7 +208,7 @@ module Dommy
         # @param value [String] a whitespace-separated CSS shorthand value
         # @return [String, nil]
         def extract(value)
-          top_level_tokens(value).each do |token|
+          ValueTokens.split(value).each do |token|
             lower = token.downcase
             if token.include?("(")
               # Function tokens are skipped wholesale (url(#abc),
@@ -218,36 +220,6 @@ module Dommy
             end
           end
           nil
-        end
-
-        # Splits +value+ into top-level tokens: whitespace separates tokens
-        # only outside parentheses, so a function and its arguments (e.g.
-        # `linear-gradient(to right, red)`) stay one token.
-        def top_level_tokens(value)
-          tokens = []
-          current = +""
-          depth = 0
-          value.each_char do |char|
-            case char
-            when "("
-              depth += 1
-              current << char
-            when ")"
-              depth -= 1 if depth.positive?
-              current << char
-            when /\s/
-              if depth.positive?
-                current << char
-              elsif !current.empty?
-                tokens << current
-                current = +""
-              end
-            else
-              current << char
-            end
-          end
-          tokens << current unless current.empty?
-          tokens
         end
 
         # Normalize an rgb()/hsl() function body to rgb()/rgba(). Returns nil

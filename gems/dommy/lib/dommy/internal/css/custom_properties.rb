@@ -17,6 +17,14 @@ module Dommy
         # escapes aside, which no caller writes.
         CUSTOM_PROPERTY_NAME = /\A--[\w\-\u0080-\u{10FFFF}]*\z/
 
+        # Brackets of every kind open a level, so a top-level comma is one that
+        # no "(", "[" or "{" is still open at. The same rule the parser applies
+        # when it decides where var()'s name argument ends — asked in two places,
+        # it has to be answered the same way, or a name the parser read as
+        # `{a, b}` would be substituted against as `{a`.
+        OPENING_BRACKETS = "([{"
+        CLOSING_BRACKETS = ")]}"
+
         module_function
 
         def contains_var?(value)
@@ -177,14 +185,16 @@ module Dommy
           nil
         end
 
-        # "--name , fallback" -> ["--name", "fallback"]; no comma -> nil
-        # fallback (distinct from the empty-but-valid `var(--x,)` fallback).
+        # var()'s arguments split at the first top-level comma: "--name ,
+        # fallback" -> ["--name", "fallback"], with a nil fallback when there is
+        # no comma (distinct from the empty-but-valid `var(--x,)` fallback).
+        # Public because the parser asks the same question at parse time.
         def split_args(inner)
           depth = 0
-          inner.each_char.with_index do |ch, idx|
-            depth += 1 if ch == "("
-            depth -= 1 if ch == ")"
-            return [inner[0...idx].strip, inner[(idx + 1)..].strip] if ch == "," && depth.zero?
+          inner.each_char.with_index do |char, index|
+            depth += 1 if OPENING_BRACKETS.include?(char)
+            depth -= 1 if CLOSING_BRACKETS.include?(char)
+            return [inner[0...index].strip, inner[(index + 1)..].strip] if char == "," && depth.zero?
           end
           [inner.strip, nil]
         end
