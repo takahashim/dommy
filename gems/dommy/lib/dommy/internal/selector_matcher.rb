@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "selector_ast"
+require_relative "element_state"
+require_relative "backend_prefilter"
 
 module Dommy
   module Internal
@@ -68,11 +70,11 @@ module Dommy
       # empty), or nil when the selector has no static subject pre-filter (a
       # universal/pseudo-only subject) — then the caller uses the Ruby matcher.
       def fast_query(root, selector_ast, scope:, first: false)
-        prefilters = static_prefilters(selector_ast)
+        prefilters = BackendPrefilter.static_prefilters(selector_ast)
         return nil unless prefilters
 
-        backend_root = backend_root_of(root)
-        doc = document_of(root)
+        backend_root = BackendPrefilter.backend_root_of(root)
+        doc = BackendPrefilter.document_of(root)
         return nil unless backend_root && doc
 
         # The overwhelmingly common case is one selector (one pre-filter); skip the
@@ -110,8 +112,8 @@ module Dommy
 
         out = []
         catch(:done) do
-          each_backend_descendant(backend_root) do |bnode|
-            hit = single ? backend_passes?(bnode, single) : prefilters.any? { |pf| backend_passes?(bnode, pf) }
+          BackendPrefilter.each_backend_descendant(backend_root) do |bnode|
+            hit = single ? BackendPrefilter.backend_passes?(bnode, single) : prefilters.any? { |pf| BackendPrefilter.backend_passes?(bnode, pf) }
             next unless hit
 
             element = doc.wrap_node(bnode)
@@ -212,7 +214,7 @@ module Dommy
 
       def match_descendant_left(current, compound, parts, index, scope:, anchor:, leading:)
         doc = current.owner_document
-        prefilter = prefilter_for(compound) # nil ⇒ no static gate, must wrap every ancestor
+        prefilter = BackendPrefilter.prefilter_for(compound) # nil ⇒ no static gate, must wrap every ancestor
 
         # Ask the index about `current`'s ancestors before walking them. For an
         # indexable compound this is O(log):
@@ -226,13 +228,13 @@ module Dommy
            (sel_index = doc.__internal_selector_index__) &&
            (enter = sel_index.enter_of(current.__dommy_backend_node__))
           return false unless sel_index.any_ancestor?(prefilter, enter)
-          return true if index == 1 && anchor.nil? && exact_class_or_id_prefilter(compound)
+          return true if index == 1 && anchor.nil? && BackendPrefilter.exact_class_or_id_prefilter(compound)
         end
 
         backend = current.__dommy_backend_node__
         backend = backend && backend.parent
         while backend && doc
-          if backend.node_type == ELEMENT_NODE && (prefilter.nil? || backend_passes?(backend, prefilter))
+          if backend.node_type == ELEMENT_NODE && (prefilter.nil? || BackendPrefilter.backend_passes?(backend, prefilter))
             parent = doc.wrap_node(backend)
             # The prefilter was just tested on this ancestor's backend node.
             if parent && matches_compound?(parent, compound, scope: scope, verified: prefilter) &&
@@ -317,7 +319,7 @@ module Dommy
         # unreachable by any spelling (the note in §6.1 says so outright), and an
         # SVG `rect` keeps its own case.
         return actual == type.name.to_s if type.already_ascii_lowercase?
-        return actual == type.ascii_lowercased_name if html_element?(element) && html_document?(element)
+        return actual == type.ascii_lowercased_name if ElementState.html_element?(element) && ElementState.html_document?(element)
 
         actual == type.name.to_s
       end
@@ -417,8 +419,8 @@ module Dommy
         when "not" then !matches?(element, pseudo.argument, scope: scope)
         when "has" then has_relative?(element, pseudo.argument, scope: scope)
         when "checked" then Internal.checked_state?(element)
-        when "enabled" then enableable_element?(element) && !disabled_element?(element)
-        when "disabled" then enableable_element?(element) && disabled_element?(element)
+        when "enabled" then ElementState.enableable_element?(element) && !ElementState.disabled_element?(element)
+        when "disabled" then ElementState.enableable_element?(element) && ElementState.disabled_element?(element)
         when "focus", "focus-visible" then element.owner_document&.__internal_focused_element__.equal?(element)
         when "focus-within"
           focused = element.owner_document&.__internal_focused_element__
@@ -426,18 +428,18 @@ module Dommy
         when "hover"
           hovered = element.owner_document&.__internal_hovered_element__
           hovered && (element.equal?(hovered) || element.contains?(hovered))
-        when "invalid" then constraint_invalid?(element)
-        when "valid" then constraint_valid?(element)
-        when "required" then form_control_required?(element)
-        when "optional" then form_control_optional?(element)
-        when "read-only" then read_only_element?(element)
-        when "read-write" then read_write_element?(element)
+        when "invalid" then ElementState.constraint_invalid?(element)
+        when "valid" then ElementState.constraint_valid?(element)
+        when "required" then ElementState.form_control_required?(element)
+        when "optional" then ElementState.form_control_optional?(element)
+        when "read-only" then ElementState.read_only_element?(element)
+        when "read-write" then ElementState.read_write_element?(element)
         when "active", "visited" then false # supported-but-currently-false (no pointer state / history)
-        when "dir" then dir_match?(element, pseudo.argument)
+        when "dir" then ElementState.dir_match?(element, pseudo.argument)
         when "target" then target_element?(element)
-        when "lang" then lang_match?(element, pseudo.argument)
-        when "link" then link_element?(element)
-        when "any-link" then link_element?(element)
+        when "lang" then ElementState.lang_match?(element, pseudo.argument)
+        when "link" then ElementState.link_element?(element)
+        when "any-link" then ElementState.link_element?(element)
         else
           false
         end
@@ -585,151 +587,6 @@ module Dommy
         end
       end
 
-      # ----- backend pre-filter fast path (see #fast_query) -----
-
-      # Every descendant ELEMENT of the backend node `bnode`, in document order,
-      # excluding `bnode` itself — walking lexbor nodes directly via the
-      # first-child / next-sibling chain (no Dommy wrap and, unlike
-      # `element_children`, no per-node NodeSet allocation, which dominated GC).
-      # A tree is entirely one backend's nodes, so the capability test runs once
-      # per query here rather than once per node inside the walk.
-      def each_backend_descendant(bnode, &block)
-        if bnode.respond_to?(:first_element_child)
-          each_backend_element_descendant(bnode, &block)
-        else
-          each_backend_child_list_descendant(bnode, &block)
-        end
-      end
-
-      def each_backend_element_descendant(bnode, &block)
-        child = bnode.first_element_child
-        while child
-          block.call(child)
-          each_backend_element_descendant(child, &block)
-          # `next_element` is the backend's native (C) element-only sibling step;
-          # it skips intervening text/comment nodes in one call, where a Ruby
-          # `.next`-until-element loop cost ~6% of a heavy page's wall time.
-          child = child.next_element
-        end
-      end
-
-      # The XML backend has no first_element_child / next_element sibling walk
-      # (a Document there answers neither); its `element_children` list is the
-      # equivalent, at the cost of materializing one array per level. Same
-      # guard as Internal::SelectorIndex#populate.
-      def each_backend_child_list_descendant(bnode, &block)
-        bnode.element_children.each do |child|
-          block.call(child)
-          each_backend_child_list_descendant(child, &block)
-        end
-      end
-
-      # One [kind, value] pre-filter per complex selector — taken from its subject
-      # (rightmost) compound. nil when ANY subject lacks a static id/class/attribute
-      # to filter on (a universal- or pseudo-only subject), so the whole query
-      # falls back to the Ruby matcher.
-      def static_prefilters(selector_ast)
-        selector_ast.selectors.map do |complex|
-          compound = complex.parts.last.compound
-          return nil if compound.pseudo_element
-
-          prefilter_for(compound) || (return nil)
-        end
-      end
-
-      # The most selective static check in `compound` (id > class > attribute >
-      # type); nil if it has none (universal/pseudo-only subject). The exact
-      # case/namespace and pseudo state are still left to the authoritative
-      # #matches? — the prefilter only has to be a SUPERSET.
-      def prefilter_for(compound)
-        id = klass = attr = nil
-        compound.subclass_selectors.each do |sub|
-          case sub
-          when SelectorAST::IdSelector then id ||= sub.value
-          when SelectorAST::ClassSelector then klass ||= sub.value
-          when SelectorAST::AttributeSelector then attr ||= sub.name if sub.namespace.nil?
-          end
-        end
-        return [:id, id] if id
-        return [:class, klass] if klass
-        return [:attr, attr] if attr
-
-        # A concrete tag (`a`, `div span`) gates the backend walk by tag name —
-        # without it a type-only subject wraps EVERY element before matching,
-        # which dominated a jQuery-heavy page (`$.find('div a')`). Case/namespace
-        # exactness is matches?'s job, so this is a (case-insensitive) superset.
-        type = compound.type
-        return [:type, type.name.to_s] if type.is_a?(SelectorAST::TypeSelector) && !type.name.to_s.empty?
-
-        nil
-      end
-
-      # [:class|:id, value] when `compound` is EXACTLY one class or id selector
-      # (no type, no pseudo, nothing else), else nil. For such a compound the index
-      # lookup is an exact match — not just a superset — so an index "does an
-      # ancestor match?" answer can be trusted without re-running matches_compound?.
-      def exact_class_or_id_prefilter(compound)
-        return nil unless compound.type.nil? && compound.pseudo_element.nil?
-
-        subs = compound.subclass_selectors
-        return nil unless subs.size == 1
-
-        case subs.first
-        when SelectorAST::ClassSelector then [:class, subs.first.value]
-        when SelectorAST::IdSelector then [:id, subs.first.value]
-        end
-      end
-
-      # Does the backend node satisfy a pre-filter? A SUPERSET test (presence /
-      # exact id / class token / tag) — never a false negative, so #matches? can prune.
-      def backend_passes?(bnode, prefilter)
-        kind, value = prefilter
-        case kind
-        when :id then bnode["id"] == value
-        when :class then class_attr_token?(bnode["class"], value)
-        when :attr then !bnode[value].nil?
-        when :type then (name = bnode.name) && name.casecmp?(value)
-        end
-      end
-
-      # Is `token` a whitespace-separated word of the raw class attribute? Scans in
-      # place (no split/allocation), since this runs for every node in the tree.
-      def class_attr_token?(raw, token)
-        return false if raw.nil? || raw.empty?
-
-        pos = 0
-        len = token.length
-        while (i = raw.index(token, pos))
-          before = i.zero? || ascii_ws?(raw[i - 1])
-          after_index = i + len
-          after = after_index >= raw.length || ascii_ws?(raw[after_index])
-          return true if before && after
-
-          pos = i + 1
-        end
-        false
-      end
-
-      def ascii_ws?(char)
-        char == " " || char == "\t" || char == "\n" || char == "\f" || char == "\r"
-      end
-
-      # The backend (lexbor) node whose subtree holds the candidates.
-      def backend_root_of(root)
-        if root.is_a?(Document)
-          root.backend_doc
-        elsif root.respond_to?(:__dommy_backend_node__)
-          root.__dommy_backend_node__
-        end
-      end
-
-      # The owning Document (for identity-stable #wrap_node of a backend match).
-      def document_of(root)
-        return root if root.is_a?(Document)
-
-        root.document if root.respond_to?(:document)
-      end
-
       def element_node?(node)
         node.respond_to?(:tag_name)
       end
@@ -740,220 +597,6 @@ module Dommy
       # `:empty`) and every engine read it as Selectors 3 did.
       def text_node_content?(node)
         node.respond_to?(:node_type) && node.node_type == 3 && !node.text_content.to_s.empty?
-      end
-
-      def html_element?(element)
-        element.namespace_uri.nil? || element.namespace_uri == HTML_NS
-      end
-
-      # Case-insensitive matching applies in an HTML document (text/html). Delegate
-      # to the document's own cheap flag (`@content_type == "text/html"`) instead
-      # of re-deriving it with `content_type.downcase.include?("html")` on every
-      # element — that string work showed up across millions of match calls. (It
-      # also fixes XHTML, which is genuinely case-sensitive.)
-      def html_document?(element)
-        doc = element.owner_document
-        !doc.nil? && doc.html_document?
-      end
-
-      def enableable_element?(element)
-        %w[button input select textarea optgroup option fieldset].include?(element.local_name.to_s.downcase)
-      end
-
-      # A candidate for constraint validation: a form-associated control whose
-      # `willValidate` is true (not disabled / readonly / barred).
-      def validation_candidate?(element)
-        element.respond_to?(:will_validate) && element.respond_to?(:validity) && element.will_validate
-      end
-
-      # `:invalid` / `:valid` apply to candidates (by their validity) and to a
-      # form / fieldset (by whether any descendant candidate is invalid).
-      def constraint_invalid?(element)
-        name = element.local_name.to_s.downcase
-        if %w[form fieldset].include?(name)
-          descendant_candidates(element).any? { |c| !c.validity.valid }
-        else
-          validation_candidate?(element) && !element.validity.valid
-        end
-      end
-
-      def constraint_valid?(element)
-        name = element.local_name.to_s.downcase
-        if %w[form fieldset].include?(name)
-          descendant_candidates(element).all? { |c| c.validity.valid }
-        else
-          validation_candidate?(element) && element.validity.valid
-        end
-      end
-
-      def descendant_candidates(element)
-        element.query_selector_all("input, select, textarea, button").select do |c|
-          validation_candidate?(c)
-        end
-      end
-
-      # `:required` / `:optional` apply to input / select / textarea per the
-      # `required` attribute.
-      def requirable_element?(element)
-        %w[input select textarea].include?(element.local_name.to_s.downcase)
-      end
-
-      def form_control_required?(element)
-        requirable_element?(element) && element.has_attribute?("required")
-      end
-
-      def form_control_optional?(element)
-        requirable_element?(element) && !element.has_attribute?("required")
-      end
-
-      # `:read-write` matches an editable control (a mutable text input / textarea,
-      # or an element with contenteditable); `:read-only` is its complement over
-      # the elements the pseudo-classes apply to.
-      def read_write_element?(element)
-        name = element.local_name.to_s.downcase
-        if name == "textarea"
-          return !element.has_attribute?("readonly") && !disabled_element?(element)
-        end
-        if name == "input"
-          return false unless mutable_input_type?(element)
-
-          return !element.has_attribute?("readonly") && !disabled_element?(element)
-        end
-        editable_via_contenteditable?(element)
-      end
-
-      def read_only_element?(element)
-        name = element.local_name.to_s.downcase
-        return !read_write_element?(element) if %w[input textarea].include?(name)
-
-        # For other elements, :read-only matches when not editable.
-        !editable_via_contenteditable?(element)
-      end
-
-      # Text-like input types that can be read-write (not button/checkbox/etc.).
-      def mutable_input_type?(element)
-        %w[text search url tel email password date month week time
-           datetime-local number range color].include?(
-             (element.get_attribute("type") || "text").to_s.downcase
-           )
-      end
-
-      def editable_via_contenteditable?(element)
-        v = element.get_attribute("contenteditable")
-        !v.nil? && v.to_s.downcase != "false"
-      end
-
-      def disabled_element?(element)
-        return true if element.has_attribute?("disabled")
-
-        if element.local_name.to_s.downcase == "option"
-          parent = element.parent_element
-          return true if parent&.local_name.to_s.downcase == "optgroup" && parent.has_attribute?("disabled")
-        end
-        fieldset_disabled?(element)
-      end
-
-      def fieldset_disabled?(element)
-        parent = element.parent_element
-        while parent
-          if parent.local_name.to_s.downcase == "fieldset" && parent.has_attribute?("disabled")
-            legend = first_legend_child(parent)
-            return false if legend && contains_element?(legend, element)
-
-            return true
-          end
-
-          parent = parent.parent_element
-        end
-        false
-      end
-
-      def first_legend_child(fieldset)
-        fieldset.children.to_a.find { |child| child.local_name.to_s.downcase == "legend" }
-      end
-
-      def contains_element?(ancestor, element)
-        node = element
-        while node
-          return true if node.equal?(ancestor)
-
-          node = node.parent_element
-        end
-        false
-      end
-
-      # `:lang()` accepts a list of language ranges; the element's content
-      # language (nearest lang attribute) must extended-filter-match any of
-      # them (RFC 4647 §3.3.2 — so `de-DE` matches `de-Latn-DE`).
-      def lang_match?(element, ranges)
-        actual = nil
-        node = element
-        while node
-          value = node.get_attribute("lang") if node.respond_to?(:get_attribute)
-          if value && !value.to_s.empty?
-            actual = value.to_s.downcase
-            break
-          end
-          node = node.parent_element
-        end
-        return false unless actual
-
-        Array(ranges).any? { |range| lang_range_match?(actual, range.to_s.downcase) }
-      end
-
-      def lang_range_match?(actual, range)
-        return false if range.empty?
-        return true if range == "*"
-
-        tags = actual.split("-")
-        subs = range.split("-")
-        return false unless subs[0] == "*" || tags[0] == subs[0]
-
-        i = 1
-        j = 1
-        while j < subs.length
-          if subs[j] == "*"
-            j += 1
-          elsif i >= tags.length
-            return false
-          elsif tags[i] == subs[j]
-            i += 1
-            j += 1
-          elsif tags[i].length == 1
-            # A singleton subtag (e.g. "x") ends the matchable prefix.
-            return false
-          else
-            i += 1
-          end
-        end
-        true
-      end
-
-      # `:link` / `:any-link` match an `a` or `area` with an href. A `<link href>`
-      # is not a hyperlink for selector purposes, however much its name suggests
-      # otherwise.
-      def link_element?(element)
-        %w[a area].include?(element.local_name.to_s.downcase) && element.has_attribute?("href")
-      end
-
-      # `:dir()` from the nearest dir attribute (ltr/rtl; auto and absent
-      # fall back to the document default ltr — no computed-direction or
-      # content heuristics).
-      def dir_match?(element, argument)
-        expected = Array(argument).first.to_s.downcase
-        return false unless %w[ltr rtl].include?(expected)
-
-        actual = "ltr"
-        node = element
-        while node
-          value = node.get_attribute("dir").to_s.downcase if node.respond_to?(:get_attribute)
-          if %w[ltr rtl].include?(value)
-            actual = value
-            break
-          end
-          node = node.parent_element
-        end
-        actual == expected
       end
     end
   end
