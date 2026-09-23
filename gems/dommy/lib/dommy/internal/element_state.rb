@@ -10,12 +10,10 @@ module Dommy
     # it, which made a 960-line file where the HTML semantics and the matching
     # algorithm were one module.
     module ElementState
-      HTML_NS = "http://www.w3.org/1999/xhtml"
-
       module_function
 
       def html_element?(element)
-        element.namespace_uri.nil? || element.namespace_uri == HTML_NS
+        element.namespace_uri.nil? || element.namespace_uri == Namespaces::HTML
       end
 
       # Case-insensitive matching applies in an HTML document (text/html). Delegate
@@ -227,6 +225,17 @@ module Dommy
         end
         actual == expected
       end
+
+      # Everything above is the module; everything below is how.
+      private_class_method :validation_candidate?
+      private_class_method :descendant_candidates
+      private_class_method :requirable_element?
+      private_class_method :mutable_input_type?
+      private_class_method :editable_via_contenteditable?
+      private_class_method :fieldset_disabled?
+      private_class_method :first_legend_child
+      private_class_method :contains_element?
+      private_class_method :lang_range_match?
     end
   end
 end

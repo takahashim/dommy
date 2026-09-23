@@ -25,7 +25,7 @@ module Dommy
     # Shared `getElementsByTagNameNS(namespace, localName)` — a live collection
     # of descendants of `root` matching the (namespace, localName) filter, where
     # "*" matches any. An empty-string namespace means the null namespace.
-    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+    HTML_NAMESPACE = Internal::Namespaces::HTML
 
     # WHATWG `getElementsByTagName(qualifiedName)` — a live collection filtered
     # by qualified name. "*" matches any. In an HTML document, HTML-namespace
@@ -137,7 +137,7 @@ module Dommy
         # `name` attribute isn't a supported name.
         next true if node["id"].to_s == key
 
-        html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == "http://www.w3.org/1999/xhtml"
+        html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == Internal::Namespaces::HTML
         html_ns && node["name"].to_s == key
       end
     end
@@ -210,7 +210,7 @@ module Dommy
         name = node["name"].to_s
         next if name.empty? || names.include?(name)
 
-        html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == "http://www.w3.org/1999/xhtml"
+        html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == Internal::Namespaces::HTML
         names << name if html_ns
       end
       names

@@ -36,6 +36,9 @@ module Dommy
       def aria_hidden?(element)
         element.get_attribute("aria-hidden").to_s.casecmp?("true")
       end
+
+      # Everything above is the module; everything below is how.
+      private_class_method :aria_hidden?
     end
   end
 end

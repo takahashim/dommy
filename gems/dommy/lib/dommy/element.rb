@@ -1484,7 +1484,7 @@ module Dommy
       end
     end
 
-    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+    HTML_NAMESPACE = Internal::Namespaces::HTML
 
     # Record the namespace/prefix/localName an element was created with via
     # createElementNS, so the getters report them faithfully (Nokogiri can't
@@ -3501,7 +3501,7 @@ module Dommy
     # non-HTML (or null) namespace, or any element in a non-HTML document —
     # preserves case (WHATWG "set/get/has attribute" lowercasing condition).
     def case_sensitive_attribute_names?
-      !(namespace_uri == "http://www.w3.org/1999/xhtml" && @document.html_document?)
+      !(namespace_uri == Internal::Namespaces::HTML && @document.html_document?)
     end
 
     # Insertion / scroll / popover helpers.

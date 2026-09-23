@@ -7,9 +7,6 @@ require_relative "backend_prefilter"
 module Dommy
   module Internal
     module SelectorMatcher
-      HTML_NS = "http://www.w3.org/1999/xhtml"
-      SVG_NS = "http://www.w3.org/2000/svg"
-
       module_function
 
       # `verified:` — see #matches_complex?; only passed by fast_query's

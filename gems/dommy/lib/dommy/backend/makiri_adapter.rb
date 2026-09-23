@@ -28,7 +28,7 @@ module Dommy
       # Namespace object has, so calling code treats both backends uniformly.
       Namespace = Struct.new(:href)
 
-      HTML_NAMESPACE_URI = "http://www.w3.org/1999/xhtml"
+      HTML_NAMESPACE_URI = Internal::Namespaces::HTML
 
       # Throwaway attribute used to bind `:scope` to a context element — Lexbor
       # has no `:scope`, so a scoped query temporarily marks the element and

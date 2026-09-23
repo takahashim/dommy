@@ -2514,8 +2514,8 @@ module Dommy
 
       el = @document.wrap_node(node)
       ns = el.respond_to?(:namespace_uri) ? el.namespace_uri : nil
-      html = "http://www.w3.org/1999/xhtml"
-      svg = "http://www.w3.org/2000/svg"
+      html = Internal::Namespaces::HTML
+      svg = Internal::Namespaces::SVG
       name == "script" ? [html, svg].include?(ns) : ns == html
     end
 
@@ -4066,7 +4066,7 @@ module Dommy
   # `rowIndex` walks the enclosing table; `sectionRowIndex` walks
   # the enclosing thead/tbody/tfoot.
   class HTMLTableRowElement < HTMLElement
-    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+    HTML_NAMESPACE = Internal::Namespaces::HTML
 
     # Own __js_call__ methods, on top of Element's.
     def cells
@@ -4159,7 +4159,7 @@ module Dommy
   # collection + insertRow / deleteRow.
   class HTMLTableSectionElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+    HTML_NAMESPACE = Internal::Namespaces::HTML
 
     def rows
       el = self
@@ -4226,7 +4226,7 @@ module Dommy
   # tbody elements. `insertRow(-1)` appends to the last tbody (or
   # creates one); `deleteRow` works against the merged `rows` list.
   class HTMLTableElement < HTMLElement
-    HTML_NAMESPACE = "http://www.w3.org/1999/xhtml"
+    HTML_NAMESPACE = Internal::Namespaces::HTML
 
     # Own __js_call__ methods, on top of Element's.
     def caption
@@ -5409,8 +5409,8 @@ module Dommy
     "param" => HTMLParamElement
   }.freeze
 
-  SVG_NAMESPACE_URI = "http://www.w3.org/2000/svg"
-  HTML_NAMESPACE_URI = "http://www.w3.org/1999/xhtml"
+  SVG_NAMESPACE_URI = Internal::Namespaces::SVG
+  HTML_NAMESPACE_URI = Internal::Namespaces::HTML
 
   # The interface for an HTML-namespace element whose local name maps to no
   # specialized interface (e.g. createElementNS with an upper-case or otherwise
