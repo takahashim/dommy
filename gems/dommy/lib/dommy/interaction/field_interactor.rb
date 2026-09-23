@@ -9,14 +9,6 @@ module Dommy
     # — the React "native setter" path — so a framework's value tracker sees the
     # change rather than swallowing it.
     class FieldInteractor
-      # Minimal extension → MIME map for attach_file (core stays Rack-free).
-      MIME_TYPES = {
-        ".txt" => "text/plain", ".html" => "text/html", ".htm" => "text/html",
-        ".json" => "application/json", ".csv" => "text/csv", ".xml" => "application/xml",
-        ".png" => "image/png", ".jpg" => "image/jpeg", ".jpeg" => "image/jpeg",
-        ".gif" => "image/gif", ".pdf" => "application/pdf"
-      }.freeze
-
       def initialize(finder, document)
         @finder = finder
         @document = document
@@ -53,7 +45,7 @@ module Dommy
         raise FileNotFoundError, "no such file: #{path}" unless ::File.exist?(path)
 
         file = Dommy::File.new(
-          [::File.binread(path)], ::File.basename(path), "type" => mime_type_for(path)
+          [::File.binread(path)], ::File.basename(path), "type" => MimeTypes.for(path)
         )
         input.__driver_set_files__([file])
         EventSynthesis.change(input)
@@ -163,10 +155,6 @@ module Dommy
           EventSynthesis.change(box)
         end
         box
-      end
-
-      def mime_type_for(path)
-        MIME_TYPES.fetch(::File.extname(path).downcase, "application/octet-stream")
       end
 
       def clear_radio_group(radio)
