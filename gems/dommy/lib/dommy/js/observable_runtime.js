@@ -10,6 +10,12 @@
   if (typeof globalThis.Observable === "function") return;
 
   const kInternal = Symbol("observable-internal");
+  // The two operations an operator needs of its source and of its subscriber but
+  // the IDL does not declare. Symbol-keyed, so a page can neither see them on
+  // the prototypes (which `Object.getOwnPropertyNames` and idlharness both walk)
+  // nor replace them to get between an Observable and its operators.
+  const kSubscribeWith = Symbol("observable-subscribe-with");
+  const kAbortConsumer = Symbol("observable-abort-consumer");
 
   // "Report the exception" — the WHATWG operation, which the page reaches as
   // `self.reportError`. Handing it the error there rather than building an
@@ -33,11 +39,14 @@
 
   function isCallable(v) { return typeof v === "function"; }
 
-  // take()/drop() counts are WebIDL `unsigned long long`: a negative value
-  // wraps to the maximum (effectively unlimited), as does a non-finite value.
+  // take()/drop() counts are WebIDL `unsigned long long`. Its conversion answers
+  // ZERO for NaN and for either infinity — so `take(NaN)` and `take(Infinity)`
+  // both take nothing — while a negative value wraps modulo 2**64 to a number no
+  // source will reach, which is Infinity for our purposes.
   function toUnsignedCount(amount) {
     const n = Math.trunc(Number(amount));
-    if (!isFinite(n) || n < 0) return Infinity;
+    if (!isFinite(n)) return 0;
+    if (n < 0) return Infinity;
     return n;
   }
 
@@ -139,7 +148,7 @@
     }
 
     // Internal: abort because the consumer's signal aborted (unsubscribe).
-    _abortConsumer(reason) { this.#close(reason); }
+    [kAbortConsumer](reason) { this.#close(reason); }
   }
 
   Object.defineProperty(Subscriber.prototype, Symbol.toStringTag, {
@@ -165,17 +174,17 @@
     // Public subscribe(). observer may be a next-callback, an observer object,
     // or omitted. options may carry an AbortSignal.
     subscribe(observer, options) {
-      this._subscribeWith(normalizeObserver(observer), options || {});
+      this[kSubscribeWith](normalizeObserver(observer), options || {});
     }
 
     // Internal subscribe used by subscribe() and by operators. internalObserver
     // is a plain {next?, error?, complete?}.
-    _subscribeWith(internalObserver, options) {
+    [kSubscribeWith](internalObserver, options) {
       const subscriber = new Subscriber(kInternal, internalObserver);
       const outer = options && options.signal;
       if (outer) {
-        if (outer.aborted) subscriber._abortConsumer(outer.reason);
-        else onConsumerAbort(outer, () => subscriber._abortConsumer(outer.reason));
+        if (outer.aborted) subscriber[kAbortConsumer](outer.reason);
+        else onConsumerAbort(outer, () => subscriber[kAbortConsumer](outer.reason));
       }
       try {
         this.#subscribeCallback.call(undefined, subscriber);
@@ -278,7 +287,7 @@
       const source = this;
       return new Observable((subscriber) => {
         let index = 0;
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (value) => {
             let mapped;
             try { mapped = mapper(value, index++); }
@@ -296,7 +305,7 @@
       const source = this;
       return new Observable((subscriber) => {
         let index = 0;
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (value) => {
             let keep;
             try { keep = predicate(value, index++); }
@@ -315,7 +324,7 @@
       return new Observable((subscriber) => {
         if (amount === 0) { subscriber.complete(); return; }
         let remaining = amount;
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (value) => {
             subscriber.next(value);
             if (--remaining === 0) subscriber.complete();
@@ -331,7 +340,7 @@
       const source = this;
       return new Observable((subscriber) => {
         let remaining = amount;
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (value) => {
             if (remaining > 0) { remaining--; return; }
             subscriber.next(value);
@@ -357,7 +366,7 @@
           let inner;
           try { inner = Observable.from(mapper(value, index++)); }
           catch (e) { subscriber.error(e); return; }
-          inner._subscribeWith({
+          inner[kSubscribeWith]({
             next: (v) => subscriber.next(v),
             error: (e) => subscriber.error(e),
             complete: () => {
@@ -371,7 +380,7 @@
           }, { signal: subscriber.signal });
         };
 
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (value) => {
             if (active > 0) queue.push(value);
             else subscribeToInner(value);
@@ -401,7 +410,7 @@
           let inner;
           try { inner = Observable.from(mapper(value, index++)); }
           catch (e) { subscriber.error(e); return; }
-          inner._subscribeWith({
+          inner[kSubscribeWith]({
             next: (v) => subscriber.next(v),
             error: (e) => subscriber.error(e),
             complete: () => {
@@ -411,7 +420,7 @@
           }, { signal: AbortSignal.any([subscriber.signal, innerController.signal]) });
         };
 
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (value) => startInner(value),
           error: (e) => subscriber.error(e),
           complete: () => {
@@ -428,13 +437,13 @@
         const notifierObs = Observable.from(notifier);
         // The notifier's first next() OR error() completes the subscriber (the
         // error is NOT mirrored); the notifier completing is a no-op.
-        notifierObs._subscribeWith({
+        notifierObs[kSubscribeWith]({
           next: () => subscriber.complete(),
           error: () => subscriber.complete(),
           complete: () => {},
         }, { signal: subscriber.signal });
         if (subscriber.signal.aborted) return;
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (v) => subscriber.next(v),
           error: (e) => subscriber.error(e),
           complete: () => subscriber.complete(),
@@ -446,13 +455,13 @@
       if (!isCallable(handler)) throw new TypeError("catch: handler must be a function");
       const source = this;
       return new Observable((subscriber) => {
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (v) => subscriber.next(v),
           error: (err) => {
             let next;
             try { next = Observable.from(handler(err)); }
             catch (e) { subscriber.error(e); return; }
-            next._subscribeWith({
+            next[kSubscribeWith]({
               next: (v) => subscriber.next(v),
               error: (e) => subscriber.error(e),
               complete: () => subscriber.complete(),
@@ -468,7 +477,7 @@
       const source = this;
       return new Observable((subscriber) => {
         subscriber.addTeardown(() => callback());
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (v) => subscriber.next(v),
           error: (e) => subscriber.error(e),
           complete: () => subscriber.complete(),
@@ -489,7 +498,7 @@
             try { cfg.abort(subscriber.signal.reason); } catch (_e) {}
           });
         }
-        source._subscribeWith({
+        source[kSubscribeWith]({
           next: (v) => {
             try { if (isCallable(cfg.next)) cfg.next(v); }
             catch (e) { subscriber.error(e); return; }
@@ -649,7 +658,7 @@
       if (signal.aborted) return;
       const steps = build(resolve, reject, (reason) => controller.abort(reason));
       if (!steps) return;
-      source._subscribeWith({
+      source[kSubscribeWith]({
         next: steps.next,
         error: (e) => reject(e),
         complete: steps.complete,
