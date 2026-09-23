@@ -84,4 +84,25 @@ class TestClassList < Minitest::Test
     assert_equal(true, @list.__js_call__("replace", ["c", "a"]))
     assert_equal("a b", @el.class_name)
   end
+
+  # relList is reflected on the `a` of the HTML, SVG and MathML namespaces, and
+  # on `area` and `link` in HTML alone; everywhere else the property is absent.
+  def test_rel_list_hosts
+    doc = @win.document
+    {
+      Dommy::Internal::Namespaces::HTML => %w[a area link],
+      Dommy::Internal::Namespaces::SVG => %w[a],
+      Dommy::Internal::Namespaces::MATHML => %w[a],
+      "http://example.com/" => []
+    }.each do |ns, with_list|
+      %w[a area link td].each do |name|
+        rel_list = doc.create_element_ns(ns, name).__js_get__("relList")
+        if with_list.include?(name)
+          assert_instance_of(Dommy::ClassList, rel_list, "#{name} in #{ns}")
+        else
+          assert_same(Dommy::Bridge::UNDEFINED, rel_list, "#{name} in #{ns}")
+        end
+      end
+    end
+  end
 end
