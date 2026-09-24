@@ -951,7 +951,6 @@
     "HTMLInputElement.autocomplete": "declared string (expected setter_only)",
     "HTMLInputElement.multiple": "hand-written (expected boolean)",
     "HTMLInputElement.readOnly": "hand-written (expected boolean)",
-    "HTMLLIElement.value": "hand-written (expected long)",
     "HTMLLinkElement.disabled": "hand-written (expected boolean)",
     "HTMLLinkElement.relList": "hand-written (expected token_list)",
     "HTMLLinkElement.sizes": "declared string (expected token_list)",
@@ -961,7 +960,6 @@
     "HTMLMeterElement.min": "hand-written (expected setter_only)",
     "HTMLMeterElement.optimum": "hand-written (expected setter_only)",
     "HTMLMeterElement.value": "hand-written (expected setter_only)",
-    "HTMLOListElement.start": "hand-written (expected long)",
     "HTMLObjectElement.height": "hand-written (expected string)",
     "HTMLObjectElement.width": "hand-written (expected string)",
     "HTMLOptionElement.defaultSelected": "hand-written (expected boolean)",
@@ -972,17 +970,10 @@
     "HTMLScriptElement.htmlFor": "hand-written (expected string)",
     "HTMLSelectElement.disabled": "hand-written (expected boolean)",
     "HTMLSelectElement.required": "hand-written (expected boolean)",
-    "HTMLSelectElement.size": "hand-written (expected ulong)",
-    "HTMLSourceElement.height": "hand-written (expected ulong)",
-    "HTMLSourceElement.width": "hand-written (expected ulong)",
-    "HTMLTableCellElement.colSpan": "hand-written (expected ulong)",
-    "HTMLTableCellElement.rowSpan": "hand-written (expected ulong)",
     "HTMLTemplateElement.htmlFor": "hand-written (expected string)",
     "HTMLTextAreaElement.autocomplete": "declared string (expected setter_only)",
     "HTMLTextAreaElement.disabled": "hand-written (expected boolean)",
     "HTMLTextAreaElement.readOnly": "hand-written (expected boolean)",
-    "HTMLTextAreaElement.required": "hand-written (expected boolean)",
-    "HTMLVideoElement.height": "hand-written (expected ulong)",
-    "HTMLVideoElement.width": "hand-written (expected ulong)"
+    "HTMLTextAreaElement.required": "hand-written (expected boolean)"
   }
 }

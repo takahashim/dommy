@@ -17,21 +17,8 @@ module Dommy
       row.cells.find_index { |c| c.__dommy_backend_node__ == @__node__ } || -1
     end
 
-    def col_span
-      (@__node__["colspan"] || "1").to_i
-    end
-
-    def col_span=(v)
-      set_reflected_string("colspan", v.to_s)
-    end
-
-    def row_span
-      (@__node__["rowspan"] || "1").to_i
-    end
-
-    def row_span=(v)
-      set_reflected_string("rowspan", v.to_s)
-    end
+    reflect_ulong col_span: { attr: "colspan", default: 1, range: 1..1000 },
+                  row_span: { attr: "rowspan", default: 1, range: 0..65_534 }
 
     # `scope` / `abbr` are only meaningful on `<th>`, but the IDL
     # exposes them on the cell element either way.

@@ -125,18 +125,6 @@ module Dommy
       end
     end
 
-    private
-
-    # HTML "rules for parsing integers": optional leading ASCII whitespace, an
-    # optional sign, then ASCII digits (trailing junk allowed). Returns the
-    # integer, or nil when the value is absent or doesn't begin with a valid
-    # integer — callers supply the reflected attribute's default.
-    def parse_html_integer(value)
-      return nil if value.nil?
-
-      match = value.to_s.sub(/\A[ \t\n\f\r]+/, "").match(/\A[-+]?\d+/)
-      match ? match[0].to_i : nil
-    end
   end
 
   # `<a>` — exposes URL-component getters/setters via the `href`

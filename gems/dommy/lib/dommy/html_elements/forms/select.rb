@@ -10,11 +10,9 @@ module Dommy
   class HTMLSelectElement < HTMLElement
     reflect_string :name
     reflect_boolean :multiple
+    reflect_ulong size: { default: 0 }
     # Own __js_call__ methods, on top of Element's.
 
-    def size
-      @__node__["size"].to_s.to_i
-    end
 
     # HTML "display size": the `size` attribute when positive, else 4 for a
     # multiple select and 1 otherwise. Only at display size 1 does a list with

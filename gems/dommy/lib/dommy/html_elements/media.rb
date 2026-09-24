@@ -201,21 +201,7 @@ module Dommy
   class HTMLVideoElement < HTMLMediaElement
     reflect_url :poster
     reflect_boolean plays_inline: "playsinline"
-    def width
-      @__node__["width"].to_s.to_i
-    end
-
-    def width=(v)
-      set_reflected_string("width", v.to_s)
-    end
-
-    def height
-      @__node__["height"].to_s.to_i
-    end
-
-    def height=(v)
-      set_reflected_string("height", v.to_s)
-    end
+    reflect_ulong :width, :height
 
     def video_width
       width
@@ -233,21 +219,7 @@ module Dommy
   class HTMLSourceElement < HTMLElement
     reflect_url :src
     reflect_string :type, :media, :srcset, :sizes
-    def width
-      @__node__["width"].to_s.to_i
-    end
-
-    def width=(v)
-      set_reflected_string("width", v.to_s)
-    end
-
-    def height
-      @__node__["height"].to_s.to_i
-    end
-
-    def height=(v)
-      set_reflected_string("height", v.to_s)
-    end
+    reflect_ulong :width, :height
 
     js_accessor :width, :height
 

@@ -7,39 +7,14 @@ module Dommy
   class HTMLOListElement < HTMLElement
     reflect_string :type
     reflect_boolean :reversed
-    # `start` reflects the content attribute as a long with default 1.
-    def start
-      parse_html_integer(@__node__["start"]) || 1
-    end
-
-    def start=(v)
-      set_reflected_string("start", v.to_s)
-    end
-
-    js_accessor :start
-
+    reflect_long start: { default: 1 }
   end
 
   class HTMLUListElement < HTMLElement
   end
 
   class HTMLLIElement < HTMLElement
-    # `value` reflects the content attribute as a long with default 0.
-    def value
-      parse_html_integer(@__node__["value"]) || 0
-    end
-
-    def value=(v)
-      set_reflected_string("value", v.to_s)
-    end
-
-    def __js_get__(key)
-      key == "value" ? value : super
-    end
-
-    def __js_set__(key, value)
-      key == "value" ? (self.value = value) : super
-    end
+    reflect_long :value
   end
 
   class HTMLTimeElement < HTMLElement

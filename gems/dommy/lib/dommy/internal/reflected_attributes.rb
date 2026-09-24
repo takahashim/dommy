@@ -44,9 +44,19 @@ module Dommy
       # steps. A declaration says which type an attribute is; this says what the
       # type does, once. A nil getter means the spec writes that half out in
       # prose and the class defines it (see reflect_setter).
+      EMPTY_OPTIONS = {}.freeze
+
+      # WebIDL's `long` and `unsigned long`, which bound what a reflected number
+      # can be before HTML's own defaults and ranges apply.
+      LONG_RANGE = (-2_147_483_648..2_147_483_647).freeze
+      UNSIGNED_LONG_MAX = 2_147_483_647
+      WRAP = 4_294_967_296
+
       REFLECTORS = {
         string: %i[reflected_string set_reflected_string],
         url: %i[reflected_url set_reflected_string],
+        long: %i[reflected_long set_reflected_long],
+        ulong: %i[reflected_ulong set_reflected_ulong],
         boolean: %i[reflected_boolean set_reflected_boolean],
         setter_only: [nil, :set_reflected_string],
       }.freeze
@@ -65,6 +75,27 @@ module Dommy
         # serialization.
         def reflect_url(*names, **mapped)
           _reflect(:url, names, mapped)
+        end
+
+        # A `long` attribute. `default:` is [ReflectDefault] and `non_negative:`
+        # is [ReflectNonNegative] (which makes the setter reject a negative
+        # value and the getter fall back to -1 rather than 0).
+        #
+        #   reflect_long :value                 # li.value, no default
+        #   reflect_long start: { default: 1 }  # ol.start
+        def reflect_long(*names, **mapped)
+          _reflect(:long, names, mapped)
+        end
+
+        # An `unsigned long` attribute. `range:` is [ReflectRange], which clamps
+        # an out-of-range value to the nearest end instead of falling back;
+        # `default:` is [ReflectDefault] and `positive:` is [ReflectPositive].
+        #
+        #   reflect_ulong :width, :height                              # default 0
+        #   reflect_ulong col_span: { attr: "colspan", default: 1,
+        #                             range: 1..1000 }
+        def reflect_ulong(*names, **mapped)
+          _reflect(:ulong, names, mapped)
         end
 
         # An IDL attribute whose SETTER reflects but whose getter the spec writes
@@ -184,24 +215,28 @@ module Dommy
           getter, setter = REFLECTORS.fetch(type)
 
           (names.map { |n| [n, nil] } + mapped.to_a).each do |ruby_name, override|
-            attr, js = _resolve_identifiers(ruby_name, override)
-            define_method(ruby_name) { __send__(getter, attr) } if getter
-            define_method(:"#{ruby_name}=") { |value| __send__(setter, attr, value) }
+            attr, js, options = _resolve_identifiers(ruby_name, override)
+            define_method(ruby_name) { __send__(getter, attr, options) } if getter
+            define_method(:"#{ruby_name}=") { |value| __send__(setter, attr, value, options) }
             @__reflected_props__[js] = ruby_name
             @__writable_props__[js] = ruby_name
             @__reflect_specs__[js] = { type: type, attr: attr }
           end
         end
 
+        # [content attribute, JS name, the type's own parameters] for one
+        # declaration. A Hash names any of them; the numeric types read their
+        # default / range / sign out of what is left.
         def _resolve_identifiers(ruby_name, override)
           default = _camelize(ruby_name)
           case override
           when nil
-            [default, default]
+            [default, default, EMPTY_OPTIONS]
           when String
-            [override, default]
+            [override, default, EMPTY_OPTIONS]
           when Hash
-            [override[:attr] || default, override[:js] || default]
+            [override[:attr] || default, override[:js] || default,
+             override.except(:attr, :js).freeze]
           else
             raise ArgumentError, "reflect_*: unsupported mapping for #{ruby_name.inspect}: #{override.inspect}"
           end
@@ -230,11 +265,11 @@ module Dommy
 
       private
 
-      def reflected_string(name)
+      def reflected_string(name, _options = nil)
         get_attribute(name).to_s
       end
 
-      def set_reflected_string(name, value)
+      def set_reflected_string(name, value, _options = nil)
         set_attribute(name, value.to_s)
       end
 
@@ -248,18 +283,116 @@ module Dommy
       #
       # The setter is the plain string one: a URL attribute reflects on the way
       # OUT only, and `img.src = "a b"` stores "a b" verbatim.
-      def reflected_url(name)
+      def reflected_url(name, _options = nil)
         raw = get_attribute(name)
         return "" if raw.nil?
 
         resolve_url(raw)
       end
 
-      def reflected_boolean(name)
+
+      # HTML's "rules for parsing integers", which every numeric reflection is
+      # built on: optional leading ASCII whitespace, an optional sign, then a run
+      # of ASCII digits — and it returns THERE, without requiring the run to
+      # reach the end of the string. So "12abc" is 12 and "1e3" is 1, and only
+      # the absence of digits is an error (nil here); the caller supplies the
+      # attribute's default for that. Confirmed against a browser, since the
+      # trailing-junk case is a reading of the step list rather than of any prose
+      # (dommy-conformance cases/attributes/numeric-reflection.js).
+      def parse_html_integer(value)
+        return nil if value.nil?
+
+        match = value.to_s.sub(/\A[ \t\n\f\r]+/, "").match(/\A[-+]?\d+/)
+        match ? match[0].to_i : nil
+      end
+
+      # The same, for the attributes whose value is a valid NON-NEGATIVE integer:
+      # a leading "-" is an error rather than a negative number.
+      def parse_html_non_negative_integer(value)
+        parsed = parse_html_integer(value)
+        parsed if parsed && !parsed.negative?
+      end
+
+      # A `long` attribute's getter (HTML §2.6.1): the parsed value when it is
+      # one and fits a long, else the declared default, else -1 when the
+      # attribute is limited to non-negative numbers, else 0.
+      def reflected_long(name, options = EMPTY_OPTIONS)
+        raw = get_attribute(name)
+        unless raw.nil?
+          parsed = options[:non_negative] ? parse_html_non_negative_integer(raw) : parse_html_integer(raw)
+          return parsed if parsed && LONG_RANGE.cover?(parsed)
+        end
+        return options[:default] if options.key?(:default)
+        return -1 if options[:non_negative]
+
+        0
+      end
+
+      # An `unsigned long` attribute's getter. The range is 0..2147483647 unless
+      # [ReflectRange] gives another, and that extended attribute is also what
+      # decides what an out-of-range value becomes: WITH a range it CLAMPS to the
+      # nearer end (`colspan="3000000000"` is 1000), without one it falls back to
+      # the default like an unparseable value (`select.size="3000000000"` is 0).
+      def reflected_ulong(name, options = EMPTY_OPTIONS)
+        range = options[:range]
+        minimum = range ? range.first : (options[:positive] ? 1 : 0)
+        maximum = range ? range.last : UNSIGNED_LONG_MAX
+        parsed = parse_html_non_negative_integer(get_attribute(name))
+        if parsed
+          return parsed if parsed.between?(minimum, maximum)
+          return parsed < minimum ? minimum : maximum if range
+        end
+        return options[:default] if options.key?(:default)
+
+        minimum
+      end
+
+      # A `long` attribute's setter: reject a negative value where the attribute
+      # is limited to non-negative ones, and write the number as a valid integer.
+      def set_reflected_long(name, value, options = EMPTY_OPTIONS)
+        given = to_webidl_long(value)
+        if options[:non_negative] && given.negative?
+          raise DOMException::IndexSizeError, "#{name} cannot be negative"
+        end
+
+        set_attribute(name, given.to_s)
+      end
+
+      # An `unsigned long` attribute's setter. A value outside 0..2147483647
+      # becomes the default BEFORE it is written, so the attribute never holds
+      # one: `cell.colSpan = 3000000000` stores "1". [ReflectRange] has no say
+      # here — clamping is the getter's job — and WebIDL has already wrapped a
+      # negative value round, which is why `colSpan = -1` also stores "1".
+      def set_reflected_ulong(name, value, options = EMPTY_OPTIONS)
+        given = to_webidl_ulong(value)
+        raise DOMException::IndexSizeError, "#{name} must be positive" if options[:positive] && given.zero?
+
+        minimum = options[:positive] ? 1 : 0
+        new_value = options.fetch(:default, minimum)
+        new_value = given if given.between?(minimum, UNSIGNED_LONG_MAX)
+        set_attribute(name, new_value.to_s)
+      end
+
+      # WebIDL's integer conversions, which run before any of the above sees the
+      # value: a non-finite number is 0, and anything else truncates and wraps
+      # modulo 2**32 (so -1 is 4294967295 as an `unsigned long`).
+      def to_webidl_ulong(value) = to_webidl_number(value) % WRAP
+
+      def to_webidl_long(value)
+        wrapped = to_webidl_ulong(value)
+        wrapped >= WRAP / 2 ? wrapped - WRAP : wrapped
+      end
+
+      def to_webidl_number(value)
+        number = Float(value, exception: false) || 0.0
+        number.finite? ? number.truncate : 0
+      end
+
+      def reflected_boolean(name, _options = nil)
         has_attribute?(name)
       end
 
-      def set_reflected_boolean(name, value)
+      def set_reflected_boolean(name, value, _options = nil)
         if value
           set_attribute(name, "")
         elsif has_attribute?(name)
