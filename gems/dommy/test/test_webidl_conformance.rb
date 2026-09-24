@@ -181,6 +181,19 @@ if JsSurface.available?
                    "interfaces Dommy exposes changed; re-record with RECORD_WEBIDL_GAPS=1"
     end
 
+    # An attribute whose reflection algorithm is not the one its IDL declares —
+    # a URL returned verbatim, an `unsigned long` read with String#to_i, a
+    # DOMTokenList reflected as a string. These are wrong ANSWERS rather than
+    # absent members, so they ratchet separately from the inventory above.
+    def test_reflected_attributes_match_the_idl_they_declare
+      recorded = WebIdlAudit.recorded_gaps["reflect_gaps"]
+      current = WebIdlAudit.reflect_gaps
+      (recorded.keys | current.keys).sort.each do |member|
+        assert_equal recorded[member], current[member],
+          "#{member}: how it reflects changed; re-record with RECORD_WEBIDL_GAPS=1"
+      end
+    end
+
     def test_missing_members_match_the_recorded_inventory
       recorded = WebIdlAudit.recorded_gaps["missing_members"]
       current = WebIdlAudit.member_gaps

@@ -63,12 +63,66 @@ function requiredCount(args) {
   return n;
 }
 
+// The IDL type as written, e.g. "DOMString", "unsigned long", "boolean". A
+// nullable or parameterized type keeps its shape ("DOMString?",
+// "FrozenArray<Element>?") because HTML's reflection rules distinguish them.
+function idlTypeName(t) {
+  if (!t) return null;
+  const inner = Array.isArray(t.idlType)
+    ? t.idlType.map(idlTypeName).join(" or ")
+    : (typeof t.idlType === "object" ? idlTypeName(t.idlType) : t.idlType);
+  const base = t.generic ? t.generic + "<" + inner + ">" : inner;
+  return t.nullable ? base + "?" : base;
+}
+
+// How HTML says this IDL attribute reflects, from the extended attributes the
+// spec's own IDL carries (§2.6.1): [Reflect] / [ReflectURL] / [ReflectSetter]
+// name the shape, [Reflect="x"] names the content attribute when it differs
+// from the IDL name, and [ReflectDefault] / [ReflectRange] /
+// [ReflectNonNegative] / [ReflectPositive] / [ReflectPositiveWithFallback]
+// carry the numeric types' parameters. Null when the attribute does not
+// reflect — which is itself worth knowing, so an implementation cannot invent
+// a reflection the spec does not have.
+function reflectRecord(m) {
+  const ea = {};
+  for (const a of m.extAttrs || []) ea[a.name] = a.rhs === undefined ? null : a.rhs;
+  const shape = "ReflectURL" in ea ? "url"
+    : "ReflectSetter" in ea ? "setter"
+    : "Reflect" in ea ? "plain"
+    : null;
+  if (!shape) return null;
+
+  const out = { shape };
+  const named = ea.Reflect;
+  if (named && named.type === "string") out.attr = named.value.replace(/^"|"$/g, "");
+  if ("ReflectDefault" in ea) out.default = literal(ea.ReflectDefault);
+  if ("ReflectRange" in ea) out.range = (ea.ReflectRange.value || []).map(literal);
+  if ("ReflectNonNegative" in ea) out.non_negative = true;
+  if ("ReflectPositive" in ea) out.positive = true;
+  if ("ReflectPositiveWithFallback" in ea) out.positive_with_fallback = true;
+  return out;
+}
+
+function literal(rhs) {
+  if (!rhs) return null;
+  const raw = rhs.value;
+  if (typeof raw !== "string") return raw;
+  return rhs.type === "decimal" ? parseFloat(raw) : parseInt(raw, 10);
+}
+
 function memberRecord(m) {
   switch (m.type) {
     case "const":
       return { kind: "const", name: m.name, value: m.value && m.value.value };
     case "attribute":
-      return { kind: "attribute", name: m.name, static: !!m.special && m.special === "static", readonly: !!m.readonly };
+      return {
+        kind: "attribute",
+        name: m.name,
+        static: !!m.special && m.special === "static",
+        readonly: !!m.readonly,
+        type: idlTypeName(m.idlType),
+        reflect: reflectRecord(m)
+      };
     case "operation":
       if (!m.name) return null; // stringifier / getter / setter / deleter with no name
       return {
@@ -171,12 +225,15 @@ for (const name of [...interfaces.keys()].sort()) {
   sorted[name] = rec;
 }
 
-let head = "unknown";
+// Which upstream the IDL came from. A clone answers for itself; a tarball — or
+// the interfaces/ files fetched at a known revision, which is how the fixture is
+// reproduced without a full checkout — says so through WPT_COMMIT.
+let head = process.env.WPT_COMMIT || "unknown";
 try {
   head = require("child_process")
     .execSync("git -C " + JSON.stringify(wpt) + " rev-parse HEAD", { encoding: "utf8" })
     .trim();
-} catch (e) { /* a tarball checkout has no git metadata */ }
+} catch (e) { /* not a git checkout: keep WPT_COMMIT, or "unknown" */ }
 
 const out = {
   README:

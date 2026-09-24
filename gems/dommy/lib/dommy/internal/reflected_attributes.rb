@@ -39,6 +39,17 @@ module Dommy
         base.extend(ClassMethods)
       end
 
+      # One entry per reflected IDL attribute type in HTML §2.6.1, naming the
+      # pair of instance helpers that implement that type's getter and setter
+      # steps. A declaration says which type an attribute is; this says what the
+      # type does, once. A nil getter means the spec writes that half out in
+      # prose and the class defines it (see reflect_setter).
+      REFLECTORS = {
+        string: %i[reflected_string set_reflected_string],
+        boolean: %i[reflected_boolean set_reflected_boolean],
+        setter_only: [nil, :set_reflected_string],
+      }.freeze
+
       module ClassMethods
         def reflect_string(*names, **mapped)
           _reflect(:string, names, mapped)
@@ -46,6 +57,18 @@ module Dommy
 
         def reflect_boolean(*names, **mapped)
           _reflect(:boolean, names, mapped)
+        end
+
+        # An IDL attribute whose SETTER reflects but whose getter the spec writes
+        # out in prose — WebIDL marks these `[ReflectSetter]` rather than
+        # `[Reflect]`, and there are a handful: `form.action` returns the
+        # document's URL when the content attribute is missing or empty,
+        # `base.href` resolves against the document's FALLBACK base URL, `a.href`
+        # is HTMLHyperlinkElementUtils. This defines the setter and the bridge
+        # registration; the class defines the getter, and the declaration is what
+        # says it had to.
+        def reflect_setter(*names, **mapped)
+          _reflect(:setter_only, names, mapped)
         end
 
         # Register an EXISTING accessor under its JS name, for a property that
@@ -90,6 +113,19 @@ module Dommy
           _register_js_properties(names, mapped, writable: true)
         end
 
+        # What each reflected JS name was DECLARED as: its HTML §2.6.1 type and
+        # the content attribute it mirrors, merged across the ancestry. The
+        # WebIDL audit reads this and compares it with the reflection the specs'
+        # own IDL declares ([Reflect] / [ReflectURL] / [ReflectSetter] and the
+        # numeric parameters), so a type that drifts from the spec is a test
+        # failure rather than something to notice by eye.
+        def reflect_specs
+          @__reflect_specs_map__ ||= begin
+            inherited = superclass.respond_to?(:reflect_specs) ? superclass.reflect_specs : {}
+            inherited.merge(@__reflect_specs__ || {})
+          end
+        end
+
         # The JS names this class lets JS assign, merged across the ancestry.
         def writable_property_map
           @__writable_map__ ||= begin
@@ -132,18 +168,20 @@ module Dommy
         def _reflect(type, names, mapped)
           @__reflected_props__ ||= {}
           @__writable_props__ ||= {}
+          @__reflect_specs__ ||= {}
           @__reflected_map__ = nil # invalidate memoized merge
           @__writable_map__ = nil
+          @__reflect_specs_map__ = nil
 
-          getter = type == :boolean ? :reflected_boolean : :reflected_string
-          setter = type == :boolean ? :set_reflected_boolean : :set_reflected_string
+          getter, setter = REFLECTORS.fetch(type)
 
           (names.map { |n| [n, nil] } + mapped.to_a).each do |ruby_name, override|
             attr, js = _resolve_identifiers(ruby_name, override)
-            define_method(ruby_name) { __send__(getter, attr) }
+            define_method(ruby_name) { __send__(getter, attr) } if getter
             define_method(:"#{ruby_name}=") { |value| __send__(setter, attr, value) }
             @__reflected_props__[js] = ruby_name
             @__writable_props__[js] = ruby_name
+            @__reflect_specs__[js] = { type: type, attr: attr }
           end
         end
 

@@ -145,6 +145,88 @@ module WebIdlAudit
     end
   end
 
+  # --- reflected IDL attributes (HTML §2.6.1) -------------------------------
+  # The specs' own IDL says how each attribute reflects — [Reflect] /
+  # [ReflectURL] / [ReflectSetter], plus the numeric parameters — and the type it
+  # reflects AS is the IDL type. Dommy declares the same thing with reflect_string
+  # / reflect_url / reflect_boolean / ..., so the two can be compared: an
+  # attribute Dommy answers but reflects with the wrong algorithm (a URL returned
+  # verbatim, an `unsigned long` read with String#to_i) shows up here rather than
+  # waiting for a browser to disagree.
+
+  # The §2.6.1 type an IDL type reflects as, for the plain [Reflect] shapes.
+  REFLECT_TYPE_FOR_IDL = {
+    "DOMString" => :string,
+    "USVString" => :string,
+    "DOMString?" => :nullable_string,
+    "boolean" => :boolean,
+    "long" => :long,
+    "unsigned long" => :ulong,
+    "double" => :double,
+    "DOMTokenList" => :token_list,
+    "Element?" => :element_ref,
+    "FrozenArray<Element>?" => :element_refs
+  }.freeze
+
+  # How the member should be declared: the shape when the spec names one
+  # ([ReflectURL] is a URL whatever its IDL type says; [ReflectSetter] means the
+  # getter is prose), otherwise the type it reflects as.
+  def expected_reflect_type(member)
+    case member["reflect"]["shape"]
+    when "url" then :url
+    when "setter" then :setter_only
+    else REFLECT_TYPE_FOR_IDL[member["type"]]
+    end
+  end
+
+  # The content attribute a reflecting member mirrors: [Reflect="x"] when the
+  # spec names one, else the IDL name lowercased (HTML's content attributes are
+  # ASCII-lowercase).
+  def expected_reflect_attr(member)
+    member["reflect"]["attr"] || member["name"].downcase
+  end
+
+  # Reflections Dommy gets wrong or writes by hand, as
+  # "Interface.attribute" => "what it is (what it should be)". An attribute Dommy
+  # does not implement at all is a member gap, not a reflection gap, and is left
+  # to `member_gaps`.
+  def reflect_gaps
+    out = {}
+    data["interfaces"].each do |name, record|
+      klass = ruby_class_for(name)
+      next unless klass.respond_to?(:reflect_specs)
+
+      declared = klass.reflect_specs
+      record["members"].each do |member|
+        next unless member["kind"] == "attribute" && member["reflect"]
+
+        expected = expected_reflect_type(member)
+        next unless expected
+
+        gap = reflect_gap_for(klass, declared[member["name"]], member, expected)
+        out["#{name}.#{member['name']}"] = gap if gap
+      end
+    end
+    out.sort.to_h
+  end
+
+  def reflect_gap_for(klass, spec, member, expected)
+    if spec.nil?
+      return nil unless answers?(klass, member["name"])
+
+      "hand-written (expected #{expected})"
+    elsif spec[:type] != expected
+      "declared #{spec[:type]} (expected #{expected})"
+    elsif !spec[:attr].casecmp?(expected_reflect_attr(member))
+      "mirrors #{spec[:attr].inspect} (expected #{expected_reflect_attr(member).inspect})"
+    end
+  end
+
+  # Whether Dommy answers this JS property name at all, by any route.
+  def answers?(klass, js_name)
+    klass.reflected_property_map.key?(js_name) || JsSurface.js_properties(klass).include?(js_name)
+  end
+
   # --- webidl_tables.js [Constant] tables ----------------------------------
   # The tables live in the JS half's spec-surface file (the host runtime places
   # them on the interface object and its prototype). Reading them back is a
@@ -195,7 +277,8 @@ module WebIdlAudit
   def current_gaps
     {
       "missing_interfaces" => missing_interfaces,
-      "missing_members" => member_gaps.sort.to_h
+      "missing_members" => member_gaps.sort.to_h,
+      "reflect_gaps" => reflect_gaps
     }
   end
 
@@ -203,8 +286,9 @@ module WebIdlAudit
   # intentional change (or after regenerating interfaces.json from a newer WPT).
   def record_gaps!
     payload = {
-      "README" => "Inventory of WebIDL members Dommy does not implement, recorded so " \
-                  "test/test_webidl_conformance.rb can ratchet. Regenerate with " \
+      "README" => "Inventory of WebIDL members Dommy does not implement, and of the " \
+                  "reflected attributes it implements with the wrong algorithm, recorded " \
+                  "so test/test_webidl_conformance.rb can ratchet. Regenerate with " \
                   "RECORD_WEBIDL_GAPS=1 bundle exec rake test.",
       "wpt_commit" => data["wpt_commit"]
     }.merge(current_gaps)
