@@ -11,6 +11,7 @@
     "CSSPageDescriptors",
     "CSSStyleProperties",
     "CanvasPattern",
+    "CaretPosition",
     "CloseWatcher",
     "CommandEvent",
     "CustomStateSet",
@@ -63,6 +64,7 @@
     "VideoTrack",
     "VideoTrackList",
     "VisibilityStateEntry",
+    "VisualViewport",
     "Worklet",
     "XPathEvaluator",
     "XPathExpression",
@@ -146,13 +148,19 @@
       "ariaNotify",
       "bgColor",
       "captureEvents",
+      "caretPositionFromPoint",
       "clear",
+      "convertPointFromNode",
+      "convertQuadFromNode",
+      "convertRectFromNode",
       "createExpression",
       "createNSResolver",
       "customElementRegistry",
+      "elementsFromPoint",
       "evaluate",
       "execCommand",
       "fgColor",
+      "getBoxQuads",
       "linkColor",
       "onabort",
       "onauxclick",
@@ -218,6 +226,8 @@
       "onseeked",
       "onseeking",
       "onselect",
+      "onselectionchange",
+      "onselectstart",
       "onslotchange",
       "onstalled",
       "onsubmit",
@@ -292,7 +302,13 @@
       "ariaValueMin",
       "ariaValueNow",
       "ariaValueText",
+      "checkVisibility",
+      "convertPointFromNode",
+      "convertQuadFromNode",
+      "convertRectFromNode",
+      "currentCSSZoom",
       "customElementRegistry",
+      "getBoxQuads",
       "setHTML",
       "setHTMLUnsafe"
     ],
@@ -464,6 +480,8 @@
       "onseeked",
       "onseeking",
       "onselect",
+      "onselectionchange",
+      "onselectstart",
       "onslotchange",
       "onstalled",
       "onsubmit",
@@ -478,6 +496,7 @@
       "onwebkittransitionend",
       "onwheel",
       "outerText",
+      "scrollParent",
       "spellcheck",
       "tabIndex",
       "title",
@@ -558,7 +577,9 @@
       "fetchPriority",
       "hspace",
       "lowsrc",
-      "vspace"
+      "vspace",
+      "x",
+      "y"
     ],
     "HTMLInputElement": [
       "accept",
@@ -777,6 +798,9 @@
       "bytes",
       "textStream"
     ],
+    "Selection": [
+      "modify"
+    ],
     "ShadowRoot": [
       "adoptedStyleSheets",
       "clonable",
@@ -791,6 +815,10 @@
       "submitter"
     ],
     "Text": [
+      "convertPointFromNode",
+      "convertQuadFromNode",
+      "convertRectFromNode",
+      "getBoxQuads",
       "wholeText"
     ],
     "ToggleEvent": [
@@ -815,6 +843,8 @@
       "length",
       "locationbar",
       "menubar",
+      "moveBy",
+      "moveTo",
       "name",
       "navigation",
       "onabort",
@@ -895,6 +925,8 @@
       "onseeked",
       "onseeking",
       "onselect",
+      "onselectionchange",
+      "onselectstart",
       "onslotchange",
       "onstalled",
       "onstorage",
@@ -916,11 +948,17 @@
       "personalbar",
       "print",
       "releaseEvents",
+      "resizeBy",
+      "screenLeft",
+      "screenTop",
+      "screenX",
+      "screenY",
       "scrollbars",
       "status",
       "statusbar",
       "stop",
-      "toolbar"
+      "toolbar",
+      "visualViewport"
     ],
     "Worker": [
       "onerror",
@@ -935,7 +973,19 @@
     "HTMLInputElement.autocomplete": "declared string (expected setter_only)",
     "HTMLTextAreaElement.autocomplete": "declared string (expected setter_only)"
   },
-  "void_gaps": {},
+  "void_gaps": {
+    "Element.scroll": "returns Promise<undefined>, but a null answer becomes undefined",
+    "Element.scrollBy": "returns Promise<undefined>, but a null answer becomes undefined",
+    "Element.scrollIntoView": "returns Promise<undefined>, but a null answer becomes undefined",
+    "Element.scrollTo": "returns Promise<undefined>, but a null answer becomes undefined",
+    "MediaQueryList.addListener": "returns undefined, which the bridge does not guarantee",
+    "MediaQueryList.removeListener": "returns undefined, which the bridge does not guarantee",
+    "Selection.empty": "returns undefined, which the bridge does not guarantee",
+    "Window.resizeTo": "returns undefined, which the bridge does not guarantee",
+    "Window.scroll": "returns Promise<undefined>, but a null answer becomes undefined",
+    "Window.scrollBy": "returns Promise<undefined>, but a null answer becomes undefined",
+    "Window.scrollTo": "returns Promise<undefined>, but a null answer becomes undefined"
+  },
   "arity_gaps": {},
   "iteration_gaps": {},
   "null_to_empty_gaps": {},
@@ -945,5 +995,6 @@
     "Document": "has a named getter and is not declared",
     "Window": "has a named getter and is not declared",
     "XMLDocument": "has a named getter and is not declared"
-  }
+  },
+  "seeded_member_gaps": {}
 }

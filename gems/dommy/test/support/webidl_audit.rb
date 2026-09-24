@@ -535,6 +535,75 @@ module WebIdlAudit
     end
   end
 
+  # --- what sits on which prototype -----------------------------------------
+  #
+  # Whether a page may ASSIGN to an attribute is not audited directly: Dommy
+  # answers a write from several shapes — a `when` arm, a guard clause, a
+  # reflect_* declaration, a module — and reading them statically finds only
+  # some, which makes a ratchet that cries wolf. Where readonly IS observable is
+  # the seeded prototype descriptor, which is what a page reflects on, and that
+  # is what this checks.
+
+  # INTERFACE_MEMBERS is what the JS half puts on each interface PROTOTYPE, so a
+  # page's `'appendChild' in Node.prototype` and `Element.prototype.remove.call`
+  # resolve. Each name has to be a member the IDL gives that interface — not an
+  # invention, not one that belongs to an ancestor — and the table's split
+  # between `g` (readonly attributes) and `p` (read-write ones) has to match.
+  def seeded_member_gaps
+    gaps = {}
+    js_interface_members.each do |interface, groups|
+      # An interface the fixture only sees a PARTIAL of (MouseEvent, whose base is
+      # in a spec outside the audited set) cannot be judged from here.
+      record = data["interfaces"][interface]
+      next unless record
+
+      operations = record["members"].select { |m| m["kind"] == "operation" }.map { |m| m["name"] }.compact.to_set
+      # A stringifier is an unnamed special operation, and what it gives the
+      # interface is `toString`.
+      operations << "toString" if record["members"].any? { |m| m["special"] == "stringifier" || (m["kind"] == "special" && m["special"] == "stringifier") }
+      attributes = record["members"].select { |m| m["kind"] == "attribute" }.to_h { |m| [m["name"], m] }
+      groups[:m].each do |name|
+        gaps["#{interface}.#{name}"] = "seeded as an operation the interface does not declare" unless operations.include?(name)
+      end
+      (groups[:g] + groups[:p]).each do |name|
+        next gaps["#{interface}.#{name}"] = "seeded as an attribute the interface does not declare" unless attributes[name]
+
+        readonly = attributes[name]["readonly"] && attributes[name]["put_forwards"].nil?
+        seeded_readonly = groups[:g].include?(name)
+        next if readonly == seeded_readonly
+
+        gaps["#{interface}.#{name}"] = readonly ? "seeded with a setter the IDL does not give it" : "seeded without the setter the IDL gives it"
+      end
+    end
+    gaps.sort.to_h
+  end
+
+  # `{ Interface: { m: [...], g: [...], p: [...] } }` out of the JS half.
+  def js_interface_members
+    body = js_object_body("INTERFACE_MEMBERS")
+    entries = {}
+    body.scan(/(\w+):\s*\{/) do
+      interface = ::Regexp.last_match(1)
+      entries[interface] = js_member_groups(body, ::Regexp.last_match.end(0))
+    end
+    entries
+  end
+
+  def js_member_groups(body, from)
+    depth = 1
+    index = from
+    while index < body.length && depth.positive?
+      depth += 1 if body[index] == "{"
+      depth -= 1 if body[index] == "}"
+      index += 1
+    end
+    chunk = body[from...(index - 1)].to_s
+    %i[m g p].to_h do |group|
+      list = chunk[/\b#{group}:\s*\[(.*?)\]/m, 1].to_s
+      [group, list.scan(/"([^"]+)"/).flatten]
+    end
+  end
+
   # --- webidl_tables.js [Constant] tables ----------------------------------
   # The tables live in the JS half's spec-surface file (the host runtime places
   # them on the interface object and its prototype). Reading them back is a
@@ -593,7 +662,8 @@ module WebIdlAudit
       "null_to_empty_gaps" => null_to_empty_gaps,
       "unforgeable_gaps" => unforgeable_gaps,
       "unscopable_gaps" => unscopable_gaps,
-      "named_property_gaps" => named_property_gaps
+      "named_property_gaps" => named_property_gaps,
+      "seeded_member_gaps" => seeded_member_gaps
     }
   end
 

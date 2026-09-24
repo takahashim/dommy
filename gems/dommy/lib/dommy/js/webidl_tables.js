@@ -307,10 +307,12 @@ globalThis.__rbIdl = (function () {
         "scrollTo", "scrollBy", "before", "after", "replaceWith", "remove",
         "prepend", "append", "replaceChildren", "moveBefore"],
       g: ["namespaceURI", "prefix", "localName", "tagName", "shadowRoot",
-        "assignedSlot", "attributes", "classList", "firstElementChild",
+        "assignedSlot", "attributes", "firstElementChild",
         "lastElementChild", "childElementCount", "children",
         "previousElementSibling", "nextElementSibling"],
-      p: ["id", "className", "slot", "innerHTML", "outerHTML"]
+      // `classList` is readonly but [PutForwards=value], so it takes a setter
+      // like any writable member: assigning to it rewrites the class attribute.
+      p: ["id", "className", "slot", "innerHTML", "outerHTML", "classList"]
     },
     CharacterData: {
       m: ["substringData", "appendData", "insertData", "deleteData", "replaceData",

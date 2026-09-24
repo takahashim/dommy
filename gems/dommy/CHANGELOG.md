@@ -14,6 +14,7 @@
 - A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
 - `Bridge::Bytes.new` reads a String as the packed bytes it is, where it used to wrap it and take `to_i` of the whole thing — one zero byte, silently.
 - A static method a `Bridge::Constructor` does not have raises `TypeError` instead of answering null.
+- `Element.prototype.classList` has a setter, as `[PutForwards=value]` requires, so assigning to it rewrites the class attribute through the list.
 - A `[LegacyNullToEmptyString]` setter turns null into the empty string rather than "null": `text.data`, `input.value`, `textarea.value`, `media.mediaText`, `img.border`, `font.color`, `innerText` and `outerText` join `innerHTML` and `outerHTML`.
 - `window.location`, `window.document`, `window.top` and `window.window` are own, non-configurable properties of the window, as `[LegacyUnforgeable]` requires — a page cannot replace them.
 - `element.slot` is `[Unscopable]`, so `with (element) { slot }` reaches the outer binding, and a `data-*` name resolves before `DOMStringMap.prototype`.
