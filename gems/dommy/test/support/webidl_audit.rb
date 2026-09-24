@@ -290,9 +290,29 @@ module WebIdlAudit
     gaps.sort.to_h
   end
 
+  # The text between the braces of `const NAME = { … };`, whether the table is
+  # written on one line or many.
+  def js_object_body(constant)
+    source = tables_source
+    open_brace = source.index("const #{constant} = {")
+    return "" unless open_brace
+
+    start = source.index("{", open_brace)
+    depth = 0
+    index = start
+    while index < source.length
+      depth += 1 if source[index] == "{"
+      depth -= 1 if source[index] == "}"
+      break if depth.zero?
+
+      index += 1
+    end
+    source[(start + 1)...index].to_s
+  end
+
   # `{ Interface: ["a", "b"] }` tables in the JS half.
   def js_interface_name_sets(constant)
-    body = tables_source[/const #{constant} = \{(.*?)\n  \};/m, 1].to_s
+    body = js_object_body(constant)
     body.scan(/(\w+):\s*\[([^\]]*)\]/).to_h do |interface, names|
       [interface, names.scan(/"([^"]+)"/).flatten.to_set]
     end
@@ -315,12 +335,13 @@ module WebIdlAudit
   end
 
   def js_table(constant)
-    body = tables_source[/const #{constant} = \{(.*?)\n  \};/m, 1] or raise "#{constant} missing"
+    body = js_object_body(constant)
+    raise "#{constant} is missing from webidl_tables.js" if body.empty?
     body.scan(/(\w+):\s*(\d+)/).to_h { |name, value| [name, value.to_i] }
   end
 
   def js_interface_arity
-    body = tables_source[/const INTERFACE_METHOD_ARITY = \{(.*?)\n  \};/m, 1].to_s
+    body = js_object_body("INTERFACE_METHOD_ARITY")
     body.scan(/(\w+):\s*\{([^}]*)\}/).to_h do |interface, members|
       [interface, members.scan(/(\w+):\s*(\d+)/).to_h { |name, value| [name, value.to_i] }]
     end
@@ -360,6 +381,158 @@ module WebIdlAudit
       gaps[interface] = iterable ? "declares iterable<> but is not given the pair methods" : "has no iterable<> but is given the pair methods"
     end
     gaps.sort.to_h
+  end
+
+  # --- WebIDL's legacy extended attributes ----------------------------------
+  # [LegacyNullToEmptyString], [LegacyUnforgeable], [Unscopable] and the two
+  # that shape a legacy platform object's named properties are all written in the
+  # IDL, and all answered in the JS half by a hand-written table.
+
+  # Attributes whose setter turns null into "" — declared per attribute in the
+  # IDL, answered by a table keyed on the property NAME alone, so a name that is
+  # null-to-empty on one interface and a plain DOMString on another (`value` is,
+  # on input and textarea versus option and button) cannot be right for both.
+  def null_to_empty_gaps
+    listed = js_name_set("NULL_TO_EMPTY_STRING_SETTERS")
+    per_interface = js_interface_name_sets("INTERFACE_NULL_TO_EMPTY_STRING_SETTERS")
+    gaps = {}
+    each_implemented_attribute do |interface, member|
+      name = member["name"]
+      declared = listed.include?(name) || (per_interface[interface] || Set.new).include?(name)
+      next if !!member["null_to_empty_string"] == declared
+
+      gaps["#{interface}.#{name}"] =
+        member["null_to_empty_string"] ? "null must become \"\", and does not" : "is not [LegacyNullToEmptyString]"
+    end
+    gaps.sort.to_h
+  end
+
+  # [LegacyUnforgeable] members are own, non-configurable properties of each
+  # instance rather than of the prototype — which is the whole of what stops a
+  # page replacing `location.href`.
+  def unforgeable_gaps
+    attrs = js_unforgeable_attrs
+    methods = js_interface_name_sets("UNFORGEABLE_METHODS")
+    gaps = {}
+    data["interfaces"].each do |interface, record|
+      next unless ruby_class_for(interface)
+
+      record["members"].each do |member|
+        next unless member["name"] && (member["kind"] == "attribute" || member["kind"] == "operation")
+
+        declared = member["kind"] == "attribute" ? (attrs[interface] || {}).key?(member["name"]) : (methods[interface] || Set.new).include?(member["name"])
+        next if !!member["unforgeable"] == declared
+
+        gaps["#{interface}.#{member['name']}"] =
+          member["unforgeable"] ? "is [LegacyUnforgeable] but sits on the prototype" : "is pinned to the instance but is not [LegacyUnforgeable]"
+      end
+    end
+    gaps.sort.to_h
+  end
+
+  # `{ Interface: { name: RO|RW } }`.
+  def js_unforgeable_attrs
+    body = js_object_body("UNFORGEABLE_ATTRS")
+    body.scan(/(\w+):\s*\{(.*?)\n?\s*\},?\n/m).to_h do |interface, members|
+      [interface, members.scan(/(\w+):\s*(RO|RW)/).to_h { |name, mode| [name, mode == "RW"] }]
+    end
+  end
+
+  # [Unscopable] members must not bind inside `with (element) { … }`.
+  def unscopable_gaps
+    declared = js_interface_name_sets("INTERFACE_UNSCOPABLES")
+    gaps = {}
+    data["interfaces"].each do |interface, record|
+      next unless ruby_class_for(interface)
+
+      record["members"].each do |member|
+        next unless member["name"]
+        next if !!member["unscopable"] == (declared[interface] || Set.new).include?(member["name"])
+
+        gaps["#{interface}.#{member['name']}"] =
+          member["unscopable"] ? "is [Unscopable] and is not declared" : "is declared unscopable but the IDL does not say so"
+      end
+    end
+    gaps.sort.to_h
+  end
+
+  # A legacy platform object's named properties: whether it has a named getter
+  # at all, whether those names enumerate, and whether they resolve before the
+  # prototype chain ([LegacyOverrideBuiltIns]).
+  def named_property_gaps
+    declared = js_named_prop_collections
+    gaps = {}
+    data["interfaces"].each do |interface, record|
+      next unless ruby_class_for(interface)
+
+      source = named_getter_source(interface)
+      entry = declared[interface]
+      if source.nil? != entry.nil?
+        gaps[interface] = source ? "has a named getter and is not declared" : "is declared with named properties the IDL does not give it"
+        next
+      end
+      next unless entry
+
+      enumerable = !inherited_flag?(interface, "unenumerable_named_properties")
+      override = inherited_flag?(interface, "override_builtins")
+      notes = []
+      notes << "enumerable should be #{enumerable}" if entry[:enumerable] != enumerable
+      notes << "overrideBuiltins should be #{override}" if entry[:override] != override
+      gaps[interface] = notes.join(", ") unless notes.empty?
+    end
+    gaps.sort.to_h
+  end
+
+  # The record of the interface that declares the NAMED property getter this one
+  # answers with — itself, or the nearest ancestor that has one. Nil when nothing
+  # in the chain does.
+  def named_getter_source(interface)
+    while interface
+      record = data["interfaces"][interface]
+      return nil unless record
+      return record if record["members"].any? { |m| m["special"] == "getter" && m["indexed"] == false }
+
+      interface = record["inherits"]
+    end
+    nil
+  end
+
+  # [LegacyUnenumerableNamedProperties] and [LegacyOverrideBuiltIns] apply to the
+  # interface that carries them AND to everything inheriting from it, so an
+  # HTMLFormControlsCollection's names are as unenumerable as an
+  # HTMLCollection's however it redeclares the getter.
+  def inherited_flag?(interface, flag)
+    while interface
+      record = data["interfaces"][interface]
+      return false unless record
+      return true if record[flag]
+
+      interface = record["inherits"]
+    end
+    false
+  end
+
+  def js_named_prop_collections
+    body = tables_source[/const NAMED_PROP_COLLECTIONS = new Map\(\[(.*?)\n  \]\);/m, 1].to_s
+    body.scan(/\["(\w+)",\s*\{([^}]*)\}\]/).to_h do |interface, flags|
+      [interface, {enumerable: flags.include?("enumerable: true"), override: flags.include?("overrideBuiltins: true")}]
+    end
+  end
+
+  # Every attribute an interface declares that Dommy answers.
+  def each_implemented_attribute
+    data["interfaces"].each do |interface, record|
+      klass = ruby_class_for(interface)
+      next unless klass
+
+      properties = JsSurface.js_properties(klass) | (klass.respond_to?(:reflected_property_map) ? klass.reflected_property_map.keys : [])
+      record["members"].each do |member|
+        next unless member["kind"] == "attribute" && !member["static"]
+        next unless properties.include?(member["name"])
+
+        yield interface, member
+      end
+    end
   end
 
   # --- webidl_tables.js [Constant] tables ----------------------------------
@@ -416,7 +589,11 @@ module WebIdlAudit
       "reflect_gaps" => reflect_gaps,
       "void_gaps" => void_gaps,
       "arity_gaps" => arity_gaps,
-      "iteration_gaps" => iteration_gaps
+      "iteration_gaps" => iteration_gaps,
+      "null_to_empty_gaps" => null_to_empty_gaps,
+      "unforgeable_gaps" => unforgeable_gaps,
+      "unscopable_gaps" => unscopable_gaps,
+      "named_property_gaps" => named_property_gaps
     }
   end
 

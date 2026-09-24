@@ -112,6 +112,27 @@ function literal(rhs) {
 
 // Whether a special operation is the INDEXED one (its argument is an unsigned
 // long) rather than the named one.
+function hasExtAttr(m, name) {
+  return (m.extAttrs || []).some((a) => a.name === name);
+}
+
+// [LegacyNullToEmptyString] is written on the TYPE — `attribute
+// [LegacyNullToEmptyString] DOMString data` — and when that type is a union, as
+// `innerHTML`'s is with TrustedHTML, on the DOMString member inside it.
+function nullToEmptyString(m) {
+  if (hasExtAttr(m, "LegacyNullToEmptyString")) return true;
+  if (m.idlType && hasExtAttr(m.idlType, "LegacyNullToEmptyString")) return true;
+  const inner = m.idlType && m.idlType.idlType;
+  return Array.isArray(inner) && inner.some((t) => hasExtAttr(t, "LegacyNullToEmptyString"));
+}
+
+// The right-hand side of an extended attribute that has one, e.g.
+// [PutForwards=value] -> "value".
+function extAttrValue(m, name) {
+  const found = (m.extAttrs || []).find((a) => a.name === name);
+  return found && found.rhs ? String(found.rhs.value).replace(/^"|"$/g, "") : null;
+}
+
 function indexedSpecial(m) {
   const arg = m.arguments && m.arguments[0];
   return !!arg && arg.idlType && arg.idlType.idlType === "unsigned long";
@@ -128,7 +149,16 @@ function memberRecord(m) {
         static: !!m.special && m.special === "static",
         readonly: !!m.readonly,
         type: idlTypeName(m.idlType),
-        reflect: reflectRecord(m)
+        reflect: reflectRecord(m),
+        // The extended attributes that change how the property itself behaves,
+        // as opposed to what it reflects: an own non-configurable accessor on
+        // every instance, a name `with` must not bind, a null that means "",
+        // the same object every read, and an assignment that forwards.
+        unforgeable: hasExtAttr(m, "LegacyUnforgeable"),
+        unscopable: hasExtAttr(m, "Unscopable"),
+        null_to_empty_string: nullToEmptyString(m),
+        same_object: hasExtAttr(m, "SameObject"),
+        put_forwards: extAttrValue(m, "PutForwards")
       };
     case "operation":
       // A getter / setter / deleter / stringifier with no name is not a member
@@ -148,6 +178,8 @@ function memberRecord(m) {
         // (`getter Element? item(unsigned long)`), and it is still what makes
         // the interface's indices or named properties reachable.
         special: m.special && m.special !== "static" ? m.special : null,
+        unforgeable: hasExtAttr(m, "LegacyUnforgeable"),
+        unscopable: hasExtAttr(m, "Unscopable"),
         indexed: m.special && m.special !== "static" ? indexedSpecial(m) : null,
         // The WebIDL return type, which is what says whether an operation
         // answers with a value at all: an `undefined` one must reach a script as
@@ -216,6 +248,10 @@ for (const spec of SPECS) {
       rec.callback = def.type === "callback interface";
       rec.legacy_no_interface_object = !!ea.LegacyNoInterfaceObject;
       rec.global = !!ea.Global;
+      // How a legacy platform object's NAMED properties behave: whether they
+      // are enumerable, and whether they resolve before the prototype chain.
+      rec.override_builtins = !!ea.LegacyOverrideBuiltIns;
+      rec.unenumerable_named_properties = !!ea.LegacyUnenumerableNamedProperties;
       rec.declared = true;
     }
     // A partial may narrow/extend exposure; the union is what a Window sees.
@@ -248,12 +284,16 @@ for (const name of [...interfaces.keys()].sort()) {
   const seen = new Set();
   rec.members = rec.members
     .filter((m) => {
-      const key = m.kind + ":" + (m.name || "");
+      // A special operation has no name, so an interface's indexed and named
+      // getters would collapse into one entry keyed on the empty string.
+      const key = m.kind === "special"
+        ? [m.kind, m.special, m.indexed].join(":")
+        : m.kind + ":" + (m.name || "");
       if (seen.has(key)) return false;
       seen.add(key);
       return true;
     })
-    .sort((a, b) => (a.kind + a.name).localeCompare(b.kind + b.name));
+    .sort((a, b) => (a.kind + (a.name || a.special || "")).localeCompare(b.kind + (b.name || b.special || "")));
   sorted[name] = rec;
 }
 

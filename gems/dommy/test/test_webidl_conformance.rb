@@ -201,7 +201,11 @@ if JsSurface.available?
     {
       "void_gaps" => "which operations answer with undefined",
       "arity_gaps" => "the WebIDL length of an operation",
-      "iteration_gaps" => "which collections are iterable<>"
+      "iteration_gaps" => "which collections are iterable<>",
+      "null_to_empty_gaps" => "which setters turn null into the empty string",
+      "unforgeable_gaps" => "which members are pinned to the instance",
+      "unscopable_gaps" => "which members `with` must not bind",
+      "named_property_gaps" => "how named properties behave"
     }.each do |inventory, subject|
       define_method(:"test_#{inventory}_match_the_recorded_inventory") do
         recorded = WebIdlAudit.recorded_gaps[inventory]
