@@ -54,7 +54,8 @@ module Dommy
     # `length` random bytes, for the JS `getRandomValues` stub: it validates the
     # caller's typed array and copies these bytes into it, so the array's type
     # and identity survive (see host_runtime.js's randomValuesStub). Not a WebIDL
-    # method — the bridge reaches it through `__js_call__`, not the JS surface.
+    # method — the stub calls it as `__internal_random_bytes__`, a name kept
+    # apart from the WebIDL `getRandomValues`.
     def random_bytes(length)
       Bridge::Bytes.new(SecureRandom.bytes(length).bytes)
     end
@@ -73,15 +74,15 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[randomUUID getRandomValues]
+    js_methods %w[randomUUID getRandomValues __internal_random_bytes__]
     def __js_call__(method, args)
       case method
       when "randomUUID"
         random_uuid
       when "getRandomValues"
-        # The JS stub passes the typed array's byte length (it fills the array
-        # itself); a Ruby caller passes the array to fill.
-        args[0].is_a?(Integer) ? random_bytes(args[0]) : get_random_values(args[0])
+        get_random_values(args[0])
+      when "__internal_random_bytes__"
+        random_bytes(args[0])
       end
     end
   end

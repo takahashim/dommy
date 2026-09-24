@@ -2081,7 +2081,7 @@ globalThis.__rbHost = (function () {
     return INTEGER_TYPED_ARRAYS.some((name) => typeof globalThis[name] === "function" && value instanceof globalThis[name]);
   }
 
-  function randomValuesStub(prop, ctx) {
+  function randomValuesStub(_prop, ctx) {
     const { handle } = ctx;
     return (array) => {
       if (!isIntegerTypedArray(array)) {
@@ -2091,10 +2091,13 @@ globalThis.__rbHost = (function () {
       if (byteLength > RANDOM_VALUES_MAX_BYTES) {
         throw makeHostError({name: "QuotaExceededError", message: "getRandomValues quota is 65536 bytes"});
       }
-      const random = rehydrate(__rb_host_call(handle, prop, dehydrateArgs([byteLength])));
-      if (random instanceof Uint8Array) {
-        new Uint8Array(array.buffer, array.byteOffset, byteLength).set(random);
+      const random = rehydrate(__rb_host_call(handle, "__internal_random_bytes__", dehydrateArgs([byteLength])));
+      // Never hand back an array that was not filled: a caller would take its
+      // zeros for random bytes.
+      if (!(random instanceof Uint8Array) || random.length !== byteLength) {
+        throw makeHostError({name: "OperationError", message: "the host supplied no random bytes"});
       }
+      new Uint8Array(array.buffer, array.byteOffset, byteLength).set(random);
       return array;
     };
   }
