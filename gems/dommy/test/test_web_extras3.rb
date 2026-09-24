@@ -85,11 +85,30 @@ class TestPopoverAPI < Minitest::Test
 
   def test_show_and_hide_fire_toggle_events
     events = []
-    @el.add_event_listener("beforetoggle", proc { |e| events << "before:#{e.detail["newState"]}" })
-    @el.add_event_listener("toggle", proc { |e| events << "toggle:#{e.detail["newState"]}" })
+    @el.add_event_listener("beforetoggle", proc { |e| events << "before:#{e.__js_get__("newState")}" })
+    @el.add_event_listener("toggle", proc { |e| events << "toggle:#{e.__js_get__("newState")}" })
     @el.__js_call__("showPopover", [])
+    @win.scheduler.advance_time(0)
     @el.__js_call__("hidePopover", [])
+    @win.scheduler.advance_time(0)
     assert_equal(["before:open", "toggle:open", "before:closed", "toggle:closed"], events)
+  end
+
+  # beforetoggle fires synchronously and an opening can be canceled; toggle is
+  # queued, and a show + hide before it runs coalesces into one closed->closed.
+  def test_popover_toggle_events_follow_the_toggle_event_rules
+    events = []
+    @el.add_event_listener("beforetoggle", proc { |e| events << [e.type, e.__js_get__("oldState"), e.__js_get__("newState")] })
+    @el.add_event_listener("toggle", proc { |e| events << [e.type, e.__js_get__("oldState"), e.__js_get__("newState")] })
+    @el.show_popover
+    @el.hide_popover
+    assert_equal([%w[beforetoggle closed open], %w[beforetoggle open closed]], events)
+    @win.scheduler.advance_time(0)
+    assert_equal(%w[toggle closed closed], events.last)
+
+    cancel = proc { |e| e.__js_call__("preventDefault", []) }
+    @el.add_event_listener("beforetoggle", cancel)
+    assert_equal(false, @el.toggle_popover)
   end
 
   def test_toggle_popover_returns_new_state
