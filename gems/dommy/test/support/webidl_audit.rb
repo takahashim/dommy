@@ -347,17 +347,17 @@ module WebIdlAudit
   # and nothing more. The JS half decides this from two hand-written sets.
   def iteration_gaps
     array_like = js_name_set("ARRAY_LIKE_COLLECTIONS")
-    indexed_only = js_name_set("INDEXED_ONLY_ITERABLE")
+    pair_iterable = js_name_set("PAIR_ITERABLE_COLLECTIONS")
     gaps = {}
     array_like.each do |interface|
       record = data["interfaces"][interface]
       next unless record # not in the specs Dommy models (RadioNodeList inherits)
 
       iterable = record["members"].any? { |m| m["kind"] == "iterable" }
-      listed = indexed_only.include?(interface)
-      next if iterable == !listed
+      listed = pair_iterable.include?(interface)
+      next if iterable == listed
 
-      gaps[interface] = iterable ? "declares iterable<> but is listed as indexed-only" : "has no iterable<> but is given the pair methods"
+      gaps[interface] = iterable ? "declares iterable<> but is not given the pair methods" : "has no iterable<> but is given the pair methods"
     end
     gaps.sort.to_h
   end

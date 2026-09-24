@@ -11,7 +11,8 @@
   "encoding",
   "xhr",
   "wai-aria",
-  "fetch"
+  "fetch",
+  "streams"
  ],
  "interfaces": {
   "AbortController": {
@@ -547,6 +548,39 @@
      "special": null,
      "indexed": null,
      "returns": "undefined",
+     "required": 1,
+     "total": 1
+    }
+   ]
+  },
+  "ByteLengthQueuingStrategy": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "highWaterMark",
+     "static": false,
+     "readonly": true,
+     "type": "unrestricted double",
+     "reflect": null
+    },
+    {
+     "kind": "attribute",
+     "name": "size",
+     "static": false,
+     "readonly": true,
+     "type": "Function",
+     "reflect": null
+    },
+    {
+     "kind": "constructor",
      "required": 1,
      "total": 1
     }
@@ -2301,6 +2335,39 @@
      "returns": "undefined",
      "required": 1,
      "total": 5
+    }
+   ]
+  },
+  "CountQueuingStrategy": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "highWaterMark",
+     "static": false,
+     "readonly": true,
+     "type": "unrestricted double",
+     "reflect": null
+    },
+    {
+     "kind": "attribute",
+     "name": "size",
+     "static": false,
+     "readonly": true,
+     "type": "Function",
+     "reflect": null
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 1
     }
    ]
   },
@@ -20333,6 +20400,356 @@
     }
    ]
   },
+  "ReadableByteStreamController": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "byobRequest",
+     "static": false,
+     "readonly": true,
+     "type": "ReadableStreamBYOBRequest?",
+     "reflect": null
+    },
+    {
+     "kind": "attribute",
+     "name": "desiredSize",
+     "static": false,
+     "readonly": true,
+     "type": "unrestricted double?",
+     "reflect": null
+    },
+    {
+     "kind": "operation",
+     "name": "close",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 0
+    },
+    {
+     "kind": "operation",
+     "name": "enqueue",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "error",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 1
+    }
+   ]
+  },
+  "ReadableStream": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "async_iterable"
+    },
+    {
+     "kind": "attribute",
+     "name": "locked",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null
+    },
+    {
+     "kind": "constructor",
+     "required": 0,
+     "total": 2
+    },
+    {
+     "kind": "operation",
+     "name": "cancel",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "from",
+     "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "ReadableStream",
+     "required": 1,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "getReader",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ReadableStreamReader",
+     "required": 0,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "pipeThrough",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ReadableStream",
+     "required": 1,
+     "total": 2
+    },
+    {
+     "kind": "operation",
+     "name": "pipeTo",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 1,
+     "total": 2
+    },
+    {
+     "kind": "operation",
+     "name": "tee",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<ReadableStream>",
+     "required": 0,
+     "total": 0
+    }
+   ]
+  },
+  "ReadableStreamBYOBReader": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "closed",
+     "static": false,
+     "readonly": true,
+     "type": "Promise<undefined>",
+     "reflect": null,
+     "mixin": "ReadableStreamGenericReader"
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "cancel",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 1,
+     "mixin": "ReadableStreamGenericReader"
+    },
+    {
+     "kind": "operation",
+     "name": "read",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<ReadableStreamReadResult>",
+     "required": 1,
+     "total": 2
+    },
+    {
+     "kind": "operation",
+     "name": "releaseLock",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 0
+    }
+   ]
+  },
+  "ReadableStreamBYOBRequest": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "view",
+     "static": false,
+     "readonly": true,
+     "type": "Uint8Array?",
+     "reflect": null
+    },
+    {
+     "kind": "operation",
+     "name": "respond",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "respondWithNewView",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 1
+    }
+   ]
+  },
+  "ReadableStreamDefaultController": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "desiredSize",
+     "static": false,
+     "readonly": true,
+     "type": "unrestricted double?",
+     "reflect": null
+    },
+    {
+     "kind": "operation",
+     "name": "close",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 0
+    },
+    {
+     "kind": "operation",
+     "name": "enqueue",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "error",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 1
+    }
+   ]
+  },
+  "ReadableStreamDefaultReader": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "closed",
+     "static": false,
+     "readonly": true,
+     "type": "Promise<undefined>",
+     "reflect": null,
+     "mixin": "ReadableStreamGenericReader"
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "cancel",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 1,
+     "mixin": "ReadableStreamGenericReader"
+    },
+    {
+     "kind": "operation",
+     "name": "read",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<ReadableStreamReadResult>",
+     "required": 0,
+     "total": 0
+    },
+    {
+     "kind": "operation",
+     "name": "releaseLock",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 0
+    }
+   ]
+  },
   "Request": {
    "spec": "fetch",
    "inherits": null,
@@ -21546,6 +21963,24 @@
      "mixin": "TextDecoderCommon"
     },
     {
+     "kind": "attribute",
+     "name": "readable",
+     "static": false,
+     "readonly": true,
+     "type": "ReadableStream",
+     "reflect": null,
+     "mixin": "GenericTransformStream"
+    },
+    {
+     "kind": "attribute",
+     "name": "writable",
+     "static": false,
+     "readonly": true,
+     "type": "WritableStream",
+     "reflect": null,
+     "mixin": "GenericTransformStream"
+    },
+    {
      "kind": "constructor",
      "required": 0,
      "total": 2
@@ -21616,6 +22051,24 @@
      "type": "DOMString",
      "reflect": null,
      "mixin": "TextEncoderCommon"
+    },
+    {
+     "kind": "attribute",
+     "name": "readable",
+     "static": false,
+     "readonly": true,
+     "type": "ReadableStream",
+     "reflect": null,
+     "mixin": "GenericTransformStream"
+    },
+    {
+     "kind": "attribute",
+     "name": "writable",
+     "static": false,
+     "readonly": true,
+     "type": "WritableStream",
+     "reflect": null,
+     "mixin": "GenericTransformStream"
     },
     {
      "kind": "constructor",
@@ -22132,6 +22585,89 @@
      "kind": "constructor",
      "required": 1,
      "total": 2
+    }
+   ]
+  },
+  "TransformStream": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "readable",
+     "static": false,
+     "readonly": true,
+     "type": "ReadableStream",
+     "reflect": null
+    },
+    {
+     "kind": "attribute",
+     "name": "writable",
+     "static": false,
+     "readonly": true,
+     "type": "WritableStream",
+     "reflect": null
+    },
+    {
+     "kind": "constructor",
+     "required": 0,
+     "total": 3
+    }
+   ]
+  },
+  "TransformStreamDefaultController": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "desiredSize",
+     "static": false,
+     "readonly": true,
+     "type": "unrestricted double?",
+     "reflect": null
+    },
+    {
+     "kind": "operation",
+     "name": "enqueue",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "error",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "terminate",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 0
     }
    ]
   },
@@ -24841,6 +25377,172 @@
    "legacy_no_interface_object": false,
    "global": false,
    "members": []
+  },
+  "WritableStream": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "locked",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null
+    },
+    {
+     "kind": "constructor",
+     "required": 0,
+     "total": 2
+    },
+    {
+     "kind": "operation",
+     "name": "abort",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "close",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 0
+    },
+    {
+     "kind": "operation",
+     "name": "getWriter",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "WritableStreamDefaultWriter",
+     "required": 0,
+     "total": 0
+    }
+   ]
+  },
+  "WritableStreamDefaultController": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "signal",
+     "static": false,
+     "readonly": true,
+     "type": "AbortSignal",
+     "reflect": null
+    },
+    {
+     "kind": "operation",
+     "name": "error",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 1
+    }
+   ]
+  },
+  "WritableStreamDefaultWriter": {
+   "spec": "streams",
+   "inherits": null,
+   "exposed": [
+    null
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "closed",
+     "static": false,
+     "readonly": true,
+     "type": "Promise<undefined>",
+     "reflect": null
+    },
+    {
+     "kind": "attribute",
+     "name": "desiredSize",
+     "static": false,
+     "readonly": true,
+     "type": "unrestricted double?",
+     "reflect": null
+    },
+    {
+     "kind": "attribute",
+     "name": "ready",
+     "static": false,
+     "readonly": true,
+     "type": "Promise<undefined>",
+     "reflect": null
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "abort",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 1
+    },
+    {
+     "kind": "operation",
+     "name": "close",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 0
+    },
+    {
+     "kind": "operation",
+     "name": "releaseLock",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 0
+    },
+    {
+     "kind": "operation",
+     "name": "write",
+     "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 1
+    }
+   ]
   },
   "XMLDocument": {
    "spec": "dom",

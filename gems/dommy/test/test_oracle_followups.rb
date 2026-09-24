@@ -58,6 +58,12 @@ class TestOracleFollowups < Minitest::Test
 
   # --- void methods return undefined over the bridge ---------------------------
 
+  # The set is keyed by operation NAME, so a name belongs in it only when every
+  # interface that declares it returns nothing. A stream's close / abort / write
+  # answer with a Promise, so those three cannot be here however many other
+  # interfaces return undefined from them — they are in INTERFACE_VOID_METHODS.
+  # test_webidl_conformance.rb checks the whole table against the specs' IDL;
+  # this pins the reasoning for the names that cost the most to get wrong.
   def test_the_void_method_set_names_only_operations_without_a_return_value
     tables = Dommy::Js::HostBridge::WEBIDL_TABLES_JS
     names = tables[/const VOID_METHODS = new Set\(\[(.*?)\]\);/m, 1].scan(/"([^"]+)"/).flatten
@@ -67,5 +73,9 @@ class TestOracleFollowups < Minitest::Test
        insertAdjacentElement removeProperty].each do |name|
       refute_includes(names, name, "#{name} returns a value somewhere")
     end
+
+    per_interface = tables[/const INTERFACE_VOID_METHODS = \{(.*?)\n  \};/m, 1]
+    assert_includes(per_interface, "HTMLDialogElement: [\"close\"]")
+    assert_includes(per_interface, "Location: [\"replace\"]")
   end
 end

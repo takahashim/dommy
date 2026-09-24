@@ -34,9 +34,12 @@ globalThis.__rbIdl = (function () {
   // Map-like collections iterated as [key, value] pairs via .entries().
   const ENTRIES_ITERABLES = new Set(["URLSearchParams", "FormData", "Headers"]);
 
-  // Array-like collections that are iterable ONLY via @@iterator (their IDL is
-  // not declared `iterable<>`, so they lack keys()/values()/entries()/forEach()).
-  const INDEXED_ONLY_ITERABLE = new Set(["HTMLCollection", "HTMLOptionsCollection"]);
+  // Array-like collections whose IDL DOES declare `iterable<>`, and which
+  // therefore carry keys() / values() / entries() / forEach() alongside
+  // @@iterator. An indexed getter on its own gives an interface @@iterator and
+  // nothing else, which is every other collection above — the list is short
+  // because being iterable is the exception, not the rule.
+  const PAIR_ITERABLE_COLLECTIONS = new Set(["NodeList", "DOMTokenList"]);
 
   // WebIDL legacy platform objects with a named property getter, and whether
   // their named properties are enumerable (DOMStringMap) and writable/deletable
@@ -451,7 +454,13 @@ globalThis.__rbIdl = (function () {
   // An operation whose length depends on the interface declaring it. Stubs are
   // made per interface, so an entry here overrides the per-name table above.
   const INTERFACE_METHOD_ARITY = {
-    Selection: { collapse: 1 } // Range.collapse(optional toStart) stays 0
+    Selection: { collapse: 1 }, // Range.collapse(optional toStart) stays 0
+    // `replace` is three unrelated operations sharing a name: Location's takes
+    // one required argument, DOMTokenList's takes two, and CSSStyleSheet's one.
+    // `assign` likewise — Location's requires a URL, HTMLSlotElement's is
+    // variadic — so neither can be answered by the per-name table.
+    Location: { replace: 1, assign: 1 },
+    CSSStyleSheet: { replace: 1 }
   };
 
   // Operations whose WebIDL return type is undefined, in every interface that
@@ -473,8 +482,47 @@ globalThis.__rbIdl = (function () {
     "insertNode", "surroundContents", "detach", "removeAllRanges", "addRange", "removeRange", "collapse",
     "setPosition", "collapseToStart", "collapseToEnd", "extend", "setBaseAndExtent", "selectAllChildren",
     "deleteFromDocument", "setRequestHeader", "overrideMimeType", "setProperty",
-    "pushState", "replaceState", "setItem", "removeItem"
+    "pushState", "replaceState", "setItem", "removeItem",
+    // Every other operation the specs Dommy models declare as returning
+    // `undefined`, taken from their IDL rather than added one bug at a time.
+    // A name is here only when EVERY interface declaring it returns undefined;
+    // the ones that disagree are in INTERFACE_VOID_METHODS below.
+    "addColorStop", "alert", "appendData", "appendMedium", "arc", "arcTo",
+    "assign", "beginPath", "bezierCurveTo", "cancelAnimationFrame", "clear", "clearData", "clearInterval",
+    "clearRect", "clearTimeout", "clip", "closePath", "define", "delete",
+    "deleteCaption", "deleteCell", "deleteData", "deleteMedium", "deleteRow", "deleteRule", "deleteTFoot",
+    "deleteTHead", "drawFocusIfNeeded", "drawImage", "ellipse", "fill", "fillRect", "fillText",
+    "go", "hidePopover", "initKeyboardEvent", "initMessageEvent", "initUIEvent", "insertData", "lineTo",
+    "load", "moveTo", "pause", "postMessage", "putImageData", "quadraticCurveTo", "queueMicrotask",
+    "rect", "removeRule", "replaceData", "replaceSync", "reportError", "requestSubmit", "reset",
+    "resetTransform", "restore", "rotate", "roundRect", "save", "scale", "send",
+    "set", "setData", "setLineDash", "setTransform", "show", "showModal", "showPopover",
+    "sort", "stroke", "strokeRect", "strokeText", "submit", "terminate", "throwIfAborted",
+    "toBlob", "transform", "translate", "upgrade", "writeln", "add",
+    "readAsArrayBuffer", "readAsBinaryString", "readAsDataURL", "readAsText", "back", "forward", "reload",
+    "start", "enqueue", "error", "releaseLock",
   ]);
+
+  // Operations whose return type depends on the interface, so a table keyed by
+  // name cannot answer for them: `replace` is undefined on Location but a
+  // boolean on DOMTokenList and a Promise on CSSStyleSheet, and `open` is
+  // undefined on XMLHttpRequest but a Document or a WindowProxy on the other
+  // two. Same shape as INTERFACE_METHOD_ARITY, and for the same reason.
+  const INTERFACE_VOID_METHODS = {
+    Location: ["replace"],
+    XMLHttpRequest: ["open", "abort"],
+    // A stream's close / abort / write answer with a Promise; everywhere else
+    // those names return nothing, which is most of the platform — a dialog, an
+    // EventSource, a MessagePort, a BroadcastChannel, document.write.
+    BroadcastChannel: ["close"],
+    Document: ["close", "write", "writeln"],
+    EventSource: ["close"],
+    HTMLDialogElement: ["close"],
+    MessagePort: ["close"],
+    ReadableStreamDefaultController: ["close"],
+    AbortController: ["abort"],
+    FileReader: ["abort"]
+  };
 
   // The engine's native globals that `window.X` must mirror exactly.
   const JS_GLOBALS = [
@@ -488,7 +536,7 @@ globalThis.__rbIdl = (function () {
     ARRAY_LIKE_COLLECTIONS,
     INDEXED_SETTER_INTERFACES,
     ENTRIES_ITERABLES,
-    INDEXED_ONLY_ITERABLE,
+    PAIR_ITERABLE_COLLECTIONS,
     NAMED_PROP_COLLECTIONS,
     NULL_TO_EMPTY_STRING_SETTERS,
     FORM_VALUE_FIELDS,
@@ -508,6 +556,7 @@ globalThis.__rbIdl = (function () {
     METHOD_ARITY,
     INTERFACE_METHOD_ARITY,
     VOID_METHODS,
+    INTERFACE_VOID_METHODS,
     JS_GLOBALS,
   };
 })();

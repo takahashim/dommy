@@ -174,8 +174,8 @@ class TestProtoMethodStubsInvalidateCaches < Minitest::Test
   RUNTIME_JS = Dommy::Js::HostBridge::HOST_RUNTIME_JS
 
   def test_the_stub_routes_a_mutating_call_through_the_epoch_bump
-    assert_includes(RUNTIME_JS, "function callMutating(handle, name, wire)")
-    assert_match(/readOnly \? hostCallResult\(name, __rb_host_call\(this\[HKEY\], name, wire\)\) : callMutating\(/, RUNTIME_JS)
+    assert_includes(RUNTIME_JS, "function callMutating(handle, name, wire, iface)")
+    assert_match(/readOnly\n\s+\? hostCallResult\(name, __rb_host_call\(this\[HKEY\], name, wire\), iface\)\n\s+: callMutating\(/, RUNTIME_JS)
   end
 
   def test_the_read_only_set_is_what_decides
@@ -183,7 +183,7 @@ class TestProtoMethodStubsInvalidateCaches < Minitest::Test
   end
 
   def test_callMutating_bumps_on_both_sides_of_the_call
-    body = RUNTIME_JS[/function callMutating\(handle, name, wire\) \{(.*?)\n  \}/m, 1]
+    body = RUNTIME_JS[/function callMutating\(handle, name, wire, iface\) \{(.*?)\n  \}/m, 1]
     refute_nil(body)
     assert_equal(2, body.scan("bumpDomEpoch()").size, "the epoch is bumped before and after the host call")
     assert_includes(body, "finally", "the trailing bump has to survive a throwing call")

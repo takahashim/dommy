@@ -336,15 +336,6 @@ module Dommy
     end
 
 
-    # `defaultSelected` reflects the `selected` content attribute.
-    def default_selected
-      reflected_boolean("selected")
-    end
-
-    def default_selected=(v)
-      set_reflected_boolean("selected", v)
-    end
-
     # `selected` is the selectedness state. It is a distinct boolean (the IDL
     # getter returns it directly), initialised from defaultSelected. While the
     # dirtiness flag is false, adding/removing the `selected` content attribute

@@ -14,6 +14,9 @@
 - A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
 - `Bridge::Bytes.new` reads a String as the packed bytes it is, where it used to wrap it and take `to_i` of the whole thing — one zero byte, silently.
 - A static method a `Bridge::Constructor` does not have raises `TypeError` instead of answering null.
+- An operation whose WebIDL return type is `undefined` answers with `undefined` rather than `null` — `text.appendData("x")`, `history.go(0)`, `localStorage.clear()`, `xhr.open(...)` and around ninety more.
+- `location.replace.length` is 1 and `location.assign.length` is 1, where both reported the arity of the same-named `DOMTokenList` operation.
+- A collection gets `keys()` / `values()` / `entries()` / `forEach()` only when its IDL declares `iterable<>`: `CSSRuleList`, `FileList`, `MediaList`, `DOMStringList`, `NamedNodeMap` and `DataTransferItemList` no longer carry methods the spec does not give them.
 - `base.href` resolves against the document's fallback base URL instead of returning the attribute verbatim — a `<base>` does not resolve its own href against itself.
 - `progress.value = 5` writes "5", not "5.0", and rejects a non-finite value like `<meter>`'s setters already did.
 - `img.width` / `img.height` parse the content attribute as HTML does ("12abc" is 12, "-5" is 0), and their setters convert out of range before writing.

@@ -135,6 +135,9 @@ module Dommy
       @location.__internal_set_url__(entry[:url]) if entry[:url]
       __internal_on_change__&.call(:traverse, entry[:url])
       @window.fire_popstate(entry[:state])
+      # `go` returns undefined; without this the popstate dispatch's own answer
+      # would be the method's, and a page would see `history.go(0) === true`.
+      nil
     end
   end
 end

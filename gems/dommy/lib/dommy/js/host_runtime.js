@@ -10,12 +10,13 @@ globalThis.__rbHost = (function () {
   // just before this file. They are bound here as plain consts so the code below
   // reads (and costs) the same as when they were written inline.
   const {
-    ARRAY_LIKE_COLLECTIONS, INDEXED_SETTER_INTERFACES, ENTRIES_ITERABLES, INDEXED_ONLY_ITERABLE,
+    ARRAY_LIKE_COLLECTIONS, INDEXED_SETTER_INTERFACES, ENTRIES_ITERABLES, PAIR_ITERABLE_COLLECTIONS,
     NAMED_PROP_COLLECTIONS, NULL_TO_EMPTY_STRING_SETTERS, FORM_VALUE_FIELDS, READONLY_ATTRS,
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS, INTERFACE_MEMBERS, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
-    BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, VOID_METHODS, JS_GLOBALS,
+    BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, VOID_METHODS,
+    INTERFACE_VOID_METHODS, JS_GLOBALS,
   } = globalThis.__rbIdl;
 
   const HKEY = Symbol("rbHandle");
@@ -104,7 +105,7 @@ globalThis.__rbHost = (function () {
         }
         bumpDomEpoch();
         try {
-          return hostCallResult(name, __rb_host_call(this[HKEY], name, dehydrateArgs(args)));
+          return hostCallResult(name, __rb_host_call(this[HKEY], name, dehydrateArgs(args)), iface);
         } finally {
           bumpDomEpoch();
         }
@@ -241,10 +242,13 @@ globalThis.__rbHost = (function () {
 
   // A Ruby method returns nil for "nothing", which crosses as null; for an
   // operation whose WebIDL return type is undefined the caller must instead see
-  // undefined (`el.setAttribute(...) === undefined`).
-  function hostCallResult(name, raw) {
+  // undefined (`el.setAttribute(...) === undefined`). `iface` settles the names
+  // whose return type depends on which interface declares them.
+  function hostCallResult(name, raw, iface) {
     const value = rehydrate(raw);
-    return value === null && VOID_METHODS.has(name) ? undefined : value;
+    if (value !== null) return value;
+    const perInterface = iface === undefined ? undefined : INTERFACE_VOID_METHODS[iface];
+    return (perInterface && perInterface.indexOf(name) !== -1) || VOID_METHODS.has(name) ? undefined : value;
   }
 
   // The shared delegating stubs, created once and reused on every prototype. A
@@ -270,15 +274,17 @@ globalThis.__rbHost = (function () {
         if (typeof fn === "function" && fn !== stub) return fn.apply(this, args);
       }
       const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
-      return readOnly ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire)) : callMutating(this[HKEY], name, wire);
+      return readOnly
+        ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface)
+        : callMutating(this[HKEY], name, wire, iface);
     }, name, iface);
     return stub;
   }
 
-  function callMutating(handle, name, wire) {
+  function callMutating(handle, name, wire, iface) {
     bumpDomEpoch();
     try {
-      return hostCallResult(name, __rb_host_call(handle, name, wire));
+      return hostCallResult(name, __rb_host_call(handle, name, wire), iface);
     } finally {
       bumpDomEpoch();
     }
@@ -1385,10 +1391,10 @@ globalThis.__rbHost = (function () {
       const A = Array.prototype;
       const define = (key, fn) => Object.defineProperty(proto, key, { value: fn, configurable: true, writable: true });
       define(Symbol.iterator, A[Symbol.iterator]);
-      // HTMLCollection is iterable only via @@iterator (its IDL is NOT declared
-      // `iterable<>`); the keys()/values()/entries()/forEach() pair methods are
-      // exclusive to interfaces that ARE (NodeList, DOMTokenList, …).
-      if (!INDEXED_ONLY_ITERABLE.has(name)) {
+      // The pair methods belong to the interfaces whose IDL declares
+      // `iterable<>`; an indexed getter alone gets @@iterator and no more, which
+      // is what an HTMLCollection or a CSSRuleList has.
+      if (PAIR_ITERABLE_COLLECTIONS.has(name)) {
         define("values", A.values);
         define("keys", A.keys);
         define("entries", A.entries);
@@ -1882,30 +1888,33 @@ globalThis.__rbHost = (function () {
   // Potentially mutating: bump the epoch before (a reentrant callback during
   // the call must not read stale snapshots) and after (the call's own mutations
   // invalidate later reads).
-  function mutatingStub(prop, handle) {
+  function mutatingStub(prop, ctx) {
+    const { handle, ifaceName } = ctx;
     return (...args) => {
       bumpDomEpoch();
       try {
-        return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+        return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ifaceName);
       } finally {
         bumpDomEpoch();
       }
     };
   }
 
-  function nonMutatingStub(prop, handle) {
-    return (...args) => hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+  function nonMutatingStub(prop, ctx) {
+    const { handle, ifaceName } = ctx;
+    return (...args) => hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ifaceName);
   }
 
   // Mutating AND a `(Node or DOMString)...` union: coerce each arg (non-proxy
   // -> ToString) before it crosses, so null/undefined/numbers become their text
   // nodes per WebIDL.
-  function nodeOrStringStub(prop, handle) {
+  function nodeOrStringStub(prop, ctx) {
+    const { handle, ifaceName } = ctx;
     return (...args) => {
       const coerced = args.map(coerceNodeOrString);
       bumpDomEpoch();
       try {
-        return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(coerced)));
+        return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(coerced)), ifaceName);
       } finally {
         bumpDomEpoch();
       }
@@ -1916,12 +1925,13 @@ globalThis.__rbHost = (function () {
   // sets it, the legacy init* reinitializers reset it) drops a fast-dispatch
   // defaultPrevented shadow first — the next read then reflects the live host
   // value. None of them can touch the DOM, so no epoch bump.
-  function canceledStateStub(prop, handle) {
+  function canceledStateStub(prop, ctx) {
+    const { handle, ifaceName } = ctx;
     return function (...args) {
       try {
         if (this && typeof this === "object") delete this.defaultPrevented;
       } catch (e) { /* non-configurable shadow can't exist; ignore */ }
-      return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+      return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ifaceName);
     };
   }
 
@@ -1929,7 +1939,7 @@ globalThis.__rbHost = (function () {
     const handle = ctx.handle;
     return (...args) => {
       if (args.length >= 3) args[2] = flattenListenerOptions(prop, args[2]);
-      return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+      return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ctx.ifaceName);
     };
   }
 
@@ -1952,7 +1962,7 @@ globalThis.__rbHost = (function () {
     return function (...args) {
       bumpDomEpoch();
       try {
-        const r = hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)));
+        const r = hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ctx.ifaceName);
         const attr = String(args[0] == null ? "" : args[0]);
         if (/^on[a-z]/i.test(attr)) {
           wireInlineHandler(this, attr.toLowerCase(), prop === "removeAttribute" ? null : args[1]);
@@ -2056,10 +2066,10 @@ globalThis.__rbHost = (function () {
     const special = SPECIAL_METHOD_STUBS.get(prop);
     let fn = special ? special(prop, ctx) : null;
     if (!fn) {
-      if (CANCELED_STATE_METHODS.has(prop)) fn = canceledStateStub(prop, ctx.handle);
-      else if (NON_MUTATING_METHODS.has(prop)) fn = nonMutatingStub(prop, ctx.handle);
-      else if (NODE_OR_STRING_METHODS.has(prop)) fn = nodeOrStringStub(prop, ctx.handle);
-      else fn = mutatingStub(prop, ctx.handle);
+      if (CANCELED_STATE_METHODS.has(prop)) fn = canceledStateStub(prop, ctx);
+      else if (NON_MUTATING_METHODS.has(prop)) fn = nonMutatingStub(prop, ctx);
+      else if (NODE_OR_STRING_METHODS.has(prop)) fn = nodeOrStringStub(prop, ctx);
+      else fn = mutatingStub(prop, ctx);
     }
     withArity(fn, prop, ctx.ifaceName);
     return fn;
