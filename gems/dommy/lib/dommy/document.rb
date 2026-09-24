@@ -1820,8 +1820,7 @@ module Dommy
     def document_named_property(name)
       return nil if name.empty?
 
-      wrapped = named_getter_nodes.select { |node| named_element?(node, name) }
-        .map { |node| wrap_node(node) }.compact
+      wrapped = document_named_property_nodes(name)
       return nil if wrapped.empty?
       return HTMLCollection.new { document_named_property_nodes(name) } unless wrapped.length == 1
 
