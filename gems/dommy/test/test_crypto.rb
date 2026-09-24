@@ -33,6 +33,17 @@ class TestCrypto < Minitest::Test
     assert(buf.all? { |b| b.between?(0, 255) })
   end
 
+  # The JS `getRandomValues` stub asks the host for a byte length (it copies the
+  # bytes into the caller's own typed array), which the bridge routes to
+  # #random_bytes.
+  def test_random_bytes
+    bytes = @crypto.random_bytes(16)
+    assert_kind_of(Dommy::Bridge::Bytes, bytes)
+    assert_equal 16, bytes.length
+    refute bytes.all?(0)
+    assert_kind_of(Dommy::Bridge::Bytes, @crypto.__js_call__("getRandomValues", [16]))
+  end
+
   def test_js_bridge
     assert_match(/\A[0-9a-f]{8}-/, @crypto.__js_call__("randomUUID", []))
 
