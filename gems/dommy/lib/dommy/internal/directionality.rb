@@ -44,6 +44,21 @@ module Dommy
         CSS::StyleCache.for(document).direction(element) { compute_direction(element) }
       end
 
+      # Whether an element with this local name and dir attribute value takes
+      # its direction from text (or a control's value): dir=auto, or a <bdi>
+      # left in the Undefined state. Plain strings, so the mutation bookkeeping
+      # can ask it of backend nodes without wrapping them.
+      def text_dependent?(local_name, dir_value)
+        keyword = dir_keyword(dir_value)
+        keyword == "auto" || (keyword.nil? && local_name.to_s.casecmp?("bdi"))
+      end
+
+      # The `dir` IDL attribute: the content attribute limited to only known
+      # values — its keyword in lowercase, or "" in the Undefined state.
+      def reflected_dir(element) = dir_state(element) || ""
+
+      # Everything above is the module; everything below is how.
+
       # The dir attribute's state — "ltr", "rtl" or "auto" — or nil for the
       # Undefined state: no attribute, a value that is not one of the keywords
       # (matched ASCII case-insensitively, nothing trimmed), or an element that
@@ -62,19 +77,6 @@ module Dommy
         keyword = value.downcase(:ascii)
         keyword if DIR_KEYWORDS.include?(keyword)
       end
-
-      # Whether an element with this local name and dir attribute value takes
-      # its direction from text (or a control's value): dir=auto, or a <bdi>
-      # left in the Undefined state. Plain strings, so the mutation bookkeeping
-      # can ask it of backend nodes without wrapping them.
-      def text_dependent?(local_name, dir_value)
-        keyword = dir_keyword(dir_value)
-        keyword == "auto" || (keyword.nil? && local_name.to_s.casecmp?("bdi"))
-      end
-
-      # The `dir` IDL attribute: the content attribute limited to only known
-      # values — its keyword in lowercase, or "" in the Undefined state.
-      def reflected_dir(element) = dir_state(element) || ""
 
       def compute_direction(element)
         case dir_state(element)
@@ -175,6 +177,11 @@ module Dommy
       def named?(element, local_name)
         html_element?(element) && element.local_name == local_name
       end
+
+      private_class_method :dir_state, :dir_keyword, :compute_direction, :parent_direction,
+        :auto_direction, :assigned_nodes_direction, :contained_text_direction, :skipped_for_auto?,
+        :auto_directionality_form_associated?, :tel_input?, :strong_string_direction,
+        :html_element?, :named?
     end
   end
 end

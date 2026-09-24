@@ -76,8 +76,8 @@ module Dommy
 
           specificities = []
           specificities << [0, 2, 0] if element.has_attribute?("dir")
-          specificities << [0, 1, 1] if Directionality.named?(element, "bdi")
-          tel = Directionality.tel_input?(element)
+          specificities << [0, 1, 1] if element.local_name == "bdi"
+          tel = element.local_name == "input" && element.type == "tel"
           return [] if specificities.empty? && !tel
 
           direction = Directionality.direction_of(element)
