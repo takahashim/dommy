@@ -28,7 +28,7 @@ class TestCSSStyleSheetStub < Minitest::Test
     link.rel = "stylesheet"
     link.href = "/main.css"
     sheet = link.sheet
-    assert_equal("/main.css", sheet.href)
+    assert_equal("http://localhost/main.css", sheet.href)
     assert_equal("text/css", sheet.type)
   end
 

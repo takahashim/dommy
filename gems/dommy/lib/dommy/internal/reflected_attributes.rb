@@ -46,6 +46,7 @@ module Dommy
       # prose and the class defines it (see reflect_setter).
       REFLECTORS = {
         string: %i[reflected_string set_reflected_string],
+        url: %i[reflected_url set_reflected_string],
         boolean: %i[reflected_boolean set_reflected_boolean],
         setter_only: [nil, :set_reflected_string],
       }.freeze
@@ -57,6 +58,13 @@ module Dommy
 
         def reflect_boolean(*names, **mapped)
           _reflect(:boolean, names, mapped)
+        end
+
+        # A URL attribute ([ReflectURL]): the setter writes the content attribute
+        # unchanged, the getter parses it against the document and returns the
+        # serialization.
+        def reflect_url(*names, **mapped)
+          _reflect(:url, names, mapped)
         end
 
         # An IDL attribute whose SETTER reflects but whose getter the spec writes
@@ -228,6 +236,23 @@ module Dommy
 
       def set_reflected_string(name, value)
         set_attribute(name, value.to_s)
+      end
+
+      # A URL attribute's getter (HTML §2.6.1): "If contentAttributeValue is
+      # null, then return the empty string. Let urlString be the result of
+      # encoding-parsing-and-serializing a URL given contentAttributeValue,
+      # relative to element's node document. If urlString is not failure, then
+      # return urlString. Return contentAttributeValue." So an absent attribute
+      # is "", one that does not parse reads back as written, and `src=""`
+      # resolves to the document's own address rather than staying empty.
+      #
+      # The setter is the plain string one: a URL attribute reflects on the way
+      # OUT only, and `img.src = "a b"` stores "a b" verbatim.
+      def reflected_url(name)
+        raw = get_attribute(name)
+        return "" if raw.nil?
+
+        resolve_url(raw)
       end
 
       def reflected_boolean(name)

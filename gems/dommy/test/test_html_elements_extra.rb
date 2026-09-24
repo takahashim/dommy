@@ -26,7 +26,7 @@ class TestHTMLMediaElement < Minitest::Test
   def test_media_src_reflects
     a = @doc.create_element("audio")
     a.src = "/x.mp3"
-    assert_equal("/x.mp3", a.src)
+    assert_equal("http://localhost/x.mp3", a.src)
     assert_equal("/x.mp3", a.get_attribute("src"))
   end
 
@@ -95,7 +95,7 @@ class TestHTMLMediaElement < Minitest::Test
   def test_video_poster_reflects
     v = @doc.create_element("video")
     v.poster = "/p.jpg"
-    assert_equal("/p.jpg", v.poster)
+    assert_equal("http://localhost/p.jpg", v.poster)
   end
 
   def test_video_dimensions
@@ -131,7 +131,7 @@ class TestHTMLSourceTrack < Minitest::Test
     s.src = "/a.webm"
     s.type = "video/webm"
     s.media = "(min-width: 800px)"
-    assert_equal("/a.webm", s.src)
+    assert_equal("http://localhost/a.webm", s.src)
     assert_equal("video/webm", s.type)
     assert_equal("(min-width: 800px)", s.media)
   end
@@ -167,7 +167,7 @@ class TestHTMLIFrameElement < Minitest::Test
   def test_iframe_src
     f = @doc.create_element("iframe")
     f.src = "/inner"
-    assert_equal("/inner", f.src)
+    assert_equal("http://localhost/inner", f.src)
   end
 
   def test_iframe_srcdoc
@@ -386,7 +386,7 @@ class TestHTMLObjectEmbed < Minitest::Test
   def test_object_data_attr
     o = @doc.create_element("object")
     o.data = "/x.swf"
-    assert_equal("/x.swf", o.data)
+    assert_equal("http://localhost/x.swf", o.data)
   end
 
   def test_object_useMap
@@ -403,7 +403,7 @@ class TestHTMLObjectEmbed < Minitest::Test
   def test_embed_src
     e = @doc.create_element("embed")
     e.src = "/x.pdf"
-    assert_equal("/x.pdf", e.src)
+    assert_equal("http://localhost/x.pdf", e.src)
   end
 end
 
@@ -503,7 +503,7 @@ class TestHTMLQuoteMod < Minitest::Test
     d = @doc.create_element("del")
     d.cite = "/log"
     d.date_time = "2026-05-21"
-    assert_equal("/log", d.cite)
+    assert_equal("http://localhost/log", d.cite)
     assert_equal("2026-05-21", d.date_time)
   end
 end

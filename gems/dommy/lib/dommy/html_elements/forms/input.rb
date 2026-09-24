@@ -9,7 +9,9 @@ module Dommy
   class HTMLInputElement < HTMLElement
     include Internal::TextSelection
     include SubmitButtonActivation
-    include FormActionUrl
+    include SubmissionUrlAttribute
+    reflect_setter form_action: "formaction"
+    def form_action = submission_url("formaction")
     reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value",
                    form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
     reflect_boolean :autofocus, :disabled, :required, :readonly, default_checked: "checked",

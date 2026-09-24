@@ -202,35 +202,25 @@ module Dommy
     end
   end
 
-  # `formAction` is a URL-reflecting IDL attribute on the submit buttons that
-  # carry it: the setter writes the content attribute verbatim, and the getter
-  # resolves it against the document base URL — falling back to the document's
-  # own address when the attribute is missing or empty, so a submit button
-  # without a `formaction` reports where the form would post.
+  # `action` and `formAction` are the two URL attributes HTML marks
+  # `[ReflectSetter]`: the setter reflects like any other, but the getter is
+  # written out in prose, because a missing or EMPTY attribute reports the
+  # document's own address rather than the empty string — a form with no action
+  # posts to the page it is on, and `submitter.formAction` says where this button
+  # would send it.
+  #
+  #   "If attribute is null or attribute's value is the empty string, then return
+  #    this's node document's URL."
+  #
+  # https://html.spec.whatwg.org/multipage/form-control-infrastructure.html#dom-fs-action
+  module SubmissionUrlAttribute
+    private
 
-  # `formAction` is a URL-reflecting IDL attribute on the submit buttons that
-  # carry it: the setter writes the content attribute verbatim, and the getter
-  # resolves it against the document base URL — falling back to the document's
-  # own address when the attribute is missing or empty, so a submit button
-  # without a `formaction` reports where the form would post.
-  module FormActionUrl
-    def form_action
-      raw = get_attribute("formaction").to_s
+    def submission_url(name)
+      raw = get_attribute(name).to_s
       return @document.url.to_s if raw.empty?
 
       resolve_url(raw)
-    end
-
-    def form_action=(value)
-      set_attribute("formaction", value.to_s)
-    end
-
-    def __js_get__(key)
-      key == "formAction" ? form_action : super
-    end
-
-    def __js_set__(key, value)
-      key == "formAction" ? (self.form_action = value) : super
     end
   end
 

@@ -64,11 +64,12 @@ module Dommy
   end
 
   class HTMLQuoteElement < HTMLElement
-    reflect_string :cite
+    reflect_url :cite
   end
 
   class HTMLModElement < HTMLElement
-    reflect_string :cite, date_time: "datetime"
+    reflect_url :cite
+    reflect_string date_time: "datetime"
   end
 
   # Identity-only subclasses — useful for `instanceof` / `is_a?` checks

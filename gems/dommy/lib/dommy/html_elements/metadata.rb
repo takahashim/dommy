@@ -6,7 +6,8 @@ module Dommy
   # One of the HTML element groups; html_elements.rb lists them all.
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
-    reflect_string :src, :type, :integrity, :nonce, referrer_policy: "referrerpolicy"
+    reflect_url :src
+    reflect_string :type, :integrity, :nonce, referrer_policy: "referrerpolicy"
     reflect_boolean :async, :defer, no_module: "nomodule"
     # `text` is an alias for textContent on <script>.
     def text
@@ -93,8 +94,9 @@ module Dommy
       return nil if @__script_started
       return nil unless type.to_s.strip.downcase == "module"
 
-      s = src.to_s
-      if s.empty?
+      # Whether the script is external is whether it HAS a src attribute; what to
+      # fetch is the IDL `src`, which resolves it against the document.
+      if get_attribute("src").nil?
         body = text_content.to_s
         return nil if body.strip.empty?
 
@@ -102,7 +104,7 @@ module Dommy
         [:inline, body]
       else
         @__script_started = true
-        [:external, s]
+        [:external, src]
       end
     end
   end
@@ -111,7 +113,8 @@ module Dommy
 
   # `<link>` — primarily for stylesheets, icons, preload, manifests.
   class HTMLLinkElement < HTMLElement
-    reflect_string :href, :rel, :type, :media, :sizes, :hreflang, :integrity, as_attr: { attr: "as", js: "as" }, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
+    reflect_url :href
+    reflect_string :rel, :type, :media, :sizes, :hreflang, :integrity, as_attr: { attr: "as", js: "as" }, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
     # `link.sheet` — non-nil only when this link is a stylesheet
     # (`rel` contains "stylesheet"). Dommy fetches nothing itself, so the
     # sheet starts empty; a host environment supplies the CSS via

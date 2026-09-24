@@ -20,7 +20,8 @@ class TestDocument < Minitest::Test
 
     assert_equal [:inline, "window.x = 1;"], inline.__internal_take_pending_module__
     assert_nil inline.__internal_take_pending_module__, "started flag prevents a second run"
-    assert_equal [:external, "/app.js"], external.__internal_take_pending_module__
+    # The pair carries what to FETCH, so the src is resolved against the document.
+    assert_equal [:external, "http://localhost/app.js"], external.__internal_take_pending_module__
     assert_nil classic.__internal_take_pending_module__, "a classic script is not a module"
     refute_nil classic.__internal_take_pending_script__
   end

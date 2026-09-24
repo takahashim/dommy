@@ -5,7 +5,8 @@ module Dommy
   #
   # One of the HTML element groups; html_elements.rb lists them all.
   class HTMLIFrameElement < HTMLElement
-    reflect_string :src, :srcdoc, :name, :sandbox, :allow, :loading, referrer_policy: "referrerpolicy"
+    reflect_url :src
+    reflect_string :srcdoc, :name, :sandbox, :allow, :loading, referrer_policy: "referrerpolicy"
     reflect_boolean allow_fullscreen: "allowfullscreen"
     def width
       @__node__["width"].to_s
@@ -116,7 +117,8 @@ module Dommy
   end
 
   class HTMLObjectElement < HTMLElement
-    reflect_string :data, :type, :name, use_map: "usemap"
+    reflect_url :data
+    reflect_string :type, :name, use_map: "usemap"
     def width
       @__node__["width"].to_s
     end
@@ -228,7 +230,8 @@ module Dommy
   end
 
   class HTMLEmbedElement < HTMLElement
-    reflect_string :src, :type
+    reflect_url :src
+    reflect_string :type
     def width
       @__node__["width"].to_s
     end

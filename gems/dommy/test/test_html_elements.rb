@@ -76,7 +76,7 @@ class TestHTMLFormElement < Minitest::Test
 
   def test_reflected_attrs
     assert_equal("login", @form.name)
-    assert_equal("/post", @form.action)
+    assert_equal("http://localhost/post", @form.action)
     assert_equal("post", @form.method_attr)
     assert_equal("multipart/form-data", @form.enctype)
   end
@@ -265,7 +265,7 @@ class TestHTMLImageElement < Minitest::Test
   end
 
   def test_reflected_attrs
-    assert_equal("/cat.png", @img.src)
+    assert_equal("http://localhost/cat.png", @img.src)
     assert_equal("cat", @img.alt)
     assert_equal(100, @img.width)
     assert_equal(80, @img.height)
@@ -275,13 +275,13 @@ class TestHTMLImageElement < Minitest::Test
     assert_equal(0, @img.natural_width)
     assert_equal(0, @img.natural_height)
     assert_equal(true, @img.complete)
-    assert_equal("/cat.png", @img.current_src)
+    assert_equal("http://localhost/cat.png", @img.current_src)
   end
 
   def test_setters_round_trip
     @img.src = "/dog.png"
     @img.width = 200
-    assert_equal("/dog.png", @img.src)
+    assert_equal("http://localhost/dog.png", @img.src)
     assert_equal(200, @img.width)
   end
 end
@@ -300,7 +300,7 @@ class TestHTMLScriptElement < Minitest::Test
   end
 
   def test_reflected_attrs
-    assert_equal("/main.js", @script.src)
+    assert_equal("http://localhost/main.js", @script.src)
     assert_equal("module", @script.type)
     assert_equal(true, @script.async)
     assert_equal(true, @script.defer)
@@ -333,7 +333,7 @@ class TestHTMLLinkElement < Minitest::Test
   end
 
   def test_reflected_attrs
-    assert_equal("/main.css", @link.href)
+    assert_equal("http://localhost/main.css", @link.href)
     assert_equal("stylesheet", @link.rel)
     assert_equal("text/css", @link.type)
     assert_equal("screen", @link.media)

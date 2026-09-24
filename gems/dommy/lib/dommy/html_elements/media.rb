@@ -8,7 +8,8 @@ module Dommy
   # absent in Dommy — getters return inert values, `play()` returns
   # a resolved Promise, and `pause()` flips `paused` back to true.
   class HTMLMediaElement < HTMLElement
-    reflect_string :src, :preload, crossorigin: { js: "crossOrigin" }
+    reflect_url :src
+    reflect_string :preload, crossorigin: { js: "crossOrigin" }
     reflect_boolean :autoplay, :controls, loop_: { attr: "loop", js: "loop" }, default_muted: "muted"
     # Own __js_call__ methods, on top of Element's.
     NETWORK_EMPTY = 0
@@ -198,7 +199,7 @@ module Dommy
   end
 
   class HTMLVideoElement < HTMLMediaElement
-    reflect_string :poster
+    reflect_url :poster
     reflect_boolean plays_inline: "playsinline"
     def width
       @__node__["width"].to_s.to_i
@@ -230,7 +231,8 @@ module Dommy
   end
 
   class HTMLSourceElement < HTMLElement
-    reflect_string :src, :type, :media, :srcset, :sizes
+    reflect_url :src
+    reflect_string :type, :media, :srcset, :sizes
     def width
       @__node__["width"].to_s.to_i
     end
@@ -252,7 +254,8 @@ module Dommy
   end
 
   class HTMLTrackElement < HTMLElement
-    reflect_string :kind, :src, :srclang, :label
+    reflect_url :src
+    reflect_string :kind, :srclang, :label
     reflect_boolean default_: { attr: "default", js: "default" }
     NONE = 0
     LOADING = 1
@@ -276,9 +279,10 @@ module Dommy
     # `name`, `align`, `border`, `hspace`, `vspace` and `longDesc` are obsolete
     # but still reflected — `name` in particular is what puts an image in the
     # document's named getter, so renaming one has to move it there.
-    reflect_string :src, :alt, :decoding, :loading, :sizes, :srcset, :name, :align, :border,
+    reflect_url :src, long_desc: "longdesc"
+    reflect_string :alt, :decoding, :loading, :sizes, :srcset, :name, :align, :border,
                    crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy",
-                   use_map: "usemap", long_desc: "longdesc"
+                   use_map: "usemap"
     reflect_boolean :is_map
     def width
       @__node__["width"].to_s.to_i

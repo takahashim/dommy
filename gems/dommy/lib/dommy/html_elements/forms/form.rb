@@ -11,7 +11,10 @@ module Dommy
   # `<form>` — element collection, submit/reset, and a stubbed
   # validation surface.
   class HTMLFormElement < HTMLElement
-    reflect_string :name, :action, :enctype, :target, :autocomplete, method_attr: { attr: "method", js: "method" }, accept_charset: "accept-charset"
+    include SubmissionUrlAttribute
+    reflect_setter :action
+    def action = submission_url("action")
+    reflect_string :name, :enctype, :target, :autocomplete, method_attr: { attr: "method", js: "method" }, accept_charset: "accept-charset"
     reflect_boolean no_validate: "novalidate"
     # Own __js_call__ methods, on top of Element's.
 
@@ -287,7 +290,9 @@ module Dommy
     include SubmitButtonActivation
     reflect_string :name, form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
     reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
-    include FormActionUrl
+    include SubmissionUrlAttribute
+    reflect_setter form_action: "formaction"
+    def form_action = submission_url("formaction")
 
     def type
       raw = @__node__["type"].to_s.downcase
