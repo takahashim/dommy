@@ -322,6 +322,7 @@ module Dommy
   # `<option>` — value, label, selected, disabled, text, index, form.
   class HTMLOptionElement < HTMLElement
     reflect_boolean :disabled, default_selected: "selected"
+    reflect_setter :value, :label
     def value
       # `value`/`label` reflect the NO-namespace content attribute (a same-named
       # attribute in another namespace, via setAttributeNS, does not count);
@@ -329,17 +330,11 @@ module Dommy
       has_attribute_ns?(nil, "value") ? get_attribute_ns(nil, "value").to_s : text
     end
 
-    def value=(v)
-      set_reflected_string("value", v)
-    end
 
     def label
       has_attribute_ns?(nil, "label") ? get_attribute_ns(nil, "label").to_s : text
     end
 
-    def label=(v)
-      set_reflected_string("label", v)
-    end
 
     # `defaultSelected` reflects the `selected` content attribute.
     def default_selected

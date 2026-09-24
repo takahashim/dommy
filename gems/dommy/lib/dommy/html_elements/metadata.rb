@@ -249,7 +249,23 @@ module Dommy
   end
 
   class HTMLBaseElement < HTMLElement
-    reflect_string :href, :target
+    reflect_setter :href
+    reflect_string :target
+
+    # A `<base>` is what gives the document its base URL, so its own `href`
+    # cannot resolve against that: HTML resolves it against the document's
+    # FALLBACK base URL — the address the document would have with no <base> at
+    # all — and returns the attribute verbatim when that fails.
+    # https://html.spec.whatwg.org/multipage/semantics.html#dom-base-href
+    def href
+      raw = get_attribute("href").to_s
+      fallback = @document.url.to_s
+      return raw if fallback.empty?
+
+      Internal::UrlParser.serialize(Internal::UrlParser.parse(raw, fallback))
+    rescue Internal::UrlParser::Failure
+      raw
+    end
   end
 
   class HTMLMetaElement < HTMLElement

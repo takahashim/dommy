@@ -932,22 +932,7 @@
     ]
   },
   "reflect_gaps": {
-    "HTMLAnchorElement.href": "hand-written (expected setter_only)",
-    "HTMLAreaElement.href": "hand-written (expected setter_only)",
-    "HTMLBaseElement.href": "declared string (expected setter_only)",
-    "HTMLButtonElement.type": "hand-written (expected setter_only)",
-    "HTMLImageElement.height": "hand-written (expected setter_only)",
-    "HTMLImageElement.width": "hand-written (expected setter_only)",
     "HTMLInputElement.autocomplete": "declared string (expected setter_only)",
-    "HTMLMeterElement.high": "hand-written (expected setter_only)",
-    "HTMLMeterElement.low": "hand-written (expected setter_only)",
-    "HTMLMeterElement.max": "hand-written (expected setter_only)",
-    "HTMLMeterElement.min": "hand-written (expected setter_only)",
-    "HTMLMeterElement.optimum": "hand-written (expected setter_only)",
-    "HTMLMeterElement.value": "hand-written (expected setter_only)",
-    "HTMLOptionElement.label": "hand-written (expected setter_only)",
-    "HTMLOptionElement.value": "hand-written (expected setter_only)",
-    "HTMLProgressElement.value": "hand-written (expected setter_only)",
     "HTMLTextAreaElement.autocomplete": "declared string (expected setter_only)"
   }
 }

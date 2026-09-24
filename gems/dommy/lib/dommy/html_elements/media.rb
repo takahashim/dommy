@@ -256,20 +256,20 @@ module Dommy
                    crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy",
                    use_map: "usemap"
     reflect_boolean :is_map
-    def width
-      @__node__["width"].to_s.to_i
-    end
+    # [ReflectSetter]: the setters reflect as `unsigned long`, and the getters
+    # are prose — HTML's "determining the dimensions", which reports the rendered
+    # size when the image is being rendered and the natural size when it has one.
+    # Dommy renders nothing and fetches nothing, so both are absent and the
+    # algorithm reduces to its last step: the content attribute, parsed, or 0.
+    # https://html.spec.whatwg.org/multipage/embedded-content-other.html#determine-dimensions
+    reflect_ulong_setter :width, :height
 
-    def width=(v)
-      set_reflected_string("width", v.to_s)
+    def width
+      parse_html_non_negative_integer(get_attribute("width")) || 0
     end
 
     def height
-      @__node__["height"].to_s.to_i
-    end
-
-    def height=(v)
-      set_reflected_string("height", v.to_s)
+      parse_html_non_negative_integer(get_attribute("height")) || 0
     end
 
     # No real loader → these are constants.

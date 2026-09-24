@@ -422,10 +422,25 @@ class TestHTMLHeadMetadata < Minitest::Test
     assert_kind_of(Dommy::HTMLBaseElement, @doc.create_element("base"))
   end
 
+  # `base.href` resolves against the document's FALLBACK base URL — what the
+  # document's base URL would be with no <base> at all — since this element is
+  # what would otherwise be answering. The setter writes the attribute as given.
   def test_base_href
     b = @doc.create_element("base")
     b.href = "/root/"
-    assert_equal("/root/", b.href)
+
+    assert_equal("/root/", b.get_attribute("href"))
+    assert_equal("http://localhost/root/", b.href)
+  end
+
+  # Its own href does not resolve against itself: a <base> in the document does
+  # not move the URL a later <base> reports.
+  def test_base_href_ignores_the_documents_own_base
+    @doc.head.inner_html = '<base href="http://example.test/deep/">'
+    b = @doc.create_element("base")
+    b.set_attribute("href", "sub/")
+
+    assert_equal("http://localhost/sub/", b.href)
   end
 
   def test_meta_dispatch

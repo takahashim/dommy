@@ -263,6 +263,7 @@ module Dommy
     include HyperlinkActivation
     include HyperlinkUtils
     reflect_token_list rel_list: { attr: "rel", js: "relList" }
+    reflect_setter :href
     reflect_string :target, :download, :rel, :hreflang, :type
 
     # `a.text` is an alias for the element's descendant text content.
@@ -290,6 +291,7 @@ module Dommy
     include HyperlinkActivation
     include HyperlinkUtils
     reflect_token_list rel_list: { attr: "rel", js: "relList" }
+    reflect_setter :href
     reflect_string :alt, :coords, :shape, :target, :rel
   end
 end

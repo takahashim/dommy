@@ -46,6 +46,11 @@ module Dommy
       # prose and the class defines it (see reflect_setter).
       EMPTY_OPTIONS = {}.freeze
 
+      # What the audit calls each declaration. The three setter-only spellings
+      # differ in the conversion their setter runs; to the IDL they are one
+      # thing, [ReflectSetter].
+      DECLARED_AS = { ulong_setter: :setter_only, double_setter: :setter_only }.freeze
+
       # WebIDL's `long` and `unsigned long`, which bound what a reflected number
       # can be before HTML's own defaults and ranges apply.
       LONG_RANGE = (-2_147_483_648..2_147_483_647).freeze
@@ -60,6 +65,8 @@ module Dommy
         token_list: %i[reflected_token_list set_reflected_token_list],
         boolean: %i[reflected_boolean set_reflected_boolean],
         setter_only: [nil, :set_reflected_string],
+        ulong_setter: [nil, :set_reflected_ulong],
+        double_setter: [nil, :set_reflected_double],
       }.freeze
 
       module ClassMethods
@@ -103,6 +110,18 @@ module Dommy
         #                             range: 1..1000 }
         def reflect_ulong(*names, **mapped)
           _reflect(:ulong, names, mapped)
+        end
+
+        # The same, for a setter that takes a number: `[ReflectSetter]` says only
+        # that the getter is prose, not what the setter converts, and that comes
+        # from the IDL type — `img.width` is an `unsigned long` and `meter.value`
+        # a `double` however their getters are written.
+        def reflect_ulong_setter(*names, **mapped)
+          _reflect(:ulong_setter, names, mapped)
+        end
+
+        def reflect_double_setter(*names, **mapped)
+          _reflect(:double_setter, names, mapped)
         end
 
         # An IDL attribute whose SETTER reflects but whose getter the spec writes
@@ -229,7 +248,7 @@ module Dommy
               @__writable_props__[js] = ruby_name
             end
             @__reflected_props__[js] = ruby_name
-            @__reflect_specs__[js] = { type: type, attr: attr }
+            @__reflect_specs__[js] = { type: DECLARED_AS.fetch(type, type), attr: attr }
           end
         end
 
@@ -380,6 +399,39 @@ module Dommy
         new_value = options.fetch(:default, minimum)
         new_value = given if given.between?(minimum, UNSIGNED_LONG_MAX)
         set_attribute(name, new_value.to_s)
+      end
+
+      # A `double` attribute's setter: the value converted to the best
+      # representation of the number as a floating-point number — which is the
+      # SHORTEST one, so 5.0 writes "5" and not "5.0".
+      def set_reflected_double(name, value, options = EMPTY_OPTIONS)
+        number = to_webidl_double(value)
+        # [ReflectPositive]: a value that is not greater than zero leaves the
+        # content attribute alone.
+        return if options[:positive] && !number.positive?
+
+        set_attribute(name, format_webidl_double(number))
+      end
+
+      # WebIDL's `double` (the restricted one): every ES value converts, but a
+      # non-finite result is a TypeError rather than an attribute saying "NaN".
+      def to_webidl_double(value)
+        number =
+          case value
+          when Numeric then value.to_f
+          when nil then 0.0
+          when true then 1.0
+          when false then 0.0
+          when String then value.strip.empty? ? 0.0 : (Float(value.strip) rescue ::Float::NAN)
+          else ::Float::NAN
+          end
+        raise Bridge::TypeError, "The provided double value is non-finite." if number.nan? || number.infinite?
+
+        number
+      end
+
+      def format_webidl_double(number)
+        number == number.to_i ? number.to_i.to_s : number.to_s
       end
 
       # WebIDL's integer conversions, which run before any of the above sees the

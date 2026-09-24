@@ -289,6 +289,7 @@ module Dommy
   # `<button>` — type defaults to "submit" per spec.
   class HTMLButtonElement < HTMLElement
     include SubmitButtonActivation
+    reflect_setter :type
     reflect_string :name, :value, form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
     reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
     include SubmissionUrlAttribute
@@ -312,10 +313,6 @@ module Dommy
       return super if __submit_button__?
 
       form&.reset if type == "reset" && !disabled
-    end
-
-    def type=(v)
-      set_reflected_string("type", v)
     end
 
     # The form owner: a `form=` attribute pointing at a form (form-associated
@@ -890,6 +887,10 @@ module Dommy
   # plus `low` / `high` / `optimum`. All numeric; `labels` via the
   # standard `<label for="...">` association.
   class HTMLMeterElement < HTMLElement
+    # [ReflectSetter] all six: the setters reflect, and the getters below are the
+    # prose — the WHATWG "actual" values, each constrained by the ones before it.
+    reflect_double_setter :min, :max, :value, :low, :high, :optimum
+
     # The IDL getters return the WHATWG "actual" values, constrained in order:
     # min → max (≥min) → value (∈[min,max]) → low (∈[min,max]) →
     # high (∈[low,max]) → optimum (∈[min,max]).
@@ -897,48 +898,24 @@ module Dommy
       numeric_attr("min", 0.0)
     end
 
-    def min=(v)
-      set_reflected_string("min", format_double(restricted_double(v)))
-    end
-
     def max
       [numeric_attr("max", 1.0), min].max
-    end
-
-    def max=(v)
-      set_reflected_string("max", format_double(restricted_double(v)))
     end
 
     def value
       clamp(numeric_attr("value", 0.0), min, max)
     end
 
-    def value=(v)
-      set_reflected_string("value", format_double(restricted_double(v)))
-    end
-
     def low
       clamp(numeric_attr("low", min), min, max)
-    end
-
-    def low=(v)
-      set_reflected_string("low", format_double(restricted_double(v)))
     end
 
     def high
       clamp(numeric_attr("high", max), low, max)
     end
 
-    def high=(v)
-      set_reflected_string("high", format_double(restricted_double(v)))
-    end
-
     def optimum
       clamp(numeric_attr("optimum", (min + max) / 2.0), min, max)
-    end
-
-    def optimum=(v)
-      set_reflected_string("optimum", format_double(restricted_double(v)))
     end
 
     def labels
@@ -992,29 +969,6 @@ module Dommy
       v
     end
 
-    # WebIDL `double` conversion (ToNumber) for the meter's IDL setters: a value
-    # that coerces to NaN/±Infinity — e.g. `meter.value = "foobar"` — is a
-    # restricted double and throws a TypeError.
-    def restricted_double(v)
-      n =
-        case v
-        when Numeric then v.to_f
-        when nil then 0.0
-        when true then 1.0
-        when false then 0.0
-        when String then (v.strip.empty? ? 0.0 : (Float(v.strip) rescue ::Float::NAN))
-        else ::Float::NAN
-        end
-      raise Bridge::TypeError, "The provided double value is non-finite." if n.nan? || n.infinite?
-
-      n
-    end
-
-    # The "best representation" of a double for a reflected content attribute:
-    # an integral value loses its trailing ".0".
-    def format_double(n)
-      n == n.to_i ? n.to_i.to_s : n.to_s
-    end
   end
 
   # `<progress>` — `value` and `max` (default max=1). `position`
@@ -1029,6 +983,8 @@ module Dommy
   # returns `value / max` for a "determinate" progress bar, or -1
   # when no value is set ("indeterminate").
   class HTMLProgressElement < HTMLElement
+    reflect_double_setter :value
+
     # A progress bar is "determinate" iff it has a parseable `value` content
     # attribute; otherwise it is "indeterminate" (position -1). The `value` IDL
     # getter always returns a number: 0 when indeterminate/invalid, else the
@@ -1040,10 +996,6 @@ module Dommy
       v = Float(raw) rescue 0.0
       v = 0.0 if v < 0
       [v, max].min
-    end
-
-    def value=(v)
-      set_reflected_string("value", v.to_s)
     end
 
     def max
