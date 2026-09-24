@@ -625,11 +625,13 @@ module Dommy
     def scroll_to(*args)
       x, y = parse_scroll_args(args, @scroll_x || 0, @scroll_y || 0, relative: false)
       update_scroll(x, y)
+      PromiseValue.resolve(self, nil)
     end
 
     def scroll_by(*args)
       x, y = parse_scroll_args(args, @scroll_x || 0, @scroll_y || 0, relative: true)
       update_scroll(x, y)
+      PromiseValue.resolve(self, nil)
     end
 
     # `window.postMessage`: deliver a structured-cloned `message` to this window's

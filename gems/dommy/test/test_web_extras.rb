@@ -107,6 +107,16 @@ class TestWindowScroll < Minitest::Test
     @win.__js_call__("scrollTo", [0, 200])
     assert_equal(2, count)
   end
+
+  # CSSOM View declares these Promise<undefined>, and Chromium returns a
+  # Promise; there is no layout to wait for, so it resolves at once.
+  def test_scroll_methods_return_a_resolved_promise
+    %w[scroll scrollTo scrollBy].each do |method|
+      promise = @win.__js_call__(method, [0, 0])
+      assert_kind_of(Dommy::PromiseValue, promise, method)
+      assert_nil(promise.await)
+    end
+  end
 end
 
 # --- requestIdleCallback --------------------------------------------

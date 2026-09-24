@@ -500,7 +500,7 @@ globalThis.__rbIdl = (function () {
     "moveBefore", "normalize", "insertAdjacentText", "insertAdjacentHTML",
     "preventDefault", "stopPropagation", "stopImmediatePropagation", "initEvent", "initCustomEvent",
     "focus", "blur", "click", "select", "setCustomValidity", "stepUp", "stepDown", "setSelectionRange",
-    "setRangeText", "scrollIntoView", "scroll", "scrollTo", "scrollBy", "setPointerCapture",
+    "setRangeText", "setPointerCapture",
     "releasePointerCapture", "observe", "unobserve", "disconnect", "setStart", "setEnd", "setStartBefore",
     "setStartAfter", "setEndBefore", "setEndAfter", "selectNode", "selectNodeContents", "deleteContents",
     "insertNode", "surroundContents", "detach", "removeAllRanges", "addRange", "removeRange", "collapse",
@@ -511,15 +511,15 @@ globalThis.__rbIdl = (function () {
     // `undefined`, taken from their IDL rather than added one bug at a time.
     // A name is here only when EVERY interface declaring it returns undefined;
     // the ones that disagree are in INTERFACE_VOID_METHODS below.
-    "addColorStop", "alert", "appendData", "appendMedium", "arc", "arcTo",
+    "addColorStop", "addListener", "alert", "appendData", "appendMedium", "arc", "arcTo",
     "assign", "beginPath", "bezierCurveTo", "cancelAnimationFrame", "clear", "clearData", "clearInterval",
     "clearRect", "clearTimeout", "clip", "closePath", "define", "delete",
     "deleteCaption", "deleteCell", "deleteData", "deleteMedium", "deleteRow", "deleteRule", "deleteTFoot",
-    "deleteTHead", "drawFocusIfNeeded", "drawImage", "ellipse", "fill", "fillRect", "fillText",
+    "deleteTHead", "drawFocusIfNeeded", "drawImage", "ellipse", "empty", "fill", "fillRect", "fillText",
     "go", "hidePopover", "initKeyboardEvent", "initMessageEvent", "initUIEvent", "insertData", "lineTo",
     "load", "moveTo", "pause", "postMessage", "putImageData", "quadraticCurveTo", "queueMicrotask",
-    "rect", "removeRule", "replaceData", "replaceSync", "reportError", "requestSubmit", "reset",
-    "resetTransform", "restore", "rotate", "roundRect", "save", "scale", "send",
+    "rect", "removeListener", "removeRule", "replaceData", "replaceSync", "reportError", "requestSubmit", "reset",
+    "resetTransform", "resizeTo", "restore", "rotate", "roundRect", "save", "scale", "send",
     "set", "setData", "setLineDash", "setTransform", "show", "showModal", "showPopover",
     "sort", "stroke", "strokeRect", "strokeText", "submit", "terminate", "throwIfAborted",
     "toBlob", "transform", "translate", "upgrade", "writeln", "add",
@@ -545,7 +545,10 @@ globalThis.__rbIdl = (function () {
     MessagePort: ["close"],
     ReadableStreamDefaultController: ["close"],
     AbortController: ["abort"],
-    FileReader: ["abort"]
+    FileReader: ["abort"],
+    // `scroll` is a Promise on Element and Window, but undefined on NavigateEvent
+    // (not implemented yet; listed so the name stays out of VOID_METHODS).
+    NavigateEvent: ["scroll"]
   };
 
   // The engine's native globals that `window.X` must mirror exactly.

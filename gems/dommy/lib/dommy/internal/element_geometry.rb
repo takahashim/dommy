@@ -55,13 +55,14 @@ module Dommy
 
       private
 
-      # No real layout — record the scroll request so tests can assert it.
-      # Private: a test reads the log through #__test_scroll_log__, and the
-      # scroll methods are what write to it.
+      # No real layout — record the scroll request so tests can assert it, and
+      # answer with the Promise<undefined> CSSOM View declares. There is nothing
+      # to wait for, so it resolves at once. Private: a test reads the log
+      # through #__test_scroll_log__, and the scroll methods are what write to it.
       def record_scroll(name, args)
         @scroll_log ||= []
         @scroll_log << [name, args]
-        nil
+        PromiseValue.resolve(@document&.default_view, nil)
       end
     end
   end

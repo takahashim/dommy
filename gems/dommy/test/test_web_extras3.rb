@@ -22,6 +22,16 @@ class TestElementScrollAndSize < Minitest::Test
     assert_equal("scrollTo", @el.__test_scroll_log__.first.first)
   end
 
+  # CSSOM View declares these Promise<undefined> (Chromium returns a Promise);
+  # dommy has no layout, so the promise resolves as soon as it is made.
+  def test_scroll_methods_return_a_resolved_promise
+    %w[scrollIntoView scroll scrollTo scrollBy].each do |method|
+      promise = @el.__js_call__(method, [0, 0])
+      assert_kind_of(Dommy::PromiseValue, promise, method)
+      assert_nil(promise.await)
+    end
+  end
+
   def test_scroll_metrics_zero
     %w[scrollTop scrollLeft scrollWidth scrollHeight].each do |prop|
       assert_equal(0, @el.__js_get__(prop))

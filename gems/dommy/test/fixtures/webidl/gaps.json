@@ -973,19 +973,7 @@
     "HTMLInputElement.autocomplete": "declared string (expected setter_only)",
     "HTMLTextAreaElement.autocomplete": "declared string (expected setter_only)"
   },
-  "void_gaps": {
-    "Element.scroll": "returns Promise<undefined>, but a null answer becomes undefined",
-    "Element.scrollBy": "returns Promise<undefined>, but a null answer becomes undefined",
-    "Element.scrollIntoView": "returns Promise<undefined>, but a null answer becomes undefined",
-    "Element.scrollTo": "returns Promise<undefined>, but a null answer becomes undefined",
-    "MediaQueryList.addListener": "returns undefined, which the bridge does not guarantee",
-    "MediaQueryList.removeListener": "returns undefined, which the bridge does not guarantee",
-    "Selection.empty": "returns undefined, which the bridge does not guarantee",
-    "Window.resizeTo": "returns undefined, which the bridge does not guarantee",
-    "Window.scroll": "returns Promise<undefined>, but a null answer becomes undefined",
-    "Window.scrollBy": "returns Promise<undefined>, but a null answer becomes undefined",
-    "Window.scrollTo": "returns Promise<undefined>, but a null answer becomes undefined"
-  },
+  "void_gaps": {},
   "arity_gaps": {},
   "iteration_gaps": {},
   "null_to_empty_gaps": {},
