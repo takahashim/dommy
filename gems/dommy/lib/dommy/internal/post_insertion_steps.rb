@@ -123,7 +123,9 @@ module Dommy
       def fire_blank_iframe_load(element)
         return unless element.respond_to?(:local_name) && element.local_name == "iframe"
         return unless element.respond_to?(:is_connected?) && element.is_connected?
-        return unless element.respond_to?(:src) && BLANK_IFRAME_SRCS.include?(element.src.to_s.strip)
+        # The content attribute: `src=""` names no resource, where the IDL `src`
+        # resolves it to the document's own address (a URL reflection).
+        return unless BLANK_IFRAME_SRCS.include?(element.get_attribute("src").to_s.strip)
 
         ensure_blank_content_document(element)
         defer do
