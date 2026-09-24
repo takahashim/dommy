@@ -3,6 +3,7 @@
 require_relative "text_flattening"
 require_relative "node_identity"
 require_relative "accessibility_visibility"
+require_relative "css/ua_stylesheet"
 
 module Dommy
   module Internal
@@ -269,11 +270,7 @@ module Dommy
 
       # Elements that generate a block-level box by the UA stylesheet — used as
       # the fallback when no CSS layer is available to compute `display`.
-      BLOCK_TAGS = %w[
-        address article aside blockquote caption dd details div dl dt fieldset
-        figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr legend li main
-        menu nav ol p pre section summary table tbody td tfoot th thead tr ul
-      ].freeze
+      BLOCK_TAGS = CSS::UAStylesheet::BLOCK_LEVEL_TAGS
 
       # Whether an element generates a block-level box, so its text is separated
       # from siblings by whitespace in name-from-content (inline boxes glue). The

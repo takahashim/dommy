@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../internal/rendered_text"
+
 module Dommy
   # The HTMLElement base and the behaviour mixins its subclasses share.
   #
@@ -15,6 +17,36 @@ module Dommy
     # `dir` reflects its own content attribute ("" when absent); the computed
     # directionality it implies is Internal::Directionality.
     reflect_string :dir
+
+    # `innerText` / `outerText` (HTML §3.2.7). The getter is the rendered text;
+    # the setter replaces the element's children (innerText) or the element
+    # itself (outerText) with the value, line breaks becoming <br>.
+    def inner_text = Internal::RenderedText.get(self)
+
+    def inner_text=(value)
+      Internal::RenderedText.set_inner(self, value)
+    end
+
+    def outer_text = Internal::RenderedText.get(self)
+
+    def outer_text=(value)
+      Internal::RenderedText.set_outer(self, value)
+    end
+
+    def __js_get__(key)
+      case key
+      when "innerText", "outerText" then inner_text
+      else super
+      end
+    end
+
+    def __js_set__(key, value)
+      case key
+      when "innerText" then self.inner_text = value
+      when "outerText" then self.outer_text = value
+      else super
+      end
+    end
 
     # HTML's form owner. A `form` content attribute names a form BY ID IN THIS
     # ELEMENT'S OWN TREE — the association never reaches out of a shadow tree,

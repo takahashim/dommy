@@ -13,6 +13,15 @@ module Dommy
       # Selectors must stay within what both DOM backends can match
       # (so no case-insensitive attribute flags, no state pseudo-classes).
       module UAStylesheet
+        # The elements the stylesheet below makes block-level. The fallback for
+        # code that asks "is this block-level?" when no CSS layer is available
+        # (the accname algorithm, innerText).
+        BLOCK_LEVEL_TAGS = %w[
+          address article aside blockquote caption dd details div dl dt fieldset
+          figcaption figure footer form h1 h2 h3 h4 h5 h6 header hr legend li main
+          menu nav ol p pre section summary table tbody td tfoot th thead tr ul
+        ].freeze
+
         TEXT = <<~CSS
           [hidden] { display: none }
           area, base, basefont, datalist, head, link, meta, noembed,
@@ -39,6 +48,8 @@ module Dommy
           b, strong { font-weight: 700 }
           i, em, cite, var, dfn { font-style: italic }
           pre, code, kbd, samp { font-family: monospace }
+          pre { white-space: pre }
+          textarea { white-space: pre-wrap }
           center { text-align: center }
         CSS
 
