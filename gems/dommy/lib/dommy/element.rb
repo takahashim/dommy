@@ -958,7 +958,12 @@ module Dommy
       when "style"
         @style
       when "dataset"
-        @dataset
+        # HTMLOrSVGOrMathMLElement.dataset: only those three namespaces have one.
+        if is_a?(HTMLElement) || is_a?(SVGElement) || namespace_uri == Internal::Namespaces::MATHML
+          @dataset
+        else
+          Bridge::ABSENT
+        end
       when "content"
         template_content
       when "className"
