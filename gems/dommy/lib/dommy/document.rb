@@ -3,6 +3,7 @@
 require "uri"
 
 require_relative "internal/node_wrapper_cache"
+require_relative "internal/directionality"
 require_relative "internal/node_factory"
 require_relative "internal/mutation_coordinator"
 require_relative "internal/shadow_root_registry"
@@ -633,16 +634,16 @@ module Dommy
       read_title
     end
 
-    # `document.dir` reflects the document element's `dir` content attribute,
-    # limited to the known values: an explicit ltr / rtl / auto reads back
-    # lowercased, anything else (including an absent attribute) as "".
+    # `document.dir` reflects the html element's `dir` content attribute,
+    # limited to only known values. With no html element it reads "" and
+    # ignores writes.
     def dir
-      value = document_element&.get_attribute("dir").to_s.strip.downcase
-      %w[ltr rtl auto].include?(value) ? value : ""
+      root = html_element
+      root ? Internal::Directionality.reflected_dir(root) : ""
     end
 
     def dir=(value)
-      document_element&.set_attribute("dir", value.to_s)
+      html_element&.set_attribute("dir", value.to_s)
     end
 
     def title=(value)
@@ -1831,6 +1832,12 @@ module Dommy
     end
 
     private
+
+    # "The html element": the document element when it is an HTML <html>.
+    def html_element
+      root = document_element
+      root if root.is_a?(HTMLElement) && root.local_name == "html"
+    end
 
     # An element is a named element with the name `name` when it is one of the
     # exposed kinds and either carries that `name`, or is an object with that
