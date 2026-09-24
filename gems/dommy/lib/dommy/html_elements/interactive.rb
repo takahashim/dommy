@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-require_relative "../internal/toggle_event_task"
+require_relative "../internal/toggle_events"
 
 module Dommy
   # Elements whose whole point is a state the user can change.
@@ -11,10 +11,10 @@ module Dommy
   # functionally identical to show (no backdrop, no escape-to-close).
   #
   # Opening and closing fire `beforetoggle` synchronously (before the `open`
-  # attribute changes, cancelable) and `toggle` asynchronously, with rapid
-  # changes coalescing into one event.
+  # attribute changes; an opening can be canceled) and `toggle` asynchronously,
+  # with rapid changes coalescing into one event (Internal::ToggleEvents).
   class HTMLDialogElement < HTMLElement
-    include Internal::ToggleEventTask
+    include Internal::ToggleEvents
     reflect_boolean :open
     # Own __js_call__ methods, on top of Element's.
 
@@ -28,7 +28,7 @@ module Dommy
 
     def show
       return nil if has_attribute?("open")
-      return nil unless fire_beforetoggle("open")
+      return nil unless fire_beforetoggle(false, true)
 
       self.open = true
       queue_toggle_event(false, true)
@@ -45,7 +45,7 @@ module Dommy
       unless is_connected?
         raise DOMException::InvalidStateError, "showModal() called on a dialog not connected to a document"
       end
-      return nil unless fire_beforetoggle("open")
+      return nil unless fire_beforetoggle(false, true)
 
       self.open = true
       queue_toggle_event(false, true)
@@ -57,12 +57,12 @@ module Dommy
     # non-bubbling `close` event.
     def close(value = nil)
       return nil unless has_attribute?("open")
-      return nil unless fire_beforetoggle("closed")
+      fire_beforetoggle(true, false)
 
       self.open = false
       @return_value = value.to_s unless value.nil?
       queue_toggle_event(true, false)
-      schedule_async { dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__) }
+      queue_element_task { dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__) }
       nil
     end
 
@@ -82,18 +82,6 @@ module Dommy
         super
       end
     end
-
-    private
-
-    # The synchronous, cancelable `beforetoggle` that fires before the open
-    # attribute changes; false when a listener canceled it, so the caller aborts.
-    def fire_beforetoggle(new_state)
-      old_state = has_attribute?("open") ? "open" : "closed"
-      event = ToggleEvent.new("beforetoggle",
-        "oldState" => old_state, "newState" => new_state,
-        "bubbles" => false, "cancelable" => true)
-      dispatch_event(event.__internal_mark_trusted__)
-    end
   end
 
   # `<details>` — `open` reflected boolean. Whenever the open state changes —
@@ -110,7 +98,7 @@ module Dommy
   # `details.toggleAttribute("open")` fire toggle, which Stimulus's `:open`
   # action option relies on.
   class HTMLDetailsElement < HTMLElement
-    include Internal::ToggleEventTask
+    include Internal::ToggleEvents
     reflect_string :name
 
     def open

@@ -3,7 +3,8 @@
 require_relative "test_helper"
 
 # `<dialog>` fires `beforetoggle` synchronously (before the open attribute
-# changes, cancelable) and `toggle` asynchronously, coalescing rapid changes.
+# changes; an opening can be canceled) and `toggle` asynchronously, coalescing
+# rapid changes.
 # Mirrors WPT html/semantics/interactive-elements/the-dialog-element/
 # toggle-events.html.
 class TestDialogToggleEvents < Minitest::Test
@@ -58,6 +59,18 @@ class TestDialogToggleEvents < Minitest::Test
   def test_canceled_beforetoggle_aborts
     @dialog.add_event_listener("beforetoggle", proc { |e| e.__js_call__("preventDefault", []) })
     @dialog.show
+    refute @dialog.has_attribute?("open")
+  end
+
+  def test_closing_beforetoggle_cannot_be_canceled
+    @dialog.show
+    cancelable = nil
+    @dialog.add_event_listener("beforetoggle", proc { |e|
+      cancelable = e.__js_get__("cancelable")
+      e.__js_call__("preventDefault", [])
+    })
+    @dialog.close
+    assert_equal false, cancelable
     refute @dialog.has_attribute?("open")
   end
 
