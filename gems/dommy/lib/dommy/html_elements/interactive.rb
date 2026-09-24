@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../internal/toggle_event_task"
+
 module Dommy
   # Elements whose whole point is a state the user can change.
   #
@@ -7,7 +9,12 @@ module Dommy
   # `<dialog>` — `open` reflected boolean, `show()` / `showModal()` /
   # `close(returnValue?)`. Dommy has no modal stack, so showModal is
   # functionally identical to show (no backdrop, no escape-to-close).
+  #
+  # Opening and closing fire `beforetoggle` synchronously (before the `open`
+  # attribute changes, cancelable) and `toggle` asynchronously, with rapid
+  # changes coalescing into one event.
   class HTMLDialogElement < HTMLElement
+    include Internal::ToggleEventTask
     reflect_boolean :open
     # Own __js_call__ methods, on top of Element's.
 
@@ -20,7 +27,11 @@ module Dommy
     end
 
     def show
+      return nil if has_attribute?("open")
+      return nil unless fire_beforetoggle("open")
+
       self.open = true
+      queue_toggle_event(false, true)
       nil
     end
 
@@ -34,8 +45,10 @@ module Dommy
       unless is_connected?
         raise DOMException::InvalidStateError, "showModal() called on a dialog not connected to a document"
       end
+      return nil unless fire_beforetoggle("open")
 
       self.open = true
+      queue_toggle_event(false, true)
       nil
     end
 
@@ -44,14 +57,12 @@ module Dommy
     # non-bubbling `close` event.
     def close(value = nil)
       return nil unless has_attribute?("open")
+      return nil unless fire_beforetoggle("closed")
 
       self.open = false
       @return_value = value.to_s unless value.nil?
-      fire = proc do
-        dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
-      end
-      scheduler = @document.respond_to?(:default_view) && @document.default_view&.scheduler
-      scheduler ? scheduler.set_timeout(fire, 0) : fire.call
+      queue_toggle_event(true, false)
+      schedule_async { dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__) }
       nil
     end
 
@@ -71,6 +82,18 @@ module Dommy
         super
       end
     end
+
+    private
+
+    # The synchronous, cancelable `beforetoggle` that fires before the open
+    # attribute changes; false when a listener canceled it, so the caller aborts.
+    def fire_beforetoggle(new_state)
+      old_state = has_attribute?("open") ? "open" : "closed"
+      event = ToggleEvent.new("beforetoggle",
+        "oldState" => old_state, "newState" => new_state,
+        "bubbles" => false, "cancelable" => true)
+      dispatch_event(event.__internal_mark_trusted__)
+    end
   end
 
   # `<details>` — `open` reflected boolean. Whenever the open state changes —
@@ -87,6 +110,7 @@ module Dommy
   # `details.toggleAttribute("open")` fire toggle, which Stimulus's `:open`
   # action option relies on.
   class HTMLDetailsElement < HTMLElement
+    include Internal::ToggleEventTask
     reflect_string :name
 
     def open
@@ -201,32 +225,6 @@ module Dommy
       nil
     end
 
-    # WHATWG "queue a details toggle event task": the trusted ToggleEvent fires
-    # asynchronously, and rapid changes coalesce into ONE event whose oldState is
-    # the state before the first change and newState the state after the last.
-    def queue_toggle_event(old_open, new_open)
-      # A change while a toggle task is still pending CANCELS that task and
-      # queues a fresh one at the back of the queue. The event still reports the
-      # state before the first change and after the last, but it now arrives
-      # after everything queued in between — which is what orders the events of
-      # an accordion group by when each element last settled.
-      @__toggle_old = old_open ? "open" : "closed" unless @__toggle_pending
-      @__toggle_new = new_open ? "open" : "closed"
-      @__toggle_pending = true
-      @__toggle_announced = true
-      generation = @__toggle_generation = (@__toggle_generation || 0) + 1
-      fire = proc do
-        next unless generation == @__toggle_generation
-
-        @__toggle_pending = false
-        evt = ToggleEvent.new("toggle",
-          "oldState" => @__toggle_old, "newState" => @__toggle_new,
-          "bubbles" => false, "cancelable" => false)
-        dispatch_event(evt.__internal_mark_trusted__)
-      end
-      scheduler = @document.respond_to?(:__internal_scheduler__) ? @document.__internal_scheduler__ : nil
-      scheduler ? scheduler.set_timeout(fire, 0) : fire.call
-    end
   end
 
   # `<meter>` — gauge with `value` / `min` / `max` (default 0/0/1)
