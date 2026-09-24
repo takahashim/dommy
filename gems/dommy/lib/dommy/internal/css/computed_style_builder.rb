@@ -3,7 +3,6 @@
 require_relative "cascaded_declarations"
 require_relative "property_registry"
 require_relative "custom_properties"
-require_relative "../directionality"
 
 module Dommy
   module Internal
@@ -122,15 +121,6 @@ module Dommy
         # real.
         def specified(name)
           value = cascaded(name)
-          # No CSS `direction` declared: an element that declares one with its
-          # `dir` attribute (or <bdi>'s auto default) reports that; one that does
-          # not inherits the parent's computed `direction` like any other
-          # inherited property.
-          if name == "direction" && value.nil?
-            declared = Directionality.explicit_direction(@element)
-            return declared if declared
-          end
-
           value ||= if PropertyRegistry.inherited?(name) && @parent_styles
             @parent_styles[name]
           else

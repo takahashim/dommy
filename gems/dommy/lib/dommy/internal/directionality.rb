@@ -76,18 +76,6 @@ module Dommy
       # values — its keyword in lowercase, or "" in the Undefined state.
       def reflected_dir(element) = dir_state(element) || ""
 
-      # The direction the element itself declares, or nil when it inherits one
-      # — the elements the HTML rendering section's UA rules set `direction`
-      # on: any HTML element with a dir attribute (valid or not), <bdi>, and
-      # <input type=tel>. The cascade uses this so a `dir`-less element
-      # inherits the parent's computed `direction` like any other inherited
-      # property, while an explicit dir still wins.
-      def explicit_direction(element)
-        declares = html_element?(element) &&
-          (element.has_attribute?("dir") || named?(element, "bdi") || tel_input?(element))
-        declares ? direction_of(element) : nil
-      end
-
       def compute_direction(element)
         case dir_state(element)
         when "ltr" then "ltr"

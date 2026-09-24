@@ -93,6 +93,13 @@ class TestDirectionality < Minitest::Test
     assert_equal "rtl", @win.get_computed_style(input).get_property_value("direction")
   end
 
+  def test_dir_is_a_ua_declaration_that_author_css_overrides_and_revert_restores
+    @doc.body.inner_html = "<style>#a { direction: ltr } #b { direction: ltr } #b { direction: revert }</style>" \
+      "<div dir='rtl' id='a'></div><div dir='rtl' id='b'></div>"
+    assert_equal "ltr", @win.get_computed_style(@doc.get_element_by_id("a")).get_property_value("direction")
+    assert_equal "rtl", @win.get_computed_style(@doc.get_element_by_id("b")).get_property_value("direction")
+  end
+
   def test_computed_style_direction
     @doc.body.inner_html = "<div dir='rtl' id='x'>hi</div>"
     element = @doc.get_element_by_id("x")

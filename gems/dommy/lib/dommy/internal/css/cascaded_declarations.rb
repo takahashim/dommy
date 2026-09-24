@@ -2,6 +2,7 @@
 
 require_relative "property_registry"
 require_relative "custom_properties"
+require_relative "ua_stylesheet"
 
 module Dommy
   module Internal
@@ -98,8 +99,8 @@ module Dommy
         end
 
         # Every declaration that cascades onto the element, with its
-        # precedence rank: matched rules first, then the style attribute
-        # (which doesn't apply to pseudo-elements).
+        # precedence rank: matched rules first, then the UA rules evaluated per
+        # element and the style attribute (neither applies to pseudo-elements).
         def each_declaration(element, index, pseudo_element)
           layer_count = index.layer_count
           index.matches_for(element, pseudo_element).each do |match|
@@ -111,6 +112,11 @@ module Dommy
             end
           end
           return if pseudo_element
+
+          UAStylesheet.element_declarations(element).each_with_index do |(name, value, specificity), position|
+            rank = precedence(:ua, false, specificity, 0, position, layer_count, nil)
+            yield name, value, rank, :ua
+          end
 
           # The style attribute is unlayered (the implicit final layer, index
           # layer_count) and unscoped (nil proximity).

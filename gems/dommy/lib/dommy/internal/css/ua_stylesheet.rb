@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "parser"
+require_relative "../directionality"
 
 module Dommy
   module Internal
@@ -11,7 +12,9 @@ module Dommy
       # small — anything an author sheet usually overrides anyway is omitted.
       #
       # Selectors must stay within what both DOM backends can match
-      # (so no case-insensitive attribute flags, no state pseudo-classes).
+      # (so no case-insensitive attribute flags, no state pseudo-classes). The
+      # few rules that need more are evaluated per element instead, by
+      # #element_declarations.
       module UAStylesheet
         # The elements the stylesheet below makes block-level. The fallback for
         # code that asks "is this block-level?" when no CSS layer is available
@@ -57,6 +60,31 @@ module Dommy
 
         def rules
           @rules ||= Parser.parse(TEXT).freeze
+        end
+
+        # The UA rules the sheet above cannot carry because they need `:dir()`,
+        # as the [property, value, specificity] declarations they give the
+        # element:
+        #
+        #   [dir]:dir(ltr), bdi:dir(ltr), input[type=tel i]:dir(ltr) { direction: ltr }
+        #   [dir]:dir(rtl), bdi:dir(rtl) { direction: rtl }
+        #
+        # An element none of them selects gets no declaration, so its
+        # `direction` inherits like any other inherited property.
+        def element_declarations(element)
+          return [] unless element.is_a?(HTMLElement)
+
+          specificities = []
+          specificities << [0, 2, 0] if element.has_attribute?("dir")
+          specificities << [0, 1, 1] if Directionality.named?(element, "bdi")
+          tel = Directionality.tel_input?(element)
+          return [] if specificities.empty? && !tel
+
+          direction = Directionality.direction_of(element)
+          specificities << [0, 2, 1] if tel && direction == "ltr"
+          return [] if specificities.empty?
+
+          [["direction", direction, specificities.max]]
         end
       end
     end
