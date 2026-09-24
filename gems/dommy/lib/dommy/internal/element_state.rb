@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "directionality"
+
 module Dommy
   module Internal
     # What the state pseudo-classes ask an element: is it disabled, does it
@@ -206,24 +208,13 @@ module Dommy
         %w[a area].include?(element.local_name.to_s.downcase) && element.has_attribute?("href")
       end
 
-      # `:dir()` from the nearest dir attribute (ltr/rtl; auto and absent
-      # fall back to the document default ltr — no computed-direction or
-      # content heuristics).
+      # `:dir()` — the element's computed directionality, from the `dir`
+      # attribute (including the auto heuristic) or inheritance.
       def dir_match?(element, argument)
         expected = Array(argument).first.to_s.downcase
         return false unless %w[ltr rtl].include?(expected)
 
-        actual = "ltr"
-        node = element
-        while node
-          value = node.get_attribute("dir").to_s.downcase if node.respond_to?(:get_attribute)
-          if %w[ltr rtl].include?(value)
-            actual = value
-            break
-          end
-          node = node.parent_element
-        end
-        actual == expected
+        Directionality.direction_of(element) == expected
       end
 
       # Everything above is the module; everything below is how.

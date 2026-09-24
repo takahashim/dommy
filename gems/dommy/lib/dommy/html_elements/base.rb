@@ -12,6 +12,9 @@ module Dommy
     # `lang` reflects its own content attribute ("" when absent) — not the
     # inherited language the element computes for matching.
     reflect_string :lang
+    # `dir` reflects its own content attribute ("" when absent); the computed
+    # directionality it implies is Internal::Directionality.
+    reflect_string :dir
 
     # HTML's form owner. A `form` content attribute names a form BY ID IN THIS
     # ELEMENT'S OWN TREE — the association never reaches out of a shadow tree,

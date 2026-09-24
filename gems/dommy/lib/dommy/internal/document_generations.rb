@@ -64,7 +64,8 @@ module Dommy
         flipped = text && (old_value.to_s.empty? != target_node.content.to_s.empty?)
         __internal_bump_dom_generation__ if flipped
         if __internal_inside_style_element__(target_node) ||
-           (flipped && __internal_style_text_sensitive__)
+           (flipped && __internal_style_text_sensitive__) ||
+           __internal_direction_sensitive_ancestor__(target_node)
           __internal_bump_style_generation__
         end
         nil
@@ -78,7 +79,9 @@ module Dommy
       # follows only when a sheet actually uses one of those pseudo-classes.
       def __internal_note_value_change__
         __internal_bump_dom_generation__
-        __internal_bump_style_generation__ if __internal_style_value_sensitive__
+        if __internal_style_value_sensitive__ || __internal_direction_sensitive__
+          __internal_bump_style_generation__
+        end
         nil
       end
 
@@ -94,9 +97,42 @@ module Dommy
         index ? index.value_sensitive? : true
       end
 
+      # Whether any element's direction depends on text or a control value —
+      # dir=auto, or a <bdi> (whose default is auto). Then a text or value
+      # change can move a computed `direction`, so the style epoch moves too.
+      # Memoized per tree generation (only a childList change adds or removes
+      # such an element).
+      def __internal_direction_sensitive__
+        @__direction_sensitive ||= {}
+        key = tree_generation
+        return @__direction_sensitive[key] if @__direction_sensitive.key?(key)
+
+        @__direction_sensitive[key] = @backend_doc.css("[dir], bdi").any? do |node|
+          node.name.to_s.casecmp?("bdi") || node["dir"].to_s.strip.casecmp?("auto")
+        end
+      end
+
+      # Whether `node` sits in a subtree whose direction depends on text —
+      # a dir=auto or <bdi> ancestor (or itself). Unlike the document-wide
+      # check, this sees a detached subtree, whose text edits still change
+      # `:dir()` / `getComputedStyle().direction`.
+      def __internal_direction_sensitive_ancestor__(node)
+        current = node
+        while current
+          if current.respond_to?(:name)
+            return true if current.name.to_s.casecmp?("bdi") || current["dir"].to_s.strip.casecmp?("auto")
+          end
+          current = current.respond_to?(:parent) ? current.parent : nil
+        end
+        false
+      end
+
       def __internal_style_affected_by_attribute__(name, target_node)
         owner = target_node.respond_to?(:name) ? target_node.name.to_s.downcase : nil
         return true if owner == "style" || owner == "link"
+        # The `dir` attribute drives the computed `direction` (Directionality)
+        # as well as `:dir()`, neither of which is a plain attribute selector.
+        return true if name.to_s.casecmp?("dir")
 
         index = @__css_style_cache__&.index
         # No RuleIndex yet: the bump is nearly free (at most it drops the

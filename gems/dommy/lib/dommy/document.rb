@@ -633,6 +633,18 @@ module Dommy
       read_title
     end
 
+    # `document.dir` reflects the document element's `dir` content attribute,
+    # limited to the known values: an explicit ltr / rtl / auto reads back
+    # lowercased, anything else (including an absent attribute) as "".
+    def dir
+      value = document_element&.get_attribute("dir").to_s.strip.downcase
+      %w[ltr rtl auto].include?(value) ? value : ""
+    end
+
+    def dir=(value)
+      document_element&.set_attribute("dir", value.to_s)
+    end
+
     def title=(value)
       write_title(value.to_s)
     end
@@ -1684,6 +1696,8 @@ module Dommy
         document_element
       when "title"
         read_title
+      when "dir"
+        dir
       when "cookie"
         cookie
       when "nodeType"
@@ -1712,8 +1726,6 @@ module Dommy
         @default_view&.__js_get__("location")
       when "characterSet", "charset", "inputEncoding"
         character_encoding
-      when "dir"
-        document_element&.get_attribute("dir") || ""
       when "designMode"
         @design_mode || "off"
       when "lastModified"
@@ -1845,7 +1857,7 @@ module Dommy
       when "cookie"
         self.cookie = value.to_s
       when "dir"
-        document_element&.set_attribute("dir", value.to_s)
+        self.dir = value
       when "designMode"
         # Enumerated: only "on"/"off" (case-insensitive), else ignored.
         v = value.to_s.downcase
