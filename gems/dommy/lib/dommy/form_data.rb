@@ -150,8 +150,14 @@ module Dommy
     private
 
     # Collect submittable name/value pairs from a form element.
-    # Per spec, the submitter (clicked button) is included only when
-    # the user passes it explicitly; we don't model that here.
+    #
+    # A submit button is NOT one of them: HTML's "constructing the entry list"
+    # includes only the submitter, which this does not model, so a named
+    # <button> contributes nothing — including one associated with the form from
+    # outside it by a `form` attribute. That used to happen by accident, because
+    # HTMLButtonElement had no Ruby `value` method for `respond_to?` to find;
+    # it is a rule now, so declaring `value` as the reflection it is cannot
+    # quietly put every button in the entry list.
     def collect_from(form)
       form.elements.each do |el|
         next unless el.respond_to?(:name)
@@ -165,7 +171,7 @@ module Dommy
           collect_input(el, name)
         when "select"
           collect_select(el, name)
-        when "textarea", "button", "output"
+        when "textarea", "output"
           @pairs << [name, el.value.to_s] if el.respond_to?(:value)
         end
       end

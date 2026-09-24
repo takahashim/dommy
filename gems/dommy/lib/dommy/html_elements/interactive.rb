@@ -328,6 +328,10 @@ module Dommy
   # template_content storage so existing template handling stays
   # consistent.
   class HTMLTemplateElement < HTMLElement
+    # Declarative shadow DOM's `for` attribute, reflected as a plain string
+    # (unrelated to the DOMTokenList `output.htmlFor` is).
+    reflect_string html_for: { attr: "for", js: "htmlFor" }
+
     def content
       @document.template_content_fragment(self)
     end

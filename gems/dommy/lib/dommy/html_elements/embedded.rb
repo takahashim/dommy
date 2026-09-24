@@ -6,23 +6,10 @@ module Dommy
   # One of the HTML element groups; html_elements.rb lists them all.
   class HTMLIFrameElement < HTMLElement
     reflect_url :src
-    reflect_string :srcdoc, :name, :sandbox, :allow, :loading, referrer_policy: "referrerpolicy"
+    reflect_token_list :sandbox
+    reflect_string :srcdoc, :name, :allow, :loading, referrer_policy: "referrerpolicy"
     reflect_boolean allow_fullscreen: "allowfullscreen"
-    def width
-      @__node__["width"].to_s
-    end
-
-    def width=(v)
-      set_reflected_string("width", v.to_s)
-    end
-
-    def height
-      @__node__["height"].to_s
-    end
-
-    def height=(v)
-      set_reflected_string("height", v.to_s)
-    end
+    reflect_string :width, :height
 
     # The nested browsing context's document. An integration/test layer may
     # inject one via `__internal_set_content_document__` (e.g. the `src`
@@ -94,11 +81,6 @@ module Dommy
         content_document
       when "contentWindow"
         content_window
-      when "sandbox"
-        # JS-side `iframe.sandbox` is a DOMTokenList (the Ruby `#sandbox` string
-        # accessor from reflect_string is kept for internal use). Non-iframe
-        # frame elements get undefined via the element/namespace check.
-        reflected_token_list("sandbox", "sandbox")
       else
         super
       end
@@ -119,21 +101,7 @@ module Dommy
   class HTMLObjectElement < HTMLElement
     reflect_url :data
     reflect_string :type, :name, use_map: "usemap"
-    def width
-      @__node__["width"].to_s
-    end
-
-    def width=(v)
-      set_reflected_string("width", v.to_s)
-    end
-
-    def height
-      @__node__["height"].to_s
-    end
-
-    def height=(v)
-      set_reflected_string("height", v.to_s)
-    end
+    reflect_string :width, :height
 
     def content_document
       nil
@@ -193,11 +161,6 @@ module Dommy
         will_validate
       when "validationMessage"
         validation_message
-      when "sandbox"
-        # JS-side `iframe.sandbox` is a DOMTokenList (the Ruby `#sandbox` string
-        # accessor from reflect_string is kept for internal use). Non-iframe
-        # frame elements get undefined via the element/namespace check.
-        reflected_token_list("sandbox", "sandbox")
       else
         super
       end
@@ -232,21 +195,7 @@ module Dommy
   class HTMLEmbedElement < HTMLElement
     reflect_url :src
     reflect_string :type
-    def width
-      @__node__["width"].to_s
-    end
-
-    def width=(v)
-      set_reflected_string("width", v.to_s)
-    end
-
-    def height
-      @__node__["height"].to_s
-    end
-
-    def height=(v)
-      set_reflected_string("height", v.to_s)
-    end
+    reflect_string :width, :height
 
     js_accessor :width, :height
 

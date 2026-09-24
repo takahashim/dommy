@@ -14,7 +14,7 @@ module Dommy
     def form_action = submission_url("formaction")
     reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value",
                    form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
-    reflect_boolean :autofocus, :disabled, :required, :readonly, default_checked: "checked",
+    reflect_boolean :autofocus, :disabled, :required, :multiple, read_only: "readonly", default_checked: "checked",
                     form_no_validate: "formnovalidate"
     # Own __js_call__ methods, on top of Element's.
     def type
@@ -344,8 +344,7 @@ module Dommy
       value_as_number: "valueAsNumber",
       selection_start: "selectionStart", selection_end: "selectionEnd",
       selection_direction: "selectionDirection",
-      max_length: "maxLength", min_length: "minLength",
-      readonly: %w[readonly readOnly]
+      max_length: "maxLength", min_length: "minLength"
     js_readable :labels, :form, :validity, :files, :list,
       will_validate: "willValidate", validation_message: "validationMessage"
 

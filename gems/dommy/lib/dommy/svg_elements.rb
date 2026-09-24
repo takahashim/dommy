@@ -157,6 +157,7 @@ module Dommy
   # `<a>` (in the SVG namespace) — a hyperlink wrapping SVG content.
   # Distinct from `HTMLAnchorElement` (the HTML `<a>`).
   class SVGAElement < SVGElement
+    reflect_token_list rel_list: { attr: "rel", js: "relList" }
     reflect_string :href, :target, :download, :rel, :type
   end
 

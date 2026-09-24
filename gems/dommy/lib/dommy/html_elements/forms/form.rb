@@ -12,6 +12,7 @@ module Dommy
   # validation surface.
   class HTMLFormElement < HTMLElement
     include SubmissionUrlAttribute
+    reflect_token_list rel_list: { attr: "rel", js: "relList" }
     reflect_setter :action
     def action = submission_url("action")
     reflect_string :name, :enctype, :target, :autocomplete, method_attr: { attr: "method", js: "method" }, accept_charset: "accept-charset"
@@ -288,7 +289,7 @@ module Dommy
   # `<button>` — type defaults to "submit" per spec.
   class HTMLButtonElement < HTMLElement
     include SubmitButtonActivation
-    reflect_string :name, form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+    reflect_string :name, :value, form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
     reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
     include SubmissionUrlAttribute
     reflect_setter form_action: "formaction"
@@ -413,6 +414,7 @@ module Dommy
   # `<textarea>` — multi-line text input.
   class HTMLTextAreaElement < HTMLElement
     include Internal::TextSelection
+    reflect_boolean :disabled, :required, read_only: "readonly"
     reflect_string :name, :placeholder, :wrap, :autocomplete
     # Own __js_call__ methods, on top of Element's.
 
@@ -753,6 +755,7 @@ module Dommy
   # `<output>` — calculation result element.
   class HTMLOutputElement < HTMLElement
     reflect_string :name
+    reflect_token_list html_for: { attr: "for", js: "htmlFor" }
 
     # `value` is always the descendant text content. `defaultValue` tracks a
     # separate "default value override": while the value mode flag is "default"
@@ -846,9 +849,6 @@ module Dommy
         will_validate
       when "validationMessage"
         validation_message
-      when "htmlFor"
-        # `output.htmlFor` is a DOMTokenList (unlike `label.htmlFor`, a string).
-        reflected_token_list("htmlFor", "for")
       else
         super
       end

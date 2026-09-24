@@ -9,6 +9,9 @@ module Dommy
   # SVGElement).
   class HTMLElement < Element
     include Internal::ReflectedAttributes
+    # `lang` reflects its own content attribute ("" when absent) — not the
+    # inherited language the element computes for matching.
+    reflect_string :lang
 
     # HTML's form owner. A `form` content attribute names a form BY ID IN THIS
     # ELEMENT'S OWN TREE — the association never reaches out of a shadow tree,
@@ -259,6 +262,7 @@ module Dommy
   class HTMLAnchorElement < HTMLElement
     include HyperlinkActivation
     include HyperlinkUtils
+    reflect_token_list rel_list: { attr: "rel", js: "relList" }
     reflect_string :target, :download, :rel, :hreflang, :type
 
     # `a.text` is an alias for the element's descendant text content.
@@ -285,6 +289,7 @@ module Dommy
   class HTMLAreaElement < HTMLElement
     include HyperlinkActivation
     include HyperlinkUtils
+    reflect_token_list rel_list: { attr: "rel", js: "relList" }
     reflect_string :alt, :coords, :shape, :target, :rel
   end
 end

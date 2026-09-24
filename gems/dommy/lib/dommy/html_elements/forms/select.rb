@@ -9,7 +9,7 @@ module Dommy
   # happy-dom's full HTMLSelectElement, but covers common test cases.
   class HTMLSelectElement < HTMLElement
     reflect_string :name
-    reflect_boolean :multiple
+    reflect_boolean :multiple, :disabled, :required
     reflect_ulong size: { default: 0 }
     # Own __js_call__ methods, on top of Element's.
 
@@ -321,7 +321,7 @@ module Dommy
 
   # `<option>` — value, label, selected, disabled, text, index, form.
   class HTMLOptionElement < HTMLElement
-    reflect_boolean :disabled
+    reflect_boolean :disabled, default_selected: "selected"
     def value
       # `value`/`label` reflect the NO-namespace content attribute (a same-named
       # attribute in another namespace, via setAttributeNS, does not count);

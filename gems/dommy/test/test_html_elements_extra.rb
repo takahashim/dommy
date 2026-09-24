@@ -218,8 +218,11 @@ class TestHTMLIFrameElement < Minitest::Test
 
   def test_iframe_sandbox
     f = @doc.create_element("iframe")
+    # [PutForwards=value]: the assignment reaches the list's value, and the
+    # property itself stays the DOMTokenList.
     f.sandbox = "allow-scripts"
-    assert_equal("allow-scripts", f.sandbox)
+    assert_equal("allow-scripts", f.sandbox.value)
+    assert_equal(["allow-scripts"], f.sandbox.to_a)
   end
 
   def test_iframe_allow_fullscreen

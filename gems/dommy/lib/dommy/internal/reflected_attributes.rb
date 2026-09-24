@@ -57,6 +57,7 @@ module Dommy
         url: %i[reflected_url set_reflected_string],
         long: %i[reflected_long set_reflected_long],
         ulong: %i[reflected_ulong set_reflected_ulong],
+        token_list: %i[reflected_token_list set_reflected_token_list],
         boolean: %i[reflected_boolean set_reflected_boolean],
         setter_only: [nil, :set_reflected_string],
       }.freeze
@@ -75,6 +76,12 @@ module Dommy
         # serialization.
         def reflect_url(*names, **mapped)
           _reflect(:url, names, mapped)
+        end
+
+        # A [SameObject] DOMTokenList over a space-separated attribute
+        # (`a.relList`, `iframe.sandbox`). Read-only: the list mutates itself.
+        def reflect_token_list(*names, **mapped)
+          _reflect(:token_list, names, mapped)
         end
 
         # A `long` attribute. `default:` is [ReflectDefault] and `non_negative:`
@@ -217,9 +224,11 @@ module Dommy
           (names.map { |n| [n, nil] } + mapped.to_a).each do |ruby_name, override|
             attr, js, options = _resolve_identifiers(ruby_name, override)
             define_method(ruby_name) { __send__(getter, attr, options) } if getter
-            define_method(:"#{ruby_name}=") { |value| __send__(setter, attr, value, options) }
+            if setter
+              define_method(:"#{ruby_name}=") { |value| __send__(setter, attr, value, options) }
+              @__writable_props__[js] = ruby_name
+            end
             @__reflected_props__[js] = ruby_name
-            @__writable_props__[js] = ruby_name
             @__reflect_specs__[js] = { type: type, attr: attr }
           end
         end
@@ -386,6 +395,21 @@ module Dommy
       def to_webidl_number(value)
         number = Float(value, exception: false) || 0.0
         number.finite? ? number.truncate : 0
+      end
+
+      # A [SameObject] DOMTokenList over `name`, memoized so `el.relList` is the
+      # same object every time — which is what lets a page keep a reference to it
+      # and watch the attribute through it.
+      def reflected_token_list(name, _options = nil)
+        (@reflected_token_lists ||= {})[name] ||= ClassList.new(self, name)
+      end
+
+      # WebIDL [PutForwards=value]: a token-list attribute is readonly, but
+      # assigning to it assigns to the list's `value`, which rewrites the whole
+      # content attribute — so `iframe.sandbox = "allow-scripts"` works, and
+      # `iframe.sandbox` is still the same DOMTokenList afterwards.
+      def set_reflected_token_list(name, value, _options = nil)
+        reflected_token_list(name).value = value
       end
 
       def reflected_boolean(name, _options = nil)

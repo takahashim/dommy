@@ -51,7 +51,7 @@ module Dommy
         else
           host_attr_present?("disabled")
         end
-      readonly = @host.respond_to?(:readonly) ? @host.readonly : host_attr_present?("readonly")
+      readonly = @host.respond_to?(:read_only) ? @host.read_only : host_attr_present?("readonly")
       disabled || readonly
     end
 

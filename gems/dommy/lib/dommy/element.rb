@@ -188,28 +188,6 @@ module Dommy
     # Local names for which a reflected DOMTokenList IDL attribute is defined,
     # per namespace; elsewhere the attribute does not exist (→ undefined). `rel`
     # is reflected on the `a` of all three namespaces that define one.
-    REFLECTED_TOKEN_LIST_HOSTS = {
-      "relList" => {
-        Internal::Namespaces::HTML => %w[a area link],
-        Internal::Namespaces::SVG => %w[a],
-        Internal::Namespaces::MATHML => %w[a]
-      },
-      "htmlFor" => {Internal::Namespaces::HTML => %w[output]},
-      "sandbox" => {Internal::Namespaces::HTML => %w[iframe]},
-      "sizes" => {Internal::Namespaces::HTML => %w[link]}
-    }.freeze
-
-    # A reflected DOMTokenList for `prop` backed by content attribute
-    # `attribute`, cached for identity (`el.relList === el.relList`). Returns the
-    # UNDEFINED sentinel (→ JS `undefined`) when the attribute is not defined on
-    # this element in its namespace.
-    def reflected_token_list(prop, attribute)
-      hosts = REFLECTED_TOKEN_LIST_HOSTS[prop][namespace_uri]
-      return Bridge::UNDEFINED unless hosts&.include?(local_name)
-
-      (@reflected_token_lists ||= {})[prop] ||= ClassList.new(self, attribute)
-    end
-
     def style
       @style
     end
@@ -967,13 +945,16 @@ module Dommy
       when "classList"
         @class_list
       when "relList"
-        reflected_token_list("relList", "rel")
-      when "htmlFor"
-        reflected_token_list("htmlFor", "for")
-      when "sandbox"
-        reflected_token_list("sandbox", "sandbox")
-      when "sizes"
-        reflected_token_list("sizes", "sizes")
+        # Every interface HTML and SVG give relList to declares it with
+        # reflect_token_list, so this arm is reached only for the one element
+        # neither of them covers: <a> in the MathML namespace, which WPT's
+        # dom/lists/DOMTokenList-coverage-for-attributes asserts has one. MathML
+        # Core defines no <a> for it to belong to and Chromium answers undefined
+        # (recorded in dommy-conformance's known-divergences), but a WPT
+        # assertion outranks a browser here.
+        return Bridge::ABSENT unless namespace_uri == Internal::Namespaces::MATHML && local_name == "a"
+
+        (@reflected_token_lists ||= {})["rel"] ||= ClassList.new(self, "rel")
       when "style"
         @style
       when "dataset"
@@ -986,22 +967,20 @@ module Dommy
         @__node__["class"].to_s
       when "id"
         @__node__["id"].to_s
-      when "lang"
-        # The `lang` IDL attribute reflects the `lang` content attribute (own
-        # value, "" when absent) — not the inherited/computed language.
-        @__node__["lang"].to_s
       when "translate"
         # `translate` is a boolean reflecting the element's translation mode,
         # which inherits: translate="yes"/"" → true, "no" → false, else the
         # nearest ancestor's mode; the root defaults to translate (true).
         translate_mode?
-      when "hidden", "disabled", "checked", "readOnly", "multiple", "required"
-        # Boolean reflected properties — true iff the matching HTML
-        # attribute is present. Real DOM normalizes attribute names to
-        # lowercase, mapped here too (e.g. `readOnly` ↔ `readonly`).
+      when "hidden", "checked"
+        # The two boolean-ish properties that are NOT reflections, and so are
+        # not declared with reflect_boolean on the interfaces that have them:
+        # `hidden` is a union type on every HTML element, and `checked` is the
+        # element's checkedness rather than the `checked` attribute (which
+        # `defaultChecked` reflects).
         return Bridge::ABSENT unless boolean_idl_attribute?(key)
 
-        @__node__.key?(reflected_attr_name(key))
+        @__node__.key?(key)
       when "value"
         # For form elements `value` is a property that defaults to the
         # `value` attribute. We don't model the property/attribute
@@ -1163,24 +1142,15 @@ module Dommy
       nil
     end
 
-    # Map a JS boolean property name to its underlying HTML attribute.
-    # HTML attribute names are lowercase; the DOM property may be
-    # camelCase (`readOnly` → `readonly`).
-    def reflected_attr_name(key)
-      {"readOnly" => "readonly"}.fetch(key, key)
-    end
-
-    # The HTML elements each boolean IDL attribute is actually defined on.
-    # `hidden` is global (it lives on HTMLElement), the rest belong to specific
-    # interfaces — a `select` that answered `readOnly` would be claiming an IDL
-    # attribute HTML never gave it, and feature detection (`"readOnly" in ctl`)
-    # reads that as a text control.
+    # Which HTML elements these two are defined on. `hidden` is global (it lives
+    # on HTMLElement); `checked` belongs to input alone, and an element that
+    # answered it would be claiming an IDL attribute HTML never gave it — which
+    # feature detection reads as a checkbox. The reflected booleans used to need
+    # a table like this because they were answered here rather than by the
+    # interfaces that declare them; they are reflect_boolean declarations now,
+    # and the interface a declaration sits on IS the answer.
     BOOLEAN_IDL_OWNERS = {
-      "checked" => %w[input].freeze,
-      "readOnly" => %w[input textarea].freeze,
-      "multiple" => %w[input select].freeze,
-      "required" => %w[input select textarea].freeze,
-      "disabled" => %w[button fieldset input link optgroup option select style textarea].freeze
+      "checked" => %w[input].freeze
     }.freeze
 
     def boolean_idl_attribute?(key)
@@ -1217,14 +1187,15 @@ module Dommy
       when "outerHTML"
         # [CEReactions, LegacyNullToEmptyString] DOMString — null becomes "".
         self.outer_html = value.nil? ? "" : value.to_s
-      when "hidden", "disabled", "checked", "readOnly", "multiple", "required"
-        # Boolean reflected property — funnel through set_attribute /
-        # remove_attribute so MutationObserver attribute records fire. On an
-        # element the IDL attribute does not belong to, the assignment is an
-        # ordinary JS expando and must not touch the content attribute.
+      when "hidden", "checked"
+        # See the getter: the two that are not reflections. Funnel through
+        # set_attribute / remove_attribute so MutationObserver attribute records
+        # fire. On an element the IDL attribute does not belong to, the
+        # assignment is an ordinary JS expando and must not touch the content
+        # attribute.
         return Bridge::UNHANDLED unless boolean_idl_attribute?(key)
 
-        name = reflected_attr_name(key)
+        name = key
         if value
           set_attribute(name, "")
         elsif @__node__.key?(name)
@@ -1237,8 +1208,6 @@ module Dommy
         # Handling it here stops the bridge from stashing a string expando that
         # would shadow the CSSStyleDeclaration getter.
         @style.css_text = value.nil? ? "" : value.to_s
-      when "lang"
-        set_attribute("lang", value.to_s)
       when "translate"
         # The setter is a plain boolean → "yes" / "no".
         set_attribute("translate", value ? "yes" : "no")

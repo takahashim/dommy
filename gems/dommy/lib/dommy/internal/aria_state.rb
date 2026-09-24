@@ -122,7 +122,7 @@ module Dommy
       end
 
       def readonly_state(element)
-        true if (element.respond_to?(:readonly) && element.readonly) || aria_true?(element, "aria-readonly")
+        true if (element.respond_to?(:read_only) && element.read_only) || aria_true?(element, "aria-readonly")
       end
 
       def required_state(element)

@@ -7,7 +7,8 @@ module Dommy
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
     reflect_url :src
-    reflect_string :type, :integrity, :nonce, referrer_policy: "referrerpolicy"
+    reflect_string :type, :integrity, :nonce, referrer_policy: "referrerpolicy",
+                   html_for: { attr: "for", js: "htmlFor" }
     reflect_boolean :async, :defer, no_module: "nomodule"
     # `text` is an alias for textContent on <script>.
     def text
@@ -113,8 +114,10 @@ module Dommy
 
   # `<link>` — primarily for stylesheets, icons, preload, manifests.
   class HTMLLinkElement < HTMLElement
+    reflect_boolean :disabled
     reflect_url :href
-    reflect_string :rel, :type, :media, :sizes, :hreflang, :integrity, as_attr: { attr: "as", js: "as" }, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
+    reflect_token_list :sizes, rel_list: { attr: "rel", js: "relList" }
+    reflect_string :rel, :type, :media, :hreflang, :integrity, as_attr: { attr: "as", js: "as" }, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
     # `link.sheet` — non-nil only when this link is a stylesheet
     # (`rel` contains "stylesheet"). Dommy fetches nothing itself, so the
     # sheet starts empty; a host environment supplies the CSS via
@@ -150,9 +153,6 @@ module Dommy
       case key
       when "sheet"
         sheet
-      when "sizes"
-        # `link.sizes` is a DOMTokenList (`img`/`source` `sizes` stay strings).
-        reflected_token_list("sizes", "sizes")
       else
         super
       end

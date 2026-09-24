@@ -85,22 +85,31 @@ class TestClassList < Minitest::Test
     assert_equal("a b", @el.class_name)
   end
 
-  # relList is reflected on the `a` of the HTML, SVG and MathML namespaces, and
-  # on `area` and `link` in HTML alone; everywhere else the property is absent.
+  # An element's INTERFACE decides what it reflects, not its local name: HTML
+  # gives relList to a / area / link / form, and SVG gives it to its own <a>.
+  # Everywhere else the property is genuinely absent — `"relList" in td` is
+  # false, not "present and undefined".
+  #
+  # MathML is the one contested case, and the one element no interface covers:
+  # WPT's DOMTokenList-coverage-for-attributes asserts that `<a>` in the MathML
+  # namespace has a DOMTokenList relList, while Chromium answers undefined and
+  # MathML Core defines no `<a>` for it to belong to. Dommy follows WPT — a
+  # browser is an oracle, not the specification — and the divergence is recorded
+  # in dommy-conformance (cases/attributes/token-list-hosts.js).
   def test_rel_list_hosts
     doc = @win.document
     {
-      Dommy::Internal::Namespaces::HTML => %w[a area link],
+      Dommy::Internal::Namespaces::HTML => %w[a area link form],
       Dommy::Internal::Namespaces::SVG => %w[a],
       Dommy::Internal::Namespaces::MATHML => %w[a],
       "http://example.com/" => []
     }.each do |ns, with_list|
-      %w[a area link td].each do |name|
+      %w[a area link form td].each do |name|
         rel_list = doc.create_element_ns(ns, name).__js_get__("relList")
         if with_list.include?(name)
           assert_instance_of(Dommy::ClassList, rel_list, "#{name} in #{ns}")
         else
-          assert_same(Dommy::Bridge::UNDEFINED, rel_list, "#{name} in #{ns}")
+          assert_same(Dommy::Bridge::ABSENT, rel_list, "#{name} in #{ns}")
         end
       end
     end
