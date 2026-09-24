@@ -227,6 +227,141 @@ module WebIdlAudit
     klass.reflected_property_map.key?(js_name) || JsSurface.js_properties(klass).include?(js_name)
   end
 
+  # --- the JS half's own tables against the IDL -----------------------------
+  # webidl_tables.js carries three tables the IDL could have told it: which
+  # operations return undefined (so a host's "nothing" crosses as undefined
+  # rather than null), how many arguments each operation requires (its `length`),
+  # and which interfaces are legacy platform objects with indices, names, or an
+  # `iterable<>`. Each is compared with what the specs declare.
+
+  TABLES_PATH = File.expand_path("../../lib/dommy/js/webidl_tables.js", __dir__)
+
+  def tables_source
+    @tables_source ||= File.read(TABLES_PATH)
+  end
+
+  def js_name_set(constant)
+    body = tables_source[/const #{constant} = new Set\(\[(.*?)\]\);/m, 1]
+    raise "#{constant} is missing from webidl_tables.js" unless body
+
+    body.scan(/"([^"]+)"/).flatten.to_set
+  end
+
+  # Operation name -> the interfaces that declare it, and of those, the ones
+  # whose return type is `undefined`. An operation only belongs in a table keyed
+  # by NAME when every interface agrees.
+  def operation_returns
+    @operation_returns ||= begin
+      index = Hash.new { |h, k| h[k] = {declared: [], void: []} }
+      data["interfaces"].each do |interface, record|
+        record["members"].each do |member|
+          next unless member["kind"] == "operation" && member["name"] && !member["static"]
+
+          index[member["name"]][:declared] << interface
+          index[member["name"]][:void] << interface if member["returns"] == "undefined"
+        end
+      end
+      index
+    end
+  end
+
+  # Where the JS half's VOID_METHODS disagrees with the IDL, per interface. The
+  # table is keyed by operation NAME, so it can only be right for a name every
+  # interface agrees on; a name whose return type differs between interfaces
+  # (`replace` is undefined on Location, a boolean on DOMTokenList, a Promise on
+  # CSSStyleSheet) needs the per-interface table beside it.
+  #
+  # Listed here means the bridge turns a null answer into undefined; absent
+  # means it does not, and the Ruby method has to remember to return the
+  # UNDEFINED sentinel itself for the page to see one.
+  def void_gaps
+    listed = js_name_set("VOID_METHODS")
+    per_interface = js_interface_name_sets("INTERFACE_VOID_METHODS")
+    gaps = {}
+    each_implemented_operation do |interface, member|
+      name = member["name"]
+      void = member["returns"] == "undefined"
+      guaranteed = (per_interface[interface] || Set.new).include?(name) || listed.include?(name)
+      next if void == guaranteed
+
+      gaps["#{interface}.#{name}"] =
+        void ? "returns undefined, which the bridge does not guarantee" : "returns #{member['returns']}, but a null answer becomes undefined"
+    end
+    gaps.sort.to_h
+  end
+
+  # `{ Interface: ["a", "b"] }` tables in the JS half.
+  def js_interface_name_sets(constant)
+    body = tables_source[/const #{constant} = \{(.*?)\n  \};/m, 1].to_s
+    body.scan(/(\w+):\s*\[([^\]]*)\]/).to_h do |interface, names|
+      [interface, names.scan(/"([^"]+)"/).flatten.to_set]
+    end
+  end
+
+  # The WebIDL `length` of each operation Dommy answers, against the table the
+  # JS half stamps onto its stubs.
+  def arity_gaps
+    per_name = js_table("METHOD_ARITY")
+    per_interface = js_interface_arity
+    gaps = {}
+    each_implemented_operation do |interface, member|
+      name = member["name"]
+      declared = (per_interface[interface] || {})[name] || per_name[name]
+      next if declared.nil? || declared == member["required"]
+
+      gaps["#{interface}.#{name}"] = "length #{declared} (IDL requires #{member['required']})"
+    end
+    gaps.sort.to_h
+  end
+
+  def js_table(constant)
+    body = tables_source[/const #{constant} = \{(.*?)\n  \};/m, 1] or raise "#{constant} missing"
+    body.scan(/(\w+):\s*(\d+)/).to_h { |name, value| [name, value.to_i] }
+  end
+
+  def js_interface_arity
+    body = tables_source[/const INTERFACE_METHOD_ARITY = \{(.*?)\n  \};/m, 1].to_s
+    body.scan(/(\w+):\s*\{([^}]*)\}/).to_h do |interface, members|
+      [interface, members.scan(/(\w+):\s*(\d+)/).to_h { |name, value| [name, value.to_i] }]
+    end
+  end
+
+  # Every operation an interface declares that Dommy answers.
+  def each_implemented_operation
+    data["interfaces"].each do |interface, record|
+      klass = ruby_class_for(interface)
+      next unless klass
+
+      operations = JsSurface.js_operations(klass)
+      record["members"].each do |member|
+        next unless member["kind"] == "operation" && member["name"] && !member["static"]
+        next unless operations.include?(member["name"])
+
+        yield interface, member
+      end
+    end
+  end
+
+  # An interface is iterable with keys()/values()/entries()/forEach() only when
+  # its IDL declares `iterable<>`; an indexed getter alone gives it @@iterator
+  # and nothing more. The JS half decides this from two hand-written sets.
+  def iteration_gaps
+    array_like = js_name_set("ARRAY_LIKE_COLLECTIONS")
+    indexed_only = js_name_set("INDEXED_ONLY_ITERABLE")
+    gaps = {}
+    array_like.each do |interface|
+      record = data["interfaces"][interface]
+      next unless record # not in the specs Dommy models (RadioNodeList inherits)
+
+      iterable = record["members"].any? { |m| m["kind"] == "iterable" }
+      listed = indexed_only.include?(interface)
+      next if iterable == !listed
+
+      gaps[interface] = iterable ? "declares iterable<> but is listed as indexed-only" : "has no iterable<> but is given the pair methods"
+    end
+    gaps.sort.to_h
+  end
+
   # --- webidl_tables.js [Constant] tables ----------------------------------
   # The tables live in the JS half's spec-surface file (the host runtime places
   # them on the interface object and its prototype). Reading them back is a
@@ -278,7 +413,10 @@ module WebIdlAudit
     {
       "missing_interfaces" => missing_interfaces,
       "missing_members" => member_gaps.sort.to_h,
-      "reflect_gaps" => reflect_gaps
+      "reflect_gaps" => reflect_gaps,
+      "void_gaps" => void_gaps,
+      "arity_gaps" => arity_gaps,
+      "iteration_gaps" => iteration_gaps
     }
   end
 

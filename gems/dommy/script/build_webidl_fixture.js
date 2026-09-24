@@ -110,6 +110,13 @@ function literal(rhs) {
   return rhs.type === "decimal" ? parseFloat(raw) : parseInt(raw, 10);
 }
 
+// Whether a special operation is the INDEXED one (its argument is an unsigned
+// long) rather than the named one.
+function indexedSpecial(m) {
+  const arg = m.arguments && m.arguments[0];
+  return !!arg && arg.idlType && arg.idlType.idlType === "unsigned long";
+}
+
 function memberRecord(m) {
   switch (m.type) {
     case "const":
@@ -124,14 +131,39 @@ function memberRecord(m) {
         reflect: reflectRecord(m)
       };
     case "operation":
-      if (!m.name) return null; // stringifier / getter / setter / deleter with no name
+      // A getter / setter / deleter / stringifier with no name is not a member
+      // a script can call, but it IS what makes an interface a legacy platform
+      // object — whether its indices or its named properties are reachable, and
+      // whether they can be written. Recorded as its own kind.
+      if (!m.name) {
+        return m.special
+          ? { kind: "special", special: m.special, indexed: indexedSpecial(m) }
+          : null;
+      }
       return {
         kind: "operation",
         name: m.name,
         static: m.special === "static",
+        // A getter / setter / deleter can be a NAMED operation too
+        // (`getter Element? item(unsigned long)`), and it is still what makes
+        // the interface's indices or named properties reachable.
+        special: m.special && m.special !== "static" ? m.special : null,
+        indexed: m.special && m.special !== "static" ? indexedSpecial(m) : null,
+        // The WebIDL return type, which is what says whether an operation
+        // answers with a value at all: an `undefined` one must reach a script as
+        // undefined rather than as the null a host's "nothing" would cross as.
+        returns: idlTypeName(m.idlType),
         required: requiredCount(m.arguments),
         total: (m.arguments || []).length
       };
+    // `iterable<>` / `maplike<>` / `setlike<>`: the declarations that give an
+    // interface its iteration surface (@@iterator alone for a value iterator,
+    // plus keys/values/entries/forEach for a pair one), rather than an
+    // implementation deciding to hand out array methods.
+    case "iterable":
+    case "maplike":
+    case "setlike":
+      return { kind: m.type, pair: (m.idlType || []).length >= 2 };
     case "constructor":
       return { kind: "constructor", required: requiredCount(m.arguments), total: (m.arguments || []).length };
     case "iterable":

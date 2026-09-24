@@ -194,6 +194,25 @@ if JsSurface.available?
       end
     end
 
+    # The three tables the JS half keeps about operations and collections, each
+    # against what the specs' IDL declares: which operations return nothing,
+    # what each one's `length` is, and which interfaces have an `iterable<>`
+    # rather than only an indexed getter.
+    {
+      "void_gaps" => "which operations answer with undefined",
+      "arity_gaps" => "the WebIDL length of an operation",
+      "iteration_gaps" => "which collections are iterable<>"
+    }.each do |inventory, subject|
+      define_method(:"test_#{inventory}_match_the_recorded_inventory") do
+        recorded = WebIdlAudit.recorded_gaps[inventory]
+        current = WebIdlAudit.public_send(inventory)
+        (recorded.keys | current.keys).sort.each do |member|
+          assert_equal recorded[member], current[member],
+            "#{member}: #{subject} changed; re-record with RECORD_WEBIDL_GAPS=1"
+        end
+      end
+    end
+
     def test_missing_members_match_the_recorded_inventory
       recorded = WebIdlAudit.recorded_gaps["missing_members"]
       current = WebIdlAudit.member_gaps

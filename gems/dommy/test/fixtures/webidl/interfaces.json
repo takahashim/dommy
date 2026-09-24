@@ -41,6 +41,9 @@
      "kind": "operation",
      "name": "abort",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     }
@@ -84,6 +87,9 @@
      "kind": "operation",
      "name": "abort",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "AbortSignal",
      "required": 0,
      "total": 1
     },
@@ -91,6 +97,9 @@
      "kind": "operation",
      "name": "any",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "AbortSignal",
      "required": 1,
      "total": 1
     },
@@ -98,6 +107,9 @@
      "kind": "operation",
      "name": "throwIfAborted",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -105,6 +117,9 @@
      "kind": "operation",
      "name": "timeout",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "AbortSignal",
      "required": 1,
      "total": 1
     }
@@ -328,8 +343,16 @@
      "kind": "operation",
      "name": "getTrackById",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "AudioTrack?",
      "required": 1,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": true
     }
    ]
   },
@@ -409,6 +432,9 @@
      "kind": "operation",
      "name": "arrayBuffer",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<ArrayBuffer>",
      "required": 0,
      "total": 0
     },
@@ -416,6 +442,9 @@
      "kind": "operation",
      "name": "bytes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<Uint8Array>",
      "required": 0,
      "total": 0
     },
@@ -423,6 +452,9 @@
      "kind": "operation",
      "name": "slice",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Blob",
      "required": 0,
      "total": 3
     },
@@ -430,6 +462,9 @@
      "kind": "operation",
      "name": "stream",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ReadableStream",
      "required": 0,
      "total": 0
     },
@@ -437,6 +472,9 @@
      "kind": "operation",
      "name": "text",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<USVString>",
      "required": 0,
      "total": 0
     },
@@ -444,6 +482,9 @@
      "kind": "operation",
      "name": "textStream",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ReadableStream",
      "required": 0,
      "total": 0
     }
@@ -493,6 +534,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -500,6 +544,9 @@
      "kind": "operation",
      "name": "postMessage",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -538,6 +585,9 @@
      "kind": "operation",
      "name": "deleteRule",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -545,6 +595,9 @@
      "kind": "operation",
      "name": "insertRule",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "unsigned long",
      "required": 1,
      "total": 2
     }
@@ -916,6 +969,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "CSSRule?",
      "required": 1,
      "total": 1
     }
@@ -959,6 +1015,9 @@
      "kind": "operation",
      "name": "getPropertyPriority",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CSSOMString",
      "required": 1,
      "total": 1
     },
@@ -966,6 +1025,9 @@
      "kind": "operation",
      "name": "getPropertyValue",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CSSOMString",
      "required": 1,
      "total": 1
     },
@@ -973,6 +1035,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "CSSOMString",
      "required": 1,
      "total": 1
     },
@@ -980,6 +1045,9 @@
      "kind": "operation",
      "name": "removeProperty",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CSSOMString",
      "required": 1,
      "total": 1
     },
@@ -987,6 +1055,9 @@
      "kind": "operation",
      "name": "setProperty",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     }
@@ -1083,6 +1154,9 @@
      "kind": "operation",
      "name": "addRule",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "long",
      "required": 0,
      "total": 3
     },
@@ -1090,6 +1164,9 @@
      "kind": "operation",
      "name": "deleteRule",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -1097,6 +1174,9 @@
      "kind": "operation",
      "name": "insertRule",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "unsigned long",
      "required": 1,
      "total": 2
     },
@@ -1104,6 +1184,9 @@
      "kind": "operation",
      "name": "removeRule",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -1111,6 +1194,9 @@
      "kind": "operation",
      "name": "replace",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<CSSStyleSheet>",
      "required": 1,
      "total": 1
     },
@@ -1118,6 +1204,9 @@
      "kind": "operation",
      "name": "replaceSync",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -1138,6 +1227,9 @@
      "kind": "operation",
      "name": "addColorStop",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     }
@@ -1158,6 +1250,9 @@
      "kind": "operation",
      "name": "setTransform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     }
@@ -1428,6 +1523,9 @@
      "kind": "operation",
      "name": "arc",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 5,
      "total": 6,
      "mixin": "CanvasPath"
@@ -1436,6 +1534,9 @@
      "kind": "operation",
      "name": "arcTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 5,
      "total": 5,
      "mixin": "CanvasPath"
@@ -1444,6 +1545,9 @@
      "kind": "operation",
      "name": "beginPath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasDrawPath"
@@ -1452,6 +1556,9 @@
      "kind": "operation",
      "name": "bezierCurveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 6,
      "total": 6,
      "mixin": "CanvasPath"
@@ -1460,6 +1567,9 @@
      "kind": "operation",
      "name": "clearRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasRect"
@@ -1468,6 +1578,9 @@
      "kind": "operation",
      "name": "clip",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "CanvasDrawPath"
@@ -1476,6 +1589,9 @@
      "kind": "operation",
      "name": "closePath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasPath"
@@ -1484,6 +1600,9 @@
      "kind": "operation",
      "name": "createConicGradient",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasGradient",
      "required": 3,
      "total": 3,
      "mixin": "CanvasFillStrokeStyles"
@@ -1492,6 +1611,9 @@
      "kind": "operation",
      "name": "createImageData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ImageData",
      "required": 2,
      "total": 3,
      "mixin": "CanvasImageData"
@@ -1500,6 +1622,9 @@
      "kind": "operation",
      "name": "createLinearGradient",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasGradient",
      "required": 4,
      "total": 4,
      "mixin": "CanvasFillStrokeStyles"
@@ -1508,6 +1633,9 @@
      "kind": "operation",
      "name": "createPattern",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasPattern?",
      "required": 2,
      "total": 2,
      "mixin": "CanvasFillStrokeStyles"
@@ -1516,6 +1644,9 @@
      "kind": "operation",
      "name": "createRadialGradient",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasGradient",
      "required": 6,
      "total": 6,
      "mixin": "CanvasFillStrokeStyles"
@@ -1524,6 +1655,9 @@
      "kind": "operation",
      "name": "drawFocusIfNeeded",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "CanvasUserInterface"
@@ -1532,6 +1666,9 @@
      "kind": "operation",
      "name": "drawImage",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 3,
      "mixin": "CanvasDrawImage"
@@ -1540,6 +1677,9 @@
      "kind": "operation",
      "name": "ellipse",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 7,
      "total": 8,
      "mixin": "CanvasPath"
@@ -1548,6 +1688,9 @@
      "kind": "operation",
      "name": "fill",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "CanvasDrawPath"
@@ -1556,6 +1699,9 @@
      "kind": "operation",
      "name": "fillRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasRect"
@@ -1564,6 +1710,9 @@
      "kind": "operation",
      "name": "fillText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 4,
      "mixin": "CanvasText"
@@ -1572,6 +1721,9 @@
      "kind": "operation",
      "name": "getContextAttributes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasRenderingContext2DSettings",
      "required": 0,
      "total": 0,
      "mixin": "CanvasSettings"
@@ -1580,6 +1732,9 @@
      "kind": "operation",
      "name": "getImageData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ImageData",
      "required": 4,
      "total": 5,
      "mixin": "CanvasImageData"
@@ -1588,6 +1743,9 @@
      "kind": "operation",
      "name": "getLineDash",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<unrestricted double>",
      "required": 0,
      "total": 0,
      "mixin": "CanvasPathDrawingStyles"
@@ -1596,6 +1754,9 @@
      "kind": "operation",
      "name": "getTransform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMMatrix",
      "required": 0,
      "total": 0,
      "mixin": "CanvasTransform"
@@ -1604,6 +1765,9 @@
      "kind": "operation",
      "name": "isContextLost",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0,
      "mixin": "CanvasState"
@@ -1612,6 +1776,9 @@
      "kind": "operation",
      "name": "isPointInPath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 2,
      "total": 3,
      "mixin": "CanvasDrawPath"
@@ -1620,6 +1787,9 @@
      "kind": "operation",
      "name": "isPointInStroke",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 2,
      "total": 2,
      "mixin": "CanvasDrawPath"
@@ -1628,6 +1798,9 @@
      "kind": "operation",
      "name": "lineTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasPath"
@@ -1636,6 +1809,9 @@
      "kind": "operation",
      "name": "measureText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "TextMetrics",
      "required": 1,
      "total": 1,
      "mixin": "CanvasText"
@@ -1644,6 +1820,9 @@
      "kind": "operation",
      "name": "moveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasPath"
@@ -1652,6 +1831,9 @@
      "kind": "operation",
      "name": "putImageData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 3,
      "mixin": "CanvasImageData"
@@ -1660,6 +1842,9 @@
      "kind": "operation",
      "name": "quadraticCurveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasPath"
@@ -1668,6 +1853,9 @@
      "kind": "operation",
      "name": "rect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasPath"
@@ -1676,6 +1864,9 @@
      "kind": "operation",
      "name": "reset",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasState"
@@ -1684,6 +1875,9 @@
      "kind": "operation",
      "name": "resetTransform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasTransform"
@@ -1692,6 +1886,9 @@
      "kind": "operation",
      "name": "restore",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasState"
@@ -1700,6 +1897,9 @@
      "kind": "operation",
      "name": "rotate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "CanvasTransform"
@@ -1708,6 +1908,9 @@
      "kind": "operation",
      "name": "roundRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 5,
      "mixin": "CanvasPath"
@@ -1716,6 +1919,9 @@
      "kind": "operation",
      "name": "save",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasState"
@@ -1724,6 +1930,9 @@
      "kind": "operation",
      "name": "scale",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasTransform"
@@ -1732,6 +1941,9 @@
      "kind": "operation",
      "name": "setLineDash",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "CanvasPathDrawingStyles"
@@ -1740,6 +1952,9 @@
      "kind": "operation",
      "name": "setTransform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 6,
      "total": 6,
      "mixin": "CanvasTransform"
@@ -1748,6 +1963,9 @@
      "kind": "operation",
      "name": "stroke",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasDrawPath"
@@ -1756,6 +1974,9 @@
      "kind": "operation",
      "name": "strokeRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasRect"
@@ -1764,6 +1985,9 @@
      "kind": "operation",
      "name": "strokeText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 4,
      "mixin": "CanvasText"
@@ -1772,6 +1996,9 @@
      "kind": "operation",
      "name": "transform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 6,
      "total": 6,
      "mixin": "CanvasTransform"
@@ -1780,6 +2007,9 @@
      "kind": "operation",
      "name": "translate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasTransform"
@@ -1834,6 +2064,9 @@
      "kind": "operation",
      "name": "after",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -1842,6 +2075,9 @@
      "kind": "operation",
      "name": "appendData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -1849,6 +2085,9 @@
      "kind": "operation",
      "name": "before",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -1857,6 +2096,9 @@
      "kind": "operation",
      "name": "deleteData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -1864,6 +2106,9 @@
      "kind": "operation",
      "name": "insertData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -1871,6 +2116,9 @@
      "kind": "operation",
      "name": "remove",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "ChildNode"
@@ -1879,6 +2127,9 @@
      "kind": "operation",
      "name": "replaceData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 3
     },
@@ -1886,6 +2137,9 @@
      "kind": "operation",
      "name": "replaceWith",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -1894,6 +2148,9 @@
      "kind": "operation",
      "name": "substringData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 2,
      "total": 2
     }
@@ -1934,6 +2191,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -1941,6 +2201,9 @@
      "kind": "operation",
      "name": "destroy",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -1948,6 +2211,9 @@
      "kind": "operation",
      "name": "requestClose",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -2030,6 +2296,9 @@
      "kind": "operation",
      "name": "initCompositionEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 5
     }
@@ -2054,6 +2323,9 @@
      "kind": "operation",
      "name": "define",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     },
@@ -2061,6 +2333,9 @@
      "kind": "operation",
      "name": "get",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CustomElementConstructor or undefined",
      "required": 1,
      "total": 1
     },
@@ -2068,6 +2343,9 @@
      "kind": "operation",
      "name": "getName",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     },
@@ -2075,6 +2353,9 @@
      "kind": "operation",
      "name": "initialize",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -2082,6 +2363,9 @@
      "kind": "operation",
      "name": "upgrade",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -2089,6 +2373,9 @@
      "kind": "operation",
      "name": "whenDefined",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<CustomElementConstructor>",
      "required": 1,
      "total": 1
     }
@@ -2121,6 +2408,9 @@
      "kind": "operation",
      "name": "initCustomEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 4
     }
@@ -2137,7 +2427,8 @@
    "global": false,
    "members": [
     {
-     "kind": "setlike"
+     "kind": "setlike",
+     "pair": false
     }
    ]
   },
@@ -2155,6 +2446,9 @@
      "kind": "operation",
      "name": "createDocument",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "XMLDocument",
      "required": 2,
      "total": 3
     },
@@ -2162,6 +2456,9 @@
      "kind": "operation",
      "name": "createDocumentType",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DocumentType",
      "required": 3,
      "total": 3
     },
@@ -2169,6 +2466,9 @@
      "kind": "operation",
      "name": "createHTMLDocument",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Document",
      "required": 0,
      "total": 1
     },
@@ -2176,6 +2476,9 @@
      "kind": "operation",
      "name": "hasFeature",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     }
@@ -2200,6 +2503,9 @@
      "kind": "operation",
      "name": "parseFromString",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Document",
      "required": 2,
      "total": 2
     }
@@ -2228,6 +2534,9 @@
      "kind": "operation",
      "name": "contains",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -2235,6 +2544,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     }
@@ -2249,7 +2561,13 @@
    "callback": false,
    "legacy_no_interface_object": false,
    "global": false,
-   "members": []
+   "members": [
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": false
+    }
+   ]
   },
   "DOMTokenList": {
    "spec": "dom",
@@ -2278,12 +2596,16 @@
      "reflect": null
     },
     {
-     "kind": "iterable"
+     "kind": "iterable",
+     "pair": false
     },
     {
      "kind": "operation",
      "name": "add",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -2291,6 +2613,9 @@
      "kind": "operation",
      "name": "contains",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -2298,6 +2623,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     },
@@ -2305,6 +2633,9 @@
      "kind": "operation",
      "name": "remove",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -2312,6 +2643,9 @@
      "kind": "operation",
      "name": "replace",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 2,
      "total": 2
     },
@@ -2319,6 +2653,9 @@
      "kind": "operation",
      "name": "supports",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -2326,6 +2663,9 @@
      "kind": "operation",
      "name": "toggle",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 2
     }
@@ -2390,6 +2730,9 @@
      "kind": "operation",
      "name": "clearData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -2397,6 +2740,9 @@
      "kind": "operation",
      "name": "getData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 1
     },
@@ -2404,6 +2750,9 @@
      "kind": "operation",
      "name": "setData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -2411,6 +2760,9 @@
      "kind": "operation",
      "name": "setDragImage",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 3
     }
@@ -2446,6 +2798,9 @@
      "kind": "operation",
      "name": "getAsFile",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "File?",
      "required": 0,
      "total": 0
     },
@@ -2453,6 +2808,9 @@
      "kind": "operation",
      "name": "getAsString",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -2480,6 +2838,9 @@
      "kind": "operation",
      "name": "add",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DataTransferItem?",
      "required": 2,
      "total": 2
     },
@@ -2487,6 +2848,9 @@
      "kind": "operation",
      "name": "clear",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -2494,8 +2858,16 @@
      "kind": "operation",
      "name": "remove",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": true
     }
    ]
   },
@@ -2539,6 +2911,9 @@
      "kind": "operation",
      "name": "cancelAnimationFrame",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "AnimationFrameProvider"
@@ -2547,6 +2922,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -2554,6 +2932,9 @@
      "kind": "operation",
      "name": "postMessage",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -2561,6 +2942,9 @@
      "kind": "operation",
      "name": "requestAnimationFrame",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "unsigned long",
      "required": 1,
      "total": 1,
      "mixin": "AnimationFrameProvider"
@@ -3670,6 +4054,9 @@
      "kind": "operation",
      "name": "adoptNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 1,
      "total": 1
     },
@@ -3677,6 +4064,9 @@
      "kind": "operation",
      "name": "append",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -3685,6 +4075,9 @@
      "kind": "operation",
      "name": "ariaNotify",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2,
      "mixin": "ARIANotifyMixin"
@@ -3693,6 +4086,9 @@
      "kind": "operation",
      "name": "captureEvents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -3700,6 +4096,9 @@
      "kind": "operation",
      "name": "clear",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -3707,6 +4106,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -3714,6 +4116,9 @@
      "kind": "operation",
      "name": "createAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr",
      "required": 1,
      "total": 1
     },
@@ -3721,6 +4126,9 @@
      "kind": "operation",
      "name": "createAttributeNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr",
      "required": 2,
      "total": 2
     },
@@ -3728,6 +4136,9 @@
      "kind": "operation",
      "name": "createCDATASection",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CDATASection",
      "required": 1,
      "total": 1
     },
@@ -3735,6 +4146,9 @@
      "kind": "operation",
      "name": "createComment",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Comment",
      "required": 1,
      "total": 1
     },
@@ -3742,6 +4156,9 @@
      "kind": "operation",
      "name": "createDocumentFragment",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DocumentFragment",
      "required": 0,
      "total": 0
     },
@@ -3749,6 +4166,9 @@
      "kind": "operation",
      "name": "createElement",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element",
      "required": 1,
      "total": 2
     },
@@ -3756,6 +4176,9 @@
      "kind": "operation",
      "name": "createElementNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element",
      "required": 2,
      "total": 3
     },
@@ -3763,6 +4186,9 @@
      "kind": "operation",
      "name": "createEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Event",
      "required": 1,
      "total": 1
     },
@@ -3770,6 +4196,9 @@
      "kind": "operation",
      "name": "createExpression",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "XPathExpression",
      "required": 1,
      "total": 2,
      "mixin": "XPathEvaluatorBase"
@@ -3778,6 +4207,9 @@
      "kind": "operation",
      "name": "createNodeIterator",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NodeIterator",
      "required": 1,
      "total": 3
     },
@@ -3785,6 +4217,9 @@
      "kind": "operation",
      "name": "createNSResolver",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 1,
      "total": 1,
      "mixin": "XPathEvaluatorBase"
@@ -3793,6 +4228,9 @@
      "kind": "operation",
      "name": "createProcessingInstruction",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ProcessingInstruction",
      "required": 2,
      "total": 2
     },
@@ -3800,6 +4238,9 @@
      "kind": "operation",
      "name": "createRange",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Range",
      "required": 0,
      "total": 0
     },
@@ -3807,6 +4248,9 @@
      "kind": "operation",
      "name": "createTextNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Text",
      "required": 1,
      "total": 1
     },
@@ -3814,6 +4258,9 @@
      "kind": "operation",
      "name": "createTreeWalker",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "TreeWalker",
      "required": 1,
      "total": 3
     },
@@ -3821,6 +4268,9 @@
      "kind": "operation",
      "name": "evaluate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "XPathResult",
      "required": 2,
      "total": 5,
      "mixin": "XPathEvaluatorBase"
@@ -3829,6 +4279,9 @@
      "kind": "operation",
      "name": "execCommand",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 3
     },
@@ -3836,6 +4289,9 @@
      "kind": "operation",
      "name": "getElementById",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element?",
      "required": 1,
      "total": 1,
      "mixin": "NonElementParentNode"
@@ -3844,6 +4300,9 @@
      "kind": "operation",
      "name": "getElementsByClassName",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLCollection",
      "required": 1,
      "total": 1
     },
@@ -3851,6 +4310,9 @@
      "kind": "operation",
      "name": "getElementsByName",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NodeList",
      "required": 1,
      "total": 1
     },
@@ -3858,6 +4320,9 @@
      "kind": "operation",
      "name": "getElementsByTagName",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLCollection",
      "required": 1,
      "total": 1
     },
@@ -3865,6 +4330,9 @@
      "kind": "operation",
      "name": "getElementsByTagNameNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLCollection",
      "required": 2,
      "total": 2
     },
@@ -3872,6 +4340,9 @@
      "kind": "operation",
      "name": "hasFocus",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -3879,6 +4350,9 @@
      "kind": "operation",
      "name": "importNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 1,
      "total": 2
     },
@@ -3886,6 +4360,9 @@
      "kind": "operation",
      "name": "moveBefore",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "ParentNode"
@@ -3894,6 +4371,9 @@
      "kind": "operation",
      "name": "open",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Document",
      "required": 0,
      "total": 2
     },
@@ -3901,6 +4381,9 @@
      "kind": "operation",
      "name": "parseHTML",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "Document",
      "required": 1,
      "total": 2
     },
@@ -3908,6 +4391,9 @@
      "kind": "operation",
      "name": "parseHTMLUnsafe",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "Document",
      "required": 1,
      "total": 2
     },
@@ -3915,6 +4401,9 @@
      "kind": "operation",
      "name": "prepend",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -3923,6 +4412,9 @@
      "kind": "operation",
      "name": "queryCommandEnabled",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -3930,6 +4422,9 @@
      "kind": "operation",
      "name": "queryCommandIndeterm",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -3937,6 +4432,9 @@
      "kind": "operation",
      "name": "queryCommandState",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -3944,6 +4442,9 @@
      "kind": "operation",
      "name": "queryCommandSupported",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -3951,6 +4452,9 @@
      "kind": "operation",
      "name": "queryCommandValue",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 1
     },
@@ -3958,6 +4462,9 @@
      "kind": "operation",
      "name": "querySelector",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element?",
      "required": 1,
      "total": 1,
      "mixin": "ParentNode"
@@ -3966,6 +4473,9 @@
      "kind": "operation",
      "name": "querySelectorAll",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NodeList",
      "required": 1,
      "total": 1,
      "mixin": "ParentNode"
@@ -3974,6 +4484,9 @@
      "kind": "operation",
      "name": "releaseEvents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -3981,6 +4494,9 @@
      "kind": "operation",
      "name": "replaceChildren",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -3989,6 +4505,9 @@
      "kind": "operation",
      "name": "write",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -3996,8 +4515,16 @@
      "kind": "operation",
      "name": "writeln",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": false
     }
    ]
   },
@@ -4056,6 +4583,9 @@
      "kind": "operation",
      "name": "append",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -4064,6 +4594,9 @@
      "kind": "operation",
      "name": "getElementById",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element?",
      "required": 1,
      "total": 1,
      "mixin": "NonElementParentNode"
@@ -4072,6 +4605,9 @@
      "kind": "operation",
      "name": "moveBefore",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "ParentNode"
@@ -4080,6 +4616,9 @@
      "kind": "operation",
      "name": "prepend",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -4088,6 +4627,9 @@
      "kind": "operation",
      "name": "querySelector",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element?",
      "required": 1,
      "total": 1,
      "mixin": "ParentNode"
@@ -4096,6 +4638,9 @@
      "kind": "operation",
      "name": "querySelectorAll",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NodeList",
      "required": 1,
      "total": 1,
      "mixin": "ParentNode"
@@ -4104,6 +4649,9 @@
      "kind": "operation",
      "name": "replaceChildren",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -4148,6 +4696,9 @@
      "kind": "operation",
      "name": "after",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -4156,6 +4707,9 @@
      "kind": "operation",
      "name": "before",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -4164,6 +4718,9 @@
      "kind": "operation",
      "name": "remove",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "ChildNode"
@@ -4172,6 +4729,9 @@
      "kind": "operation",
      "name": "replaceWith",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -5007,6 +5567,9 @@
      "kind": "operation",
      "name": "after",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -5015,6 +5578,9 @@
      "kind": "operation",
      "name": "append",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -5023,6 +5589,9 @@
      "kind": "operation",
      "name": "ariaNotify",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2,
      "mixin": "ARIANotifyMixin"
@@ -5031,6 +5600,9 @@
      "kind": "operation",
      "name": "attachShadow",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ShadowRoot",
      "required": 1,
      "total": 1
     },
@@ -5038,6 +5610,9 @@
      "kind": "operation",
      "name": "before",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -5046,6 +5621,9 @@
      "kind": "operation",
      "name": "closest",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element?",
      "required": 1,
      "total": 1
     },
@@ -5053,6 +5631,9 @@
      "kind": "operation",
      "name": "getAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     },
@@ -5060,6 +5641,9 @@
      "kind": "operation",
      "name": "getAttributeNames",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<DOMString>",
      "required": 0,
      "total": 0
     },
@@ -5067,6 +5651,9 @@
      "kind": "operation",
      "name": "getAttributeNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr?",
      "required": 1,
      "total": 1
     },
@@ -5074,6 +5661,9 @@
      "kind": "operation",
      "name": "getAttributeNodeNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr?",
      "required": 2,
      "total": 2
     },
@@ -5081,6 +5671,9 @@
      "kind": "operation",
      "name": "getAttributeNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 2,
      "total": 2
     },
@@ -5088,6 +5681,9 @@
      "kind": "operation",
      "name": "getElementsByClassName",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLCollection",
      "required": 1,
      "total": 1
     },
@@ -5095,6 +5691,9 @@
      "kind": "operation",
      "name": "getElementsByTagName",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLCollection",
      "required": 1,
      "total": 1
     },
@@ -5102,6 +5701,9 @@
      "kind": "operation",
      "name": "getElementsByTagNameNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLCollection",
      "required": 2,
      "total": 2
     },
@@ -5109,6 +5711,9 @@
      "kind": "operation",
      "name": "getHTML",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 0,
      "total": 1
     },
@@ -5116,6 +5721,9 @@
      "kind": "operation",
      "name": "hasAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -5123,6 +5731,9 @@
      "kind": "operation",
      "name": "hasAttributeNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 2,
      "total": 2
     },
@@ -5130,6 +5741,9 @@
      "kind": "operation",
      "name": "hasAttributes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -5137,6 +5751,9 @@
      "kind": "operation",
      "name": "insertAdjacentElement",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element?",
      "required": 2,
      "total": 2
     },
@@ -5144,6 +5761,9 @@
      "kind": "operation",
      "name": "insertAdjacentHTML",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -5151,6 +5771,9 @@
      "kind": "operation",
      "name": "insertAdjacentText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -5158,6 +5781,9 @@
      "kind": "operation",
      "name": "matches",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -5165,6 +5791,9 @@
      "kind": "operation",
      "name": "moveBefore",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "ParentNode"
@@ -5173,6 +5802,9 @@
      "kind": "operation",
      "name": "prepend",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -5181,6 +5813,9 @@
      "kind": "operation",
      "name": "querySelector",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Element?",
      "required": 1,
      "total": 1,
      "mixin": "ParentNode"
@@ -5189,6 +5824,9 @@
      "kind": "operation",
      "name": "querySelectorAll",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NodeList",
      "required": 1,
      "total": 1,
      "mixin": "ParentNode"
@@ -5197,6 +5835,9 @@
      "kind": "operation",
      "name": "remove",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "ChildNode"
@@ -5205,6 +5846,9 @@
      "kind": "operation",
      "name": "removeAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -5212,6 +5856,9 @@
      "kind": "operation",
      "name": "removeAttributeNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr",
      "required": 1,
      "total": 1
     },
@@ -5219,6 +5866,9 @@
      "kind": "operation",
      "name": "removeAttributeNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -5226,6 +5876,9 @@
      "kind": "operation",
      "name": "replaceChildren",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ParentNode"
@@ -5234,6 +5887,9 @@
      "kind": "operation",
      "name": "replaceWith",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "ChildNode"
@@ -5242,6 +5898,9 @@
      "kind": "operation",
      "name": "setAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -5249,6 +5908,9 @@
      "kind": "operation",
      "name": "setAttributeNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr?",
      "required": 1,
      "total": 1
     },
@@ -5256,6 +5918,9 @@
      "kind": "operation",
      "name": "setAttributeNodeNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr?",
      "required": 1,
      "total": 1
     },
@@ -5263,6 +5928,9 @@
      "kind": "operation",
      "name": "setAttributeNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 3
     },
@@ -5270,6 +5938,9 @@
      "kind": "operation",
      "name": "setHTML",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -5277,6 +5948,9 @@
      "kind": "operation",
      "name": "setHTMLUnsafe",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -5284,6 +5958,9 @@
      "kind": "operation",
      "name": "toggleAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 2
     },
@@ -5291,6 +5968,9 @@
      "kind": "operation",
      "name": "webkitMatchesSelector",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     }
@@ -5989,6 +6669,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -5996,6 +6679,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -6003,6 +6689,9 @@
      "kind": "operation",
      "name": "setFormValue",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -6010,6 +6699,9 @@
      "kind": "operation",
      "name": "setValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 3
     }
@@ -6215,6 +6907,9 @@
      "kind": "operation",
      "name": "composedPath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<EventTarget>",
      "required": 0,
      "total": 0
     },
@@ -6222,6 +6917,9 @@
      "kind": "operation",
      "name": "initEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 3
     },
@@ -6229,6 +6927,9 @@
      "kind": "operation",
      "name": "preventDefault",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -6236,6 +6937,9 @@
      "kind": "operation",
      "name": "stopImmediatePropagation",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -6243,6 +6947,9 @@
      "kind": "operation",
      "name": "stopPropagation",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -6260,6 +6967,9 @@
      "kind": "operation",
      "name": "handleEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -6348,6 +7058,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -6372,6 +7085,9 @@
      "kind": "operation",
      "name": "addEventListener",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     },
@@ -6379,6 +7095,9 @@
      "kind": "operation",
      "name": "dispatchEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -6386,6 +7105,9 @@
      "kind": "operation",
      "name": "removeEventListener",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     }
@@ -6405,6 +7127,9 @@
      "kind": "operation",
      "name": "AddSearchProvider",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -6412,6 +7137,9 @@
      "kind": "operation",
      "name": "IsSearchProviderInstalled",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -6494,6 +7222,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "File?",
      "required": 1,
      "total": 1
     }
@@ -6606,6 +7337,9 @@
      "kind": "operation",
      "name": "abort",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -6613,6 +7347,9 @@
      "kind": "operation",
      "name": "readAsArrayBuffer",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -6620,6 +7357,9 @@
      "kind": "operation",
      "name": "readAsBinaryString",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -6627,6 +7367,9 @@
      "kind": "operation",
      "name": "readAsDataURL",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -6634,6 +7377,9 @@
      "kind": "operation",
      "name": "readAsText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     }
@@ -6659,6 +7405,9 @@
      "kind": "operation",
      "name": "readAsArrayBuffer",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ArrayBuffer",
      "required": 1,
      "total": 1
     },
@@ -6666,6 +7415,9 @@
      "kind": "operation",
      "name": "readAsBinaryString",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 1
     },
@@ -6673,6 +7425,9 @@
      "kind": "operation",
      "name": "readAsDataURL",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 1
     },
@@ -6680,6 +7435,9 @@
      "kind": "operation",
      "name": "readAsText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 2
     }
@@ -6727,12 +7485,16 @@
      "total": 2
     },
     {
-     "kind": "iterable"
+     "kind": "iterable",
+     "pair": true
     },
     {
      "kind": "operation",
      "name": "append",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -6740,6 +7502,9 @@
      "kind": "operation",
      "name": "delete",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -6747,6 +7512,9 @@
      "kind": "operation",
      "name": "get",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "FormDataEntryValue?",
      "required": 1,
      "total": 1
     },
@@ -6754,6 +7522,9 @@
      "kind": "operation",
      "name": "getAll",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<FormDataEntryValue>",
      "required": 1,
      "total": 1
     },
@@ -6761,6 +7532,9 @@
      "kind": "operation",
      "name": "has",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -6768,6 +7542,9 @@
      "kind": "operation",
      "name": "set",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     }
@@ -6820,6 +7597,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLCollection or Element?",
      "required": 0,
      "total": 1
     },
@@ -6827,8 +7607,16 @@
      "kind": "operation",
      "name": "namedItem",
      "static": false,
+     "special": "getter",
+     "indexed": false,
+     "returns": "HTMLCollection or Element?",
      "required": 1,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": true
     }
    ]
   },
@@ -7837,6 +8625,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -7844,6 +8635,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -7851,6 +8645,9 @@
      "kind": "operation",
      "name": "setCustomValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -7891,6 +8688,9 @@
      "kind": "operation",
      "name": "getContext",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "RenderingContext?",
      "required": 1,
      "total": 2
     },
@@ -7898,6 +8698,9 @@
      "kind": "operation",
      "name": "toBlob",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 3
     },
@@ -7905,6 +8708,9 @@
      "kind": "operation",
      "name": "toDataURL",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "USVString",
      "required": 0,
      "total": 2
     },
@@ -7912,6 +8718,9 @@
      "kind": "operation",
      "name": "transferControlToOffscreen",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "OffscreenCanvas",
      "required": 0,
      "total": 0
     }
@@ -7939,6 +8748,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "Element?",
      "required": 1,
      "total": 1
     },
@@ -7946,6 +8758,9 @@
      "kind": "operation",
      "name": "namedItem",
      "static": false,
+     "special": "getter",
+     "indexed": false,
+     "returns": "Element?",
      "required": 1,
      "total": 1
     }
@@ -8114,6 +8929,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -8121,6 +8939,9 @@
      "kind": "operation",
      "name": "requestClose",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -8128,6 +8949,9 @@
      "kind": "operation",
      "name": "show",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -8135,6 +8959,9 @@
      "kind": "operation",
      "name": "showModal",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -9146,6 +9973,9 @@
      "kind": "operation",
      "name": "attachInternals",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ElementInternals",
      "required": 0,
      "total": 0
     },
@@ -9153,6 +9983,9 @@
      "kind": "operation",
      "name": "blur",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "HTMLOrSVGOrMathMLElement"
@@ -9161,6 +9994,9 @@
      "kind": "operation",
      "name": "click",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -9168,6 +10004,9 @@
      "kind": "operation",
      "name": "focus",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "HTMLOrSVGOrMathMLElement"
@@ -9176,6 +10015,9 @@
      "kind": "operation",
      "name": "hidePopover",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -9183,6 +10025,9 @@
      "kind": "operation",
      "name": "showPopover",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -9190,6 +10035,9 @@
      "kind": "operation",
      "name": "togglePopover",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 1
     }
@@ -9274,6 +10122,9 @@
      "kind": "operation",
      "name": "getSVGDocument",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Document?",
      "required": 0,
      "total": 0
     }
@@ -9366,6 +10217,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -9373,6 +10227,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -9380,6 +10237,9 @@
      "kind": "operation",
      "name": "setCustomValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -9446,6 +10306,9 @@
      "kind": "operation",
      "name": "namedItem",
      "static": false,
+     "special": "getter",
+     "indexed": false,
+     "returns": "RadioNodeList or Element?",
      "required": 1,
      "total": 1
     }
@@ -9590,6 +10453,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -9597,6 +10463,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -9604,6 +10473,9 @@
      "kind": "operation",
      "name": "requestSubmit",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -9611,6 +10483,9 @@
      "kind": "operation",
      "name": "reset",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -9618,8 +10493,16 @@
      "kind": "operation",
      "name": "submit",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": true
     }
    ]
   },
@@ -10262,6 +11145,9 @@
      "kind": "operation",
      "name": "getSVGDocument",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Document?",
      "required": 0,
      "total": 0
     }
@@ -10518,6 +11404,9 @@
      "kind": "operation",
      "name": "decode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
      "required": 0,
      "total": 0
     }
@@ -10993,6 +11882,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -11000,6 +11892,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -11007,6 +11902,9 @@
      "kind": "operation",
      "name": "select",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -11014,6 +11912,9 @@
      "kind": "operation",
      "name": "setCustomValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -11021,6 +11922,9 @@
      "kind": "operation",
      "name": "setRangeText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -11028,6 +11932,9 @@
      "kind": "operation",
      "name": "setSelectionRange",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     },
@@ -11035,6 +11942,9 @@
      "kind": "operation",
      "name": "showPicker",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -11042,6 +11952,9 @@
      "kind": "operation",
      "name": "stepDown",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -11049,6 +11962,9 @@
      "kind": "operation",
      "name": "stepUp",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     }
@@ -11543,6 +12459,9 @@
      "kind": "operation",
      "name": "start",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -11550,6 +12469,9 @@
      "kind": "operation",
      "name": "stop",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -11857,6 +12779,9 @@
      "kind": "operation",
      "name": "addTextTrack",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "TextTrack",
      "required": 1,
      "total": 3
     },
@@ -11864,6 +12789,9 @@
      "kind": "operation",
      "name": "canPlayType",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanPlayTypeResult",
      "required": 1,
      "total": 1
     },
@@ -11871,6 +12799,9 @@
      "kind": "operation",
      "name": "fastSeek",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -11878,6 +12809,9 @@
      "kind": "operation",
      "name": "getStartDate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "object",
      "required": 0,
      "total": 0
     },
@@ -11885,6 +12819,9 @@
      "kind": "operation",
      "name": "load",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -11892,6 +12829,9 @@
      "kind": "operation",
      "name": "pause",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -11899,6 +12839,9 @@
      "kind": "operation",
      "name": "play",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
      "required": 0,
      "total": 0
     }
@@ -12406,6 +13349,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -12413,6 +13359,9 @@
      "kind": "operation",
      "name": "getSVGDocument",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Document?",
      "required": 0,
      "total": 0
     },
@@ -12420,6 +13369,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -12427,6 +13379,9 @@
      "kind": "operation",
      "name": "setCustomValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -12589,6 +13544,9 @@
      "kind": "operation",
      "name": "add",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -12596,8 +13554,16 @@
      "kind": "operation",
      "name": "remove",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "setter",
+     "indexed": true
     }
    ]
   },
@@ -12705,6 +13671,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -12712,6 +13681,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -12719,6 +13691,9 @@
      "kind": "operation",
      "name": "setCustomValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -13080,6 +14055,9 @@
      "kind": "operation",
      "name": "supports",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     }
@@ -13253,6 +14231,9 @@
      "kind": "operation",
      "name": "add",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -13260,6 +14241,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -13267,6 +14251,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "HTMLOptionElement?",
      "required": 1,
      "total": 1
     },
@@ -13274,6 +14261,9 @@
      "kind": "operation",
      "name": "namedItem",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLOptionElement?",
      "required": 1,
      "total": 1
     },
@@ -13281,6 +14271,9 @@
      "kind": "operation",
      "name": "remove",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -13288,6 +14281,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -13295,6 +14291,9 @@
      "kind": "operation",
      "name": "setCustomValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -13302,8 +14301,16 @@
      "kind": "operation",
      "name": "showPicker",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
+    },
+    {
+     "kind": "special",
+     "special": "setter",
+     "indexed": true
     }
    ]
   },
@@ -13353,6 +14360,9 @@
      "kind": "operation",
      "name": "assign",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -13360,6 +14370,9 @@
      "kind": "operation",
      "name": "assignedElements",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<Element>",
      "required": 0,
      "total": 1
     },
@@ -13367,6 +14380,9 @@
      "kind": "operation",
      "name": "assignedNodes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<Node>",
      "required": 0,
      "total": 1
     }
@@ -13975,6 +14991,9 @@
      "kind": "operation",
      "name": "createCaption",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLTableCaptionElement",
      "required": 0,
      "total": 0
     },
@@ -13982,6 +15001,9 @@
      "kind": "operation",
      "name": "createTBody",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLTableSectionElement",
      "required": 0,
      "total": 0
     },
@@ -13989,6 +15011,9 @@
      "kind": "operation",
      "name": "createTFoot",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLTableSectionElement",
      "required": 0,
      "total": 0
     },
@@ -13996,6 +15021,9 @@
      "kind": "operation",
      "name": "createTHead",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLTableSectionElement",
      "required": 0,
      "total": 0
     },
@@ -14003,6 +15031,9 @@
      "kind": "operation",
      "name": "deleteCaption",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -14010,6 +15041,9 @@
      "kind": "operation",
      "name": "deleteRow",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -14017,6 +15051,9 @@
      "kind": "operation",
      "name": "deleteTFoot",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -14024,6 +15061,9 @@
      "kind": "operation",
      "name": "deleteTHead",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -14031,6 +15071,9 @@
      "kind": "operation",
      "name": "insertRow",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLTableRowElement",
      "required": 0,
      "total": 1
     }
@@ -14131,6 +15174,9 @@
      "kind": "operation",
      "name": "deleteCell",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -14138,6 +15184,9 @@
      "kind": "operation",
      "name": "insertCell",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLTableCellElement",
      "required": 0,
      "total": 1
     }
@@ -14212,6 +15261,9 @@
      "kind": "operation",
      "name": "deleteRow",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -14219,6 +15271,9 @@
      "kind": "operation",
      "name": "insertRow",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "HTMLTableRowElement",
      "required": 0,
      "total": 1
     }
@@ -14543,6 +15598,9 @@
      "kind": "operation",
      "name": "checkValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -14550,6 +15608,9 @@
      "kind": "operation",
      "name": "reportValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -14557,6 +15618,9 @@
      "kind": "operation",
      "name": "select",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -14564,6 +15628,9 @@
      "kind": "operation",
      "name": "setCustomValidity",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -14571,6 +15638,9 @@
      "kind": "operation",
      "name": "setRangeText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -14578,6 +15648,9 @@
      "kind": "operation",
      "name": "setSelectionRange",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     }
@@ -14907,12 +15980,16 @@
      "total": 1
     },
     {
-     "kind": "iterable"
+     "kind": "iterable",
+     "pair": true
     },
     {
      "kind": "operation",
      "name": "append",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -14920,6 +15997,9 @@
      "kind": "operation",
      "name": "delete",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -14927,6 +16007,9 @@
      "kind": "operation",
      "name": "get",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ByteString?",
      "required": 1,
      "total": 1
     },
@@ -14934,6 +16017,9 @@
      "kind": "operation",
      "name": "getSetCookie",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<ByteString>",
      "required": 0,
      "total": 0
     },
@@ -14941,6 +16027,9 @@
      "kind": "operation",
      "name": "has",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -14948,6 +16037,9 @@
      "kind": "operation",
      "name": "set",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     }
@@ -14991,6 +16083,9 @@
      "kind": "operation",
      "name": "back",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -14998,6 +16093,9 @@
      "kind": "operation",
      "name": "forward",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -15005,6 +16103,9 @@
      "kind": "operation",
      "name": "go",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -15012,6 +16113,9 @@
      "kind": "operation",
      "name": "pushState",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     },
@@ -15019,6 +16123,9 @@
      "kind": "operation",
      "name": "replaceState",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     }
@@ -15055,6 +16162,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -15083,6 +16193,9 @@
      "kind": "operation",
      "name": "transferFromImageBitmap",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -15314,6 +16427,9 @@
      "kind": "operation",
      "name": "getModifierState",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -15321,6 +16437,9 @@
      "kind": "operation",
      "name": "initKeyboardEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 10
     }
@@ -15420,6 +16539,9 @@
      "kind": "operation",
      "name": "assign",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -15427,6 +16549,9 @@
      "kind": "operation",
      "name": "reload",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -15434,6 +16559,9 @@
      "kind": "operation",
      "name": "replace",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -15517,6 +16645,9 @@
      "kind": "operation",
      "name": "appendMedium",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -15524,6 +16655,9 @@
      "kind": "operation",
      "name": "deleteMedium",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -15531,6 +16665,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "CSSOMString?",
      "required": 1,
      "total": 1
     }
@@ -15631,6 +16768,9 @@
      "kind": "operation",
      "name": "initMessageEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 8
     }
@@ -15678,6 +16818,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -15685,6 +16828,9 @@
      "kind": "operation",
      "name": "postMessage",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -15692,6 +16838,9 @@
      "kind": "operation",
      "name": "start",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -15763,6 +16912,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "MimeType?",
      "required": 1,
      "total": 1
     },
@@ -15770,6 +16922,9 @@
      "kind": "operation",
      "name": "namedItem",
      "static": false,
+     "special": "getter",
+     "indexed": false,
+     "returns": "MimeType?",
      "required": 1,
      "total": 1
     }
@@ -15794,6 +16949,9 @@
      "kind": "operation",
      "name": "disconnect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -15801,6 +16959,9 @@
      "kind": "operation",
      "name": "observe",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -15808,6 +16969,9 @@
      "kind": "operation",
      "name": "takeRecords",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<MutationRecord>",
      "required": 0,
      "total": 0
     }
@@ -15919,6 +17083,9 @@
      "kind": "operation",
      "name": "getNamedItem",
      "static": false,
+     "special": "getter",
+     "indexed": false,
+     "returns": "Attr?",
      "required": 1,
      "total": 1
     },
@@ -15926,6 +17093,9 @@
      "kind": "operation",
      "name": "getNamedItemNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr?",
      "required": 2,
      "total": 2
     },
@@ -15933,6 +17103,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "Attr?",
      "required": 1,
      "total": 1
     },
@@ -15940,6 +17113,9 @@
      "kind": "operation",
      "name": "removeNamedItem",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr",
      "required": 1,
      "total": 1
     },
@@ -15947,6 +17123,9 @@
      "kind": "operation",
      "name": "removeNamedItemNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr",
      "required": 2,
      "total": 2
     },
@@ -15954,6 +17133,9 @@
      "kind": "operation",
      "name": "setNamedItem",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr?",
      "required": 1,
      "total": 1
     },
@@ -15961,6 +17143,9 @@
      "kind": "operation",
      "name": "setNamedItemNS",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Attr?",
      "required": 1,
      "total": 1
     }
@@ -16073,6 +17258,9 @@
      "kind": "operation",
      "name": "intercept",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -16080,6 +17268,9 @@
      "kind": "operation",
      "name": "scroll",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -16171,6 +17362,9 @@
      "kind": "operation",
      "name": "back",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NavigationResult",
      "required": 0,
      "total": 1
     },
@@ -16178,6 +17372,9 @@
      "kind": "operation",
      "name": "entries",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<NavigationHistoryEntry>",
      "required": 0,
      "total": 0
     },
@@ -16185,6 +17382,9 @@
      "kind": "operation",
      "name": "forward",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NavigationResult",
      "required": 0,
      "total": 1
     },
@@ -16192,6 +17392,9 @@
      "kind": "operation",
      "name": "navigate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NavigationResult",
      "required": 1,
      "total": 2
     },
@@ -16199,6 +17402,9 @@
      "kind": "operation",
      "name": "reload",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NavigationResult",
      "required": 0,
      "total": 1
     },
@@ -16206,6 +17412,9 @@
      "kind": "operation",
      "name": "traverseTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "NavigationResult",
      "required": 1,
      "total": 2
     },
@@ -16213,6 +17422,9 @@
      "kind": "operation",
      "name": "updateCurrentEntry",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -16341,6 +17553,9 @@
      "kind": "operation",
      "name": "getState",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "any",
      "required": 0,
      "total": 0
     }
@@ -16408,6 +17623,9 @@
      "kind": "operation",
      "name": "getState",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "any",
      "required": 0,
      "total": 0
     }
@@ -16427,6 +17645,9 @@
      "kind": "operation",
      "name": "addHandler",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -16434,6 +17655,9 @@
      "kind": "operation",
      "name": "redirect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     }
@@ -16675,6 +17899,9 @@
      "kind": "operation",
      "name": "javaEnabled",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0,
      "mixin": "NavigatorPlugins"
@@ -16683,6 +17910,9 @@
      "kind": "operation",
      "name": "registerProtocolHandler",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "NavigatorContentUtils"
@@ -16691,6 +17921,9 @@
      "kind": "operation",
      "name": "taintEnabled",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0,
      "mixin": "NavigatorID"
@@ -16699,6 +17932,9 @@
      "kind": "operation",
      "name": "unregisterProtocolHandler",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "NavigatorContentUtils"
@@ -16921,6 +18157,9 @@
      "kind": "operation",
      "name": "appendChild",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 1,
      "total": 1
     },
@@ -16928,6 +18167,9 @@
      "kind": "operation",
      "name": "cloneNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 0,
      "total": 1
     },
@@ -16935,6 +18177,9 @@
      "kind": "operation",
      "name": "compareDocumentPosition",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "unsigned short",
      "required": 1,
      "total": 1
     },
@@ -16942,6 +18187,9 @@
      "kind": "operation",
      "name": "contains",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -16949,6 +18197,9 @@
      "kind": "operation",
      "name": "getRootNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 0,
      "total": 1
     },
@@ -16956,6 +18207,9 @@
      "kind": "operation",
      "name": "hasChildNodes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -16963,6 +18217,9 @@
      "kind": "operation",
      "name": "insertBefore",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 2,
      "total": 2
     },
@@ -16970,6 +18227,9 @@
      "kind": "operation",
      "name": "isDefaultNamespace",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -16977,6 +18237,9 @@
      "kind": "operation",
      "name": "isEqualNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -16984,6 +18247,9 @@
      "kind": "operation",
      "name": "isSameNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -16991,6 +18257,9 @@
      "kind": "operation",
      "name": "lookupNamespaceURI",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     },
@@ -16998,6 +18267,9 @@
      "kind": "operation",
      "name": "lookupPrefix",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     },
@@ -17005,6 +18277,9 @@
      "kind": "operation",
      "name": "normalize",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -17012,6 +18287,9 @@
      "kind": "operation",
      "name": "removeChild",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 1,
      "total": 1
     },
@@ -17019,6 +18297,9 @@
      "kind": "operation",
      "name": "replaceChild",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 2,
      "total": 2
     }
@@ -17118,6 +18399,9 @@
      "kind": "operation",
      "name": "acceptNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "unsigned short",
      "required": 1,
      "total": 1
     }
@@ -17177,6 +18461,9 @@
      "kind": "operation",
      "name": "detach",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -17184,6 +18471,9 @@
      "kind": "operation",
      "name": "nextNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     },
@@ -17191,6 +18481,9 @@
      "kind": "operation",
      "name": "previousNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     }
@@ -17215,12 +18508,16 @@
      "reflect": null
     },
     {
-     "kind": "iterable"
+     "kind": "iterable",
+     "pair": false
     },
     {
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "Node?",
      "required": 1,
      "total": 1
     }
@@ -17248,6 +18545,9 @@
      "kind": "operation",
      "name": "toJSON",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "object",
      "required": 0,
      "total": 0
     }
@@ -17315,6 +18615,9 @@
      "kind": "operation",
      "name": "toJSON",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "object",
      "required": 0,
      "total": 0
     }
@@ -17372,6 +18675,9 @@
      "kind": "operation",
      "name": "convertToBlob",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<Blob>",
      "required": 0,
      "total": 1
     },
@@ -17379,6 +18685,9 @@
      "kind": "operation",
      "name": "getContext",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "OffscreenRenderingContext?",
      "required": 1,
      "total": 2
     },
@@ -17386,6 +18695,9 @@
      "kind": "operation",
      "name": "transferToImageBitmap",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ImageBitmap",
      "required": 0,
      "total": 0
     }
@@ -17657,6 +18969,9 @@
      "kind": "operation",
      "name": "arc",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 5,
      "total": 6,
      "mixin": "CanvasPath"
@@ -17665,6 +18980,9 @@
      "kind": "operation",
      "name": "arcTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 5,
      "total": 5,
      "mixin": "CanvasPath"
@@ -17673,6 +18991,9 @@
      "kind": "operation",
      "name": "beginPath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasDrawPath"
@@ -17681,6 +19002,9 @@
      "kind": "operation",
      "name": "bezierCurveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 6,
      "total": 6,
      "mixin": "CanvasPath"
@@ -17689,6 +19013,9 @@
      "kind": "operation",
      "name": "clearRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasRect"
@@ -17697,6 +19024,9 @@
      "kind": "operation",
      "name": "clip",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "CanvasDrawPath"
@@ -17705,6 +19035,9 @@
      "kind": "operation",
      "name": "closePath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasPath"
@@ -17713,6 +19046,9 @@
      "kind": "operation",
      "name": "createConicGradient",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasGradient",
      "required": 3,
      "total": 3,
      "mixin": "CanvasFillStrokeStyles"
@@ -17721,6 +19057,9 @@
      "kind": "operation",
      "name": "createImageData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ImageData",
      "required": 2,
      "total": 3,
      "mixin": "CanvasImageData"
@@ -17729,6 +19068,9 @@
      "kind": "operation",
      "name": "createLinearGradient",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasGradient",
      "required": 4,
      "total": 4,
      "mixin": "CanvasFillStrokeStyles"
@@ -17737,6 +19079,9 @@
      "kind": "operation",
      "name": "createPattern",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasPattern?",
      "required": 2,
      "total": 2,
      "mixin": "CanvasFillStrokeStyles"
@@ -17745,6 +19090,9 @@
      "kind": "operation",
      "name": "createRadialGradient",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasGradient",
      "required": 6,
      "total": 6,
      "mixin": "CanvasFillStrokeStyles"
@@ -17753,6 +19101,9 @@
      "kind": "operation",
      "name": "drawImage",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 3,
      "mixin": "CanvasDrawImage"
@@ -17761,6 +19112,9 @@
      "kind": "operation",
      "name": "ellipse",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 7,
      "total": 8,
      "mixin": "CanvasPath"
@@ -17769,6 +19123,9 @@
      "kind": "operation",
      "name": "fill",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "CanvasDrawPath"
@@ -17777,6 +19134,9 @@
      "kind": "operation",
      "name": "fillRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasRect"
@@ -17785,6 +19145,9 @@
      "kind": "operation",
      "name": "fillText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 4,
      "mixin": "CanvasText"
@@ -17793,6 +19156,9 @@
      "kind": "operation",
      "name": "getContextAttributes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CanvasRenderingContext2DSettings",
      "required": 0,
      "total": 0,
      "mixin": "CanvasSettings"
@@ -17801,6 +19167,9 @@
      "kind": "operation",
      "name": "getImageData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ImageData",
      "required": 4,
      "total": 5,
      "mixin": "CanvasImageData"
@@ -17809,6 +19178,9 @@
      "kind": "operation",
      "name": "getLineDash",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<unrestricted double>",
      "required": 0,
      "total": 0,
      "mixin": "CanvasPathDrawingStyles"
@@ -17817,6 +19189,9 @@
      "kind": "operation",
      "name": "getTransform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMMatrix",
      "required": 0,
      "total": 0,
      "mixin": "CanvasTransform"
@@ -17825,6 +19200,9 @@
      "kind": "operation",
      "name": "isContextLost",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0,
      "mixin": "CanvasState"
@@ -17833,6 +19211,9 @@
      "kind": "operation",
      "name": "isPointInPath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 2,
      "total": 3,
      "mixin": "CanvasDrawPath"
@@ -17841,6 +19222,9 @@
      "kind": "operation",
      "name": "isPointInStroke",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 2,
      "total": 2,
      "mixin": "CanvasDrawPath"
@@ -17849,6 +19233,9 @@
      "kind": "operation",
      "name": "lineTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasPath"
@@ -17857,6 +19244,9 @@
      "kind": "operation",
      "name": "measureText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "TextMetrics",
      "required": 1,
      "total": 1,
      "mixin": "CanvasText"
@@ -17865,6 +19255,9 @@
      "kind": "operation",
      "name": "moveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasPath"
@@ -17873,6 +19266,9 @@
      "kind": "operation",
      "name": "putImageData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 3,
      "mixin": "CanvasImageData"
@@ -17881,6 +19277,9 @@
      "kind": "operation",
      "name": "quadraticCurveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasPath"
@@ -17889,6 +19288,9 @@
      "kind": "operation",
      "name": "rect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasPath"
@@ -17897,6 +19299,9 @@
      "kind": "operation",
      "name": "reset",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasState"
@@ -17905,6 +19310,9 @@
      "kind": "operation",
      "name": "resetTransform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasTransform"
@@ -17913,6 +19321,9 @@
      "kind": "operation",
      "name": "restore",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasState"
@@ -17921,6 +19332,9 @@
      "kind": "operation",
      "name": "rotate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "CanvasTransform"
@@ -17929,6 +19343,9 @@
      "kind": "operation",
      "name": "roundRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 5,
      "mixin": "CanvasPath"
@@ -17937,6 +19354,9 @@
      "kind": "operation",
      "name": "save",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasState"
@@ -17945,6 +19365,9 @@
      "kind": "operation",
      "name": "scale",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasTransform"
@@ -17953,6 +19376,9 @@
      "kind": "operation",
      "name": "setLineDash",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "CanvasPathDrawingStyles"
@@ -17961,6 +19387,9 @@
      "kind": "operation",
      "name": "setTransform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 6,
      "total": 6,
      "mixin": "CanvasTransform"
@@ -17969,6 +19398,9 @@
      "kind": "operation",
      "name": "stroke",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasDrawPath"
@@ -17977,6 +19409,9 @@
      "kind": "operation",
      "name": "strokeRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasRect"
@@ -17985,6 +19420,9 @@
      "kind": "operation",
      "name": "strokeText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 4,
      "mixin": "CanvasText"
@@ -17993,6 +19431,9 @@
      "kind": "operation",
      "name": "transform",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 6,
      "total": 6,
      "mixin": "CanvasTransform"
@@ -18001,6 +19442,9 @@
      "kind": "operation",
      "name": "translate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasTransform"
@@ -18034,6 +19478,9 @@
      "kind": "operation",
      "name": "from",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "Origin",
      "required": 1,
      "total": 1
     },
@@ -18041,6 +19488,9 @@
      "kind": "operation",
      "name": "isSameOrigin",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -18048,6 +19498,9 @@
      "kind": "operation",
      "name": "isSameSite",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     }
@@ -18156,6 +19609,9 @@
      "kind": "operation",
      "name": "addPath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -18163,6 +19619,9 @@
      "kind": "operation",
      "name": "arc",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 5,
      "total": 6,
      "mixin": "CanvasPath"
@@ -18171,6 +19630,9 @@
      "kind": "operation",
      "name": "arcTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 5,
      "total": 5,
      "mixin": "CanvasPath"
@@ -18179,6 +19641,9 @@
      "kind": "operation",
      "name": "bezierCurveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 6,
      "total": 6,
      "mixin": "CanvasPath"
@@ -18187,6 +19652,9 @@
      "kind": "operation",
      "name": "closePath",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0,
      "mixin": "CanvasPath"
@@ -18195,6 +19663,9 @@
      "kind": "operation",
      "name": "ellipse",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 7,
      "total": 8,
      "mixin": "CanvasPath"
@@ -18203,6 +19674,9 @@
      "kind": "operation",
      "name": "lineTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasPath"
@@ -18211,6 +19685,9 @@
      "kind": "operation",
      "name": "moveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2,
      "mixin": "CanvasPath"
@@ -18219,6 +19696,9 @@
      "kind": "operation",
      "name": "quadraticCurveTo",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasPath"
@@ -18227,6 +19707,9 @@
      "kind": "operation",
      "name": "rect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 4,
      "mixin": "CanvasPath"
@@ -18235,6 +19718,9 @@
      "kind": "operation",
      "name": "roundRect",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 4,
      "total": 5,
      "mixin": "CanvasPath"
@@ -18287,6 +19773,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "MimeType?",
      "required": 1,
      "total": 1
     },
@@ -18294,6 +19783,9 @@
      "kind": "operation",
      "name": "namedItem",
      "static": false,
+     "special": "getter",
+     "indexed": false,
+     "returns": "MimeType?",
      "required": 1,
      "total": 1
     }
@@ -18321,6 +19813,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "Plugin?",
      "required": 1,
      "total": 1
     },
@@ -18328,6 +19823,9 @@
      "kind": "operation",
      "name": "namedItem",
      "static": false,
+     "special": "getter",
+     "indexed": false,
+     "returns": "Plugin?",
      "required": 1,
      "total": 1
     },
@@ -18335,6 +19833,9 @@
      "kind": "operation",
      "name": "refresh",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -18409,6 +19910,9 @@
      "kind": "operation",
      "name": "getAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     },
@@ -18416,6 +19920,9 @@
      "kind": "operation",
      "name": "getAttributeNames",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<DOMString>",
      "required": 0,
      "total": 0
     },
@@ -18423,6 +19930,9 @@
      "kind": "operation",
      "name": "hasAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -18430,6 +19940,9 @@
      "kind": "operation",
      "name": "hasAttributes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -18437,6 +19950,9 @@
      "kind": "operation",
      "name": "removeAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -18444,6 +19960,9 @@
      "kind": "operation",
      "name": "setAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -18451,6 +19970,9 @@
      "kind": "operation",
      "name": "toggleAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 2
     }
@@ -18598,6 +20120,9 @@
      "kind": "operation",
      "name": "cloneContents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DocumentFragment",
      "required": 0,
      "total": 0
     },
@@ -18605,6 +20130,9 @@
      "kind": "operation",
      "name": "cloneRange",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Range",
      "required": 0,
      "total": 0
     },
@@ -18612,6 +20140,9 @@
      "kind": "operation",
      "name": "collapse",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -18619,6 +20150,9 @@
      "kind": "operation",
      "name": "compareBoundaryPoints",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "short",
      "required": 2,
      "total": 2
     },
@@ -18626,6 +20160,9 @@
      "kind": "operation",
      "name": "comparePoint",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "short",
      "required": 2,
      "total": 2
     },
@@ -18633,6 +20170,9 @@
      "kind": "operation",
      "name": "createContextualFragment",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DocumentFragment",
      "required": 1,
      "total": 1
     },
@@ -18640,6 +20180,9 @@
      "kind": "operation",
      "name": "deleteContents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -18647,6 +20190,9 @@
      "kind": "operation",
      "name": "detach",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -18654,6 +20200,9 @@
      "kind": "operation",
      "name": "extractContents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DocumentFragment",
      "required": 0,
      "total": 0
     },
@@ -18661,6 +20210,9 @@
      "kind": "operation",
      "name": "insertNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -18668,6 +20220,9 @@
      "kind": "operation",
      "name": "intersectsNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -18675,6 +20230,9 @@
      "kind": "operation",
      "name": "isPointInRange",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 2,
      "total": 2
     },
@@ -18682,6 +20240,9 @@
      "kind": "operation",
      "name": "selectNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -18689,6 +20250,9 @@
      "kind": "operation",
      "name": "selectNodeContents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -18696,6 +20260,9 @@
      "kind": "operation",
      "name": "setEnd",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -18703,6 +20270,9 @@
      "kind": "operation",
      "name": "setEndAfter",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -18710,6 +20280,9 @@
      "kind": "operation",
      "name": "setEndBefore",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -18717,6 +20290,9 @@
      "kind": "operation",
      "name": "setStart",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -18724,6 +20300,9 @@
      "kind": "operation",
      "name": "setStartAfter",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -18731,6 +20310,9 @@
      "kind": "operation",
      "name": "setStartBefore",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -18738,8 +20320,16 @@
      "kind": "operation",
      "name": "surroundContents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "stringifier",
+     "indexed": false
     }
    ]
   },
@@ -18909,6 +20499,9 @@
      "kind": "operation",
      "name": "arrayBuffer",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<ArrayBuffer>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -18917,6 +20510,9 @@
      "kind": "operation",
      "name": "blob",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<Blob>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -18925,6 +20521,9 @@
      "kind": "operation",
      "name": "bytes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<Uint8Array>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -18933,6 +20532,9 @@
      "kind": "operation",
      "name": "clone",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Request",
      "required": 0,
      "total": 0
     },
@@ -18940,6 +20542,9 @@
      "kind": "operation",
      "name": "formData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<FormData>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -18948,6 +20553,9 @@
      "kind": "operation",
      "name": "json",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<any>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -18956,6 +20564,9 @@
      "kind": "operation",
      "name": "text",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<USVString>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -18964,6 +20575,9 @@
      "kind": "operation",
      "name": "textStream",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ReadableStream",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -19064,6 +20678,9 @@
      "kind": "operation",
      "name": "arrayBuffer",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<ArrayBuffer>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -19072,6 +20689,9 @@
      "kind": "operation",
      "name": "blob",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<Blob>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -19080,6 +20700,9 @@
      "kind": "operation",
      "name": "bytes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<Uint8Array>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -19088,6 +20711,9 @@
      "kind": "operation",
      "name": "clone",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Response",
      "required": 0,
      "total": 0
     },
@@ -19095,6 +20721,9 @@
      "kind": "operation",
      "name": "error",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "Response",
      "required": 0,
      "total": 0
     },
@@ -19102,6 +20731,9 @@
      "kind": "operation",
      "name": "formData",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<FormData>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -19110,6 +20742,9 @@
      "kind": "operation",
      "name": "json",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "Response",
      "required": 1,
      "total": 2
     },
@@ -19117,6 +20752,9 @@
      "kind": "operation",
      "name": "redirect",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "Response",
      "required": 1,
      "total": 2
     },
@@ -19124,6 +20762,9 @@
      "kind": "operation",
      "name": "text",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<USVString>",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -19132,6 +20773,9 @@
      "kind": "operation",
      "name": "textStream",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ReadableStream",
      "required": 0,
      "total": 0,
      "mixin": "Body"
@@ -19157,6 +20801,9 @@
      "kind": "operation",
      "name": "allowAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19164,6 +20811,9 @@
      "kind": "operation",
      "name": "allowElement",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19171,6 +20821,9 @@
      "kind": "operation",
      "name": "allowProcessingInstruction",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19178,6 +20831,9 @@
      "kind": "operation",
      "name": "get",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "SanitizerConfig",
      "required": 0,
      "total": 0
     },
@@ -19185,6 +20841,9 @@
      "kind": "operation",
      "name": "removeAttribute",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19192,6 +20851,9 @@
      "kind": "operation",
      "name": "removeElement",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19199,6 +20861,9 @@
      "kind": "operation",
      "name": "removeProcessingInstruction",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19206,6 +20871,9 @@
      "kind": "operation",
      "name": "removeUnsafe",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0
     },
@@ -19213,6 +20881,9 @@
      "kind": "operation",
      "name": "replaceElementWithChildren",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19220,6 +20891,9 @@
      "kind": "operation",
      "name": "setComments",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19227,6 +20901,9 @@
      "kind": "operation",
      "name": "setDataAttributes",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     },
@@ -19234,6 +20911,9 @@
      "kind": "operation",
      "name": "setJavascriptURLs",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 1
     }
@@ -19353,6 +21033,9 @@
      "kind": "operation",
      "name": "getHTML",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 0,
      "total": 1
     },
@@ -19360,6 +21043,9 @@
      "kind": "operation",
      "name": "setHTML",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -19367,6 +21053,9 @@
      "kind": "operation",
      "name": "setHTMLUnsafe",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     }
@@ -19436,6 +21125,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -19480,6 +21172,9 @@
      "kind": "operation",
      "name": "clear",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -19487,6 +21182,9 @@
      "kind": "operation",
      "name": "getItem",
      "static": false,
+     "special": "getter",
+     "indexed": false,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     },
@@ -19494,6 +21192,9 @@
      "kind": "operation",
      "name": "key",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     },
@@ -19501,6 +21202,9 @@
      "kind": "operation",
      "name": "removeItem",
      "static": false,
+     "special": "deleter",
+     "indexed": false,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -19508,6 +21212,9 @@
      "kind": "operation",
      "name": "setItem",
      "static": false,
+     "special": "setter",
+     "indexed": false,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     }
@@ -19572,6 +21279,9 @@
      "kind": "operation",
      "name": "initStorageEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 8
     }
@@ -19667,6 +21377,9 @@
      "kind": "operation",
      "name": "item",
      "static": false,
+     "special": "getter",
+     "indexed": true,
+     "returns": "CSSStyleSheet?",
      "required": 1,
      "total": 1
     }
@@ -19733,6 +21446,9 @@
      "kind": "operation",
      "name": "splitText",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Text",
      "required": 1,
      "total": 1
     }
@@ -19784,6 +21500,9 @@
      "kind": "operation",
      "name": "decode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "USVString",
      "required": 0,
      "total": 2
     }
@@ -19861,6 +21580,9 @@
      "kind": "operation",
      "name": "encode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Uint8Array",
      "required": 0,
      "total": 1
     },
@@ -19868,6 +21590,9 @@
      "kind": "operation",
      "name": "encodeInto",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "TextEncoderEncodeIntoResult",
      "required": 2,
      "total": 2
     }
@@ -19921,6 +21646,9 @@
      "kind": "operation",
      "name": "initTextEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 5
     }
@@ -20121,6 +21849,9 @@
      "kind": "operation",
      "name": "addCue",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -20128,6 +21859,9 @@
      "kind": "operation",
      "name": "removeCue",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     }
@@ -20223,8 +21957,16 @@
      "kind": "operation",
      "name": "getCueById",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "TextTrackCue?",
      "required": 1,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": true
     }
    ]
   },
@@ -20274,8 +22016,16 @@
      "kind": "operation",
      "name": "getTrackById",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "TextTrack?",
      "required": 1,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": true
     }
    ]
   },
@@ -20301,6 +22051,9 @@
      "kind": "operation",
      "name": "end",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "double",
      "required": 1,
      "total": 1
     },
@@ -20308,6 +22061,9 @@
      "kind": "operation",
      "name": "start",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "double",
      "required": 1,
      "total": 1
     }
@@ -20425,6 +22181,9 @@
      "kind": "operation",
      "name": "firstChild",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     },
@@ -20432,6 +22191,9 @@
      "kind": "operation",
      "name": "lastChild",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     },
@@ -20439,6 +22201,9 @@
      "kind": "operation",
      "name": "nextNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     },
@@ -20446,6 +22211,9 @@
      "kind": "operation",
      "name": "nextSibling",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     },
@@ -20453,6 +22221,9 @@
      "kind": "operation",
      "name": "parentNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     },
@@ -20460,6 +22231,9 @@
      "kind": "operation",
      "name": "previousNode",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     },
@@ -20467,6 +22241,9 @@
      "kind": "operation",
      "name": "previousSibling",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     }
@@ -20515,6 +22292,9 @@
      "kind": "operation",
      "name": "initUIEvent",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 5
     }
@@ -20638,6 +22418,9 @@
      "kind": "operation",
      "name": "canParse",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 2
     },
@@ -20645,6 +22428,9 @@
      "kind": "operation",
      "name": "createObjectURL",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 1
     },
@@ -20652,6 +22438,9 @@
      "kind": "operation",
      "name": "parse",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "URL?",
      "required": 1,
      "total": 2
     },
@@ -20659,6 +22448,9 @@
      "kind": "operation",
      "name": "revokeObjectURL",
      "static": true,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -20666,6 +22458,9 @@
      "kind": "operation",
      "name": "toJSON",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "USVString",
      "required": 0,
      "total": 0
     }
@@ -20695,12 +22490,16 @@
      "total": 1
     },
     {
-     "kind": "iterable"
+     "kind": "iterable",
+     "pair": true
     },
     {
      "kind": "operation",
      "name": "append",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -20708,6 +22507,9 @@
      "kind": "operation",
      "name": "delete",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 2
     },
@@ -20715,6 +22517,9 @@
      "kind": "operation",
      "name": "get",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "USVString?",
      "required": 1,
      "total": 1
     },
@@ -20722,6 +22527,9 @@
      "kind": "operation",
      "name": "getAll",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "sequence<USVString>",
      "required": 1,
      "total": 1
     },
@@ -20729,6 +22537,9 @@
      "kind": "operation",
      "name": "has",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 1,
      "total": 2
     },
@@ -20736,6 +22547,9 @@
      "kind": "operation",
      "name": "set",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -20743,8 +22557,16 @@
      "kind": "operation",
      "name": "sort",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
+    },
+    {
+     "kind": "special",
+     "special": "stringifier",
+     "indexed": false
     }
    ]
   },
@@ -20982,8 +22804,16 @@
      "kind": "operation",
      "name": "getTrackById",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "VideoTrack?",
      "required": 1,
      "total": 1
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": true
     }
    ]
   },
@@ -22152,6 +23982,9 @@
      "kind": "operation",
      "name": "alert",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -22159,6 +23992,9 @@
      "kind": "operation",
      "name": "atob",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ByteString",
      "required": 1,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22167,6 +24003,9 @@
      "kind": "operation",
      "name": "blur",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -22174,6 +24013,9 @@
      "kind": "operation",
      "name": "btoa",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22182,6 +24024,9 @@
      "kind": "operation",
      "name": "cancelAnimationFrame",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "AnimationFrameProvider"
@@ -22190,6 +24035,9 @@
      "kind": "operation",
      "name": "captureEvents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -22197,6 +24045,9 @@
      "kind": "operation",
      "name": "clearInterval",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22205,6 +24056,9 @@
      "kind": "operation",
      "name": "clearTimeout",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22213,6 +24067,9 @@
      "kind": "operation",
      "name": "close",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -22220,6 +24077,9 @@
      "kind": "operation",
      "name": "confirm",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 1
     },
@@ -22227,6 +24087,9 @@
      "kind": "operation",
      "name": "createImageBitmap",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<ImageBitmap>",
      "required": 1,
      "total": 2,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22235,6 +24098,9 @@
      "kind": "operation",
      "name": "fetch",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<Response>",
      "required": 1,
      "total": 2,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22243,6 +24109,9 @@
      "kind": "operation",
      "name": "fetchLater",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "FetchLaterResult",
      "required": 1,
      "total": 2
     },
@@ -22250,6 +24119,9 @@
      "kind": "operation",
      "name": "focus",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -22257,6 +24129,9 @@
      "kind": "operation",
      "name": "getComputedStyle",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "CSSStyleProperties",
      "required": 1,
      "total": 2
     },
@@ -22264,6 +24139,9 @@
      "kind": "operation",
      "name": "open",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "WindowProxy?",
      "required": 0,
      "total": 3
     },
@@ -22271,6 +24149,9 @@
      "kind": "operation",
      "name": "postMessage",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 3
     },
@@ -22278,6 +24159,9 @@
      "kind": "operation",
      "name": "print",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -22285,6 +24169,9 @@
      "kind": "operation",
      "name": "prompt",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 0,
      "total": 2
     },
@@ -22292,6 +24179,9 @@
      "kind": "operation",
      "name": "queueMicrotask",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22300,6 +24190,9 @@
      "kind": "operation",
      "name": "releaseEvents",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -22307,6 +24200,9 @@
      "kind": "operation",
      "name": "reportError",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22315,6 +24211,9 @@
      "kind": "operation",
      "name": "requestAnimationFrame",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "unsigned long",
      "required": 1,
      "total": 1,
      "mixin": "AnimationFrameProvider"
@@ -22323,6 +24222,9 @@
      "kind": "operation",
      "name": "setInterval",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "long",
      "required": 1,
      "total": 3,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22331,6 +24233,9 @@
      "kind": "operation",
      "name": "setTimeout",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "long",
      "required": 1,
      "total": 3,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22339,6 +24244,9 @@
      "kind": "operation",
      "name": "stop",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -22346,9 +24254,17 @@
      "kind": "operation",
      "name": "structuredClone",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "any",
      "required": 1,
      "total": 2,
      "mixin": "WindowOrWorkerGlobalScope"
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": false
     }
    ]
   },
@@ -22400,6 +24316,9 @@
      "kind": "operation",
      "name": "postMessage",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -22407,6 +24326,9 @@
      "kind": "operation",
      "name": "terminate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     }
@@ -22525,6 +24447,9 @@
      "kind": "operation",
      "name": "atob",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ByteString",
      "required": 1,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22533,6 +24458,9 @@
      "kind": "operation",
      "name": "btoa",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22541,6 +24469,9 @@
      "kind": "operation",
      "name": "clearInterval",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22549,6 +24480,9 @@
      "kind": "operation",
      "name": "clearTimeout",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22557,6 +24491,9 @@
      "kind": "operation",
      "name": "createImageBitmap",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<ImageBitmap>",
      "required": 1,
      "total": 2,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22565,6 +24502,9 @@
      "kind": "operation",
      "name": "fetch",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<Response>",
      "required": 1,
      "total": 2,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22573,6 +24513,9 @@
      "kind": "operation",
      "name": "importScripts",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -22580,6 +24523,9 @@
      "kind": "operation",
      "name": "queueMicrotask",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22588,6 +24534,9 @@
      "kind": "operation",
      "name": "reportError",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22596,6 +24545,9 @@
      "kind": "operation",
      "name": "setInterval",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "long",
      "required": 1,
      "total": 3,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22604,6 +24556,9 @@
      "kind": "operation",
      "name": "setTimeout",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "long",
      "required": 1,
      "total": 3,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22612,6 +24567,9 @@
      "kind": "operation",
      "name": "structuredClone",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "any",
      "required": 1,
      "total": 2,
      "mixin": "WindowOrWorkerGlobalScope"
@@ -22842,6 +24800,9 @@
      "kind": "operation",
      "name": "taintEnabled",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "boolean",
      "required": 0,
      "total": 0,
      "mixin": "NavigatorID"
@@ -22862,6 +24823,9 @@
      "kind": "operation",
      "name": "addModule",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Promise<undefined>",
      "required": 1,
      "total": 2
     }
@@ -23031,6 +24995,9 @@
      "kind": "operation",
      "name": "abort",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -23038,6 +25005,9 @@
      "kind": "operation",
      "name": "getAllResponseHeaders",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ByteString",
      "required": 0,
      "total": 0
     },
@@ -23045,6 +25015,9 @@
      "kind": "operation",
      "name": "getResponseHeader",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "ByteString?",
      "required": 1,
      "total": 1
     },
@@ -23052,6 +25025,9 @@
      "kind": "operation",
      "name": "open",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -23059,6 +25035,9 @@
      "kind": "operation",
      "name": "overrideMimeType",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -23066,6 +25045,9 @@
      "kind": "operation",
      "name": "send",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 1
     },
@@ -23073,6 +25055,9 @@
      "kind": "operation",
      "name": "setRequestHeader",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     }
@@ -23180,6 +25165,9 @@
      "kind": "operation",
      "name": "serializeToString",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString",
      "required": 1,
      "total": 1
     }
@@ -23204,6 +25192,9 @@
      "kind": "operation",
      "name": "createExpression",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "XPathExpression",
      "required": 1,
      "total": 2,
      "mixin": "XPathEvaluatorBase"
@@ -23212,6 +25203,9 @@
      "kind": "operation",
      "name": "createNSResolver",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node",
      "required": 1,
      "total": 1,
      "mixin": "XPathEvaluatorBase"
@@ -23220,6 +25214,9 @@
      "kind": "operation",
      "name": "evaluate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "XPathResult",
      "required": 2,
      "total": 5,
      "mixin": "XPathEvaluatorBase"
@@ -23240,6 +25237,9 @@
      "kind": "operation",
      "name": "evaluate",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "XPathResult",
      "required": 1,
      "total": 3
     }
@@ -23257,6 +25257,9 @@
      "kind": "operation",
      "name": "lookupNamespaceURI",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DOMString?",
      "required": 1,
      "total": 1
     }
@@ -23382,6 +25385,9 @@
      "kind": "operation",
      "name": "iterateNext",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 0,
      "total": 0
     },
@@ -23389,6 +25395,9 @@
      "kind": "operation",
      "name": "snapshotItem",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Node?",
      "required": 1,
      "total": 1
     }
@@ -23413,6 +25422,9 @@
      "kind": "operation",
      "name": "clearParameters",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -23420,6 +25432,9 @@
      "kind": "operation",
      "name": "getParameter",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "any",
      "required": 2,
      "total": 2
     },
@@ -23427,6 +25442,9 @@
      "kind": "operation",
      "name": "importStylesheet",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 1,
      "total": 1
     },
@@ -23434,6 +25452,9 @@
      "kind": "operation",
      "name": "removeParameter",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 2,
      "total": 2
     },
@@ -23441,6 +25462,9 @@
      "kind": "operation",
      "name": "reset",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 0,
      "total": 0
     },
@@ -23448,6 +25472,9 @@
      "kind": "operation",
      "name": "setParameter",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "undefined",
      "required": 3,
      "total": 3
     },
@@ -23455,6 +25482,9 @@
      "kind": "operation",
      "name": "transformToDocument",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "Document",
      "required": 1,
      "total": 1
     },
@@ -23462,6 +25492,9 @@
      "kind": "operation",
      "name": "transformToFragment",
      "static": false,
+     "special": null,
+     "indexed": null,
+     "returns": "DocumentFragment",
      "required": 2,
      "total": 2
     }
