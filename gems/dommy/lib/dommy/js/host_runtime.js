@@ -11,7 +11,8 @@ globalThis.__rbHost = (function () {
   // reads (and costs) the same as when they were written inline.
   const {
     ARRAY_LIKE_COLLECTIONS, INDEXED_SETTER_INTERFACES, ENTRIES_ITERABLES, PAIR_ITERABLE_COLLECTIONS,
-    NAMED_PROP_COLLECTIONS, NULL_TO_EMPTY_STRING_SETTERS, FORM_VALUE_FIELDS, READONLY_ATTRS,
+    NAMED_PROP_COLLECTIONS, NULL_TO_EMPTY_STRING_SETTERS,
+    INTERFACE_NULL_TO_EMPTY_STRING_SETTERS, FORM_VALUE_FIELDS, READONLY_ATTRS,
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS, INTERFACE_MEMBERS, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
@@ -313,13 +314,23 @@ globalThis.__rbHost = (function () {
   function memberGetStub(name) {
     return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };
   }
-  function memberSetStub(name) {
+  // [LegacyNullToEmptyString]: null becomes "" rather than "null". Declared per
+  // attribute in the IDL, so a name that is null-to-empty on one interface and a
+  // plain DOMString on another (`value`, on the text controls and on nothing
+  // else) is answered by the interface's own list.
+  function nullToEmptyString(iface, name) {
+    if (NULL_TO_EMPTY_STRING_SETTERS.has(name)) return true;
+    const own = iface === undefined ? undefined : INTERFACE_NULL_TO_EMPTY_STRING_SETTERS[iface];
+    return !!own && own.indexOf(name) !== -1;
+  }
+
+  function memberSetStub(name, iface) {
     // Mirror the proxy set trap for a reflected attribute: [LegacyNullToEmptyString]
     // coercion, then the shared host write (the set trap delegates instance
     // writes to this prototype setter, so it must invalidate the same caches).
     // Called with the element as `this`.
     return function (v) {
-      if (NULL_TO_EMPTY_STRING_SETTERS.has(name)) v = v === null ? "" : String(v);
+      if (nullToEmptyString(iface, name)) v = v === null ? "" : String(v);
       hostSet(this[HKEY], name, v);
     };
   }
@@ -338,7 +349,7 @@ globalThis.__rbHost = (function () {
     (members.g || []).forEach((gname) =>
       def(gname, { get: memberGetStub(gname), enumerable: true, configurable: true }));
     (members.p || []).forEach((pname) =>
-      def(pname, { get: memberGetStub(pname), set: memberSetStub(pname), enumerable: true, configurable: true }));
+      def(pname, { get: memberGetStub(pname), set: memberSetStub(pname, name), enumerable: true, configurable: true }));
   }
 
   // 1d: custom elements. ceRegistry maps a tag name to its JS constructor;
@@ -2264,7 +2275,7 @@ globalThis.__rbHost = (function () {
     // WebIDL [LegacyNullToEmptyString] DOMString setters coerce JS-side (null →
     // "", else ToString — so `innerHTML = 42` / `{toString…}` work and a toString
     // that throws propagates) before the value crosses into Ruby.
-    if (NULL_TO_EMPTY_STRING_SETTERS.has(prop)) value = value === null ? "" : String(value);
+    if (nullToEmptyString(shape.name, prop)) value = value === null ? "" : String(value);
     // A writable named property (Storage/DOMStringMap) has a DOMString named
     // setter: ToString-coerce too, so `storage.x = 42` stores "42", `= null`
     // stores "null", and a `{toString}` object's throwing toString propagates.

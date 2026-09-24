@@ -54,7 +54,10 @@ globalThis.__rbIdl = (function () {
     ["HTMLFormElement", { enumerable: false, writable: false, overrideBuiltins: true }],
     ["HTMLOptionsCollection", { enumerable: false, writable: false }],
     ["NamedNodeMap", { enumerable: false, writable: false }],
-    ["DOMStringMap", { enumerable: true, writable: true }],
+    // [LegacyOverrideBuiltIns]: a data-* name resolves BEFORE anything on
+    // DOMStringMap.prototype, so `dataset.constructor` is the stored value when
+    // there is one.
+    ["DOMStringMap", { enumerable: true, writable: true, overrideBuiltins: true }],
     // Storage (localStorage/sessionStorage): named getter/setter/deleter, keys
     // enumerable; the named setter takes a DOMString value (ToString-coerced
     // JS-side below, like DOMStringMap).
@@ -63,7 +66,18 @@ globalThis.__rbIdl = (function () {
 
   // [LegacyNullToEmptyString] DOMString setters: null becomes "", any other
   // value is ToString-coerced JS-side before crossing into Ruby.
-  const NULL_TO_EMPTY_STRING_SETTERS = new Set(["innerHTML", "outerHTML"]);
+  const NULL_TO_EMPTY_STRING_SETTERS = new Set([
+    "innerHTML", "outerHTML", "border", "color", "mediaText", "innerText", "outerText"
+  ]);
+  // The same, for the names that are [LegacyNullToEmptyString] on one interface
+  // and a plain DOMString on another: `data` is on CharacterData but not on an
+  // ObjectElement or a MessageEvent, and `value` is on the two text controls
+  // but on none of the ten other interfaces that have one.
+  const INTERFACE_NULL_TO_EMPTY_STRING_SETTERS = {
+    CharacterData: ["data"],
+    HTMLInputElement: ["value"],
+    HTMLTextAreaElement: ["value"]
+  };
 
   // Form-control value-like properties exposed as accessor descriptors on the
   // interface prototype (see protoForChain) — what React's value-tracker reads
@@ -113,6 +127,12 @@ globalThis.__rbIdl = (function () {
     // pair is shared per name, two Documents hand back the same getter and the
     // same setter, which is what document_location.html checks.
     Document: { location: RW },
+    // A page must not be able to re-point `window.location`, `window.document`,
+    // `window.top` or `window.window` either: HTML pins all four to the object
+    // rather than leaving them on a prototype. `location` takes a setter because
+    // it is [PutForwards=href] — assigning to it navigates — while the other
+    // three are readonly.
+    Window: { document: RO, location: RW, top: RO, window: RO },
   };
   // [LegacyUnforgeable] OPERATIONS are own properties of the instance too, and
   // enumerable — Location's stringifier `toString` among them, which is why
@@ -350,7 +370,9 @@ globalThis.__rbIdl = (function () {
   // The object has a null [[Prototype]] and the members map to `true`.
   const INTERFACE_UNSCOPABLES = {
     // ChildNode + ParentNode mixins, both included by Element.
-    Element: ["after", "before", "remove", "replaceWith", "append", "prepend", "replaceChildren"],
+    // ChildNode + ParentNode, both included by Element, and `slot`, which the
+    // Slottable mixin marks on its own.
+    Element: ["after", "before", "remove", "replaceWith", "append", "prepend", "replaceChildren", "slot"],
     // ParentNode only.
     Document: ["append", "prepend", "replaceChildren"],
     DocumentFragment: ["append", "prepend", "replaceChildren"],
@@ -539,6 +561,7 @@ globalThis.__rbIdl = (function () {
     PAIR_ITERABLE_COLLECTIONS,
     NAMED_PROP_COLLECTIONS,
     NULL_TO_EMPTY_STRING_SETTERS,
+    INTERFACE_NULL_TO_EMPTY_STRING_SETTERS,
     FORM_VALUE_FIELDS,
     READONLY_ATTRS,
     UNFORGEABLE_ATTRS,

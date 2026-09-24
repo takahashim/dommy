@@ -938,25 +938,10 @@
   "void_gaps": {},
   "arity_gaps": {},
   "iteration_gaps": {},
-  "null_to_empty_gaps": {
-    "CharacterData.data": "null must become \"\", and does not",
-    "HTMLFontElement.color": "null must become \"\", and does not",
-    "HTMLImageElement.border": "null must become \"\", and does not",
-    "HTMLInputElement.value": "null must become \"\", and does not",
-    "HTMLTextAreaElement.value": "null must become \"\", and does not",
-    "MediaList.mediaText": "null must become \"\", and does not"
-  },
-  "unforgeable_gaps": {
-    "Window.document": "is [LegacyUnforgeable] but sits on the prototype",
-    "Window.location": "is [LegacyUnforgeable] but sits on the prototype",
-    "Window.top": "is [LegacyUnforgeable] but sits on the prototype",
-    "Window.window": "is [LegacyUnforgeable] but sits on the prototype"
-  },
-  "unscopable_gaps": {
-    "Element.slot": "is [Unscopable] and is not declared"
-  },
+  "null_to_empty_gaps": {},
+  "unforgeable_gaps": {},
+  "unscopable_gaps": {},
   "named_property_gaps": {
-    "DOMStringMap": "overrideBuiltins should be true",
     "Document": "has a named getter and is not declared",
     "Window": "has a named getter and is not declared",
     "XMLDocument": "has a named getter and is not declared"
