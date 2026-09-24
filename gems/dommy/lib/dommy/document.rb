@@ -3,6 +3,7 @@
 require "uri"
 
 require_relative "internal/node_wrapper_cache"
+require_relative "internal/directionality"
 require_relative "internal/node_factory"
 require_relative "internal/mutation_coordinator"
 require_relative "internal/shadow_root_registry"
@@ -631,6 +632,18 @@ module Dommy
 
     def title
       read_title
+    end
+
+    # `document.dir` reflects the html element's `dir` content attribute,
+    # limited to only known values. With no html element it reads "" and
+    # ignores writes.
+    def dir
+      root = html_element
+      root ? Internal::Directionality.reflected_dir(root) : ""
+    end
+
+    def dir=(value)
+      html_element&.set_attribute("dir", value.to_s)
     end
 
     def title=(value)
@@ -1684,6 +1697,8 @@ module Dommy
         document_element
       when "title"
         read_title
+      when "dir"
+        dir
       when "cookie"
         cookie
       when "nodeType"
@@ -1712,8 +1727,6 @@ module Dommy
         @default_view&.__js_get__("location")
       when "characterSet", "charset", "inputEncoding"
         character_encoding
-      when "dir"
-        document_element&.get_attribute("dir") || ""
       when "designMode"
         @design_mode || "off"
       when "lastModified"
@@ -1787,15 +1800,16 @@ module Dommy
       end
     end
 
-    # The document's supported property names (for `"name" in document`): the
-    # `name` of each exposed element, plus the `id` of id-exposed img/object.
+    # The document's supported property names (for `"name" in document`): for
+    # each exposed element in tree order, its id when it is a named element with
+    # that name, then its name.
     def __js_named_props__
       names = []
       named_getter_nodes.each do |node|
-        n = node["name"].to_s
-        names << n unless n.empty?
         id = node["id"].to_s
-        names << id if !id.empty? && %w[img object].include?(node.name.to_s.downcase) && !n.empty?
+        names << id if named_element?(node, id)
+        name = node["name"].to_s
+        names << name if named_element?(node, name)
       end
       names.uniq
     end
@@ -1806,23 +1820,35 @@ module Dommy
     def document_named_property(name)
       return nil if name.empty?
 
-      matches = named_getter_nodes.select do |node|
-        node["name"] == name ||
-          (node["id"] == name && %w[img object].include?(node.name.to_s.downcase) && !node["name"].to_s.empty?)
-      end
-      wrapped = matches.map { |node| wrap_node(node) }.compact
+      wrapped = document_named_property_nodes(name)
       return nil if wrapped.empty?
+      return HTMLCollection.new { document_named_property_nodes(name) } unless wrapped.length == 1
 
-      if wrapped.length == 1
-        el = wrapped.first
-        cw = el.respond_to?(:content_window) ? el.content_window : nil
-        cw || el
-      else
-        HTMLCollection.new { document_named_property_nodes(name) }
-      end
+      el = wrapped.first
+      # Only an iframe's named property is its content window; an object's is
+      # the element itself.
+      el.local_name.to_s.casecmp?("iframe") && el.respond_to?(:content_window) ? (el.content_window || el) : el
     end
 
     private
+
+    # "The html element": the document element when it is an HTML <html>.
+    def html_element
+      root = document_element
+      root if root.is_a?(HTMLElement) && root.local_name == "html"
+    end
+
+    # An element is a named element with the name `name` when it is one of the
+    # exposed kinds and either carries that `name`, or is an object with that
+    # `id`, or is an img whose id it is and which also has a non-empty name.
+    def named_element?(node, name)
+      return false if name.empty?
+      return false unless %w[embed form iframe img object].include?(node.name.to_s.downcase)
+      return true if node["name"] == name
+      return true if node.name.to_s.casecmp?("object") && node["id"] == name
+
+      node.name.to_s.casecmp?("img") && node["id"] == name && !node["name"].to_s.empty?
+    end
 
     # Elements the document's named getter exposes, in tree order.
     def named_getter_nodes
@@ -1830,10 +1856,7 @@ module Dommy
     end
 
     def document_named_property_nodes(name)
-      named_getter_nodes.select do |node|
-        node["name"] == name ||
-          (node["id"] == name && %w[img object].include?(node.name.to_s.downcase) && !node["name"].to_s.empty?)
-      end.map { |node| wrap_node(node) }.compact
+      named_getter_nodes.select { |node| named_element?(node, name) }.map { |node| wrap_node(node) }.compact
     end
 
     public
@@ -1845,7 +1868,7 @@ module Dommy
       when "cookie"
         self.cookie = value.to_s
       when "dir"
-        document_element&.set_attribute("dir", value.to_s)
+        self.dir = value
       when "designMode"
         # Enumerated: only "on"/"off" (case-insensitive), else ignored.
         v = value.to_s.downcase

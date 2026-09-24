@@ -2064,6 +2064,44 @@ globalThis.__rbHost = (function () {
     }
   }
 
+  // crypto.getRandomValues(typedArray): the Web Crypto spec fills the caller's
+  // typed array IN PLACE and returns it, so the type and identity survive — which
+  // crossing to the host as a byte buffer would lose. It also rejects anything
+  // that is not an integer typed array (Float arrays, DataView) with a
+  // TypeMismatchError and an over-long buffer with a QuotaExceededError; the
+  // host only supplies the random bytes.
+  const INTEGER_TYPED_ARRAYS = [
+    "Int8Array", "Int16Array", "Int32Array", "BigInt64Array", "Uint8Array",
+    "Uint8ClampedArray", "Uint16Array", "Uint32Array", "BigUint64Array",
+  ];
+  const RANDOM_VALUES_MAX_BYTES = 65536;
+
+  function isIntegerTypedArray(value) {
+    if (typeof ArrayBuffer === "undefined" || !ArrayBuffer.isView(value)) return false;
+    return INTEGER_TYPED_ARRAYS.some((name) => typeof globalThis[name] === "function" && value instanceof globalThis[name]);
+  }
+
+  function randomValuesStub(_prop, ctx) {
+    const { handle } = ctx;
+    return (array) => {
+      if (!isIntegerTypedArray(array)) {
+        throw makeHostError({name: "TypeMismatchError", message: "getRandomValues needs an integer typed array"});
+      }
+      const { byteLength } = array;
+      if (byteLength > RANDOM_VALUES_MAX_BYTES) {
+        throw makeHostError({name: "QuotaExceededError", message: "getRandomValues quota is 65536 bytes"});
+      }
+      const random = rehydrate(__rb_host_call(handle, "__internal_random_bytes__", dehydrateArgs([byteLength])));
+      // Never hand back an array that was not filled: a caller would take its
+      // zeros for random bytes.
+      if (!(random instanceof Uint8Array) || random.length !== byteLength) {
+        throw makeHostError({name: "OperationError", message: "the host supplied no random bytes"});
+      }
+      new Uint8Array(array.buffer, array.byteOffset, byteLength).set(random);
+      return array;
+    };
+  }
+
   // Methods whose stub is more than the generic call for their class. A factory
   // may answer null — `getAttribute` is only special on a Node — and the
   // generic stub is used then.
@@ -2075,6 +2113,7 @@ globalThis.__rbHost = (function () {
     ["hasAttribute", cachedAttrStub],
     ["setAttribute", attrWriteStub],
     ["removeAttribute", attrWriteStub],
+    ["getRandomValues", randomValuesStub],
   ]);
 
   function makeMethodStub(prop, ctx) {

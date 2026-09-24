@@ -236,30 +236,42 @@ module Dommy
   # `Element#dataset` proxy. `el.dataset.fooBar` reads / writes
   # `data-foo-bar` per the HTMLOrForeignElement.dataset spec
   # (camelCase ↔ kebab-case round-trip).
-
-  # `Element#dataset` proxy. `el.dataset.fooBar` reads / writes
-  # `data-foo-bar` per the HTMLOrForeignElement.dataset spec
-  # (camelCase ↔ kebab-case round-trip).
   class DatasetMap
     def initialize(element)
       @element = element
     end
 
     def __js_get__(key)
+      name = key.to_s
+      return Bridge::ABSENT unless supported_name?(name)
+
       # A missing data-* attribute reads as JS `undefined` (and `"foo" in dataset`
       # is false), per DOMStringMap semantics.
-      value = @element.__dommy_backend_node__[attr_name(key)]
+      value = @element.__dommy_backend_node__[attr_name(name)]
       value.nil? ? Bridge::ABSENT : value
     end
 
     def __js_set__(key, value)
-      @element.set_attribute(attr_name(key), value.to_s)
+      name = key.to_s
+      raise DOMException::SyntaxError, "#{name.inspect} is not a valid dataset name" unless supported_name?(name)
+
+      attribute = attr_name(name)
+      unless Internal::Namespaces.valid_attribute_local_name?(attribute)
+        raise DOMException::InvalidCharacterError, "#{attribute.inspect} is not a valid attribute name"
+      end
+
+      @element.set_attribute(attribute, value.to_s)
       nil
     end
 
-    # Named deleter (`delete el.dataset.foo`): removes the data-* attribute.
+    # Named deleter (`delete el.dataset.foo`): removes the data-* attribute. A
+    # name that is not supported is silently left alone (it names nothing to
+    # delete).
     def __js_delete__(key)
-      @element.remove_attribute(attr_name(key))
+      name = key.to_s
+      return true unless supported_name?(name)
+
+      @element.remove_attribute(attr_name(name))
       true
     end
 
@@ -280,6 +292,12 @@ module Dommy
     end
 
     private
+
+    # Whether `name` can be a supported property name. The camel-casing of an
+    # attribute name never leaves a `-` before an ASCII lowercase letter
+    # (`data--foo` is `Foo`, never `-foo`), so such a name is none: the getter
+    # finds nothing, the setter throws, and the deleter does nothing.
+    def supported_name?(name) = !name.match?(/-[a-z]/)
 
     def attr_name(key)
       "data-#{key.to_s.gsub(/[A-Z]/) { |m| "-#{m.downcase}" }}"

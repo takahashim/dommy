@@ -73,6 +73,9 @@ module Dommy
         %w[Comment CharacterData Node EventTarget],
         %w[ProcessingInstruction CharacterData Node EventTarget],
         %w[Document Node EventTarget],
+        # HTMLDocument is the legacy alias an HTML document reports as its
+        # most-derived interface (`document.constructor === HTMLDocument`).
+        %w[HTMLDocument Document Node EventTarget],
         %w[DocumentFragment Node EventTarget],
         # ShadowRoot is a DocumentFragment subclass; seeded so bare `node
         # instanceof ShadowRoot` (Alpine.js walks the tree with this) resolves.
@@ -198,6 +201,12 @@ module Dommy
           name = name_for(klass)
           names << name if name && !names.include?(name)
           klass = klass.superclass
+        end
+        # An HTML document reports as an HTMLDocument — the legacy alias browsers
+        # expose — so `document.constructor === HTMLDocument` and
+        # `document.__proto__ === HTMLDocument.prototype` hold.
+        if names.first == "Document" && obj.respond_to?(:html_document?) && obj.html_document?
+          names.unshift("HTMLDocument")
         end
         # WebIDL bases Dommy has no Ruby class for, so the superclass walk above
         # cannot find them.

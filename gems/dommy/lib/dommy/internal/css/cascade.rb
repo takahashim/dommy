@@ -73,14 +73,7 @@ module Dommy
           end
         end
 
-        def style_cache(document)
-          cache = document.__css_style_cache__
-          unless cache&.current?(document.style_generation)
-            cache = StyleCache.new(document.style_generation)
-            document.__css_style_cache__ = cache
-          end
-          cache
-        end
+        def style_cache(document) = StyleCache.for(document)
 
         # The RuleIndex is built lazily so author_css? (and sheetless
         # documents in general) never pay for UA-sheet selector queries.

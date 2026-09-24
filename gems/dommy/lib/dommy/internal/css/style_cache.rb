@@ -19,10 +19,22 @@ module Dommy
         attr_reader :generation
         attr_accessor :index, :counters, :author_css
 
+        # The document's cache for its current style generation, replacing a
+        # stale one.
+        def self.for(document)
+          cache = document.__css_style_cache__
+          unless cache&.current?(document.style_generation)
+            cache = new(document.style_generation)
+            document.__css_style_cache__ = cache
+          end
+          cache
+        end
+
         def initialize(generation)
           @generation = generation
           @computed = {}.compare_by_identity
           @pseudo_computed = {}
+          @directions = {}.compare_by_identity
         end
 
         def current?(generation) = @generation == generation
@@ -36,6 +48,12 @@ module Dommy
         def pseudo_computed(name, element)
           memo = (@pseudo_computed[name] ||= {}.compare_by_identity)
           memo[element] ||= yield.freeze
+        end
+
+        # The element's directionality (Directionality.direction_of), which
+        # the cascade reads for every element's `direction`.
+        def direction(element)
+          @directions[element] ||= yield
         end
       end
     end

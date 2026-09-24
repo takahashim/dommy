@@ -61,6 +61,10 @@ module WebIdlAudit
   # The IDL inheritance chain, most-derived first — the shape
   # DomInterfaces::BASE_CHAINS entries and #chain_for results must have.
   def idl_chain(name)
+    # HTMLDocument is not in the specs Dommy distills; it is the legacy alias an
+    # HTML document reports, sitting directly above Document.
+    return ["HTMLDocument", *idl_chain("Document")] if name == "HTMLDocument"
+
     chain = []
     current = name
     while current && data["interfaces"][current]

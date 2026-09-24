@@ -22,6 +22,7 @@ class TestInternalModuleApi < Minitest::Test
       each_backend_descendant static_prefilters prefilter_for
       exact_class_or_id_prefilter backend_passes? backend_root_of document_of
     ],
+    Dommy::Internal::Directionality => %w[direction_of text_dependent? reflected_dir],
     Dommy::Internal::ElementState => %w[
       html_element? html_document? enableable_element? disabled_element?
       constraint_invalid? constraint_valid? form_control_required?
@@ -30,6 +31,7 @@ class TestInternalModuleApi < Minitest::Test
     ],
     Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],
     Dommy::Internal::NodeIdentity => %w[same_node? key_for],
+    Dommy::Internal::RenderedText::Fragment => %w[set_inner set_outer],
     Dommy::Internal::TextFlattening => %w[squish],
   }.freeze
 
@@ -62,7 +64,8 @@ class TestInternalModuleApi < Minitest::Test
       __internal_note_character_data_mutation__ __internal_note_value_change__
       __internal_note_selector_state_change__ __internal_style_value_sensitive__
       __internal_style_affected_by_attribute__ __internal_style_text_sensitive__
-      __internal_inside_style_element__
+      __internal_inside_style_element__ __internal_direction_sensitive__
+      __internal_direction_sensitive_ancestor__
     ],
     Dommy::Internal::DocumentLiveRanges => %w[
       __internal_register_range__ __internal_each_live_range__ live_ranges?

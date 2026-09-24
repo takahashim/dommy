@@ -1,5 +1,9 @@
 # frozen_string_literal: true
 
+require_relative "../internal/directionality"
+require_relative "../internal/rendered_text/collector"
+require_relative "../internal/rendered_text/fragment"
+
 module Dommy
   # The HTMLElement base and the behaviour mixins its subclasses share.
   #
@@ -12,6 +16,42 @@ module Dommy
     # `lang` reflects its own content attribute ("" when absent) — not the
     # inherited language the element computes for matching.
     reflect_string :lang
+    # `dir` reflects its own content attribute, limited to only known values:
+    # ltr / rtl / auto in lowercase, "" otherwise. The computed directionality
+    # it implies is Internal::Directionality.
+    reflect_string :dir
+
+    def dir = Internal::Directionality.reflected_dir(self)
+
+    # `innerText` / `outerText` (HTML §3.2.7). The getter is the rendered text;
+    # the setter replaces the element's children (innerText) or the element
+    # itself (outerText) with the value, line breaks becoming <br>.
+    def inner_text = Internal::RenderedText::Collector.new(self).text
+
+    def inner_text=(value)
+      Internal::RenderedText::Fragment.set_inner(self, value)
+    end
+
+    def outer_text = Internal::RenderedText::Collector.new(self).text
+
+    def outer_text=(value)
+      Internal::RenderedText::Fragment.set_outer(self, value)
+    end
+
+    def __js_get__(key)
+      case key
+      when "innerText", "outerText" then inner_text
+      else super
+      end
+    end
+
+    def __js_set__(key, value)
+      case key
+      when "innerText" then self.inner_text = value
+      when "outerText" then self.outer_text = value
+      else super
+      end
+    end
 
     # HTML's form owner. A `form` content attribute names a form BY ID IN THIS
     # ELEMENT'S OWN TREE — the association never reaches out of a shadow tree,

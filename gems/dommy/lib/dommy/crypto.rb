@@ -51,6 +51,15 @@ module Dommy
 
     alias getRandomValues get_random_values
 
+    # `length` random bytes, for the JS `getRandomValues` stub: it validates the
+    # caller's typed array and copies these bytes into it, so the array's type
+    # and identity survive (see host_runtime.js's randomValuesStub). Not a WebIDL
+    # method — the stub calls it as `__internal_random_bytes__`, a name kept
+    # apart from the WebIDL `getRandomValues`.
+    def random_bytes(length)
+      Bridge::Bytes.new(SecureRandom.bytes(length).bytes)
+    end
+
     def subtle
       @subtle ||= SubtleCrypto.new(@window)
     end
@@ -65,13 +74,15 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[randomUUID getRandomValues]
+    js_methods %w[randomUUID getRandomValues __internal_random_bytes__]
     def __js_call__(method, args)
       case method
       when "randomUUID"
         random_uuid
       when "getRandomValues"
         get_random_values(args[0])
+      when "__internal_random_bytes__"
+        random_bytes(args[0])
       end
     end
   end
