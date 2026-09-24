@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
-require_relative "../internal/rendered_text"
+require_relative "../internal/rendered_text/collector"
+require_relative "../internal/rendered_text/fragment"
 
 module Dommy
   # The HTMLElement base and the behaviour mixins its subclasses share.
@@ -21,16 +22,16 @@ module Dommy
     # `innerText` / `outerText` (HTML §3.2.7). The getter is the rendered text;
     # the setter replaces the element's children (innerText) or the element
     # itself (outerText) with the value, line breaks becoming <br>.
-    def inner_text = Internal::RenderedText.get(self)
+    def inner_text = Internal::RenderedText::Collector.new(self).text
 
     def inner_text=(value)
-      Internal::RenderedText.set_inner(self, value)
+      Internal::RenderedText::Fragment.set_inner(self, value)
     end
 
-    def outer_text = Internal::RenderedText.get(self)
+    def outer_text = Internal::RenderedText::Collector.new(self).text
 
     def outer_text=(value)
-      Internal::RenderedText.set_outer(self, value)
+      Internal::RenderedText::Fragment.set_outer(self, value)
     end
 
     def __js_get__(key)

@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "test_helper"
+require "minitest/mock"
 
 # HTML's innerText / outerText (HTML §3.2.7): the getter's rendered text
 # collection, and the setter that turns line breaks into <br>. Cases mirror
@@ -88,6 +89,9 @@ class TestInnerTextGetter < Minitest::Test
   def test_select_options
     assert_equal "abc\ndef", inner_text("<select><option>abc</option><option>def")
     assert_equal "abc", inner_text("<select><option id='target'>abc</option><option>def")
+    # Text and other elements directly in a <select> have no box, also when
+    # innerText is asked of the <select> itself.
+    assert_equal "abc\nx", inner_text("<select>junk<option>abc</option><optgroup><option>x</option></optgroup><div>d")
   end
 
   def test_replaced_element_contents_are_ignored
@@ -103,6 +107,15 @@ class TestInnerTextGetter < Minitest::Test
 
   def test_closed_details_hides_non_summary_content
     assert_equal "abc", inner_text("<div><details><summary>abc</summary>123")
+  end
+
+  # With no CSS layer every computed property is unknown: visibility and
+  # white-space take their initial values, and block boxes come from the tags.
+  def test_without_a_css_layer
+    unavailable = ->(*) { raise Dommy::Internal::CSS::Parser::Unavailable }
+    Dommy::Internal::CSS::Cascade.stub(:computed_style, unavailable) do
+      assert_equal "a b\nc", inner_text("<div>a  b<div>c")
+    end
   end
 end
 
