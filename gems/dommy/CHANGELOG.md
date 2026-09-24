@@ -14,6 +14,7 @@
 - A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
 - `Bridge::Bytes.new` reads a String as the packed bytes it is, where it used to wrap it and take `to_i` of the whole thing — one zero byte, silently.
 - A static method a `Bridge::Constructor` does not have raises `TypeError` instead of answering null.
+- `location.hash = ""` leaves the "#" in `href` when there was a fragment to clear, and leaves a fragmentless URL alone. Location's setter is not the URL API's, where the empty string sets the fragment to null.
 - `take(NaN)` and `take(Infinity)` take nothing, and `drop(NaN)` drops nothing — WebIDL's `unsigned long long` answers zero for a non-finite count, where they used to mean "unlimited".
 - `reportError(e)` reports the position the error carries — its own JS frames, minus Dommy's own plumbing — where it used to report line 0 of no file. An unhandled Observable error reports through that same funnel now, so it reaches the console and the host, not only an `error` listener.
 - Setting a form control's `value` through its prototype accessor — the descriptor React's value tracker wraps — invalidates the DOM caches, so a read after `select.value = x` sees the new selection rather than the epoch's stale snapshot.

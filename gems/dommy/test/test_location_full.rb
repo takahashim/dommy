@@ -21,6 +21,27 @@ class TestLocationFull < Minitest::Test
     assert_equal("#frag", @loc.__js_get__("hash"))
   end
 
+  # Clearing a fragment that is there leaves the "#" in href — Location's setter
+  # sets the fragment to the EMPTY STRING, where the URL API's sets it to null.
+  # WPT: location-hash-setter-empty-string.html
+  def test_hash_set_empty_keeps_the_separator_when_there_was_a_fragment
+    @loc.__js_set__("hash", "frag")
+    @loc.__js_set__("hash", "")
+
+    assert_equal("", @loc.__js_get__("hash"))
+    assert(@loc.__js_get__("href").end_with?("#"), "expected a trailing # in #{@loc.__js_get__('href')}")
+  end
+
+  # A URL with no fragment has nothing to clear, so the setter leaves it alone
+  # rather than growing a "#". WPT: location_hash_set_empty_string.html
+  def test_hash_set_empty_is_a_no_op_without_a_fragment
+    before = @loc.__js_get__("href")
+    @loc.__js_set__("hash", "")
+
+    assert_equal("", @loc.__js_get__("hash"))
+    assert_equal(before, @loc.__js_get__("href"))
+  end
+
   def test_hash_set_existing_leading_hash_preserved
     @loc.__js_set__("hash", "#frag")
     assert_equal("#frag", @loc.__js_get__("hash"))

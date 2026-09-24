@@ -231,7 +231,21 @@ module Dommy
       previous_href = href
       v = value.delete_prefix("#")
       if v.empty?
-        @record.fragment = nil
+        # HTML's hash setter works on a COPY of the URL whose fragment it first
+        # sets to the EMPTY STRING, then parses the input into — so clearing a
+        # fragment that is there leaves the "#" behind: from "?q=1#x",
+        # `hash = ""` ends at "?q=1#". A URL with no fragment has nothing to
+        # clear, and the setter's final step (return unless the fragment
+        # changed) leaves it alone rather than growing a "#".
+        #
+        # This is where Location parts company with the URL API, deliberately:
+        # `url.hash = ""` sets the fragment to NULL and the "#" goes away. Both
+        # are pinned by WPT (location-hash-setter-empty-string.html and
+        # url/url-setters), so neither setter can borrow the other's rule.
+        # https://html.spec.whatwg.org/multipage/nav-history-apis.html#dom-location-hash
+        return if @record.fragment.nil?
+
+        @record.fragment = +""
       else
         @record.fragment = +""
         parse_into(v, :fragment)
