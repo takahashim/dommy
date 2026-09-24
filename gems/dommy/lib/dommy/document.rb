@@ -1799,15 +1799,16 @@ module Dommy
       end
     end
 
-    # The document's supported property names (for `"name" in document`): the
-    # `name` of each exposed element, plus the `id` of id-exposed img/object.
+    # The document's supported property names (for `"name" in document`): for
+    # each exposed element in tree order, its id when it is a named element with
+    # that name, then its name.
     def __js_named_props__
       names = []
       named_getter_nodes.each do |node|
-        n = node["name"].to_s
-        names << n unless n.empty?
         id = node["id"].to_s
-        names << id if !id.empty? && %w[img object].include?(node.name.to_s.downcase) && !n.empty?
+        names << id if named_element?(node, id)
+        name = node["name"].to_s
+        names << name if named_element?(node, name)
       end
       names.uniq
     end
@@ -1818,23 +1819,30 @@ module Dommy
     def document_named_property(name)
       return nil if name.empty?
 
-      matches = named_getter_nodes.select do |node|
-        node["name"] == name ||
-          (node["id"] == name && %w[img object].include?(node.name.to_s.downcase) && !node["name"].to_s.empty?)
-      end
-      wrapped = matches.map { |node| wrap_node(node) }.compact
+      wrapped = named_getter_nodes.select { |node| named_element?(node, name) }
+        .map { |node| wrap_node(node) }.compact
       return nil if wrapped.empty?
+      return HTMLCollection.new { document_named_property_nodes(name) } unless wrapped.length == 1
 
-      if wrapped.length == 1
-        el = wrapped.first
-        cw = el.respond_to?(:content_window) ? el.content_window : nil
-        cw || el
-      else
-        HTMLCollection.new { document_named_property_nodes(name) }
-      end
+      el = wrapped.first
+      # Only an iframe's named property is its content window; an object's is
+      # the element itself.
+      el.local_name.to_s.casecmp?("iframe") && el.respond_to?(:content_window) ? (el.content_window || el) : el
     end
 
     private
+
+    # An element is a named element with the name `name` when it is one of the
+    # exposed kinds and either carries that `name`, or is an object with that
+    # `id`, or is an img whose id it is and which also has a non-empty name.
+    def named_element?(node, name)
+      return false if name.empty?
+      return false unless %w[embed form iframe img object].include?(node.name.to_s.downcase)
+      return true if node["name"] == name
+      return true if node.name.to_s.casecmp?("object") && node["id"] == name
+
+      node.name.to_s.casecmp?("img") && node["id"] == name && !node["name"].to_s.empty?
+    end
 
     # Elements the document's named getter exposes, in tree order.
     def named_getter_nodes
@@ -1842,10 +1850,7 @@ module Dommy
     end
 
     def document_named_property_nodes(name)
-      named_getter_nodes.select do |node|
-        node["name"] == name ||
-          (node["id"] == name && %w[img object].include?(node.name.to_s.downcase) && !node["name"].to_s.empty?)
-      end.map { |node| wrap_node(node) }.compact
+      named_getter_nodes.select { |node| named_element?(node, name) }.map { |node| wrap_node(node) }.compact
     end
 
     public
