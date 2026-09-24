@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "css/style_cache"
+
 module Dommy
   module Internal
     # HTML's element directionality (HTML §3.2.6.4): the computed "ltr" / "rtl"
@@ -31,20 +33,15 @@ module Dommy
 
       module_function
 
-      # The element's computed direction: "ltr" or "rtl". Memoized per element
-      # for the document's current style generation — `direction_of` walks the
-      # ancestor chain (and, for dir=auto, the subtree), and the cascade asks
-      # every element for it, so recomputing per read would be quadratic.
+      # The element's computed direction: "ltr" or "rtl". Memoized in the
+      # document's StyleCache — `direction_of` walks the ancestor chain (and,
+      # for dir=auto, the subtree), and the cascade asks every element for it,
+      # so recomputing per read would be quadratic.
       def direction_of(element)
-        generation = cache_generation(element)
-        return compute_direction(element) unless generation
+        document = element.owner_document
+        return compute_direction(element) unless document.respond_to?(:__css_style_cache__)
 
-        memo = element.instance_variable_get(:@__direction_memo__)
-        return memo[1] if memo && memo[0] == generation
-
-        value = compute_direction(element)
-        element.instance_variable_set(:@__direction_memo__, [generation, value])
-        value
+        CSS::StyleCache.for(document).direction(element) { compute_direction(element) }
       end
 
       # The dir attribute's state — "ltr", "rtl" or "auto" — or nil for the
@@ -189,13 +186,6 @@ module Dommy
 
       def named?(element, local_name)
         html_element?(element) && element.local_name == local_name
-      end
-
-      # The style generation the memo is keyed on, or nil when there is no
-      # document to key on (then every read recomputes).
-      def cache_generation(element)
-        doc = element.respond_to?(:owner_document) ? element.owner_document : nil
-        doc.respond_to?(:style_generation) ? doc.style_generation : nil
       end
     end
   end
