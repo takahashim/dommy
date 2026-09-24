@@ -34,8 +34,16 @@ module Dommy
       copy
     end
 
+    # `children` is a [SameObject] live HTMLCollection (as on Element); the
+    # collection's block re-runs on every access, so it tracks mutations while
+    # `fragment.children === fragment.children` holds.
     def children
-      element_children
+      @live_children ||= HTMLCollection.new do
+        @__node__.element_children.each_with_object([]) do |node, out|
+          wrapped = @document.wrap_node(node)
+          out << wrapped if wrapped
+        end
+      end
     end
 
     def child_element_count
@@ -118,7 +126,7 @@ module Dommy
         # A DocumentFragment's nodeValue is null (not undefined).
         nil
       when "children"
-        element_children
+        children
       when "childNodes"
         child_nodes
       when "childElementCount"
@@ -299,13 +307,6 @@ module Dommy
     alias connected? is_connected?
 
     private
-
-    def element_children
-      @__node__.element_children.each_with_object([]) do |node, out|
-        wrapped = @document.wrap_node(node)
-        out << wrapped if wrapped
-      end
-    end
 
     # Fragments aren't part of the bubble chain; nil terminates
     # bubbling at the boundary (shadow root, detached fragment, etc.).

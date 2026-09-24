@@ -603,6 +603,10 @@ module Dommy
       case key
       when "cssText" then self.css_text = value
       when "selectorText" then self.selector_text = value
+      when "style"
+        # CSSStyleRule.style is [PutForwards=cssText]: assigning to it writes
+        # the declaration block (`rule.style = "color: red"`). nil on at-rules.
+        style&.css_text = value
       when "media"
         # CSSMediaRule#media is settable with a media-text string.
         __internal_set_media__(value.to_s) if type == MEDIA_RULE

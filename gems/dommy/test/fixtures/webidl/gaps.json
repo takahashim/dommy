@@ -975,6 +975,7 @@
   },
   "void_gaps": {},
   "arity_gaps": {},
+  "constructor_arity_gaps": {},
   "iteration_gaps": {},
   "null_to_empty_gaps": {},
   "unforgeable_gaps": {},
@@ -984,5 +985,7 @@
     "Window": "has a named getter and is not declared",
     "XMLDocument": "has a named getter and is not declared"
   },
+  "same_object_gaps": {},
+  "put_forwards_gaps": {},
   "seeded_member_gaps": {}
 }

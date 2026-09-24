@@ -208,7 +208,7 @@ module Dommy
   class HTMLMapElement < HTMLElement
     reflect_string :name
     def areas
-      HTMLCollection.new do
+      @areas ||= HTMLCollection.new do
         @__node__.css("area").map { |n| @document.wrap_node(n) }.compact
       end
     end

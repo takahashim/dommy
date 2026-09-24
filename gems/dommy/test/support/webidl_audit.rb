@@ -347,6 +347,28 @@ module WebIdlAudit
     end
   end
 
+  # WebIDL constructor `length` = the count of required arguments, stamped onto
+  # each seeded interface constructor from the JS half's CONSTRUCTOR_ARITY. An
+  # interface the IDL gives no constructor — or one whose arguments are all
+  # optional — keeps the default 0, so a name only appears in the table when its
+  # required count is nonzero. Only seeded interfaces are judged; one Dommy does
+  # not expose at all is a missing interface, recorded elsewhere.
+  def constructor_arity_gaps
+    declared = js_table("CONSTRUCTOR_ARITY")
+    gaps = {}
+    data["interfaces"].each do |interface, record|
+      next unless seeded_interfaces.include?(interface)
+
+      ctor = record["members"].find { |m| m["kind"] == "constructor" }
+      expected = ctor ? ctor["required"] : 0
+      got = declared.fetch(interface, 0)
+      next if got == expected
+
+      gaps[interface] = "length #{got} (IDL requires #{expected})"
+    end
+    gaps.sort.to_h
+  end
+
   # Every operation an interface declares that Dommy answers.
   def each_implemented_operation
     data["interfaces"].each do |interface, record|
@@ -535,6 +557,157 @@ module WebIdlAudit
     end
   end
 
+  # --- [SameObject] identity ------------------------------------------------
+  # An attribute the IDL marks [SameObject] must answer with the SAME object on
+  # every read (`el.attributes === el.attributes`). The bridge keys handles by
+  # object_id, so a JS proxy has a stable identity exactly when its Ruby object
+  # does; Ruby object identity is therefore what to check. A sample instance is
+  # built for each interface where one is cheap (below); an interface with no
+  # sample — ElementInternals, MimeTypeArray, an AudioTrackList — is left to the
+  # member inventory rather than guessed at. An attribute Dommy does not answer
+  # returns the same ABSENT sentinel twice, so a missing member is not a
+  # same-object gap.
+  def same_object_gaps
+    samples = same_object_samples
+    gaps = {}
+    data["interfaces"].each do |interface, record|
+      object = samples[interface]
+      next unless object
+
+      record["members"].each do |member|
+        next unless member["kind"] == "attribute" && member["same_object"]
+
+        first = object.__js_get__(member["name"])
+        second = object.__js_get__(member["name"])
+        next if first.equal?(second)
+
+        gaps["#{interface}.#{member['name']}"] = "answers a new object on every read"
+      end
+    end
+    gaps.sort.to_h
+  end
+
+  # [PutForwards]: `obj.attr = v` means `obj.attr.<target> = v` — assigning to a
+  # DOMTokenList-reflecting attribute rewrites the attribute's tokens, to a
+  # style attribute rewrites the declaration block, and so on. Dommy answers the
+  # write from several shapes, so the check is dynamic: write a probe value to
+  # the attribute, then read the forwarded member back and see it took. An
+  # attribute Dommy does not answer (the ABSENT sentinel, nil, or a primitive in
+  # its place) is a missing member, recorded elsewhere, and is skipped here; an
+  # attribute it answers but whose write returns Bridge::UNHANDLED is a real
+  # forwarding gap, since [PutForwards] is exactly what makes it writable.
+  PUT_FORWARDS_PROBES = {
+    "value" => ["aa bb", ->(after) { after == "aa bb" }],
+    "cssText" => ["background: blue", ->(after) { after.to_s.include?("background") }],
+    "href" => ["https://example.com/next", ->(after) { after == "https://example.com/next" }],
+    "mediaText" => ["(min-width: 2px)", ->(after) { after.to_s.include?("min-width") }]
+  }.freeze
+
+  def put_forwards_gaps
+    samples = same_object_samples
+    gaps = {}
+    data["interfaces"].each do |interface, record|
+      object = samples[interface]
+      next unless object
+
+      record["members"].each do |member|
+        next unless member["kind"] == "attribute" && member["put_forwards"]
+
+        name = member["name"]
+        target = member["put_forwards"]
+        probe = PUT_FORWARDS_PROBES[target]
+        next unless probe
+
+        inner = object.__js_get__(name)
+        next unless inner.respond_to?(:__js_get__) # ABSENT / nil / a primitive: not implemented
+
+        result = object.__js_set__(name, probe.first)
+        after = object.__js_get__(name).__js_get__(target)
+        next if probe.last.call(after)
+
+        gaps["#{interface}.#{name}"] =
+          result.equal?(Dommy::Bridge::UNHANDLED) ? "accepts no write (should forward to #{target})" : "does not forward to #{target}"
+      end
+    end
+    gaps.sort.to_h
+  end
+
+  # Sample instances for the [SameObject] check, keyed by interface name. One
+  # throwaway Window with a document exercising the collections; the CSS rule
+  # interfaces are the rules of its one stylesheet.
+  SAME_OBJECT_ELEMENTS = {
+    "HTMLAnchorElement" => "a",
+    "HTMLAreaElement" => "area",
+    "HTMLDataListElement" => "datalist",
+    "HTMLFieldSetElement" => "fieldset",
+    "HTMLFormElement" => "form",
+    "HTMLIFrameElement" => "iframe",
+    "HTMLLinkElement" => "link",
+    "HTMLMapElement" => "map",
+    "HTMLOutputElement" => "output",
+    "HTMLScriptElement" => "script",
+    "HTMLSelectElement" => "select",
+    "HTMLStyleElement" => "style",
+    "HTMLTableElement" => "table",
+    "HTMLTableRowElement" => "tr",
+    "HTMLTableSectionElement" => "tbody"
+  }.freeze
+
+  def same_object_samples
+    @same_object_samples ||= build_same_object_samples
+  end
+
+  def build_same_object_samples
+    window = Dommy::Window.new
+    document = window.document
+    document.head.inner_html = <<~HTML
+      <link rel="stylesheet" href="a.css">
+      <style>@import url("x.css"); .a { color: red } @media (min-width: 1px) { .b { color: blue } }</style>
+      <script></script>
+    HTML
+    document.body.inner_html = <<~HTML
+      <form id="f" name="f1"><input name="a"><select id="s"><option>x</option></select></form>
+      <a id="a" href="x" rel="nofollow">l</a>
+      <table id="t"><tbody><tr><td>c</td></tr></tbody></table>
+      <iframe id="if"></iframe><output id="o"></output><datalist id="dl"></datalist>
+      <fieldset id="fs"></fieldset><map id="m"><area></map>
+      <div id="dv" class="c" data-x="1"></div>
+    HTML
+    element = document.get_element_by_id("dv")
+    sheet = document.query_selector("style")&.sheet
+    rules = sheet ? sheet.css_rules.to_a : []
+    samples = {
+      "AbortController" => Dommy::AbortController.new,
+      "DataTransfer" => Dommy::DataTransfer.new,
+      "Document" => document,
+      "DocumentFragment" => document.create_document_fragment,
+      "Element" => element,
+      "Node" => element,
+      "HTMLElement" => element,
+      "Window" => window,
+      "Navigator" => window.navigator,
+      "NodeIterator" => document.create_node_iterator(element),
+      "TreeWalker" => document.create_tree_walker(element),
+      "ShadowRoot" => element.attach_shadow({"mode" => "open"}),
+      "URL" => Dommy::URL.new("https://example.com/?a=1"),
+      "Request" => Dommy::Request.new("https://example.com/", nil, window),
+      "Response" => Dommy::Response.__construct__(window, nil, nil),
+      "XMLHttpRequest" => Dommy::XMLHttpRequest.new(window),
+      "MutationRecord" => Dommy::MutationRecord.new(type: "childList", target: element),
+      "CSSStyleSheet" => sheet,
+      "StyleSheet" => sheet,
+      "CSSImportRule" => rules.find { |r| r.type == 3 },
+      "CSSStyleRule" => rules.find { |r| r.type == 1 },
+      "CSSMediaRule" => rules.find { |r| r.type == 4 },
+      "CSSGroupingRule" => rules.find { |r| r.type == 4 },
+      "CSSPageRule" => rules.find { |r| r.type == 6 }
+    }
+    SAME_OBJECT_ELEMENTS.each do |interface, selector|
+      samples[interface] = document.query_selector(selector)
+    end
+    samples
+  end
+
   # --- what sits on which prototype -----------------------------------------
   #
   # Whether a page may ASSIGN to an attribute is not audited directly: Dommy
@@ -658,11 +831,14 @@ module WebIdlAudit
       "reflect_gaps" => reflect_gaps,
       "void_gaps" => void_gaps,
       "arity_gaps" => arity_gaps,
+      "constructor_arity_gaps" => constructor_arity_gaps,
       "iteration_gaps" => iteration_gaps,
       "null_to_empty_gaps" => null_to_empty_gaps,
       "unforgeable_gaps" => unforgeable_gaps,
       "unscopable_gaps" => unscopable_gaps,
       "named_property_gaps" => named_property_gaps,
+      "same_object_gaps" => same_object_gaps,
+      "put_forwards_gaps" => put_forwards_gaps,
       "seeded_member_gaps" => seeded_member_gaps
     }
   end

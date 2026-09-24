@@ -39,7 +39,7 @@ module Dommy
     # add/remove/selectedIndex/length= helpers).
     def options
       el = self
-      HTMLOptionsCollection.new(self) do
+      @options ||= HTMLOptionsCollection.new(self) do
         el.__dommy_backend_node__.css("option").map { |n| el.document.wrap_node(n) }.compact
       end
     end
@@ -512,10 +512,10 @@ module Dommy
   # `<textarea>` — multi-line text input.
 
   class HTMLDataListElement < HTMLElement
-    # `options` — the <option> descendants, as a live HTMLCollection.
+    # `options` — the <option> descendants, as a live, [SameObject] HTMLCollection.
     def options
       el = self
-      HTMLCollection.new do
+      @options ||= HTMLCollection.new do
         el.__dommy_backend_node__.css("option").map { |n| el.document.wrap_node(n) }.compact
       end
     end

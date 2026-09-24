@@ -41,7 +41,7 @@ module Dommy
     # Own __js_call__ methods, on top of Element's.
     def cells
       el = self
-      HTMLCollection.new do
+      @cells ||= HTMLCollection.new do
         el.__dommy_backend_node__.element_children
           .select { |n| %w[td th].include?(n.name) && el.__html_ns_node__(n) }
           .map { |n| el.document.wrap_node(n) }.compact
@@ -125,7 +125,7 @@ module Dommy
 
     def rows
       el = self
-      HTMLCollection.new do
+      @rows ||= HTMLCollection.new do
         el.__dommy_backend_node__.element_children
           .select { |n| n.name == "tr" && el.__html_ns_node__(n) }
           .map { |n| el.document.wrap_node(n) }.compact
@@ -226,7 +226,7 @@ module Dommy
 
     def t_bodies
       el = self
-      HTMLCollection.new do
+      @t_bodies ||= HTMLCollection.new do
         el.__dommy_backend_node__.element_children
           .select { |n| n.name == "tbody" && el.__html_namespace_node__(n) }
           .map { |n| el.document.wrap_node(n) }.compact
@@ -235,7 +235,7 @@ module Dommy
 
     def rows
       el = self
-      HTMLCollection.new do
+      @rows ||= HTMLCollection.new do
         # Per spec: thead rows first, then the tr children of the table and of
         # tbody sections IN TREE ORDER (a direct <tr> and a <tbody>'s rows
         # interleave by document position), then tfoot rows.

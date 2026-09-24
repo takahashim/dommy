@@ -487,6 +487,22 @@ globalThis.__rbIdl = (function () {
     CSSStyleSheet: { replace: 1 }
   };
 
+  // WebIDL constructor `length` = the count of required arguments (it stops at
+  // the first optional or variadic one), stamped onto the seeded interface
+  // constructor so `Event.length === 1`, `File.length === 2`, … An interface the
+  // IDL gives no constructor, or one whose arguments are all optional, keeps the
+  // default 0 and is absent here (Blob, FormData, Document, CustomElementRegistry,
+  // the HTML element interfaces, …).
+  const CONSTRUCTOR_ARITY = {
+    BroadcastChannel: 1, ByteLengthQueuingStrategy: 1, CompositionEvent: 1,
+    CountQueuingStrategy: 1, CustomEvent: 1, DragEvent: 1, ErrorEvent: 1, Event: 1,
+    EventSource: 1, File: 2, FocusEvent: 1, HashChangeEvent: 1, InputEvent: 1,
+    KeyboardEvent: 1, MessageEvent: 1, MutationObserver: 1, PopStateEvent: 1,
+    ProcessingInstruction: 1, ProgressEvent: 1, PromiseRejectionEvent: 2,
+    Request: 1, StaticRange: 1, SubmitEvent: 1, ToggleEvent: 1, UIEvent: 1,
+    URL: 1, Worker: 1
+  };
+
   // Operations whose WebIDL return type is undefined, in every interface that
   // has them. A Ruby method returns nil for "nothing", which crosses as null;
   // for these the caller must see undefined (`el.setAttribute(...) === undefined`).
@@ -583,6 +599,7 @@ globalThis.__rbIdl = (function () {
     BODY_REFLECTED_HANDLERS,
     METHOD_ARITY,
     INTERFACE_METHOD_ARITY,
+    CONSTRUCTOR_ARITY,
     VOID_METHODS,
     INTERFACE_VOID_METHODS,
     JS_GLOBALS,

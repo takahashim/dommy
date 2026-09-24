@@ -201,11 +201,14 @@ if JsSurface.available?
     {
       "void_gaps" => "which operations answer with undefined",
       "arity_gaps" => "the WebIDL length of an operation",
+      "constructor_arity_gaps" => "the WebIDL length of a constructor",
       "iteration_gaps" => "which collections are iterable<>",
       "null_to_empty_gaps" => "which setters turn null into the empty string",
       "unforgeable_gaps" => "which members are pinned to the instance",
       "unscopable_gaps" => "which members `with` must not bind",
       "named_property_gaps" => "how named properties behave",
+      "same_object_gaps" => "which [SameObject] attributes keep one instance",
+      "put_forwards_gaps" => "which [PutForwards] attributes forward a write",
       "seeded_member_gaps" => "which members are seeded onto an interface prototype"
     }.each do |inventory, subject|
       define_method(:"test_#{inventory}_match_the_recorded_inventory") do

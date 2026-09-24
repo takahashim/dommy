@@ -774,26 +774,29 @@ module Dommy
     # as an SVGElement and be asked for `type` (WPT's moveBefore/
     # script-move-before.html has one, and the NoMethodError took the file's
     # whole harness with it).
+    # Each of these is [SameObject] in the IDL, so it is cached: the collection's
+    # block re-runs on every access, keeping it live while giving the same
+    # object back (`document.forms === document.forms`).
     def links
-      HTMLCollection.new do
+      @links ||= HTMLCollection.new do
         @backend_doc.css("a[href], area[href]").filter_map { |n| __internal_html_element_wrapper__(n) }
       end
     end
 
     def forms
-      HTMLCollection.new do
+      @forms ||= HTMLCollection.new do
         @backend_doc.css("form").filter_map { |n| __internal_html_element_wrapper__(n) }
       end
     end
 
     def scripts
-      HTMLCollection.new do
+      @scripts ||= HTMLCollection.new do
         @backend_doc.css("script").filter_map { |n| __internal_html_element_wrapper__(n) }
       end
     end
 
     def images
-      HTMLCollection.new do
+      @images ||= HTMLCollection.new do
         @backend_doc.css("img").filter_map { |n| __internal_html_element_wrapper__(n) }
       end
     end
@@ -801,7 +804,7 @@ module Dommy
     # ParentNode mixin (operates on the document's element children —
     # in practice the `<html>` root).
     def children
-      HTMLCollection.new do
+      @live_children ||= HTMLCollection.new do
         root = @backend_doc.root
         root ? [wrap_node(root)].compact : []
       end
@@ -1737,14 +1740,15 @@ module Dommy
       when "images"
         images
       when "embeds", "plugins"
-        # Both reflect the same list of <embed> elements.
-        HTMLCollection.new { @backend_doc.css("embed").map { |n| wrap_node(n) }.compact }
+        # Both reflect the same [SameObject] list of <embed> elements.
+        @embeds ||= HTMLCollection.new { @backend_doc.css("embed").map { |n| wrap_node(n) }.compact }
       when "applets"
-        # `<applet>` was removed from HTML, so this collection is always empty.
-        HTMLCollection.new { [] }
+        # `<applet>` was removed from HTML, so this [SameObject] collection is
+        # always empty.
+        @applets ||= HTMLCollection.new { [] }
       when "anchors"
         # Historically `<a name>` (with a name attribute), not every link.
-        HTMLCollection.new { @backend_doc.css("a[name]").map { |n| wrap_node(n) }.compact }
+        @anchors ||= HTMLCollection.new { @backend_doc.css("a[name]").map { |n| wrap_node(n) }.compact }
       when "styleSheets"
         style_sheets
       when "children"
@@ -2501,13 +2505,14 @@ module Dommy
     end
 
     # `document.styleSheets` — the CSSStyleSheet of each <style> and
-    # <link rel=stylesheet> in document order (CSSOM). Computed on access so
+    # <link rel=stylesheet> in document order (CSSOM). [SameObject], and live so
     # it reflects the current tree.
     def style_sheets
-      sheets = query_selector_all("style, link").filter_map do |element|
-        element.sheet if element.respond_to?(:sheet)
+      @style_sheets ||= LiveNodeList.new do
+        query_selector_all("style, link").filter_map do |element|
+          element.sheet if element.respond_to?(:sheet)
+        end
       end
-      NodeList.new(sheets)
     end
 
     def get_element_by_id(id)

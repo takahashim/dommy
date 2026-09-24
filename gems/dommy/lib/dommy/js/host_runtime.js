@@ -16,8 +16,8 @@ globalThis.__rbHost = (function () {
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS, INTERFACE_MEMBERS, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
-    BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, VOID_METHODS,
-    INTERFACE_VOID_METHODS, JS_GLOBALS,
+    BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, CONSTRUCTOR_ARITY,
+    VOID_METHODS, INTERFACE_VOID_METHODS, JS_GLOBALS,
   } = globalThis.__rbIdl;
 
   const HKEY = Symbol("rbHandle");
@@ -1370,6 +1370,10 @@ globalThis.__rbHost = (function () {
       return built;
     };
     Object.defineProperty(ctor, "name", { value: name, configurable: true });
+    // WebIDL constructor `length` = the required argument count; the stub uses a
+    // rest parameter, so stamp the spec's number where it is not 0.
+    const ctorArity = CONSTRUCTOR_ARITY[name];
+    if (ctorArity !== undefined) Object.defineProperty(ctor, "length", { value: ctorArity, configurable: true });
     ctor.prototype = proto;
     Object.defineProperty(proto, "constructor", { value: ctor, configurable: true, writable: true });
     // [Unscopable] members -> a null-prototyped @@unscopables object on the

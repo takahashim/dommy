@@ -678,7 +678,7 @@ module Dommy
 
     def elements
       el = self
-      HTMLCollection.new do
+      @elements ||= HTMLCollection.new do
         el
           .__dommy_backend_node__
           .css("input, select, textarea, button, output, fieldset")
@@ -689,8 +689,9 @@ module Dommy
       end
     end
 
+    # [SameObject]: a fieldset's custom validity lives on one ValidityState.
     def validity
-      ValidityState.new
+      @__validity ||= ValidityState.new(self)
     end
 
     # A fieldset is "barred from constraint validation": it never participates,
