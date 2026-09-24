@@ -41,6 +41,9 @@ module Dommy
       # prefix" per the modern WHATWG algorithm: ASCII whitespace (TAB, LF, FF,
       # CR, SPACE), NULL, U+002F (/), U+003E (>).
       LOCAL_FORBIDDEN = Regexp.new("[\\u0000\\u0009\\u000A\\u000C\\u000D\\u0020/>]")
+      # The same set plus U+003D (=), forbidden in a "valid attribute local
+      # name".
+      ATTRIBUTE_LOCAL_FORBIDDEN = Regexp.new("[\\u0000\\u0009\\u000A\\u000C\\u000D\\u0020/=>]")
       # Valid first code point of an element local name: ASCII alpha, U+003A (:),
       # U+005F (_), or any code point U+0080 and above.
       ELEMENT_LOCAL_START = Regexp.new("\\A[A-Za-z:_\\u0080-\\u{10FFFF}]")
@@ -49,6 +52,10 @@ module Dommy
 
       def valid_namespace_prefix?(str)
         !str.empty? && !str.match?(LOCAL_FORBIDDEN)
+      end
+
+      def valid_attribute_local_name?(str)
+        !str.empty? && !str.match?(ATTRIBUTE_LOCAL_FORBIDDEN)
       end
 
       def valid_element_local_name?(str)

@@ -236,10 +236,6 @@ module Dommy
   # `Element#dataset` proxy. `el.dataset.fooBar` reads / writes
   # `data-foo-bar` per the HTMLOrForeignElement.dataset spec
   # (camelCase ↔ kebab-case round-trip).
-
-  # `Element#dataset` proxy. `el.dataset.fooBar` reads / writes
-  # `data-foo-bar` per the HTMLOrForeignElement.dataset spec
-  # (camelCase ↔ kebab-case round-trip).
   class DatasetMap
     def initialize(element)
       @element = element
@@ -247,9 +243,7 @@ module Dommy
 
     def __js_get__(key)
       name = key.to_s
-      # A name with `-` + lowercase is not a supported property name (`data--foo`
-      # maps to `Foo`, never to `-foo`).
-      return Bridge::ABSENT if name.match?(/-[a-z]/)
+      return Bridge::ABSENT unless supported_name?(name)
 
       # A missing data-* attribute reads as JS `undefined` (and `"foo" in dataset`
       # is false), per DOMStringMap semantics.
@@ -259,11 +253,10 @@ module Dommy
 
     def __js_set__(key, value)
       name = key.to_s
-      # DOMStringMap setter: a `-` + lowercase would make the name unround-trippable.
-      raise DOMException::SyntaxError, "#{name.inspect} is not a valid dataset name" if name.match?(/-[a-z]/)
+      raise DOMException::SyntaxError, "#{name.inspect} is not a valid dataset name" unless supported_name?(name)
 
       attribute = attr_name(name)
-      unless attribute.match?(/\A[^\s<>"'\/=&]+\z/)
+      unless Internal::Namespaces.valid_attribute_local_name?(attribute)
         raise DOMException::InvalidCharacterError, "#{attribute.inspect} is not a valid attribute name"
       end
 
@@ -272,10 +265,11 @@ module Dommy
     end
 
     # Named deleter (`delete el.dataset.foo`): removes the data-* attribute. A
-    # `-` + lowercase name is silently left alone (it names nothing to delete).
+    # name that is not supported is silently left alone (it names nothing to
+    # delete).
     def __js_delete__(key)
       name = key.to_s
-      return true if name.match?(/-[a-z]/)
+      return true unless supported_name?(name)
 
       @element.remove_attribute(attr_name(name))
       true
@@ -298,6 +292,12 @@ module Dommy
     end
 
     private
+
+    # Whether `name` can be a supported property name. The camel-casing of an
+    # attribute name never leaves a `-` before an ASCII lowercase letter
+    # (`data--foo` is `Foo`, never `-foo`), so such a name is none: the getter
+    # finds nothing, the setter throws, and the deleter does nothing.
+    def supported_name?(name) = !name.match?(/-[a-z]/)
 
     def attr_name(key)
       "data-#{key.to_s.gsub(/[A-Z]/) { |m| "-#{m.downcase}" }}"

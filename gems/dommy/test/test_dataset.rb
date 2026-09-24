@@ -66,6 +66,13 @@ class TestDataset < Minitest::Test
   def test_setter_rejects_unround_trippable_names
     assert_raises(Dommy::DOMException::SyntaxError) { @ds.__js_set__("-foo", "x") }
     assert_raises(Dommy::DOMException::InvalidCharacterError) { @ds.__js_set__("foo ", "x") }
+    assert_raises(Dommy::DOMException::InvalidCharacterError) { @ds.__js_set__("a=b", "x") }
+  end
+
+  # A valid attribute local name forbids only whitespace, NULL, "/", "=" and ">".
+  def test_setter_accepts_any_other_attribute_name_characters
+    @ds.__js_set__("a<b\"c'd&e", "x")
+    assert_equal "x", @el.get_attribute("data-a<b\"c'd&e")
   end
 
   def test_named_getter_does_not_shadow_a_hyphen_name
