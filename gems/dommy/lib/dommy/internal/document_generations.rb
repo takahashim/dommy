@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "directionality"
+
 module Dommy
   module Internal
     # The counters the caches hang on: one for the tree's shape, one for what
@@ -97,31 +99,31 @@ module Dommy
         index ? index.value_sensitive? : true
       end
 
-      # Whether any element's direction depends on text or a control value —
-      # dir=auto, or a <bdi> (whose default is auto). Then a text or value
-      # change can move a computed `direction`, so the style epoch moves too.
-      # Memoized per tree generation (only a childList change adds or removes
-      # such an element).
+      # Whether any element's direction depends on text or a control value
+      # (Directionality.text_dependent?). Then a text or value change can move
+      # a computed `direction`, so the style epoch moves too. Memoized for the
+      # current tree generation (only a childList change adds or removes such
+      # an element).
       def __internal_direction_sensitive__
-        @__direction_sensitive ||= {}
-        key = tree_generation
-        return @__direction_sensitive[key] if @__direction_sensitive.key?(key)
+        generation = tree_generation
+        return @__direction_sensitive[1] if @__direction_sensitive&.first == generation
 
-        @__direction_sensitive[key] = @backend_doc.css("[dir], bdi").any? do |node|
-          node.name.to_s.casecmp?("bdi") || node["dir"].to_s.strip.casecmp?("auto")
+        sensitive = @backend_doc.css("[dir], bdi").any? do |node|
+          Directionality.text_dependent?(node.name, node["dir"])
         end
+        @__direction_sensitive = [generation, sensitive]
+        sensitive
       end
 
-      # Whether `node` sits in a subtree whose direction depends on text —
-      # a dir=auto or <bdi> ancestor (or itself). Unlike the document-wide
-      # check, this sees a detached subtree, whose text edits still change
-      # `:dir()` / `getComputedStyle().direction`.
+      # Whether `node` sits in a subtree whose direction depends on text — a
+      # text-dependent ancestor (or itself). Unlike the document-wide check,
+      # this sees a detached subtree, whose text edits still change `:dir()` /
+      # `getComputedStyle().direction`.
       def __internal_direction_sensitive_ancestor__(node)
         current = node
         while current
-          if current.respond_to?(:name)
-            return true if current.name.to_s.casecmp?("bdi") || current["dir"].to_s.strip.casecmp?("auto")
-          end
+          return true if current.respond_to?(:name) && Directionality.text_dependent?(current.name, current["dir"])
+
           current = current.respond_to?(:parent) ? current.parent : nil
         end
         false

@@ -85,6 +85,14 @@ class TestDirectionality < Minitest::Test
     assert input.matches?(":dir(rtl)")
   end
 
+  def test_computed_direction_follows_a_value_change_under_dir_auto
+    @doc.body.inner_html = "<input dir='auto' id='x'>"
+    input = @doc.get_element_by_id("x")
+    assert_equal "ltr", @win.get_computed_style(input).get_property_value("direction")
+    input.value = HEBREW
+    assert_equal "rtl", @win.get_computed_style(input).get_property_value("direction")
+  end
+
   def test_computed_style_direction
     @doc.body.inner_html = "<div dir='rtl' id='x'>hi</div>"
     element = @doc.get_element_by_id("x")

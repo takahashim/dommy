@@ -54,11 +54,25 @@ module Dommy
       def dir_state(element)
         return nil unless html_element?(element)
 
-        value = element.get_attribute("dir")
+        dir_keyword(element.get_attribute("dir"))
+      end
+
+      # The state a dir attribute value names, or nil (Undefined) for a
+      # missing or invalid one.
+      def dir_keyword(value)
         return nil if value.nil?
 
         keyword = value.downcase(:ascii)
         keyword if DIR_KEYWORDS.include?(keyword)
+      end
+
+      # Whether an element with this local name and dir attribute value takes
+      # its direction from text (or a control's value): dir=auto, or a <bdi>
+      # left in the Undefined state. Plain strings, so the mutation bookkeeping
+      # can ask it of backend nodes without wrapping them.
+      def text_dependent?(local_name, dir_value)
+        keyword = dir_keyword(dir_value)
+        keyword == "auto" || (keyword.nil? && local_name.to_s.casecmp?("bdi"))
       end
 
       # The `dir` IDL attribute: the content attribute limited to only known
