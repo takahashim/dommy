@@ -52,7 +52,6 @@
     "Sanitizer",
     "SharedWorker",
     "StorageEvent",
-    "StyleSheetList",
     "TextEvent",
     "TextTrack",
     "TextTrackCue",

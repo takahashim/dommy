@@ -110,7 +110,7 @@ module Dommy
     # elements within this (connected) shadow tree (mirrors Document#style_sheets);
     # empty for a disconnected shadow root.
     def style_sheets
-      @style_sheets ||= LiveNodeList.new do
+      @style_sheets ||= StyleSheetList.new do
         next [] unless connected?
 
         query_selector_all("style, link").filter_map do |element|

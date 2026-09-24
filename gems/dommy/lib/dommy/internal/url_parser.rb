@@ -28,12 +28,17 @@ module Dommy
         def default_port = SPECIAL[scheme]
       end
 
-      def parse(input, base_input = nil)
+      # `encoding` is the Encoding Standard name HTML's "encoding-parse a URL"
+      # hands the parser (the document's character encoding); nil means UTF-8,
+      # which is what the URL API and every other caller uses. It only changes
+      # the query, and only for a special URL that is not ws/wss (see
+      # BasicParser#query_encoding).
+      def parse(input, base_input = nil, encoding: nil)
         base = nil
         if base_input && base_input != ""
           base = base_input.is_a?(Record) ? base_input : run(base_input.to_s, nil)
         end
-        run(input.to_s, base)
+        run(input.to_s, base, encoding: encoding)
       end
 
       # The basic URL parser with a state override: `input` is read from
@@ -70,6 +75,52 @@ module Dommy
           return char unless set.call(char.ord)
 
           char.b.bytes.map { |b| format("%%%02X", b) }.join
+        end
+
+        # Spec: "percent-encode after encoding" (URL §1.3), the query state's
+        # flush. The whole buffer is encoded at once — ISO-2022-JP is stateful,
+        # so encoding code point by code point would emit a fresh escape per
+        # character — then each byte is percent-encoded if it falls in `set`. A
+        # code point the encoding cannot represent becomes the spec's numeric
+        # character reference escape ("%26%23" + decimal + "%3B").
+        def percent_encode_after_encoding(encoding_name, input, set)
+          out = +"".b
+          encode_bytes(encoding_name, input).each do |byte|
+            out << (set.call(byte) ? format("%%%02X", byte) : byte.chr)
+          end
+          out.force_encoding(::Encoding::UTF_8)
+        end
+
+        # The bytes `input` encodes to under `encoding_name` (an Encoding
+        # Standard name), or its UTF-8 bytes when the name is nil or Ruby has no
+        # matching encoding. Only a handful of the standard's names lack one
+        # (x-user-defined, replacement), and those are never a document's.
+        def encode_bytes(encoding_name, input)
+          ruby = begin
+            ::Encoding.find(encoding_name.to_s)
+          rescue ArgumentError
+            nil
+          end
+          return input.b.bytes if ruby.nil? || ruby == ::Encoding::UTF_8
+
+          begin
+            input.encode(ruby).b.bytes
+          rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError
+            per_code_point_bytes(ruby, input)
+          end
+        end
+
+        # A code point the encoding cannot represent yields the numeric-reference
+        # escape, already percent-encoded so the caller's per-byte pass leaves it
+        # alone.
+        def per_code_point_bytes(ruby, input)
+          out = +"".b
+          input.each_char do |char|
+            out << char.encode(ruby)
+          rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError
+            out << "%26%23#{char.ord}%3B"
+          end
+          out.bytes
         end
 
         def percent_decode(str)
@@ -348,8 +399,8 @@ module Dommy
 
       # ===== the basic URL parser state machine =====
 
-      def run(input, base, url: nil, state_override: nil)
-        BasicParser.new(input, base, url: url, state_override: state_override).run
+      def run(input, base, url: nil, state_override: nil, encoding: nil)
+        BasicParser.new(input, base, url: url, state_override: state_override, encoding: encoding).run
       end
 
       # The basic URL parser's state machine (url.spec.whatwg.org §4.4), one
@@ -397,7 +448,7 @@ module Dommy
           fragment: :state_fragment,
         }.freeze
 
-        def initialize(input, base, url: nil, state_override: nil)
+        def initialize(input, base, url: nil, state_override: nil, encoding: nil)
           input = input.dup
           # Strip leading/trailing C0 controls and spaces (only for a fresh
           # parse; a setter's input keeps them), then remove all ASCII
@@ -408,6 +459,7 @@ module Dommy
           @len = @chars.length
           @base = base
           @state_override = state_override
+          @encoding = encoding
           @state = state_override || :scheme_start
           @url = url || Record.new("", "", "", nil, nil, [], nil, nil)
           @buffer = +""
@@ -801,7 +853,7 @@ module Dommy
         def state_query(c)
           if c.nil? || (@state_override.nil? && c == "#")
             set = @url.special? ? method(:special_query_set?) : method(:query_set?)
-            @url.query += @buffer.each_char.map { |ch| pe(ch, set) }.join
+            @url.query += percent_encode_after_encoding(query_encoding, @buffer, set)
             @buffer = +""
             if c == "#"
               @url.fragment = +""
@@ -810,6 +862,15 @@ module Dommy
           else
             @buffer << c
           end
+        end
+
+        # Spec query state step 1: the encoding override is ignored (forced to
+        # UTF-8) when the URL is not special, or is ws/wss.
+        def query_encoding
+          return "UTF-8" if @encoding.nil? || !@url.special?
+          return "UTF-8" if @url.scheme == "ws" || @url.scheme == "wss"
+
+          @encoding
         end
 
         def state_fragment(c)

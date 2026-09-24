@@ -153,16 +153,16 @@ module Dommy
     end
   end
 
-  # `LiveNodeList` — like NodeList, but re-evaluates its source on
-  # every access. Returned by APIs whose spec says "live" — e.g.
-  # `Node.childNodes`. The constructor takes a block that yields the
-  # current array of nodes; `length`, `item`, iteration all call it.
+  # `LiveList` — the live, re-evaluating collection surface shared by
+  # `LiveNodeList` (a NodeList) and `StyleSheetList`. The constructor takes a
+  # block yielding the current array; `length`, `item` and iteration call it on
+  # every access, so a mutation between reads is seen rather than a snapshot.
   #
-  # Inherits Array so `list[i]` / `list.each` still work for callers
-  # that don't know about the live semantics, but those work off a
-  # snapshot taken at the moment of the call. The DOM-shape methods
-  # (`length`, `item`, `for_each`) re-query on every call.
-  class LiveNodeList
+  # A class rather than a module so `js_methods` / `js_method_names` compose
+  # through `superclass` the way the bridge reads them; `DomInterfaces` maps it
+  # to no interface (see NAME_OVERRIDES), so only the concrete subclasses appear
+  # in an object's interface chain.
+  class LiveList
     include Enumerable
 
     def initialize(&block)
@@ -264,6 +264,11 @@ module Dommy
         item(args[0])
       end
     end
+  end
+
+  # `LiveNodeList` — like NodeList, but re-evaluates its source on every access.
+  # Returned by APIs whose spec says "live" — e.g. `Node.childNodes`.
+  class LiveNodeList < LiveList
   end
 
   # `Node` — common base mixin. All node-like classes (Element,

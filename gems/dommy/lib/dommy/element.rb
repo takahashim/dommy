@@ -1059,7 +1059,11 @@ module Dommy
     def resolve_url(raw)
       base = @document.base_uri.to_s
       base = nil if base.empty?
-      Internal::UrlParser.serialize(Internal::UrlParser.parse(raw.to_s, base))
+      # HTML "encoding-parses" a URL-valued attribute: the document's character
+      # encoding goes to the URL parser (it decides how the query is encoded).
+      Internal::UrlParser.serialize(
+        Internal::UrlParser.parse(raw.to_s, base, encoding: @document.character_encoding)
+      )
     rescue Internal::UrlParser::Failure
       raw.to_s
     end

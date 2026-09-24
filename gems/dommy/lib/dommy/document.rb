@@ -619,6 +619,14 @@ module Dommy
       "BackCompat"
     end
 
+    # The document's character encoding, as an Encoding Standard name. Dommy
+    # holds the DOM as UTF-8 and models no other encoding; this is the one place
+    # HTML's "encoding-parse a URL" reads it from (see Element#resolve_url), so a
+    # future non-UTF-8 document has a single place to teach.
+    def character_encoding
+      "UTF-8"
+    end
+
     # ----- Public Ruby API (snake_case) -----
 
     def title
@@ -1703,8 +1711,7 @@ module Dommy
         # document.location is the same Location object as window.location.
         @default_view&.__js_get__("location")
       when "characterSet", "charset", "inputEncoding"
-        # The DOM is held as Ruby strings (UTF-8); we don't model other encodings.
-        "UTF-8"
+        character_encoding
       when "dir"
         document_element&.get_attribute("dir") || ""
       when "designMode"
@@ -2505,10 +2512,10 @@ module Dommy
     end
 
     # `document.styleSheets` — the CSSStyleSheet of each <style> and
-    # <link rel=stylesheet> in document order (CSSOM). [SameObject], and live so
-    # it reflects the current tree.
+    # <link rel=stylesheet> in document order (CSSOM). [SameObject], live, and a
+    # StyleSheetList (an indexed getter with no iterable<>, so no pair methods).
     def style_sheets
-      @style_sheets ||= LiveNodeList.new do
+      @style_sheets ||= StyleSheetList.new do
         query_selector_all("style, link").filter_map do |element|
           element.sheet if element.respond_to?(:sheet)
         end

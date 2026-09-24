@@ -364,6 +364,7 @@ globalThis.__rbIdl = (function () {
     // get-trap path, so they are deliberately absent.
     HTMLCollection: { m: ["item", "namedItem"] },
     NodeList: { m: ["item"] },
+    StyleSheetList: { m: ["item"] },
     NamedNodeMap: { m: ["item", "getNamedItem", "getNamedItemNS"] }
   };
   // WebIDL `[Unscopable]` members: each interface prototype that declares them

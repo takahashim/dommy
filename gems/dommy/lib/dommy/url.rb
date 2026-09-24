@@ -87,12 +87,15 @@ module Dommy
 
   attr_reader :search_params
 
-  def initialize(input, base = nil)
+  # `encoding` is the Encoding Standard name for HTML's "encoding-parse a URL"
+  # (the document's character encoding, used by Element#resolve_url and the
+  # hyperlink href getters); the URL API itself passes none and gets UTF-8.
+  def initialize(input, base = nil, encoding: nil)
     # An explicit JS `undefined` base means "no base" (WebIDL optional arg),
     # distinct from a string base. (JS null already arrives as nil.)
     base = nil if base.equal?(Bridge::UNDEFINED)
     base_str = base.is_a?(URL) ? base.href : base
-    @record = Internal::UrlParser.parse(input.to_s, base_str)
+    @record = Internal::UrlParser.parse(input.to_s, base_str, encoding: encoding)
     @search_params = URLSearchParams.new(@record.query.to_s, owner: self)
   rescue Internal::UrlParser::Failure => e
     # WHATWG: the URL constructor throws TypeError on a parse failure.

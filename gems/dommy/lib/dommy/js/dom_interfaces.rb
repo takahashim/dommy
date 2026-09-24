@@ -23,6 +23,11 @@ module Dommy
         "DatasetMap" => "DOMStringMap",
         "StyleDeclaration" => "CSSStyleDeclaration",
         "LiveNodeList" => "NodeList",
+        # LiveList is the shared implementation base of LiveNodeList and
+        # StyleSheetList, not an interface of its own: nil keeps it out of the
+        # chain so a StyleSheetList reports [StyleSheetList], not
+        # [StyleSheetList, LiveList].
+        "LiveList" => nil,
         "StandaloneEventTarget" => "EventTarget"
       }.freeze
 
@@ -144,6 +149,9 @@ module Dommy
         # `instanceof HTMLCollection` resolve (querySelectorAll, children, …).
         %w[NodeList], %w[HTMLCollection], %w[RadioNodeList NodeList],
         %w[HTMLFormControlsCollection HTMLCollection],
+        # StyleSheetList is an indexed-getter collection with no iterable<>:
+        # seeded so `document.styleSheets instanceof StyleSheetList` resolves.
+        %w[StyleSheetList],
         # Traversal: NodeFilter exposes only [Constant]s (NodeFilter.SHOW_ELEMENT,
         # .FILTER_ACCEPT, …); TreeWalker/NodeIterator are instances.
         %w[NodeFilter], %w[TreeWalker], %w[NodeIterator],

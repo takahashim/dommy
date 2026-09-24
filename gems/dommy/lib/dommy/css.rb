@@ -280,6 +280,14 @@ module Dommy
     end
   end
 
+  # `StyleSheetList` — the CSSStyleSheets of a document's or shadow root's
+  # <style> / <link rel=stylesheet> elements, live. Its IDL has an indexed
+  # getter and `length` but no `iterable<>`, so it gets @@iterator and NOT the
+  # values/entries/forEach that NodeList has — reporting it as a NodeList (as it
+  # once was) leaked Array.prototype's pair methods.
+  class StyleSheetList < LiveList
+  end
+
   # `CSSStyleRule#style` — a live, mutable CSSStyleDeclaration backed by a
   # rule's declaration block. Reads come from the parsed block; every write
   # reserializes the block and hands it back to the owning CSSRule, which

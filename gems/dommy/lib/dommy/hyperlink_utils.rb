@@ -151,7 +151,9 @@ module Dommy
       return nil if raw.nil?
 
       base = @document.base_uri.to_s
-      URL.new(raw, base.empty? ? nil : base)
+      # HTML "set the url" encoding-parses the href against the node document,
+      # so the document's character encoding reaches the URL parser.
+      URL.new(raw, base.empty? ? nil : base, encoding: @document.character_encoding)
     rescue Bridge::TypeError
       nil
     end
