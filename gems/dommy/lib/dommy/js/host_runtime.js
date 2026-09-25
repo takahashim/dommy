@@ -2231,6 +2231,18 @@ globalThis.__rbHost = (function () {
     return true;
   }
 
+  // A readonly WebIDL attribute is a getter-only accessor on the prototype (see
+  // the JS half's READONLY_ATTRS), so a write is a no-op in sloppy mode and a
+  // TypeError in strict — the trap has to answer false for the throw, and must
+  // not let the value become an expando shadowing the attribute.
+  function rejectReadonlyPrototypeWrite(handle, shape, t, prop) {
+    if (typeof prop !== "string") return undefined;
+    const desc = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(t), prop);
+    if (desc && typeof desc.get === "function" && desc.set === undefined) return false;
+
+    return undefined;
+  }
+
   // Legacy platform object with NO indexed setter: an array-index assignment
   // never becomes an expando — it is a no-op (sloppy) / TypeError (strict), so
   // the trap answers false. Objects WITH one (HTMLSelectElement /
@@ -2298,6 +2310,7 @@ globalThis.__rbHost = (function () {
     setImmutablePrototype,
     setUnforgeableAttribute,
     setViaPrototypeSetter,
+    rejectReadonlyPrototypeWrite,
     rejectIndexedWrite,
     rejectNamedWrite,
     setJsExpando,

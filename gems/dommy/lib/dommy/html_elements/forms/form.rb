@@ -742,9 +742,11 @@ module Dommy
 
   # `<legend>` — primarily exposes its `form` back-ref.
   class HTMLLegendElement < HTMLElement
+    # HTML: the legend's `form` is its fieldset ancestor's form owner, or null
+    # when there is no fieldset ancestor — it does not fall back to a <form> the
+    # legend merely sits inside.
     def form
-      fieldset = closest("fieldset")
-      fieldset&.closest("form") || closest("form")
+      closest("fieldset")&.form
     end
 
     def __js_get__(key)
