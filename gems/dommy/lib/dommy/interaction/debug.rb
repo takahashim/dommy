@@ -13,18 +13,19 @@ module Dommy
     class Debug
       def initialize(scope)
         @scope = scope
+        @summary = DomSummary.new(scope)
       end
 
       # A readable, sectioned summary of the visible controls.
-      def dom_summary = DomSummary.to_text(@scope)
+      def dom_summary = @summary.to_text
 
-      def forms = DomSummary.forms(@scope)
-      def links = DomSummary.links(@scope)
-      def buttons = DomSummary.buttons(@scope)
-      def fields = DomSummary.fields(@scope)
+      def forms = @summary.forms
+      def links = @summary.links
+      def buttons = @summary.buttons
+      def fields = @summary.fields
 
       # The scope's collapsed visible text content.
-      def visible_text = DomSummary.text(@scope)
+      def visible_text = @summary.text
 
       # The accessibility tree / Playwright-compatible ARIA snapshot of the
       # current scope.

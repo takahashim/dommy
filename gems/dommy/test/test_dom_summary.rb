@@ -77,6 +77,17 @@ class TestDomSummary < Minitest::Test
     main = @dom.query_selector("main")
     assert_equal 1, Dommy::Interaction::DomSummary.buttons(main).size
   end
+
+  # The class methods above are compatibility shims over an instance whose
+  # scope is fixed at construction.
+  def test_instance_interface
+    summary = Dommy::Interaction::DomSummary.new(@dom)
+    assert_equal 1, summary.buttons.size
+    assert_equal ["Back", "Edit"], summary.links.map { |l| l[:text] }
+    assert_equal "Title", summary.fields.find { |f| f[:name] == "article[title]" }[:label]
+    assert_match(/Buttons:/, summary.to_text)
+    assert_includes summary.text, "Create"
+  end
 end
 
 # The shared finder lists available candidates when a locator misses.

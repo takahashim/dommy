@@ -17,9 +17,10 @@ module Dommy
     # inherited language the element computes for matching.
     reflect_string :lang
     # `dir` reflects its own content attribute, limited to only known values:
-    # ltr / rtl / auto in lowercase, "" otherwise. The computed directionality
-    # it implies is Internal::Directionality.
-    reflect_string :dir
+    # ltr / rtl / auto in lowercase, "" otherwise. The setter reflects as is;
+    # the getter is written here, as HTMLButtonElement#type is. The computed
+    # directionality it implies is Internal::Directionality.
+    reflect_setter :dir
 
     def dir = Internal::Directionality.reflected_dir(self)
 

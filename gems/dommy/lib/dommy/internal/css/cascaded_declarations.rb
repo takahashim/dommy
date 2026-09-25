@@ -14,7 +14,10 @@ module Dommy
       # tuple — importance, cascade layer, specificity, @scope proximity, source
       # order, position in its block — and the highest tuple per property wins.
       # What that winner then computes to belongs to ComputedStyleBuilder.
-      module CascadedDeclarations
+      #
+      # The element, its RuleIndex and its pseudo-element are fixed for the two
+      # passes (custom properties, then longhands), so they are instance state.
+      class CascadedDeclarations
         # Order slot for style-attribute declarations (they have their own
         # precedence levels; the order only breaks ties among themselves).
         INLINE_ORDER = 1 << 30
@@ -38,89 +41,116 @@ module Dommy
               # Roll back the author/inline win to the UA winner; a UA-level
               # revert (or no UA declaration) behaves as unset.
               entry = entry[:origin] == :ua ? nil : ua[name]
-              return CascadedDeclarations.resolve_wide_keyword(name, "unset", parent_styles) unless entry
+              return resolve_wide_keyword(name, "unset", parent_styles) unless entry
 
               value = entry[:value].to_s
             end
 
             if WIDE_KEYWORDS.include?(value.downcase)
-              CascadedDeclarations.resolve_wide_keyword(name, value.downcase, parent_styles)
+              resolve_wide_keyword(name, value.downcase, parent_styles)
             else
               value
             end
           end
+
+          private
+
+          def resolve_wide_keyword(name, keyword, parent_styles)
+            keyword = PropertyRegistry.inherited?(name) ? "inherit" : "initial" if %w[unset revert].include?(keyword)
+            case keyword
+            when "inherit"
+              (parent_styles && parent_styles[name]) || PropertyRegistry.initial(name)
+            when "initial"
+              PropertyRegistry.initial(name)
+            end
+          end
         end
 
-        module_function
+        # The running best declaration per property, and separately the best UA
+        # declaration. This was a lambda closing over two Hashes — an object in
+        # all but name.
+        class WinnerSet
+          def initialize
+            @winners = {}
+            @ua_winners = {}
+          end
+
+          def consider(name, value, rank, origin)
+            entry = {value: value, rank: rank, origin: origin}
+            if origin == :ua && (!(current = @ua_winners[name]) || (rank <=> current[:rank]).positive?)
+              @ua_winners[name] = entry
+            end
+            if !(current = @winners[name]) || (rank <=> current[:rank]).positive?
+              @winners[name] = entry
+            end
+          end
+
+          def to_winners = Winners.new(@winners, @ua_winners)
+        end
+
+        def initialize(element, index, pseudo_element: nil)
+          @element = element
+          @index = index
+          @pseudo_element = pseudo_element
+        end
 
         # Pass 1 (css-variables-1 §3): the custom-property declarations alone,
         # which have to resolve among themselves before anything else can
         # substitute var().
-        def collect_custom(element, index, pseudo_element: nil)
-          collect(element, index, pseudo_element) do |name, value, rank, origin, consider|
-            consider.call(name, value, rank, origin) if name.start_with?("--")
+        def custom
+          collect do |name, value, rank, origin, winners|
+            winners.consider(name, value, rank, origin) if name.start_with?("--")
           end
         end
 
         # Pass 2: every other declaration, with var() substituted against the
         # resolved `custom` set BEFORE shorthand expansion — so `background:
         # var(--c)` expands the substituted value, not the literal var() text.
-        def collect_longhands(element, index, pseudo_element: nil, custom: nil)
-          collect(element, index, pseudo_element) do |name, value, rank, origin, consider|
+        def longhands(custom)
+          collect do |name, value, rank, origin, winners|
             next if name.start_with?("--")
 
             expand_declaration(name, value, custom).each do |(expanded_name, expanded_value)|
-              consider.call(expanded_name, expanded_value, rank, origin)
+              winners.consider(expanded_name, expanded_value, rank, origin)
             end
           end
         end
 
+        private
+
         # The ranking machinery both passes share: walk the declarations, hand
-        # each to `filter` along with the `consider` that keeps the best one.
-        def collect(element, index, pseudo_element)
-          winners = {}
-          ua_winners = {}
-
-          consider = lambda do |name, value, rank, origin|
-            entry = {value: value, rank: rank, origin: origin}
-            if origin == :ua && (!(current = ua_winners[name]) || (rank <=> current[:rank]).positive?)
-              ua_winners[name] = entry
-            end
-            if !(current = winners[name]) || (rank <=> current[:rank]).positive?
-              winners[name] = entry
-            end
+        # each to the block along with the winner set that keeps the best one.
+        def collect
+          winners = WinnerSet.new
+          each_declaration do |name, value, rank, origin|
+            yield name, value, rank, origin, winners
           end
-
-          each_declaration(element, index, pseudo_element) do |name, value, rank, origin|
-            yield name, value, rank, origin, consider
-          end
-
-          Winners.new(winners, ua_winners)
+          winners.to_winners
         end
 
         # Every declaration that cascades onto the element, with its
         # precedence rank: matched rules first, then the UA rules evaluated per
         # element and the style attribute (neither applies to pseudo-elements).
-        def each_declaration(element, index, pseudo_element)
-          layer_count = index.layer_count
-          index.matches_for(element, pseudo_element).each do |match|
-            layer_index = index.layer_index_of(match.layer)
+        def each_declaration
+          layer_count = @index.layer_count
+          @index.matches_for(@element, @pseudo_element).each do |match|
+            layer_index = @index.layer_index_of(match.layer)
             match.declarations.each_with_index do |decl, position|
               rank = precedence(match.origin, decl.important, match.specificity, match.order, position,
                 layer_index, match.proximity)
               yield decl.name, decl.value, rank, match.origin
             end
           end
-          return if pseudo_element
+          return if @pseudo_element
 
-          UAStylesheet.element_declarations(element).each_with_index do |(name, value, specificity), position|
+          UAStylesheet.element_declarations(@element).each_with_index do |(name, value, specificity), position|
             rank = precedence(:ua, false, specificity, 0, position, layer_count, nil)
             yield name, value, rank, :ua
           end
 
           # The style attribute is unlayered (the implicit final layer, index
           # layer_count) and unscoped (nil proximity).
-          inline_declarations(element).each_with_index do |(name, value, important), position|
+          inline_declarations.each_with_index do |(name, value, important), position|
             rank = precedence(:inline, important, [0, 0, 0], INLINE_ORDER, position, layer_count, nil)
             yield name, value, rank, :inline
           end
@@ -188,10 +218,10 @@ module Dommy
         # The element's style attribute as [name, value, important] triples.
         # (StyleDeclaration stores the same data but keeps it private; the
         # attribute string is the canonical source either way.)
-        def inline_declarations(element)
-          return [] unless element.respond_to?(:get_attribute)
+        def inline_declarations
+          return [] unless @element.respond_to?(:get_attribute)
 
-          text = element.get_attribute("style").to_s
+          text = @element.get_attribute("style").to_s
           return [] if text.empty?
 
           text.split(";").filter_map do |chunk|
@@ -207,16 +237,6 @@ module Dommy
 
             important = !value.sub!(/\s*!\s*important\s*\z/i, "").nil?
             [name, value, important]
-          end
-        end
-
-        def resolve_wide_keyword(name, keyword, parent_styles)
-          keyword = PropertyRegistry.inherited?(name) ? "inherit" : "initial" if %w[unset revert].include?(keyword)
-          case keyword
-          when "inherit"
-            (parent_styles && parent_styles[name]) || PropertyRegistry.initial(name)
-          when "initial"
-            PropertyRegistry.initial(name)
           end
         end
       end

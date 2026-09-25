@@ -49,9 +49,9 @@ module Dommy
 
         def build
           @parent_styles = parent_styles
-          @custom = resolve_custom_properties
-          @winners = CascadedDeclarations.collect_longhands(@element, @index,
-            pseudo_element: @pseudo_element, custom: @custom)
+          declarations = CascadedDeclarations.new(@element, @index, pseudo_element: @pseudo_element)
+          @custom = resolve_custom_properties(declarations)
+          @winners = declarations.longhands(@custom)
 
           result = {}
           lengths = compute_font_size_into(result)
@@ -81,8 +81,8 @@ module Dommy
         # declarations, then var()-resolved with cycle detection. An explicit
         # `initial` (or an unresolvable value) removes the entry — the
         # guaranteed-invalid value.
-        def resolve_custom_properties
-          winners = CascadedDeclarations.collect_custom(@element, @index, pseudo_element: @pseudo_element)
+        def resolve_custom_properties(declarations)
+          winners = declarations.custom
           merged = @parent_styles ? @parent_styles.select { |key, _| key.start_with?("--") } : {}
           winners.each_property do |name|
             next unless name.start_with?("--")
