@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "spec_helper"
+require "tmpdir"
 
 RSpec.describe Capybara::Dommy::Driver do
   it "tracks current_url after a visit" do
@@ -66,6 +67,25 @@ RSpec.describe Capybara::Dommy::Driver do
     expect(driver.evaluate_script("1")).to be_nil
   ensure
     Capybara::Dommy.reset_configuration!
+  end
+
+  it "saves a screenshot as a blank image plus HTML / text artifacts" do
+    Dir.mktmpdir do |dir|
+      driver = driver_for("<p>hello</p>")
+      path = File.join(dir, "shot.png")
+
+      expect(driver.save_screenshot(path)).to eq(path)
+      expect(File.binread(path).bytes.first(4)).to eq([0x89, 0x50, 0x4E, 0x47])
+      expect(File.read(File.join(dir, "shot.html"))).to include("<p>hello</p>")
+      expect(File.read(File.join(dir, "shot.txt"))).to include("hello")
+    end
+  end
+
+  it "loads a srcdoc iframe as its own document" do
+    driver = driver_for(%q{<iframe id="f" srcdoc="<p id='inner'>hello</p>"></iframe>})
+    driver.switch_to_frame(driver.find_css("#f").first)
+
+    expect(driver.find_css("#inner").first.all_text).to eq("hello")
   end
 
   it "navigates back and forward" do

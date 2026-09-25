@@ -116,7 +116,7 @@ module Capybara
 
         return unless native.respond_to?(:value=)
 
-        state = {chars: native.value.to_s.chars, caret: native.value.to_s.length, shift: false}
+        state = {chars: native.value.to_s.chars, caret: native.value.to_s.length, shift: false, submit: false}
         args.each do |arg|
           if arg.is_a?(Array)
             # A chord like [:shift, 'o'] holds its modifiers only for the
@@ -130,6 +130,9 @@ module Capybara
         end
         native.focus if native.respond_to?(:focus)
         native.value = state[:chars].join
+        # Enter's default action on an input is its form's implicit submission;
+        # a textarea received a newline instead (see #apply_key).
+        submit_owning_form if state[:submit]
       end
 
       # Computed styles for Capybara's matches_style? / style: filters,
@@ -244,10 +247,30 @@ module Capybara
         when :space
           state[:chars].insert(state[:caret], " ")
           state[:caret] += 1
+        when :backspace
+          return if state[:caret].zero?
+
+          state[:chars].delete_at(state[:caret] - 1)
+          state[:caret] -= 1
+        when :delete
+          state[:chars].delete_at(state[:caret]) if state[:caret] < state[:chars].length
         when :left
           state[:caret] = [state[:caret] - 1, 0].max
         when :right
           state[:caret] = [state[:caret] + 1, state[:chars].length].min
+        when :home
+          state[:caret] = 0
+        when :end
+          state[:caret] = state[:chars].length
+        when :enter
+          # Newline in a textarea; elsewhere (an input) the form's implicit
+          # submission runs once the value is committed.
+          if textarea?
+            state[:chars].insert(state[:caret], "\n")
+            state[:caret] += 1
+          elsif input_field?
+            state[:submit] = true
+          end
         when :shift
           state[:shift] = true
         end

@@ -76,6 +76,47 @@ RSpec.describe Capybara::Dommy::Node do
     expect(n.visible_text).to eq("ab")
   end
 
+  it "applies special keys and chords in non-JS send_keys" do
+    n = node("<input id='x'>", "#x")
+    n.send_keys("Ocean", :space, "sie", :left, "d")
+    expect(n.value).to eq("Ocean side")
+
+    n = node("<input id='x'>", "#x")
+    n.send_keys([:shift, "o"], "ceanside")
+    expect(n.value).to eq("Oceanside")
+  end
+
+  it "deletes with backspace / delete and moves to home / end" do
+    n = node("<input id='x' value='abc'>", "#x")
+    n.send_keys(:end, :backspace)
+    expect(n.value).to eq("ab")
+
+    n.send_keys(:home, "X")
+    expect(n.value).to eq("Xab")
+
+    n.send_keys(:home, :delete)
+    expect(n.value).to eq("ab")
+  end
+
+  it "inserts a newline in a textarea on :enter" do
+    n = node("<textarea id='x'></textarea>", "#x")
+    n.send_keys("a", :enter, "b")
+    expect(n.value).to eq("a\nb")
+  end
+
+  it "submits the owning form on :enter in an input" do
+    app = app_for(
+      "GET /" => html_response("<form action='/search' method='get'><input id='q' name='q'></form>"),
+      "GET /search" => html_response("<p id='done'>done</p>")
+    )
+    driver = Capybara::Dommy::Driver.new(app)
+    driver.visit("/")
+
+    driver.find_css("#q").first.send_keys("term", :enter)
+
+    expect(driver.find_css("#done")).not_to be_empty
+  end
+
   it "raises on a stale node after navigation" do
     app = app_for(
       "GET /one" => html_response("<p id='x'>one</p>"),

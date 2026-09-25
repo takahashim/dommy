@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "fileutils"
+
 module Capybara
   module Dommy
     # A Capybara driver backed by Dommy::Rack::Session. Implements the
@@ -10,6 +12,11 @@ module Capybara
     # Driver::Base (which raises Capybara::NotSupportedByDriverError).
     class Driver < Capybara::Driver::Base
       VISIBILITY_MODES = %i[all html none].freeze
+
+      # A 1x1 transparent PNG. There are no pixels to paint, but the path a
+      # screenshot is asked to save must still hold a valid image: Rails'
+      # screenshot helper reads it back for its inline / artifact output.
+      BLANK_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==".unpack1("m").freeze
 
       attr_reader :app, :visibility
 
@@ -155,6 +162,22 @@ module Capybara
 
       def response_headers
         rack_session.headers || {}
+      end
+
+      # There is no rendering surface to capture, so a "screenshot" saves the
+      # page itself: the serialized HTML and its visible text next to `path`,
+      # plus a valid blank image at `path`. Rails' take_failed_screenshot calls
+      # this for every failed system test, and letting it raise (the
+      # Driver::Base default) would mask the real failure.
+      def save_screenshot(path, **_options)
+        path = path.to_s
+        dir = ::File.dirname(path)
+        base = ::File.basename(path, ".*")
+        ::FileUtils.mkdir_p(dir)
+        ::File.binwrite(path, BLANK_PNG)
+        ::File.write(::File.join(dir, "#{base}.html"), html.to_s)
+        ::File.write(::File.join(dir, "#{base}.txt"), screenshot_text)
+        path
       end
 
       # --- Query (returns Capybara::Dommy::Node arrays) ---
@@ -309,9 +332,15 @@ module Capybara
         @frame_stack ||= []
       end
 
-      # Fetch an iframe's document, resolving its src against the enclosing
-      # frame's URL so nested frames with relative srcs load correctly.
+      # A frame's document: its `srcdoc` when present (Dommy builds it from
+      # the attribute, so there is nothing to fetch), else its `src` resolved
+      # against the enclosing frame's URL so nested relative srcs load
+      # correctly.
       def load_frame(iframe_element)
+        if (doc = srcdoc_document(iframe_element))
+          return {document: doc, url: frame_url}
+        end
+
         src = iframe_element.get_attribute("src").to_s
         raise Capybara::Dommy::Error, "iframe has no src" if src.empty?
 
@@ -321,6 +350,27 @@ module Capybara
         raise Capybara::Dommy::Error, "iframe did not return an HTML document" unless doc
 
         {document: doc, url: url}
+      end
+
+      # The document Dommy already built for a `srcdoc` frame (its URL is
+      # about:srcdoc, with the base URL inherited from the enclosing
+      # document); nil when the frame has no `srcdoc`.
+      def srcdoc_document(iframe_element)
+        srcdoc = iframe_element.get_attribute("srcdoc")
+        return nil if srcdoc.nil?
+
+        return iframe_element.content_document if iframe_element.respond_to?(:content_document) && iframe_element.content_document
+
+        Dommy.parse(srcdoc).document
+      end
+
+      def screenshot_text
+        doc = document
+        return "" unless doc
+
+        TextExtractor.new(self).visible_text(doc.body)
+      rescue StandardError
+        ""
       end
 
       # Sequential focus navigation: elements with a positive tabindex first
