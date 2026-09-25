@@ -29,7 +29,9 @@ module Dommy
       def attach(template_element, html)
         content = fragment_for(template_element)
         parsed = Parser.fragment(html.to_s, owner_doc: @document.backend_doc)
-        content.__internal_replace_all__(parsed.children.to_a)
+        nodes = parsed.children.to_a
+        content.__internal_replace_all__(nodes)
+        mark_parser_inserted_scripts(nodes)
         content
       end
 
@@ -113,8 +115,30 @@ module Dommy
           child.unlink
           fragment.add_child(child)
         end
+        mark_parser_inserted_scripts(fragment.children.to_a)
 
         @fragments[Backend.identity_key(template_node)] = fragment
+      end
+
+      # After parser-produced nodes land in a template's content fragment,
+      # clear "force async" (HTML §4.12.1.1) on every script among them
+      # (descendants included) — `attach` (innerHTML=) and `migrate_one` (the
+      # lazy migration of an already-parsed template) both bypass
+      # Document#__internal_run_parsed_insertion_steps__ and
+      # Element#mark_fragment_scripts_started, so nothing else does this for a
+      # content fragment's scripts. NOT "already started": template content has
+      # no owner document to execute a script in, so that flag guards against
+      # nothing here — only force async, which `.async` can still observe.
+      def mark_parser_inserted_scripts(nodes)
+        nodes.each do |node|
+          next unless node.respond_to?(:element?) && node.element?
+
+          if node.name == "script"
+            wrapped = @document.wrap_node(node)
+            wrapped.__internal_mark_parser_inserted__ if wrapped.respond_to?(:__internal_mark_parser_inserted__)
+          end
+          mark_parser_inserted_scripts(node.children.to_a) if node.respond_to?(:children)
+        end
       end
     end
   end

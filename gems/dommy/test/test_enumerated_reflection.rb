@@ -345,6 +345,33 @@ class TestEnumeratedReflection < Minitest::Test
     refute(created.async)
   end
 
+  # A <template>'s content is parser-produced too, but it is moved into its
+  # DocumentFragment by Internal::TemplateContentRegistry — a path that
+  # bypasses both Document#__internal_run_parsed_insertion_steps__ and
+  # Element#mark_fragment_scripts_started, so the registry has to clear force
+  # async on its own.
+  def test_a_script_parsed_via_template_inner_html_is_not_force_async
+    template = @doc.create_element("template")
+    template.inner_html = "<script>1</script>"
+
+    refute(template.content.first_child.async)
+  end
+
+  # Nested inside another element, still found and cleared.
+  def test_a_nested_script_parsed_via_template_inner_html_is_not_force_async
+    template = @doc.create_element("template")
+    template.inner_html = "<div><script>1</script></div>"
+
+    refute(template.content.query_selector("script").async)
+  end
+
+  def test_a_script_in_an_initially_parsed_template_is_not_force_async
+    win = make_window("<template><script>1</script></template>")
+    template = win.document.query_selector("template")
+
+    refute(template.content.first_child.async)
+  end
+
   # input.type: 22 keywords, missing/invalid both "text".
   def test_input_type_missing_and_invalid_default_to_text
     assert_equal("text", el("input").type)
