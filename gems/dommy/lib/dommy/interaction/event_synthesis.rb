@@ -16,17 +16,7 @@ module Dommy
       # mouseup → click. Returns true when the `click` default was prevented (the
       # caller suppresses any follow-on navigation / submission).
       def click(element)
-        dispatch(element, Dommy::PointerEvent.new("pointerdown", mouse_init))
-        dispatch(element, Dommy::MouseEvent.new("mousedown", mouse_init))
-        focus(element)
-        dispatch(element, Dommy::PointerEvent.new("pointerup", mouse_init))
-        dispatch(element, Dommy::MouseEvent.new("mouseup", mouse_init))
-        event = Dommy::MouseEvent.new("click", mouse_init)
-        # Dispatch runs the click's activation behavior itself (hyperlink
-        # navigation, form submission, the checkbox toggle plus input/change), so
-        # a synthetic click takes exactly the same path as `element.click()`.
-        element.dispatch_event(event)
-        event.default_prevented?
+        click_sequence(element, detail: 1)
       end
 
       # A secondary-button (right) click: pointerdown → mousedown → pointerup →
@@ -46,16 +36,33 @@ module Dommy
         event.default_prevented?
       end
 
-      # A double click: the full primary sequence twice, ending in `dblclick`
-      # (after the second `click`). Each click runs its own activation behavior,
-      # matching a browser where two native clicks fire two click events.
+      # A double click: the full primary sequence twice, then `dblclick` after
+      # the second `click`. Each click runs its own activation behavior, matching
+      # a browser where two native clicks fire two click events. Returns whether
+      # dblclick was prevented.
       def double_click(element)
-        click(element)
-        event = Dommy::MouseEvent.new("click", mouse_init.merge("detail" => 2))
-        element.dispatch_event(event)
+        click_sequence(element, detail: 1)
+        click_sequence(element, detail: 2)
         dbl = Dommy::MouseEvent.new("dblclick", mouse_init.merge("detail" => 2))
         element.dispatch_event(dbl)
         dbl.default_prevented?
+      end
+
+      # The full primary-button sequence for one click, with the UIEvent
+      # `detail` (1 for a single click, 2 for the second of a double click).
+      # Returns whether the click's default was prevented. Dispatch runs the
+      # click's activation behavior itself (hyperlink navigation, form
+      # submission, the checkbox toggle plus input/change), so a synthetic click
+      # takes exactly the same path as `element.click()`.
+      def click_sequence(element, detail:)
+        dispatch(element, Dommy::PointerEvent.new("pointerdown", mouse_init))
+        dispatch(element, Dommy::MouseEvent.new("mousedown", mouse_init))
+        focus(element)
+        dispatch(element, Dommy::PointerEvent.new("pointerup", mouse_init))
+        dispatch(element, Dommy::MouseEvent.new("mouseup", mouse_init))
+        event = Dommy::MouseEvent.new("click", mouse_init.merge("detail" => detail))
+        element.dispatch_event(event)
+        event.default_prevented?
       end
 
       # Run the element's focusing steps (Element#focus): moves

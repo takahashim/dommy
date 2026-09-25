@@ -52,6 +52,41 @@ class TestInteraction < Minitest::Test
     assert_equal %w[click click dblclick], seen
   end
 
+  # A double click runs the FULL primary sequence twice (so the second click
+  # activates exactly like the first), with UIEvent.detail 1 then 2, then
+  # dblclick with detail 2.
+  def test_event_synthesis_double_click_runs_the_full_sequence_twice
+    win = make_window("<button id='b'>x</button>")
+    button = win.document.get_element_by_id("b")
+    seen = []
+    %w[pointerdown mousedown focus pointerup mouseup click dblclick].each do |type|
+      button.add_event_listener(type, ->(e) { seen << [e.type, e.__js_get__("detail")] })
+    end
+
+    Dommy::Interaction::EventSynthesis.double_click(button)
+
+    assert_equal(
+      [["pointerdown", 0], ["mousedown", 0], ["focus", 0], ["pointerup", 0], ["mouseup", 0], ["click", 1],
+       ["pointerdown", 0], ["mousedown", 0], ["pointerup", 0], ["mouseup", 0], ["click", 2],
+       ["dblclick", 2]],
+      seen
+    )
+  end
+
+  # The second click's activation behavior must run too (a browser fires two
+  # click events): a checkbox toggles twice and fires input/change twice.
+  def test_event_synthesis_double_click_activates_both_clicks
+    win = make_window("<input id='c' type='checkbox'>")
+    box = win.document.get_element_by_id("c")
+    changes = 0
+    box.add_event_listener("change", ->(_e) { changes += 1 })
+
+    Dommy::Interaction::EventSynthesis.double_click(box)
+
+    refute(box.checked, "two toggles leave the checkbox unchecked")
+    assert_equal(2, changes)
+  end
+
   def test_event_synthesis_hover_enters_element_and_ancestors
     win = make_window("<div id='outer'><div id='inner'>x</div></div>")
     doc = win.document
