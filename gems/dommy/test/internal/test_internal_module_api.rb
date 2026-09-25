@@ -18,6 +18,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::AriaRole => %w[compute heading_level],
     Dommy::Internal::AriaSnapshot => %w[serialize],
     Dommy::Internal::AriaState => %w[compute],
+    Dommy::Internal::Autofill => %w[idl_exposed_value],
     Dommy::Internal::BackendPrefilter => %w[
       each_backend_descendant static_prefilters prefilter_for
       exact_class_or_id_prefilter backend_passes? backend_root_of document_of
