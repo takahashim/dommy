@@ -98,7 +98,7 @@ module Dommy
         %w[PromiseRejectionEvent Event],
         %w[ToggleEvent Event],
         %w[ErrorEvent Event],
-        %w[DOMException],
+        %w[DOMException], %w[DOMImplementation],
         # Window-exposed constructors that frameworks call bare (new X(...)).
         # Seeding them creates the global; construction routes to the window.
         %w[MutationObserver], %w[IntersectionObserver], %w[ResizeObserver],
@@ -120,6 +120,8 @@ module Dommy
         %w[PointerEvent MouseEvent UIEvent Event], %w[DragEvent MouseEvent UIEvent Event],
         %w[InputEvent UIEvent Event], %w[ClipboardEvent Event], %w[BeforeUnloadEvent Event],
         %w[ProgressEvent Event],
+        %w[StorageEvent Event], %w[TextEvent UIEvent Event],
+        %w[DeviceMotionEvent Event], %w[DeviceOrientationEvent Event],
         # Range and StaticRange are both AbstractRanges. The base interface has
         # no Ruby class, but it still has to exist for `instanceof AbstractRange`.
         %w[AbstractRange], %w[Range AbstractRange], %w[StaticRange AbstractRange],
@@ -150,7 +152,7 @@ module Dommy
         %w[CSSKeyframeRule CSSRule],
         # Collection interfaces, seeded so `result instanceof NodeList` /
         # `instanceof HTMLCollection` resolve (querySelectorAll, children, …).
-        %w[NodeList], %w[HTMLCollection], %w[RadioNodeList NodeList],
+        %w[NodeList], %w[HTMLCollection], %w[RadioNodeList NodeList], %w[DOMTokenList],
         %w[HTMLFormControlsCollection HTMLCollection],
         # StyleSheetList is an indexed-getter collection with no iterable<>:
         # seeded so `document.styleSheets instanceof StyleSheetList` resolves.

@@ -1744,6 +1744,196 @@ module Dommy
     end
   end
 
+  # `StorageEvent` — fired at a Window when a storage area changes (normally
+  # from another document on the same origin). Carries which key and area
+  # changed plus the old/new values.
+  class StorageEvent < Event
+    def initialize(type, init = nil)
+      super
+      @key = nullable_string(read_init(init, "key"))
+      @old_value = nullable_string(read_init(init, "oldValue"))
+      @new_value = nullable_string(read_init(init, "newValue"))
+      @url = (read_init(init, "url") || "").to_s
+      @storage_area = read_init(init, "storageArea")
+    end
+
+    attr_reader :key, :old_value, :new_value, :url, :storage_area
+
+    def __js_get__(key)
+      case key
+      when "key" then @key
+      when "oldValue" then @old_value
+      when "newValue" then @new_value
+      when "url" then @url
+      when "storageArea" then @storage_area
+      else super
+      end
+    end
+
+    js_methods %w[initStorageEvent]
+    def __js_call__(method, args)
+      case method
+      when "initStorageEvent"
+        raise Bridge::TypeError, "initStorageEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @key = nullable_string(args[3])
+          @old_value = nullable_string(args[4])
+          @new_value = nullable_string(args[5])
+          @url = (args[6] || "").to_s
+          @storage_area = args[7]
+        end
+        nil
+      else
+        super
+      end
+    end
+
+    private
+
+    # The IDL's nullable DOMString: a present value stringifies, null/undefined
+    # stay null rather than becoming "".
+    def nullable_string(value)
+      return nil if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+
+      value.to_s
+    end
+  end
+
+  # `TextEvent` — the legacy text-input event UI Events once defined. Kept for
+  # `document.createEvent("TextEvent")` and `initTextEvent`; the modern input
+  # path uses `InputEvent`.
+  class TextEvent < UIEvent
+    def initialize(type, init = nil)
+      super
+      @data = (read_init(init, "data") || "").to_s
+    end
+
+    attr_reader :data
+
+    def __js_get__(key)
+      case key
+      when "data"
+        @data
+      else
+        super
+      end
+    end
+
+    js_methods %w[initTextEvent]
+    def __js_call__(method, args)
+      case method
+      when "initTextEvent"
+        raise Bridge::TypeError, "initTextEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @view = args[3]
+          @data = (args[4] || "").to_s
+        end
+        nil
+      else
+        super
+      end
+    end
+  end
+
+  # `DeviceMotionEvent` — device motion sensor events. The acceleration members
+  # carry whatever the caller supplied in the init dictionary (Dommy has no
+  # sensors to read them from).
+  class DeviceMotionEvent < Event
+    def initialize(type, init = nil)
+      super
+      @acceleration = read_init(init, "acceleration")
+      @acceleration_including_gravity = read_init(init, "accelerationIncludingGravity")
+      @rotation_rate = read_init(init, "rotationRate")
+      @interval = (read_init(init, "interval") || 0).to_f
+    end
+
+    attr_reader :acceleration, :acceleration_including_gravity, :rotation_rate, :interval
+
+    def __js_get__(key)
+      case key
+      when "acceleration" then @acceleration
+      when "accelerationIncludingGravity" then @acceleration_including_gravity
+      when "rotationRate" then @rotation_rate
+      when "interval" then @interval
+      else super
+      end
+    end
+
+    js_methods %w[initDeviceMotionEvent]
+    def __js_call__(method, args)
+      case method
+      when "initDeviceMotionEvent"
+        raise Bridge::TypeError, "initDeviceMotionEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @acceleration = args[3]
+          @acceleration_including_gravity = args[4]
+          @rotation_rate = args[5]
+          @interval = (args[6] || 0).to_f
+        end
+        nil
+      else
+        super
+      end
+    end
+  end
+
+  # `DeviceOrientationEvent` — device orientation sensor events. The angles are
+  # nullable, so an unset member reads null rather than 0.
+  class DeviceOrientationEvent < Event
+    def initialize(type, init = nil)
+      super
+      @alpha = nullable_double(read_init(init, "alpha"))
+      @beta = nullable_double(read_init(init, "beta"))
+      @gamma = nullable_double(read_init(init, "gamma"))
+      @absolute = !!read_init(init, "absolute")
+    end
+
+    attr_reader :alpha, :beta, :gamma, :absolute
+
+    def __js_get__(key)
+      case key
+      when "alpha" then @alpha
+      when "beta" then @beta
+      when "gamma" then @gamma
+      when "absolute" then @absolute
+      else super
+      end
+    end
+
+    js_methods %w[initDeviceOrientationEvent]
+    def __js_call__(method, args)
+      case method
+      when "initDeviceOrientationEvent"
+        raise Bridge::TypeError, "initDeviceOrientationEvent requires a type argument" if args.empty?
+
+        unless @dispatch_flag
+          init_event(args[0], args[1], args[2])
+          @alpha = nullable_double(args[3])
+          @beta = nullable_double(args[4])
+          @gamma = nullable_double(args[5])
+          @absolute = !!args[6]
+        end
+        nil
+      else
+        super
+      end
+    end
+
+    private
+
+    def nullable_double(value)
+      return nil if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+
+      value.to_f
+    end
+  end
+
   # `AbortController` + `AbortSignal` subset. Signal fires an
   # "abort" event and flips `[:aborted]` to true when the controller's
   # `abort()` is called; otherwise it stays inert.

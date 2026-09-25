@@ -1004,25 +1004,42 @@ module Dommy
       end
     end
 
-    # Legacy `document.createEvent("EventName")` factory. Returns an
-    # Event subclass instance whose init still has to be called
-    # (`event.initEvent(type, bubbles, cancelable)`). Matches the
-    # mapping happy-dom and linkedom use.
+    # Legacy `document.createEvent("EventName")` factory. The DOM Standard
+    # matches the type ASCII case-insensitively against a fixed alias table, and
+    # throws NotSupportedError for anything else — including the plural forms it
+    # does not list. Returns an *uninitialized* event: the interface's own init
+    # method (initEvent, initMouseEvent, …) has to be called before dispatch.
+    CREATE_EVENT_ALIASES = {
+      "event" => Event,
+      "events" => Event,
+      "htmlevents" => Event,
+      "svgevents" => Event,
+      "beforeunloadevent" => BeforeUnloadEvent,
+      "compositionevent" => CompositionEvent,
+      "customevent" => CustomEvent,
+      "devicemotionevent" => DeviceMotionEvent,
+      "deviceorientationevent" => DeviceOrientationEvent,
+      "dragevent" => DragEvent,
+      "focusevent" => FocusEvent,
+      "hashchangeevent" => HashChangeEvent,
+      "keyboardevent" => KeyboardEvent,
+      "messageevent" => MessageEvent,
+      "mouseevent" => MouseEvent,
+      "mouseevents" => MouseEvent,
+      "storageevent" => StorageEvent,
+      "textevent" => TextEvent,
+      "touchevent" => TouchEvent,
+      "uievent" => UIEvent,
+      "uievents" => UIEvent
+    }.freeze
+
     def create_event(type_name)
-      name = type_name.to_s
-      event =
-        case name
-        when "CustomEvent"
-          CustomEvent.new("")
-        when "MouseEvent", "MouseEvents"
-          MouseEvent.new("")
-        when "KeyboardEvent", "KeyboardEvents"
-          KeyboardEvent.new("")
-        else
-          Event.new("")
-        end
+      klass = CREATE_EVENT_ALIASES[type_name.to_s.downcase(:ascii)]
+      raise DOMException::NotSupportedError, "The provided event type is not supported" if klass.nil?
+
       # createEvent hands back an *uninitialized* event: it has no type yet and
       # dispatching it before initEvent() is an InvalidStateError.
+      event = klass.new("")
       event.__internal_mark_uninitialized__
       event
     end

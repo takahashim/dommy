@@ -2424,10 +2424,17 @@ globalThis.__rbHost = (function () {
     const stubContext = {
       handle, nodeChain, ifaceName: shape.name, cachedAttrRead,
     };
+    // Names the page has deleted off the window. Interface constructors and
+    // other JS globals are own properties of the window proxy target, but the
+    // host also resolves them, so without a tombstone `delete window.Event`
+    // would resurrect the host-backed constructor on the next read. Re-assigning
+    // the name clears the tombstone. Only the global window is affected.
+    const deletedGlobals = new Set();
     return {
       get(t, prop, receiver) {
         if (prop === HKEY) return handle;
         if (typeof prop === "symbol") return Reflect.get(t, prop, receiver);
+        if (typeof prop === "string" && isGlobalWindow(handle) && deletedGlobals.has(prop)) return undefined;
         if (Object.hasOwn(t, prop)) return Reflect.get(t, prop, receiver);
         // [LegacyOverrideBuiltIns] (HTMLFormElement): a named control shadows the
         // prototype's methods AND accessors, so resolve it before either. An own
@@ -2518,6 +2525,7 @@ globalThis.__rbHost = (function () {
       // Each rule either claims the write or defers to the next; whatever none
       // of them claims is a host property write. See SET_RULES.
       set(t, prop, value, receiver) {
+        if (typeof prop === "string" && deletedGlobals.has(prop)) deletedGlobals.delete(prop);
         for (let i = 0; i < SET_RULES.length; i++) {
           const answer = SET_RULES[i](handle, shape, t, prop, value, receiver);
           if (answer !== undefined) return answer;
@@ -2530,6 +2538,7 @@ globalThis.__rbHost = (function () {
       // Named properties (HTMLCollection ids/names, dataset keys, attr names)
       // are reflected too — non-enumerable for [LegacyUnenumerableNamedProperties].
       getOwnPropertyDescriptor(t, prop) {
+        if (typeof prop === "string" && isGlobalWindow(handle) && deletedGlobals.has(prop)) return undefined;
         if (typeof prop !== "symbol" && Object.hasOwn(t, prop)) return Reflect.getOwnPropertyDescriptor(t, prop);
         // The global window reflects JS globals as own properties. Clamp
         // configurable (a top-level `var` is non-configurable on globalThis,
@@ -2556,6 +2565,7 @@ globalThis.__rbHost = (function () {
         return Reflect.getOwnPropertyDescriptor(t, prop);
       },
       defineProperty(t, prop, desc) {
+        if (typeof prop === "string" && deletedGlobals.has(prop)) deletedGlobals.delete(prop);
         // Cannot redefine a live indexed or read-only named property.
         if (arrayLike && isArrayIndex(prop)) return false;
         if (named && !named.writable && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
@@ -2585,12 +2595,18 @@ globalThis.__rbHost = (function () {
         return fixedShape ? false : Reflect.preventExtensions(t);
       },
       deleteProperty(t, prop) {
-        if (typeof prop !== "symbol" && Object.hasOwn(t, prop)) return Reflect.deleteProperty(t, prop);
         // The global window: deleting a JS global through the window drops it
-        // from globalThis (the shared namespace).
+        // from globalThis (the shared namespace) and tombstones the name, so the
+        // host resolution in `get` cannot resurrect it.
         if (typeof prop !== "symbol" && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) {
-          return delete globalThis[prop];
+          const removed = delete globalThis[prop];
+          if (removed) {
+            deletedGlobals.add(prop);
+            Reflect.deleteProperty(t, prop);
+          }
+          return removed;
         }
+        if (typeof prop !== "symbol" && Object.hasOwn(t, prop)) return Reflect.deleteProperty(t, prop);
         if (isIndexInRange(prop)) return false;
         if (named && typeof prop === "string") {
           if (named.writable) {
@@ -2622,6 +2638,7 @@ globalThis.__rbHost = (function () {
         return result;
       },
       has(t, prop) {
+        if (typeof prop === "string" && isGlobalWindow(handle) && deletedGlobals.has(prop)) return false;
         // An out-of-range index on an array-like is genuinely absent (`2 in
         // nodeList` is false past its length). A supported named key is present.
         if (arrayLike && isArrayIndex(prop)) return Number(prop) < liveLength() || Reflect.has(t, prop);

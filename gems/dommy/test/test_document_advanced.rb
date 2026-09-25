@@ -86,6 +86,33 @@ class TestDocumentAdvanced < Minitest::Test
     assert_kind_of(Dommy::Event, ev)
   end
 
+  def test_create_event_alias_is_ascii_case_insensitive
+    assert_kind_of(Dommy::MouseEvent, @doc.create_event("mouseevent"))
+    assert_kind_of(Dommy::MouseEvent, @doc.create_event("MOUSEEVENTS"))
+    assert_kind_of(Dommy::UIEvent, @doc.create_event("uievents"))
+  end
+
+  def test_create_event_returns_the_interfaces_create_event_can_build
+    {
+      "StorageEvent" => Dommy::StorageEvent,
+      "TextEvent" => Dommy::TextEvent,
+      "DeviceMotionEvent" => Dommy::DeviceMotionEvent,
+      "DeviceOrientationEvent" => Dommy::DeviceOrientationEvent,
+      "BeforeUnloadEvent" => Dommy::BeforeUnloadEvent,
+      "MessageEvent" => Dommy::MessageEvent,
+      "TouchEvent" => Dommy::TouchEvent
+    }.each do |name, klass|
+      assert_kind_of(klass, @doc.create_event(name), name)
+    end
+  end
+
+  def test_create_event_rejects_unlisted_types
+    ["foo", "KeyboardEvents", "U\u0130Event", "U\u0131Event"].each do |name|
+      error = assert_raises(Dommy::DOMException::NotSupportedError) { @doc.create_event(name) }
+      assert_equal("NotSupportedError", error.name)
+    end
+  end
+
   def test_init_event_after_create_event
     ev = @doc.create_event("Event")
     ev.__js_call__("initEvent", ["test", true, true])
