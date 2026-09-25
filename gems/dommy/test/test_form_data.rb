@@ -136,6 +136,16 @@ class TestFormDataFromForm < Minitest::Test
     assert_equal("hello", fd.get("bio"))
   end
 
+  # Constructing the entry list keeps the control's value; a textarea's value is
+  # already LF-normalized, and it must NOT be turned into CRLF here (that is the
+  # submission encoder's job). WPT: the-textarea-element/
+  # wrapping-transformation.window.js.
+  def test_textarea_value_keeps_its_lf_normalization
+    win = make_window("<form><textarea name='t'>a\nb\rc\r\nd\n\re</textarea></form>")
+    fd = Dommy::FormData.new(win.document.query_selector("form"))
+    assert_equal("a\nb\nc\nd\n\ne", fd.get("t"))
+  end
+
   def test_select_selected_option
     fd = Dommy::FormData.new(@form)
     assert_equal("blue", fd.get("color"))

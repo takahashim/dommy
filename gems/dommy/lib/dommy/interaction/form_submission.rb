@@ -27,6 +27,7 @@ module Dommy
         method = form_method
         params = reduce_files(entry_list.entries)
         method = apply_method_override(method, params)
+        params = normalize_line_endings(params)
         params = apply_charset(params)
 
         {
@@ -39,6 +40,20 @@ module Dommy
       end
 
       private
+
+      # The form-submission encodings normalize line breaks in names and string
+      # values to CRLF; the entry list itself keeps the control's value (a
+      # textarea's value is LF). So `new FormData(form)` reports LF while a
+      # submitted request carries CRLF, as browsers do.
+      def normalize_line_endings(pairs)
+        pairs.map do |name, value|
+          [normalize_line_ending(name), value.is_a?(String) ? normalize_line_ending(value) : value]
+        end
+      end
+
+      def normalize_line_ending(value)
+        value.gsub(/\r\n|\r|\n/, "\r\n")
+      end
 
       # The entry list, built (and `formdata` fired) with the submission's
       # encoding so a value-less hidden `_charset_` reports the right name.

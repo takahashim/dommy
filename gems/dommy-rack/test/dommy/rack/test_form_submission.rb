@@ -391,4 +391,11 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
     HTML
     assert_equal "multipart/form-data", result[:enctype]
   end
+
+  # The entry list keeps a textarea's LF value, but the submission normalizes
+  # line breaks to CRLF (matching browsers / Capybara).
+  def test_textarea_newlines_are_crlf_in_the_submitted_entries
+    result = submit("<form action='/x' method='post'><textarea name='body'>a\nb</textarea></form>")
+    assert_equal "a\r\nb", param(result, "body")
+  end
 end

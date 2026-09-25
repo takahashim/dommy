@@ -43,7 +43,7 @@ module Dommy
 
         case el.tag_name
         when "INPUT" then submitter_emitted = true if collect_input(el, data)
-        when "TEXTAREA" then collect_named(el, normalize_newlines(el.value.to_s), data)
+        when "TEXTAREA" then collect_named(el, el.value.to_s, data)
         when "SELECT" then collect_select(el, data)
         when "BUTTON" then submitter_emitted = true if collect_button(el, data)
         end
