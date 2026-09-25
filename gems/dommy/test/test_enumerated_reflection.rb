@@ -298,6 +298,22 @@ class TestEnumeratedReflection < Minitest::Test
     assert_equal("script", el("link").as_attr)
   end
 
+  # A module preload destination is a known value too (json / text / a
+  # script-like destination), while a bare Fetch request destination that is
+  # not a preload destination (audio, video, document, embed, object, …) has no
+  # state.
+  def test_link_as_accepts_module_preload_destinations_only
+    %w[json text audioworklet paintworklet worker].each do |keyword|
+      el("link").set_attribute("as", keyword)
+      assert_equal(keyword, el("link").as_attr, keyword)
+    end
+
+    %w[video audio document embed object iframe manifest xslt].each do |keyword|
+      el("link").set_attribute("as", keyword)
+      assert_equal("", el("link").as_attr, "#{keyword} is not a preload destination")
+    end
+  end
+
   # script.async: HTML's "force async" flag — true for a script this session
   # created (createElement / cloneNode) until something proves otherwise.
   def test_created_script_is_force_async

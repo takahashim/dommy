@@ -165,6 +165,11 @@ module Dommy
     # module preload destination (json, style, text, or a Fetch "script-like"
     # destination: audioworklet, paintworklet, script, serviceworker,
     # sharedworker, worker). It has no missing or invalid value default at all.
+    #
+    # Note that this is deliberately NOT the full Fetch request-destination list:
+    # audio, video, document, embed, object, frame, iframe, manifest, report and
+    # xslt are request destinations but are not preload/module-preload
+    # destinations, so `as` maps them to no state (link.as reports "").
     AS_KEYWORDS = %w[
       fetch font image script style track json text audioworklet paintworklet
       serviceworker sharedworker worker
