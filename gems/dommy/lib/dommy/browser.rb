@@ -316,8 +316,16 @@ module Dommy
     MAX_META_REFRESHES = 20
 
     def perform_navigation!(nav, rebind: false, refresh_depth: 0)
+      # A form's action is a document-relative URL; resolve it against the
+      # current address (links already arrive resolved via Location).
+      resolved = resolve_against_current(nav[:url].to_s)
+      # A `target` naming an iframe in this document navigates that nested
+      # browsing context instead of replacing the top-level page.
+      frame = resolve_target_frame(nav[:target])
+      return navigate_frame(frame, nav, resolved) if frame
+
       response, final_url = @fetcher.request(
-        method: nav[:method] || "GET", url: nav[:url], params: nav[:params],
+        method: nav[:method] || "GET", url: resolved, params: nav[:params],
         body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
       )
       return unless response&.success? && document_response?(response)
@@ -341,6 +349,42 @@ module Dommy
       end
 
       follow_meta_refresh!(refresh_depth)
+    end
+
+    # The reserved browsing-context keywords; anything else names an iframe.
+    RESERVED_TARGETS = %w[_self _top _parent _blank].freeze
+
+    # The iframe a `target` names in the current document, or nil when the
+    # target is empty / a reserved keyword / names no frame (then the navigation
+    # is top-level, the only context Dommy models).
+    def resolve_target_frame(target)
+      name = target.to_s
+      return nil if name.empty? || RESERVED_TARGETS.include?(name.downcase)
+
+      @window.document.query_selector_all("iframe").find do |frame|
+        frame.get_attribute("name").to_s == name
+      end
+    end
+
+    # Load a navigation into a nested browsing context (a named iframe): fetch
+    # it, install the response document as the frame's content, and fire the
+    # frame's `load`. The top-level window and joint history are left alone.
+    def navigate_frame(frame, nav, resolved_url)
+      response, final_url = @fetcher.request(
+        method: nav[:method] || "GET", url: resolved_url, params: nav[:params],
+        body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
+      )
+      return unless response&.success? && document_response?(response)
+
+      sub_window = Dommy.parse(response.body)
+      sub_window.location.__internal_set_url__(final_url)
+      sub_window.navigation_delegate = self
+      # A nested realm needs the seeded constructors to run the response's
+      # scripts; a runtime that cannot expose them simply runs without them.
+      @runtime.expose_constructors_on(sub_window) if @runtime.respond_to?(:expose_constructors_on)
+      frame.__internal_set_content_document__(sub_window.document)
+      frame.dispatch_event(Dommy::Event.new("load"))
+      nil
     end
 
     # If the freshly loaded document asks for an immediate `<meta http-equiv=

@@ -153,6 +153,54 @@ class TestBrowserNavigation < Minitest::Test
     assert_equal "http://localhost/", b.current_url, "prevented submit does not navigate"
   end
 
+  # A form target naming an iframe navigates that nested browsing context; the
+  # top-level document (and its history) is left alone.
+  def test_form_target_navigates_a_named_iframe
+    b = visit(
+      "/" => html(
+        "<iframe name='frame1'></iframe>" \
+        "<form id='f' method='get' action='/common/blank.html' target='frame1'>" \
+        "<input name='q' value='hi'><button id='go' type='submit'>go</button></form>"
+      ),
+      "/common/blank.html?q=hi" => html("<h1 id='r'>framed</h1>")
+    )
+
+    b.click_button("go")
+
+    iframe = b.document.query_selector("iframe")
+    assert_equal "http://localhost/", b.current_url, "the top document is not replaced"
+    assert_equal "framed", iframe.content_document.query_selector("#r").text_content
+    assert_equal "http://localhost/common/blank.html?q=hi",
+      iframe.content_window.location.__js_get__("href")
+  end
+
+  # A GET form submission always has a (possibly empty) query part, even with
+  # no successful controls.
+  def test_form_get_without_entries_keeps_a_query_part
+    b = visit(
+      "/" => html("<form id='f' method='get' action='/search'><button id='go' type='submit'>go</button></form>"),
+      "/search" => html("<h1>r</h1>")
+    )
+
+    b.document.get_element_by_id("f").request_submit
+    b.settle
+
+    assert_includes b.current_url, "?"
+  end
+
+  # "Cannot navigate" is re-checked after the entry list is constructed: a
+  # `formdata` listener that removes the form aborts the submission.
+  def test_form_removed_during_formdata_does_not_navigate
+    b = visit("/" => html("<form id='f' method='get' action='/search'><input name='q' value='hi'></form>"))
+    form = b.document.get_element_by_id("f")
+    form.add_event_listener("formdata") { form.remove }
+
+    form.request_submit
+    b.settle
+
+    assert_equal "http://localhost/", b.current_url
+  end
+
   # --- non-document responses leave the page in place ---
 
   def test_non_document_response_does_not_replace_the_page

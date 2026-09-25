@@ -118,7 +118,7 @@ module Dommy
       def get(url, headers: {}) = request(method: "GET", url: url, headers: headers)
 
       def request(method:, url:, headers: {}, body: nil)
-        entry = @map[url.to_s] || @map[Pathing.path_of(url)]
+        entry = lookup(url)
         return nil unless entry
 
         if entry.is_a?(Hash)
@@ -134,6 +134,24 @@ module Dommy
         else
           Response.new(status: 200, status_text: "OK", headers: {}, body: entry.to_s, url: url.to_s, redirected: false)
         end
+      end
+
+      private
+
+      # A key may be the URL as given, its bare path, or a path with its query
+      # (`"/search?q=hi"`), so a form GET against a fully-resolved absolute URL
+      # still finds the entry.
+      def lookup(url)
+        given = url.to_s
+        return @map[given] if @map.key?(given)
+
+        path = Pathing.path_of(given)
+        return @map[path] if @map.key?(path)
+
+        uri = URI.parse(given)
+        uri.query ? @map["#{uri.path}?#{uri.query}"] : nil
+      rescue URI::InvalidURIError
+        nil
       end
     end
 

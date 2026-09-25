@@ -175,6 +175,10 @@ module Dommy
       return if win.nil?
 
       result = Dommy::Interaction::FormSubmission.new(self, submitter).submit!
+      # HTML re-runs "cannot navigate" after constructing the entry list: the
+      # `formdata` event may have removed the form (or its document).
+      return unless is_connected?
+
       win.__internal_navigate__(
         url: result[:url], method: result[:method], params: result[:params],
         enctype: result[:enctype], target: result[:target], source: :form

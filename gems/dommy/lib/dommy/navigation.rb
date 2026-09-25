@@ -117,13 +117,15 @@ module Dommy
       end
 
       # Merge ordered [name, value] params into `url`'s query, keeping any
-      # existing query and a trailing fragment (browser address-bar form).
+      # existing query and a trailing fragment (browser address-bar form). A GET
+      # form submission always has a (possibly empty) query part, so an empty
+      # entry list still leaves a trailing "?".
       def append_query(url, params)
         encoded = URI.encode_www_form(params)
-        return url if encoded.empty?
-
         base, hash, fragment = url.to_s.partition("#")
-        sep = base.include?("?") ? "&" : "?"
+        sep = base.include?("?") ? (encoded.empty? ? "" : "&") : "?"
+        return url if encoded.empty? && sep.empty?
+
         "#{base}#{sep}#{encoded}#{hash}#{fragment}"
       end
 
