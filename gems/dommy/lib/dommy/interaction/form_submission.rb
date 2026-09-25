@@ -24,6 +24,7 @@ module Dommy
       def submit!
         method = form_method
         params = collect_params
+        params = fire_formdata(params)
         method = apply_method_override(method, params)
         params = apply_charset(params)
 
@@ -262,6 +263,25 @@ module Dommy
         else
           collection.length.times { |i| yield collection.item(i) }
         end
+      end
+
+      # HTML "constructing the entry list": after collecting the controls, fire
+      # a `formdata` event carrying a FormData so a listener can add/remove
+      # entries. The (possibly mutated) entries become the submission data.
+      def fire_formdata(pairs)
+        return pairs if @form.instance_variable_get(:@constructing_entry_list)
+
+        data = Dommy::FormData.new
+        pairs.each { |name, value| data.append(name, value) }
+        @form.instance_variable_set(:@constructing_entry_list, true)
+        begin
+          @form.dispatch_event(
+            Dommy::FormDataEvent.new("formdata", "formData" => data, "bubbles" => true)
+          )
+        ensure
+          @form.instance_variable_set(:@constructing_entry_list, false)
+        end
+        data.entries
       end
     end
   end

@@ -1108,6 +1108,25 @@ module Dommy
     end
   end
 
+  # FormDataEvent — fired at a form while constructing the entry list for a
+  # submission. Exposes the `formData` being built so a listener can append,
+  # set, or delete entries; the mutated FormData is what gets submitted.
+  class FormDataEvent < Event
+    attr_reader :form_data
+
+    def initialize(type, init = nil)
+      super
+      @form_data = read_init(init, "formData")
+    end
+
+    def __js_get__(key)
+      case key
+      when "formData" then @form_data
+      else super
+      end
+    end
+  end
+
   # `ErrorEvent` — the event interface for an uncaught error (fired at
   # `window.onerror`). Error-reporting code constructs it directly
   # (`new ErrorEvent("error", { message, error, … })`); without the constructor

@@ -88,6 +88,7 @@ module Dommy
         %w[PopStateEvent Event],
         %w[HashChangeEvent Event],
         %w[SubmitEvent Event],
+        %w[FormDataEvent Event],
         %w[CloseEvent Event],
         %w[UIEvent Event],
         %w[MouseEvent UIEvent Event],
