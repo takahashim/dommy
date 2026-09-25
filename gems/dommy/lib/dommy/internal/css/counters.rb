@@ -14,25 +14,33 @@ module Dommy
       # resolves counters. Counter properties on pseudo-elements themselves are
       # not honored (the common `li { counter-increment }` + `li::before {
       # content: counter() }` works because the value is computed at the element).
-      module Counters
-        module_function
+      #
+      # The loop is a tree walk: `style_for` and the two accumulators stay fixed
+      # for the whole document and are instance state; only the recursion depth
+      # changes per call and stays a parameter.
+      class CounterMap
+        # `style_for` answers an element's computed style. It is a parameter, not
+        # a call into Cascade, because the cascade is what asks for the counters:
+        # taking it as an argument keeps the dependency one-way and lets this
+        # class be read, and tested, on its own.
+        def initialize(style_for)
+          @style_for = style_for
+          @state = Hash.new { |hash, key| hash[key] = [] }
+          @result = {}.compare_by_identity
+        end
 
         # element => { counter_name => [outermost..innermost values] } for the
         # whole document, computed in tree order. `counter()` reads the innermost
         # (last) value; `counters()` joins the whole stack.
-        #
-        # `style_for` answers an element's computed style. It is a parameter, not
-        # a call into Cascade, because the cascade is what asks for the counters:
-        # taking it as an argument keeps the dependency one-way and lets this
-        # module be read, and tested, on its own.
-        def build(document, style_for)
-          result = {}.compare_by_identity
+        def build(document)
           root = document.respond_to?(:document_element) ? document.document_element : nil
-          return result unless root
+          return @result unless root
 
-          walk(root, 0, Hash.new { |hash, key| hash[key] = [] }, result, style_for)
-          result
+          walk(root, 0)
+          @result
         end
+
+        private
 
         # Depth-first in document order. Each counter instance records the depth
         # of its creating element. Returns the names this element *instantiated*
@@ -40,43 +48,44 @@ module Dommy
         # all of its children — a counter's scope extends to its originating
         # element's following siblings (and their descendants), i.e. to the end
         # of the parent's child list.
-        def walk(element, depth, state, result, style_for)
-          created = apply_counter_ops(element, depth, state, style_for)
-          result[element] = snapshot(state)
+        def walk(element, depth)
+          created = apply_counter_ops(element, depth)
+          @result[element] = snapshot
 
           children_created = []
           element_children(element).each do |child|
-            children_created.concat(walk(child, depth + 1, state, result, style_for))
+            children_created.concat(walk(child, depth + 1))
           end
           children_created.reverse_each do |name|
-            state[name].pop
-            state.delete(name) if state[name].empty?
+            @state[name].pop
+            @state.delete(name) if @state[name].empty?
           end
 
           created
         end
 
         # Apply the element's counter properties (reset, then increment, then
-        # set) to `state`, returning the names for which it pushed a new instance.
-        # A counter-reset whose innermost in-scope counter was created at the same
-        # depth (a preceding sibling at the same nesting level) resets that one in
-        # place rather than nesting. counter-increment / counter-set on a name
-        # with no in-scope counter implicitly create one (value 0) here.
-        def apply_counter_ops(element, depth, state, style_for)
-          style = style_for.call(element)
+        # set) to `@state`, returning the names for which it pushed a new
+        # instance. A counter-reset whose innermost in-scope counter was created
+        # at the same depth (a preceding sibling at the same nesting level)
+        # resets that one in place rather than nesting. counter-increment /
+        # counter-set on a name with no in-scope counter implicitly create one
+        # (value 0) here.
+        def apply_counter_ops(element, depth)
+          style = @style_for.call(element)
           return [] unless style
 
           created = []
           counter_list(style["counter-reset"], 0).each do |name, value|
-            created << name if reset_counter(state, name, value, depth)
+            created << name if reset_counter(name, value, depth)
           end
           counter_list(style["counter-increment"], 1).each do |name, value|
-            created << name if ensure_counter(state, name, depth)
-            state[name].last[:value] += value
+            created << name if ensure_counter(name, depth)
+            @state[name].last[:value] += value
           end
           counter_list(style["counter-set"], 0).each do |name, value|
-            created << name if ensure_counter(state, name, depth)
-            state[name].last[:value] = value
+            created << name if ensure_counter(name, depth)
+            @state[name].last[:value] = value
           end
           created
         end
@@ -85,8 +94,8 @@ module Dommy
         # at this same depth (a sibling at the same level), reset it in place
         # (returns false — no new instance). Otherwise nest a new instance
         # (returns true).
-        def reset_counter(state, name, value, depth)
-          stack = state[name]
+        def reset_counter(name, value, depth)
+          stack = @state[name]
           if !stack.empty? && stack.last[:depth] == depth
             stack.last[:value] = value
             false
@@ -96,15 +105,15 @@ module Dommy
           end
         end
 
-        def ensure_counter(state, name, depth)
-          return false unless state[name].empty?
+        def ensure_counter(name, depth)
+          return false unless @state[name].empty?
 
-          state[name].push({value: 0, depth: depth})
+          @state[name].push({value: 0, depth: depth})
           true
         end
 
-        def snapshot(state)
-          state.each_with_object({}) do |(name, stack), snap|
+        def snapshot
+          @state.each_with_object({}) do |(name, stack), snap|
             snap[name] = stack.map { |instance| instance[:value] } unless stack.empty?
           end
         end
@@ -145,8 +154,19 @@ module Dommy
 
           element.children.to_a
         end
+      end
 
-        # ---- counter() / counters() resolution (generated-content text) ----
+      # The value walk lives in CounterMap; what remains here is `counter()` /
+      # `counters()` resolution (generated-content text), pure formatting over an
+      # element's `{ name => stack }`.
+      module Counters
+        module_function
+
+        # element => { counter_name => [outermost..innermost values] } for the
+        # whole document. See CounterMap.
+        def build(document, style_for)
+          CounterMap.new(style_for).build(document)
+        end
 
         # Replace each `counter()` / `counters()` in a `content` value with a
         # double-quoted CSS string of its resolved text, so the caller's normal
@@ -222,6 +242,8 @@ module Dommy
           inner = token[1...-1].to_s
           inner.gsub(/\\(.)/) { Regexp.last_match(1) }
         end
+
+        private_class_method :resolve_function, :format, :alpha, :roman, :quote, :unquote
       end
     end
   end
