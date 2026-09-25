@@ -64,6 +64,29 @@ class TestDocument < Minitest::Test
     assert_equal(false, @doc.__js_get__("hidden"))
   end
 
+  # Document carries the event handler IDL attributes of GlobalEventHandlers /
+  # DocumentAndElementEventHandlers plus its own onreadystatechange: assigning
+  # one registers a listener (not a JS expando) and reading it returns the
+  # handler. WPT: html/dom/documents/resource-metadata-management/
+  # document-readyState.html.
+  def test_event_handler_properties_are_wired
+    assert_nil(@doc.__js_get__("onreadystatechange"))
+
+    states = []
+    handler = proc { states << @doc.__js_get__("readyState") }
+    @doc.__js_set__("onreadystatechange", handler)
+    assert_same(handler, @doc.__js_get__("onreadystatechange"))
+
+    @doc.__internal_set_ready_state__("loading")
+    @doc.__internal_set_ready_state__("interactive")
+    @doc.__internal_set_ready_state__("complete")
+
+    assert_equal(%w[loading interactive complete], states)
+
+    @doc.__js_set__("onreadystatechange", nil)
+    assert_nil(@doc.__js_get__("onreadystatechange"))
+  end
+
   def test_location_is_window_location
     assert_same(@win.__js_get__("location"), @doc.__js_get__("location"))
   end

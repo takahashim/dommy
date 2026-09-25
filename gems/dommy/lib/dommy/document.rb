@@ -1693,6 +1693,14 @@ module Dommy
     end
 
     def __js_get__(key)
+      if key.start_with?("on") && key.length > 2
+        # An event handler IDL attribute (GlobalEventHandlers /
+        # DocumentAndElementEventHandlers, plus onreadystatechange and
+        # onvisibilitychange): the registered handler, or null when unset —
+        # matching Element's on* getter.
+        return @on_handlers&.[](event_name_from_on(key))
+      end
+
       case key
       when "body"
         body
@@ -1879,6 +1887,14 @@ module Dommy
     public
 
     def __js_set__(key, value)
+      if key.start_with?("on") && key.length > 2
+        # `document.onXxx = fn` registers fn as a single named handler; nil
+        # removes it. Without this the assignment became a plain JS expando and
+        # the handler never fired (e.g. `document.onreadystatechange`).
+        set_on_handler(event_name_from_on(key), value)
+        return nil
+      end
+
       case key
       when "title"
         write_title(value.to_s)
