@@ -2091,9 +2091,11 @@ module Dommy
     # The parser built the tree without any insertion or attribute steps
     # running: give the elements that depend on them their due, once the
     # document exists. Every details gets its insertion steps (the toggle event
-    # it owes, its exclusive accordion group settled), and every select has its
+    # it owes, its exclusive accordion group settled), every select has its
     # list of options settled (a single-select the parser left with no, or
-    # several, selected options).
+    # several, selected options), and every script has its "force async" flag
+    # cleared (HTML §4.12.1.1: the HTML/XML parser clears it on every element it
+    # inserts, so a plain parsed `<script>` reports `.async === false`).
     def __internal_run_parsed_insertion_steps__
       return nil unless @backend_doc.respond_to?(:css)
 
@@ -2103,6 +2105,7 @@ module Dommy
       elements = @backend_doc.css("details").filter_map { |node| __internal_html_element_wrapper__(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
       @backend_doc.css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
+      @backend_doc.css("script").each { |node| __internal_html_element_wrapper__(node)&.__internal_mark_parser_inserted__ }
       nil
     end
 

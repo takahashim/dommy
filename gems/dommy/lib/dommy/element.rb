@@ -101,16 +101,22 @@ module Dommy
 
     # Per the HTML fragment parsing algorithm, a <script> created while parsing a
     # fragment (innerHTML / insertAdjacentHTML / outerHTML) has its "already
-    # started" flag set, so it never executes when inserted. Flag every script in
-    # the freshly parsed backend subtree before the connection notification —
-    # which is what would otherwise run them — fires.
+    # started" flag set, so it never executes when inserted — and, like any
+    # element the HTML parser inserts, its "force async" flag is cleared (HTML
+    # §4.12.1.1), so an async-less one reports `.async === false` rather than
+    # the "script this session created" default. Flag every script in the
+    # freshly parsed backend subtree before the connection notification — which
+    # is what would otherwise run them — fires.
     def mark_fragment_scripts_started(backend_nodes)
       backend_nodes.each do |nk|
         next unless nk.respond_to?(:element?) && nk.element?
 
         if nk.name == "script"
           wrapped = @document.wrap_node(nk)
-          wrapped&.__internal_mark_script_already_started__ if wrapped.respond_to?(:__internal_mark_script_already_started__)
+          if wrapped.respond_to?(:__internal_mark_script_already_started__)
+            wrapped.__internal_mark_script_already_started__
+            wrapped.__internal_mark_parser_inserted__
+          end
         end
         mark_fragment_scripts_started(nk.children.to_a) if nk.respond_to?(:children)
       end

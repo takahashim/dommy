@@ -106,6 +106,7 @@ class TestEnumeratedReflection < Minitest::Test
       <video id="video"></video>
       <table><tr><th id="th"></th></tr></table>
       <link id="link">
+      <script id="script"></script>
     HTML
     @doc = @win.document
   end
@@ -295,5 +296,52 @@ class TestEnumeratedReflection < Minitest::Test
 
     el("link").set_attribute("as", "SCRIPT")
     assert_equal("script", el("link").as_attr)
+  end
+
+  # script.async: HTML's "force async" flag — true for a script this session
+  # created (createElement / cloneNode) until something proves otherwise.
+  def test_created_script_is_force_async
+    created = @doc.create_element("script")
+
+    assert(created.async)
+    refute(created.has_attribute?("async"))
+  end
+
+  def test_cloned_script_is_force_async
+    clone = el("script").clone_node(false)
+
+    assert(clone.async)
+  end
+
+  def test_parsed_script_is_not_force_async
+    refute(el("script").async)
+  end
+
+  def test_parser_inserted_via_inner_html_is_not_force_async
+    @doc.body.inner_html = "<script id='fresh'></script>"
+
+    refute(el("fresh").async)
+  end
+
+  def test_setting_async_true_reflects_and_clears_force_async
+    created = @doc.create_element("script")
+    created.async = true
+
+    assert(created.has_attribute?("async"))
+    assert(created.async)
+
+    created.async = false
+    refute(created.has_attribute?("async"))
+    refute(created.async)
+  end
+
+  def test_adding_the_async_attribute_clears_force_async
+    created = @doc.create_element("script")
+    created.set_attribute("async", "")
+
+    assert(created.async)
+
+    created.remove_attribute("async")
+    refute(created.async)
   end
 end
