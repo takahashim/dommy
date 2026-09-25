@@ -247,3 +247,92 @@ class TestNavigation < Minitest::Test
     assert_equal("#frag", @win.location.__js_get__("hash"))
   end
 end
+
+# HTML's submit algorithm runs interactive constraint validation before firing
+# `submit` — unless the submitter's no-validate state is set. `form.submit()`
+# bypasses both. WPT: html/semantics/forms/form-submission-0/.
+class TestFormConstraintValidationOnSubmit < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window(
+      "<form id='f' action='/save' method='post'>" \
+      "<input id='req' name='title' required>" \
+      "<button id='go' type='submit'>go</button>" \
+      "</form>"
+    )
+    @doc = @win.document
+    @delegate = @win.navigation_delegate
+    @form = @doc.get_element_by_id("f")
+    @req = @doc.get_element_by_id("req")
+    @submits = []
+    @form.add_event_listener("submit", ->(_e) { @submits << 1 })
+  end
+
+  def test_an_invalid_control_blocks_submission
+    invalids = []
+    @req.add_event_listener("invalid", ->(_e) { invalids << 1 })
+
+    @doc.get_element_by_id("go").click
+
+    assert_equal(1, invalids.size, "the failing control fires `invalid`")
+    assert_empty(@submits, "no `submit` event for an invalid form")
+    assert_empty(@delegate.attempts, "an invalid form is not submitted")
+  end
+
+  def test_a_valid_form_submits
+    @req.value = "hello"
+
+    @doc.get_element_by_id("go").click
+
+    assert_equal(1, @submits.size)
+    assert_equal(1, @delegate.attempts.size)
+  end
+
+  def test_form_novalidate_skips_validation
+    @form.set_attribute("novalidate", "")
+
+    @doc.get_element_by_id("go").click
+
+    assert_equal(1, @submits.size)
+    assert_equal(1, @delegate.attempts.size)
+  end
+
+  def test_submitter_formnovalidate_skips_validation
+    @doc.get_element_by_id("go").set_attribute("formnovalidate", "")
+
+    @doc.get_element_by_id("go").click
+
+    assert_equal(1, @submits.size)
+    assert_equal(1, @delegate.attempts.size)
+  end
+
+  # requestSubmit with no submitter is the form as submitter, so it validates.
+  def test_request_submit_without_submitter_validates
+    @form.request_submit
+    assert_empty(@submits)
+    assert_empty(@delegate.attempts)
+  end
+
+  # `submit()` deliberately skips validation AND the submit event.
+  def test_submit_method_skips_validation
+    @form.submit
+
+    assert_empty(@submits, "submit() fires no submit event")
+    assert_equal(1, @delegate.attempts.size)
+  end
+
+  # A submit handler that submits again is a no-op (the firing-submission-events
+  # guard), so navigation happens once and nothing recurses.
+  def test_a_submit_handler_that_resubmits_is_ignored
+    @req.value = "hello"
+    @form.add_event_listener("submit") do
+      @form.__js_call__("requestSubmit", [])
+      true
+    end
+
+    @doc.get_element_by_id("go").click
+
+    assert_equal(1, @delegate.attempts.size)
+  end
+end

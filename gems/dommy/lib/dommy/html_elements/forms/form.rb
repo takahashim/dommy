@@ -125,23 +125,45 @@ module Dommy
 
     # The form submission algorithm's observable core, shared by
     # `requestSubmit()`, a submit button's activation (driver click), and Enter's
-    # implicit submission: fire a cancelable `SubmitEvent` (carrying the
-    # submitter), and — when nothing canceled it — hand the resulting navigation
-    # to the delegate. Returns true if not default-prevented. This is the single
-    # home for "a form was submitted"; callers that previously dispatched a bare
-    # `submit` event route here so the event is a real SubmitEvent (with
-    # submitter) and the navigation reaches the delegate.
+    # implicit submission: interactively validate the constraints (unless the
+    # no-validate state is set), then fire a cancelable `SubmitEvent` (carrying
+    # the submitter), and — when nothing canceled it — hand the resulting
+    # navigation to the delegate. Returns true if not default-prevented. This is
+    # the single home for "a form was submitted". `form.submit()` deliberately
+    # does NOT route here: it skips both validation and the submit event.
     def __run_form_submission__(submitter = nil)
       # HTML form submission: "if form cannot navigate, then return" — a form
       # that is not connected has no navigable, so clicking its submit button
       # fires nothing at all.
       return false unless is_connected?
 
-      not_canceled = dispatch_event(
-        SubmitEvent.new("submit", "bubbles" => true, "cancelable" => true, "submitter" => submitter)
-      )
-      __internal_navigate_for_submit__(submitter) if not_canceled
-      not_canceled
+      # Reentrancy guard: the submission algorithm sets `firing submission
+      # events` so a submit handler that submits the form again is a no-op.
+      return false if @firing_submission_events
+      @firing_submission_events = true
+      begin
+        # "If the submitter element's no-validate state is false, then
+        # interactively validate the constraints ... If the result is negative,
+        # return" — an invalid form fires `invalid` on each failing control and
+        # never fires `submit`.
+        return false unless no_validate?(submitter) || report_validity
+
+        not_canceled = dispatch_event(
+          SubmitEvent.new("submit", "bubbles" => true, "cancelable" => true, "submitter" => submitter)
+        )
+        __internal_navigate_for_submit__(submitter) if not_canceled
+        not_canceled
+      ensure
+        @firing_submission_events = false
+      end
+    end
+
+    # HTML's no-validate state: true when the form carries `novalidate`, or
+    # when the clicked control is a submit button carrying `formnovalidate`.
+    def no_validate?(submitter)
+      return true if has_attribute?("novalidate")
+
+      submitter.respond_to?(:has_attribute?) && submitter.has_attribute?("formnovalidate")
     end
 
     # Build the form data set and hand the resulting navigation to the delegate.
