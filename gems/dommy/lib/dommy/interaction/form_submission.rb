@@ -12,6 +12,7 @@ module Dommy
     class FormSubmission
       FORM_URLENCODED = "application/x-www-form-urlencoded"
       MULTIPART = "multipart/form-data"
+      TEXT_PLAIN = "text/plain"
       OVERRIDE_METHODS = %w[PATCH PUT DELETE].freeze
 
       def initialize(form, submitter, respect_method_override: false, method_override_param: "_method")
@@ -65,8 +66,13 @@ module Dommy
         %w[GET POST].include?(raw) ? raw : "GET"
       end
 
+      # The form's enctype is an enumerated attribute: matched ASCII
+      # case-insensitively, with any other value — including the empty string —
+      # falling back to the missing/invalid value default, urlencoded. A
+      # submitter's formenctype, when present, is used as-is (even if invalid).
       def form_enctype
-        attr(@submitter, "formenctype") || attr(@form, "enctype") || FORM_URLENCODED
+        raw = (attr(@submitter, "formenctype") || attr(@form, "enctype")).to_s.downcase(:ascii)
+        [MULTIPART, TEXT_PLAIN].include?(raw) ? raw : FORM_URLENCODED
       end
 
       def multipart?

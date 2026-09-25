@@ -341,4 +341,54 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
     HTML
     refute has_param?(result, "nested")
   end
+
+  # enctype is an enumerated attribute: matched case-insensitively, so an
+  # uppercase spelling must still keep a File a File (not reduce it to a name).
+  def test_uppercase_multipart_enctype_keeps_the_file
+    form = form_from(<<~HTML)
+      <form action="/u" method="post" enctype="MULTIPART/FORM-DATA">
+        <input type="file" name="doc">
+      </form>
+    HTML
+    file = Dommy::File.new(["hi"], "a.txt", "type" => "text/plain")
+    form.query_selector("input[type='file']").__driver_set_files__([file])
+
+    result = Dommy::Rack::FormSubmission.new(form, nil, config).submit!
+    assert_equal "multipart/form-data", result[:enctype]
+    assert_same file, param(result, "doc")
+  end
+
+  def test_uppercase_text_plain_enctype_is_recognized
+    result = submit(<<~HTML)
+      <form action="/x" method="post" enctype="TEXT/PLAIN">
+        <input type="text" name="q" value="hi">
+      </form>
+    HTML
+    assert_equal "text/plain", result[:enctype]
+  end
+
+  # An unknown (or empty) enctype uses the invalid value default, urlencoded, so
+  # a file is reduced to its filename.
+  def test_an_invalid_enctype_falls_back_to_urlencoded
+    form = form_from(<<~HTML)
+      <form action="/u" method="post" enctype="bogus">
+        <input type="file" name="doc">
+      </form>
+    HTML
+    file = Dommy::File.new(["hi"], "a.txt", "type" => "text/plain")
+    form.query_selector("input[type='file']").__driver_set_files__([file])
+
+    result = Dommy::Rack::FormSubmission.new(form, nil, config).submit!
+    assert_equal "application/x-www-form-urlencoded", result[:enctype]
+    assert_equal "a.txt", param(result, "doc")
+  end
+
+  def test_submitter_formenctype_is_used_and_normalized
+    result = submit(<<~HTML, submitter_selector: "button")
+      <form action="/x" method="post" enctype="application/x-www-form-urlencoded">
+        <button type="submit" formenctype="MULTIPART/FORM-DATA">Go</button>
+      </form>
+    HTML
+    assert_equal "multipart/form-data", result[:enctype]
+  end
 end

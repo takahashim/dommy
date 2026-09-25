@@ -246,6 +246,32 @@ class Dommy::Rack::TestSession < Minitest::Test
     assert_includes @seen_body, %(Content-Disposition: form-data; name="title"\r\n\r\nT)
   end
 
+  def test_uppercase_multipart_enctype_uploads_a_file
+    tempfile = Tempfile.new(["up", ".txt"])
+    tempfile.write("hello upload")
+    tempfile.flush
+
+    app = app_for(
+      "GET /" => html_response(
+        '<form action="/u" method="post" enctype="MULTIPART/FORM-DATA">' \
+        '<input type="file" name="doc"><button type="submit">Go</button></form>'
+      ),
+      "POST /u" => ->(req) {
+        uploaded = req.params["doc"]
+        html_response("<p id='r'>#{uploaded[:filename]}:#{uploaded[:tempfile].read}</p>")
+      }
+    )
+    session = Dommy::Rack::Session.new(app)
+    session.visit("/")
+    session.attach_file("doc", tempfile.path)
+    session.click_button("Go")
+
+    assert_equal "#{File.basename(tempfile.path)}:hello upload", session.at_css("#r").text_content
+  ensure
+    tempfile&.close
+    tempfile&.unlink
+  end
+
   def test_attach_file_missing_path_raises
     app = app_for("GET /" => html_response(
       '<form action="/u" method="post" enctype="multipart/form-data"><input type="file" name="doc"></form>'
