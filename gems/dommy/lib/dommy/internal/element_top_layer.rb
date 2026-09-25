@@ -44,6 +44,12 @@ module Dommy
         @__popover_open__ ? hide_popover : show_popover
         @__popover_open__ ? true : false
       end
+
+      private
+
+      # HTML's "popover showing state" is showing — what <dialog>'s
+      # showModal() checks, without reaching into this module's state.
+      def popover_showing? = @__popover_open__ ? true : false
     end
   end
 end

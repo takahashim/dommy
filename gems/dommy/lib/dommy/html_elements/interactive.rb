@@ -7,8 +7,11 @@ module Dommy
   #
   # One of the HTML element groups; html_elements.rb lists them all.
   # `<dialog>` — `open` reflected boolean, `show()` / `showModal()` /
-  # `close(returnValue?)`. Dommy has no modal stack, so showModal is
-  # functionally identical to show (no backdrop, no escape-to-close).
+  # `close(returnValue?)`. Dommy has no top layer, inert, or focus-fixup
+  # model, so showModal has no backdrop and does not block the rest of the
+  # page; it is otherwise spec-shaped, including the `is modal` flag that
+  # distinguishes an open-non-modal dialog (show() no-ops on it, showModal()
+  # throws) from an open-modal one (show() throws, showModal() no-ops).
   #
   # Opening and closing fire `beforetoggle` synchronously (before the `open`
   # attribute changes; an opening can be canceled) and `toggle` asynchronously,
@@ -26,40 +29,71 @@ module Dommy
       @return_value = v.to_s
     end
 
+    # WHATWG "show()" steps. Unlike showModal(), show() never checks
+    # connectedness or the popover-showing state — only whether the dialog is
+    # already open, and if so whether it is modal.
     def show
-      return nil if has_attribute?("open")
+      if has_attribute?("open")
+        return nil unless @__dialog_is_modal__
+
+        raise DOMException::InvalidStateError, "show() called on an open modal dialog"
+      end
+
       return nil unless fire_beforetoggle(false, true)
+      # A beforetoggle listener may have opened the dialog itself (from
+      # within its own handler); re-check before committing to our own open.
+      return nil if has_attribute?("open")
 
       self.open = true
       queue_toggle_event(false, true)
       nil
     end
 
-    # `showModal()` requires the dialog to be connected and not already open;
-    # otherwise it throws InvalidStateError. (Dommy has no top layer, so the
-    # modal itself is functionally the same as show.)
+    # WHATWG "show a modal dialog" steps (showModal() calls this with no
+    # source). Requires the dialog to be connected, not already showing as a
+    # popover, and not already open-and-non-modal; otherwise it throws
+    # InvalidStateError. An already open-and-modal dialog no-ops. Dommy has no
+    # top layer, so the modal itself does not block the rest of the page or
+    # move focus — it is otherwise the same as show(), plus the `is modal`
+    # flag.
     def show_modal
       if has_attribute?("open")
+        return nil if @__dialog_is_modal__
+
         raise DOMException::InvalidStateError, "showModal() called on an open dialog"
       end
       unless is_connected?
         raise DOMException::InvalidStateError, "showModal() called on a dialog not connected to a document"
       end
+      if popover_showing?
+        raise DOMException::InvalidStateError, "showModal() called on a dialog that is showing as a popover"
+      end
+
       return nil unless fire_beforetoggle(false, true)
+      # A beforetoggle listener may have opened, disconnected, or
+      # popover-shown the dialog itself; re-check before committing to modal.
+      return nil if has_attribute?("open") || !is_connected? || popover_showing?
 
       self.open = true
+      @__dialog_is_modal__ = true
       queue_toggle_event(false, true)
       nil
     end
 
-    # `close(returnValue?)`: abort if the dialog isn't open; otherwise clear the
-    # open attribute, optionally set returnValue, and QUEUE (async) a trusted,
+    # `close(returnValue?)`: abort if the dialog isn't open; otherwise fire a
+    # non-cancelable beforetoggle, clear the open attribute (and the `is
+    # modal` flag), optionally set returnValue, and QUEUE (async) a trusted,
     # non-bubbling `close` event.
     def close(value = nil)
       return nil unless has_attribute?("open")
       fire_beforetoggle(true, false)
+      # beforetoggle isn't cancelable here, but a listener can still close
+      # the dialog itself from inside its own handler; re-check before
+      # queuing our own toggle/close.
+      return nil unless has_attribute?("open")
 
       self.open = false
+      @__dialog_is_modal__ = false
       @return_value = value.to_s unless value.nil?
       queue_toggle_event(true, false)
       queue_element_task { dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__) }
