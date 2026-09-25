@@ -11,6 +11,13 @@ module Dommy
     reflect_string :name
     reflect_boolean :multiple, :disabled, :required
     reflect_ulong size: { default: 0 }
+    # `autocomplete` — the setter reflects, but the getter is HTML's autofill
+    # processing model (Internal::Autofill). A select has no type state, so it
+    # always wears the "autofill expectation mantle".
+    reflect_setter :autocomplete
+    def autocomplete
+      Internal::Autofill.idl_exposed_value(get_attribute("autocomplete"))
+    end
     # Own __js_call__ methods, on top of Element's.
 
 

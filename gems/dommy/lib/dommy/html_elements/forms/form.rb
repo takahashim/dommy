@@ -417,7 +417,14 @@ module Dommy
   class HTMLTextAreaElement < HTMLElement
     include Internal::TextSelection
     reflect_boolean :disabled, :required, read_only: "readonly"
-    reflect_string :name, :placeholder, :wrap, :autocomplete
+    reflect_string :name, :placeholder, :wrap
+    # `autocomplete` — the setter reflects, but the getter is HTML's autofill
+    # processing model (Internal::Autofill). A textarea has no type state, so
+    # it always wears the "autofill expectation mantle".
+    reflect_setter :autocomplete
+    def autocomplete
+      Internal::Autofill.idl_exposed_value(get_attribute("autocomplete"))
+    end
     # Own __js_call__ methods, on top of Element's.
 
     # The API value is the "raw value" — the dirty value once set (a wrapper-level

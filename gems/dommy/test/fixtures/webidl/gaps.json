@@ -663,7 +663,6 @@
       "fetchPriority"
     ],
     "HTMLSelectElement": [
-      "autocomplete",
       "showPicker"
     ],
     "HTMLStyleElement": [
@@ -965,10 +964,7 @@
       "onreadystatechange"
     ]
   },
-  "reflect_gaps": {
-    "HTMLInputElement.autocomplete": "declared string (expected setter_only)",
-    "HTMLTextAreaElement.autocomplete": "declared string (expected setter_only)"
-  },
+  "reflect_gaps": {},
   "invented_reflect_gaps": {
     "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]"
   },

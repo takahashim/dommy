@@ -12,8 +12,16 @@ module Dommy
     include SubmissionUrlAttribute
     reflect_setter form_action: "formaction"
     def form_action = submission_url("formaction")
-    reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value",
+    reflect_string :name, :placeholder, :min, :max, :step, :pattern, default_value: "value",
                    form_target: "formtarget"
+    # `autocomplete` — the setter reflects, but the getter is HTML's autofill
+    # processing model (Internal::Autofill). An input wears the "autofill
+    # anchor mantle" only when its type is Hidden, which is HTML's one case
+    # where a bare "on"/"off" is invalid rather than passed through.
+    reflect_setter :autocomplete
+    def autocomplete
+      Internal::Autofill.idl_exposed_value(get_attribute("autocomplete"), anchor_mantle: type == "hidden")
+    end
     reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
                        form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
     reflect_boolean :autofocus, :disabled, :required, :multiple, read_only: "readonly", default_checked: "checked",
