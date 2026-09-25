@@ -113,6 +113,63 @@ RSpec.describe "Capybara::Dommy::Driver with javascript: true" do
     end
   end
 
+  describe "hover" do
+    it "dispatches mouseover and mouseenter on the element and its ancestors" do
+      driver = js_driver_for("<div id='outer'><button id='b'>Go</button></div>")
+      outer = driver.find_css("#outer").first
+      button = driver.find_css("#b").first
+      seen = []
+      outer.native.add_event_listener("mouseenter", ->(_e) { seen << "enter:outer" })
+      button.native.add_event_listener("mouseover", ->(_e) { seen << "over:button" })
+      button.native.add_event_listener("mouseenter", ->(_e) { seen << "enter:button" })
+
+      button.hover
+
+      expect(seen).to eq(["over:button", "enter:outer", "enter:button"])
+      expect(button.native.owner_document.__internal_hovered_element__).to eq(button.native)
+    end
+
+    it "fires mouseout / mouseleave when the pointer leaves the previous element" do
+      driver = js_driver_for("<button id='a'>A</button><button id='b'>B</button>")
+      a = driver.find_css("#a").first
+      b = driver.find_css("#b").first
+      seen = []
+      a.native.add_event_listener("mouseout", ->(_e) { seen << "out:a" })
+      a.native.add_event_listener("mouseleave", ->(_e) { seen << "leave:a" })
+      b.native.add_event_listener("mouseenter", ->(_e) { seen << "enter:b" })
+
+      a.hover
+      seen.clear
+      b.hover
+
+      expect(seen).to eq(["out:a", "leave:a", "enter:b"])
+    end
+  end
+
+  describe "right_click / double_click" do
+    it "right_click dispatches contextmenu with button 2" do
+      driver = js_driver_for("<button id='b'>Go</button>")
+      node = driver.find_css("#b").first
+      seen = []
+      node.native.add_event_listener("contextmenu", ->(e) { seen << e.__js_get__("button") })
+
+      node.right_click
+
+      expect(seen).to eq([2])
+    end
+
+    it "double_click dispatches two clicks then dblclick" do
+      driver = js_driver_for("<button id='b'>Go</button>")
+      node = driver.find_css("#b").first
+      seen = []
+      %w[click dblclick].each { |type| node.native.add_event_listener(type, ->(e) { seen << e.type }) }
+
+      node.double_click
+
+      expect(seen).to eq(%w[click click dblclick])
+    end
+  end
+
   describe "field interaction" do
     it "set types with focus + input + change events" do
       driver = js_driver_for("<input id='q'>")
@@ -173,11 +230,26 @@ RSpec.describe "Capybara::Dommy::Driver with javascript: true" do
       expect(result).to eq("evaluated:1 + 1")
     end
 
-    it "rejects script arguments (not supported)" do
-      driver = js_driver_for("<p>x</p>")
+    it "passes arguments to execute_script / evaluate_script" do
+      driver = js_driver_for("<button id='b'>Go</button>")
 
-      expect { driver.execute_script("f()", 1) }.to raise_error(ArgumentError)
-      expect { driver.evaluate_script("f()", 1) }.to raise_error(ArgumentError)
+      driver.execute_script("doIt(arguments[0])", 7)
+      driver.evaluate_script("f(arguments[0])", "x")
+
+      runtime = @runtimes.last
+      expect(runtime.executed).to include(["doIt(arguments[0])", [7]])
+      expect(runtime.evaluated).to include(["f(arguments[0])", ["x"]])
+    end
+
+    it "unwraps a Capybara node argument to its Dommy element" do
+      driver = js_driver_for("<button id='b'>Go</button>")
+      node = driver.find_css("#b").first
+
+      driver.execute_script("use(arguments[0])", node)
+
+      runtime = @runtimes.last
+      _script, args = runtime.executed.last
+      expect(args).to eq([node.native])
     end
   end
 

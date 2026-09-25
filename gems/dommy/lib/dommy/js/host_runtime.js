@@ -869,6 +869,13 @@ globalThis.__rbHost = (function () {
     return v;
   }
 
+  // Rehydrate a Ruby->JS argument list: a plain Array of wire values (a JSON
+  // literal from Ruby), each rehydrated — DOM handles become proxies. Returns a
+  // real Array so it can be spread as a script's `arguments`.
+  function rehydrateArgs(wire) {
+    return Array.isArray(wire) ? wire.map(rehydrate) : [];
+  }
+
   // ===== wasm host bridge (handle-oriented JS access) =====
   //
   // A second embedding model, distinct from the Proxy-based one above: a wasm
@@ -3044,6 +3051,10 @@ globalThis.__rbHost = (function () {
     // `evaluate("undefined")` yields UNDEFINED on every engine, not just those
     // whose value marshalling distinguishes undefined from null.
     tag: dehydrateTop, interfaceOf,
+    // Rehydrate a Ruby->JS argument list (a JSON array of wire values) into
+    // live JS values — DOM handles become proxies. Used by execute_script /
+    // evaluate_script argument passing.
+    rehydrateArgs,
     // A host-PromiseValue deferred whose resolve runs the full §2.3 resolution
     // procedure — the Promises/A+ conformance adapter's primitive.
     makeHostDeferred,

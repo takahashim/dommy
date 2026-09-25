@@ -161,6 +161,27 @@ module Capybara
         end
       end
 
+      # A secondary-button click. Under JavaScript the full pointer/mouse
+      # sequence plus contextmenu runs through the driver; without it, only the
+      # virtual :hover state changes (no handlers exist to observe the event).
+      def right_click
+        if driver.javascript?
+          ::Dommy::Interaction::EventSynthesis.right_click(native)
+          driver.drain_js
+        end
+        nil
+      end
+
+      def double_click
+        if driver.javascript?
+          ::Dommy::Interaction::EventSynthesis.double_click(native)
+          driver.drain_js
+        else
+          click
+        end
+        nil
+      end
+
       def set(value, **_options)
         return if disabled? || readonly?
 
@@ -194,13 +215,30 @@ module Capybara
         native.selected = false
       end
 
-      # Move the (virtual) pointer over this element: :hover rules and
-      # `matches(":hover")` then apply to it and its ancestors. No
-      # mouseover/mouseout events are dispatched (nothing observes them
-      # without JavaScript).
+      # Move the pointer over this element: the virtual :hover state moves (so
+      # :hover rules and `matches(":hover")` apply to it and its ancestors), and
+      # under JavaScript the mouseover/mouseenter sequence is dispatched so
+      # Stimulus/framework hover handlers run. The previously hovered element
+      # (if any) is left first, so its mouseout/mouseleave fire.
       def hover
+        previous = previous_hovered
+        if driver.javascript?
+          ::Dommy::Interaction::EventSynthesis.unhover(previous, to: native) if previous && !previous.equal?(native)
+          ::Dommy::Interaction::EventSynthesis.hover(native, from: previous)
+        end
         native.owner_document.__internal_set_hovered_element__(native)
+        driver.drain_js if driver.javascript?
         nil
+      end
+
+      # The shadow root this element hosts (`attachShadow`), as a Capybara node
+      # scoped to that tree — Capybara's `shadow_root`/`within` support. nil
+      # when the element has no shadow root.
+      def shadow_root
+        return nil unless native.respond_to?(:shadow_root)
+
+        root = native.shadow_root
+        root && self.class.new(driver, root)
       end
 
       # --- Scoped queries (for `within`) ---
@@ -236,6 +274,15 @@ module Capybara
       end
 
       private
+
+      # The element currently hovering, if any (nil when the pointer is off
+      # any element). Used to fire its mouseleave before a new hover.
+      def previous_hovered
+        doc = native.owner_document
+        return nil unless doc.respond_to?(:__internal_hovered_element__)
+
+        doc.__internal_hovered_element__
+      end
 
       def apply_key(state, key)
         case key

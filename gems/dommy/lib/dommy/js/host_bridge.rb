@@ -169,6 +169,13 @@ module Dommy
         unwrap(tagged)
       end
 
+      # Ruby -> JS: the wire-tagged shape of `value` (a DOM object becomes
+      # `{__rb_handle: id, …}`). Used to pass script arguments into the VM
+      # (execute_script / evaluate_script), which rehydrate them JS-side.
+      def encode(value)
+        wrap(value)
+      end
+
       # Number of live handle entries. Introspection for lifetime tests.
       def registered_count
         @codec.size

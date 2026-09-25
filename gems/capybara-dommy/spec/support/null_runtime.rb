@@ -37,6 +37,12 @@ module CapybaraDommyJsSupport
       "evaluated:#{js}"
     end
 
+    def execute_with_args(js, args) = @executed << [js, args]
+    def evaluate_with_args(js, args)
+      @evaluated << [js, args]
+      "evaluated:#{js}"
+    end
+
     def settle = nil
     def drain_microtasks = nil
   end

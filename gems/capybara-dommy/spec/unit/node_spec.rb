@@ -117,6 +117,19 @@ RSpec.describe Capybara::Dommy::Node do
     expect(driver.find_css("#done")).not_to be_empty
   end
 
+  it "exposes a hosted shadow root as a scoped node" do
+    n = node("<div id='x'></div>", "#x")
+    n.native.attach_shadow({"mode" => "open"}).inner_html = "<span class='s'>shadow</span>"
+
+    root = n.shadow_root
+    expect(root).to be_a(Capybara::Dommy::Node)
+    expect(root.find_css(".s").first.all_text).to eq("shadow")
+  end
+
+  it "returns nil from shadow_root when the element has no shadow tree" do
+    expect(node("<div id='x'></div>", "#x").shadow_root).to be_nil
+  end
+
   it "raises on a stale node after navigation" do
     app = app_for(
       "GET /one" => html_response("<p id='x'>one</p>"),

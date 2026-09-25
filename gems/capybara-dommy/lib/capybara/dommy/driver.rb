@@ -271,18 +271,21 @@ module Capybara
       # When raise_on_unsupported_js is false these become no-ops, so tests
       # that incidentally call them don't fail.
 
+      # Arguments become the script's `arguments`; a Capybara node argument
+      # crosses as its Dommy element (a JS proxy), so
+      # `execute_script("arguments[0].scrollIntoView()", node)` works. A runtime
+      # that cannot pass arguments raises (see Session#execute_script), rather
+      # than silently dropping them.
       def execute_script(script, *args)
         return unsupported_js!("execute_script") unless @javascript
-        raise ArgumentError, "script arguments are not supported" unless args.empty?
 
-        rack_session.execute_script(script)
+        rack_session.execute_script(script, *unwrap_script_args(args))
       end
 
       def evaluate_script(script, *args)
         return unsupported_js!("evaluate_script") unless @javascript
-        raise ArgumentError, "script arguments are not supported" unless args.empty?
 
-        rack_session.evaluate_script(script)
+        rack_session.evaluate_script(script, *unwrap_script_args(args))
       end
 
       def evaluate_async_script(_script, *_args)
@@ -416,6 +419,19 @@ module Capybara
 
       def wrap(elements)
         (elements || []).map { |element| Node.new(self, element) }
+      end
+
+      # A script argument: a Capybara node becomes the Dommy element it wraps
+      # (so it crosses to JS as a proxy), anything else passes through. Arrays
+      # are mapped so a list of nodes works too.
+      def unwrap_script_args(args)
+        args.map do |arg|
+          case arg
+          when Node then arg.native
+          when Array then unwrap_script_args(arg)
+          else arg
+          end
+        end
       end
 
       def unsupported_js!(name)

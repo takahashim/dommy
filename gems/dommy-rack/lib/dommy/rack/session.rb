@@ -162,16 +162,31 @@ module Dommy
       # script seams; not part of the everyday browsing API.
       def __internal_js_runtime = @js_runtime
 
-      # Run JS for side effects against the current document's realm.
-      def execute_script(script)
-        require_js!.execute(script)
+      # Run JS for side effects against the current document's realm. Arguments
+      # (DOM nodes cross as JS proxies) become the script's `arguments`; a
+      # runtime without args support raises for a non-empty list rather than
+      # silently dropping them.
+      def execute_script(script, *args)
+        runtime = require_js!
+        if args.empty?
+          runtime.execute(script)
+        else
+          ensure_script_args!(runtime, args)
+          runtime.execute_with_args(script, args)
+        end
         check_js_errors!
         nil
       end
 
       # Evaluate JS and return the value (DOM nodes decoded to Dommy objects).
-      def evaluate_script(script)
-        result = require_js!.evaluate(script)
+      def evaluate_script(script, *args)
+        runtime = require_js!
+        result = if args.empty?
+          runtime.evaluate(script)
+        else
+          ensure_script_args!(runtime, args)
+          runtime.evaluate_with_args(script, args)
+        end
         check_js_errors!
         result
       end
@@ -199,6 +214,12 @@ module Dommy
       # the log, exactly as it stays out of a browser console.
       def js_errors = @js_runtime ? @js_runtime.js_errors : []
       def console = @js_runtime ? @js_runtime.console : []
+
+      # Whether the bound runtime can pass arguments to execute_script /
+      # evaluate_script (the optional Runtime#execute_with_args API).
+      def script_args_supported?
+        @js_runtime.respond_to?(:execute_with_args)
+      end
 
       # Suppress strict-mode failure for JS errors raised inside the block, for
       # a test that triggers one on purpose. They stay in `js_errors`. A page
@@ -994,6 +1015,17 @@ module Dommy
 
       def require_js!
         @js_runtime || raise(Error, "session was not created with javascript: true")
+      end
+
+      # A non-empty argument list against a runtime without the optional args
+      # API is a real error — silently dropping arguments would make a passing
+      # test lie.
+      def ensure_script_args!(runtime, args)
+        return if runtime.respond_to?(:execute_with_args)
+
+        raise Error,
+          "this JavaScript runtime does not support script arguments " \
+          "(#{args.size} given); update it or call the script with no arguments"
       end
 
       # Serialize data as a JSON body and navigate. A String is sent verbatim

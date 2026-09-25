@@ -38,6 +38,10 @@ module Dommy
     #
     # Optional (a backend may omit these; callers must guard with respond_to?):
     #     install_wasm_memory_shim      opt-in WPT SharedArrayBuffer scaffolding
+    #     execute_with_args(js, args)   run for side effects, passing Ruby args
+    #                                   (DOM nodes cross as JS proxies) as the
+    #                                   script's `arguments`
+    #     evaluate_with_args(js, args)  evaluate and decode, passing arguments
     module Runtime
       # The methods every conforming runtime must respond to.
       REQUIRED_METHODS = %i[
@@ -57,7 +61,10 @@ module Dommy
       #                            realm and return it (nil when not possible),
       #                            so `event.error` is a real Error the page can
       #                            read rather than an opaque husk.
-      OPTIONAL_METHODS = %i[install_wasm_memory_shim on_callback_error rebuild_error].freeze
+      OPTIONAL_METHODS = %i[
+        install_wasm_memory_shim on_callback_error rebuild_error
+        execute_with_args evaluate_with_args
+      ].freeze
 
       module_function
 

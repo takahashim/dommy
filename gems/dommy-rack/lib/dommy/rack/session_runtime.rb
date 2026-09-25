@@ -59,6 +59,14 @@ module Dommy
       def execute(js) = current_runtime.execute(js)
       def evaluate(js) = current_runtime.evaluate(js)
 
+      # Args-aware variants: the runtime must implement the optional
+      # execute_with_args / evaluate_with_args (dommy-js-quickjs does). Callers
+      # guard with respond_to? and fall back to the no-arg form.
+      def execute_with_args(js, args) = current_runtime.execute_with_args(js, args)
+      def evaluate_with_args(js, args) = current_runtime.evaluate_with_args(js, args)
+
+      def supports_script_args? = current_runtime.respond_to?(:execute_with_args)
+
       # Settle work ready at the current virtual time (microtasks + due-now
       # timers + rAF) for the current document's realm.
       def settle

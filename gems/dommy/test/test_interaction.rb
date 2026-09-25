@@ -29,6 +29,59 @@ class TestInteraction < Minitest::Test
     assert_equal true, Dommy::Interaction::EventSynthesis.click(link)
   end
 
+  def test_event_synthesis_right_click_dispatches_contextmenu_with_button_2
+    win = make_window("<button id='b'>x</button>")
+    button = win.document.get_element_by_id("b")
+    seen = []
+    %w[pointerdown mousedown pointerup mouseup contextmenu].each do |type|
+      button.add_event_listener(type, ->(e) { seen << [e.type, e.__js_get__("button")] })
+    end
+
+    Dommy::Interaction::EventSynthesis.right_click(button)
+    assert_equal %w[pointerdown mousedown pointerup mouseup contextmenu], seen.map(&:first)
+    assert(seen.all? { |_type, btn| btn == 2 }, "every right-click event should have button 2")
+  end
+
+  def test_event_synthesis_double_click_dispatches_two_clicks_then_dblclick
+    win = make_window("<button id='b'>x</button>")
+    button = win.document.get_element_by_id("b")
+    seen = []
+    %w[click dblclick].each { |type| button.add_event_listener(type, ->(e) { seen << e.type }) }
+
+    Dommy::Interaction::EventSynthesis.double_click(button)
+    assert_equal %w[click click dblclick], seen
+  end
+
+  def test_event_synthesis_hover_enters_element_and_ancestors
+    win = make_window("<div id='outer'><div id='inner'>x</div></div>")
+    doc = win.document
+    outer = doc.get_element_by_id("outer")
+    inner = doc.get_element_by_id("inner")
+    seen = []
+    {outer => "outer", inner => "inner"}.each do |el, name|
+      el.add_event_listener("mouseover", ->(_e) { seen << "over:#{name}" })
+      el.add_event_listener("mouseenter", ->(_e) { seen << "enter:#{name}" })
+    end
+
+    Dommy::Interaction::EventSynthesis.hover(inner)
+    assert_equal ["over:inner", "over:outer", "enter:outer", "enter:inner"], seen
+  end
+
+  def test_event_synthesis_hover_leaves_previous_element
+    win = make_window("<div id='a'>a</div><div id='b'>b</div>")
+    doc = win.document
+    a = doc.get_element_by_id("a")
+    b = doc.get_element_by_id("b")
+    seen = []
+    a.add_event_listener("mouseout", ->(_e) { seen << "out:a" })
+    a.add_event_listener("mouseleave", ->(_e) { seen << "leave:a" })
+    b.add_event_listener("mouseenter", ->(_e) { seen << "enter:b" })
+
+    Dommy::Interaction::EventSynthesis.unhover(a, to: b)
+    Dommy::Interaction::EventSynthesis.hover(b, from: a)
+    assert_equal ["out:a", "leave:a", "enter:b"], seen
+  end
+
   def test_field_interactor_fill_in_fires_input_and_change
     win = make_window("<input id='f'>")
     doc = win.document

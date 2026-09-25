@@ -29,6 +29,35 @@ module Dommy
         event.default_prevented?
       end
 
+      # A secondary-button (right) click: pointerdown → mousedown → pointerup →
+      # mouseup → contextmenu. `button: 2` marks the secondary button, which is
+      # what a `contextmenu` handler checks. No click event fires for a right
+      # click, so no activation behavior runs. Returns whether contextmenu was
+      # prevented.
+      def right_click(element)
+        secondary = mouse_init.merge("button" => 2)
+        dispatch(element, Dommy::PointerEvent.new("pointerdown", secondary))
+        dispatch(element, Dommy::MouseEvent.new("mousedown", secondary))
+        focus(element)
+        dispatch(element, Dommy::PointerEvent.new("pointerup", secondary))
+        dispatch(element, Dommy::MouseEvent.new("mouseup", secondary))
+        event = Dommy::MouseEvent.new("contextmenu", secondary)
+        element.dispatch_event(event)
+        event.default_prevented?
+      end
+
+      # A double click: the full primary sequence twice, ending in `dblclick`
+      # (after the second `click`). Each click runs its own activation behavior,
+      # matching a browser where two native clicks fire two click events.
+      def double_click(element)
+        click(element)
+        event = Dommy::MouseEvent.new("click", mouse_init.merge("detail" => 2))
+        element.dispatch_event(event)
+        dbl = Dommy::MouseEvent.new("dblclick", mouse_init.merge("detail" => 2))
+        element.dispatch_event(dbl)
+        dbl.default_prevented?
+      end
+
       # Run the element's focusing steps (Element#focus): moves
       # document.activeElement and fires blur/focusout on the previously
       # focused element plus focus/focusin here — a no-op when the element
@@ -49,6 +78,56 @@ module Dommy
 
       def change(element)
         dispatch(element, Dommy::Event.new("change", "bubbles" => true))
+      end
+
+      # Move the pointer onto `element`: mouseover (bubbling) then mouseenter
+      # (non-bubbling) on the element, and — for each ancestor it newly enters —
+      # mouseenter, in outer-to-inner order, before the element's own enter. A
+      # browser fires mouseover on every element the pointer ends over (bubbling
+      # from the target), and mouseenter only where it newly entered. `from` is
+      # the previously hovered element (nil when the pointer came from outside
+      # the document), used to compute which ancestors are newly entered.
+      def hover(element, from: nil)
+        entered = ancestors_entered(element, from)
+        dispatch(element, Dommy::MouseEvent.new("mouseover", mouse_init))
+        entered.each { |ancestor| dispatch(ancestor, Dommy::MouseEvent.new("mouseenter", enter_leave_init)) }
+        dispatch(element, Dommy::MouseEvent.new("mouseenter", enter_leave_init))
+        nil
+      end
+
+      # The pointer left `element` for `to` (nil when it left the document):
+      # mouseout (bubbling) then mouseleave (non-bubbling) on the element, and
+      # mouseleave for each ancestor no longer under the pointer, inner-to-outer.
+      def unhover(element, to: nil)
+        left = ancestors_left(element, to)
+        dispatch(element, Dommy::MouseEvent.new("mouseout", mouse_init))
+        dispatch(element, Dommy::MouseEvent.new("mouseleave", enter_leave_init))
+        left.each { |ancestor| dispatch(ancestor, Dommy::MouseEvent.new("mouseleave", enter_leave_init)) }
+        nil
+      end
+
+      # The ancestors of `element` that `from` is NOT inside — the ones the
+      # pointer newly entered — ordered outer-to-inner.
+      def ancestors_entered(element, from)
+        from_chain = ancestor_chain(from)
+        ancestor_chain(element).reject { |a| from_chain.include?(a) }.reverse
+      end
+
+      # The ancestors of `element` that `to` does not sit inside — the ones the
+      # pointer left — ordered inner-to-outer.
+      def ancestors_left(element, to)
+        to_chain = ancestor_chain(to)
+        ancestor_chain(element).reject { |a| to_chain.include?(a) }
+      end
+
+      def ancestor_chain(element)
+        chain = []
+        node = element&.parent_node
+        while node.respond_to?(:tag_name)
+          chain << node
+          node = node.parent_node
+        end
+        chain
       end
 
       def dispatch(element, event)
@@ -155,6 +234,13 @@ module Dommy
 
       def mouse_init
         BUBBLES.merge("button" => 0, "clientX" => 0, "clientY" => 0)
+      end
+
+      # mouseenter / mouseleave do NOT bubble (they fire once per element whose
+      # boundary was crossed), unlike mouseover / mouseout which do.
+      def enter_leave_init
+        {"bubbles" => false, "cancelable" => false, "composed" => true,
+         "button" => 0, "clientX" => 0, "clientY" => 0}
       end
     end
   end
