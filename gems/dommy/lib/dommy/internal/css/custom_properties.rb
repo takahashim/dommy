@@ -3,6 +3,63 @@
 module Dommy
   module Internal
     module CSS
+      # Tarjan's strongly connected components over the var()-reference graph,
+      # used to find the custom-property names that participate in a dependency
+      # cycle. The DFS state is one instance rather than a six-key Hash threaded
+      # through every recursive call.
+      class DependencyCycles
+        # `graph` is name => [referenced names].
+        def initialize(graph)
+          @graph = graph
+          @index = 0
+          @indices = {}
+          @lowlink = {}
+          @on_stack = {}
+          @stack = []
+          @cyclic = {}
+        end
+
+        # The names in a cycle: the members of every strongly connected
+        # component of size > 1, plus any self-referencing property
+        # (`--a: var(--a)`).
+        def cyclic_nodes
+          @graph.each_key { |name| strongconnect(name) unless @indices.key?(name) }
+          @cyclic
+        end
+
+        private
+
+        # One node of Tarjan's SCC algorithm.
+        def strongconnect(node)
+          @indices[node] = @lowlink[node] = @index
+          @index += 1
+          @stack.push(node)
+          @on_stack[node] = true
+
+          @graph[node].each do |neighbour|
+            if !@indices.key?(neighbour)
+              strongconnect(neighbour)
+              @lowlink[node] = [@lowlink[node], @lowlink[neighbour]].min
+            elsif @on_stack[neighbour]
+              @lowlink[node] = [@lowlink[node], @indices[neighbour]].min
+            end
+          end
+
+          return unless @lowlink[node] == @indices[node]
+
+          component = []
+          loop do
+            popped = @stack.pop
+            @on_stack[popped] = false
+            component << popped
+            break if popped == node
+          end
+          if component.length > 1 || @graph[component.first].include?(component.first)
+            component.each { |member| @cyclic[member] = true }
+          end
+        end
+      end
+
       # var() substitution for custom properties (css-variables-1).
       # Substitution happens at computed-value time: first the custom
       # properties resolve among themselves (with cycle detection), then
@@ -111,39 +168,7 @@ module Dommy
           graph = {}
           values.each_key { |name| graph[name] = references(values[name]).select { |ref| values.key?(ref) }.uniq }
 
-          state = {index: 0, indices: {}, lowlink: {}, on_stack: {}, stack: [], cyclic: {}}
-          graph.each_key { |name| strongconnect(name, graph, state) unless state[:indices].key?(name) }
-          state[:cyclic]
-        end
-
-        # One node of Tarjan's SCC algorithm.
-        def strongconnect(node, graph, state)
-          state[:indices][node] = state[:lowlink][node] = state[:index]
-          state[:index] += 1
-          state[:stack].push(node)
-          state[:on_stack][node] = true
-
-          graph[node].each do |neighbour|
-            if !state[:indices].key?(neighbour)
-              strongconnect(neighbour, graph, state)
-              state[:lowlink][node] = [state[:lowlink][node], state[:lowlink][neighbour]].min
-            elsif state[:on_stack][neighbour]
-              state[:lowlink][node] = [state[:lowlink][node], state[:indices][neighbour]].min
-            end
-          end
-
-          return unless state[:lowlink][node] == state[:indices][node]
-
-          component = []
-          loop do
-            popped = state[:stack].pop
-            state[:on_stack][popped] = false
-            component << popped
-            break if popped == node
-          end
-          if component.length > 1 || graph[component.first].include?(component.first)
-            component.each { |member| state[:cyclic][member] = true }
-          end
+          DependencyCycles.new(graph).cyclic_nodes
         end
 
         # The custom-property names a value depends on for cycle detection: the
@@ -198,6 +223,8 @@ module Dommy
           end
           [inner.strip, nil]
         end
+
+        private_class_method :cyclic_properties, :references, :matching_paren_index
       end
     end
   end

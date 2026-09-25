@@ -22,6 +22,7 @@ class TestInternalModuleApi < Minitest::Test
       each_backend_descendant static_prefilters prefilter_for
       exact_class_or_id_prefilter backend_passes? backend_root_of document_of
     ],
+    Dommy::Internal::CSS::CustomProperties => %w[contains_var? resolve_all substitute split_args],
     Dommy::Internal::Directionality => %w[direction_of text_dependent? reflected_dir],
     Dommy::Internal::ElementState => %w[
       html_element? html_document? enableable_element? disabled_element?
