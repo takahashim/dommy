@@ -242,8 +242,16 @@ module WebIdlAudit
   # flag). Either way, a plain reflect_string in this spot returns the raw
   # attribute unchanged rather than running the algorithm the spec's prose
   # actually gives it — the bug class this ratchet exists to catch.
+  #
+  # :setter_only is exempt too, for a different reason: it means the class
+  # deliberately hand-writes the getter (reflect_setter's whole job — see its
+  # own comment), which is the CORRECT shape for a prose getter, not the raw
+  # pass-through this ratchet watches for. reflect_ulong_setter /
+  # reflect_double_setter declare the same way — DECLARED_AS already folds
+  # both into :setter_only, so this one check covers all three.
   def invented_reflect_gaps
     out = {}
+    exempt = %i[enumerated setter_only]
     data["interfaces"].each do |name, record|
       klass = ruby_class_for(name)
       next unless klass.respond_to?(:reflect_specs)
@@ -253,7 +261,7 @@ module WebIdlAudit
         next unless member["kind"] == "attribute" && member["reflect"].nil?
 
         spec = declared[member["name"]]
-        next unless spec && spec[:type] != :enumerated
+        next unless spec && !exempt.include?(spec[:type])
 
         out["#{name}.#{member['name']}"] = "declared #{spec[:type]} though the IDL has no [Reflect]"
       end
