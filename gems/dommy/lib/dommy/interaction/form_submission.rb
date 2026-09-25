@@ -32,7 +32,8 @@ module Dommy
           method: method,
           url: resolve_action(form_method),
           params: params,
-          enctype: form_enctype
+          enctype: form_enctype,
+          target: form_target
         }
       end
 
@@ -45,6 +46,12 @@ module Dommy
 
       def form_enctype
         attr(@submitter, "formenctype") || attr(@form, "enctype") || FORM_URLENCODED
+      end
+
+      # The browsing-context target (formtarget on the submitter wins). A host
+      # without a frame model treats everything but a named frame like `_self`.
+      def form_target
+        attr(@submitter, "formtarget") || attr(@form, "target") || ""
       end
 
       # For GET forms the action's existing query string is discarded and

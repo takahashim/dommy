@@ -18,7 +18,7 @@ module Dommy
   # A delegate is any object responding to:
   #
   #   navigate(url:, method: "GET", body: nil, params: nil, enctype: nil,
-  #            headers: {}, replace: false, source:)
+  #            target: nil, headers: {}, replace: false, source:)
   #     url:     already-resolved absolute URL string
   #     method:  "GET" | "POST" | ...  (GET for links / location / reload)
   #     body:    a pre-serialized request body, or nil
@@ -27,6 +27,9 @@ module Dommy
   #              unserialized so the delegate can query-encode (GET) or build a
   #              urlencoded/multipart body (POST) itself; nil for non-form navs
   #     enctype: the form's enctype for `params` (urlencoded / multipart), or nil
+  #     target:  the form's browsing-context target (formtarget / target), or nil.
+  #              Core has no frame model, so a delegate without one may treat any
+  #              target like `_self`; it is advisory.
   #     headers: extra request headers (Content-Type, ...)
   #     replace: true to replace the current history entry (location.replace,
   #              a reload, or a redirect)
@@ -48,10 +51,10 @@ module Dommy
         @attempts = []
       end
 
-      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, replace: false)
+      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
         @attempts << {
           url: url, method: method, body: body, params: params, enctype: enctype,
-          headers: headers, replace: replace, source: source
+          target: target, headers: headers, replace: replace, source: source
         }
         nil
       end

@@ -196,6 +196,18 @@ class TestNavigation < Minitest::Test
     assert_raises(TypeError) { form.request_submit(plain) }
   end
 
+  # The form's browsing-context target reaches the delegate (which may ignore it
+  # when it has no frame model).
+  def test_request_submit_reports_the_target
+    @win = make_window("<form id='f' action='/x' method='get' target='frame1'><input name='q' value='hi'></form>")
+    @doc = @win.document
+    @delegate = @win.navigation_delegate
+
+    @doc.get_element_by_id("f").request_submit
+
+    assert_equal "frame1", @delegate.attempts.first[:target]
+  end
+
   # A submit button associated to a form via a `form=` attribute (so it can live
   # outside the form) activates that form, not a nearest-ancestor one.
   def test_form_associated_submit_button_activates_its_owner

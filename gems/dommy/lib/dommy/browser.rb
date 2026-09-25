@@ -128,10 +128,10 @@ module Dommy
     # inside a script), record it and perform the fetch + swap at the next drain
     # boundary (settle / after_interaction / advance_time). Ruby-initiated visits
     # flush immediately since no JS is on the stack.
-    def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, replace: false)
+    def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
       @pending_navigation = {
         url: url, method: method, body: body, params: params, enctype: enctype,
-        headers: headers, replace: replace, source: source
+        target: target, headers: headers, replace: replace, source: source
       }
       nil
     end

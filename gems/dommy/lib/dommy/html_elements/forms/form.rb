@@ -177,7 +177,7 @@ module Dommy
       result = Dommy::Interaction::FormSubmission.new(self, submitter).submit!
       win.__internal_navigate__(
         url: result[:url], method: result[:method], params: result[:params],
-        enctype: result[:enctype], source: :form
+        enctype: result[:enctype], target: result[:target], source: :form
       )
     end
 

@@ -524,10 +524,10 @@ module Dommy
     # traversal all route here; the attached delegate (NullDelegate by default)
     # decides what happens. Same-document navigation never reaches this — it is
     # handled directly by Location/History (hashchange / popstate).
-    def __internal_navigate__(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, replace: false)
+    def __internal_navigate__(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
       @navigation_delegate&.navigate(
         url: url, method: method, body: body, params: params, enctype: enctype,
-        headers: headers, replace: replace, source: source
+        target: target, headers: headers, replace: replace, source: source
       )
     end
 

@@ -16,10 +16,10 @@ module Dommy
         @window = window
       end
 
-      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, replace: false)
+      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
         @session.__enqueue_page_navigation__(@window, {
           url: url, method: method, body: body, params: params, enctype: enctype,
-          headers: headers, replace: replace, source: source
+          target: target, headers: headers, replace: replace, source: source
         })
       end
 
@@ -1050,6 +1050,9 @@ module Dommy
       # bare same-page fragment link, then navigate — folding form params into
       # the query (GET) or body (POST) as usual.
       def perform_page_navigation(nav)
+        # `nav[:target]` (a form's formtarget/target) is carried for a
+        # frame-capable embedder but ignored here: the Rack session is a single
+        # browsing context, so every target navigates in place.
         target = resolve_document_url(nav[:url])
         return unless %w[http https].include?(uri_scheme(target))
         return if nav[:params].nil? && same_page_fragment?(target)
