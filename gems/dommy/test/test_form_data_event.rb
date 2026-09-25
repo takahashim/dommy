@@ -52,4 +52,22 @@ class TestFormDataEventOnSubmit < Minitest::Test
     refute_nil(event.form_data)
     assert_instance_of(Dommy::FormData, event.__js_get__("formData"))
   end
+
+  # `new FormData(form)` builds its entry list through the same construction and
+  # fires the same `formdata` event as form submission.
+  def test_new_form_data_form_fires_formdata
+    _win, form = build('<form action="/x" method="post"><input name="a" value="1"></form>')
+    seen = nil
+    form.add_event_listener("formdata") do |e|
+      seen = e
+      e.form_data.append("extra", "z")
+    end
+
+    fd = Dommy::FormData.new(form)
+
+    refute_nil(seen, "new FormData(form) fires formdata")
+    assert_instance_of(Dommy::FormDataEvent, seen)
+    assert_equal("1", fd.get("a"))
+    assert_equal("z", fd.get("extra"), "a listener's mutation reaches the constructed FormData")
+  end
 end

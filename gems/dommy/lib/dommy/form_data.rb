@@ -3,9 +3,11 @@
 module Dommy
   # `FormData` — collects name/value entries from an `<form>` (or
   # programmatically), preserving insertion order. Values are
-  # stringified per spec; `File` values are passed through as-is
-  # (Dommy has no File class, so this only matters for embedders
-  # that supply their own).
+  # stringified per spec; `File` values are passed through as-is.
+  #
+  # A `new FormData(form)` builds its entries through the shared
+  # `Dommy::FormEntryList`, so it fires the same `formdata` event form submission
+  # does and collects identically.
   #
   # Usage:
   #   fd = Dommy::FormData.new(form)
@@ -26,8 +28,7 @@ module Dommy
     end
 
     def initialize(form = nil)
-      @pairs = []
-      collect_from(form) if form
+      @pairs = form ? FormEntryList.new(form).form_data.entries : []
     end
 
     def append(name, value, _filename = nil)
@@ -148,91 +149,6 @@ module Dommy
     end
 
     private
-
-    # Collect submittable name/value pairs from a form element.
-    #
-    # A submit button is NOT one of them: HTML's "constructing the entry list"
-    # includes only the submitter, which this does not model, so a named
-    # <button> contributes nothing — including one associated with the form from
-    # outside it by a `form` attribute. That used to happen by accident, because
-    # HTMLButtonElement had no Ruby `value` method for `respond_to?` to find;
-    # it is a rule now, so declaring `value` as the reflection it is cannot
-    # quietly put every button in the entry list.
-    def collect_from(form)
-      form.elements.each do |el|
-        next unless el.respond_to?(:name)
-
-        name = el.name.to_s
-        next if name.empty?
-        next if disabled?(el)
-
-        case el.__dommy_backend_node__.name
-        when "input"
-          collect_input(el, name)
-        when "select"
-          collect_select(el, name)
-        when "textarea", "output"
-          @pairs << [name, el.value.to_s] if el.respond_to?(:value)
-        end
-        append_dirname(el)
-      end
-    end
-
-    def collect_input(el, name)
-      type = el.type.to_s.downcase
-      case type
-      when "submit", "reset", "button", "image"
-        # submit/button: only the activated submitter is included (skip).
-        nil
-      when "file"
-        # Each File in the input's FileList becomes its own entry, per
-        # the HTML "constructing the entry list" spec. An empty list
-        # contributes a single empty File-like entry so name= survives.
-        files = el.respond_to?(:files) ? el.files : nil
-        if files && !files.empty?
-          files.each { |f| @pairs << [name, f] }
-        else
-          @pairs << [name, File.new([], "", "type" => "application/octet-stream")]
-        end
-
-      when "hidden"
-        # A `_charset_` hidden field with no value reports the encoding this
-        # FormData is constructed with (the constructor's default is UTF-8).
-        if !el.has_attribute?("value") && name.casecmp?("_charset_")
-          @pairs << [name, Encoding::UTF_8.name]
-        else
-          @pairs << [name, el.value.to_s]
-        end
-      when "checkbox", "radio"
-        @pairs << [name, (el.value.to_s.empty? ? "on" : el.value.to_s)] if el.checked
-      else
-        @pairs << [name, el.value.to_s]
-      end
-    end
-
-    # A `dirname` on an auto-directionality text control contributes the
-    # element's directionality under the dirname's name (HTML §4.10.19.2).
-    def append_dirname(el)
-      return unless %w[input textarea].include?(el.__dommy_backend_node__.name)
-
-      dirname = el.get_attribute("dirname")
-      return if dirname.nil? || dirname.empty?
-      return unless Internal::Directionality.auto_directionality_form_associated?(el)
-
-      @pairs << [dirname, Internal::Directionality.direction_of(el)]
-    end
-
-    def collect_select(el, name)
-      el.selected_options.each do |opt|
-        next if Internal::ElementState.disabled_element?(opt)
-
-        @pairs << [name, opt.value.to_s]
-      end
-    end
-
-    def disabled?(el)
-      Internal::ElementState.disabled_element?(el)
-    end
 
     def stringify(value)
       # File / Blob values pass through unchanged (multipart form

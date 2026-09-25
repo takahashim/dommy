@@ -2,12 +2,13 @@
 
 module Dommy
   module Interaction
-    # Collects successful form controls and resolves the effective method,
-    # action, and enctype for a form submission. Stateless given the form and
-    # submitter — it returns a plain data hash and makes no requests. The host
-    # (Rack session) turns the result into navigation; a standalone Browser
-    # dispatches a `submit` event instead. Method-override behavior is passed in
-    # so core stays Rack-free.
+    # Resolves the effective method, action, enctype, and target for a form
+    # submission and collects its entry list through the shared
+    # Dommy::FormEntryList — so the `formdata` event fires exactly as it does for
+    # `new FormData(form)`. Stateless given the form and submitter: it returns a
+    # plain data hash and makes no requests. The host (Rack session) turns the
+    # result into navigation; a standalone Browser dispatches a `submit` event
+    # instead. Method-override behavior is passed in so core stays Rack-free.
     class FormSubmission
       FORM_URLENCODED = "application/x-www-form-urlencoded"
       MULTIPART = "multipart/form-data"
@@ -20,11 +21,10 @@ module Dommy
         @method_override_param = method_override_param
       end
 
-      # Returns { method:, url:, params:, enctype: }.
+      # Returns { method:, url:, params:, enctype:, target: }.
       def submit!
         method = form_method
-        params = collect_params
-        params = fire_formdata(params)
+        params = reduce_files(entry_list.entries)
         method = apply_method_override(method, params)
         params = apply_charset(params)
 
@@ -39,6 +39,27 @@ module Dommy
 
       private
 
+      # The entry list, built (and `formdata` fired) with the submission's
+      # encoding so a value-less hidden `_charset_` reports the right name.
+      def entry_list
+        @entry_list ||= Dommy::FormEntryList.new(
+          @form, submitter: @submitter, encoding: form_charset || Encoding::UTF_8
+        ).form_data
+      end
+
+      # A non-multipart form submits only a file's basename, per browsers. The
+      # entry list keeps the File (spec), so reduce it here for the result.
+      def reduce_files(pairs)
+        return pairs if multipart?
+
+        pairs.map do |name, value|
+          next [name, value] unless value.respond_to?(:__dommy_bytes__)
+
+          filename = value.respond_to?(:name) ? value.name.to_s : ""
+          [name, ::File.basename(filename)]
+        end
+      end
+
       def form_method
         raw = (attr(@submitter, "formmethod") || attr(@form, "method")).to_s.upcase
         %w[GET POST].include?(raw) ? raw : "GET"
@@ -46,6 +67,10 @@ module Dommy
 
       def form_enctype
         attr(@submitter, "formenctype") || attr(@form, "enctype") || FORM_URLENCODED
+      end
+
+      def multipart?
+        form_enctype == MULTIPART
       end
 
       # The browsing-context target (formtarget on the submitter wins). A host
@@ -59,157 +84,6 @@ module Dommy
       def resolve_action(method)
         raw = (attr(@submitter, "formaction") || attr(@form, "action") || "").to_s
         method == "GET" ? raw.split("?", 2).first.to_s : raw
-      end
-
-      # Returns ordered [name, value] pairs in document order. The clicked
-      # submitter is emitted at its document position; only if it isn't among
-      # the form's controls do we append it at the end.
-      def collect_params
-        charset_name = (form_charset || Encoding::UTF_8).name
-        pairs = []
-        submitter_emitted = false
-        controls.each do |el|
-          next if disabled?(el)
-
-          case el.tag_name
-          when "INPUT" then submitter_emitted = true if collect_input(el, pairs, charset_name)
-          when "TEXTAREA" then collect_named(el, normalize_newlines(el.value.to_s), pairs)
-          when "SELECT" then collect_select(el, pairs)
-          when "BUTTON" then submitter_emitted = true if collect_button(el, pairs)
-          end
-          append_dirname(el, pairs)
-        end
-        append_submitter(pairs) unless submitter_emitted
-        pairs
-      end
-
-      # Returns true when this input is the clicked submitter (and was emitted).
-      def collect_input(el, pairs, charset_name)
-        type = el.type
-        if %w[submit image].include?(type)
-          return false unless submitter?(el)
-
-          emit_submitter(el, pairs)
-          return true
-        end
-        return false if %w[reset button].include?(type) # never submitted
-        if type == "hidden" && !el.has_attribute?("value") &&
-           attr(el, "name").to_s.casecmp?("_charset_")
-          # A hidden `_charset_` with no `value` reports the submission encoding.
-          collect_named(el, charset_name, pairs)
-          return false
-        end
-
-        case type
-        when "checkbox", "radio"
-          if el.checked
-            value = el.has_attribute?("value") ? el.get_attribute("value") : "on"
-            collect_named(el, value, pairs)
-          end
-        when "file"
-          collect_file(el, pairs)
-        else
-          collect_named(el, el.value.to_s, pairs)
-        end
-        false
-      end
-
-      # A `dirname` on an auto-directionality text control contributes the
-      # element's directionality under the dirname's name (HTML §4.10.19.2).
-      def append_dirname(el, pairs)
-        return unless %w[INPUT TEXTAREA].include?(el.tag_name)
-
-        dirname = attr(el, "dirname")
-        return if blank?(dirname)
-        return unless Dommy::Internal::Directionality.auto_directionality_form_associated?(el)
-
-        pairs << [dirname, Dommy::Internal::Directionality.direction_of(el)]
-      end
-
-      # Only the clicked submitter button contributes its name/value.
-      def collect_button(el, pairs)
-        return false unless submitter?(el)
-
-        emit_submitter(el, pairs)
-        true
-      end
-
-      def submitter?(el)
-        @submitter && el.__dommy_backend_node__.equal?(@submitter.__dommy_backend_node__)
-      end
-
-      # Each File becomes its own entry. An empty file input still
-      # contributes an empty File so the field name survives (HTML spec).
-      def collect_file(el, pairs)
-        name = attr(el, "name")
-        return if blank?(name)
-
-        files = el.respond_to?(:files) ? el.files : nil
-
-        unless multipart?
-          # Non-multipart forms submit only the file's basename, per browsers.
-          filename = files && !files.empty? ? files.first.name.to_s : ""
-          pairs << [name, ::File.basename(filename)]
-          return
-        end
-
-        if files && !files.empty?
-          files.each { |file| pairs << [name, file] }
-        else
-          pairs << [name, Dommy::File.new([], "", "type" => "application/octet-stream")]
-        end
-      end
-
-      def multipart?
-        form_enctype == MULTIPART
-      end
-
-      def collect_select(el, pairs)
-        name = attr(el, "name")
-        return if blank?(name)
-
-        each_node(el.selected_options) do |option|
-          next if Dommy::Internal::ElementState.disabled_element?(option)
-
-          pairs << [name, option.value.to_s]
-        end
-      end
-
-      # Browsers submit textarea values with CRLF line endings.
-      def normalize_newlines(value)
-        value.gsub(/\r\n|\r|\n/, "\r\n")
-      end
-
-      def collect_named(el, value, pairs)
-        name = attr(el, "name")
-        pairs << [name, value] unless blank?(name)
-      end
-
-      # Fallback when the submitter is not among the form's controls.
-      def append_submitter(pairs)
-        return unless @submitter
-
-        emit_submitter(@submitter, pairs)
-      end
-
-      # The submitter's name/value (or image coordinates) join the form data.
-      def emit_submitter(el, pairs)
-        if image_submitter?(el)
-          # Image buttons submit click coordinates. With no layout we use 0,0.
-          prefix = blank?(attr(el, "name")) ? "" : "#{attr(el, "name")}."
-          pairs << ["#{prefix}x", "0"]
-          pairs << ["#{prefix}y", "0"]
-          return
-        end
-
-        name = attr(el, "name")
-        return if blank?(name)
-
-        pairs << [name, attr(el, "value") || ""]
-      end
-
-      def image_submitter?(el)
-        el.tag_name == "INPUT" && el.type == "image"
       end
 
       # Honor the form's accept-charset by encoding string values into the
@@ -258,58 +132,8 @@ module Dommy
         OVERRIDE_METHODS.include?(candidate) ? candidate : method
       end
 
-      # All controls belonging to this form, in document order.
-      def controls
-        form_id = attr(@form, "id")
-        @form.document.query_selector_all("input, textarea, select, button").select do |el|
-          if el.has_attribute?("form")
-            !blank?(form_id) && el.get_attribute("form") == form_id
-          else
-            el.closest("form")&.equal?(@form)
-          end
-        end
-      end
-
-      # A control is unsuccessful if it or an ancestor <fieldset> is disabled
-      # (a first-legend control is exempt). The rule is shared with the `:disabled`
-      # selector so both stay in step.
-      def disabled?(el)
-        Dommy::Internal::ElementState.disabled_element?(el)
-      end
-
       def attr(el, name)
         el&.get_attribute(name)
-      end
-
-      def blank?(value)
-        value.nil? || value.empty?
-      end
-
-      def each_node(collection)
-        if collection.respond_to?(:each)
-          collection.each { |node| yield node }
-        else
-          collection.length.times { |i| yield collection.item(i) }
-        end
-      end
-
-      # HTML "constructing the entry list": after collecting the controls, fire
-      # a `formdata` event carrying a FormData so a listener can add/remove
-      # entries. The (possibly mutated) entries become the submission data.
-      def fire_formdata(pairs)
-        return pairs if @form.instance_variable_get(:@constructing_entry_list)
-
-        data = Dommy::FormData.new
-        pairs.each { |name, value| data.append(name, value) }
-        @form.instance_variable_set(:@constructing_entry_list, true)
-        begin
-          @form.dispatch_event(
-            Dommy::FormDataEvent.new("formdata", "formData" => data, "bubbles" => true)
-          )
-        ensure
-          @form.instance_variable_set(:@constructing_entry_list, false)
-        end
-        data.entries
       end
     end
   end
