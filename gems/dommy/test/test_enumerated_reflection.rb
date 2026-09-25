@@ -344,4 +344,15 @@ class TestEnumeratedReflection < Minitest::Test
     created.remove_attribute("async")
     refute(created.async)
   end
+
+  # input.type: 22 keywords, missing/invalid both "text".
+  def test_input_type_missing_and_invalid_default_to_text
+    assert_equal("text", el("input").type)
+
+    el("input").set_attribute("type", "bogus")
+    assert_equal("text", el("input").type)
+
+    el("input").set_attribute("type", "CHECKBOX")
+    assert_equal("checkbox", el("input").type)
+  end
 end
