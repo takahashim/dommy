@@ -261,4 +261,84 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
     HTML
     assert_equal "hi", param(result, "q")
   end
+
+  def test_hidden_charset_field_reports_the_encoding
+    result = submit(<<~HTML)
+      <form action="/x" method="post">
+        <input type="hidden" name="_charset_">
+      </form>
+    HTML
+    assert_equal "UTF-8", param(result, "_charset_")
+  end
+
+  def test_hidden_charset_field_honors_accept_charset
+    result = submit(<<~HTML)
+      <form action="/x" method="post" accept-charset="Shift_JIS">
+        <input type="hidden" name="_charset_">
+      </form>
+    HTML
+    assert_equal "Shift_JIS", param(result, "_charset_")
+  end
+
+  def test_hidden_charset_field_with_explicit_value_is_not_special
+    result = submit(<<~HTML)
+      <form action="/x" method="post">
+        <input type="hidden" name="_charset_">
+        <input type="hidden" name="_CHARSET_" value="x">
+      </form>
+    HTML
+    assert_equal "x", param(result, "_CHARSET_")
+  end
+
+  def test_dirname_adds_the_element_direction
+    result = submit(<<~HTML)
+      <form action="/x" method="post">
+        <input type="text" name="comment" dirname="comment.dir" value="hi">
+      </form>
+    HTML
+    assert_equal [["comment", "hi"], ["comment.dir", "ltr"]], result[:params]
+  end
+
+  def test_dirname_reads_rtl_direction
+    result = submit(<<~HTML)
+      <form action="/x" method="post">
+        <textarea name="comment" dirname="comment.dir" dir="rtl">hi</textarea>
+      </form>
+    HTML
+    assert_equal "rtl", param(result, "comment.dir")
+  end
+
+  def test_dirname_on_a_non_text_control_is_ignored
+    result = submit(<<~HTML)
+      <form action="/x" method="post">
+        <input type="checkbox" name="c" dirname="c.dir" checked>
+      </form>
+    HTML
+    refute has_param?(result, "c.dir")
+  end
+
+  def test_first_legend_controls_in_a_disabled_fieldset_still_submit
+    result = submit(<<~HTML)
+      <form action="/x" method="post">
+        <fieldset disabled>
+          <legend><input type="text" name="in_legend" value="1"></legend>
+          <input type="text" name="outside" value="2">
+        </fieldset>
+      </form>
+    HTML
+    assert_equal [["in_legend", "1"]], result[:params]
+  end
+
+  def test_a_nearer_enabled_fieldset_does_not_hide_an_outer_disabled_one
+    result = submit(<<~HTML)
+      <form action="/x" method="post">
+        <fieldset disabled>
+          <fieldset>
+            <input type="text" name="nested" value="1">
+          </fieldset>
+        </fieldset>
+      </form>
+    HTML
+    refute has_param?(result, "nested")
+  end
 end

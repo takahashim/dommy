@@ -140,4 +140,16 @@ class TestFormDataFromForm < Minitest::Test
     fd = Dommy::FormData.new(@form)
     assert_equal("blue", fd.get("color"))
   end
+
+  def test_hidden_charset_field_reports_utf8
+    win = make_window('<form><input type="hidden" name="_charset_"></form>')
+    fd = Dommy::FormData.new(win.document.query_selector("form"))
+    assert_equal("UTF-8", fd.get("_charset_"))
+  end
+
+  def test_dirname_contributes_the_direction
+    win = make_window('<form><input type="text" name="c" dirname="c.dir" value="hi"></form>')
+    fd = Dommy::FormData.new(win.document.query_selector("form"))
+    assert_equal([["c", "hi"], ["c.dir", "ltr"]], fd.entries)
+  end
 end

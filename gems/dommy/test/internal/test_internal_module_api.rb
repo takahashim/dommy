@@ -26,7 +26,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::CSS::Counters => %w[build substitute],
     Dommy::Internal::CSS::CustomProperties => %w[contains_var? resolve_all substitute split_args],
     Dommy::Internal::CSS::MediaQuery => %w[match?],
-    Dommy::Internal::Directionality => %w[direction_of text_dependent? reflected_dir],
+    Dommy::Internal::Directionality => %w[direction_of text_dependent? reflected_dir auto_directionality_form_associated?],
     Dommy::Internal::ElementState => %w[
       html_element? html_document? enableable_element? disabled_element?
       constraint_invalid? constraint_valid? form_control_required?

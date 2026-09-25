@@ -174,6 +174,7 @@ module Dommy
         when "textarea", "output"
           @pairs << [name, el.value.to_s] if el.respond_to?(:value)
         end
+        append_dirname(el)
       end
     end
 
@@ -194,6 +195,14 @@ module Dommy
           @pairs << [name, File.new([], "", "type" => "application/octet-stream")]
         end
 
+      when "hidden"
+        # A `_charset_` hidden field with no value reports the encoding this
+        # FormData is constructed with (the constructor's default is UTF-8).
+        if !el.has_attribute?("value") && name.casecmp?("_charset_")
+          @pairs << [name, Encoding::UTF_8.name]
+        else
+          @pairs << [name, el.value.to_s]
+        end
       when "checkbox", "radio"
         @pairs << [name, (el.value.to_s.empty? ? "on" : el.value.to_s)] if el.checked
       else
@@ -201,17 +210,28 @@ module Dommy
       end
     end
 
+    # A `dirname` on an auto-directionality text control contributes the
+    # element's directionality under the dirname's name (HTML §4.10.19.2).
+    def append_dirname(el)
+      return unless %w[input textarea].include?(el.__dommy_backend_node__.name)
+
+      dirname = el.get_attribute("dirname")
+      return if dirname.nil? || dirname.empty?
+      return unless Internal::Directionality.auto_directionality_form_associated?(el)
+
+      @pairs << [dirname, Internal::Directionality.direction_of(el)]
+    end
+
     def collect_select(el, name)
-      if el.multiple
-        el.selected_options.each { |opt| @pairs << [name, opt.value.to_s] }
-      else
-        opt = el.selected_options[0]
-        @pairs << [name, opt ? opt.value.to_s : ""]
+      el.selected_options.each do |opt|
+        next if Internal::ElementState.disabled_element?(opt)
+
+        @pairs << [name, opt.value.to_s]
       end
     end
 
     def disabled?(el)
-      el.respond_to?(:disabled) && el.disabled
+      Internal::ElementState.disabled_element?(el)
     end
 
     def stringify(value)

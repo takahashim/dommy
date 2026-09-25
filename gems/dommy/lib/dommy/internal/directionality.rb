@@ -153,7 +153,8 @@ module Dommy
       end
 
       # The input types listed as auto-directionality form-associated, and
-      # <textarea>.
+      # <textarea>. Public because form submission asks it to decide whether a
+      # control's `dirname` contributes an entry.
       def auto_directionality_form_associated?(element)
         return true if named?(element, "textarea")
 
@@ -180,7 +181,7 @@ module Dommy
 
       private_class_method :dir_state, :dir_keyword, :compute_direction, :parent_direction,
         :auto_direction, :assigned_nodes_direction, :contained_text_direction, :skipped_for_auto?,
-        :auto_directionality_form_associated?, :tel_input?, :strong_string_direction,
+        :tel_input?, :strong_string_direction,
         :html_element?, :named?
     end
   end

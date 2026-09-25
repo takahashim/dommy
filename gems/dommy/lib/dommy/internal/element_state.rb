@@ -129,10 +129,10 @@ module Dommy
         parent = element.parent_element
         while parent
           if parent.local_name.to_s.downcase == "fieldset" && parent.has_attribute?("disabled")
+            # A control inside the fieldset's FIRST legend is not disabled by
+            # THIS fieldset, but an outer disabled fieldset can still disable it.
             legend = first_legend_child(parent)
-            return false if legend && contains_element?(legend, element)
-
-            return true
+            return true unless legend && contains_element?(legend, element)
           end
 
           parent = parent.parent_element

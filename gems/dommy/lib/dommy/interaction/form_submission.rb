@@ -58,24 +58,26 @@ module Dommy
       # submitter is emitted at its document position; only if it isn't among
       # the form's controls do we append it at the end.
       def collect_params
+        charset_name = (form_charset || Encoding::UTF_8).name
         pairs = []
         submitter_emitted = false
         controls.each do |el|
           next if disabled?(el)
 
           case el.tag_name
-          when "INPUT" then submitter_emitted = true if collect_input(el, pairs)
+          when "INPUT" then submitter_emitted = true if collect_input(el, pairs, charset_name)
           when "TEXTAREA" then collect_named(el, normalize_newlines(el.value.to_s), pairs)
           when "SELECT" then collect_select(el, pairs)
           when "BUTTON" then submitter_emitted = true if collect_button(el, pairs)
           end
+          append_dirname(el, pairs)
         end
         append_submitter(pairs) unless submitter_emitted
         pairs
       end
 
       # Returns true when this input is the clicked submitter (and was emitted).
-      def collect_input(el, pairs)
+      def collect_input(el, pairs, charset_name)
         type = el.type
         if %w[submit image].include?(type)
           return false unless submitter?(el)
@@ -84,6 +86,12 @@ module Dommy
           return true
         end
         return false if %w[reset button].include?(type) # never submitted
+        if type == "hidden" && !el.has_attribute?("value") &&
+           attr(el, "name").to_s.casecmp?("_charset_")
+          # A hidden `_charset_` with no `value` reports the submission encoding.
+          collect_named(el, charset_name, pairs)
+          return false
+        end
 
         case type
         when "checkbox", "radio"
@@ -97,6 +105,18 @@ module Dommy
           collect_named(el, el.value.to_s, pairs)
         end
         false
+      end
+
+      # A `dirname` on an auto-directionality text control contributes the
+      # element's directionality under the dirname's name (HTML §4.10.19.2).
+      def append_dirname(el, pairs)
+        return unless %w[INPUT TEXTAREA].include?(el.tag_name)
+
+        dirname = attr(el, "dirname")
+        return if blank?(dirname)
+        return unless Dommy::Internal::Directionality.auto_directionality_form_associated?(el)
+
+        pairs << [dirname, Dommy::Internal::Directionality.direction_of(el)]
       end
 
       # Only the clicked submitter button contributes its name/value.
@@ -142,6 +162,8 @@ module Dommy
         return if blank?(name)
 
         each_node(el.selected_options) do |option|
+          next if Dommy::Internal::ElementState.disabled_element?(option)
+
           pairs << [name, option.value.to_s]
         end
       end
@@ -241,12 +263,11 @@ module Dommy
         end
       end
 
-      # A control is unsuccessful if it or an ancestor <fieldset> is disabled.
+      # A control is unsuccessful if it or an ancestor <fieldset> is disabled
+      # (a first-legend control is exempt). The rule is shared with the `:disabled`
+      # selector so both stay in step.
       def disabled?(el)
-        return true if el.has_attribute?("disabled")
-
-        fieldset = el.closest("fieldset")
-        fieldset ? fieldset.has_attribute?("disabled") : false
+        Dommy::Internal::ElementState.disabled_element?(el)
       end
 
       def attr(el, name)
