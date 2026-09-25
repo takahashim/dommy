@@ -176,6 +176,9 @@ module Dommy
           # Same-origin WebSockets connect to the Rack app itself (ActionCable
           # et al.); cross-origin ones keep the in-memory stub.
           window.websocket_connector = @session.__internal_websocket_connector(window)
+          # Same-origin EventSources stream from the Rack app itself; cross-origin
+          # ones keep the in-memory stub (see EventSourceTransport).
+          window.event_source_connector = @session.__internal_event_source_connector(window)
           # Dynamically-inserted `<script src>` (webpack/Vite on-demand chunks)
           # fetch + run through the same resources adapter, after boot.
           doc.external_script_runner = lambda do |element, src|

@@ -84,6 +84,14 @@ module Dommy
     # in-memory stub (auto-open + __test_simulate_*__ seams).
     attr_accessor :websocket_connector
 
+    # Optional EventSource (Server-Sent Events) transport factory (a host
+    # seam, like websocket_connector): `->(es, url, with_credentials) ->
+    # transport | nil`. A returned transport owns the stream — EventSource#close
+    # delegates to it, and it reports lifecycle back through the
+    # __transport_*__ callbacks (on the page thread). nil falls back to the
+    # in-memory stub (auto-open + __test_simulate_*__ seams).
+    attr_accessor :event_source_connector
+
     # Navigation host seam (see Dommy::Navigation). Cross-document navigation
     # intents (link activation, location.assign/replace/reload, history
     # traversal across a document boundary) are routed to this delegate. The

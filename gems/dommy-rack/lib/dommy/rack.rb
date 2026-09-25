@@ -25,6 +25,7 @@ require_relative "rack/session_runtime"
 require_relative "rack/trace"
 require_relative "rack/web_socket_frame"
 require_relative "rack/web_socket_transport"
+require_relative "rack/event_source_transport"
 require_relative "rack/session"
 
 module Dommy

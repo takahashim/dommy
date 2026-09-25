@@ -31,12 +31,53 @@ module Dommy
       @with_credentials = !!(opts["withCredentials"] || opts[:withCredentials])
       @inline_handlers = {}
 
+      # A host-installed connector (Dommy::Rack wires real in-process streams
+      # through it) owns the connection when it returns a transport; otherwise
+      # fall back to the simulation stub, which auto-opens via microtask.
+      connector = window.respond_to?(:event_source_connector) ? window.event_source_connector : nil
+      @transport = connector&.call(self, @url, @with_credentials)
+      return if @transport
+
       @window.scheduler.queue_microtask(proc { __test_simulate_open__ })
     end
 
     def close
       @ready_state = CLOSED
+      @transport&.close
       nil
+    end
+
+    # --- Transport callbacks ---------------------------------------
+    # A connector-provided transport reports the stream's lifecycle through
+    # these, ON THE PAGE THREAD (a threaded transport marshals via
+    # scheduler.post_external). They share the state machine with the test
+    # seams so stub-driven and transport-driven streams behave identically.
+
+    def __transport_open__
+      __test_simulate_open__
+    end
+
+    def __transport_message__(data, event: "message", id: nil)
+      return if @ready_state != OPEN
+
+      payload = {"data" => data.to_s}
+      payload["lastEventId"] = id.to_s if id
+      dispatch_event(MessageEvent.new(event.to_s, payload))
+    end
+
+    # A stream error: an EventSource fires `error` and would reconnect;
+    # reconnection is not simulated.
+    def __transport_error__
+      __test_simulate_error__ unless @ready_state == CLOSED
+    end
+
+    # The server ended the stream. An EventSource has no `close` event: it
+    # fires `error` and reconnects, so that is what a closed transport reports.
+    def __transport_closed__
+      return if @ready_state == CLOSED
+
+      @ready_state = CLOSED
+      dispatch_event(Event.new("error"))
     end
 
     # --- Test seams ------------------------------------------------

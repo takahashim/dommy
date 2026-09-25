@@ -227,6 +227,8 @@ module Dommy
       def dispose
         Array(@live_websocket_transports).each(&:dispose)
         @live_websocket_transports = nil
+        Array(@live_event_source_transports).each(&:dispose)
+        @live_event_source_transports = nil
         log = @js_runtime&.error_log
         dispose_js
         log&.check!(context: @current_url)
@@ -255,6 +257,28 @@ module Dommy
             origin: target.origin, cookie_string: @cookie_jar.cookies_for(target.to_s)
           )
           (@live_websocket_transports ||= []) << transport
+          transport
+        end
+      end
+
+      # Factory for the window's event_source_connector seam (installed per
+      # realm by SessionRuntime): a same-origin `new EventSource(url)` reads a
+      # streaming response from the Rack app itself (see EventSourceTransport),
+      # so SSE-backed features (Rails' ActionController::Live, Hotwire, …) work
+      # in-process. A cross-origin URL returns nil, leaving the EventSource on
+      # its in-memory stub.
+      def __internal_event_source_connector(window)
+        lambda do |es, url, with_credentials|
+          base = @current_url || default_host
+          target = EventSourceTransport.rack_target(url, base: base)
+          next nil unless target
+
+          transport = EventSourceTransport.new(
+            app: @app, es: es, scheduler: window.scheduler, url: target,
+            origin: target.origin,
+            cookie_string: with_credentials ? @cookie_jar.cookies_for(target.to_s) : ""
+          )
+          (@live_event_source_transports ||= []) << transport
           transport
         end
       end
