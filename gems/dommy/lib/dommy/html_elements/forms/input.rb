@@ -13,7 +13,9 @@ module Dommy
     reflect_setter form_action: "formaction"
     def form_action = submission_url("formaction")
     reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value",
-                   form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+                   form_target: "formtarget"
+    reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
+                       form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
     reflect_boolean :autofocus, :disabled, :required, :multiple, read_only: "readonly", default_checked: "checked",
                     form_no_validate: "formnovalidate"
     # Own __js_call__ methods, on top of Element's.

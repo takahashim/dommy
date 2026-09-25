@@ -84,3 +84,93 @@ class TestEnumeratedReflector < Minitest::Test
     assert_equal(:enumerated, Dommy::HTMLDivElement.reflect_specs["__test_demo__"][:type])
   end
 end
+
+# Enumerated IDL attributes — HTML's "reflect ... limited to only known
+# values" (§2.6.1), written entirely in prose: the specs' own IDL carries no
+# [Reflect] for these at all, which is why `reflect_string` used to be wrong
+# for every one of them (test/support/webidl_audit.rb's `invented_reflect_gaps`
+# watches for that class of bug). What the algorithm does is checked here, per
+# attribute, through both Ruby and the JS bridge; which attributes these are is
+# checked against the specs' own IDL by test_webidl_conformance.rb.
+# https://html.spec.whatwg.org/multipage/common-dom-interfaces.html#reflecting-content-attributes-in-idl-attributes
+class TestEnumeratedReflection < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window(<<~HTML)
+      <form id="form"></form>
+      <button id="button"></button>
+      <input id="input">
+    HTML
+    @doc = @win.document
+  end
+
+  def el(id) = @doc.get_element_by_id(id)
+
+  # form.method: keywords get/post/dialog, missing and invalid both "get".
+  # (The Ruby accessor is `method_attr`, not `method` — that name is already
+  # `Kernel#method`.)
+  def test_form_method_missing_reads_the_missing_default
+    assert_equal("get", el("form").method_attr)
+    assert_equal("get", el("form").__js_get__("method"))
+  end
+
+  def test_form_method_canonicalizes_the_matched_keyword
+    el("form").set_attribute("method", "POST")
+
+    assert_equal("post", el("form").method_attr)
+  end
+
+  def test_form_method_invalid_reads_the_invalid_default
+    el("form").set_attribute("method", "bogus")
+
+    assert_equal("get", el("form").method_attr)
+  end
+
+  def test_form_method_setter_writes_the_attribute_unchanged
+    el("form").method_attr = "post"
+
+    assert_equal("post", el("form").get_attribute("method"))
+  end
+
+  # form.enctype / form.autocomplete: same shape, spot-checked.
+  def test_form_enctype_defaults_and_canonicalizes
+    assert_equal("application/x-www-form-urlencoded", el("form").enctype)
+
+    el("form").set_attribute("enctype", "MULTIPART/FORM-DATA")
+    assert_equal("multipart/form-data", el("form").enctype)
+
+    el("form").set_attribute("enctype", "bogus")
+    assert_equal("application/x-www-form-urlencoded", el("form").enctype)
+  end
+
+  def test_form_autocomplete_defaults_to_on
+    assert_equal("on", el("form").autocomplete)
+
+    el("form").set_attribute("autocomplete", "off")
+    assert_equal("off", el("form").autocomplete)
+
+    el("form").set_attribute("autocomplete", "bogus")
+    assert_equal("on", el("form").autocomplete)
+  end
+
+  # button.formMethod / input.formMethod: unlike <form>'s own `method`, the
+  # per-control attribute has NO missing value default — only invalid.
+  def test_form_control_form_method_has_no_missing_default
+    assert_equal("", el("button").form_method)
+    assert_equal("", el("input").form_method)
+  end
+
+  def test_form_control_form_method_invalid_reads_get
+    el("button").set_attribute("formmethod", "bogus")
+
+    assert_equal("get", el("button").form_method)
+  end
+
+  def test_form_control_form_enctype_has_no_missing_default
+    assert_equal("", el("input").form_enctype)
+
+    el("input").set_attribute("formenctype", "bogus")
+    assert_equal("application/x-www-form-urlencoded", el("input").form_enctype)
+  end
+end
