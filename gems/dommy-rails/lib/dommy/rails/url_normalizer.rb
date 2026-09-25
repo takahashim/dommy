@@ -32,7 +32,7 @@ module Dommy
         path = path.chomp("/") unless path == "/"
 
         query = if uri.query
-          params = URI.decode_www_form(uri.query).sort_by { |k, _| k }
+          params = URI.decode_www_form(uri.query).sort_by(&:first)
           URI.encode_www_form(params)
         end
 

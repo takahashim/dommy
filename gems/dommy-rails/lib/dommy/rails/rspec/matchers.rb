@@ -120,7 +120,18 @@ module Dommy
           HavePlainText.new(text)
         end
 
+        # Negation is always the inverse of the positive match, so every
+        # matcher gets `does_not_match?` from here and only implements
+        # `matches?` plus its failure messages.
+        module Negatable
+          def does_not_match?(actual)
+            !matches?(actual)
+          end
+        end
+
         class HaveForm
+          include Negatable
+
           def initialize(action:, method:, model:)
             @action = action
             @method = method
@@ -130,10 +141,6 @@ module Dommy
           def matches?(actual)
             @document = MatchTarget.document(actual)
             Dommy::Rails::FormInspector.matches?(@document, action: @action, method: @method, model: @model)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -160,6 +167,8 @@ module Dommy
         end
 
         class HaveXPath
+          include Negatable
+
           def initialize(expression, text:, count:)
             @expression = expression
             @text = text
@@ -169,10 +178,6 @@ module Dommy
           def matches?(actual)
             @matched = Dommy::Rails::PageInspector.xpath_matches(MatchTarget.document(actual), @expression, text: @text)
             Dommy::Internal::DomMatching.count_matches?(@matched.size, @count)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -189,6 +194,8 @@ module Dommy
         end
 
         class HaveTitle
+          include Negatable
+
           def initialize(expected)
             @expected = expected
           end
@@ -196,10 +203,6 @@ module Dommy
           def matches?(actual)
             @document = MatchTarget.document(actual)
             Dommy::Rails::PageInspector.title_matches?(@document, @expected)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -219,6 +222,8 @@ module Dommy
         # snapshot (its nodes must appear in the actual tree, in order); names
         # may be `/regex/`.
         class MatchAriaSnapshot
+          include Negatable
+
           def initialize(expected)
             @expected = expected
           end
@@ -226,10 +231,6 @@ module Dommy
           def matches?(actual)
             @actual = MatchTarget.document(actual).aria_snapshot
             Dommy::Rails::AriaSnapshotMatching.matches?(@actual, @expected)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -246,6 +247,8 @@ module Dommy
         end
 
         class HaveMeta
+          include Negatable
+
           def initialize(name:, property:, content:)
             @name = name
             @property = property
@@ -254,10 +257,6 @@ module Dommy
 
           def matches?(actual)
             Dommy::Rails::PageInspector.meta_matches?(MatchTarget.document(actual), name: @name, property: @property, content: @content)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -284,12 +283,10 @@ module Dommy
         end
 
         class HaveCsrfMetaTags
+          include Negatable
+
           def matches?(actual)
             Dommy::Rails::PageInspector.csrf_meta_tags?(MatchTarget.document(actual))
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -306,12 +303,10 @@ module Dommy
         end
 
         class HaveAuthenticityToken
+          include Negatable
+
           def matches?(actual)
             Dommy::Rails::PageInspector.authenticity_token?(MatchTarget.document(actual))
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -328,6 +323,8 @@ module Dommy
         end
 
         class HaveLink
+          include Negatable
+
           def initialize(text, href:, count:)
             @text = text
             @href = href
@@ -337,10 +334,6 @@ module Dommy
           def matches?(actual)
             @matched = Dommy::Rails::PageInspector.links(MatchTarget.document(actual), text: @text, href: @href)
             Dommy::Internal::DomMatching.count_matches?(@matched.size, @count)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -357,6 +350,8 @@ module Dommy
         end
 
         class HaveTurboFrame
+          include Negatable
+
           def initialize(id, text:, count:)
             @id = id
             @text = text
@@ -368,10 +363,6 @@ module Dommy
             ok = Dommy::Internal::DomMatching.count_matches?(@matched.size, @count)
             block.call(@matched.first) if ok && block && @matched.any?
             ok
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -388,6 +379,8 @@ module Dommy
         end
 
         class HaveSelect
+          include Negatable
+
           def initialize(name, label:, count:)
             @name = name
             @label = label
@@ -397,10 +390,6 @@ module Dommy
           def matches?(actual)
             @matched = Dommy::Rails::PageInspector.selects(MatchTarget.document(actual), name: @name, label: @label)
             Dommy::Internal::DomMatching.count_matches?(@matched.size, @count)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -417,6 +406,8 @@ module Dommy
         end
 
         class HaveCheckableField
+          include Negatable
+
           def initialize(name, checked:)
             @name = name
             @checked = checked
@@ -425,10 +416,6 @@ module Dommy
           def matches?(actual)
             @matched = Dommy::Rails::PageInspector.checkable_fields(MatchTarget.document(actual), name: @name, checked: @checked)
             @matched.any?
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -445,6 +432,8 @@ module Dommy
         end
 
         class HaveTurboStream
+          include Negatable
+
           def initialize(action:, target:)
             @action = action
             @target = target
@@ -454,10 +443,6 @@ module Dommy
             stream = Dommy::Rails::TurboStream.find(MatchTarget.body(actual), action: @action, target: @target)
             block.call(Dommy::Rails::TurboStream.fragment_document(stream)) if stream && block
             !stream.nil?
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -474,16 +459,14 @@ module Dommy
         end
 
         class HaveStimulusController
+          include Negatable
+
           def initialize(name)
             @name = name
           end
 
           def matches?(actual)
             Dommy::Rails::Stimulus.controller?(MatchTarget.document(actual), @name)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -500,16 +483,14 @@ module Dommy
         end
 
         class HaveStimulusAction
+          include Negatable
+
           def initialize(action)
             @action = action
           end
 
           def matches?(actual)
             Dommy::Rails::Stimulus.action?(MatchTarget.document(actual), @action)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -526,6 +507,8 @@ module Dommy
         end
 
         class HaveStimulusTarget
+          include Negatable
+
           def initialize(controller, target)
             @controller = controller
             @target = target
@@ -533,10 +516,6 @@ module Dommy
 
           def matches?(actual)
             Dommy::Rails::Stimulus.target?(MatchTarget.document(actual), @controller, @target)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -553,6 +532,8 @@ module Dommy
         end
 
         class HaveStimulusValue
+          include Negatable
+
           def initialize(controller, key, value)
             @controller = controller
             @key = key
@@ -561,10 +542,6 @@ module Dommy
 
           def matches?(actual)
             Dommy::Rails::Stimulus.value?(MatchTarget.document(actual), @controller, @key, @value)
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -581,13 +558,11 @@ module Dommy
         end
 
         class HaveNoDuplicateIds
+          include Negatable
+
           def matches?(actual)
             @issues = Dommy::Rails::Lint.duplicate_ids(MatchTarget.document(actual))
             @issues.empty?
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -604,13 +579,11 @@ module Dommy
         end
 
         class HaveNoInvalidAriaReferences
+          include Negatable
+
           def matches?(actual)
             @issues = Dommy::Rails::Lint.invalid_aria_references(MatchTarget.document(actual))
             @issues.empty?
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -627,13 +600,11 @@ module Dommy
         end
 
         class HaveNoMissingFormLabels
+          include Negatable
+
           def matches?(actual)
             @issues = Dommy::Rails::Lint.missing_form_labels(MatchTarget.document(actual))
             @issues.empty?
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -650,13 +621,11 @@ module Dommy
         end
 
         class HaveNoEmptyLinks
+          include Negatable
+
           def matches?(actual)
             @issues = Dommy::Rails::Lint.empty_links(MatchTarget.document(actual))
             @issues.empty?
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -673,13 +642,11 @@ module Dommy
         end
 
         class HaveNoNestedInteractiveElements
+          include Negatable
+
           def matches?(actual)
             @issues = Dommy::Rails::Lint.nested_interactive_elements(MatchTarget.document(actual))
             @issues.empty?
-          end
-
-          def does_not_match?(actual)
-            !matches?(actual)
           end
 
           def description
@@ -696,6 +663,8 @@ module Dommy
         end
 
         class HaveHtmlLink
+          include Negatable
+
           def initialize(text, href:, count:)
             @text = text
             @href = href
@@ -708,10 +677,6 @@ module Dommy
 
             @matched = Dommy::Rails::PageInspector.links(@document, text: @text, href: @href)
             Dommy::Internal::DomMatching.count_matches?(@matched.size, @count)
-          end
-
-          def does_not_match?(mail)
-            !matches?(mail)
           end
 
           def description
@@ -730,6 +695,8 @@ module Dommy
         end
 
         class HaveHtmlText
+          include Negatable
+
           def initialize(text)
             @text = text
           end
@@ -740,10 +707,6 @@ module Dommy
 
             @actual = Dommy::Internal::DomMatching.text_of(@document)
             Dommy::Internal::DomMatching.text_matches?(@actual, @text)
-          end
-
-          def does_not_match?(mail)
-            !matches?(mail)
           end
 
           def description
@@ -762,6 +725,8 @@ module Dommy
         end
 
         class HavePlainText
+          include Negatable
+
           def initialize(text)
             @text = text
           end
@@ -769,10 +734,6 @@ module Dommy
           def matches?(mail)
             @actual = Dommy::Rails::MailPart.plain_body(mail).to_s
             Dommy::Internal::DomMatching.text_matches?(@actual, @text)
-          end
-
-          def does_not_match?(mail)
-            !matches?(mail)
           end
 
           def description

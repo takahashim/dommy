@@ -13,9 +13,9 @@ module Dommy
       module_function
 
       def duplicate_ids(document)
-        all_elements = document.query_selector_all("*[id]").to_a
-        ids = all_elements.map { |el| el.get_attribute("id") }
-        ids.select { |id| ids.count(id) > 1 }.uniq
+        document.query_selector_all("*[id]").to_a
+          .map { |el| el.get_attribute("id") }
+          .tally.select { |_, count| count > 1 }.keys
       end
 
       def invalid_aria_references(document)

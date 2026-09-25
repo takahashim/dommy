@@ -38,14 +38,10 @@ module Dommy
       # Greedy ordered-subsequence match: each expected child must match a later
       # actual child, allowing extra actual children in between.
       def children_match?(expected_children, actual_children)
-        cursor = 0
-        expected_children.each do |expected|
-          cursor += 1 until cursor >= actual_children.size || node_match?(expected, actual_children[cursor])
-          return false if cursor >= actual_children.size
-
-          cursor += 1
+        remaining = actual_children.each
+        expected_children.all? do |expected|
+          remaining.any? { |actual| node_match?(expected, actual) }
         end
-        true
       end
 
       # --- parsing (indentation outline -> Node tree) ---

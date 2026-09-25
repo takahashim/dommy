@@ -25,7 +25,7 @@ module Dommy
       def self.included(base)
         if base.respond_to?(:after)
           base.after do |example|
-            dir = dommy_browser_after(failed: example.exception ? true : false,
+            dir = dommy_browser_after(failed: !!example.exception,
               label: example.full_description, exception: example.exception)
             # Point the failure output at the saved bundle and the one command
             # that opens it in the standalone viewer.
