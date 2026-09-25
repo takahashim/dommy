@@ -64,6 +64,7 @@ module Dommy
         ulong: %i[reflected_ulong set_reflected_ulong],
         token_list: %i[reflected_token_list set_reflected_token_list],
         boolean: %i[reflected_boolean set_reflected_boolean],
+        enumerated: %i[reflected_enumerated set_reflected_enumerated],
         setter_only: [nil, :set_reflected_string],
         ulong_setter: [nil, :set_reflected_ulong],
         double_setter: [nil, :set_reflected_double],
@@ -76,6 +77,35 @@ module Dommy
 
         def reflect_boolean(*names, **mapped)
           _reflect(:boolean, names, mapped)
+        end
+
+        # An IDL attribute the specs reflect "limited to only known values" —
+        # HTML §2.6.1's enumerated-DOMString algorithm, defined against the
+        # states HTML §2.3.3 gives the content attribute. Unlike the other
+        # reflect_* shapes this one is written entirely in PROSE: the specs'
+        # own IDL carries no [Reflect] for it at all (interfaces.json records
+        # `reflect: null`), so a plain reflect_string here silently returns the
+        # raw attribute instead of canonicalizing it.
+        #
+        #   reflect_enumerated method_attr: { attr: "method", js: "method",
+        #                                      keywords: %w[get post dialog],
+        #                                      missing: "get", invalid: "get" }
+        #
+        # `keywords:` are the attribute's own keywords, each naming its own
+        # state (matched ASCII case-insensitively, nothing trimmed) — every
+        # attribute reflect_enumerated is used for has exactly one keyword per
+        # state, so a keyword doubles as its state's canonical spelling.
+        # `missing:` / `invalid:` are the getter's fallback for a missing or
+        # unrecognized value: a keyword when the state HTML gives it has one,
+        # or nil when it does not (a state with no keyword reads back as ""),
+        # or when omitted entirely (the attribute has no such default at all —
+        # reads the same as nil). `empty:` is the separate empty-value default
+        # a few attributes declare on top (`crossorigin=""`, `preload=""`).
+        # `nullable:` marks a `DOMString?` attribute (`crossOrigin`): a
+        # keyword-less result is null rather than "", and the setter deletes
+        # the content attribute for a null value rather than writing "null".
+        def reflect_enumerated(*names, **mapped)
+          _reflect(:enumerated, names, mapped)
         end
 
         # A URL attribute ([ReflectURL]): the setter writes the content attribute
@@ -473,6 +503,43 @@ module Dommy
           set_attribute(name, "")
         elsif has_attribute?(name)
           remove_attribute(name)
+        end
+      end
+
+      # An enumerated attribute's getter (HTML §2.6.1): the canonical keyword
+      # for the state the content attribute's value names, or "" — null for
+      # `nullable:` — when there is no such state, or the state it names has no
+      # keyword of its own.
+      def reflected_enumerated(name, options = EMPTY_OPTIONS)
+        canonical = enumerated_state_keyword(get_attribute(name), options)
+        options[:nullable] ? canonical : canonical.to_s
+      end
+
+      # The canonical keyword `raw` (the content attribute's current value, or
+      # nil when absent) names, per `options[:keywords]` / `:missing` /
+      # `:invalid` / `:empty` — see `reflect_enumerated`'s own comment for what
+      # each means. Shared by every enumerated attribute rather than each
+      # hand-writing the same lookup.
+      def enumerated_state_keyword(raw, options)
+        return options[:missing] if raw.nil?
+
+        keyword = raw.downcase(:ascii)
+        return keyword if options.fetch(:keywords).include?(keyword)
+        return options[:empty] if raw.empty? && options.key?(:empty)
+
+        options[:invalid]
+      end
+
+      # An enumerated attribute's setter is the plain string reflection (HTML
+      # §2.6.1: "run this's set the content attribute with the given value") —
+      # except a `nullable:` (`DOMString?`) one, whose setter deletes the
+      # content attribute for a null value instead of writing the string
+      # "null".
+      def set_reflected_enumerated(name, value, options = EMPTY_OPTIONS)
+        if options[:nullable] && value.nil?
+          remove_attribute(name)
+        else
+          set_attribute(name, value.to_s)
         end
       end
     end
