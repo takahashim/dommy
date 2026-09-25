@@ -449,6 +449,8 @@ globalThis.__rbIdl = (function () {
     lookupPrefix: 1, lookupNamespaceURI: 1, isDefaultNamespace: 1,
     insertBefore: 2, appendChild: 1, replaceChild: 2, removeChild: 1,
     addEventListener: 2, removeEventListener: 2, dispatchEvent: 1,
+    initStorageEvent: 1, initTextEvent: 1,
+    initDeviceMotionEvent: 1, initDeviceOrientationEvent: 1,
     getAttribute: 1, setAttribute: 2, removeAttribute: 1, hasAttribute: 1,
     getAttributeNS: 2, setAttributeNS: 3, removeAttributeNS: 2, hasAttributeNS: 2,
     toggleAttribute: 1, getAttributeNode: 1, getAttributeNodeNS: 2,
@@ -496,12 +498,13 @@ globalThis.__rbIdl = (function () {
   // the HTML element interfaces, …).
   const CONSTRUCTOR_ARITY = {
     BroadcastChannel: 1, ByteLengthQueuingStrategy: 1, CompositionEvent: 1,
-    CountQueuingStrategy: 1, CustomEvent: 1, DragEvent: 1, ErrorEvent: 1, Event: 1,
+    CountQueuingStrategy: 1, CustomEvent: 1, DeviceMotionEvent: 1,
+    DeviceOrientationEvent: 1, DragEvent: 1, ErrorEvent: 1, Event: 1,
     EventSource: 1, File: 2, FocusEvent: 1, HashChangeEvent: 1, InputEvent: 1,
     KeyboardEvent: 1, MessageEvent: 1, MutationObserver: 1, PopStateEvent: 1,
     ProcessingInstruction: 1, ProgressEvent: 1, PromiseRejectionEvent: 2,
-    Request: 1, StaticRange: 1, SubmitEvent: 1, ToggleEvent: 1, UIEvent: 1,
-    URL: 1, Worker: 1
+    Request: 1, StaticRange: 1, StorageEvent: 1, SubmitEvent: 1,
+    ToggleEvent: 1, UIEvent: 1, URL: 1, Worker: 1
   };
 
   // Operations whose WebIDL return type is undefined, in every interface that
@@ -516,6 +519,7 @@ globalThis.__rbIdl = (function () {
     "removeAttributeNS", "append", "prepend", "before", "after", "remove", "replaceWith", "replaceChildren",
     "moveBefore", "normalize", "insertAdjacentText", "insertAdjacentHTML",
     "preventDefault", "stopPropagation", "stopImmediatePropagation", "initEvent", "initCustomEvent",
+    "initStorageEvent", "initTextEvent", "initDeviceMotionEvent", "initDeviceOrientationEvent",
     "focus", "blur", "click", "select", "setCustomValidity", "stepUp", "stepDown", "setSelectionRange",
     "setRangeText", "setPointerCapture",
     "releasePointerCapture", "observe", "unobserve", "disconnect", "setStart", "setEnd", "setStartBefore",

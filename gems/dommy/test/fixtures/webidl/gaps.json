@@ -51,8 +51,6 @@
     "PluginArray",
     "Sanitizer",
     "SharedWorker",
-    "StorageEvent",
-    "TextEvent",
     "TextTrack",
     "TextTrackCue",
     "TextTrackCueList",
