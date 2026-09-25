@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "element_tasks"
+require_relative "toggle_task_tracker"
 
 module Dommy
   module Internal
@@ -15,6 +16,14 @@ module Dommy
     # and queues a fresh one at the back of the queue, so the event arrives
     # after everything queued in between.
     #
+    # WHATWG gives `<details>`, `<dialog>`, and popovers each their OWN toggle
+    # task tracker, so an element juggling more than one purpose at once (a
+    # `<dialog popover>`) coalesces each purpose's rapid changes independently
+    # rather than merging them into one event. Callers pass the
+    # ToggleTaskTracker for the purpose they are queuing — see
+    # HTMLDialogElement#dialog_toggle_tracker, HTMLDetailsElement's, and
+    # ElementTopLayer#popover_toggle_tracker.
+    #
     # Host contract: #dispatch_event, and ElementTasks' @document.
     module ToggleEvents
       include ElementTasks
@@ -28,18 +37,15 @@ module Dommy
           "bubbles" => false, "cancelable" => new_open).__internal_mark_trusted__)
       end
 
-      def queue_toggle_event(old_open, new_open)
-        @__toggle_old = toggle_state(old_open) unless @__toggle_pending
-        @__toggle_new = toggle_state(new_open)
-        @__toggle_pending = true
-        @__toggle_announced = true
-        generation = @__toggle_generation = (@__toggle_generation || 0) + 1
+      def queue_toggle_event(tracker, old_open, new_open)
+        new_state = toggle_state(new_open)
+        generation = tracker.begin_run(toggle_state(old_open))
         queue_element_task do
-          next unless generation == @__toggle_generation
+          next unless tracker.current?(generation)
 
-          @__toggle_pending = false
+          tracker.finish
           dispatch_event(ToggleEvent.new("toggle",
-            "oldState" => @__toggle_old, "newState" => @__toggle_new,
+            "oldState" => tracker.old_state, "newState" => new_state,
             "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
         end
       end

@@ -149,4 +149,21 @@ class TestDialogToggleEvents < Minitest::Test
     @win.scheduler.advance_time(0)
     assert_equal 1, @events.count { |e| e.first == "toggle" }
   end
+
+  # WHATWG gives `<details>`, `<dialog>`, and popovers their own toggle task
+  # tracker apiece. A `<dialog popover>` shown both ways in the same task must
+  # therefore fire TWO separate `toggle` events (one per purpose) rather than
+  # coalescing them into one, even though both land on the same element.
+  def test_dialog_popover_toggle_events_are_tracked_separately
+    win = make_window("<dialog id='d' popover='manual'>dialog</dialog>")
+    dialog = win.document.get_element_by_id("d")
+    toggles = []
+    dialog.add_event_listener("toggle", proc { |e| toggles << [e.__js_get__("oldState"), e.__js_get__("newState")] })
+
+    dialog.show
+    dialog.show_popover
+    win.scheduler.advance_time(0)
+
+    assert_equal [%w[closed open], %w[closed open]], toggles
+  end
 end

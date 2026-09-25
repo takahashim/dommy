@@ -45,7 +45,7 @@ module Dommy
       return nil if has_attribute?("open")
 
       self.open = true
-      queue_toggle_event(false, true)
+      queue_toggle_event(dialog_toggle_tracker, false, true)
       nil
     end
 
@@ -76,7 +76,7 @@ module Dommy
 
       self.open = true
       @__dialog_is_modal__ = true
-      queue_toggle_event(false, true)
+      queue_toggle_event(dialog_toggle_tracker, false, true)
       nil
     end
 
@@ -95,7 +95,7 @@ module Dommy
       self.open = false
       @__dialog_is_modal__ = false
       @return_value = value.to_s unless value.nil?
-      queue_toggle_event(true, false)
+      queue_toggle_event(dialog_toggle_tracker, true, false)
       queue_element_task { dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__) }
       nil
     end
@@ -115,6 +115,16 @@ module Dommy
       else
         super
       end
+    end
+
+    private
+
+    # This element's own "dialog toggle task tracker" — separate from any
+    # "popover toggle task tracker" the same element also has as a
+    # `<dialog popover>`, so the two purposes' rapid changes coalesce
+    # independently rather than merging into one event.
+    def dialog_toggle_tracker
+      @__dialog_toggle_tracker ||= Internal::ToggleTaskTracker.new
     end
   end
 
@@ -182,7 +192,7 @@ module Dommy
     # that already has an open member closes. `pending` holds the members of the
     # same batch that have not been inserted yet, which this element cannot see.
     def __internal_details_inserted__(pending = nil)
-      queue_toggle_event(false, true) if open && !@__toggle_announced
+      queue_toggle_event(details_toggle_tracker, false, true) if open && !details_toggle_tracker.announced
       yield_to_open_group_peer(pending)
       nil
     end
@@ -207,9 +217,17 @@ module Dommy
       # This element's own toggle is queued first; only then do the other open
       # members of its exclusive group (same `name`, same tree scope) close and
       # queue theirs, so the group's events arrive in the order it settled.
-      queue_toggle_event(was, now)
+      queue_toggle_event(details_toggle_tracker, was, now)
       close_open_group_peers if now
       nil
+    end
+
+    # This element's own "details toggle task tracker" — separate from any
+    # "popover toggle task tracker" the same element also has as a
+    # `<details popover>`, so the two purposes' rapid changes coalesce
+    # independently rather than merging into one event.
+    def details_toggle_tracker
+      @__details_toggle_tracker ||= Internal::ToggleTaskTracker.new
     end
 
     # WHATWG details name-group exclusivity: at most one details per (name, tree

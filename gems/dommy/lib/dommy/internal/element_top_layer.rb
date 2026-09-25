@@ -27,7 +27,7 @@ module Dommy
         return nil unless fire_beforetoggle(false, true)
 
         @__popover_open__ = true
-        queue_toggle_event(false, true)
+        queue_toggle_event(popover_toggle_tracker, false, true)
         nil
       end
 
@@ -36,7 +36,7 @@ module Dommy
 
         fire_beforetoggle(true, false)
         @__popover_open__ = false
-        queue_toggle_event(true, false)
+        queue_toggle_event(popover_toggle_tracker, true, false)
         nil
       end
 
@@ -50,6 +50,14 @@ module Dommy
       # HTML's "popover showing state" is showing — what <dialog>'s
       # showModal() checks, without reaching into this module's state.
       def popover_showing? = @__popover_open__ ? true : false
+
+      # This element's own "popover toggle task tracker" — separate from any
+      # "dialog toggle task tracker" the same element also has as a
+      # `<dialog popover>`, so the two purposes' rapid changes coalesce
+      # independently rather than merging into one event.
+      def popover_toggle_tracker
+        @__popover_toggle_tracker ||= ToggleTaskTracker.new
+      end
     end
   end
 end
