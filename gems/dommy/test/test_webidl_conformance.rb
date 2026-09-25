@@ -194,6 +194,20 @@ if JsSurface.available?
       end
     end
 
+    # Attributes Dommy reflects raw (reflect_string or another reflect_* shape)
+    # though the specs' own IDL has no [Reflect] for them at all — usually
+    # because the real getter is prose ("limited to only known values", an
+    # ENUMERATED attribute), which a plain reflect_string bypasses entirely.
+    def test_attributes_with_no_idl_reflect_are_not_reflected_raw
+      recorded = WebIdlAudit.recorded_gaps["invented_reflect_gaps"]
+      current = WebIdlAudit.invented_reflect_gaps
+      (recorded.keys | current.keys).sort.each do |member|
+        assert_equal recorded[member], current[member],
+          "#{member}: whether it reflects raw though the IDL has no [Reflect] changed; " \
+          "re-record with RECORD_WEBIDL_GAPS=1"
+      end
+    end
+
     # The three tables the JS half keeps about operations and collections, each
     # against what the specs' IDL declares: which operations return nothing,
     # what each one's `length` is, and which interfaces have an `iterable<>`
