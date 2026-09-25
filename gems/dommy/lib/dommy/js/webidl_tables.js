@@ -98,6 +98,13 @@ globalThis.__rbIdl = (function () {
     // `template.content` is a [SameObject] readonly attribute — assert_readonly
     // walks the prototype chain expecting a getter with no setter.
     HTMLTemplateElement: ["content"],
+    // URL.origin and URL.searchParams are the interface's only readonly
+    // attributes (the rest have setters). The accessor gives them the strict-mode
+    // TypeError on assignment a browser has; see rejectReadonlyPrototypeWrite.
+    URL: ["origin", "searchParams"],
+    // The legend's form back-ref is readonly (HTML's form-associated interfaces
+    // all expose one this way); assert_readonly walks the prototype for it.
+    HTMLLegendElement: ["form"],
   };
 
   // [LegacyUnforgeable] attributes are own accessor properties on EACH instance
