@@ -2,13 +2,28 @@
 
 ## Unreleased
 
+### Added
+
+- `innerText` and `outerText` on HTML elements, following the computed style (`display`, `visibility`, `white-space`, `text-transform`), `<br>`, block and `<p>` breaks, and table cells and rows.
+- `getComputedStyle(el).direction` and `:dir()` follow the `dir` attribute, including `dir="auto"` and `<bdi>`.
+- An HTML document is an `HTMLDocument`: `document.constructor === HTMLDocument`.
+
 ### Changed
 
+- Popovers fire `beforetoggle` and `toggle` as `ToggleEvent`s, whose `oldState` / `newState` replace the old `CustomEvent`'s `detail`; `toggle` is queued, and an opening `beforetoggle` can be canceled.
 - **Breaking for backends:** the JS half is two bundles, not one — `HostBridge::WEBIDL_TABLES_JS` (the specs' own enumerations: interface members, constants, operation arities, event handler attributes) must be evaluated before `HOST_RUNTIME_JS`, which reads them. A backend that seeds through `HostBridge#seed_runtime!` needs no change; one that evaluates the runtime source itself does.
 - **Breaking for backends:** the wire tags are `Dommy::Bridge::WireTags`, not `Dommy::Js::WireTags` — a tag is true of any host, so it belongs with the protocol. `Dommy::Bridge::Callback`, an adapter for an embedder that never arrived, is removed; `Dommy::Js::HostCallback` is the live one.
 
 ### Fixed
 
+- An invalid `dir` value such as `dir="foo"` inherits the parent's direction, and `el.dir` / `document.dir` read `""` for it.
+- `<dialog>` fires `beforetoggle` before `show()` / `showModal()` / `close()` change `open`, and a queued `toggle` after; only an opening `beforetoggle` can be canceled.
+- An enumerated attribute returns its canonical keyword or default: `form.method` is `"get"` for a missing or unknown value, and `img.crossOrigin` is `null` without the attribute.
+- `input.type` is `"text"` for an unknown type.
+- `document.createElement("script").async` is `true`.
+- `el.dataset["a<b"] = "x"` sets `data-a<b`, a name like `"-foo"` throws `SyntaxError`, and an element outside HTML, SVG and MathML has no `dataset`.
+- `document.foo` finds an `<object id="foo">`, and a named `<object>` is the element itself rather than its content window.
+- `crypto.getRandomValues(new Uint32Array(4))` fills and returns that same `Uint32Array`.
 - `<textarea>` answers `selectionStart`, `selectionEnd` and `selectionDirection`, and `setSelectionRange` / `select` move them — they used to return nothing and do nothing.
 - Decoding a whole buffer of valid UTF-8 — what `XMLHttpRequest#responseText` does — takes Ruby's own path instead of the spec's byte-at-a-time decoder, around 200x faster on a large response.
 - A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
