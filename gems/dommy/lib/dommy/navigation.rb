@@ -191,23 +191,30 @@ module Dommy
 
       # Minimal multipart/form-data serializer (core must not depend on
       # dommy-rack): File/Blob values become file parts, others text parts.
+      # Every appended string is forced to binary so a part name / value with
+      # non-ASCII (UTF-8) text cannot raise an encoding mismatch against the
+      # binary body (file bytes).
       def multipart_body(params, boundary = "----DommyBoundary#{SecureRandom.hex(16)}")
         body = +"".b
         params.each do |name, value|
-          body << "--#{boundary}\r\n"
+          body << binary("--#{boundary}\r\n")
           if value.respond_to?(:__dommy_bytes__)
             filename = value.respond_to?(:name) ? value.name.to_s : ""
             type = value.respond_to?(:type) && !value.type.to_s.empty? ? value.type.to_s : "application/octet-stream"
-            body << %(Content-Disposition: form-data; name="#{escape_part(name)}"; filename="#{escape_part(filename)}"\r\n)
-            body << "Content-Type: #{type}\r\n\r\n"
+            body << binary(%(Content-Disposition: form-data; name="#{escape_part(name)}"; filename="#{escape_part(filename)}"\r\n))
+            body << binary("Content-Type: #{type}\r\n\r\n")
             body << value.__dommy_bytes__ << "\r\n".b
           else
-            body << %(Content-Disposition: form-data; name="#{escape_part(name)}"\r\n\r\n)
-            body << value.to_s.dup.force_encoding(Encoding::ASCII_8BIT) << "\r\n".b
+            body << binary(%(Content-Disposition: form-data; name="#{escape_part(name)}"\r\n\r\n))
+            body << binary(value.to_s) << "\r\n".b
           end
         end
-        body << "--#{boundary}--\r\n"
+        body << binary("--#{boundary}--\r\n")
         [body, "multipart/form-data; boundary=#{boundary}"]
+      end
+
+      def binary(str)
+        str.to_s.dup.force_encoding(Encoding::ASCII_8BIT)
       end
 
       # A File/Blob contributes its filename to a non-file serialization.
