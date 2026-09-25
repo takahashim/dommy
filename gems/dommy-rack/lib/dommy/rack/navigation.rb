@@ -46,7 +46,7 @@ module Dommy
 
       # Perform a navigation, following redirects per session policy, then
       # apply the final response to the session (updating document + history).
-      def navigate(method:, url:, params: nil, body: nil, headers: {}, replace: false)
+      def navigate(method:, url:, params: nil, body: nil, enctype: nil, headers: {}, replace: false)
         return navigate_about(url.to_s) if url.to_s.start_with?("about:")
 
         verb = method.to_s.upcase
@@ -62,7 +62,7 @@ module Dommy
         end
         check_same_origin!(target)
 
-        response, final_url = run(method: verb, url: target, params: params, body: body, headers: headers)
+        response, final_url = run(method: verb, url: target, params: params, body: body, enctype: enctype, headers: headers)
         # replace: a location.replace() / reload() / redirect updates the current
         # history entry in place rather than pushing a new one.
         @session.apply_navigation_response(response, final_url, replace: replace)
@@ -71,11 +71,11 @@ module Dommy
 
       # Fetch-style request: resolves and enforces origin, runs the redirect
       # loop per mode, and returns the Response without touching session state.
-      def fetch(url, method: "GET", params: nil, body: nil, headers: {}, redirect: :follow)
+      def fetch(url, method: "GET", params: nil, body: nil, enctype: nil, headers: {}, redirect: :follow)
         verb = method.to_s.upcase
         target = resolve_url(url, @session.current_url)
         check_same_origin!(target)
-        run_fetch(verb, target, params: params, body: body, headers: headers, redirect: redirect)
+        run_fetch(verb, target, params: params, body: body, enctype: enctype, headers: headers, redirect: redirect)
       end
 
       # Worker-safe variant of #fetch: `target` is already absolute and origin-
@@ -83,8 +83,8 @@ module Dommy
       # in the redirect loop is issued through `exchange` (which touches only
       # thread-safe state) instead of the session. Returns the Response. This is
       # the primitive a network worker runs for the async-network path.
-      def fetch_resolved(exchange, method, target, params: nil, body: nil, headers: {}, redirect: :follow)
-        run_fetch(method.to_s.upcase, target, params: params, body: body, headers: headers,
+      def fetch_resolved(exchange, method, target, params: nil, body: nil, enctype: nil, headers: {}, redirect: :follow)
+        run_fetch(method.to_s.upcase, target, params: params, body: body, enctype: enctype, headers: headers,
                   redirect: redirect, exchange: exchange)
       end
 
@@ -98,7 +98,7 @@ module Dommy
 
       # Run the request/redirect loop. Returns [response, final_url].
       # Public so Session#fetch can reuse it without applying navigation state.
-      def run(method:, url:, params: nil, body: nil, headers: {}, follow: true, exchange: nil)
+      def run(method:, url:, params: nil, body: nil, enctype: nil, headers: {}, follow: true, exchange: nil)
         verb = method
         target = url
         # Carry the fragment across redirects: a redirect Location without its
@@ -112,9 +112,9 @@ module Dommy
           # `exchange` is injected, the very same loop runs on a network worker.
           response =
             if exchange
-              exchange.request(verb, target, params: params, body: body, headers: headers)
+              exchange.request(verb, target, params: params, body: body, enctype: enctype, headers: headers)
             else
-              @session.raw_request(verb, target, params: params, body: body, headers: headers)
+              @session.raw_request(verb, target, params: params, body: body, enctype: enctype, headers: headers)
             end
 
           unless follow && redirect_to_follow?(response)
@@ -146,8 +146,8 @@ module Dommy
       # Run the redirect loop per fetch `redirect` mode and return the Response.
       # Shared by the page-thread #fetch and the worker-safe #fetch_resolved
       # (which passes an `exchange`); the only difference is where requests issue.
-      def run_fetch(verb, target, params:, body:, headers:, redirect:, exchange: nil)
-        args = {method: verb, url: target, params: params, body: body, headers: headers, exchange: exchange}
+      def run_fetch(verb, target, params:, body:, enctype:, headers:, redirect:, exchange: nil)
+        args = {method: verb, url: target, params: params, body: body, enctype: enctype, headers: headers, exchange: exchange}
         case redirect
         when :follow
           run(**args, follow: true).first

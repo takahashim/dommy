@@ -206,6 +206,46 @@ class Dommy::Rack::TestSession < Minitest::Test
     tempfile&.unlink
   end
 
+  def test_text_plain_form_sends_plain_text_body
+    app = app_for(
+      "GET /" => html_response(
+        '<form action="/x" method="post" enctype="text/plain">' \
+        '<input type="text" name="title" value="Hi there"><button type="submit">Go</button></form>'
+      ),
+      "POST /x" => ->(req) {
+        @seen_type = req.content_type
+        @seen_body = req.body.read
+        html_response("<p>ok</p>")
+      }
+    )
+    session = Dommy::Rack::Session.new(app)
+    session.visit("/")
+    session.click_button("Go")
+
+    assert_equal "text/plain;charset=UTF-8", @seen_type
+    assert_equal "title=Hi there\r\n", @seen_body
+  end
+
+  def test_multipart_form_with_only_text_fields_sends_multipart
+    app = app_for(
+      "GET /" => html_response(
+        '<form action="/x" method="post" enctype="multipart/form-data">' \
+        '<input type="text" name="title" value="T"><button type="submit">Go</button></form>'
+      ),
+      "POST /x" => ->(req) {
+        @seen_type = req.content_type
+        @seen_body = req.body.read
+        html_response("<p>ok</p>")
+      }
+    )
+    session = Dommy::Rack::Session.new(app)
+    session.visit("/")
+    session.click_button("Go")
+
+    assert_match(%r{\Amultipart/form-data; boundary=}, @seen_type)
+    assert_includes @seen_body, %(Content-Disposition: form-data; name="title"\r\n\r\nT)
+  end
+
   def test_attach_file_missing_path_raises
     app = app_for("GET /" => html_response(
       '<form action="/u" method="post" enctype="multipart/form-data"><input type="file" name="doc"></form>'

@@ -399,8 +399,9 @@ module Dommy
         result
       end
 
-      def navigate(method: "GET", url:, params: nil, body: nil, headers: {}, replace: false)
-        @navigation.navigate(method: method, url: url, params: params, body: body, headers: headers, replace: replace)
+      def navigate(method: "GET", url:, params: nil, body: nil, enctype: nil, headers: {}, replace: false)
+        @navigation.navigate(method: method, url: url, params: params, body: body, enctype: enctype,
+                             headers: headers, replace: replace)
       end
 
       def reload
@@ -750,7 +751,7 @@ module Dommy
         result = FormSubmission.new(form, submitter, @config).submit!
         @trace&.__internal_record_form(method: result[:method], url: result[:url], params: result[:params])
         navigate(method: result[:method], url: resolve_document_url(result[:url]),
-                 params: result[:params], headers: referer_headers)
+                 params: result[:params], enctype: result[:enctype], headers: referer_headers)
       end
 
       alias submit submit_form
@@ -779,12 +780,12 @@ module Dommy
 
       # Execute one request against the app. Stores response cookies but does
       # NOT update current_url / document / history.
-      def raw_request(method, absolute_url, params: nil, body: nil, headers: {})
+      def raw_request(method, absolute_url, params: nil, body: nil, enctype: nil, headers: {})
         # Remember the latest raw request so #reload can re-issue it. Note this
         # is the final request of any redirect chain: after a POST that
         # redirects (PRG), reload re-GETs the landing page rather than re-POSTing.
-        @last_request_args = {method: method, url: absolute_url, params: params, body: body, headers: headers}
-        page_exchange.request(method, absolute_url, params: params, body: body, headers: headers)
+        @last_request_args = {method: method, url: absolute_url, params: params, body: body, enctype: enctype, headers: headers}
+        page_exchange.request(method, absolute_url, params: params, body: body, enctype: enctype, headers: headers)
       end
 
       # The HttpExchange bound to this page: it reads the live header store and
@@ -1056,7 +1057,7 @@ module Dommy
         method = (nav[:method] || "GET").to_s.upcase
         params = nav[:params]
         method, params = apply_delegate_method_override(method, params) if params
-        navigate(method: method, url: target, params: params, body: nav[:body],
+        navigate(method: method, url: target, params: params, body: nav[:body], enctype: nav[:enctype],
                  headers: referer_headers, replace: nav[:replace])
       end
 

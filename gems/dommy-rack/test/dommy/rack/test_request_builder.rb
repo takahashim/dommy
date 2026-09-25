@@ -104,4 +104,32 @@ class Dommy::Rack::TestRequestBuilder < Minitest::Test
     env = @builder.build(method: "GET", url: "http://example.org/s", params: {"doc" => file})
     assert_equal "doc=a.txt", env["QUERY_STRING"]
   end
+
+  def test_text_plain_enctype_uses_plain_text_body
+    env = @builder.build(
+      method: "POST", url: "http://example.org/x",
+      params: {"title" => "Hi there", "note" => "a=b"}, enctype: "text/plain"
+    )
+    assert_equal "text/plain;charset=UTF-8", env["CONTENT_TYPE"]
+    assert_equal "title=Hi there\r\nnote=a=b\r\n", env["rack.input"].read
+  end
+
+  def test_multipart_enctype_with_only_text_fields_still_multiparts
+    env = @builder.build(
+      method: "POST", url: "http://example.org/x",
+      params: {"title" => "T"}, enctype: "multipart/form-data"
+    )
+    assert_match(%r{\Amultipart/form-data; boundary=}, env["CONTENT_TYPE"])
+    assert_includes env["rack.input"].read, %(Content-Disposition: form-data; name="title"\r\n\r\nT)
+  end
+
+  def test_urlencoded_enctype_reduces_file_to_its_name
+    file = Dommy::File.new(["bytes"], "a.txt", "type" => "text/plain")
+    env = @builder.build(
+      method: "POST", url: "http://example.org/x",
+      params: {"doc" => file}, enctype: "application/x-www-form-urlencoded"
+    )
+    assert_equal "application/x-www-form-urlencoded", env["CONTENT_TYPE"]
+    assert_equal "doc=a.txt", env["rack.input"].read
+  end
 end

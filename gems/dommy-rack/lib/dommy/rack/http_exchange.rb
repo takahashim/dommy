@@ -46,12 +46,13 @@ module Dommy
 
       # Perform one request and return its Response. `headers` are per-request
       # overrides merged over the persistent header source.
-      def request(method, absolute_url, params: nil, body: nil, headers: {})
+      def request(method, absolute_url, params: nil, body: nil, enctype: nil, headers: {})
         env = RequestBuilder.new(@config).build(
           method: method,
           url: absolute_url,
           params: params,
           body: body,
+          enctype: enctype,
           headers: @headers.merge(headers),
           cookie_string: @cookie_jar.cookies_for(absolute_url)
         )

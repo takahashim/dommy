@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "uri"
+require "securerandom"
 
 module Dommy
   # Navigation host seam. The core fires the *intent* to navigate (a link
@@ -163,16 +164,56 @@ module Dommy
         nil
       end
 
-      # Serialize a form data set to a request body. multipart is approximated as
-      # urlencoded (the core test browser has no file uploads); text/plain uses
-      # the WHATWG plain-text form; everything else is urlencoded.
+      # Serialize a form data set to a request body. `multipart/form-data`
+      # becomes a real multipart body (File/Blob values become file parts,
+      # everything else a text part); `text/plain` uses the WHATWG plain-text
+      # form; everything else (including no declared enctype) is urlencoded.
       def encode_body(params, enctype)
-        case enctype.to_s
+        case enctype.to_s.downcase
         when "text/plain"
-          [params.map { |n, v| "#{n}=#{v}" }.join("\r\n") + "\r\n", "text/plain;charset=UTF-8"]
+          [plain_text_body(params), "text/plain;charset=UTF-8"]
+        when "multipart/form-data"
+          multipart_body(params)
         else
           [URI.encode_www_form(params), "application/x-www-form-urlencoded"]
         end
+      end
+
+      # WHATWG plain-text form data: `name=value` per entry, CRLF-terminated.
+      def plain_text_body(params)
+        params.map { |name, value| "#{name}=#{scalar(value)}" }.join("\r\n") + "\r\n"
+      end
+
+      # Minimal multipart/form-data serializer (core must not depend on
+      # dommy-rack): File/Blob values become file parts, others text parts.
+      def multipart_body(params, boundary = "----DommyBoundary#{SecureRandom.hex(16)}")
+        body = +"".b
+        params.each do |name, value|
+          body << "--#{boundary}\r\n"
+          if value.respond_to?(:__dommy_bytes__)
+            filename = value.respond_to?(:name) ? value.name.to_s : ""
+            type = value.respond_to?(:type) && !value.type.to_s.empty? ? value.type.to_s : "application/octet-stream"
+            body << %(Content-Disposition: form-data; name="#{escape_part(name)}"; filename="#{escape_part(filename)}"\r\n)
+            body << "Content-Type: #{type}\r\n\r\n"
+            body << value.__dommy_bytes__ << "\r\n".b
+          else
+            body << %(Content-Disposition: form-data; name="#{escape_part(name)}"\r\n\r\n)
+            body << value.to_s.dup.force_encoding(Encoding::ASCII_8BIT) << "\r\n".b
+          end
+        end
+        body << "--#{boundary}--\r\n"
+        [body, "multipart/form-data; boundary=#{boundary}"]
+      end
+
+      # A File/Blob contributes its filename to a non-file serialization.
+      def scalar(value)
+        return value.to_s unless value.respond_to?(:__dommy_bytes__)
+
+        value.respond_to?(:name) ? value.name.to_s : ""
+      end
+
+      def escape_part(str)
+        str.to_s.gsub('"', "%22").gsub(/[\r\n]/, "")
       end
 
       def redirect_method(status, original)

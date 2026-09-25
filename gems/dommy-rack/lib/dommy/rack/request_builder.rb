@@ -9,20 +9,22 @@ module Dommy
     # Stateless aside from the session config it reads defaults from.
     class RequestBuilder
       FORM_URLENCODED = "application/x-www-form-urlencoded"
+      MULTIPART = "multipart/form-data"
+      TEXT_PLAIN = "text/plain"
       BODY_METHODS = %w[POST PUT PATCH DELETE].freeze
 
       def initialize(config)
         @config = config
       end
 
-      def build(method:, url:, headers: {}, body: nil, params: nil, cookie_string: "")
+      def build(method:, url:, headers: {}, body: nil, params: nil, enctype: nil, cookie_string: "")
         raise ArgumentError, "pass either :params or :body, not both" if params && body
 
         verb = method.to_s.upcase
         uri = Dommy::URL.new(url)
         env_headers = normalize_headers(headers)
 
-        body_string, query_extra, content_type = encode_payload(verb, params, body, env_headers)
+        body_string, query_extra, content_type = encode_payload(verb, params, body, env_headers, enctype)
         query = merge_query(uri.search.delete_prefix("?"), query_extra)
 
         env = base_env(verb, uri, query, body_string)
@@ -58,17 +60,14 @@ module Dommy
       end
 
       # Returns [body_string, query_extra, content_type]. For GET-style verbs,
-      # params go into the query string and the body stays empty.
-      def encode_payload(verb, params, body, env_headers)
+      # params go into the query string and the body stays empty. For body verbs
+      # the declared form `enctype` picks the serialization; with none declared
+      # (a programmatic post) a File/Blob forces multipart, else urlencoded.
+      def encode_payload(verb, params, body, env_headers, enctype)
         if params
           pairs = to_pairs(params)
           if BODY_METHODS.include?(verb)
-            if FileUpload.multipart?(pairs)
-              multipart_body, content_type = FileUpload.encode(pairs)
-              [multipart_body, nil, content_type]
-            else
-              [encode_query(pairs), nil, env_headers["CONTENT_TYPE"] || FORM_URLENCODED]
-            end
+            encode_form_body(pairs, enctype, env_headers)
           else
             ["", encode_query(pairs), nil]
           end
@@ -79,6 +78,33 @@ module Dommy
         else
           ["", nil, nil]
         end
+      end
+
+      def encode_form_body(pairs, enctype, env_headers)
+        case effective_enctype(pairs, enctype)
+        when MULTIPART
+          multipart_body, content_type = FileUpload.encode(pairs)
+          [multipart_body, nil, content_type]
+        when TEXT_PLAIN
+          [plain_text_body(pairs), nil, "#{TEXT_PLAIN};charset=UTF-8"]
+        else
+          [encode_query(pairs), nil, env_headers["CONTENT_TYPE"] || FORM_URLENCODED]
+        end
+      end
+
+      # A form that declares an enctype uses it verbatim. A programmatic
+      # request with no declaration is urlencoded unless a File value forces
+      # multipart (the historical inference).
+      def effective_enctype(pairs, enctype)
+        declared = enctype.to_s.downcase
+        return declared if [FORM_URLENCODED, MULTIPART, TEXT_PLAIN].include?(declared)
+
+        FileUpload.multipart?(pairs) ? MULTIPART : FORM_URLENCODED
+      end
+
+      # WHATWG plain-text form data: `name=value` per entry, CRLF-terminated.
+      def plain_text_body(pairs)
+        pairs.map { |name, value| "#{name}=#{scalar(value)}" }.join("\r\n") + "\r\n"
       end
 
       def merge_query(existing, extra)
