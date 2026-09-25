@@ -9,7 +9,10 @@ module Dommy
   # a resolved Promise, and `pause()` flips `paused` back to true.
   class HTMLMediaElement < HTMLElement
     reflect_url :src
-    reflect_string :preload, crossorigin: { js: "crossOrigin" }
+    # The attribute's missing and invalid value default are both
+    # implementation-defined; HTML suggests Metadata as the compromise.
+    reflect_enumerated preload: { keywords: %w[none metadata auto], missing: "metadata", invalid: "metadata", empty: "auto" },
+                       crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin")
     reflect_boolean :autoplay, :controls, loop_: { attr: "loop", js: "loop" }, default_muted: "muted"
     # Own __js_call__ methods, on top of Element's.
     NETWORK_EMPTY = 0
@@ -227,7 +230,9 @@ module Dommy
 
   class HTMLTrackElement < HTMLElement
     reflect_url :src
-    reflect_string :kind, :srclang, :label
+    reflect_string :srclang, :label
+    reflect_enumerated kind: { keywords: %w[subtitles captions descriptions chapters metadata],
+                               missing: "subtitles", invalid: "metadata" }
     reflect_boolean default_: { attr: "default", js: "default" }
     NONE = 0
     LOADING = 1
@@ -252,9 +257,11 @@ module Dommy
     # but still reflected — `name` in particular is what puts an image in the
     # document's named getter, so renaming one has to move it there.
     reflect_url :src, long_desc: "longdesc"
-    reflect_string :alt, :decoding, :loading, :sizes, :srcset, :name, :align, :border,
-                   crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy",
-                   use_map: "usemap"
+    reflect_string :alt, :sizes, :srcset, :name, :align, :border, use_map: "usemap"
+    reflect_enumerated decoding: { keywords: %w[sync async auto], missing: "auto", invalid: "auto" },
+                       loading: Internal::EnumeratedKeywordSets::LAZY_LOADING,
+                       crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin"),
+                       referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
     reflect_boolean :is_map
     # [ReflectSetter]: the setters reflect as `unsigned long`, and the getters
     # are prose — HTML's "determining the dimensions", which reports the rendered

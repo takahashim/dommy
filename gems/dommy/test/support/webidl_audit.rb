@@ -231,6 +231,44 @@ module WebIdlAudit
     klass.reflected_property_map.key?(js_name) || JsSurface.js_properties(klass).include?(js_name)
   end
 
+  # Attributes Dommy reflects with reflect_string (or another reflect_* shape)
+  # even though the specs' own IDL carries no [Reflect] extended attribute for
+  # them at all — `reflect_gaps` above never looks at these, since it only
+  # judges members the IDL DOES mark [Reflect]. HTML most often leaves
+  # [Reflect] off because the attribute is "limited to only known values" and
+  # written out in prose instead (reflect_enumerated's whole reason to exist —
+  # so declaring one :enumerated is the FIX here, not a new gap), but
+  # occasionally it is something else prose-only (`script.async`'s force-async
+  # flag). Either way, a plain reflect_string in this spot returns the raw
+  # attribute unchanged rather than running the algorithm the spec's prose
+  # actually gives it — the bug class this ratchet exists to catch.
+  #
+  # :setter_only is exempt too, for a different reason: it means the class
+  # deliberately hand-writes the getter (reflect_setter's whole job — see its
+  # own comment), which is the CORRECT shape for a prose getter, not the raw
+  # pass-through this ratchet watches for. reflect_ulong_setter /
+  # reflect_double_setter declare the same way — DECLARED_AS already folds
+  # both into :setter_only, so this one check covers all three.
+  def invented_reflect_gaps
+    out = {}
+    exempt = %i[enumerated setter_only]
+    data["interfaces"].each do |name, record|
+      klass = ruby_class_for(name)
+      next unless klass.respond_to?(:reflect_specs)
+
+      declared = klass.reflect_specs
+      record["members"].each do |member|
+        next unless member["kind"] == "attribute" && member["reflect"].nil?
+
+        spec = declared[member["name"]]
+        next unless spec && !exempt.include?(spec[:type])
+
+        out["#{name}.#{member['name']}"] = "declared #{spec[:type]} though the IDL has no [Reflect]"
+      end
+    end
+    out.sort.to_h
+  end
+
   # --- the JS half's own tables against the IDL -----------------------------
   # webidl_tables.js carries three tables the IDL could have told it: which
   # operations return undefined (so a host's "nothing" crosses as undefined
@@ -833,6 +871,7 @@ module WebIdlAudit
       "missing_interfaces" => missing_interfaces,
       "missing_members" => member_gaps.sort.to_h,
       "reflect_gaps" => reflect_gaps,
+      "invented_reflect_gaps" => invented_reflect_gaps,
       "void_gaps" => void_gaps,
       "arity_gaps" => arity_gaps,
       "constructor_arity_gaps" => constructor_arity_gaps,

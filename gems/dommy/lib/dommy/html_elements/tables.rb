@@ -7,7 +7,10 @@ module Dommy
   # `<td>` / `<th>` — single table cell. `cellIndex` is the
   # position within the parent row's cells collection.
   class HTMLTableCellElement < HTMLElement
-    reflect_string :headers, :scope, :abbr
+    reflect_string :headers, :abbr
+    # The Auto state (missing or invalid value default) has no keyword of its
+    # own, so it reads back as "" rather than a made-up default.
+    reflect_enumerated scope: { keywords: %w[row col rowgroup colgroup], missing: nil, invalid: nil }
     def cell_index
       # cellIndex is the position in the DIRECT parent row's cells — -1 unless the
       # cell's immediate parent is a tr (a cell nested in a non-tr is not indexed).

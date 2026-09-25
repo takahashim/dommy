@@ -7,9 +7,9 @@ module Dommy
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
     reflect_url :src
-    reflect_string :type, :integrity, :nonce, referrer_policy: "referrerpolicy",
-                   html_for: { attr: "for", js: "htmlFor" }
-    reflect_boolean :async, :defer, no_module: "nomodule"
+    reflect_string :type, :integrity, :nonce, html_for: { attr: "for", js: "htmlFor" }
+    reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
+    reflect_boolean :defer, no_module: "nomodule"
     # `text` is an alias for textContent on <script>.
     def text
       text_content
@@ -18,6 +18,46 @@ module Dommy
     def text=(v)
       self.text_content = v
     end
+
+    # HTML's "force async" flag (scripting.html §4.12.1.1): true from the
+    # moment a script element exists — `document.createElement("script")`,
+    # `cloneNode()` — until something proves it is not meant to run in parse
+    # order. Cleared by: the HTML/XML parser inserting the element
+    # (`__internal_mark_parser_inserted__`, called for the initial document
+    # parse and for every parser/fragment-parsed script — see
+    # Document#__internal_run_parsed_insertion_steps__ and
+    # Element#mark_fragment_scripts_started), the `async` IDL setter
+    # (unconditionally), and the `async` content attribute being ADDED
+    # (`__internal_attribute_changed__` below). `nil` is the unset default,
+    # standing for HTML's "initially true".
+    def async
+      force_async = @__force_async.nil? ? true : @__force_async
+      force_async || reflected_boolean("async")
+    end
+
+    def async=(value)
+      @__force_async = false
+      set_reflected_boolean("async", value)
+    end
+
+    # The HTML/XML parser's own insertion step for a script element it
+    # creates: clears force async immediately, well before "prepare the
+    # script" ever runs. Dommy's parser builds the tree natively, without
+    # running per-element Ruby insertion steps, so the initial document parse
+    # and fragment parsing (innerHTML / outerHTML / insertAdjacentHTML) call
+    # this by hand for every <script> the parse produced.
+    def __internal_mark_parser_inserted__
+      @__force_async = false
+      nil
+    end
+
+    # HTML's attribute change steps for `async`: ADDING the content attribute
+    # clears force async, independent of (and in addition to) the IDL setter.
+    def __internal_attribute_changed__(name, old_value, _new_value, namespace)
+      @__force_async = false if namespace.nil? && old_value.nil? && name.casecmp?("async")
+    end
+
+    js_accessor :async
 
     def __js_get__(key)
       case key
@@ -117,7 +157,21 @@ module Dommy
     reflect_boolean :disabled
     reflect_url :href
     reflect_token_list :sizes, rel_list: { attr: "rel", js: "relList" }
-    reflect_string :rel, :type, :media, :hreflang, :integrity, as_attr: { attr: "as", js: "as" }, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
+    reflect_string :rel, :type, :media, :hreflang, :integrity
+    # The `as` attribute is a plain enumerated attribute (links.html /
+    # semantics.html: "The as IDL attribute must reflect the as content
+    # attribute, limited to only known values") whose keywords are the union of
+    # a preload destination (fetch, font, image, script, style, track) and a
+    # module preload destination (json, style, text, or a Fetch "script-like"
+    # destination: audioworklet, paintworklet, script, serviceworker,
+    # sharedworker, worker). It has no missing or invalid value default at all.
+    AS_KEYWORDS = %w[
+      fetch font image script style track json text audioworklet paintworklet
+      serviceworker sharedworker worker
+    ].freeze
+    reflect_enumerated as_attr: { attr: "as", js: "as", keywords: AS_KEYWORDS, missing: nil, invalid: nil },
+                       crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin"),
+                       referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
     # `link.sheet` — non-nil only when this link is a stylesheet
     # (`rel` contains "stylesheet"). Dommy fetches nothing itself, so the
     # sheet starts empty; a host environment supplies the CSS via

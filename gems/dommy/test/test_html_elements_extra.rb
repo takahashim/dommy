@@ -147,8 +147,9 @@ class TestHTMLSourceTrack < Minitest::Test
     assert(t.has_attribute?("default"))
   end
 
+  # HTML §4.8.11: the kind attribute's missing value default is "subtitles".
   def test_track_kind_default
-    assert_equal("", @doc.create_element("track").kind)
+    assert_equal("subtitles", @doc.create_element("track").kind)
   end
 end
 

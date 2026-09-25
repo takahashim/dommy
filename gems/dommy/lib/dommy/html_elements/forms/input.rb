@@ -13,20 +13,22 @@ module Dommy
     reflect_setter form_action: "formaction"
     def form_action = submission_url("formaction")
     reflect_string :name, :placeholder, :min, :max, :step, :pattern, :autocomplete, default_value: "value",
-                   form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+                   form_target: "formtarget"
+    reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
+                       form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
     reflect_boolean :autofocus, :disabled, :required, :multiple, read_only: "readonly", default_checked: "checked",
                     form_no_validate: "formnovalidate"
+    # Every state the "type" attribute has (forms.spec §4.10.5.1): missing and
+    # invalid value default are both the Text state.
+    TYPE_KEYWORDS = %w[
+      hidden text search tel url email password date month week time
+      datetime-local number range color checkbox radio file submit image
+      reset button
+    ].freeze
+    reflect_enumerated type: { keywords: TYPE_KEYWORDS, missing: "text", invalid: "text" }
     # Own __js_call__ methods, on top of Element's.
-    def type
-      raw = @__node__["type"].to_s
-      raw.empty? ? "text" : raw.downcase
-    end
 
     def __submit_button__? = %w[submit image].include?(type) && !disabled
-
-    def type=(v)
-      set_reflected_string("type", v)
-    end
 
     # Runtime value/checked. Dommy has no UI, so the runtime state is
     # initialized from the attribute on first access and tracked
@@ -340,7 +342,7 @@ module Dommy
     # The JS surface: the computed properties, declared instead of written out
     # as `when "validity" then validity` arms. Internal::ReflectedAttributes'
     # shared __js_get__ / __js_set__ answer from this.
-    js_accessor :type, :value, :checked, :indeterminate,
+    js_accessor :value, :checked, :indeterminate,
       value_as_number: "valueAsNumber",
       selection_start: "selectionStart", selection_end: "selectionEnd",
       selection_direction: "selectionDirection",

@@ -969,6 +969,9 @@
     "HTMLInputElement.autocomplete": "declared string (expected setter_only)",
     "HTMLTextAreaElement.autocomplete": "declared string (expected setter_only)"
   },
+  "invented_reflect_gaps": {
+    "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]"
+  },
   "void_gaps": {},
   "arity_gaps": {},
   "constructor_arity_gaps": {},

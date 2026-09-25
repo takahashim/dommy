@@ -15,7 +15,10 @@ module Dommy
     reflect_token_list rel_list: { attr: "rel", js: "relList" }
     reflect_setter :action
     def action = submission_url("action")
-    reflect_string :name, :enctype, :target, :autocomplete, method_attr: { attr: "method", js: "method" }, accept_charset: "accept-charset"
+    reflect_string :name, :target, accept_charset: "accept-charset"
+    reflect_enumerated method_attr: Internal::EnumeratedKeywordSets::METHOD.merge(attr: "method", js: "method"),
+                       enctype: Internal::EnumeratedKeywordSets::ENCTYPE,
+                       autocomplete: { keywords: %w[on off], missing: "on", invalid: "on" }
     reflect_boolean no_validate: "novalidate"
     # Own __js_call__ methods, on top of Element's.
 
@@ -290,7 +293,9 @@ module Dommy
   class HTMLButtonElement < HTMLElement
     include SubmitButtonActivation
     reflect_setter :type
-    reflect_string :name, :value, form_enctype: "formenctype", form_method: "formmethod", form_target: "formtarget"
+    reflect_string :name, :value, form_target: "formtarget"
+    reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
+                       form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
     reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
     include SubmissionUrlAttribute
     reflect_setter form_action: "formaction"
