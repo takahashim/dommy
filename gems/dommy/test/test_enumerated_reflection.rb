@@ -101,6 +101,11 @@ class TestEnumeratedReflection < Minitest::Test
       <form id="form"></form>
       <button id="button"></button>
       <input id="input">
+      <img id="img">
+      <track id="track">
+      <video id="video"></video>
+      <table><tr><th id="th"></th></tr></table>
+      <link id="link">
     HTML
     @doc = @win.document
   end
@@ -172,5 +177,123 @@ class TestEnumeratedReflection < Minitest::Test
 
     el("input").set_attribute("formenctype", "bogus")
     assert_equal("application/x-www-form-urlencoded", el("input").form_enctype)
+  end
+
+  # img.crossOrigin: DOMString?, missing -> null, "" and invalid -> "anonymous".
+  def test_cross_origin_missing_is_null
+    assert_nil(el("img").crossorigin)
+    assert_nil(el("img").__js_get__("crossOrigin"))
+  end
+
+  def test_cross_origin_empty_value_default_is_anonymous
+    el("img").set_attribute("crossorigin", "")
+
+    assert_equal("anonymous", el("img").crossorigin)
+  end
+
+  def test_cross_origin_invalid_value_default_is_anonymous
+    el("img").set_attribute("crossorigin", "bogus")
+
+    assert_equal("anonymous", el("img").crossorigin)
+  end
+
+  def test_cross_origin_use_credentials_keyword
+    el("img").set_attribute("crossorigin", "USE-CREDENTIALS")
+
+    assert_equal("use-credentials", el("img").crossorigin)
+  end
+
+  def test_cross_origin_setter_null_removes_the_attribute
+    el("img").crossorigin = "anonymous"
+    assert(el("img").has_attribute?("crossorigin"))
+
+    el("img").__js_set__("crossOrigin", nil)
+    refute(el("img").has_attribute?("crossorigin"))
+  end
+
+  # img.decoding: missing/invalid both "auto".
+  def test_decoding_defaults_to_auto
+    assert_equal("auto", el("img").decoding)
+
+    el("img").set_attribute("decoding", "bogus")
+    assert_equal("auto", el("img").decoding)
+
+    el("img").set_attribute("decoding", "SYNC")
+    assert_equal("sync", el("img").decoding)
+  end
+
+  # img.loading: HTML's lazy loading attribute, missing/invalid both "eager".
+  def test_loading_defaults_to_eager
+    assert_equal("eager", el("img").loading)
+
+    el("img").set_attribute("loading", "bogus")
+    assert_equal("eager", el("img").loading)
+
+    el("img").set_attribute("loading", "LAZY")
+    assert_equal("lazy", el("img").loading)
+  end
+
+  # img.referrerPolicy: every referrer policy token including "" is a keyword;
+  # missing/invalid both read back "".
+  def test_referrer_policy_defaults_to_empty
+    assert_equal("", el("img").referrer_policy)
+
+    el("img").set_attribute("referrerpolicy", "BOGUS")
+    assert_equal("", el("img").referrer_policy)
+
+    el("img").set_attribute("referrerpolicy", "no-referrer")
+    assert_equal("no-referrer", el("img").referrer_policy)
+  end
+
+  # track.kind: missing -> "subtitles", invalid -> "metadata".
+  def test_track_kind_missing_and_invalid_defaults
+    assert_equal("subtitles", el("track").kind)
+
+    el("track").set_attribute("kind", "bogus")
+    assert_equal("metadata", el("track").kind)
+
+    el("track").set_attribute("kind", "CAPTIONS")
+    assert_equal("captions", el("track").kind)
+  end
+
+  # video.preload: missing/invalid default to "metadata" (HTML's suggested
+  # compromise for the implementation-defined default); "" is its own empty
+  # value default, "auto".
+  def test_preload_defaults
+    assert_equal("metadata", el("video").preload)
+
+    el("video").set_attribute("preload", "bogus")
+    assert_equal("metadata", el("video").preload)
+
+    el("video").set_attribute("preload", "")
+    assert_equal("auto", el("video").preload)
+
+    el("video").set_attribute("preload", "NONE")
+    assert_equal("none", el("video").preload)
+  end
+
+  # th.scope: the Auto state (missing/invalid) has no keyword, so it reads "".
+  def test_scope_missing_and_invalid_have_no_keyword
+    assert_equal("", el("th").scope)
+
+    el("th").set_attribute("scope", "bogus")
+    assert_equal("", el("th").scope)
+
+    el("th").set_attribute("scope", "ROW")
+    assert_equal("row", el("th").scope)
+  end
+
+  # link.as: the union of preload and module-preload destinations; no missing
+  # or invalid value default at all. (The Ruby accessor is `as_attr` — `as` is
+  # a Ruby keyword — but the JS-visible name is plain "as".)
+  def test_link_as_has_no_default
+    assert_equal("", el("link").as_attr)
+    assert_equal("", el("link").__js_get__("as"))
+
+    el("link").set_attribute("as", "bogus")
+    assert_equal("", el("link").as_attr)
+
+    el("link").set_attribute("as", "SCRIPT")
+    assert_equal("script", el("link").as_attr)
   end
 end

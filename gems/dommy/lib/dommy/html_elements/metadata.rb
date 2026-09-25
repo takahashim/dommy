@@ -7,8 +7,8 @@ module Dommy
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
     reflect_url :src
-    reflect_string :type, :integrity, :nonce, referrer_policy: "referrerpolicy",
-                   html_for: { attr: "for", js: "htmlFor" }
+    reflect_string :type, :integrity, :nonce, html_for: { attr: "for", js: "htmlFor" }
+    reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
     reflect_boolean :async, :defer, no_module: "nomodule"
     # `text` is an alias for textContent on <script>.
     def text
@@ -117,7 +117,21 @@ module Dommy
     reflect_boolean :disabled
     reflect_url :href
     reflect_token_list :sizes, rel_list: { attr: "rel", js: "relList" }
-    reflect_string :rel, :type, :media, :hreflang, :integrity, as_attr: { attr: "as", js: "as" }, crossorigin: { js: "crossOrigin" }, referrer_policy: "referrerpolicy"
+    reflect_string :rel, :type, :media, :hreflang, :integrity
+    # The `as` attribute is a plain enumerated attribute (links.html /
+    # semantics.html: "The as IDL attribute must reflect the as content
+    # attribute, limited to only known values") whose keywords are the union of
+    # a preload destination (fetch, font, image, script, style, track) and a
+    # module preload destination (json, style, text, or a Fetch "script-like"
+    # destination: audioworklet, paintworklet, script, serviceworker,
+    # sharedworker, worker). It has no missing or invalid value default at all.
+    AS_KEYWORDS = %w[
+      fetch font image script style track json text audioworklet paintworklet
+      serviceworker sharedworker worker
+    ].freeze
+    reflect_enumerated as_attr: { attr: "as", js: "as", keywords: AS_KEYWORDS, missing: nil, invalid: nil },
+                       crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin"),
+                       referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
     # `link.sheet` — non-nil only when this link is a stylesheet
     # (`rel` contains "stylesheet"). Dommy fetches nothing itself, so the
     # sheet starts empty; a host environment supplies the CSS via

@@ -7,7 +7,9 @@ module Dommy
   class HTMLIFrameElement < HTMLElement
     reflect_url :src
     reflect_token_list :sandbox
-    reflect_string :srcdoc, :name, :allow, :loading, referrer_policy: "referrerpolicy"
+    reflect_string :srcdoc, :name, :allow
+    reflect_enumerated loading: Internal::EnumeratedKeywordSets::LAZY_LOADING,
+                       referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
     reflect_boolean allow_fullscreen: "allowfullscreen"
     reflect_string :width, :height
 
