@@ -32,7 +32,7 @@ module Capybara
       private
 
       def displayed_text(element)
-        element.child_nodes.map do |child|
+        element.child_nodes.filter_map do |child|
           if text_node?(child)
             # Whitespace inside a text node (incl. newlines) collapses to
             # spaces; only block boundaries introduce line breaks.
@@ -42,8 +42,6 @@ module Capybara
 
             inner = displayed_text(child)
             block_element?(child) ? "\n#{inner}\n" : inner
-          else
-            ""
           end
         end.join
       end

@@ -355,7 +355,7 @@ module Capybara
       # standalone driver (no owning Capybara session) still works.
       def effective_host
         options = owning_session_options
-        (options && (options.app_host || options.default_host)) || @session_options[:default_host]
+        options&.app_host || options&.default_host || @session_options[:default_host]
       end
 
       def owning_session_options

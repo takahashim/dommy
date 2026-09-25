@@ -70,16 +70,17 @@ module Capybara
       # `disabled` only applies to form-associated elements; on anything else
       # (e.g. a link that incorrectly carries the attribute) it has no effect.
       DISABLEABLE_ELEMENTS = %w[button fieldset input optgroup option select textarea].freeze
+      OPTION_ELEMENTS = %w[option optgroup].freeze
 
       def disabled?
         return false unless DISABLEABLE_ELEMENTS.include?(tag_name)
         return true if native.has_attribute?("disabled")
 
-        if %w[option optgroup].include?(tag_name)
+        if OPTION_ELEMENTS.include?(tag_name)
           owner = native.xpath(OPTION_OWNER_XPATH).first
           owner ? self.class.new(driver, owner).disabled? : false
         else
-          !native.xpath(DISABLED_BY_FIELDSET_XPATH).empty?
+          native.xpath(DISABLED_BY_FIELDSET_XPATH).any?
         end
       end
 
