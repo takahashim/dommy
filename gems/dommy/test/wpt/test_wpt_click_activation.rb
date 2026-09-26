@@ -104,6 +104,39 @@ class TestWPTClickActivation < Minitest::Test
     refute(outer.checked)
   end
 
+  # The activation target is the input, and which activation behavior runs is
+  # decided at invocation: a click listener that changes the type to submit
+  # still submits the form.
+  def test_a_click_listener_that_changes_the_type_to_submit_submits
+    win = make_window("<form id='f'><input id='i' type='text' name='q' value='v1'></form>")
+    doc = win.document
+    form = doc.get_element_by_id("f")
+    input = doc.get_element_by_id("i")
+    input.add_event_listener("click") { input.type = "submit" }
+
+    submits = 0
+    form.add_event_listener("submit") do |e|
+      submits += 1
+      e.__js_call__("preventDefault", [])
+    end
+
+    input.click
+
+    assert_equal(1, submits)
+  end
+
+  # A hidden input has no activation behavior, so a label still forwards a click
+  # on it to the labeled control.
+  def test_a_hidden_input_is_not_an_activation_target
+    win = make_window("<label id='l'>Forward<input id='c' type='checkbox'><input id='h' type='hidden'></label>")
+    doc = win.document
+    box = doc.get_element_by_id("c")
+
+    doc.get_element_by_id("h").click
+
+    assert(box.checked, "the label forwarded the hidden input's click to the checkbox")
+  end
+
   # The activation target is looked for beyond the target itself only when the
   # event bubbles.
   def test_a_non_bubbling_click_does_not_look_at_parents

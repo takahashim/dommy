@@ -210,13 +210,13 @@ module Dommy
 
     # --- Click activation behavior (checkbox / radio) -------------------
 
-    # A checkbox / radio / reset button has activation behavior of its own, on
-    # top of the submit-button behavior HTMLInputElement inherits. Checkbox and
-    # radio are the two states HTML's input activation behavior runs for even
-    # when the control is not mutable — `click()` still refuses on a disabled
-    # control, but an explicitly dispatched click activates it.
+    # An input in an activatable state — every state but Hidden — has an
+    # activation behavior; which one runs is decided from the state at
+    # invocation (HTML's single input activation algorithm switches on `type`).
+    # So a click listener that changes the type to submit still submits, while a
+    # hidden input stays non-activating (a <label> forwards its click).
     def activation_target?
-      super || CHECKABLE_TYPES.include?(type) || (type == "reset" && !disabled)
+      type != "hidden"
     end
 
     # HTML "input activation behavior": a submit button submits its form, a reset
