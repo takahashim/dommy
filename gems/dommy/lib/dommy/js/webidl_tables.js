@@ -550,7 +550,7 @@ globalThis.__rbIdl = (function () {
     "resetTransform", "resizeTo", "restore", "rotate", "roundRect", "save", "scale", "send",
     "set", "setData", "setLineDash", "setTransform", "show", "showModal", "showPopover",
     "sort", "stroke", "strokeRect", "strokeText", "submit", "terminate", "throwIfAborted",
-    "toBlob", "transform", "translate", "upgrade", "writeln", "add",
+    "toBlob", "transform", "translate", "upgrade", "writeln", "add", "getAsString",
     "readAsArrayBuffer", "readAsBinaryString", "readAsDataURL", "readAsText", "back", "forward", "reload",
     "start", "enqueue", "error", "releaseLock",
   ]);

@@ -27,6 +27,35 @@ class TestDataTransfer < Minitest::Test
     assert_same(fl, dt.files)
   end
 
+  # `dataTransfer.items.add(file)` (the file-input idiom) appends to `files`;
+  # a string adds a data item.
+  def test_items_add_file_and_string
+    dt = Dommy::DataTransfer.new
+    file = Dommy::File.new(["x"], "a.txt", "type" => "text/plain")
+    item = dt.items.add(file)
+    assert_equal("file", item.kind)
+    assert_equal(1, dt.files.length)
+    assert_same(file, dt.files[0])
+    assert_equal(1, dt.items.length)
+
+    dt.items.add("hello", "text/plain")
+    assert_equal("hello", dt.get_data("text/plain"))
+    assert_equal(2, dt.items.length)
+  end
+
+  def test_input_files_can_be_set_from_data_transfer
+    win = make_window("<input type='file' id='f'>")
+    input = win.document.get_element_by_id("f")
+    dt = Dommy::DataTransfer.new
+    file = Dommy::File.new(["x"], "a.txt", "type" => "text/plain")
+    dt.items.add(file)
+
+    input.__js_set__("files", dt.files)
+
+    assert_equal(1, input.files.length)
+    assert_same(file, input.files[0])
+  end
+
   # --- get_data / set_data / types --------------------------------
 
   def test_set_and_get_data

@@ -80,6 +80,17 @@ module Dommy
       @__files = files_input.is_a?(FileList) ? files_input : FileList.new(Array(files_input))
     end
 
+    # `input.files = dt.files` (the DataTransfer idiom) sets the file list.
+    # `files` is otherwise read-only, so the shared setters never see it.
+    def __js_set__(key, value)
+      if key == "files"
+        __driver_set_files__(value)
+        return nil
+      end
+
+      super
+    end
+
     # maxLength / minLength reflect a "limited to only non-negative numbers"
     # long: a missing / negative / non-numeric content attribute reads as -1.
     def max_length = parse_non_negative_reflected("maxlength")

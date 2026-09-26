@@ -16,8 +16,6 @@
     "CommandEvent",
     "CustomStateSet",
     "DOMStringList",
-    "DataTransferItem",
-    "DataTransferItemList",
     "ElementInternals",
     "External",
     "FetchLaterResult",
@@ -134,8 +132,10 @@
       "supports"
     ],
     "DataTransfer": [
-      "items",
       "setDragImage"
+    ],
+    "DataTransferItemList": [
+      "length"
     ],
     "Document": [
       "adoptedStyleSheets",
@@ -965,7 +965,9 @@
   "invented_reflect_gaps": {
     "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]"
   },
-  "void_gaps": {},
+  "void_gaps": {
+    "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined"
+  },
   "arity_gaps": {},
   "constructor_arity_gaps": {},
   "iteration_gaps": {},
