@@ -225,7 +225,7 @@ module Dommy
       end
 
       def escape_part(str)
-        str.to_s.gsub('"', "%22").gsub(/[\r\n]/, "")
+        str.to_s.gsub('"', "%22").gsub("\r", "%0D").gsub("\n", "%0A")
       end
 
       def redirect_method(status, original)

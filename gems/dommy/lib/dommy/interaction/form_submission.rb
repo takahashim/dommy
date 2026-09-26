@@ -72,8 +72,16 @@ module Dommy
           next [name, value] unless value.respond_to?(:__dommy_bytes__)
 
           filename = value.respond_to?(:name) ? value.name.to_s : ""
-          [name, ::File.basename(filename)]
+          [name, basename(filename)]
         end
+      end
+
+      # A File's name is already a filename, but strip a path if one slipped in.
+      # A name with a null byte is path-invalid; browsers keep it verbatim.
+      def basename(filename)
+        ::File.basename(filename)
+      rescue ArgumentError
+        filename
       end
 
       def form_method
@@ -107,13 +115,15 @@ module Dommy
         method == "GET" ? raw.split("?", 2).first.to_s : raw
       end
 
-      # Honor the form's accept-charset by encoding string values into the
-      # requested charset's bytes. Names are assumed ASCII. UTF-8 is a no-op.
+      # HTML's "converting to a list of name-value pairs": encode each name and
+      # string value in the submission encoding, replacing any character the
+      # encoding cannot represent with a numeric character reference. UTF-8
+      # represents every character, so it is a no-op.
       def apply_charset(pairs)
         charset = form_charset
         return pairs if charset.nil? || charset == Encoding::UTF_8
 
-        pairs.map { |name, value| [name, encode_in(value, charset)] }
+        pairs.map { |name, value| [encode_in(name, charset), encode_in(value, charset)] }
       end
 
       def form_charset
@@ -136,10 +146,29 @@ module Dommy
         end
       end
 
+      # Byte string in `charset`, with each code point the charset cannot
+      # represent emitted as `&#N;` (and a lone surrogate as U+FFFD).
       def encode_string(value, charset)
-        value.encode(charset).b
-      rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
-        value
+        source = value.valid_encoding? ? value : value.encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
+        source.each_codepoint.each_with_object(+"".b) do |code_point, out|
+          char = code_point_char(code_point)
+          if char.nil?
+            out << "&#65533;" # a lone surrogate is U+FFFD
+            next
+          end
+
+          begin
+            out << char.encode(charset).b
+          rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
+            out << "&##{code_point};"
+          end
+        end
+      end
+
+      def code_point_char(code_point)
+        code_point.chr(Encoding::UTF_8)
+      rescue RangeError
+        nil
       end
 
       def apply_method_override(method, pairs)

@@ -50,7 +50,7 @@ module Dommy
       end
 
       def escape(str)
-        str.to_s.gsub('"', "%22").gsub(/[\r\n]/, "")
+        str.to_s.gsub('"', "%22").gsub("\r", "%0D").gsub("\n", "%0A")
       end
     end
   end

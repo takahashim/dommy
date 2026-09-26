@@ -262,6 +262,17 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
     assert_equal "hi", param(result, "q")
   end
 
+  # A character the submission encoding cannot represent becomes a numeric
+  # character reference (name and value both), per "converting to a list of
+  # name-value pairs".
+  def test_accept_charset_uses_numeric_references_for_unrepresentable
+    result = submit("<form action='/x' method='post' accept-charset='windows-1252'>" \
+                    "<input name='\u0259' value='\uFFFD'></form>")
+
+    assert_equal "&#601;".b, result[:params][0][0]
+    assert_equal "&#65533;".b, result[:params][0][1]
+  end
+
   def test_hidden_charset_field_reports_the_encoding
     result = submit(<<~HTML)
       <form action="/x" method="post">
