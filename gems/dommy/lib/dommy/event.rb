@@ -1097,8 +1097,18 @@ module Dommy
     attr_reader :submitter
 
     def initialize(type, init = nil)
+      # WebIDL: `type` is required, and `SubmitEventInit.submitter` is an
+      # HTMLElement? (null when absent or undefined).
+      raise Bridge::TypeError, "Failed to construct 'SubmitEvent': type is required" unless type.is_a?(String)
+
+      submitter = read_init(init, "submitter")
+      submitter = nil if submitter.equal?(Bridge::ABSENT) || submitter.equal?(Bridge::UNDEFINED)
+      unless submitter.nil? || submitter.is_a?(HTMLElement)
+        raise Bridge::TypeError, "Failed to construct 'SubmitEvent': submitter is not an HTMLElement"
+      end
+
       super
-      @submitter = read_init(init, "submitter")
+      @submitter = submitter
     end
 
     def __js_get__(key)
@@ -1115,8 +1125,15 @@ module Dommy
     attr_reader :form_data
 
     def initialize(type, init = nil)
+      # WebIDL: `type` is required and `formData` is a required member of the
+      # (non-null) init dictionary.
+      raise Bridge::TypeError, "Failed to construct 'FormDataEvent': type is required" unless type.is_a?(String)
+
+      form_data = init.is_a?(Hash) ? (init["formData"] || init[:formData]) : nil
+      raise Bridge::TypeError, "Failed to construct 'FormDataEvent': formData is required" unless form_data.is_a?(FormData)
+
       super
-      @form_data = read_init(init, "formData")
+      @form_data = form_data
     end
 
     def __js_get__(key)

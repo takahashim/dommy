@@ -208,6 +208,15 @@ class TestNavigation < Minitest::Test
     assert_equal "frame1", @delegate.attempts.first[:target]
   end
 
+  # WebIDL: `type` is required and submitter must be an HTMLElement or null.
+  def test_submit_event_constructor_validation
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::SubmitEvent.new(nil) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::SubmitEvent.new("submit", "submitter" => "x") }
+
+    event = Dommy::SubmitEvent.new("submit", "submitter" => nil)
+    assert_nil(event.submitter)
+  end
+
   # A submit button associated to a form via a `form=` attribute (so it can live
   # outside the form) activates that form, not a nearest-ancestor one.
   def test_form_associated_submit_button_activates_its_owner

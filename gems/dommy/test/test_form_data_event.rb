@@ -53,6 +53,14 @@ class TestFormDataEventOnSubmit < Minitest::Test
     assert_instance_of(Dommy::FormData, event.__js_get__("formData"))
   end
 
+  # WebIDL: `type` is required and `formData` is a required member.
+  def test_the_constructor_requires_type_and_form_data
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::FormDataEvent.new(nil) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::FormDataEvent.new("formdata") }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::FormDataEvent.new("formdata", "formData" => nil) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::FormDataEvent.new("formdata", "formData" => "x") }
+  end
+
   # `new FormData(form)` builds its entry list through the same construction and
   # fires the same `formdata` event as form submission.
   def test_new_form_data_form_fires_formdata

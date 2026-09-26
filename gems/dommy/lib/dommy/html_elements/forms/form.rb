@@ -149,7 +149,8 @@ module Dommy
         return false unless no_validate?(submitter) || report_validity
 
         not_canceled = dispatch_event(
-          SubmitEvent.new("submit", "bubbles" => true, "cancelable" => true, "submitter" => submitter)
+          SubmitEvent.new("submit",
+            "bubbles" => true, "cancelable" => true, "composed" => true, "submitter" => submitter)
         )
         __internal_navigate_for_submit__(submitter) if not_canceled
         not_canceled
