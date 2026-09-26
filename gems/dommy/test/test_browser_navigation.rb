@@ -174,6 +174,23 @@ class TestBrowserNavigation < Minitest::Test
       iframe.content_window.location.__js_get__("href")
   end
 
+  # A navigation delegate for an embedder-managed frame: a navigation from
+  # inside the frame loads into the frame itself.
+  def test_frame_navigation_delegate_loads_into_the_frame
+    b = visit(
+      "/" => html("<iframe name='f'></iframe>"),
+      "/next" => html("<h1 id='r'>next</h1>")
+    )
+    frame = b.document.query_selector("iframe")
+    frame.__internal_set_content_document__(Dommy.parse("<p id='inner'>inner</p>").document)
+    frame.content_window.navigation_delegate = b.frame_navigation_delegate(frame)
+
+    frame.content_window.__internal_navigate__(url: "/next", source: :form, method: "GET")
+
+    assert_equal "next", frame.content_document.query_selector("#r").text_content
+    assert_equal "http://localhost/", b.current_url, "the top document is not replaced"
+  end
+
   # A GET form submission always has a (possibly empty) query part, even with
   # no successful controls.
   def test_form_get_without_entries_keeps_a_query_part

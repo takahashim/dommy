@@ -149,6 +149,40 @@ module Dommy
       nil
     end
 
+    # A navigation delegate for an embedder-managed nested browsing context (an
+    # iframe whose content document the host injected). A navigation from inside
+    # that document loads into the frame itself.
+    class FrameNavigationDelegate
+      def initialize(browser, frame)
+        @browser = browser
+        @frame = frame
+      end
+
+      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
+        @browser.__internal_load_frame__(@frame,
+          {url: url, method: method, body: body, params: params, enctype: enctype, headers: headers})
+      end
+
+      def traverse(_delta) = nil
+    end
+
+    def frame_navigation_delegate(frame) = FrameNavigationDelegate.new(self, frame)
+
+    # Load `nav` into `frame`, resolving the URL against the frame's own document,
+    # then fire the frame's `load`. Public (an `__internal_` seam) so a host that
+    # injected the frame's content document can wire it as that frame's delegate.
+    def __internal_load_frame__(frame, nav)
+      base = frame.content_window&.location&.__js_get__("href").to_s
+      resolved = begin
+        URI.join(base, nav[:url].to_s).to_s
+      rescue URI::InvalidURIError, ArgumentError
+        nav[:url].to_s
+      end
+      navigate_frame(frame, nav, resolved)
+      frame.dispatch_event(Dommy::Event.new("load"))
+      nil
+    end
+
     # A cross-document history traversal. Ruby-initiated (back / forward), so it
     # runs immediately: a same-document target (its window is still live)
     # traverses in place (popstate); a document-boundary target is re-fetched.
@@ -391,7 +425,8 @@ module Dommy
 
       sub_window = frame_document_for(response)
       sub_window.location.__internal_set_url__(final_url)
-      sub_window.navigation_delegate = self
+      # A navigation from inside the loaded frame also stays in that frame.
+      sub_window.navigation_delegate = frame_navigation_delegate(frame)
       # A nested realm needs the seeded constructors to run the response's
       # scripts; a runtime that cannot expose them simply runs without them.
       @runtime.expose_constructors_on(sub_window) if @runtime.respond_to?(:expose_constructors_on)
