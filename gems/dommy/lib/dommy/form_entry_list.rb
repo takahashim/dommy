@@ -152,7 +152,9 @@ module Dommy
       name = attr(el, "name")
       return if blank?(name)
 
-      data.append(name, attr(el, "value") || "")
+      # The submitter's IDL value, not its content attribute: script can set
+      # `input.value = …` on a submit button without touching the attribute.
+      data.append(name, el.respond_to?(:value) ? el.value.to_s : (attr(el, "value") || ""))
     end
 
     def image_submitter?(el)

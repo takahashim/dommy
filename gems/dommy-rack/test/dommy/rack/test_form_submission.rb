@@ -119,6 +119,17 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
     assert_equal([["a", "1"], ["commit", "Save"]], result[:params])
   end
 
+  # The submitter's IDL value, not its content attribute: a script can set
+  # `input.value = …` on a submit button without touching the attribute.
+  def test_submitter_value_uses_the_idl_value
+    form = form_from("<form action='/x' method='post'><input type='submit' name='n' value='old'></form>")
+    submitter = form.query_selector("input[type=submit]")
+    submitter.value = "new"
+
+    result = Dommy::Rack::FormSubmission.new(form, submitter, config).submit!
+    assert_equal "new", param(result, "n")
+  end
+
   def test_non_submitter_buttons_excluded
     result = submit(<<~HTML)
       <form action="/x" method="post">
