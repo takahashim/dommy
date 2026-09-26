@@ -70,7 +70,7 @@ module Dommy
       @error_log = Js::ErrorLog.new(strict: strict)
       @console = []
       @disposed = false
-      @pending_navigation = nil
+      @pending_navigations = []
       @runtime = nil
 
       @window = Dommy.parse(html)
@@ -104,7 +104,7 @@ module Dommy
     def visit(url, replace: false)
       raise "browser is not navigable (use Browser.visit or navigable: true)" unless @navigable
 
-      @pending_navigation = {url: url.to_s, method: "GET", source: :visit, replace: replace}
+      @pending_navigations << {url: url.to_s, method: "GET", source: :visit, replace: replace}
       flush_navigation!
       self
     end
@@ -129,7 +129,20 @@ module Dommy
     # boundary (settle / after_interaction / advance_time). Ruby-initiated visits
     # flush immediately since no JS is on the stack.
     def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
-      @pending_navigation = {
+      # A target that names an iframe in this document navigates that nested
+      # browsing context. It can be performed now — it does not replace the top
+      # realm — with only the frame's `load` deferred to a microtask, so a
+      # listener installed right after `form.submit()` is registered first.
+      frame = @navigable ? resolve_target_frame(target) : nil
+      if frame
+        navigate_frame(frame,
+          {method: method, url: url, params: params, body: body, enctype: enctype, headers: headers},
+          resolve_against_current(url.to_s))
+        @window.scheduler.queue_microtask(proc { frame.dispatch_event(Dommy::Event.new("load")) })
+        return nil
+      end
+
+      @pending_navigations << {
         url: url, method: method, body: body, params: params, enctype: enctype,
         target: target, headers: headers, replace: replace, source: source
       }
@@ -374,17 +387,27 @@ module Dommy
         method: nav[:method] || "GET", url: resolved_url, params: nav[:params],
         body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
       )
-      return unless response&.success? && document_response?(response)
+      return unless response&.success?
 
-      sub_window = Dommy.parse(response.body)
+      sub_window = frame_document_for(response)
       sub_window.location.__internal_set_url__(final_url)
       sub_window.navigation_delegate = self
       # A nested realm needs the seeded constructors to run the response's
       # scripts; a runtime that cannot expose them simply runs without them.
       @runtime.expose_constructors_on(sub_window) if @runtime.respond_to?(:expose_constructors_on)
       frame.__internal_set_content_document__(sub_window.document)
-      frame.dispatch_event(Dommy::Event.new("load"))
       nil
+    end
+
+    # The document a frame shows for a response: HTML/XML is parsed as-is; a
+    # non-document response (e.g. text/plain from an echo endpoint) is displayed
+    # as text, so the frame gets a document whose body holds it.
+    def frame_document_for(response)
+      return Dommy.parse(response.body) if document_response?(response)
+
+      win = Dommy.parse("<!doctype html><html><head></head><body></body></html>")
+      win.document.body.text_content = response.body.to_s.dup.force_encoding(Encoding::UTF_8)
+      win
     end
 
     # If the freshly loaded document asks for an immediate `<meta http-equiv=
@@ -427,12 +450,11 @@ module Dommy
     # the swap never runs with the outgoing realm's JS on the stack.
     def flush_navigation!
       return unless @navigable
+      return if @pending_navigations.empty?
 
-      nav = @pending_navigation
-      return unless nav
-
-      @pending_navigation = nil
-      perform_navigation!(nav)
+      navs = @pending_navigations
+      @pending_navigations = []
+      navs.each { |nav| perform_navigation!(nav) }
     end
 
     def fire_unload(window)
