@@ -19,6 +19,15 @@ class TestURLBasics < Minitest::Test
     assert_equal("https://example.test:8443", u.origin)
   end
 
+  # The constructor's `url` argument is a USVString, so a host object with a
+  # URL stringifier (a Location) contributes its href, not Object#to_s.
+  def test_constructor_coerces_a_location_to_its_href
+    win = Dommy::Window.new
+    win.location.__internal_set_url__("http://example.test/a?b=c")
+
+    assert_equal("http://example.test/a?b=c", Dommy::URL.new(win.location).href)
+  end
+
   def test_origin_default_port_omitted
     u = Dommy::URL.new("https://example.test:443/a")
     assert_equal("https://example.test", u.origin)

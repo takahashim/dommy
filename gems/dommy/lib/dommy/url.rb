@@ -95,11 +95,20 @@ module Dommy
     # distinct from a string base. (JS null already arrives as nil.)
     base = nil if base.equal?(Bridge::UNDEFINED)
     base_str = base.is_a?(URL) ? base.href : base
-    @record = Internal::UrlParser.parse(input.to_s, base_str, encoding: encoding)
+    @record = Internal::UrlParser.parse(coerce_input(input), base_str, encoding: encoding)
     @search_params = URLSearchParams.new(@record.query.to_s, owner: self)
   rescue Internal::UrlParser::Failure => e
     # WHATWG: the URL constructor throws TypeError on a parse failure.
     raise Bridge::TypeError, "Invalid URL: #{e.message}"
+  end
+
+  # The constructor's `url` argument is a USVString: a host object with a
+  # URL stringifier (Location, an anchor/area) contributes its href, not
+  # Object#to_s.
+  def coerce_input(input)
+    return input if input.is_a?(String) || input.is_a?(URL)
+
+    input.respond_to?(:href) ? input.href.to_s : input.to_s
   end
 
   def href
