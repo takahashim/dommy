@@ -279,12 +279,6 @@ module Dommy
       @document = document
     end
 
-    # A name createDocumentType refuses. It is otherwise extremely permissive —
-    # "1foo", "@foo", "edi:%" and the empty string are all accepted — but a name
-    # carrying whitespace or ">" could not be serialized back as a doctype, and
-    # is an InvalidCharacterError.
-    UNSERIALIZABLE_DOCTYPE_NAME = /[\s>]/
-
     # A created DocumentType's node document is the implementation's document. When
     # the backend ships a doctype factory (the HTML backend) and accepts the name,
     # the result is a real, node-backed (but detached) DocumentType that can join
@@ -292,7 +286,10 @@ module Dommy
     # (stricter, XML-flavoured) name check is not the DOM rule.
     def create_document_type(qualified_name, public_id, system_id)
       qn = qualified_name.to_s
-      if qn.match?(UNSERIALIZABLE_DOCTYPE_NAME)
+      # A "valid doctype name" is extremely permissive — "1foo", "@foo",
+      # "edi:%" and the empty string are all accepted — but refuses ASCII
+      # whitespace, NULL and ">", which could not be serialized back.
+      unless Internal::Namespaces.valid_doctype_name?(qn)
         raise DOMException::InvalidCharacterError, "invalid doctype name: #{qn.inspect}"
       end
 
@@ -348,27 +345,22 @@ module Dommy
     private
 
     # Place `doctype` (a DocumentType passed to createDocument) as `doc`'s first
-    # child. Makiri can't move a node between documents, so — like adoption — the
-    # doctype is re-created in `doc`'s backend from its name/publicId/systemId.
-    # No-op for nil/undefined, a non-DocumentType, a backend without an XML doctype
-    # factory, or a public/system id the backend rejects (createDocument itself
-    # doesn't validate those — only XML *serialization* would — so a rejection just
-    # leaves the doctype unplaced rather than throwing).
+    # child. createDocument appends the doctype node itself (step 5, before
+    # step 6 appends the element), so it goes through the ordinary insert: the
+    # adoption re-binds the caller's wrapper, and `xmlDoc.firstChild ===
+    # doctype`, its parentNode and ownerDocument all follow.
+    #
+    # No-op for nil/undefined or a non-DocumentType. A doctype the XML backend
+    # cannot hold (an older Makiri refuses a systemId with both quotes, among
+    # others) is left unplaced rather than thrown: createDocument itself
+    # validates none of it — only an XML serialization would.
     def adopt_doctype_into(doc, doctype)
       return if doctype.nil? || doctype.equal?(Bridge::UNDEFINED)
       return unless doctype.is_a?(DocumentType)
 
-      node =
-        begin
-          Backend.create_document_type(doctype.name, doctype.public_id, doctype.system_id, doc.backend_doc)
-        rescue StandardError
-          nil
-        end
-      return unless node
-
-      root = doc.backend_doc.root
-      doc.__internal_ranges_will_insert__(doc.backend_doc, root, 1)
-      root ? root.add_previous_sibling(node) : doc.backend_doc.add_child(node)
+      doc.insert_before(doctype, doc.document_element)
+    rescue DOMException::NotSupportedError
+      nil
     end
 
     public
@@ -1207,6 +1199,21 @@ module Dommy
             (has_element || (child_bn && child_bn.node_type == 10) || doctype_after_child?(existing, child_bn))
         raise DOMException::HierarchyRequestError, "An element cannot be inserted here."
       end
+
+      ensure_doctypes_have_nodes!(args)
+    end
+
+    # Not a DOM step, and checked after all of them so a HierarchyRequestError
+    # still wins: a synthetic doctype — one the backend could not create, which
+    # today means only an empty name (Makiri refuses it; the DOM allows it) —
+    # has no node to put in the tree. Inserting it would do nothing (and a
+    # replace would drop the node it replaces), so it is refused outright.
+    # createDocument, which the DOM never lets throw here, catches this and
+    # leaves the doctype out.
+    def ensure_doctypes_have_nodes!(args)
+      return unless args.any? { |a| a.is_a?(Dommy::DocumentType) && !a.respond_to?(:__dommy_backend_node__) }
+
+      raise DOMException::NotSupportedError, "This doctype cannot be inserted: the backend could not create it."
     end
 
     # Document's answer to the ParentNode hook a ChildNode mutation
@@ -2664,14 +2671,16 @@ module Dommy
     end
 
     # An element's copy keeps its namespace, its prefix and the exact spelling
-    # of its local name. None of that is on the backend node — the HTML backend
-    # tracks no namespace for an element script created, and createElementNS's
-    # case lives on the wrapper — so the original is read through its wrapper
-    # and the copy is given the same metadata.
+    # of its local name. The backend node need not have them — an HTML backend
+    # without createElementNS (Makiri < 0.11) tracks no namespace for an element
+    # script created, and createElementNS's case lives on the wrapper — so the
+    # original is read through its wrapper and the copy is given the same
+    # metadata.
     def clone_element_into_doc(source, source_document)
       wrapper = source_document.wrap_node(source)
       namespace, prefix, local, qualified = clone_name_parts(wrapper, source)
       copy = Backend.create_element_loose(qualified, prefix, local, namespace, @backend_doc) ||
+        Backend.create_element_ns(namespace, qualified, @backend_doc) ||
         Backend.create_element(source.name, @backend_doc)
       copy_attributes_into(source, copy)
       note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
@@ -2693,16 +2702,14 @@ module Dommy
 
     # "Clone a single node" step 2.1 clones the attributes one by one, so each
     # keeps its own namespace and prefix — an `xml:b` must not flatten into an
-    # attribute whose local name is the qualified string "xml:b".
+    # attribute whose local name is the qualified string "xml:b" — and a
+    # null-namespace one keeps its name as written ("xlink:href" stays a single
+    # local name, "xmlns" stays a plain attribute in an XML copy).
     def copy_attributes_into(source, copy)
       Backend.attribute_nodes(source).each do |attr|
         info = Backend.attribute_ns_info(attr)
-        if info[:namespace_uri]
-          Backend.set_attribute_ns(copy, info[:namespace_uri], info[:prefix], info[:local_name],
-            info[:qualified_name], info[:value])
-        else
-          copy[info[:qualified_name]] = info[:value]
-        end
+        Backend.set_attribute_ns(copy, info[:namespace_uri], info[:prefix], info[:local_name],
+          info[:qualified_name], info[:value])
       end
       nil
     end

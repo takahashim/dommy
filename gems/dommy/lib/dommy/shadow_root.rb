@@ -254,6 +254,11 @@ module Dommy
         11
       when "nodeName"
         "#document-fragment"
+      when "parentNode", "parentElement", "nextSibling", "previousSibling", "nodeValue"
+        # A ShadowRoot is a DocumentFragment attached to its host, never
+        # inserted as a child of it: no parent, no siblings, and a null
+        # nodeValue (null, not undefined).
+        nil
       else
         # Any unknown key (incl. framework-private `_`/`$` expandos like
         # lit-html's `_$litPart$`, which it probes with `=== undefined`) is

@@ -73,8 +73,12 @@ module Dommy
       string_replace_all(value)
     end
 
+    # The fragment serializing algorithm: the HTML serialization in an HTML
+    # document, the XML one anywhere else (the backend only HTML-serializes).
     def inner_html
-      if @__node__.name == "template"
+      if !@document.html_document?
+        Internal::XmlSerialization.serialize_children_of(self)
+      elsif @__node__.name == "template"
         @document.template_content_inner_html(self)
       else
         @__node__.inner_html
@@ -82,6 +86,11 @@ module Dommy
     end
 
     def inner_html=(value)
+      unless @document.html_document?
+        __internal_replace_all__(xml_fragment_nodes(value.to_s))
+        return
+      end
+
       if @__node__.name == "template"
         # `<template>` content is invisible to outer selectors in real DOM (it
         # lives in a separate DocumentFragment exposed via `[:content]`). HTML's
@@ -151,7 +160,7 @@ module Dommy
     # their case.
     def tag_name
       qname = @__ns_qname || @__node__.name
-      html_ns = @__ns_qname ? @__ns_uri == HTML_NAMESPACE : true
+      html_ns = @__ns_qname ? @__ns_uri == HTML_NAMESPACE : namespace_uri == HTML_NAMESPACE
       html_ns && @document.html_document? ? qname.upcase(:ascii) : qname
     end
 
@@ -276,9 +285,12 @@ module Dommy
       node && @document.wrap_node(node)
     end
 
-    # Outer HTML — serializes this element and its subtree. Setter
-    # replaces this element in its parent with the parsed fragment.
+    # Outer HTML — serializes this element and its subtree (as XML outside an
+    # HTML document, like #inner_html). Setter replaces this element in its
+    # parent with the parsed fragment.
     def outer_html
+      return Internal::XmlSerialization.serialize(self) unless @document.html_document?
+
       @__node__.to_html
     end
 
@@ -300,10 +312,14 @@ module Dommy
         )
       end
 
-      fragment = Parser.fragment(html.to_s, owner_doc: @__node__.document)
+      new_nodes =
+        if @document.html_document?
+          Parser.fragment(html.to_s, owner_doc: @__node__.document).children.to_a
+        else
+          xml_fragment_nodes(html.to_s)
+        end
       anchor = @__node__.next_sibling
       removed = @__node__
-      new_nodes = fragment.children.to_a
       mark_fragment_scripts_started(new_nodes)
       # "Replace" order: the old element goes first (step 10), then the insert
       # and its step 5 (step 12) run against the tree that leaves behind.
@@ -317,6 +333,17 @@ module Dommy
       end
 
       notify_child_list(added: new_nodes, removed: [removed], target: parent)
+    end
+
+    # The XML fragment parsing algorithm, for innerHTML / outerHTML outside an
+    # HTML document: the XML document's own fragment parser, which resolves the
+    # fragment's prefixes against the document's declarations. Markup that is
+    # not a well-formed fragment is a SyntaxError (DOM Parsing), not a backend
+    # error.
+    def xml_fragment_nodes(markup)
+      Parser.fragment(markup, owner_doc: @__node__.document).children.to_a
+    rescue Backend.xml_syntax_error_class => e
+      raise DOMException::SyntaxError, "not a well-formed XML fragment: #{e.message}"
     end
 
     # `el.contains(other)` — true if `other` is `el` itself or any
@@ -372,7 +399,7 @@ module Dommy
     # contiguous Text nodes into the first, firing the matching mutation records
     # (childList for every removed node, characterData for the merged data).
     def toggle_attribute(name, force = nil)
-      raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
+      validate_attribute_name!(name)
 
       # step 3 looks for the attribute whose QUALIFIED name matches, so an
       # element carrying only `xml:b` counts as not having `b`. The backend's
@@ -463,10 +490,16 @@ module Dommy
       ns ? ns.href : HTML_NAMESPACE
     end
 
+    # Without createElementNS metadata the backend's local name is the DOM's:
+    # the HTML parser and createElement already lower-case an HTML element's,
+    # a foreign or XML element keeps its case (an SVG `fooBar` imported from
+    # another document is still `fooBar`), and a prefixed element parsed from
+    # XML drops its prefix (`cp:coreProperties` is `coreProperties`; its
+    # `name` is the qualified one).
     def local_name
       return @__ns_local if @__ns_qname
 
-      @__node__.name.downcase
+      @__node__.local_name
     end
 
 
@@ -1446,10 +1479,9 @@ module Dommy
     def set_attribute(name, value)
       return nil if name.nil?
 
-      # WHATWG: a qualifiedName not matching the Name production throws.
-      # The WPT corpus exercises only the empty string here (other shapes
-      # like "0"/":"/"invalid^Name" are deliberately treated as valid).
-      raise DOMException::InvalidCharacterError, "empty attribute name" if name.to_s.empty?
+      # step 1: a qualifiedName that is not a valid attribute local name throws
+      # ("0", ":" and "invalid^Name" are valid; "", "a b", "a=b" are not).
+      validate_attribute_name!(name)
 
       # step 2 (the HTML lower-casing) then step 4: the attribute is the one
       # whose QUALIFIED name matches. A plain `node[key] = v` write indexes by
@@ -1775,6 +1807,15 @@ module Dommy
 
     # on* event-handler property helpers.
     # Attribute-key / child-wrapping / event-parent helpers.
+
+    # setAttribute / toggleAttribute step 1: the DOM's "valid attribute local
+    # name" (non-empty; no ASCII whitespace, NULL, "/", "=" or ">").
+    def validate_attribute_name!(name)
+      return if Internal::Namespaces.valid_attribute_local_name?(name.to_s)
+
+      raise DOMException::InvalidCharacterError, "invalid attribute name: #{name.to_s.inspect}"
+    end
+
     def normalize_attr_key(name)
       s = name.to_s
       case_sensitive_attribute_names? ? s : s.downcase

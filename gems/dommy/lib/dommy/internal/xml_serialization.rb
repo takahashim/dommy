@@ -65,7 +65,19 @@ module Dommy
       module_function
 
       def serialize(node)
-        serialize_node(node, NamespaceContext.new(nil, { XML_NS => ["xml"] }))
+        serialize_node(node, root_context)
+      end
+
+      # innerHTML in an XML document: the fragment serializing algorithm run on
+      # the element, which serializes its children, each from the same fresh
+      # state as #serialize (so a top-level child of an XHTML element carries
+      # its own xmlns, as browsers write it).
+      def serialize_children_of(node)
+        serialize_children(node, root_context)
+      end
+
+      def root_context
+        NamespaceContext.new(nil, { XML_NS => ["xml"] })
       end
 
       def serialize_node(node, ctx)
@@ -93,11 +105,11 @@ module Dommy
         local_default_ns = record_namespace_information(attrs, ctx.map, local_prefixes)
         start = start_tag(node, ctx, local_default_ns, local_prefixes)
 
+        ns = presence(element_namespace(node))
         markup = +"<" << start.markup
-        markup << serialize_attributes(attrs, ctx, local_prefixes, start.ignore_ns_def)
+        markup << serialize_attributes(attrs, ctx, local_prefixes, start.ignore_ns_def, ns)
 
         children = child_nodes(node)
-        ns = presence(element_namespace(node))
         return markup << empty_element_close(ns, node, start.qualified) if children.empty?
 
         markup << ">"
@@ -219,15 +231,19 @@ module Dommy
       end
 
       # https://w3c.github.io/DOM-Parsing/#xml-serializing-the-attributes
-      def serialize_attributes(attrs, ctx, local_prefixes, ignore_ns_def)
+      def serialize_attributes(attrs, ctx, local_prefixes, ignore_ns_def, element_ns)
         map = ctx.map
         result = +""
         attrs.each do |attr|
           # The element start tag has already settled the default namespace —
-          # either by writing its own `xmlns` or by dropping a declaration that
-          # contradicted it — so this one is not written again, whichever
-          # namespace it carries.
-          next if ignore_ns_def && default_ns_declaration?(attr)
+          # by writing its own `xmlns`, or by taking the one it inherited — so
+          # a declaration that contradicts it is dropped. One that agrees with
+          # it is kept: the spec drops it too (w3c/DOM-Parsing#47), but
+          # Chrome, WebKit and Firefox all write it, and so does WPT's
+          # "prefix bound to an empty namespace URI" case
+          # (`<root xmlns="" xmlns:foo=""/>`), at the cost of its "redundant
+          # xmlns is dropped" case, which every browser fails.
+          next if ignore_ns_def && default_ns_declaration?(attr) && presence(attr.value) != element_ns
 
           ns = presence(attr.namespace)
           prefix = nil
@@ -242,9 +258,24 @@ module Dommy
             elsif ns == XML_NS
               prefix = "xml"
             else
-              candidate = retrieve_preferred_prefix(map, ns, presence(attr.prefix))
+              own = presence(attr.prefix)
+              candidate = retrieve_preferred_prefix(map, ns, own)
               if candidate.nil?
-                candidate = generate_prefix(map, ns, ctx)
+                # No prefix in scope maps to the namespace: the attribute keeps
+                # its own prefix unless that prefix is already bound in scope
+                # (to another namespace, here or on an ancestor) — only then is
+                # one generated. So `xl:type` in the XLink namespace stays
+                # `xl:type`, while a `p:` an ancestor binds elsewhere becomes
+                # `ns1:`. (The spec text only consults the element's own
+                # declarations; browsers consult the whole scope, and WPT's
+                # ancestor case follows them.)
+                if own && !local_prefixes.key?(own) && map.none? { |_ns, prefixes| prefixes.include?(own) }
+                  candidate = own
+                  (map[ns] ||= []) << candidate
+                else
+                  candidate = generate_prefix(map, ns, ctx)
+                end
+                local_prefixes[candidate] = ns
                 result << %( xmlns:#{candidate}="#{escape_attr(ns)}")
               end
               prefix = candidate

@@ -23,6 +23,7 @@ module Dommy
       DocumentFragment = ::Makiri::DocumentFragment
       DocumentType = ::Makiri::DocumentType
       Node = ::Makiri::Node
+      XMLSyntaxError = ::Makiri::XML::SyntaxError
 
       # A minimal namespace wrapper exposing the same `href` API that Nokogiri's
       # Namespace object has, so calling code treats both backends uniformly.
@@ -167,6 +168,23 @@ module Dommy
         doc.create_loose_dom_element(qualified_name, prefix, local, namespace)
       end
 
+      # createElementNS in an HTML document. Makiri >= 0.11 builds the element in
+      # its own namespace, so the backend node is what the parser would have
+      # made: an SVG `feGaussianBlur` keeps its case and `[viewBox]` reads its
+      # attribute case-sensitively. nil for an XML document or an older Makiri →
+      # the caller uses #create_element, and the namespace lives on the wrapper.
+      def create_element_ns(namespace, qualified_name, doc)
+        return nil unless doc.is_a?(::Makiri::HTML::Document) && doc.respond_to?(:create_element_ns)
+
+        doc.create_element_ns(presence(namespace), qualified_name.to_s)
+      rescue ::Makiri::Error
+        # Makiri refuses an HTML-namespace element whose upper-case name
+        # lower-cases to a known element (`DIV`, `BR`): Lexbor would make it
+        # as that element. The DOM allows the name, so fall back to
+        # #create_element and keep the namespace and case on the wrapper.
+        nil
+      end
+
       # A detached DocumentType node owned by `doc`, for
       # DOMImplementation.createDocumentType. Only the HTML backend ships the
       # factory (`create_document_type`); nil signals the caller to fall back to a
@@ -264,11 +282,13 @@ module Dommy
 
         node["xmlns:#{prefix}"] = href.to_s
         nil
-      rescue ArgumentError
+      rescue ArgumentError, ::Makiri::Error
         # DOM validates a qualified name against the Name production, which
         # admits prefixes an XML backend cannot spell as an `xmlns:` attribute
-        # ("0:a", ";:a"). The element is still valid — its prefix and namespace
-        # live on the wrapper — so the declaration is simply not written.
+        # ("0:a", ";:a" — ArgumentError), and binds prefixes Namespaces in XML
+        # forbids declaring ("f" to the XML namespace, anything to the XMLNS
+        # one — Makiri::Error). The element is still valid — its prefix and
+        # namespace live on the wrapper — so the declaration is simply not written.
         nil
       end
 
@@ -299,8 +319,58 @@ module Dommy
       end
 
       def set_attribute_ns(node, namespace, _prefix, _local_name, qualified_name, value)
-        node.set_attribute_ns(presence(namespace), qualified_name.to_s, value.to_s)
-        value.to_s
+        ns = presence(namespace)
+        name = qualified_name.to_s
+        value = value.to_s
+        node.set_attribute_ns(ns, name, value) unless ns.nil? && set_null_namespace_attribute(node, name, value)
+        value
+      end
+
+      # A null-namespace name that only the DOM's `setAttribute` can make: one
+      # whose local name holds a colon ("xlink:href", "v-on:click") or is
+      # "xmlns". Makiri >= 0.11 checks set_attribute_ns as the DOM's
+      # setAttributeNS does, which refuses these (a prefix needs a namespace).
+      def set_attribute_only_name?(name)
+        name == "xmlns" || name.include?(":")
+      end
+
+      # Makiri's own `setAttribute` where set_attribute_ns cannot make the
+      # attribute. true when it made it; false leaves it to set_attribute_ns
+      # (every other name, and any name on a Makiri older than 0.11, whose
+      # set_attribute_ns still accepts these).
+      #
+      # - An HTML document: `[]=` for the setAttribute-only names. It lower-cases
+      #   only on an HTML-namespace element, as setAttribute does, and makes
+      #   the colon part of the local name.
+      # - An XML document: set_loose_dom_attribute (a plain attribute, never a
+      #   namespace declaration) for those names, and for a name the XML backend
+      #   refuses as not an XML Name ("\u0001", "@click") — the DOM's name rule
+      #   is looser. Any other name still goes through set_attribute_ns, which
+      #   matches an existing attribute by (namespace, local name) rather than
+      #   by qualified name: `setAttributeNS("u", "a")` then a null-namespace
+      #   "a" are two attributes.
+      def set_null_namespace_attribute(node, name, value)
+        if node.respond_to?(:set_loose_dom_attribute)
+          set_xml_null_namespace_attribute(node, name, value)
+        elsif set_attribute_only_name?(name) && node.document.respond_to?(:create_element_ns)
+          node[name] = value
+          true
+        else
+          false
+        end
+      end
+
+      def set_xml_null_namespace_attribute(node, name, value)
+        if set_attribute_only_name?(name)
+          node.set_loose_dom_attribute(name, value)
+        else
+          begin
+            node.set_attribute_ns(nil, name, value)
+          rescue ArgumentError
+            node.set_loose_dom_attribute(name, value)
+          end
+        end
+        true
       end
 
       def remove_attribute_ns(node, namespace, local_name)

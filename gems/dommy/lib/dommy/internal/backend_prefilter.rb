@@ -118,7 +118,7 @@ module Dommy
         when :id then bnode["id"] == value
         when :class then class_attr_token?(bnode["class"], value)
         when :attr then !bnode[value].nil?
-        when :type then (name = bnode.name) && name.casecmp?(value)
+        when :type then (name = bnode.local_name) && name.casecmp?(value)
         end
       end
 

@@ -134,6 +134,14 @@ module Dommy
         current.create_element_loose(qualified_name, prefix, local, namespace, doc)
       end
 
+      # Create an element in `namespace` in an HTML document, so the backend
+      # node carries the namespace and the name's case itself. Returns nil when
+      # the backend cannot (fall back to #create_element); raises ArgumentError
+      # for an invalid name (the caller maps it to InvalidCharacterError).
+      def create_element_ns(namespace, qualified_name, doc)
+        current.respond_to?(:create_element_ns) ? current.create_element_ns(namespace, qualified_name, doc) : nil
+      end
+
       # A detached DocumentType node owned by `doc` (for
       # DOMImplementation.createDocumentType). Returns nil when the backend has no
       # doctype factory (the caller falls back to a synthetic DocumentType); raises
@@ -260,6 +268,12 @@ module Dommy
 
       def document_class
         current::Document
+      end
+
+      # What the backend raises for markup that is not well-formed XML (an XML
+      # document's fragment parse included).
+      def xml_syntax_error_class
+        current::XMLSyntaxError
       end
 
       def text_class

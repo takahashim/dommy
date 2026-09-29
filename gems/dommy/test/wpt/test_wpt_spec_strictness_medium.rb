@@ -44,10 +44,10 @@ class TestWPTCreateElementValidation < Minitest::Test
     assert_raises(Dommy::DOMException::InvalidCharacterError) { @doc.create_element("a>b") }
   end
 
-  # `/` mid-name is accepted by the lenient HTML name rule (not WPT-pinned, but
-  # consistent with browsers' permissive createElement).
-  def test_name_with_slash_mid_accepted
-    assert_equal("A/B", @doc.create_element("a/b").tag_name)
+  # So is `/`: the DOM's "valid element local name" forbids it anywhere, even
+  # after an ASCII alpha (WPT dom/nodes/name-validation.html).
+  def test_name_with_slash_mid_throws
+    assert_raises(Dommy::DOMException::InvalidCharacterError) { @doc.create_element("a/b") }
   end
 
   def test_valid_hyphenated_name_accepted

@@ -91,3 +91,50 @@ class TestWPTDoctypeChildNode < Minitest::Test
                                       range.end_container, range.end_offset]
   end
 end
+
+# A doctype the backend could not create — today only one with an empty name,
+# which the DOM allows and Makiri refuses — has no node to put in a tree.
+# Inserting it into a document is refused with NotSupportedError rather than
+# silently doing nothing (a replace used to drop the node it replaced), after
+# the DOM's own HierarchyRequestError checks. createDocument, which the DOM
+# never lets throw over its doctype, leaves it out.
+class TestWPTUnbackedDoctypeInsertion < Minitest::Test
+  def setup
+    @doc = Dommy::Window.new.document
+    @impl = @doc.implementation
+    @xml = @impl.create_document(nil, nil, nil)
+    @empty = @impl.create_document_type("", "", "")
+  end
+
+  def test_creating_one_still_works
+    assert_equal("", @empty.name)
+  end
+
+  def test_every_insertion_into_a_document_is_refused
+    comment = @xml.append_child(@xml.create_comment("c"))
+    [
+      -> { @xml.append_child(@empty) },
+      -> { @xml.insert_before(@empty, comment) },
+      -> { @xml.replace_child(@empty, comment) },
+      -> { @xml.append(@empty) },
+      -> { @xml.prepend(@empty) },
+      -> { @xml.replace_children(@empty) },
+      -> { comment.before(@empty) },
+      -> { comment.after(@empty) },
+      -> { comment.replace_with(@empty) }
+    ].each { |insert| assert_raises(Dommy::DOMException::NotSupportedError) { insert.call } }
+
+    assert_equal([comment], @xml.child_nodes.to_a)
+  end
+
+  def test_a_hierarchy_error_comes_first
+    @xml.append_child(@impl.create_document_type("q", "", ""))
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { @xml.append_child(@empty) }
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { @doc.body.append_child(@empty) }
+  end
+
+  def test_create_document_leaves_it_out
+    doc = @impl.create_document(nil, "root", @empty)
+    assert_equal(["root"], doc.child_nodes.to_a.map(&:local_name))
+  end
+end
