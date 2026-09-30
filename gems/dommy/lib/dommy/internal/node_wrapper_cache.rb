@@ -192,19 +192,15 @@ module Dommy
       # carries a prefix the backend node name would otherwise fold in) route the
       # wrapper class directly, rather than re-deriving it from the backend.
       #
-      # When `namespace` is not supplied we derive it: the backend reports the
-      # null namespace for ordinary HTML elements, so in an HTML document an
-      # otherwise-namespaceless element is treated as HTML-namespaced (preserving
-      # HTML* interface routing); a non-HTML document leaves it null (generic
-      # Element). An explicit `namespace:` (including nil from createElementNS)
-      # is honored verbatim.
+      # When `namespace` is not supplied it is the backend node's own, the one
+      # Element#namespace_uri reports, so the interface always agrees with it:
+      # an XHTML element in an XML document is an HTML element, and a
+      # no-namespace element in an HTML document is a plain Element. The class
+      # is looked up by local name (an XML node's name holds its prefix). An
+      # explicit `namespace:` (including nil from createElementNS) is honored
+      # verbatim.
       def build_element_wrapper(node, namespace: NAMESPACE_UNSET, local_name: nil)
-        ns =
-          if namespace.equal?(NAMESPACE_UNSET)
-            Backend.namespace_of(node)&.href || (@document.html_document? ? Element::HTML_NAMESPACE : nil)
-          else
-            namespace
-          end
+        ns = namespace.equal?(NAMESPACE_UNSET) ? Backend.namespace_uri(node) : namespace
         # A JS-defined custom element (`customElements.define(name, classExpr)`
         # from page script) registers its JS constructor — a HostCallback — not a
         # Ruby class, so we cannot `.new(@document, node)` it. Wrap such a node as
@@ -213,9 +209,8 @@ module Dommy
         # class definition routes a custom Ruby wrapper + #construct.
         custom_klass = custom_element_class_for(node.name)
         ruby_custom = custom_klass if custom_klass.is_a?(::Class)
-        klass = ruby_custom || Dommy.element_class_for(local_name || node.name, ns)
+        klass = ruby_custom || Dommy.element_class_for(local_name || node.local_name, ns)
         instance = klass.new(@document, node)
-        adjust_svg_tag_name(instance, node, ns) if local_name.nil?
 
         @wrappers[identity_key(node)] = instance
 
@@ -313,20 +308,6 @@ module Dommy
         return unless window.respond_to?(:__internal_report_exception__)
 
         Internal::ExceptionReport.report_at(window, error)
-      end
-
-      # HTML's "adjust SVG tag name" (§13.2.6.5), the parser step that gives
-      # `<feMerge>` its camel case back after the tokenizer lower-cased it. The
-      # backend keeps the lower-case name, so — exactly as for the case
-      # createElementNS preserves — the adjusted name lives on the wrapper.
-      # Only names the parser produced are adjusted: createElementNS says what
-      # the local name is and passes it in, and an XML document is parsed
-      # verbatim to begin with.
-      def adjust_svg_tag_name(instance, node, namespace)
-        return unless namespace == Element::SVG_NAMESPACE && @document.html_document?
-
-        adjusted = Dommy::SVG_ADJUSTED_TAG_NAMES[node.name]
-        instance.__internal_set_namespace__(namespace, nil, adjusted, adjusted) if adjusted
       end
 
       def custom_element_class_for(tag_name)

@@ -279,12 +279,6 @@ module Dommy
       @document = document
     end
 
-    # A name createDocumentType refuses. It is otherwise extremely permissive —
-    # "1foo", "@foo", "edi:%" and the empty string are all accepted — but a name
-    # carrying whitespace or ">" could not be serialized back as a doctype, and
-    # is an InvalidCharacterError.
-    UNSERIALIZABLE_DOCTYPE_NAME = /[\s>]/
-
     # A created DocumentType's node document is the implementation's document. When
     # the backend ships a doctype factory (the HTML backend) and accepts the name,
     # the result is a real, node-backed (but detached) DocumentType that can join
@@ -292,7 +286,10 @@ module Dommy
     # (stricter, XML-flavoured) name check is not the DOM rule.
     def create_document_type(qualified_name, public_id, system_id)
       qn = qualified_name.to_s
-      if qn.match?(UNSERIALIZABLE_DOCTYPE_NAME)
+      # A "valid doctype name" is extremely permissive — "1foo", "@foo",
+      # "edi:%" and the empty string are all accepted — but refuses ASCII
+      # whitespace, NULL and ">", which could not be serialized back.
+      unless Internal::Namespaces.valid_doctype_name?(qn)
         raise DOMException::InvalidCharacterError, "invalid doctype name: #{qn.inspect}"
       end
 
@@ -348,27 +345,21 @@ module Dommy
     private
 
     # Place `doctype` (a DocumentType passed to createDocument) as `doc`'s first
-    # child. Makiri can't move a node between documents, so — like adoption — the
-    # doctype is re-created in `doc`'s backend from its name/publicId/systemId.
-    # No-op for nil/undefined, a non-DocumentType, a backend without an XML doctype
-    # factory, or a public/system id the backend rejects (createDocument itself
-    # doesn't validate those — only XML *serialization* would — so a rejection just
-    # leaves the doctype unplaced rather than throwing).
+    # child. createDocument appends the doctype node itself (step 5, before
+    # step 6 appends the element), so it goes through the ordinary insert: the
+    # adoption re-binds the caller's wrapper, and `xmlDoc.firstChild ===
+    # doctype`, its parentNode and ownerDocument all follow.
+    #
+    # No-op for nil/undefined or a non-DocumentType. A doctype the XML backend
+    # cannot hold is left unplaced rather than thrown: createDocument itself
+    # validates none of it — only an XML serialization would.
     def adopt_doctype_into(doc, doctype)
       return if doctype.nil? || doctype.equal?(Bridge::UNDEFINED)
       return unless doctype.is_a?(DocumentType)
 
-      node =
-        begin
-          Backend.create_document_type(doctype.name, doctype.public_id, doctype.system_id, doc.backend_doc)
-        rescue StandardError
-          nil
-        end
-      return unless node
-
-      root = doc.backend_doc.root
-      doc.__internal_ranges_will_insert__(doc.backend_doc, root, 1)
-      root ? root.add_previous_sibling(node) : doc.backend_doc.add_child(node)
+      doc.insert_before(doctype, doc.document_element)
+    rescue DOMException::NotSupportedError
+      nil
     end
 
     public
@@ -931,8 +922,31 @@ module Dommy
       deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
       source_document = node.respond_to?(:document) ? node.document : self
       copy = clone_into_doc(node.__dommy_backend_node__, deep, source_document)
+      apply_imported_cloning_steps(node.__dommy_backend_node__, copy, deep, source_document)
       wrap_node(copy)
     end
+
+    # importNode is a clone, so the HTML cloning steps run for it as they do
+    # for cloneNode (#__internal_apply_cloning_steps__): the live state Dommy
+    # keeps on a wrapper — an input's dirty value, a script's "already
+    # started" — is copied onto the new node. The originals' wrappers belong
+    # to the source document, so they are looked up there.
+    def apply_imported_cloning_steps(src_root, copy_root, deep, source_document)
+      return unless source_document.respond_to?(:__internal_peek_wrapper__)
+
+      src_nodes = deep ? Internal::NodeTraversal.subtree_nodes(src_root) : [src_root]
+      copy_nodes = deep ? Internal::NodeTraversal.subtree_nodes(copy_root) : [copy_root]
+      return unless src_nodes.length == copy_nodes.length
+
+      src_nodes.zip(copy_nodes).each do |orig, copy|
+        state = source_document.__internal_peek_wrapper__(orig)&.then { |w| w.respond_to?(:__cloning_state__) && w.__cloning_state__ }
+        next unless state
+
+        wrapper = wrap_node(copy)
+        wrapper.__apply_cloning_state__(state) if wrapper.respond_to?(:__apply_cloning_state__)
+      end
+    end
+    private :apply_imported_cloning_steps
 
     def import_attribute(attr)
       Attr.new(
@@ -988,11 +1002,11 @@ module Dommy
       return unless src_nodes.length == clone_nodes.length
 
       src_nodes.zip(clone_nodes).each do |orig, copy|
-        # HTML cloning steps for <template>: its content lives in an off-tree
-        # fragment the backend's subtree clone never reaches, so a deep clone has
-        # to copy it across explicitly (a shallow clone gets an empty template,
-        # per spec).
-        clone_template_content(orig, copy) if deep && @template_content_registry.has_content?(orig)
+        # HTML cloning steps for <template>: the backend's clone copies an HTML
+        # document's contents itself, but an XML document's live apart from
+        # the node, so a deep clone copies them across explicitly (a shallow
+        # clone gets an empty template, per spec).
+        clone_template_content(orig, copy) if deep && @template_content_registry.detached?(orig)
 
         wrapper = @node_wrapper_cache.peek(orig)
         next unless wrapper.respond_to?(:__cloning_state__)
@@ -1207,6 +1221,21 @@ module Dommy
             (has_element || (child_bn && child_bn.node_type == 10) || doctype_after_child?(existing, child_bn))
         raise DOMException::HierarchyRequestError, "An element cannot be inserted here."
       end
+
+      ensure_doctypes_have_nodes!(args)
+    end
+
+    # Not a DOM step, and checked after all of them so a HierarchyRequestError
+    # still wins: a synthetic doctype — one the backend could not create, which
+    # today means only an empty name (Makiri refuses it; the DOM allows it) —
+    # has no node to put in the tree. Inserting it would do nothing (and a
+    # replace would drop the node it replaces), so it is refused outright.
+    # createDocument, which the DOM never lets throw here, catches this and
+    # leaves the doctype out.
+    def ensure_doctypes_have_nodes!(args)
+      return unless args.any? { |a| a.is_a?(Dommy::DocumentType) && !a.respond_to?(:__dommy_backend_node__) }
+
+      raise DOMException::NotSupportedError, "This doctype cannot be inserted: the backend could not create it."
     end
 
     # Document's answer to the ParentNode hook a ChildNode mutation
@@ -2142,6 +2171,24 @@ module Dommy
       nil
     end
 
+    # DOMParser parses with scripting disabled (HTML) or XML scripting support
+    # disabled, so every script it makes is "already started": moved or cloned
+    # into a document that runs scripts, it still does not run. Found by local
+    # name, so an XML document's prefixed `h:script` counts too.
+    def __internal_mark_scripts_already_started__
+      Internal::NodeTraversal.subtree_nodes(@backend_doc).each do |node|
+        next unless node.respond_to?(:element?) && node.element?
+        next unless node.local_name == "script"
+
+        wrapper = wrap_node(node)
+        next unless wrapper.respond_to?(:__internal_mark_script_already_started__)
+
+        wrapper.__internal_mark_script_already_started__
+        wrapper.__internal_mark_parser_inserted__
+      end
+      nil
+    end
+
     # The wrapper for a backend node, but only when HTML's rules are the ones
     # that apply to it.
     #
@@ -2605,9 +2652,10 @@ module Dommy
       @template_content_registry.migrate_descendants(root)
     end
 
-    def has_template_content?(nokogiri_node)
-      @template_content_registry.has_content?(nokogiri_node)
+    def migrate_xml_template_descendants(root)
+      @template_content_registry.migrate_xml_descendants(root)
     end
+
 
     private
 
@@ -2617,11 +2665,13 @@ module Dommy
     def clone_into_doc(source, deep, source_document = self)
       copy = clone_single_node_into_doc(source, source_document)
 
-      if source.element? && source.name == "template"
-        # A <template>'s contents live in a separate content fragment, not its
-        # child list, so the generic deep pass over `children` misses them.
-        clone_template_content(source, copy, source_document) if deep
-      elsif deep && source.respond_to?(:children)
+      return copy unless deep
+
+      # A <template>'s contents live in a separate content fragment, not its
+      # child list, so the pass over `children` misses them. It still runs: an
+      # XML document's <template> keeps its children in the child list.
+      clone_template_content(source, copy, source_document) if source.element? && source.name == "template"
+      if source.respond_to?(:children)
         source.children.each do |child|
           copy.add_child(clone_into_doc(child, true, source_document))
         end
@@ -2663,17 +2713,15 @@ module Dommy
       end
     end
 
-    # An element's copy keeps its namespace, its prefix and the exact spelling
-    # of its local name. None of that is on the backend node — the HTML backend
-    # tracks no namespace for an element script created, and createElementNS's
-    # case lives on the wrapper — so the original is read through its wrapper
-    # and the copy is given the same metadata.
+    # An element's copy is the backend's own, which keeps its name and every
+    # attribute's qualified name exactly (a null-namespace `A:B` on an HTML
+    # element stays `A:B`, where the DOM's setAttribute would lower-case it).
+    # Only a createElementNS name the backend node does not carry lives on the
+    # original's wrapper, so the copy's wrapper is given the same metadata.
     def clone_element_into_doc(source, source_document)
       wrapper = source_document.wrap_node(source)
       namespace, prefix, local, qualified = clone_name_parts(wrapper, source)
-      copy = Backend.create_element_loose(qualified, prefix, local, namespace, @backend_doc) ||
-        Backend.create_element(source.name, @backend_doc)
-      copy_attributes_into(source, copy)
+      copy = Backend.import_element(source, @backend_doc)
       note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
       copy
     end
@@ -2691,45 +2739,23 @@ module Dommy
       [wrapper&.namespace_uri, nil, local, local]
     end
 
-    # "Clone a single node" step 2.1 clones the attributes one by one, so each
-    # keeps its own namespace and prefix — an `xml:b` must not flatten into an
-    # attribute whose local name is the qualified string "xml:b".
-    def copy_attributes_into(source, copy)
-      Backend.attribute_nodes(source).each do |attr|
-        info = Backend.attribute_ns_info(attr)
-        if info[:namespace_uri]
-          Backend.set_attribute_ns(copy, info[:namespace_uri], info[:prefix], info[:local_name],
-            info[:qualified_name], info[:value])
-        else
-          copy[info[:qualified_name]] = info[:value]
-        end
-      end
-      nil
-    end
-
     # Give the copy's wrapper the namespace metadata whenever the backend node
     # alone would report something else (see #clone_element_into_doc).
     def note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
-      derived = Backend.namespace_of(copy)&.href || (html_document? ? Element::HTML_NAMESPACE : nil)
+      derived = Backend.namespace_uri(copy)
       return if derived == namespace && prefix.nil? && local == copy.name
 
       wrap_cloned_element_ns(copy, namespace, prefix, local, qualified)
     end
 
-    # Clone a <template>'s content into a fragment registered as `copy`'s
-    # template content. The source content lives backend-dependently — Makiri
-    # keeps it in a native content fragment, Nokogiri keeps it as direct children
-    # before migration and in the registry after — so source it from the registry
-    # fragment when migrated, else from Backend.template_content_nodes.
+    # HTML's cloning steps for a <template>: a deep copy of each of the
+    # source's contents, appended to the copy's contents.
     def clone_template_content(source, copy, source_document = self)
-      registry = source_document.__internal_template_registry__
-      src_frag = registry.raw_fragment_for(source)
-      content_nodes = src_frag ? src_frag.children.to_a : Backend.template_content_nodes(source)
+      content_nodes = source_document.__internal_template_registry__.content_nodes(source)
       return if content_nodes.empty?
 
-      frag = Parser.fragment("", owner_doc: @backend_doc)
+      frag = @template_content_registry.contents(copy)
       content_nodes.each { |n| frag.add_child(clone_into_doc(n, true, source_document)) }
-      @template_content_registry.store(copy, frag)
     end
 
     def read_title

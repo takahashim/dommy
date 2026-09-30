@@ -79,6 +79,12 @@ module Dommy
         current.adopt(node, target_doc)
       end
 
+      # A copy of the element `node` alone, owned by `target_doc`: its name and
+      # attributes exactly as the backend holds them.
+      def import_element(node, target_doc)
+        current.import_element(node, target_doc)
+      end
+
       # Whether the backend can move a node between documents in place or must adopt a copy first
       # (Lexbor's arenas can't move a node, so inserting a foreign node requires importing
       # it). Lets callers skip a needless — and on an empty target, root-less and
@@ -134,6 +140,20 @@ module Dommy
         current.create_element_loose(qualified_name, prefix, local, namespace, doc)
       end
 
+      # The element's own namespace URI as the DOM reports it: nil for no
+      # namespace.
+      def namespace_uri(node)
+        current.namespace_uri(node)
+      end
+
+      # Create an element in `namespace` in an HTML document, so the backend
+      # node carries the namespace and the name's case itself. Returns nil for
+      # an XML document (fall back to #create_element); raises ArgumentError
+      # for an invalid name (the caller maps it to InvalidCharacterError).
+      def create_element_ns(namespace, qualified_name, doc)
+        current.create_element_ns(namespace, qualified_name, doc)
+      end
+
       # A detached DocumentType node owned by `doc` (for
       # DOMImplementation.createDocumentType). Returns nil when the backend has no
       # doctype factory (the caller falls back to a synthetic DocumentType); raises
@@ -183,21 +203,18 @@ module Dommy
         current.processing_instruction_class
       end
 
-      def namespace_of(node)
-        current.namespace_of(node)
-      end
-
       # The element's in-scope namespace declarations (each responds to
       # `prefix`/`href`). Empty on backends without an XML namespace model.
       def namespace_definitions(node)
         current.namespace_definitions(node)
       end
 
-      # The content child nodes of a `<template>` element. HTML5 parsers model
-      # template contents differently — Lexbor/Makiri in a separate content fragment — so reading them goes
-      # through the backend. Used by the template-content registry's migration.
-      def template_content_nodes(node)
-        current.template_content_nodes(node)
+      # The backend's own fragment holding a `<template>` element's contents
+      # (Lexbor keeps them off the child list), the same one every time; nil
+      # for a node that has none — any node of an XML document, whose contents
+      # the template-content registry keeps instead.
+      def template_contents(node)
+        current.template_contents(node)
       end
 
       def add_namespace_definition(node, prefix, href)
@@ -260,6 +277,12 @@ module Dommy
 
       def document_class
         current::Document
+      end
+
+      # What the backend raises for markup that is not well-formed XML (an XML
+      # document's fragment parse included).
+      def xml_syntax_error_class
+        current::XMLSyntaxError
       end
 
       def text_class

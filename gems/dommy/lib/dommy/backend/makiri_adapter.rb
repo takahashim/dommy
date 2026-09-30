@@ -23,12 +23,7 @@ module Dommy
       DocumentFragment = ::Makiri::DocumentFragment
       DocumentType = ::Makiri::DocumentType
       Node = ::Makiri::Node
-
-      # A minimal namespace wrapper exposing the same `href` API that Nokogiri's
-      # Namespace object has, so calling code treats both backends uniformly.
-      Namespace = Struct.new(:href)
-
-      HTML_NAMESPACE_URI = Internal::Namespaces::HTML
+      XMLSyntaxError = ::Makiri::XML::SyntaxError
 
       # Throwaway attribute used to bind `:scope` to a context element — Lexbor
       # has no `:scope`, so a scoped query temporarily marks the element and
@@ -98,6 +93,10 @@ module Dommy
         target_doc.import_node(node, true)
       end
 
+      def import_element(node, target_doc)
+        target_doc.import_node(node, false)
+      end
+
       # Lexbor arenas can't move a node between documents — a foreign node must be
       # imported (see #adopt) before insertion.
       def moves_nodes_across_documents?
@@ -162,9 +161,20 @@ module Dommy
       # Makiri's loose creator, which builds it verbatim (case/prefix preserved).
       # nil for a non-XML backend → the caller uses the strict #create_element.
       def create_element_loose(qualified_name, prefix, local, namespace, doc)
-        return nil unless doc.is_a?(::Makiri::XML::Document) && doc.respond_to?(:create_loose_dom_element)
+        return nil unless doc.is_a?(::Makiri::XML::Document)
 
         doc.create_loose_dom_element(qualified_name, prefix, local, namespace)
+      end
+
+      # createElementNS in an HTML document. Makiri builds the element in its
+      # own namespace, so the backend node is what the parser would have made:
+      # an SVG `feGaussianBlur` keeps its case and `[viewBox]` reads its
+      # attribute case-sensitively. nil for an XML document → the caller uses
+      # #create_element.
+      def create_element_ns(namespace, qualified_name, doc)
+        return nil unless doc.is_a?(::Makiri::HTML::Document)
+
+        doc.create_element_ns(presence(namespace), qualified_name.to_s)
       end
 
       # A detached DocumentType node owned by `doc`, for
@@ -231,20 +241,10 @@ module Dommy
         ::Makiri::ProcessingInstruction
       end
 
-      # Makiri doesn't track XML namespaces. We synthesize one for SVG by
-      # walking ancestors — necessary so `element_class_for` routes SVG
-      # tags to their specialized classes.
-      # The element's namespace, from Lexbor's own namespace tracking (HTML /
-      # SVG / MathML). nil for the HTML namespace, so Element#namespace_uri
-      # falls back to its HTML default (and the wrapper is allocated only for
-      # genuine foreign content).
-      def namespace_of(node)
-        return nil unless node.respond_to?(:namespace_uri)
-
-        uri = node.namespace_uri
-        return nil if uri.nil? || uri.empty? || uri == HTML_NAMESPACE_URI
-
-        Namespace.new(uri)
+      # The element's namespace as the backend tracks it (Lexbor's HTML / SVG /
+      # MathML, an XML document's own), nil for none.
+      def namespace_uri(node)
+        presence(node.respond_to?(:namespace_uri) ? node.namespace_uri : nil)
       end
 
       # Bind a *prefixed* element's namespace so the prefix resolves. An XML
@@ -264,11 +264,13 @@ module Dommy
 
         node["xmlns:#{prefix}"] = href.to_s
         nil
-      rescue ArgumentError
+      rescue ArgumentError, ::Makiri::Error
         # DOM validates a qualified name against the Name production, which
         # admits prefixes an XML backend cannot spell as an `xmlns:` attribute
-        # ("0:a", ";:a"). The element is still valid — its prefix and namespace
-        # live on the wrapper — so the declaration is simply not written.
+        # ("0:a", ";:a" — ArgumentError), and binds prefixes Namespaces in XML
+        # forbids declaring ("f" to the XML namespace, anything to the XMLNS
+        # one — Makiri::Error). The element is still valid — its prefix and
+        # namespace live on the wrapper — so the declaration is simply not written.
         nil
       end
 
@@ -279,9 +281,8 @@ module Dommy
 
       # Lexbor keeps <template> contents in a separate content fragment rather
       # than the normal child chain.
-      def template_content_nodes(node)
-        cf = node.respond_to?(:content_fragment) ? node.content_fragment : nil
-        cf ? cf.children.to_a : []
+      def template_contents(node)
+        node.respond_to?(:content_fragment) ? node.content_fragment : nil
       end
 
       # ----- Namespaced attributes -----
@@ -299,8 +300,41 @@ module Dommy
       end
 
       def set_attribute_ns(node, namespace, _prefix, _local_name, qualified_name, value)
-        node.set_attribute_ns(presence(namespace), qualified_name.to_s, value.to_s)
-        value.to_s
+        ns = presence(namespace)
+        name = qualified_name.to_s
+        value = value.to_s
+        node.set_attribute_ns(ns, name, value) unless ns.nil? && set_null_namespace_attribute(node, name, value)
+        value
+      end
+
+      # A null-namespace name that only the DOM's `setAttribute` can make: one
+      # whose local name holds a colon ("xlink:href", "v-on:click") or is
+      # "xmlns". Makiri checks set_attribute_ns as the DOM's setAttributeNS
+      # does, which refuses these (a prefix needs a namespace).
+      def set_attribute_only_name?(name)
+        name == "xmlns" || name.include?(":")
+      end
+
+      # Makiri's own `setAttribute` for the setAttribute-only names, which
+      # set_attribute_ns refuses. true when it made the attribute; false leaves
+      # every other name to set_attribute_ns, which matches an existing
+      # attribute by (namespace, local name) rather than by qualified name:
+      # `setAttributeNS("u", "a")` then a null-namespace "a" are two attributes.
+      #
+      # - An XML document: set_loose_dom_attribute, a plain attribute (never a
+      #   namespace declaration) under the name as given.
+      # - An HTML document: `[]=`. It lower-cases only on an HTML-namespace
+      #   element, as setAttribute does, and makes the colon part of the local
+      #   name.
+      def set_null_namespace_attribute(node, name, value)
+        return false unless set_attribute_only_name?(name)
+
+        if node.respond_to?(:set_loose_dom_attribute)
+          node.set_loose_dom_attribute(name, value)
+        else
+          node[name] = value
+        end
+        true
       end
 
       def remove_attribute_ns(node, namespace, local_name)

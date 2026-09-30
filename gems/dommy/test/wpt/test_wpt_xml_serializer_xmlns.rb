@@ -76,4 +76,77 @@ class TestWPTXMLSerializerXmlns < Minitest::Test
     root.set_attribute_ns(XMLNS_NS, "xmlns", OPF)
     assert_equal "<package/>", serialize(root)
   end
+
+  # Both spellings on one element still write a single `xmlns`, whether the
+  # start tag writes it or one of the two agrees with the element.
+  def test_both_spellings_write_one_declaration
+    root = parse(%(<r xmlns="#{OPF}"/>))
+    doc = root.owner_document
+    agreeing = root.append_child(doc.create_element_ns(OPF, "c"))
+    agreeing.set_attribute("xmlns", OPF)
+    agreeing.set_attribute_ns(XMLNS_NS, "xmlns", OPF)
+    moved = root.append_child(doc.create_element_ns("u", "c"))
+    moved.set_attribute("xmlns", "u")
+    moved.set_attribute_ns(XMLNS_NS, "xmlns", "v")
+    assert_equal %(<r xmlns="#{OPF}"><c xmlns="#{OPF}"/><c xmlns="u"/></r>), serialize(root)
+  end
+end
+
+# Where WPT's XMLSerializer cases disagree with one another, Dommy writes what
+# Chrome, WebKit and Firefox all write. Two cases in the file then fail, as they
+# do in every browser: "Check if redundant xmlns="..." is dropped." and "Check if
+# the prefix of an attribute is NOT preserved in a case where neither its prefix
+# nor its namespace URI is not already used."
+#
+# WPT: domparsing/XMLSerializer-serializeToString.html
+# Spec: https://w3c.github.io/DOM-Parsing/#xml-serializing-an-element-node
+class TestWPTXMLSerializerBrowserAgreement < Minitest::Test
+  XMLNS_NS = "http://www.w3.org/2000/xmlns/"
+  XLINK = "http://www.w3.org/1999/xlink"
+
+  def setup
+    @parser = Dommy::DOMParser.new
+    @serializer = Dommy::XMLSerializer.new
+  end
+
+  def parse(xml)
+    @parser.parse_from_string(xml, "application/xml").document_element
+  end
+
+  def serialize(node)
+    @serializer.serialize_to_string(node)
+  end
+
+  # What JS's `new Document()` makes: an XML document.
+  def xml_document
+    Dommy::Window.new.document.implementation.create_document(nil, nil, nil)
+  end
+
+  # A default declaration that agrees with the element's namespace is kept
+  # (the spec drops it: w3c/DOM-Parsing#47), so a prefix bound to "no
+  # namespace" serializes beside it.
+  def test_an_agreeing_default_declaration_is_kept
+    root = parse(%(<root xmlns="" xmlns:foo="urn:bar"/>))
+    root.set_attribute_ns(XMLNS_NS, "xmlns:foo", "")
+    assert_equal %(<root xmlns="" xmlns:foo=""/>), serialize(root)
+    assert_equal %(<root><child xmlns=""/></root>), serialize(parse(%(<root><child xmlns=""/></root>)))
+  end
+
+  # An attribute whose namespace has no prefix in scope keeps its own prefix,
+  # unless that prefix is bound in scope to another namespace.
+  def test_an_attribute_keeps_its_own_unbound_prefix
+    root = xml_document.create_element("root")
+    root.set_attribute_ns(XLINK, "xl:type", "v")
+    assert_equal %(<root xmlns:xl="#{XLINK}" xl:type="v"/>), serialize(root)
+
+    root = xml_document.create_element("root")
+    root.set_attribute_ns(XLINK, "href", "v")
+    assert_equal %(<root xmlns:ns1="#{XLINK}" ns1:href="v"/>), serialize(root)
+  end
+
+  def test_a_prefix_an_ancestor_binds_elsewhere_is_replaced
+    root = parse(%(<root xmlns:p="uri1"><child/></root>))
+    root.first_element_child.set_attribute_ns("uri2", "p:foobar", "v")
+    assert_equal %(<root xmlns:p="uri1"><child xmlns:ns1="uri2" ns1:foobar="v"/></root>), serialize(root)
+  end
 end

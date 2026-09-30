@@ -17,7 +17,7 @@ module Dommy
       def create_element(name)
         str = domstring(name)
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
-        raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless str.match?(Namespaces::HTML_NAME)
+        raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless Namespaces.valid_element_local_name?(str)
 
         # WHATWG createElement: lowercase (ASCII) the name only in an HTML
         # document; the namespace is the HTML namespace for HTML/XHTML documents
@@ -82,7 +82,7 @@ module Dommy
       def create_attribute(name)
         str = domstring(name)
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
-        raise DOMException::InvalidCharacterError, "invalid attribute name: #{str.inspect}" unless str.match?(Namespaces::NAME)
+        raise DOMException::InvalidCharacterError, "invalid attribute name: #{str.inspect}" unless Namespaces.valid_attribute_local_name?(str)
 
         # WHATWG createAttribute: an HTML document lower-cases the name (an XML
         # document preserves it). Attr.new no longer folds case, so do it here.
@@ -109,11 +109,13 @@ module Dommy
 
         # An XML backend rejects some DOM-valid qualified names (an invalid char
         # in the local part, which DOM permits): the loose creator builds them
-        # verbatim. A genuinely invalid name it (or the strict path) rejects with
-        # an ArgumentError becomes an InvalidCharacterError, per DOM.
+        # verbatim. An HTML backend builds the element in its namespace. A
+        # genuinely invalid name it (or the strict path) rejects with an
+        # ArgumentError becomes an InvalidCharacterError, per DOM.
         el =
           begin
             Backend.create_element_loose(qualified_name, prefix, local, ns, @document.backend_doc) ||
+              Backend.create_element_ns(ns, qualified_name, @document.backend_doc) ||
               Backend.create_element(qualified_name, @document.backend_doc)
           rescue ArgumentError
             raise DOMException::InvalidCharacterError, "'#{qualified_name}' is not a valid element name"

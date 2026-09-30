@@ -141,7 +141,9 @@ module Dommy
       end
 
       def record(bnode, enter)
-        name = bnode.name
+        # By local name, as a type selector compares: a prefixed element parsed
+        # from XML (`cp:coreProperties`) is found by `coreProperties`.
+        name = bnode.local_name
         (@by_tag[name.downcase] ||= []) << [enter, bnode] if name && !name.empty?
 
         id = bnode["id"]

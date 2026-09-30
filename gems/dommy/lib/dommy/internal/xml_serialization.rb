@@ -65,7 +65,19 @@ module Dommy
       module_function
 
       def serialize(node)
-        serialize_node(node, NamespaceContext.new(nil, { XML_NS => ["xml"] }))
+        serialize_node(node, root_context)
+      end
+
+      # innerHTML in an XML document: the fragment serializing algorithm run on
+      # the element, which serializes its children, each from the same fresh
+      # state as #serialize (so a top-level child of an XHTML element carries
+      # its own xmlns, as browsers write it).
+      def serialize_children_of(node)
+        serialize_children(node, root_context)
+      end
+
+      def root_context
+        NamespaceContext.new(nil, { XML_NS => ["xml"] })
       end
 
       def serialize_node(node, ctx)
@@ -93,11 +105,11 @@ module Dommy
         local_default_ns = record_namespace_information(attrs, ctx.map, local_prefixes)
         start = start_tag(node, ctx, local_default_ns, local_prefixes)
 
+        ns = presence(element_namespace(node))
         markup = +"<" << start.markup
-        markup << serialize_attributes(attrs, ctx, local_prefixes, start.ignore_ns_def)
+        markup << serialize_attributes(attrs, ctx, local_prefixes, start, ns)
 
         children = child_nodes(node)
-        ns = presence(element_namespace(node))
         return markup << empty_element_close(ns, node, start.qualified) if children.empty?
 
         markup << ">"
@@ -110,8 +122,9 @@ module Dommy
       # the qualified name it is written under (and closed with), the markup up
       # to its attributes — including any xmlns declaration the choice of prefix
       # forced — the namespace its children inherit, and whether its own default
-      # xmlns declaration has already been written and must not be repeated.
-      StartTag = Struct.new(:qualified, :markup, :inherited, :ignore_ns_def)
+      # xmlns declaration has already been accounted for (`ignore_ns_def`) or
+      # even written into that markup (`wrote_default`).
+      StartTag = Struct.new(:qualified, :markup, :inherited, :ignore_ns_def, :wrote_default)
 
       # https://w3c.github.io/DOM-Parsing/#xml-serializing-an-element-node,
       # the prefix-resolution half.
@@ -130,7 +143,7 @@ module Dommy
           if local_default_ns && local_default_ns != XML_NS
             inherited = local_default_ns.empty? ? nil : local_default_ns
           end
-          StartTag.new(qualified, qualified, inherited, false)
+          StartTag.new(qualified, qualified, inherited, false, false)
         elsif prefix
           prefix = generate_prefix(map, ns, ctx) if local_prefixes.key?(prefix)
           (map[ns] ||= []) << prefix
@@ -139,13 +152,13 @@ module Dommy
           unless local_default_ns.nil?
             inherited = local_default_ns.empty? ? nil : local_default_ns
           end
-          StartTag.new(qualified, qualified + %( xmlns:#{prefix}="#{escape_attr(ns)}"), inherited, false)
+          StartTag.new(qualified, qualified + %( xmlns:#{prefix}="#{escape_attr(ns)}"), inherited, false, false)
         elsif local_default_ns.nil? || local_default_ns != ns.to_s
           qualified = local_name(node)
-          StartTag.new(qualified, qualified + %( xmlns="#{escape_attr(ns.to_s)}"), ns, true)
+          StartTag.new(qualified, qualified + %( xmlns="#{escape_attr(ns.to_s)}"), ns, true, true)
         else
           qualified = local_name(node)
-          StartTag.new(qualified, qualified, ns, false)
+          StartTag.new(qualified, qualified, ns, false, false)
         end
       end
 
@@ -154,7 +167,7 @@ module Dommy
       # note that its own default xmlns declaration is already accounted for.
       def inherited_namespace_tag(node, ns, inherited, local_default_ns)
         qualified = (ns == XML_NS ? "xml:" : "") + local_name(node)
-        StartTag.new(qualified, qualified, inherited, !local_default_ns.nil?)
+        StartTag.new(qualified, qualified, inherited, !local_default_ns.nil?, false)
       end
 
       # WHATWG XML serialization of an empty element: an HTML-namespace void
@@ -164,7 +177,7 @@ module Dommy
       def empty_element_close(ns, node, qualified)
         return "/>" unless ns == HTML_NS
 
-        VOID_ELEMENTS.include?(local_name(node).downcase) ? " />" : "></#{qualified}>"
+        VOID_ELEMENTS.include?(local_name(node)) ? " />" : "></#{qualified}>"
       end
 
       # https://w3c.github.io/DOM-Parsing/#recording-the-namespace
@@ -219,15 +232,28 @@ module Dommy
       end
 
       # https://w3c.github.io/DOM-Parsing/#xml-serializing-the-attributes
-      def serialize_attributes(attrs, ctx, local_prefixes, ignore_ns_def)
+      def serialize_attributes(attrs, ctx, local_prefixes, start, element_ns)
         map = ctx.map
         result = +""
+        # An element can carry two default declarations (a null-namespace
+        # `xmlns` from setAttribute and an XMLNS-namespace one from
+        # setAttributeNS), but the start tag holds one `xmlns` at most.
+        default_written = start.wrote_default
         attrs.each do |attr|
           # The element start tag has already settled the default namespace —
-          # either by writing its own `xmlns` or by dropping a declaration that
-          # contradicted it — so this one is not written again, whichever
-          # namespace it carries.
-          next if ignore_ns_def && default_ns_declaration?(attr)
+          # by writing its own `xmlns`, or by taking the one it inherited — so
+          # a declaration that contradicts it is dropped. One that agrees with
+          # it is kept: the spec drops it too (w3c/DOM-Parsing#47), but
+          # Chrome, WebKit and Firefox all write it, and so does WPT's
+          # "prefix bound to an empty namespace URI" case
+          # (`<root xmlns="" xmlns:foo=""/>`), at the cost of its "redundant
+          # xmlns is dropped" case, which every browser fails.
+          if default_ns_declaration?(attr)
+            next if default_written
+            next if start.ignore_ns_def && presence(attr.value) != element_ns
+
+            default_written = true
+          end
 
           ns = presence(attr.namespace)
           prefix = nil
@@ -242,9 +268,24 @@ module Dommy
             elsif ns == XML_NS
               prefix = "xml"
             else
-              candidate = retrieve_preferred_prefix(map, ns, presence(attr.prefix))
+              own = presence(attr.prefix)
+              candidate = retrieve_preferred_prefix(map, ns, own)
               if candidate.nil?
-                candidate = generate_prefix(map, ns, ctx)
+                # No prefix in scope maps to the namespace: the attribute keeps
+                # its own prefix unless that prefix is already bound in scope
+                # (to another namespace, here or on an ancestor) — only then is
+                # one generated. So `xl:type` in the XLink namespace stays
+                # `xl:type`, while a `p:` an ancestor binds elsewhere becomes
+                # `ns1:`. (The spec text only consults the element's own
+                # declarations; browsers consult the whole scope, and WPT's
+                # ancestor case follows them.)
+                if own && !local_prefixes.key?(own) && map.none? { |_ns, prefixes| prefixes.include?(own) }
+                  candidate = own
+                  (map[ns] ||= []) << candidate
+                else
+                  candidate = generate_prefix(map, ns, ctx)
+                end
+                local_prefixes[candidate] = ns
                 result << %( xmlns:#{candidate}="#{escape_attr(ns)}")
               end
               prefix = candidate
@@ -311,7 +352,10 @@ module Dommy
         node.respond_to?(:__internal_created_namespace__) ? node.__internal_created_namespace__ : nil
       end
 
+      # A <template>'s children, for the XML serialization, are those of its
+      # template contents.
       def child_nodes(node)
+        node = node.content if node.is_a?(Dommy::HTMLTemplateElement)
         return node.child_nodes.to_a if node.respond_to?(:child_nodes)
 
         []

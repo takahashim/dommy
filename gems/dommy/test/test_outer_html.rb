@@ -28,4 +28,12 @@ class TestOuterHTML < Minitest::Test
     root = @doc.get_element_by_id("root")
     assert_equal(2, root.child_element_count)
   end
+
+  # The parsed nodes go in before the old element's next sibling, in order.
+  def test_outer_html_set_keeps_the_order_before_a_sibling
+    root = @doc.get_element_by_id("root")
+    root.append_child(@doc.create_element("i"))
+    @doc.get_element_by_id("target").outer_html = "<a>x</a><b>y</b>"
+    assert_equal(%w[A B I], root.children.to_a.map(&:tag_name))
+  end
 end

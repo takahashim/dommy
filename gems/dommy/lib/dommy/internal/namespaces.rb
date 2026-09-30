@@ -12,41 +12,40 @@ module Dommy
       XLINK = "http://www.w3.org/1999/xlink"
       XMLNS = "http://www.w3.org/2000/xmlns/"
 
-      # XML Name / QName productions, matching the canonical
-      # `xml-name-validator` package (what WHATWG DOM "validate" relies on).
-      # Built from the XML 1.0 NameStartChar / NameChar Unicode ranges; an
-      # NCName excludes ":", a QName is one optional `prefix:` + local NCName.
+      # The XML 1.0 Name production, matching the canonical
+      # `xml-name-validator` package, built from the NameStartChar / NameChar
+      # Unicode ranges.
       NC_START = "A-Za-z_\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u02FF\\u0370-\\u037D" \
                  "\\u037F-\\u1FFF\\u200C-\\u200D\\u2070-\\u218F\\u2C00-\\u2FEF" \
                  "\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}"
       NC_EXTRA = "\\-.0-9\\u00B7\\u0300-\\u036F\\u203F-\\u2040"
-      NCSTART  = "[#{NC_START}]"
-      NCCHAR   = "[#{NC_START}#{NC_EXTRA}]"
 
       # The full Name production (NameStartChar additionally includes ":").
+      # Still the rule for a processing instruction's target.
       NAME  = Regexp.new("\\A[:#{NC_START}][:#{NC_START}#{NC_EXTRA}]*\\z")
-      # `createElement` / `setAttribute` name validation. Browsers (and the WPT
-      # tests that pin web reality) are far more lenient than the XML Name
-      # production: any non-empty string with no ASCII whitespace or ">", whose
-      # first character is not a digit, ".", "-", "<", ">", or "}". (Names like
-      # "f}oo", "f<oo" or a leading combining mark are valid here but not under
-      # the strict QName production the *AttributeNS family still uses.)
-      HTML_NAME = /\A(?![\s0-9.\-<>}])[^\s>]+\z/
-      # PrefixedName | UnprefixedName.
-      QNAME = Regexp.new(
-        "(?:\\A#{NCSTART}#{NCCHAR}*:#{NCSTART}#{NCCHAR}*\\z)|(?:\\A#{NCSTART}#{NCCHAR}*\\z)"
-      )
 
-      # Code points forbidden anywhere in a "valid local name" / "valid namespace
-      # prefix" per the modern WHATWG algorithm: ASCII whitespace (TAB, LF, FF,
-      # CR, SPACE), NULL, U+002F (/), U+003E (>).
+      # The DOM's own name rules (https://dom.spec.whatwg.org/#namespaces),
+      # which replaced the XML Name / QName productions: far looser, and what
+      # browsers implement (WPT dom/nodes/name-validation.html).
+      #
+      # Code points forbidden anywhere in a "valid namespace prefix", and after
+      # an ASCII alpha in a "valid element local name": ASCII whitespace (TAB,
+      # LF, FF, CR, SPACE), NULL, U+002F (/), U+003E (>).
       LOCAL_FORBIDDEN = Regexp.new("[\\u0000\\u0009\\u000A\\u000C\\u000D\\u0020/>]")
       # The same set plus U+003D (=), forbidden in a "valid attribute local
       # name".
       ATTRIBUTE_LOCAL_FORBIDDEN = Regexp.new("[\\u0000\\u0009\\u000A\\u000C\\u000D\\u0020/=>]")
-      # Valid first code point of an element local name: ASCII alpha, U+003A (:),
-      # U+005F (_), or any code point U+0080 and above.
-      ELEMENT_LOCAL_START = Regexp.new("\\A[A-Za-z:_\\u0080-\\u{10FFFF}]")
+      # A "valid element local name": an ASCII alpha followed by anything but
+      # LOCAL_FORBIDDEN, or ":", "_" or a code point U+0080 and above followed
+      # only by ASCII alphanumerics, "-", ".", ":", "_" and code points U+0080
+      # and above. (The spec gives this regular expression itself.)
+      ELEMENT_LOCAL_NAME = Regexp.new(
+        "\\A(?:[A-Za-z][^\\u0000\\u0009\\u000A\\u000C\\u000D\\u0020/>]*" \
+        "|[:_\\u0080-\\u{10FFFF}][A-Za-z0-9\\-.:_\\u0080-\\u{10FFFF}]*)\\z"
+      )
+      # Forbidden in a "valid doctype name" (which may be empty): ASCII
+      # whitespace, NULL, U+003E (>).
+      DOCTYPE_FORBIDDEN = Regexp.new("[\\u0000\\u0009\\u000A\\u000C\\u000D\\u0020>]")
 
       module_function
 
@@ -59,22 +58,21 @@ module Dommy
       end
 
       def valid_element_local_name?(str)
-        return false if str.empty?
-        return false unless str.match?(ELEMENT_LOCAL_START)
+        str.match?(ELEMENT_LOCAL_NAME)
+      end
 
-        rest = str[1..]
-        rest.nil? || rest.empty? || !rest.match?(LOCAL_FORBIDDEN)
+      def valid_doctype_name?(str)
+        !str.match?(DOCTYPE_FORBIDDEN)
       end
 
       # https://dom.spec.whatwg.org/#validate-and-extract
       # Returns [namespace_or_nil, prefix_or_nil, local_name]. Raises
       # DOMException (InvalidCharacterError / NamespaceError) on bad input.
       #
-      # `context: :element` applies the modern WHATWG "validate" character rules
-      # (lenient: a restricted first code point then any non-forbidden code
-      # points, multiple colons allowed when namespaced). `context: :attribute`
-      # (the default) keeps the strict XML QName production used historically by
-      # the *AttributeNS family.
+      # The prefix must be a valid namespace prefix, and the local name a valid
+      # element local name (`context: :element` — createElementNS,
+      # createDocument) or a valid attribute local name (`context: :attribute`,
+      # the default — createAttributeNS, setAttributeNS).
       def validate_and_extract(namespace, qualified_name, context: :attribute)
         ns = namespace.to_s
         ns = nil if ns.empty?
@@ -88,18 +86,11 @@ module Dommy
           prefix, local = qname.split(":", 2)
         end
 
-        if context == :element
-          if prefix && !valid_namespace_prefix?(prefix)
-            raise DOMException::InvalidCharacterError, "invalid namespace prefix: #{prefix.inspect}"
-          end
-          unless valid_element_local_name?(local)
-            raise DOMException::InvalidCharacterError, "invalid local name: #{local.inspect}"
-          end
-        else
-          unless qname.match?(QNAME)
-            raise DOMException::InvalidCharacterError, "invalid qualified name: #{qname.inspect}"
-          end
+        if prefix && !valid_namespace_prefix?(prefix)
+          raise DOMException::InvalidCharacterError, "invalid namespace prefix: #{prefix.inspect}"
         end
+        valid_local = context == :element ? valid_element_local_name?(local) : valid_attribute_local_name?(local)
+        raise DOMException::InvalidCharacterError, "invalid local name: #{local.inspect}" unless valid_local
 
         if prefix && ns.nil?
           raise DOMException::NamespaceError, "prefix #{prefix.inspect} with null namespace"

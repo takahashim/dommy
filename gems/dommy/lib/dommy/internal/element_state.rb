@@ -15,7 +15,7 @@ module Dommy
       module_function
 
       def html_element?(element)
-        element.namespace_uri.nil? || element.namespace_uri == Namespaces::HTML
+        element.namespace_uri == Namespaces::HTML
       end
 
       # Case-insensitive matching applies in an HTML document (text/html). Delegate

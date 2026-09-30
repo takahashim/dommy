@@ -143,9 +143,9 @@ module Dommy
         last_element_child
       when "textContent"
         @__node__.text
-      when "parentNode", "parentElement"
-        # A DocumentFragment is never inserted, so it has no parent (null, not
-        # undefined).
+      when "parentNode", "parentElement", "nextSibling", "previousSibling"
+        # A DocumentFragment is never inserted, so it has no parent and no
+        # siblings (null, not undefined).
         nil
       when "ownerDocument"
         @document

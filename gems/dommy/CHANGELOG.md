@@ -10,6 +10,10 @@
 
 ### Changed
 
+- **Requires makiri >= 0.12.0.** An element made by `createElementNS` in an HTML document is built in its namespace (an SVG `feGaussianBlur` keeps its case, `[viewBox]` finds it), and `setAttribute` of a name with a colon or `xmlns` goes through makiri's DOM `setAttribute` entry points.
+- Names follow the DOM's own rules — valid element and attribute local names, namespace prefixes and doctype names — instead of the XML Name / QName productions: `createElement("A\v")` and `setAttributeNS("u", "\u0001:attr", …)` succeed, and `createElement("a/b")` throws `InvalidCharacterError`.
+- `XMLSerializer` writes what Chrome, WebKit and Firefox write where WPT's cases disagree: an attribute keeps its own prefix unless that prefix is bound in scope (`xl:type` stays `xl:type`), and an `xmlns` that agrees with the element's namespace is kept.
+- Inserting a doctype the backend could not create (one with an empty name) into a document throws `NotSupportedError`; it used to do nothing, and a `replaceChild` dropped the node it replaced. `createDocument` still leaves such a doctype out.
 - Popovers fire `beforetoggle` and `toggle` as `ToggleEvent`s, whose `oldState` / `newState` replace the old `CustomEvent`'s `detail`; `toggle` is queued, and an opening `beforetoggle` can be canceled.
 - **Breaking for backends:** the JS half is two bundles, not one — `HostBridge::WEBIDL_TABLES_JS` (the specs' own enumerations: interface members, constants, operation arities, event handler attributes) must be evaluated before `HOST_RUNTIME_JS`, which reads them. A backend that seeds through `HostBridge#seed_runtime!` needs no change; one that evaluates the runtime source itself does.
 - **Breaking for backends:** the wire tags are `Dommy::Bridge::WireTags`, not `Dommy::Js::WireTags` — a tag is true of any host, so it belongs with the protocol. `Dommy::Bridge::Callback`, an adapter for an embedder that never arrived, is removed; `Dommy::Js::HostCallback` is the live one.
@@ -24,6 +28,13 @@
 - `el.dataset["a<b"] = "x"` sets `data-a<b`, a name like `"-foo"` throws `SyntaxError`, and an element outside HTML, SVG and MathML has no `dataset`.
 - `document.foo` finds an `<object id="foo">`, and a named `<object>` is the element itself rather than its content window.
 - `crypto.getRandomValues(new Uint32Array(4))` fills and returns that same `Uint32Array`.
+- An XHTML element in an XML document has its HTML interface (`<body>` is an `HTMLBodyElement`), and an element in no namespace is a plain `Element` in any document.
+- `innerHTML` and `outerHTML` in an XML document parse the markup in the namespaces in scope on the element, and mark its scripts already started.
+- `outerHTML = "<a></a><b></b>"` inserts the nodes in order when the element has a next sibling.
+- The HTML serialization writes a nested `<template>`'s contents: `body.innerHTML` after `body.innerHTML = "<template><i></i></template>"` includes the `<i></i>`.
+- A `<template>` parsed from XML keeps its children in its template contents, as in a browser, and `innerHTML`, `XMLSerializer`, `importNode` and moving it to an HTML document follow the contents.
+- An element imported or moved from an HTML document into an XML one gains no `xmlns` attribute, and `XMLSerializer` declares its namespace only where the tree needs it.
+- `importNode` keeps an attribute's name as written: a `setAttribute("A:B", …)` from an XHTML document stays `A:B` in an HTML one.
 - `<textarea>` answers `selectionStart`, `selectionEnd` and `selectionDirection`, and `setSelectionRange` / `select` move them — they used to return nothing and do nothing.
 - Decoding a whole buffer of valid UTF-8 — what `XMLHttpRequest#responseText` does — takes Ruby's own path instead of the spec's byte-at-a-time decoder, around 200x faster on a large response.
 - A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
@@ -57,6 +68,12 @@
 - `var()` keeps a name argument that is not a custom property name, such as `var(--x ())` or `var({--x})`: the declaration parses and goes invalid at computed-value time, as the CSS Variables grammar asks.
 - `relList` on the `a` of the MathML namespace is a DOMTokenList, as it already was in HTML and SVG.
 - `compareDocumentPosition` between two trees orders the pair consistently: one node reports PRECEDING and the other FOLLOWING, where both used to say PRECEDING.
+- A parsed SVG element reports its own `tagName` (`rect`, not `RECT`) and a prefixed element parsed from XML its `localName` (`coreProperties` for `cp:coreProperties`), so `querySelector("coreProperties")` and `getElementsByTagNameNS` find it. An element parsed from XML in no namespace has a null `namespaceURI`, not the HTML namespace.
+- `innerHTML` / `outerHTML` outside an HTML document serialize as XML, and their setters parse XML, throwing `SyntaxError` for markup that is not well-formed; they used to raise a backend error.
+- `createDocument(ns, name, doctype)` appends that doctype itself, so `doc.firstChild === doctype` and its `parentNode` / `ownerDocument` follow; it used to place a copy.
+- `adoptNode` / a cross-document insert of an upper-case HTML-namespace element such as `BR` keeps it and its name instead of raising a backend error.
+- A `DocumentFragment` and a `ShadowRoot` report `null` for `nextSibling` / `previousSibling` (and a `ShadowRoot` for `parentNode`, `parentElement` and `nodeValue`), not `undefined`.
+- A `<script>` from `DOMParser` stays inert when adopted, cloned or imported into the page; `cloneNode` / `importNode` of a script copy its "already started" flag.
 
 ## 0.13.0 — 2026-09-23
 
