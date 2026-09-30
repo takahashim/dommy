@@ -324,6 +324,24 @@ class TestWPTAdoptUpperCaseHTMLElement < Minitest::Test
   end
 end
 
+# importNode keeps each attribute's qualified name exactly: a null-namespace
+# `A:B` set in an XHTML document is not lower-cased on its way into an HTML one.
+#
+# WPT: dom/nodes/Document-importNode.html
+# Spec: https://dom.spec.whatwg.org/#concept-node-clone
+class TestWPTImportKeepsAttributeNames < Minitest::Test
+  def test_a_null_namespace_name_keeps_its_case
+    xml = Dommy::DOMParser.new.parse_from_string(
+      %(<html xmlns="http://www.w3.org/1999/xhtml"><body/></html>), "application/xhtml+xml"
+    )
+    body = xml.query_selector("body")
+    body.set_attribute("A:B", "1")
+    body.set_attribute_ns("urn:x", "p:Q", "2")
+    copy = Dommy::Window.new.document.import_node(body, true)
+    assert_equal([["A:B", nil], ["p:Q", "urn:x"]], copy.attributes.to_a.map { |a| [a.name, a.namespace_uri] })
+  end
+end
+
 # importNode copies an XML <template>'s children too.
 #
 # WPT: dom/nodes/Document-importNode.html

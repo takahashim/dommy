@@ -79,6 +79,13 @@ module Dommy
         current.adopt(node, target_doc)
       end
 
+      # A copy of the element `node` alone, owned by `target_doc`: its name and
+      # attributes exactly as the backend holds them. Raises #import_error_class
+      # when the backend will not make that element in `target_doc`.
+      def import_element(node, target_doc)
+        current.import_element(node, target_doc)
+      end
+
       # Whether the backend can move a node between documents in place or must adopt a copy first
       # (Lexbor's arenas can't move a node, so inserting a foreign node requires importing
       # it). Lets callers skip a needless — and on an empty target, root-less and

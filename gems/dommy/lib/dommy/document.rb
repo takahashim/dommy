@@ -2682,14 +2682,30 @@ module Dommy
     # Makiri would not make under its DOM name (an upper-case `BR` in the HTML
     # namespace) keeps that name on the wrapper — so the original is read
     # through its wrapper and the copy is given the same metadata.
+    #
+    # The backend's own copy keeps every attribute's qualified name as it is: a
+    # null-namespace `A:B` on an HTML element stays `A:B`, where the DOM's
+    # setAttribute would lower-case it. Only an element the backend will not
+    # copy is rebuilt here, attribute by attribute.
     def clone_element_into_doc(source, source_document)
       wrapper = source_document.wrap_node(source)
       namespace, prefix, local, qualified = clone_name_parts(wrapper, source)
+      copy = import_element_or_nil(source) || build_element_copy(source, namespace, prefix, local, qualified)
+      note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
+      copy
+    end
+
+    def import_element_or_nil(source)
+      Backend.import_element(source, @backend_doc)
+    rescue Backend.import_error_class
+      nil
+    end
+
+    def build_element_copy(source, namespace, prefix, local, qualified)
       copy = Backend.create_element_loose(qualified, prefix, local, namespace, @backend_doc) ||
         Backend.create_element_ns(namespace, qualified, @backend_doc) ||
         Backend.create_element(source.name, @backend_doc)
       copy_attributes_into(source, copy)
-      note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
       copy
     end
 

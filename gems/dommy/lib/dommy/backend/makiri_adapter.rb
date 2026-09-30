@@ -94,6 +94,10 @@ module Dommy
         target_doc.import_node(node, true)
       end
 
+      def import_element(node, target_doc)
+        target_doc.import_node(node, false)
+      end
+
       # Lexbor arenas can't move a node between documents — a foreign node must be
       # imported (see #adopt) before insertion.
       def moves_nodes_across_documents?

@@ -32,6 +32,7 @@
 - `innerHTML` and `outerHTML` in an XML document parse the markup in the namespaces in scope on the element, and mark its scripts already started.
 - `outerHTML = "<a></a><b></b>"` inserts the nodes in order when the element has a next sibling.
 - `importNode` of an XML `<template>` copies its children.
+- `importNode` keeps an attribute's name as written: a `setAttribute("A:B", …)` from an XHTML document stays `A:B` in an HTML one.
 - `<textarea>` answers `selectionStart`, `selectionEnd` and `selectionDirection`, and `setSelectionRange` / `select` move them — they used to return nothing and do nothing.
 - Decoding a whole buffer of valid UTF-8 — what `XMLHttpRequest#responseText` does — takes Ruby's own path instead of the spec's byte-at-a-time decoder, around 200x faster on a large response.
 - A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
