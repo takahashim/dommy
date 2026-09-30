@@ -39,6 +39,13 @@ class TestWPTXMLFragmentSerializing < Minitest::Test
     assert_equal(%(<p xmlns="http://www.w3.org/1999/xhtml">x<br /></p>), body.inner_html)
   end
 
+  # Only the void elements' own lower-case names self-close: an upper-case
+  # `BR` is an unknown element.
+  def test_an_upper_case_void_name_gets_an_end_tag
+    doc = parse(%(<html xmlns="http://www.w3.org/1999/xhtml"><body><BR/></body></html>), "application/xhtml+xml")
+    assert_equal(%(<BR xmlns="http://www.w3.org/1999/xhtml"></BR>), doc.query_selector("body").inner_html)
+  end
+
   def test_inner_html_setter_parses_xml_in_the_documents_namespaces
     doc = parse(%(<r xmlns="u" xmlns:p="pu"><k/></r>))
     k = doc.document_element.first_element_child

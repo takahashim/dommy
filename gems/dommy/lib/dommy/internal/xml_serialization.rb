@@ -177,7 +177,7 @@ module Dommy
       def empty_element_close(ns, node, qualified)
         return "/>" unless ns == HTML_NS
 
-        VOID_ELEMENTS.include?(local_name(node).downcase) ? " />" : "></#{qualified}>"
+        VOID_ELEMENTS.include?(local_name(node)) ? " />" : "></#{qualified}>"
       end
 
       # https://w3c.github.io/DOM-Parsing/#recording-the-namespace
