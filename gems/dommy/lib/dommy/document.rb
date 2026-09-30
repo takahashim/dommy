@@ -2725,7 +2725,7 @@ module Dommy
     # Give the copy's wrapper the namespace metadata whenever the backend node
     # alone would report something else (see #clone_element_into_doc).
     def note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
-      derived = Backend.namespace_of(copy)&.href || (html_document? ? Element::HTML_NAMESPACE : nil)
+      derived = Backend.namespace_uri(copy)
       return if derived == namespace && prefix.nil? && local == copy.name
 
       wrap_cloned_element_ns(copy, namespace, prefix, local, qualified)

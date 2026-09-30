@@ -134,17 +134,16 @@ module Dommy
         current.create_element_loose(qualified_name, prefix, local, namespace, doc)
       end
 
-      # Create an element in `namespace` in an HTML document, so the backend
-      # node carries the namespace and the name's case itself. Returns nil when
-      # the backend cannot (fall back to #create_element); raises ArgumentError
-      # for an invalid name (the caller maps it to InvalidCharacterError).
       # The element's own namespace URI as the DOM reports it: nil for no
-      # namespace (unlike #namespace_of, which folds the HTML namespace into nil
-      # too).
+      # namespace.
       def namespace_uri(node)
         current.namespace_uri(node)
       end
 
+      # Create an element in `namespace` in an HTML document, so the backend
+      # node carries the namespace and the name's case itself. Returns nil when
+      # the backend cannot (fall back to #create_element); raises ArgumentError
+      # for an invalid name (the caller maps it to InvalidCharacterError).
       def create_element_ns(namespace, qualified_name, doc)
         current.respond_to?(:create_element_ns) ? current.create_element_ns(namespace, qualified_name, doc) : nil
       end
@@ -196,10 +195,6 @@ module Dommy
 
       def processing_instruction_class
         current.processing_instruction_class
-      end
-
-      def namespace_of(node)
-        current.namespace_of(node)
       end
 
       # The element's in-scope namespace declarations (each responds to

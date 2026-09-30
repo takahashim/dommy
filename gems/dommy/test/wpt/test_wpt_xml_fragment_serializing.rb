@@ -249,8 +249,26 @@ class TestWPTXMLElementInNoNamespace < Minitest::Test
     imported = doc.import_node(@xml.document_element, true)
     assert_nil(imported.namespace_uri)
     assert_equal("r", imported.tag_name)
+    assert_instance_of(Dommy::Element, imported.first_element_child)
     adopted = doc.adopt_node(@xml.document_element.first_element_child)
     assert_equal("k", adopted.tag_name)
+  end
+end
+
+# An element's interface follows its namespace, whatever the document: an
+# XHTML element parsed from XML is an HTML element, prefixed or not.
+#
+# WPT: domparsing/DOMParser-parseFromString-xml.html
+# Spec: https://dom.spec.whatwg.org/#concept-element-interface
+class TestWPTXHTMLElementInterface < Minitest::Test
+  def test_parsed_elements_are_html_elements
+    xhtml = "http://www.w3.org/1999/xhtml"
+    doc = Dommy::DOMParser.new.parse_from_string(
+      %(<html xmlns="#{xhtml}"><body><h:p xmlns:h="#{xhtml}"/><k xmlns=""/></body></html>), "application/xhtml+xml"
+    )
+    body = doc.query_selector("body")
+    assert_instance_of(Dommy::HTMLBodyElement, body)
+    assert_equal([Dommy::HTMLParagraphElement, Dommy::Element], body.children.to_a.map(&:class))
   end
 end
 

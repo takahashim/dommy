@@ -26,12 +26,6 @@ module Dommy
       XMLSyntaxError = ::Makiri::XML::SyntaxError
       ImportError = ::Makiri::Error
 
-      # A minimal namespace wrapper exposing the same `href` API that Nokogiri's
-      # Namespace object has, so calling code treats both backends uniformly.
-      Namespace = Struct.new(:href)
-
-      HTML_NAMESPACE_URI = Internal::Namespaces::HTML
-
       # Throwaway attribute used to bind `:scope` to a context element — Lexbor
       # has no `:scope`, so a scoped query temporarily marks the element and
       # rewrites `:scope` to an attribute selector, removing the mark after.
@@ -250,24 +244,10 @@ module Dommy
         ::Makiri::ProcessingInstruction
       end
 
-      # Makiri doesn't track XML namespaces. We synthesize one for SVG by
-      # walking ancestors — necessary so `element_class_for` routes SVG
-      # tags to their specialized classes.
-      # The element's namespace, from Lexbor's own namespace tracking (HTML /
-      # SVG / MathML). nil for the HTML namespace, so Element#namespace_uri
-      # falls back to its HTML default (and the wrapper is allocated only for
-      # genuine foreign content).
+      # The element's namespace as the backend tracks it (Lexbor's HTML / SVG /
+      # MathML, an XML document's own), nil for none.
       def namespace_uri(node)
         presence(node.respond_to?(:namespace_uri) ? node.namespace_uri : nil)
-      end
-
-      def namespace_of(node)
-        return nil unless node.respond_to?(:namespace_uri)
-
-        uri = node.namespace_uri
-        return nil if uri.nil? || uri.empty? || uri == HTML_NAMESPACE_URI
-
-        Namespace.new(uri)
       end
 
       # Bind a *prefixed* element's namespace so the prefix resolves. An XML
