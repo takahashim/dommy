@@ -142,10 +142,11 @@ module Dommy
 
       # Create an element in `namespace` in an HTML document, so the backend
       # node carries the namespace and the name's case itself. Returns nil when
-      # the backend cannot (fall back to #create_element); raises ArgumentError
-      # for an invalid name (the caller maps it to InvalidCharacterError).
+      # the backend will not make it (fall back to #create_element); raises
+      # ArgumentError for an invalid name (the caller maps it to
+      # InvalidCharacterError).
       def create_element_ns(namespace, qualified_name, doc)
-        current.respond_to?(:create_element_ns) ? current.create_element_ns(namespace, qualified_name, doc) : nil
+        current.create_element_ns(namespace, qualified_name, doc)
       end
 
       # A detached DocumentType node owned by `doc` (for

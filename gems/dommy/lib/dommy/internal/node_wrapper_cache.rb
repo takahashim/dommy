@@ -211,7 +211,6 @@ module Dommy
         ruby_custom = custom_klass if custom_klass.is_a?(::Class)
         klass = ruby_custom || Dommy.element_class_for(local_name || node.local_name, ns)
         instance = klass.new(@document, node)
-        adjust_svg_tag_name(instance, node, ns) if local_name.nil?
 
         @wrappers[identity_key(node)] = instance
 
@@ -309,22 +308,6 @@ module Dommy
         return unless window.respond_to?(:__internal_report_exception__)
 
         Internal::ExceptionReport.report_at(window, error)
-      end
-
-      # HTML's "adjust SVG tag name" (§13.2.6.5), the parser step that gives
-      # `<feMerge>` its camel case back after the tokenizer lower-cased it.
-      # Makiri before 0.11 lost that case when a node was copied (import_node,
-      # clone_node — innerHTML among them), so — exactly as for the case
-      # createElementNS preserves — the adjusted name lives on the wrapper, and
-      # is looked up by the lower-case form whichever case the backend reports.
-      # Only names the parser produced are adjusted: createElementNS says what
-      # the local name is and passes it in, and an XML document is parsed
-      # verbatim to begin with.
-      def adjust_svg_tag_name(instance, node, namespace)
-        return unless namespace == Element::SVG_NAMESPACE && @document.html_document?
-
-        adjusted = Dommy::SVG_ADJUSTED_TAG_NAMES[node.name.downcase]
-        instance.__internal_set_namespace__(namespace, nil, adjusted, adjusted) if adjusted
       end
 
       def custom_element_class_for(tag_name)

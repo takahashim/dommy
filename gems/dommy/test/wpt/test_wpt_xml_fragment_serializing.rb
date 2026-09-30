@@ -99,8 +99,6 @@ class TestWPTXMLDocumentSetAttributeNames < Minitest::Test
   end
 
   def test_names_that_are_not_xml_names
-    skip "needs Makiri >= 0.11 (set_loose_dom_attribute)" unless Makiri::XML::Element.method_defined?(:set_loose_dom_attribute)
-
     ["\u0001", "@click", "a}b", "xlink:href", "xmlns", ":"].each do |name|
       @el.set_attribute(name, "v")
       assert_equal("v", @el.get_attribute(name), name.inspect)
@@ -293,8 +291,6 @@ class TestWPTAdoptUpperCaseHTMLElement < Minitest::Test
   XHTML = "http://www.w3.org/1999/xhtml"
 
   def setup
-    skip "needs Makiri >= 0.11" unless Makiri::HTML::Document.method_defined?(:create_element_ns)
-
     @win = Dommy::Window.new
     @doc = @win.document
   end

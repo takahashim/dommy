@@ -158,18 +158,18 @@ module Dommy
       # Makiri's loose creator, which builds it verbatim (case/prefix preserved).
       # nil for a non-XML backend → the caller uses the strict #create_element.
       def create_element_loose(qualified_name, prefix, local, namespace, doc)
-        return nil unless doc.is_a?(::Makiri::XML::Document) && doc.respond_to?(:create_loose_dom_element)
+        return nil unless doc.is_a?(::Makiri::XML::Document)
 
         doc.create_loose_dom_element(qualified_name, prefix, local, namespace)
       end
 
-      # createElementNS in an HTML document. Makiri >= 0.11 builds the element in
-      # its own namespace, so the backend node is what the parser would have
-      # made: an SVG `feGaussianBlur` keeps its case and `[viewBox]` reads its
-      # attribute case-sensitively. nil for an XML document or an older Makiri →
-      # the caller uses #create_element, and the namespace lives on the wrapper.
+      # createElementNS in an HTML document. Makiri builds the element in its
+      # own namespace, so the backend node is what the parser would have made:
+      # an SVG `feGaussianBlur` keeps its case and `[viewBox]` reads its
+      # attribute case-sensitively. nil for an XML document → the caller uses
+      # #create_element.
       def create_element_ns(namespace, qualified_name, doc)
-        return nil unless doc.is_a?(::Makiri::HTML::Document) && doc.respond_to?(:create_element_ns)
+        return nil unless doc.is_a?(::Makiri::HTML::Document)
 
         doc.create_element_ns(presence(namespace), qualified_name.to_s)
       rescue ::Makiri::Error
@@ -313,16 +313,15 @@ module Dommy
 
       # A null-namespace name that only the DOM's `setAttribute` can make: one
       # whose local name holds a colon ("xlink:href", "v-on:click") or is
-      # "xmlns". Makiri >= 0.11 checks set_attribute_ns as the DOM's
-      # setAttributeNS does, which refuses these (a prefix needs a namespace).
+      # "xmlns". Makiri checks set_attribute_ns as the DOM's setAttributeNS
+      # does, which refuses these (a prefix needs a namespace).
       def set_attribute_only_name?(name)
         name == "xmlns" || name.include?(":")
       end
 
       # Makiri's own `setAttribute` where set_attribute_ns cannot make the
       # attribute. true when it made it; false leaves it to set_attribute_ns
-      # (every other name, and any name on a Makiri older than 0.11, whose
-      # set_attribute_ns still accepts these).
+      # (every other name in an HTML document).
       #
       # - An HTML document: `[]=` for the setAttribute-only names. It lower-cases
       #   only on an HTML-namespace element, as setAttribute does, and makes
@@ -337,7 +336,7 @@ module Dommy
       def set_null_namespace_attribute(node, name, value)
         if node.respond_to?(:set_loose_dom_attribute)
           set_xml_null_namespace_attribute(node, name, value)
-        elsif set_attribute_only_name?(name) && node.document.respond_to?(:create_element_ns)
+        elsif set_attribute_only_name?(name)
           node[name] = value
           true
         else

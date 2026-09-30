@@ -351,8 +351,7 @@ module Dommy
     # doctype`, its parentNode and ownerDocument all follow.
     #
     # No-op for nil/undefined or a non-DocumentType. A doctype the XML backend
-    # cannot hold (an older Makiri refuses a systemId with both quotes, among
-    # others) is left unplaced rather than thrown: createDocument itself
+    # cannot hold is left unplaced rather than thrown: createDocument itself
     # validates none of it — only an XML serialization would.
     def adopt_doctype_into(doc, doctype)
       return if doctype.nil? || doctype.equal?(Bridge::UNDEFINED)
@@ -2679,11 +2678,10 @@ module Dommy
     end
 
     # An element's copy keeps its namespace, its prefix and the exact spelling
-    # of its local name. The backend node need not have them — an HTML backend
-    # without createElementNS (Makiri < 0.11) tracks no namespace for an element
-    # script created, and createElementNS's case lives on the wrapper — so the
-    # original is read through its wrapper and the copy is given the same
-    # metadata.
+    # of its local name. The backend node need not have them — an element
+    # Makiri would not make under its DOM name (an upper-case `BR` in the HTML
+    # namespace) keeps that name on the wrapper — so the original is read
+    # through its wrapper and the copy is given the same metadata.
     def clone_element_into_doc(source, source_document)
       wrapper = source_document.wrap_node(source)
       namespace, prefix, local, qualified = clone_name_parts(wrapper, source)
