@@ -285,4 +285,29 @@ class TestWPTAdoptUpperCaseHTMLElement < Minitest::Test
       assert_same(@doc.body, el.parent_node)
     end
   end
+
+  # The fallback copy keeps an XML <template>'s children, which are its real
+  # children in an XML document, and their wrappers move with them.
+  def test_a_template_in_the_moved_subtree_keeps_its_children
+    el = element(%(<div xmlns="#{XHTML}"><BR/><template><b/></template></div>))
+    b = el.last_element_child.first_element_child
+    @doc.body.append_child(el)
+    assert_same(el.last_element_child, b.parent_node)
+    assert_same(@doc, b.owner_document)
+  end
+end
+
+# importNode copies an XML <template>'s children too.
+#
+# WPT: dom/nodes/Document-importNode.html
+# Spec: https://dom.spec.whatwg.org/#concept-node-clone
+class TestWPTImportXMLTemplate < Minitest::Test
+  def test_the_children_are_copied
+    doc = Dommy::Window.new.document
+    xml = Dommy::DOMParser.new.parse_from_string(
+      %(<div xmlns="http://www.w3.org/1999/xhtml"><template><b/></template></div>), "application/xml"
+    )
+    copy = doc.import_node(xml.document_element, true)
+    assert_equal(%w[b], copy.first_element_child.children.to_a.map(&:local_name))
+  end
 end

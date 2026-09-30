@@ -2630,11 +2630,13 @@ module Dommy
     def clone_into_doc(source, deep, source_document = self)
       copy = clone_single_node_into_doc(source, source_document)
 
-      if source.element? && source.name == "template"
-        # A <template>'s contents live in a separate content fragment, not its
-        # child list, so the generic deep pass over `children` misses them.
-        clone_template_content(source, copy, source_document) if deep
-      elsif deep && source.respond_to?(:children)
+      return copy unless deep
+
+      # A <template>'s contents live in a separate content fragment, not its
+      # child list, so the pass over `children` misses them. It still runs: an
+      # XML document's <template> keeps its children in the child list.
+      clone_template_content(source, copy, source_document) if source.element? && source.name == "template"
+      if source.respond_to?(:children)
         source.children.each do |child|
           copy.add_child(clone_into_doc(child, true, source_document))
         end
