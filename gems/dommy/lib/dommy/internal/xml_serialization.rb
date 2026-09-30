@@ -107,7 +107,7 @@ module Dommy
 
         ns = presence(element_namespace(node))
         markup = +"<" << start.markup
-        markup << serialize_attributes(attrs, ctx, local_prefixes, start.ignore_ns_def, ns)
+        markup << serialize_attributes(attrs, ctx, local_prefixes, start, ns)
 
         children = child_nodes(node)
         return markup << empty_element_close(ns, node, start.qualified) if children.empty?
@@ -122,8 +122,9 @@ module Dommy
       # the qualified name it is written under (and closed with), the markup up
       # to its attributes — including any xmlns declaration the choice of prefix
       # forced — the namespace its children inherit, and whether its own default
-      # xmlns declaration has already been written and must not be repeated.
-      StartTag = Struct.new(:qualified, :markup, :inherited, :ignore_ns_def)
+      # xmlns declaration has already been accounted for (`ignore_ns_def`) or
+      # even written into that markup (`wrote_default`).
+      StartTag = Struct.new(:qualified, :markup, :inherited, :ignore_ns_def, :wrote_default)
 
       # https://w3c.github.io/DOM-Parsing/#xml-serializing-an-element-node,
       # the prefix-resolution half.
@@ -142,7 +143,7 @@ module Dommy
           if local_default_ns && local_default_ns != XML_NS
             inherited = local_default_ns.empty? ? nil : local_default_ns
           end
-          StartTag.new(qualified, qualified, inherited, false)
+          StartTag.new(qualified, qualified, inherited, false, false)
         elsif prefix
           prefix = generate_prefix(map, ns, ctx) if local_prefixes.key?(prefix)
           (map[ns] ||= []) << prefix
@@ -151,13 +152,13 @@ module Dommy
           unless local_default_ns.nil?
             inherited = local_default_ns.empty? ? nil : local_default_ns
           end
-          StartTag.new(qualified, qualified + %( xmlns:#{prefix}="#{escape_attr(ns)}"), inherited, false)
+          StartTag.new(qualified, qualified + %( xmlns:#{prefix}="#{escape_attr(ns)}"), inherited, false, false)
         elsif local_default_ns.nil? || local_default_ns != ns.to_s
           qualified = local_name(node)
-          StartTag.new(qualified, qualified + %( xmlns="#{escape_attr(ns.to_s)}"), ns, true)
+          StartTag.new(qualified, qualified + %( xmlns="#{escape_attr(ns.to_s)}"), ns, true, true)
         else
           qualified = local_name(node)
-          StartTag.new(qualified, qualified, ns, false)
+          StartTag.new(qualified, qualified, ns, false, false)
         end
       end
 
@@ -166,7 +167,7 @@ module Dommy
       # note that its own default xmlns declaration is already accounted for.
       def inherited_namespace_tag(node, ns, inherited, local_default_ns)
         qualified = (ns == XML_NS ? "xml:" : "") + local_name(node)
-        StartTag.new(qualified, qualified, inherited, !local_default_ns.nil?)
+        StartTag.new(qualified, qualified, inherited, !local_default_ns.nil?, false)
       end
 
       # WHATWG XML serialization of an empty element: an HTML-namespace void
@@ -231,9 +232,13 @@ module Dommy
       end
 
       # https://w3c.github.io/DOM-Parsing/#xml-serializing-the-attributes
-      def serialize_attributes(attrs, ctx, local_prefixes, ignore_ns_def, element_ns)
+      def serialize_attributes(attrs, ctx, local_prefixes, start, element_ns)
         map = ctx.map
         result = +""
+        # An element can carry two default declarations (a null-namespace
+        # `xmlns` from setAttribute and an XMLNS-namespace one from
+        # setAttributeNS), but the start tag holds one `xmlns` at most.
+        default_written = start.wrote_default
         attrs.each do |attr|
           # The element start tag has already settled the default namespace —
           # by writing its own `xmlns`, or by taking the one it inherited — so
@@ -243,7 +248,12 @@ module Dommy
           # "prefix bound to an empty namespace URI" case
           # (`<root xmlns="" xmlns:foo=""/>`), at the cost of its "redundant
           # xmlns is dropped" case, which every browser fails.
-          next if ignore_ns_def && default_ns_declaration?(attr) && presence(attr.value) != element_ns
+          if default_ns_declaration?(attr)
+            next if default_written
+            next if start.ignore_ns_def && presence(attr.value) != element_ns
+
+            default_written = true
+          end
 
           ns = presence(attr.namespace)
           prefix = nil

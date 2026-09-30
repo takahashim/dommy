@@ -76,6 +76,20 @@ class TestWPTXMLSerializerXmlns < Minitest::Test
     root.set_attribute_ns(XMLNS_NS, "xmlns", OPF)
     assert_equal "<package/>", serialize(root)
   end
+
+  # Both spellings on one element still write a single `xmlns`, whether the
+  # start tag writes it or one of the two agrees with the element.
+  def test_both_spellings_write_one_declaration
+    root = parse(%(<r xmlns="#{OPF}"/>))
+    doc = root.owner_document
+    agreeing = root.append_child(doc.create_element_ns(OPF, "c"))
+    agreeing.set_attribute("xmlns", OPF)
+    agreeing.set_attribute_ns(XMLNS_NS, "xmlns", OPF)
+    moved = root.append_child(doc.create_element_ns("u", "c"))
+    moved.set_attribute("xmlns", "u")
+    moved.set_attribute_ns(XMLNS_NS, "xmlns", "v")
+    assert_equal %(<r xmlns="#{OPF}"><c xmlns="#{OPF}"/><c xmlns="u"/></r>), serialize(root)
+  end
 end
 
 # Where WPT's XMLSerializer cases disagree with one another, Dommy writes what
