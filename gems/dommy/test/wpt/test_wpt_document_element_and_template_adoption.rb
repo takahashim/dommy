@@ -98,7 +98,7 @@ class TestWPTTemplateContentAcrossDocuments < Minitest::Test
     @other.adopt_node(template)
 
     registry = @doc.__internal_template_registry__
-    refute registry.has_content?(template.__dommy_backend_node__)
+    refute registry.detached?(template.__dommy_backend_node__)
   end
 
   def test_a_cross_document_insert_adopts_the_content_too
@@ -172,5 +172,63 @@ class TestWPTTemplateContentAcrossDocuments < Minitest::Test
 
     assert_equal ["U"], names(template.clone_node(true).content)
     assert_empty names(template.clone_node(false).content)
+  end
+end
+
+# The HTML serialization writes a template's contents in place of its
+# children, nested templates and serializing a whole document included. The
+# contents are the backend's own, so an ancestor's serialization reaches them.
+#
+# WPT: html/semantics/scripting-1/the-template-element/serializing-html-templates/outerhtml.html
+# Spec: https://html.spec.whatwg.org/#serialising-html-fragments
+class TestWPTSerializingHTMLTemplates < Minitest::Test
+  def setup
+    @doc = Dommy::Window.new.document.implementation.create_html_document("Test Document")
+  end
+
+  def div1
+    div = @doc.create_element("div")
+    div.set_attribute("id", "div1")
+    div.inner_html = "some text"
+    div
+  end
+
+  def test_template_element
+    template = @doc.create_element("template")
+    template.content.append_child(div1)
+    assert_equal('<template><div id="div1">some text</div></template>', template.outer_html)
+  end
+
+  def test_nested_template
+    template = @doc.create_element("template")
+    nested = @doc.create_element("template")
+    template.content.append_child(nested)
+    nested.content.append_child(div1)
+    assert_equal('<template><template><div id="div1">some text</div></template></template>', template.outer_html)
+  end
+
+  def test_serializing_whole_document
+    template = @doc.create_element("template")
+    template.content.append_child(div1)
+    @doc.body.append_child(template)
+    assert_equal('<html><head><title>Test Document</title></head><body><template><div id="div1">some text</div></template></body></html>',
+      @doc.document_element.outer_html)
+  end
+
+  # An ancestor's innerHTML writes parsed contents too, and a template's own
+  # children (which only appendChild makes) are not written.
+  def test_an_ancestor_writes_parsed_contents_but_not_the_templates_children
+    @doc.body.inner_html = "<template><i><template><u></u></template></i></template>"
+    @doc.body.first_element_child.append_child(@doc.create_element("k"))
+    assert_equal("<template><i><template><u></u></template></i></template>", @doc.body.inner_html)
+  end
+
+  # The backend's clone copies the contents; the cloning steps add nothing on
+  # top of it.
+  def test_clone_copies_the_contents_once
+    @doc.body.inner_html = "<template><i></i></template>"
+    copy = @doc.body.first_element_child.clone_node(true)
+    assert_equal(1, copy.content.child_nodes.length)
+    assert_equal("<template><i></i></template>", copy.outer_html)
   end
 end

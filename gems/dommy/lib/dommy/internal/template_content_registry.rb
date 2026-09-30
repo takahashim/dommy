@@ -2,18 +2,24 @@
 
 module Dommy
   module Internal
-    # Manages <template> element content fragments.
-    # When HTML contains <template>X</template>, the inner content X is
-    # detached and stored in a separate DocumentFragment, accessed via
-    # the element's `content` property (per HTML spec).
+    # Manages <template> element contents, the DocumentFragment exposed as the
+    # element's `content` property (per HTML spec).
     #
-    # Keeping these fragments off-document is what makes template content
-    # invisible to querySelector, getElementById, etc., on the main tree.
+    # In an HTML document the contents are the backend's own: Lexbor keeps a
+    # template's contents in a content fragment of its own, off the child list,
+    # so they are invisible to querySelector, getElementById, etc. on the main
+    # tree, and the backend's HTML serialization of any ancestor writes them.
+    # An XML document's backend tree has no contents, so each template's is a
+    # detached fragment this registry holds.
     class TemplateContentRegistry
       def initialize(document)
         @document = document
-        # Backend.identity_key(template_node) → backend fragment
+        # Backend.identity_key(template_node) → detached backend fragment (an
+        # XML document's contents only)
         @fragments = {}
+        # Backend.identity_key(template_node) of the HTML templates whose
+        # parsed contents have had their scripts marked
+        @marked = {}
       end
 
       # Replace the template's content with `html`.
@@ -22,8 +28,8 @@ module Dommy
       # contents DocumentFragment and does "replace all with fragment" THERE, so
       # the content object itself is NOT exchanged: `template.content` is the
       # same object before and after, an existing reference to it stays live,
-      # and a MutationObserver watching it sees the swap. The registry entry is
-      # therefore left alone; only the fragment's children change.
+      # and a MutationObserver watching it sees the swap. Only the fragment's
+      # children change.
       #
       # Spec: https://html.spec.whatwg.org/#dom-innerhtml
       def attach(template_element, html)
@@ -35,120 +41,111 @@ module Dommy
         content
       end
 
-      # Get the wrapped Fragment for a template element, seeding from
-      # the template's current children if not previously migrated.
+      # The wrapped contents of a template element.
       def fragment_for(template_element)
-        fragment = @fragments[Backend.identity_key(template_element.__dommy_backend_node__)]
-        fragment ||= seed(template_element)
-        @document.wrap_node(fragment)
+        @document.wrap_node(contents(template_element.__dommy_backend_node__))
       end
 
-      # Raw (Nokogiri) fragment lookup by Nokogiri node — used by
-      # internal traversal to skip template-content sub-trees.
-      def raw_fragment_for(nokogiri_node)
-        @fragments[Backend.identity_key(nokogiri_node)]
+      # The backend fragment holding `template_node`'s contents — its own
+      # content fragment in an HTML document, a detached one (made empty on
+      # first use) in an XML document. The same fragment every time.
+      def contents(template_node)
+        Backend.template_contents(template_node) ||
+          (@fragments[Backend.identity_key(template_node)] ||= empty_fragment)
+      end
+
+      # The fragment holding `template_node`'s contents, or nil for an XML
+      # document's template that has none yet (not made on the way).
+      def existing_contents(template_node)
+        Backend.template_contents(template_node) || @fragments[Backend.identity_key(template_node)]
+      end
+
+      def content_nodes(template_node)
+        fragment = existing_contents(template_node)
+        fragment ? fragment.children.to_a : []
+      end
+
+      # Whether the contents live apart from the backend node — an XML
+      # document's — so that copying the node does not copy them.
+      def detached?(template_node)
+        @fragments.key?(Backend.identity_key(template_node))
+      end
+
+      # Drop an adopted-away template's detached contents.
+      def release(template_node)
+        @fragments.delete(Backend.identity_key(template_node))
       end
 
       def inner_html_of(template_element)
-        fragment = @fragments[Backend.identity_key(template_element.__dommy_backend_node__)]
-        return "" unless fragment
-
-        fragment.children.map(&:to_html).join
+        content_nodes(template_element.__dommy_backend_node__).map(&:to_html).join
       end
 
-      def has_content?(nokogiri_node)
-        @fragments.key?(Backend.identity_key(nokogiri_node))
+      # A template element in the HTML namespace — the only kind with contents.
+      def template_node?(node)
+        node.respond_to?(:element?) && node.element? && node.local_name == "template" &&
+          Backend.namespace_uri(node) == Namespaces::HTML
       end
 
-      # Direct register — called after manual fragment construction
-      # (e.g., when seeding from existing template children).
-      def store(template_node, fragment)
-        @fragments[Backend.identity_key(template_node)] = fragment
-      end
-
-      # Walk a Nokogiri subtree, finding <template> elements whose
-      # children are still direct (not yet migrated to a fragment), and
-      # migrate each one. Called after the initial page parse / innerHTML /
-      # fragment-parsing to keep template content out of the main tree.
+      # After the HTML parser produced `root` (a page parse, innerHTML), clear
+      # "force async" on the scripts it put in template contents. The contents
+      # are already where they belong.
       #
       # Uses a C-accelerated `css` query for descendants (rather than a
-      # Ruby-level full traverse) so eager migration on every page parse is
-      # cheap — a no-op fast path when the document has no <template>.
+      # Ruby-level full traverse) so this runs on every page parse cheaply — a
+      # no-op fast path when the document has no <template>.
       def migrate_descendants(root)
         targets = []
-        targets << root if template_needing_migration?(root)
-        descendants =
-          if root.respond_to?(:css)
-            root.css("template")
-          else
-            [].tap { |acc| root.traverse { |node| acc << node } }
-          end
-        descendants.each { |node| targets << node if template_needing_migration?(node) }
-
-        targets.uniq.each { |t| migrate_one(t, Backend.template_content_nodes(t)) }
+        targets << root if template_node?(root)
+        targets.concat(root.css("template").to_a) if root.respond_to?(:css)
+        targets.each { |t| mark_contents(t) }
       end
 
       # The XML parser appends an HTML <template>'s children to its template
       # contents rather than to the element (HTML's "Parsing XML documents"),
       # but the backend's XML tree has no contents and keeps them as children.
-      # Move each parsed template's children into its contents, as
-      # #migrate_descendants does for the HTML parser's. Only for freshly parsed
-      # nodes: a <template> script builds in an XML document keeps the children
-      # it is given.
+      # Move each parsed template's children into its detached contents. Only
+      # for freshly parsed nodes: a <template> script builds in an XML document
+      # keeps the children it is given.
+      #
+      # This normalizes Dommy's internal representation to the spec model
+      # rather than performing a DOM mutation — the nodes are the template's
+      # contents before and after — so it deliberately uses a raw unlink.
       #
       # Spec: https://html.spec.whatwg.org/multipage/xhtml.html#parsing-xhtml-documents
       def migrate_xml_descendants(root)
         NodeTraversal.subtree_nodes(root).each do |node|
-          migrate_one(node, node.children.to_a) if html_template?(node) && !has_content?(node)
+          next unless template_node?(node) && !detached?(node)
+
+          fragment = contents(node)
+          node.children.to_a.each do |child|
+            child.unlink
+            fragment.add_child(child)
+          end
+          mark_parser_inserted_scripts(fragment.children.to_a)
         end
       end
 
       private
 
-      def template_needing_migration?(node)
-        return false unless node.respond_to?(:name) && node.name == "template"
-
-        !has_content?(node)
+      def empty_fragment
+        Parser.fragment("", owner_doc: @document.backend_doc)
       end
 
-      def html_template?(node)
-        node.respond_to?(:element?) && node.element? && node.local_name == "template" &&
-          Backend.namespace_uri(node) == Namespaces::HTML
+      # Once per template: the parser's scripts in its contents, and in the
+      # contents of the templates nested there (which a `css` query on the
+      # main tree does not reach).
+      def mark_contents(template_node)
+        key = Backend.identity_key(template_node)
+        return if @marked.key?(key)
+
+        @marked[key] = true
+        mark_parser_inserted_scripts(content_nodes(template_node))
       end
 
-      # An XML <template> not parsed with its children in its contents starts
-      # with empty contents; its children stay its children.
-      def seed(template_element)
-        node = template_element.__dommy_backend_node__
-        migrate_one(node, @document.html_document? ? Backend.template_content_nodes(node) : [])
-        @fragments[Backend.identity_key(node)]
-      end
-
-      # Bootstrap: move a freshly parsed template's `nodes` (its backend
-      # contents, or an XML template's children) into the associated
-      # DocumentFragment, creating that fragment once. This normalizes Dommy's
-      # internal representation to the spec model rather than performing a DOM
-      # mutation — the nodes are the template's contents before and after — so
-      # it deliberately uses a raw unlink, and it is the ONLY
-      # time the registry's fragment for a template is created. Afterwards the
-      # `template node -> template contents` mapping is stable: `attach`
-      # (innerHTML=) replaces the fragment's children, never the fragment.
-      def migrate_one(template_node, nodes)
-        fragment = Parser.fragment("", owner_doc: @document.backend_doc)
-        nodes.each do |child|
-          child.unlink
-          fragment.add_child(child)
-        end
-        mark_parser_inserted_scripts(fragment.children.to_a)
-
-        @fragments[Backend.identity_key(template_node)] = fragment
-      end
-
-      # After parser-produced nodes land in a template's content fragment,
-      # clear "force async" (HTML §4.12.1.1) on every script among them
-      # (descendants included) — `attach` (innerHTML=) and `migrate_one` (the
-      # lazy migration of an already-parsed template) both bypass
-      # Document#__internal_run_parsed_insertion_steps__ and
+      # After parser-produced nodes land in a template's contents, clear "force
+      # async" (HTML §4.12.1.1) on every script among them (descendants and
+      # nested contents included) — `attach` (innerHTML=) and the parse paths
+      # bypass Document#__internal_run_parsed_insertion_steps__ and
       # Element#mark_fragment_scripts_started, so nothing else does this for a
       # content fragment's scripts. NOT "already started": template content has
       # no owner document to execute a script in, so that flag guards against
@@ -161,6 +158,7 @@ module Dommy
             wrapped = @document.wrap_node(node)
             wrapped.__internal_mark_parser_inserted__ if wrapped.respond_to?(:__internal_mark_parser_inserted__)
           end
+          mark_contents(node) if template_node?(node)
           mark_parser_inserted_scripts(node.children.to_a) if node.respond_to?(:children)
         end
       end

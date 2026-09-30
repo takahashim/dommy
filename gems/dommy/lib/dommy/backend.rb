@@ -209,11 +209,12 @@ module Dommy
         current.namespace_definitions(node)
       end
 
-      # The content child nodes of a `<template>` element. HTML5 parsers model
-      # template contents differently — Lexbor/Makiri in a separate content fragment — so reading them goes
-      # through the backend. Used by the template-content registry's migration.
-      def template_content_nodes(node)
-        current.template_content_nodes(node)
+      # The backend's own fragment holding a `<template>` element's contents
+      # (Lexbor keeps them off the child list), the same one every time; nil
+      # for a node that has none — any node of an XML document, whose contents
+      # the template-content registry keeps instead.
+      def template_contents(node)
+        current.template_contents(node)
       end
 
       def add_namespace_definition(node, prefix, href)

@@ -979,11 +979,11 @@ module Dommy
       return unless src_nodes.length == clone_nodes.length
 
       src_nodes.zip(clone_nodes).each do |orig, copy|
-        # HTML cloning steps for <template>: its content lives in an off-tree
-        # fragment the backend's subtree clone never reaches, so a deep clone has
-        # to copy it across explicitly (a shallow clone gets an empty template,
-        # per spec).
-        clone_template_content(orig, copy) if deep && @template_content_registry.has_content?(orig)
+        # HTML cloning steps for <template>: the backend's clone copies an HTML
+        # document's contents itself, but an XML document's live apart from
+        # the node, so a deep clone copies them across explicitly (a shallow
+        # clone gets an empty template, per spec).
+        clone_template_content(orig, copy) if deep && @template_content_registry.detached?(orig)
 
         wrapper = @node_wrapper_cache.peek(orig)
         next unless wrapper.respond_to?(:__cloning_state__)
@@ -2615,9 +2615,6 @@ module Dommy
       @template_content_registry.migrate_xml_descendants(root)
     end
 
-    def has_template_content?(nokogiri_node)
-      @template_content_registry.has_content?(nokogiri_node)
-    end
 
     private
 
@@ -2710,20 +2707,14 @@ module Dommy
       wrap_cloned_element_ns(copy, namespace, prefix, local, qualified)
     end
 
-    # Clone a <template>'s content into a fragment registered as `copy`'s
-    # template content. The source content lives backend-dependently — Makiri
-    # keeps it in a native content fragment, Nokogiri keeps it as direct children
-    # before migration and in the registry after — so source it from the registry
-    # fragment when migrated, else from Backend.template_content_nodes.
+    # HTML's cloning steps for a <template>: a deep copy of each of the
+    # source's contents, appended to the copy's contents.
     def clone_template_content(source, copy, source_document = self)
-      registry = source_document.__internal_template_registry__
-      src_frag = registry.raw_fragment_for(source)
-      content_nodes = src_frag ? src_frag.children.to_a : Backend.template_content_nodes(source)
+      content_nodes = source_document.__internal_template_registry__.content_nodes(source)
       return if content_nodes.empty?
 
-      frag = Parser.fragment("", owner_doc: @backend_doc)
+      frag = @template_content_registry.contents(copy)
       content_nodes.each { |n| frag.add_child(clone_into_doc(n, true, source_document)) }
-      @template_content_registry.store(copy, frag)
     end
 
     def read_title

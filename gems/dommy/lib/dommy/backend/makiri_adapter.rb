@@ -281,9 +281,8 @@ module Dommy
 
       # Lexbor keeps <template> contents in a separate content fragment rather
       # than the normal child chain.
-      def template_content_nodes(node)
-        cf = node.respond_to?(:content_fragment) ? node.content_fragment : nil
-        cf ? cf.children.to_a : []
+      def template_contents(node)
+        node.respond_to?(:content_fragment) ? node.content_fragment : nil
       end
 
       # ----- Namespaced attributes -----

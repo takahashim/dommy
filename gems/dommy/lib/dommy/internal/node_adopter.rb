@@ -15,8 +15,9 @@ module Dommy
     #   - every live wrapper in the subtree, so a reference page script is
     #     holding (an aria element reference, a queued MutationRecord's target)
     #     keeps pointing at a node in the right document;
-    #   - a `<template>`'s contents, which are not in its child list and so are
-    #     reachable only through the source document's registry.
+    #   - a `<template>`'s contents, which are not in its child list, and which
+    #     the import copies in a shape of its own between an HTML and an XML
+    #     document.
     #
     # Spec: https://dom.spec.whatwg.org/#concept-node-adopt
     class NodeAdopter
@@ -55,48 +56,8 @@ module Dommy
         return node if node.document == backend_doc
 
         adopted = Backend.adopt(node, backend_doc)
-        if source_document && !source_document.equal?(@document)
-          reseat_wrapper(node, adopted, source_document)
-          reseat_descendant_wrappers(node, adopted, source_document)
-          adopt_template_contents(node, adopted, source_document)
-        end
+        carry_over(node, adopted, source_document) if source_document && !source_document.equal?(@document)
         adopted
-      end
-
-      # Move each live wrapper for a descendant of `src_root` onto the matching
-      # node in `dst_root` (the imported copy), pruning it from the source
-      # document. `include_root` also re-binds the root pair — #adopt re-binds
-      # its own root wrapper by hand, but a template's content fragment has no
-      # such caller.
-      def reseat_descendant_wrappers(src_root, dst_root, src_doc, include_root: false)
-        return unless src_doc.respond_to?(:__internal_peek_wrapper__)
-
-        each_node_pair(src_root, dst_root) do |orig, copy|
-          next if orig.equal?(src_root) && !include_root
-
-          reseat_wrapper(orig, copy, src_doc)
-        end
-      end
-
-      # HTML: adopting a `<template>` adopts its template contents
-      # DocumentFragment along with it — the SAME fragment object, so
-      # `template.content` keeps both its identity and its children across the
-      # move. The contents are not in the template's child list, so neither the
-      # backend's adopt nor the descendant walk above ever reaches them; without
-      # this the adopted template comes out empty. Recurses, since a template's
-      # contents can hold further templates.
-      # Spec: https://html.spec.whatwg.org/#the-template-element (adopting steps)
-      def adopt_template_contents(src_root, dst_root, src_doc)
-        return if src_doc.nil? || src_doc.equal?(@document)
-        return unless src_doc.respond_to?(:__internal_template_registry__)
-
-        src_registry = src_doc.__internal_template_registry__
-        each_node_pair(src_root, dst_root) do |orig, copy|
-          src_frag = src_registry.raw_fragment_for(orig)
-          next unless src_frag
-
-          adopt_one_template_content(src_frag, copy, src_doc)
-        end
       end
 
       private
@@ -125,41 +86,89 @@ module Dommy
         adopted = Backend.adopt(src, backend_doc)
 
         reseat_known_wrapper(node, src, adopted, src_doc)
-        # A deep adopt imports a fresh copy of the whole subtree, so any live
-        # descendant wrapper must be re-bound onto its corresponding copy —
-        # otherwise it stays bound to the old document. Import preserves document
-        # order, so walk both subtrees in lockstep.
-        reseat_descendant_wrappers(src, adopted, src_doc)
-        adopt_template_contents(src, adopted, src_doc)
+        carry_over(src, adopted, src_doc)
         node
       end
 
-      def adopt_one_template_content(src_frag, template_copy, src_doc)
-        frag = Parser.fragment("", owner_doc: backend_doc)
-        # Snapshot before moving: the backend either relocates each node in place
-        # (Nokogiri) or hands back an imported copy (Makiri, which cannot move a
-        # node between arenas), and the pairs drive the wrapper re-bind either way.
-        src_frag.children.to_a.each do |child|
-          moved = Backend.adopt(child, backend_doc)
-          adopt_template_contents(child, moved, src_doc)
-          reseat_wrapper(child, moved, src_doc)
-          reseat_descendant_wrappers(child, moved, src_doc)
-          frag.add_child(moved)
+      # A deep adopt imports a fresh copy of the whole subtree, so each live
+      # wrapper in it must be re-bound onto its copy — otherwise it stays bound
+      # to the old document. Import preserves document order, so the two
+      # subtrees are walked together.
+      def carry_over(orig, copy, src_doc)
+        reseat_wrapper(orig, copy, src_doc)
+        if registry.template_node?(orig)
+          carry_over_template(orig, copy, src_doc)
+        elsif orig.respond_to?(:children)
+          carry_over_each(orig.children.to_a, copy.children.to_a, src_doc)
         end
-        @document.__internal_template_registry__.store(template_copy, frag)
-        reseat_wrapper(src_frag, frag, src_doc)
       end
 
-      # Each (original, copy) pair of the two subtrees, in document order. A
-      # length mismatch means the copy is not the import of the original, so
-      # nothing is paired at all rather than paired wrongly.
-      def each_node_pair(src_root, dst_root)
-        src_nodes = NodeTraversal.subtree_nodes(src_root)
-        dst_nodes = NodeTraversal.subtree_nodes(dst_root)
-        return if src_nodes.length != dst_nodes.length
+      # A length mismatch means the copies are not the import of the originals,
+      # so nothing is paired at all rather than paired wrongly.
+      def carry_over_each(origs, copies, src_doc)
+        return unless origs.length == copies.length
 
-        src_nodes.zip(dst_nodes).each { |pair| yield(*pair) }
+        origs.zip(copies).each { |orig, copy| carry_over(orig, copy, src_doc) }
       end
+
+      # HTML: adopting a `<template>` adopts its template contents
+      # DocumentFragment along with it — the SAME fragment object, so
+      # `template.content` keeps both its identity and its children across the
+      # move. An HTML document's contents are the backend's own, which its
+      # import copies as contents into an HTML document and as the leading
+      # children into an XML one (which has no contents); an XML document's
+      # live apart from the tree and move here one by one. Whatever the import
+      # made of them, they end up as the destination keeps contents, and the
+      # template's own children as its children.
+      # Spec: https://html.spec.whatwg.org/#the-template-element (adopting steps)
+      def carry_over_template(orig, copy, src_doc)
+        src_registry = src_doc.__internal_template_registry__
+        src_frag = src_registry.existing_contents(orig)
+        contents = src_frag ? src_frag.children.to_a : []
+        children = orig.children.to_a
+        dst_frag = registry.contents(copy)
+        from_html = !Backend.template_contents(orig).nil?
+        to_html = !Backend.template_contents(copy).nil?
+
+        if from_html && to_html
+          carry_over_each(contents, dst_frag.children.to_a, src_doc)
+          carry_over_each(children, copy.children.to_a, src_doc)
+        elsif from_html
+          copied = copy.children.to_a
+          copied.first(contents.length).each { |node| move_node(node, dst_frag) }
+          carry_over_each(contents, copied.first(contents.length), src_doc)
+          carry_over_each(children, copied.drop(contents.length), src_doc)
+        else
+          if to_html
+            # The import made the XML template's own children the contents.
+            copied = dst_frag.children.to_a
+            copied.each { |node| move_node(node, copy) }
+          end
+          carry_over_each(children, copy.children.to_a, src_doc)
+          adopt_detached_contents(contents, dst_frag, src_doc)
+          src_registry.release(orig)
+        end
+        reseat_wrapper(src_frag, dst_frag, src_doc) if src_frag
+      end
+
+      # An XML document's contents, which no import reached, moved one by one.
+      def adopt_detached_contents(nodes, dst_frag, src_doc)
+        nodes.each do |node|
+          moved = Backend.adopt(node, backend_doc)
+          carry_over(node, moved, src_doc)
+          dst_frag.add_child(moved)
+        end
+      end
+
+      # Put a copy the import placed where the destination does not keep it
+      # into place. Not a DOM mutation — the node is where the adopt means it to
+      # be — so a raw unlink.
+      def move_node(node, parent)
+        node.unlink
+        parent.add_child(node)
+      end
+
+      def registry = @document.__internal_template_registry__
 
       # Look up the live wrapper for `orig` in the source document, if it has
       # one, and move it onto `copy`.

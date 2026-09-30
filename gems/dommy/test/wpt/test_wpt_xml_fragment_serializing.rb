@@ -483,6 +483,24 @@ class TestWPTXMLTemplateContents < Minitest::Test
     assert_same(@doc, b.owner_document)
   end
 
+  # Whichever way a template moves between an XML and an HTML document, its
+  # contents stay its contents (the same object) and its own children its
+  # children, with their wrappers.
+  def test_adoption_keeps_contents_and_children_apart
+    xml = Dommy::DOMParser.new(@win).parse_from_string(%(<r xmlns="#{XHTML}"><template><b/></template></r>), "application/xml")
+    t = xml.document_element.first_element_child
+    t.append_child(xml.create_element_ns(XHTML, "k"))
+    content, b, k = t.content, t.content.first_element_child, t.first_element_child
+
+    [@doc.body, xml.document_element].each do |parent|
+      parent.append_child(t)
+      assert_same(parent.owner_document, t.owner_document)
+      assert_same(content, t.content)
+      assert_equal([[b], [k]], [t.content.children.to_a, t.children.to_a])
+      assert_same(parent.owner_document, b.owner_document)
+    end
+  end
+
   # importNode copies the contents to the copy's contents, and children a
   # script appended to its children.
   #
