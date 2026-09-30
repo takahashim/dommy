@@ -87,7 +87,9 @@ module Dommy
 
     def inner_html=(value)
       unless @document.html_document?
-        __internal_replace_all__(xml_fragment_nodes(value.to_s, self))
+        nodes = xml_fragment_nodes(value.to_s, self)
+        mark_fragment_scripts_started(nodes)
+        __internal_replace_all__(nodes)
         return
       end
 

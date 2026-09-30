@@ -65,6 +65,19 @@ class TestWPTXMLFragmentSerializing < Minitest::Test
     assert_nil(n.first_element_child.namespace_uri)
   end
 
+  # The XML fragment parsing algorithm marks its scripts already started, as
+  # the HTML one does, so they never run.
+  def test_setters_mark_scripts_already_started
+    xhtml = "http://www.w3.org/1999/xhtml"
+    doc = parse(%(<html xmlns="#{xhtml}"><body><p/></body></html>), "application/xhtml+xml")
+    body = doc.query_selector("body")
+    body.inner_html = "<script>window.y = 2;</script>"
+    assert_nil(body.first_element_child.__internal_take_pending_script__)
+
+    body.first_element_child.outer_html = "<script>window.y = 3;</script>"
+    assert_nil(body.first_element_child.__internal_take_pending_script__)
+  end
+
   def test_setters_refuse_markup_that_is_not_well_formed
     k = parse("<r><k/></r>").document_element.first_element_child
     assert_raises(Dommy::DOMException::SyntaxError) { k.inner_html = "<a>" }
