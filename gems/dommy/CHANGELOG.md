@@ -10,7 +10,7 @@
 
 ### Changed
 
-- **Requires makiri >= 0.11.0.** An element made by `createElementNS` in an HTML document is built in its namespace (an SVG `feGaussianBlur` keeps its case, `[viewBox]` finds it), and `setAttribute` of a name with a colon or `xmlns` goes through makiri's DOM `setAttribute` entry points.
+- **Requires makiri >= 0.12.0.** An element made by `createElementNS` in an HTML document is built in its namespace (an SVG `feGaussianBlur` keeps its case, `[viewBox]` finds it), and `setAttribute` of a name with a colon or `xmlns` goes through makiri's DOM `setAttribute` entry points.
 - Names follow the DOM's own rules — valid element and attribute local names, namespace prefixes and doctype names — instead of the XML Name / QName productions: `createElement("A\v")` and `setAttributeNS("u", "\u0001:attr", …)` succeed, and `createElement("a/b")` throws `InvalidCharacterError`.
 - `XMLSerializer` writes what Chrome, WebKit and Firefox write where WPT's cases disagree: an attribute keeps its own prefix unless that prefix is bound in scope (`xl:type` stays `xl:type`), and an `xmlns` that agrees with the element's namespace is kept.
 - Inserting a doctype the backend could not create (one with an empty name) into a document throws `NotSupportedError`; it used to do nothing, and a `replaceChild` dropped the node it replaced. `createDocument` still leaves such a doctype out.
@@ -73,6 +73,7 @@
 - `createDocument(ns, name, doctype)` appends that doctype itself, so `doc.firstChild === doctype` and its `parentNode` / `ownerDocument` follow; it used to place a copy.
 - `adoptNode` / a cross-document insert of an upper-case HTML-namespace element such as `BR` keeps it and its name instead of raising a backend error.
 - A `DocumentFragment` and a `ShadowRoot` report `null` for `nextSibling` / `previousSibling` (and a `ShadowRoot` for `parentNode`, `parentElement` and `nodeValue`), not `undefined`.
+- A `<script>` from `DOMParser` stays inert when adopted, cloned or imported into the page; `cloneNode` / `importNode` of a script copy its "already started" flag.
 
 ## 0.13.0 — 2026-09-23
 
