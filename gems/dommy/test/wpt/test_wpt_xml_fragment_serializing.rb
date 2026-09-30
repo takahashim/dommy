@@ -88,11 +88,10 @@ end
 
 # The fragment serializing algorithm runs the XML serialization with "require
 # well-formed" set, so a name that is not an XML Name, or a local name holding
-# a colon, would be an InvalidStateError. Chrome, Firefox and Safari all write
-# the markup instead, and so does Dommy: both cases of WPT's innerhtml-01.xhtml
-# fail in every one of them (wpt.fyi, 2026-09). Its other case, a text node
-# holding "\f", cannot be built here: Makiri refuses the character in an XML
-# document.
+# a colon, or character data outside XML's Char production, would be an
+# InvalidStateError. Chrome, Firefox and Safari all write the markup instead,
+# and so does Dommy: both cases of WPT's innerhtml-01.xhtml fail in every one of
+# them (wpt.fyi, 2026-09).
 #
 # WPT: domparsing/innerhtml-01.xhtml
 # Spec: https://w3c.github.io/DOM-Parsing/#dfn-require-well-formed
@@ -109,10 +108,48 @@ class TestWPTXMLFragmentSerializingIsNotWellFormedChecked < Minitest::Test
     assert_equal(%(<test:test xmlns="#{XHTML}"></test:test>), @body.inner_html)
   end
 
+  def test_text_outside_the_char_production_is_written
+    head = @doc.document_element.insert_before(@doc.create_element("head"), @body)
+    head.append_child(@doc.create_element("title"))
+    @doc.title = "\f"
+    assert_equal("\f", @doc.query_selector("title").inner_html)
+  end
+
   def test_an_attribute_name_that_is_not_an_xml_name_is_written
     q = @body.append_child(@doc.create_element_ns("u", "q"))
     q.set_attribute("@y", "1")
     assert_equal(%(<q xmlns="u" @y="1"/>), q.outer_html)
+  end
+end
+
+# An XML document holds the character data the DOM allows, including what XML
+# has no spelling for, and XMLSerializer writes it as it is.
+#
+# WPT: domparsing/xml-serialization.xhtml
+# Spec: https://w3c.github.io/DOM-Parsing/#xml-serializing-a-comment-node
+class TestWPTXMLDocumentCharacterData < Minitest::Test
+  def setup
+    @doc = Dommy::DOMParser.new.parse_from_string(
+      %(<html xmlns="http://www.w3.org/1999/xhtml"/>), "application/xhtml+xml"
+    )
+  end
+
+  def serialize(node)
+    Dommy::XMLSerializer.new.serialize_to_string(node)
+  end
+
+  def test_comments
+    [["--", "<!------>"], ["- x", "<!--- x-->"], ["x -", "<!--x --->"], ["-->", "<!---->-->"]].each do |data, expected|
+      assert_equal(expected, serialize(@doc.create_comment(data)), data.inspect)
+    end
+  end
+
+  def test_text_and_attribute_values_outside_the_char_production
+    el = @doc.document_element
+    el.append_child(@doc.create_text_node("\u0001"))
+    el.set_attribute("a", "\f")
+    assert_equal("\u0001", el.text_content)
+    assert_equal("\f", el.get_attribute("a"))
   end
 end
 
