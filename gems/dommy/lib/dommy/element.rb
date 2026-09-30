@@ -87,7 +87,7 @@ module Dommy
 
     def inner_html=(value)
       unless @document.html_document?
-        __internal_replace_all__(xml_fragment_nodes(value.to_s))
+        __internal_replace_all__(xml_fragment_nodes(value.to_s, self))
         return
       end
 
@@ -316,7 +316,7 @@ module Dommy
         if @document.html_document?
           Parser.fragment(html.to_s, owner_doc: @__node__.document).children.to_a
         else
-          xml_fragment_nodes(html.to_s)
+          xml_fragment_nodes(html.to_s, parent.element? ? @document.wrap_node(parent) : nil)
         end
       anchor = @__node__.next_sibling
       removed = @__node__
@@ -336,14 +336,51 @@ module Dommy
     end
 
     # The XML fragment parsing algorithm, for innerHTML / outerHTML outside an
-    # HTML document: the XML document's own fragment parser, which resolves the
-    # fragment's prefixes against the document's declarations. Markup that is
-    # not a well-formed fragment is a SyntaxError (DOM Parsing), not a backend
+    # HTML document. The parser is first fed a start tag declaring the default
+    # namespace and the prefixes in scope on `context` (nil: the `body` in the
+    # HTML namespace that stands in for a DocumentFragment parent), so the
+    # markup resolves them as it would inside that element; the nodes are that
+    # start tag's children. Markup that is not a well-formed fragment, or that
+    # closes the start tag itself, is a SyntaxError (DOM Parsing), not a backend
     # error.
-    def xml_fragment_nodes(markup)
-      Parser.fragment(markup, owner_doc: @__node__.document).children.to_a
+    def xml_fragment_nodes(markup, context)
+      tag = xml_fragment_context_tag(context)
+      top = Parser.fragment("<#{tag}>#{markup}</w>", owner_doc: @__node__.document).children.to_a
+      unless top.size == 1 && top.first.element? && top.first.name == "w"
+        raise DOMException::SyntaxError, "not a well-formed XML fragment"
+      end
+
+      top.first.children.to_a
     rescue Backend.xml_syntax_error_class => e
       raise DOMException::SyntaxError, "not a well-formed XML fragment: #{e.message}"
+    end
+
+    # The context start tag's name and declarations: the default namespace
+    # (xmlns="" when there is none, so the document's own default does not
+    # leak in) and every prefix that still resolves on `context`.
+    def xml_fragment_context_tag(context)
+      return %(w xmlns="#{Internal::Namespaces::HTML}") unless context
+
+      prefixes = []
+      each_namespace_ancestor(context) do |el|
+        prefixes << wrapper_prefix(el)
+        el.attributes.each do |attr|
+          next unless attr.namespace_uri == XMLNS_NAMESPACE
+          next unless normalize_ns_prefix(attr.__js_get__("prefix")) == "xmlns"
+
+          prefixes << attr.local_name
+        end
+      end
+      tag = +%(w xmlns="#{xml_fragment_escape(context.lookup_namespace_uri(nil).to_s)}")
+      (prefixes.compact.uniq - %w[xml xmlns]).each do |prefix|
+        ns = context.lookup_namespace_uri(prefix)
+        tag << %( xmlns:#{prefix}="#{xml_fragment_escape(ns)}") if ns
+      end
+      tag
+    end
+
+    def xml_fragment_escape(value)
+      value.gsub("&", "&amp;").gsub("<", "&lt;").gsub('"', "&quot;")
     end
 
     # `el.contains(other)` — true if `other` is `el` itself or any

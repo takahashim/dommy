@@ -48,9 +48,27 @@ class TestWPTXMLFragmentSerializing < Minitest::Test
     assert_equal(%w[u pu], k.children.to_a.map(&:namespace_uri))
   end
 
+  # The context is the element itself (the parent for outerHTML), so its own
+  # declarations win over the document's, and an element with no default
+  # namespace gives none to the fragment.
+  def test_setters_parse_in_the_context_elements_namespaces
+    doc = parse(%(<r xmlns="u"><k xmlns="u2" xmlns:q="qq"><j/></k><n xmlns=""/></r>))
+    k = doc.document_element.first_element_child
+    k.inner_html = "<z/><q:z/>"
+    assert_equal(%w[u2 qq], k.children.to_a.map(&:namespace_uri))
+
+    k.last_element_child.outer_html = "<y/><q:y/>"
+    assert_equal(%w[u2 u2 qq], k.children.to_a.map(&:namespace_uri))
+
+    n = doc.document_element.last_element_child
+    n.inner_html = "<z/>"
+    assert_nil(n.first_element_child.namespace_uri)
+  end
+
   def test_setters_refuse_markup_that_is_not_well_formed
     k = parse("<r><k/></r>").document_element.first_element_child
     assert_raises(Dommy::DOMException::SyntaxError) { k.inner_html = "<a>" }
+    assert_raises(Dommy::DOMException::SyntaxError) { k.inner_html = "</w><w>" }
     assert_raises(Dommy::DOMException::SyntaxError) { k.outer_html = "<a>" }
   end
 end
