@@ -2619,12 +2619,6 @@ module Dommy
       @template_content_registry.has_content?(nokogiri_node)
     end
 
-    # A deep copy of a backend node from `source_document` into this document —
-    # importNode's copy, for an adopt the backend cannot import.
-    def __internal_clone_into_doc__(source, source_document)
-      clone_into_doc(source, true, source_document)
-    end
-
     private
 
     # Build a Nokogiri copy of the given node inside our @backend_doc.
@@ -2681,35 +2675,16 @@ module Dommy
       end
     end
 
-    # An element's copy keeps its namespace, its prefix and the exact spelling
-    # of its local name. The backend node need not have them — an element
-    # Makiri would not make under its DOM name (an upper-case `BR` in the HTML
-    # namespace) keeps that name on the wrapper — so the original is read
-    # through its wrapper and the copy is given the same metadata.
-    #
-    # The backend's own copy keeps every attribute's qualified name as it is: a
-    # null-namespace `A:B` on an HTML element stays `A:B`, where the DOM's
-    # setAttribute would lower-case it. Only an element the backend will not
-    # copy is rebuilt here, attribute by attribute.
+    # An element's copy is the backend's own, which keeps its name and every
+    # attribute's qualified name exactly (a null-namespace `A:B` on an HTML
+    # element stays `A:B`, where the DOM's setAttribute would lower-case it).
+    # Only a createElementNS name the backend node does not carry lives on the
+    # original's wrapper, so the copy's wrapper is given the same metadata.
     def clone_element_into_doc(source, source_document)
       wrapper = source_document.wrap_node(source)
       namespace, prefix, local, qualified = clone_name_parts(wrapper, source)
-      copy = import_element_or_nil(source) || build_element_copy(source, namespace, prefix, local, qualified)
+      copy = Backend.import_element(source, @backend_doc)
       note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
-      copy
-    end
-
-    def import_element_or_nil(source)
-      Backend.import_element(source, @backend_doc)
-    rescue Backend.import_error_class
-      nil
-    end
-
-    def build_element_copy(source, namespace, prefix, local, qualified)
-      copy = Backend.create_element_loose(qualified, prefix, local, namespace, @backend_doc) ||
-        Backend.create_element_ns(namespace, qualified, @backend_doc) ||
-        Backend.create_element(source.name, @backend_doc)
-      copy_attributes_into(source, copy)
       copy
     end
 
@@ -2724,20 +2699,6 @@ module Dommy
 
       local = wrapper ? wrapper.local_name.to_s : source.name
       [wrapper&.namespace_uri, nil, local, local]
-    end
-
-    # "Clone a single node" step 2.1 clones the attributes one by one, so each
-    # keeps its own namespace and prefix — an `xml:b` must not flatten into an
-    # attribute whose local name is the qualified string "xml:b" — and a
-    # null-namespace one keeps its name as written ("xlink:href" stays a single
-    # local name, "xmlns" stays a plain attribute in an XML copy).
-    def copy_attributes_into(source, copy)
-      Backend.attribute_nodes(source).each do |attr|
-        info = Backend.attribute_ns_info(attr)
-        Backend.set_attribute_ns(copy, info[:namespace_uri], info[:prefix], info[:local_name],
-          info[:qualified_name], info[:value])
-      end
-      nil
     end
 
     # Give the copy's wrapper the namespace metadata whenever the backend node

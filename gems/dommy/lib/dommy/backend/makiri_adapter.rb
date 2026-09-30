@@ -24,7 +24,6 @@ module Dommy
       DocumentType = ::Makiri::DocumentType
       Node = ::Makiri::Node
       XMLSyntaxError = ::Makiri::XML::SyntaxError
-      ImportError = ::Makiri::Error
 
       # Throwaway attribute used to bind `:scope` to a context element — Lexbor
       # has no `:scope`, so a scoped query temporarily marks the element and

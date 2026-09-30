@@ -80,8 +80,7 @@ module Dommy
       end
 
       # A copy of the element `node` alone, owned by `target_doc`: its name and
-      # attributes exactly as the backend holds them. Raises #import_error_class
-      # when the backend will not make that element in `target_doc`.
+      # attributes exactly as the backend holds them.
       def import_element(node, target_doc)
         current.import_element(node, target_doc)
       end
@@ -148,10 +147,9 @@ module Dommy
       end
 
       # Create an element in `namespace` in an HTML document, so the backend
-      # node carries the namespace and the name's case itself. Returns nil when
-      # the backend will not make it (fall back to #create_element); raises
-      # ArgumentError for an invalid name (the caller maps it to
-      # InvalidCharacterError).
+      # node carries the namespace and the name's case itself. Returns nil for
+      # an XML document (fall back to #create_element); raises ArgumentError
+      # for an invalid name (the caller maps it to InvalidCharacterError).
       def create_element_ns(namespace, qualified_name, doc)
         current.create_element_ns(namespace, qualified_name, doc)
       end
@@ -278,12 +276,6 @@ module Dommy
 
       def document_class
         current::Document
-      end
-
-      # What the backend raises when it cannot import a node into another
-      # document (Makiri: an upper-case HTML element name it refuses).
-      def import_error_class
-        current::ImportError
       end
 
       # What the backend raises for markup that is not well-formed XML (an XML

@@ -54,13 +54,12 @@ module Dommy
       def adopt_backend_node(node, source_document)
         return node if node.document == backend_doc
 
-        adopted, names = import_here(node, source_document)
+        adopted = Backend.adopt(node, backend_doc)
         if source_document && !source_document.equal?(@document)
           reseat_wrapper(node, adopted, source_document)
           reseat_descendant_wrappers(node, adopted, source_document)
           adopt_template_contents(node, adopted, source_document)
         end
-        restore_names(names)
         adopted
       end
 
@@ -123,7 +122,7 @@ module Dommy
       # wrapper, the subtree's wrappers, and any template contents over.
       def adopt_across_documents(node, src)
         src_doc = node.respond_to?(:document) ? node.document : nil
-        adopted, names = import_here(src, src_doc)
+        adopted = Backend.adopt(src, backend_doc)
 
         reseat_known_wrapper(node, src, adopted, src_doc)
         # A deep adopt imports a fresh copy of the whole subtree, so any live
@@ -132,42 +131,7 @@ module Dommy
         # order, so walk both subtrees in lockstep.
         reseat_descendant_wrappers(src, adopted, src_doc)
         adopt_template_contents(src, adopted, src_doc)
-        restore_names(names)
         node
-      end
-
-      # The backend's import of `src` into the destination, and nil — or, when
-      # the backend refuses the subtree, Dommy's own copy (importNode's) and the
-      # names that copy gave its elements. Makiri will not make an HTML-namespace
-      # element named in upper case after a known element (`BR`, `INPUT`: Lexbor
-      # would make it that element); Dommy's copy builds such an element under
-      # the lower-case name and keeps the DOM's name on the wrapper. The wrappers
-      # re-bound onto the copy afterwards are the moving nodes' own, which do
-      # not carry those names — #restore_names puts them back.
-      def import_here(src, src_doc)
-        [Backend.adopt(src, backend_doc), nil]
-      rescue Backend.import_error_class
-        raise unless src_doc.respond_to?(:__internal_clone_into_doc__)
-
-        copy = src_doc.equal?(@document) ? nil : @document.__internal_clone_into_doc__(src, src_doc)
-        raise unless copy
-
-        [copy, element_names(copy)]
-      end
-
-      def element_names(root)
-        NodeTraversal.subtree_nodes(root).filter_map do |node|
-          wrapper = @document.__internal_peek_wrapper__(node)
-          names = wrapper.respond_to?(:__internal_created_namespace__) && wrapper.__internal_created_namespace__
-          [node, names] if names
-        end
-      end
-
-      def restore_names(names)
-        names&.each do |node, (ns, prefix, local)|
-          wrapper = @document.__internal_peek_wrapper__(node)
-          wrapper&.__internal_set_namespace__(ns, prefix, local, prefix ? "#{prefix}:#{local}" : local)
-        end
       end
 
       def adopt_one_template_content(src_frag, template_copy, src_doc)
