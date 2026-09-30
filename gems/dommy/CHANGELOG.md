@@ -28,6 +28,10 @@
 - `el.dataset["a<b"] = "x"` sets `data-a<b`, a name like `"-foo"` throws `SyntaxError`, and an element outside HTML, SVG and MathML has no `dataset`.
 - `document.foo` finds an `<object id="foo">`, and a named `<object>` is the element itself rather than its content window.
 - `crypto.getRandomValues(new Uint32Array(4))` fills and returns that same `Uint32Array`.
+- An XHTML element in an XML document has its HTML interface (`<body>` is an `HTMLBodyElement`), and an element in no namespace is a plain `Element` in any document.
+- `innerHTML` and `outerHTML` in an XML document parse the markup in the namespaces in scope on the element, and mark its scripts already started.
+- `outerHTML = "<a></a><b></b>"` inserts the nodes in order when the element has a next sibling.
+- `importNode` of an XML `<template>` copies its children.
 - `<textarea>` answers `selectionStart`, `selectionEnd` and `selectionDirection`, and `setSelectionRange` / `select` move them — they used to return nothing and do nothing.
 - Decoding a whole buffer of valid UTF-8 — what `XMLHttpRequest#responseText` does — takes Ruby's own path instead of the spec's byte-at-a-time decoder, around 200x faster on a large response.
 - A `charset` inside a quoted MIME parameter, as in `boundary="a;charset=utf-8"`, is that value's text and no longer read as the charset.
