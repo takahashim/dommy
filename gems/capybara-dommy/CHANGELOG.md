@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.14.0 — 2026-10-01
+
+### Added
+
+- `right_click` and `double_click`, which fire `contextmenu` and `dblclick` after the full pointer and mouse sequence under JavaScript. Without JavaScript `double_click` is a `click`.
+- `shadow_root` returns the element's shadow tree as a node, so `find(...).shadow_root.find(...)` searches inside it.
+- `execute_script` / `evaluate_script` pass their arguments to the script, a Capybara node arriving as its element.
+- A frame with `srcdoc` loads that document, at `about:srcdoc`.
+- `save_screenshot` writes a blank PNG at the path and the page's HTML and visible text next to it, so Rails' failure screenshot no longer raises and hides the real failure.
+
+### Changed
+
+- `hover` under JavaScript fires `mouseover` and `mouseenter` on the element (and `mouseout` / `mouseleave` on the one it leaves), not only the `:hover` state.
+- `send_keys` without JavaScript applies `:backspace`, `:delete`, `:home` and `:end` at the caret, and `:enter` inserts a newline in a textarea and submits an input's form.
+
 ## 0.13.0 — 2026-09-23
 
 ### Added

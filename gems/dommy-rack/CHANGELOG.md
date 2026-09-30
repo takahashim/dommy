@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.14.0 — 2026-10-01
+
+### Added
+
+- A same-origin `new EventSource(url)` on a page connects to the Rack app in-process and delivers its `text/event-stream` response as `message` events. A cross-origin URL keeps the in-memory stub.
+- `Session#execute_script(script, *args)` / `#evaluate_script(script, *args)` pass their arguments to the script, and raise when the JS runtime cannot.
+- `NetworkBridge.install` takes `resources:`, `executor:` and `scheduler:`, and is the one way the session installs its fetch handler.
+
+### Changed
+
+- A form submission sends the body its `enctype` declares: a `text/plain` form sends plain text and a `multipart/form-data` form a multipart body even without a file, where both were sent urlencoded.
+- URLs go through Dommy's WHATWG URL parser rather than stdlib `URI`. `Dommy::Rack::Url` is rebuilt on it and loses its `URI` helpers (`encode_iri`, `http_host`, `origin` and the rest).
+- `Dommy::Rack.visible?` is the one public visibility check; `hidden_node?` and `hidden_by_closed_details?` are private.
+
+### Fixed
+
+- A GET form with no entries still ends its URL in `?`, as a browser's does.
+- A multipart part's name or filename percent-encodes CR and LF instead of dropping them, and a filename with a null byte no longer raises.
+
 ## 0.13.0 — 2026-09-23
 
 ### Added
