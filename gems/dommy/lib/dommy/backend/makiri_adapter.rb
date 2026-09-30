@@ -176,12 +176,6 @@ module Dommy
         return nil unless doc.is_a?(::Makiri::HTML::Document)
 
         doc.create_element_ns(presence(namespace), qualified_name.to_s)
-      rescue ::Makiri::Error
-        # Makiri refuses an HTML-namespace element whose upper-case name
-        # lower-cases to a known element (`DIV`, `BR`): Lexbor would make it
-        # as that element. The DOM allows the name, so fall back to
-        # #create_element and keep the namespace and case on the wrapper.
-        nil
       end
 
       # A detached DocumentType node owned by `doc`, for
@@ -323,40 +317,24 @@ module Dommy
         name == "xmlns" || name.include?(":")
       end
 
-      # Makiri's own `setAttribute` where set_attribute_ns cannot make the
-      # attribute. true when it made it; false leaves it to set_attribute_ns
-      # (every other name in an HTML document).
+      # Makiri's own `setAttribute` for the setAttribute-only names, which
+      # set_attribute_ns refuses. true when it made the attribute; false leaves
+      # every other name to set_attribute_ns, which matches an existing
+      # attribute by (namespace, local name) rather than by qualified name:
+      # `setAttributeNS("u", "a")` then a null-namespace "a" are two attributes.
       #
-      # - An HTML document: `[]=` for the setAttribute-only names. It lower-cases
-      #   only on an HTML-namespace element, as setAttribute does, and makes
-      #   the colon part of the local name.
-      # - An XML document: set_loose_dom_attribute (a plain attribute, never a
-      #   namespace declaration) for those names, and for a name the XML backend
-      #   refuses as not an XML Name ("\u0001", "@click") — the DOM's name rule
-      #   is looser. Any other name still goes through set_attribute_ns, which
-      #   matches an existing attribute by (namespace, local name) rather than
-      #   by qualified name: `setAttributeNS("u", "a")` then a null-namespace
-      #   "a" are two attributes.
+      # - An XML document: set_loose_dom_attribute, a plain attribute (never a
+      #   namespace declaration) under the name as given.
+      # - An HTML document: `[]=`. It lower-cases only on an HTML-namespace
+      #   element, as setAttribute does, and makes the colon part of the local
+      #   name.
       def set_null_namespace_attribute(node, name, value)
-        if node.respond_to?(:set_loose_dom_attribute)
-          set_xml_null_namespace_attribute(node, name, value)
-        elsif set_attribute_only_name?(name)
-          node[name] = value
-          true
-        else
-          false
-        end
-      end
+        return false unless set_attribute_only_name?(name)
 
-      def set_xml_null_namespace_attribute(node, name, value)
-        if set_attribute_only_name?(name)
+        if node.respond_to?(:set_loose_dom_attribute)
           node.set_loose_dom_attribute(name, value)
         else
-          begin
-            node.set_attribute_ns(nil, name, value)
-          rescue ArgumentError
-            node.set_loose_dom_attribute(name, value)
-          end
+          node[name] = value
         end
         true
       end

@@ -136,6 +136,18 @@ class TestWPTXMLDocumentSetAttributeNames < Minitest::Test
     assert(@el.attributes.to_a.all? { |a| a.namespace_uri.nil? })
   end
 
+  # setAttributeNS and setAttributeNodeNS take the same looser names.
+  def test_namespaced_names_that_are_not_xml_names
+    [["p:a}b", "p", "a}b"], ["\u0001:attr", "\u0001", "attr"]].each do |qualified, prefix, local|
+      @el.set_attribute_ns("urn:x", qualified, "v")
+      attr = @el.get_attribute_node_ns("urn:x", local)
+      assert_equal([qualified, prefix, "v"], [attr.name, attr.prefix, attr.value], qualified.inspect)
+    end
+
+    @el.set_attribute_node_ns(@doc.create_attribute_ns("urn:y", "q:x}y"))
+    assert_equal("q:x}y", @el.get_attribute_node_ns("urn:y", "x}y").name)
+  end
+
   # A null-namespace attribute is still set by (namespace, local name), so a
   # namespaced attribute whose qualified name is the same stays a separate
   # one. (setAttribute, by contrast, changes the first attribute whose
