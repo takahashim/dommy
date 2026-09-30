@@ -60,6 +60,7 @@ module Dommy
       doc = Document.new(nil, backend_doc: backend_doc)
       doc.task_scheduler = @window.scheduler if @window.respond_to?(:scheduler)
       doc.__internal_run_parsed_insertion_steps__
+      doc.__internal_mark_scripts_already_started__
       doc
     end
 
@@ -68,6 +69,7 @@ module Dommy
       doc = Document.new(nil, backend_doc: backend_doc)
       doc.content_type = mime_type
       doc.migrate_xml_template_descendants(backend_doc)
+      doc.__internal_mark_scripts_already_started__
       doc
     end
   end

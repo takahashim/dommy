@@ -922,8 +922,31 @@ module Dommy
       deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
       source_document = node.respond_to?(:document) ? node.document : self
       copy = clone_into_doc(node.__dommy_backend_node__, deep, source_document)
+      apply_imported_cloning_steps(node.__dommy_backend_node__, copy, deep, source_document)
       wrap_node(copy)
     end
+
+    # importNode is a clone, so the HTML cloning steps run for it as they do
+    # for cloneNode (#__internal_apply_cloning_steps__): the live state Dommy
+    # keeps on a wrapper — an input's dirty value, a script's "already
+    # started" — is copied onto the new node. The originals' wrappers belong
+    # to the source document, so they are looked up there.
+    def apply_imported_cloning_steps(src_root, copy_root, deep, source_document)
+      return unless source_document.respond_to?(:__internal_peek_wrapper__)
+
+      src_nodes = deep ? Internal::NodeTraversal.subtree_nodes(src_root) : [src_root]
+      copy_nodes = deep ? Internal::NodeTraversal.subtree_nodes(copy_root) : [copy_root]
+      return unless src_nodes.length == copy_nodes.length
+
+      src_nodes.zip(copy_nodes).each do |orig, copy|
+        state = source_document.__internal_peek_wrapper__(orig)&.then { |w| w.respond_to?(:__cloning_state__) && w.__cloning_state__ }
+        next unless state
+
+        wrapper = wrap_node(copy)
+        wrapper.__apply_cloning_state__(state) if wrapper.respond_to?(:__apply_cloning_state__)
+      end
+    end
+    private :apply_imported_cloning_steps
 
     def import_attribute(attr)
       Attr.new(
@@ -2145,6 +2168,24 @@ module Dommy
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
       @backend_doc.css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
       @backend_doc.css("script").each { |node| __internal_html_element_wrapper__(node)&.__internal_mark_parser_inserted__ }
+      nil
+    end
+
+    # DOMParser parses with scripting disabled (HTML) or XML scripting support
+    # disabled, so every script it makes is "already started": moved or cloned
+    # into a document that runs scripts, it still does not run. Found by local
+    # name, so an XML document's prefixed `h:script` counts too.
+    def __internal_mark_scripts_already_started__
+      Internal::NodeTraversal.subtree_nodes(@backend_doc).each do |node|
+        next unless node.respond_to?(:element?) && node.element?
+        next unless node.local_name == "script"
+
+        wrapper = wrap_node(node)
+        next unless wrapper.respond_to?(:__internal_mark_script_already_started__)
+
+        wrapper.__internal_mark_script_already_started__
+        wrapper.__internal_mark_parser_inserted__
+      end
       nil
     end
 

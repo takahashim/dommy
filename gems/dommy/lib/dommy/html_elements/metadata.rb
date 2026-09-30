@@ -96,6 +96,17 @@ module Dommy
       nil
     end
 
+    # HTML's cloning steps for a script: the copy's "already started" is the
+    # original's, so cloning a parsed-but-inert script (DOMParser, innerHTML)
+    # does not make a copy that runs on insertion.
+    def __cloning_state__
+      @__script_started ? {already_started: true} : nil
+    end
+
+    def __apply_cloning_state__(state)
+      @__script_started = true if state[:already_started]
+    end
+
     def __internal_take_pending_script__
       return nil if @__script_started
       return nil unless src.to_s.empty?
