@@ -86,6 +86,36 @@ class TestWPTXMLFragmentSerializing < Minitest::Test
   end
 end
 
+# The fragment serializing algorithm runs the XML serialization with "require
+# well-formed" set, so a name that is not an XML Name, or a local name holding
+# a colon, would be an InvalidStateError. Chrome, Firefox and Safari all write
+# the markup instead, and so does Dommy: both cases of WPT's innerhtml-01.xhtml
+# fail in every one of them (wpt.fyi, 2026-09). Its other case, a text node
+# holding "\f", cannot be built here: Makiri refuses the character in an XML
+# document.
+#
+# WPT: domparsing/innerhtml-01.xhtml
+# Spec: https://w3c.github.io/DOM-Parsing/#dfn-require-well-formed
+class TestWPTXMLFragmentSerializingIsNotWellFormedChecked < Minitest::Test
+  XHTML = "http://www.w3.org/1999/xhtml"
+
+  def setup
+    @doc = Dommy::DOMParser.new.parse_from_string(%(<html xmlns="#{XHTML}"><body/></html>), "application/xhtml+xml")
+    @body = @doc.query_selector("body")
+  end
+
+  def test_a_local_name_with_a_colon_is_written
+    @body.append_child(@doc.create_element("test:test"))
+    assert_equal(%(<test:test xmlns="#{XHTML}"></test:test>), @body.inner_html)
+  end
+
+  def test_an_attribute_name_that_is_not_an_xml_name_is_written
+    q = @body.append_child(@doc.create_element_ns("u", "q"))
+    q.set_attribute("@y", "1")
+    assert_equal(%(<q xmlns="u" @y="1"/>), q.outer_html)
+  end
+end
+
 # setAttribute in an XML document makes a null-namespace attribute for any
 # valid attribute local name, including the ones that are not XML Names
 # ("\u0001", "@click") or hold a colon: the DOM's name rule, not XML's.
