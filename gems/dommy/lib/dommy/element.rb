@@ -89,7 +89,8 @@ module Dommy
       unless @document.html_document?
         nodes = xml_fragment_nodes(value.to_s, self)
         mark_fragment_scripts_started(nodes)
-        __internal_replace_all__(nodes)
+        # A <template> is still the context, but the nodes replace its contents.
+        (is_a?(HTMLTemplateElement) ? content : self).__internal_replace_all__(nodes)
         return
       end
 
@@ -342,9 +343,10 @@ module Dommy
     # namespace and the prefixes in scope on `context` (nil: the `body` in the
     # HTML namespace that stands in for a DocumentFragment parent), so the
     # markup resolves them as it would inside that element; the nodes are that
-    # start tag's children. Markup that is not a well-formed fragment, or that
-    # closes the start tag itself, is a SyntaxError (DOM Parsing), not a backend
-    # error.
+    # start tag's children, with each parsed <template>'s children moved into
+    # its contents as the XML parser puts them. Markup that is not a
+    # well-formed fragment, or that closes the start tag itself, is a
+    # SyntaxError (DOM Parsing), not a backend error.
     def xml_fragment_nodes(markup, context)
       tag = xml_fragment_context_tag(context)
       top = Parser.fragment("<#{tag}>#{markup}</w>", owner_doc: @__node__.document).children.to_a
@@ -352,7 +354,9 @@ module Dommy
         raise DOMException::SyntaxError, "not a well-formed XML fragment"
       end
 
-      top.first.children.to_a
+      nodes = top.first.children.to_a
+      nodes.each { |node| @document.migrate_xml_template_descendants(node) }
+      nodes
     rescue Backend.xml_syntax_error_class => e
       raise DOMException::SyntaxError, "not a well-formed XML fragment: #{e.message}"
     end

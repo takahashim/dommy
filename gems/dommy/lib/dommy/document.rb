@@ -2611,6 +2611,10 @@ module Dommy
       @template_content_registry.migrate_descendants(root)
     end
 
+    def migrate_xml_template_descendants(root)
+      @template_content_registry.migrate_xml_descendants(root)
+    end
+
     def has_template_content?(nokogiri_node)
       @template_content_registry.has_content?(nokogiri_node)
     end

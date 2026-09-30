@@ -326,9 +326,8 @@ class TestWPTXHTMLElementInterface < Minitest::Test
 end
 
 # Moving an upper-case HTML-namespace element (`BR`, `INPUT`) from an XML
-# document into an HTML one: Makiri will not import it (Lexbor would make it
-# that element), so the adopt falls back to importNode's copy and keeps the
-# DOM's name on the moved wrapper.
+# document into an HTML one keeps the node and the DOM's name: it is an
+# unknown element named `BR`, not Lexbor's `br`.
 class TestWPTAdoptUpperCaseHTMLElement < Minitest::Test
   XHTML = "http://www.w3.org/1999/xhtml"
 
@@ -354,16 +353,6 @@ class TestWPTAdoptUpperCaseHTMLElement < Minitest::Test
       assert_same(@doc.body, el.parent_node)
     end
   end
-
-  # The fallback copy keeps an XML <template>'s children, which are its real
-  # children in an XML document, and their wrappers move with them.
-  def test_a_template_in_the_moved_subtree_keeps_its_children
-    el = element(%(<div xmlns="#{XHTML}"><BR/><template><b/></template></div>))
-    b = el.last_element_child.first_element_child
-    @doc.body.append_child(el)
-    assert_same(el.last_element_child, b.parent_node)
-    assert_same(@doc, b.owner_document)
-  end
 end
 
 # importNode keeps each attribute's qualified name exactly: a null-namespace
@@ -384,17 +373,90 @@ class TestWPTImportKeepsAttributeNames < Minitest::Test
   end
 end
 
-# importNode copies an XML <template>'s children too.
+# The XML parser puts an HTML <template>'s children in its template contents,
+# as it does in a browser, and every path that parses, serializes or copies
+# one follows the contents. A <template> script builds in an XML document
+# keeps the children it is given.
 #
-# WPT: dom/nodes/Document-importNode.html
-# Spec: https://dom.spec.whatwg.org/#concept-node-clone
-class TestWPTImportXMLTemplate < Minitest::Test
-  def test_the_children_are_copied
-    doc = Dommy::Window.new.document
-    xml = Dommy::DOMParser.new.parse_from_string(
-      %(<div xmlns="http://www.w3.org/1999/xhtml"><template><b/></template></div>), "application/xml"
-    )
-    copy = doc.import_node(xml.document_element, true)
-    assert_equal(%w[b], copy.first_element_child.children.to_a.map(&:local_name))
+# WPT: html/semantics/scripting-1/the-template-element/additions-to-parsing-xhtml-documents/template-child-nodes.html
+# Spec: https://html.spec.whatwg.org/multipage/xhtml.html#parsing-xhtml-documents
+class TestWPTXMLTemplateContents < Minitest::Test
+  XHTML = "http://www.w3.org/1999/xhtml"
+
+  def setup
+    @win = Dommy::Window.new
+    @doc = @win.document
+  end
+
+  def element(markup)
+    Dommy::DOMParser.new(@win).parse_from_string(markup, "application/xml").document_element
+  end
+
+  # template-child-nodes.html's own cases, through innerHTML in an XHTML
+  # document.
+  def test_inner_html_puts_nested_templates_children_in_their_contents
+    xml = @doc.implementation.create_document(XHTML, "html", nil)
+    body = xml.document_element.append_child(xml.create_element("body"))
+    body.inner_html = %(<template id="tmpl1"><div>a</div><div>b</div>) +
+      %(<template id="tmpl2"><div>c</div><div>d</div></template></template>)
+    t = xml.query_selector("#tmpl1")
+    assert_equal([0, 3], [t.child_nodes.length, t.content.child_nodes.length])
+    nested = t.content.query_selector("#tmpl2")
+    assert_equal([0, 2], [nested.child_nodes.length, nested.content.child_nodes.length])
+  end
+
+  def test_parsed_children_are_the_contents
+    t = element(%(<div xmlns="#{XHTML}"><template><b/><template><i/></template></template></div>)).first_element_child
+    assert_equal(0, t.child_nodes.length)
+    assert_equal(%w[b template], t.content.children.to_a.map(&:local_name))
+    assert_equal(%w[i], t.content.last_element_child.content.children.to_a.map(&:local_name))
+  end
+
+  def test_only_an_html_template_has_contents
+    t = element(%(<div xmlns="#{XHTML}"><s:template xmlns:s="urn:s"><u/></s:template></div>)).first_element_child
+    assert_equal(%w[u], t.children.to_a.map(&:local_name))
+  end
+
+  def test_inner_html_reads_and_replaces_the_contents
+    t = element(%(<div xmlns="#{XHTML}"><template><b/></template></div>)).first_element_child
+    assert_equal(%(<b xmlns="#{XHTML}"></b>), t.inner_html)
+
+    t.inner_html = "<q/><template><r/></template>"
+    assert_equal(0, t.child_nodes.length)
+    assert_equal(%w[q template], t.content.children.to_a.map(&:local_name))
+    assert_equal(%w[r], t.content.last_element_child.content.children.to_a.map(&:local_name))
+    assert_equal(%(<template xmlns="#{XHTML}"><q></q><template><r></r></template></template>),
+      Dommy::XMLSerializer.new.serialize_to_string(t))
+  end
+
+  def test_the_contents_move_with_an_adopted_subtree
+    el = element(%(<div xmlns="#{XHTML}"><BR/><template><b/></template></div>))
+    b = el.last_element_child.content.first_element_child
+    @doc.body.append_child(el)
+    t = el.last_element_child
+    assert_equal(0, t.child_nodes.length)
+    assert_same(t.content, b.parent_node)
+    assert_same(@doc, b.owner_document)
+  end
+
+  # importNode copies the contents to the copy's contents, and children a
+  # script appended to its children.
+  #
+  # WPT: dom/nodes/Document-importNode.html
+  # Spec: https://dom.spec.whatwg.org/#concept-node-clone
+  def test_import_copies_the_contents_and_the_children
+    t = element(%(<div xmlns="#{XHTML}"><template><b/></template></div>)).first_element_child
+    t.append_child(t.owner_document.create_element_ns(XHTML, "k"))
+    copy = @doc.import_node(t, true)
+    assert_equal(%w[k], copy.children.to_a.map(&:local_name))
+    assert_equal(%w[b], copy.content.children.to_a.map(&:local_name))
+  end
+
+  def test_a_script_built_template_keeps_its_children
+    xml = Dommy::DOMParser.new.parse_from_string("<r/>", "application/xml")
+    t = xml.create_element_ns(XHTML, "template")
+    t.append_child(xml.create_element_ns(XHTML, "k"))
+    assert_equal(1, t.child_nodes.length)
+    assert_equal(0, t.content.child_nodes.length)
   end
 end

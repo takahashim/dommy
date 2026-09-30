@@ -352,7 +352,10 @@ module Dommy
         node.respond_to?(:__internal_created_namespace__) ? node.__internal_created_namespace__ : nil
       end
 
+      # A <template>'s children, for the XML serialization, are those of its
+      # template contents.
       def child_nodes(node)
+        node = node.content if node.is_a?(Dommy::HTMLTemplateElement)
         return node.child_nodes.to_a if node.respond_to?(:child_nodes)
 
         []

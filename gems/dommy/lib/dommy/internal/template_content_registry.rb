@@ -85,7 +85,22 @@ module Dommy
           end
         descendants.each { |node| targets << node if template_needing_migration?(node) }
 
-        targets.uniq.each { |t| migrate_one(t) }
+        targets.uniq.each { |t| migrate_one(t, Backend.template_content_nodes(t)) }
+      end
+
+      # The XML parser appends an HTML <template>'s children to its template
+      # contents rather than to the element (HTML's "Parsing XML documents"),
+      # but the backend's XML tree has no contents and keeps them as children.
+      # Move each parsed template's children into its contents, as
+      # #migrate_descendants does for the HTML parser's. Only for freshly parsed
+      # nodes: a <template> script builds in an XML document keeps the children
+      # it is given.
+      #
+      # Spec: https://html.spec.whatwg.org/multipage/xhtml.html#parsing-xhtml-documents
+      def migrate_xml_descendants(root)
+        NodeTraversal.subtree_nodes(root).each do |node|
+          migrate_one(node, node.children.to_a) if html_template?(node) && !has_content?(node)
+        end
       end
 
       private
@@ -96,22 +111,31 @@ module Dommy
         !has_content?(node)
       end
 
-      def seed(template_element)
-        migrate_one(template_element.__dommy_backend_node__)
-        @fragments[Backend.identity_key(template_element.__dommy_backend_node__)]
+      def html_template?(node)
+        node.respond_to?(:element?) && node.element? && node.local_name == "template" &&
+          Backend.namespace_uri(node) == Namespaces::HTML
       end
 
-      # Bootstrap: move a freshly parsed template's direct backend children into
-      # the associated DocumentFragment, creating that fragment once. This
-      # normalizes Dommy's internal representation to the spec model rather than
-      # performing a DOM mutation — the nodes are the template's contents before
-      # and after — so it deliberately uses a raw unlink, and it is the ONLY
+      # An XML <template> not parsed with its children in its contents starts
+      # with empty contents; its children stay its children.
+      def seed(template_element)
+        node = template_element.__dommy_backend_node__
+        migrate_one(node, @document.html_document? ? Backend.template_content_nodes(node) : [])
+        @fragments[Backend.identity_key(node)]
+      end
+
+      # Bootstrap: move a freshly parsed template's `nodes` (its backend
+      # contents, or an XML template's children) into the associated
+      # DocumentFragment, creating that fragment once. This normalizes Dommy's
+      # internal representation to the spec model rather than performing a DOM
+      # mutation — the nodes are the template's contents before and after — so
+      # it deliberately uses a raw unlink, and it is the ONLY
       # time the registry's fragment for a template is created. Afterwards the
       # `template node -> template contents` mapping is stable: `attach`
       # (innerHTML=) replaces the fragment's children, never the fragment.
-      def migrate_one(template_node)
+      def migrate_one(template_node, nodes)
         fragment = Parser.fragment("", owner_doc: @document.backend_doc)
-        Backend.template_content_nodes(template_node).each do |child|
+        nodes.each do |child|
           child.unlink
           fragment.add_child(child)
         end

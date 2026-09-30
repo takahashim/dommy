@@ -67,6 +67,7 @@ module Dommy
       backend_doc = Backend.parse_xml(str.empty? ? "<root/>" : str)
       doc = Document.new(nil, backend_doc: backend_doc)
       doc.content_type = mime_type
+      doc.migrate_xml_template_descendants(backend_doc)
       doc
     end
   end
