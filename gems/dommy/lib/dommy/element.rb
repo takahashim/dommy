@@ -483,11 +483,13 @@ module Dommy
     end
 
     # HTML namespace constants — most HTML elements live in xhtml ns.
+    # Without createElementNS metadata the backend says: the HTML namespace
+    # for an HTML element, the parsed namespace for an XML one — and null for
+    # an XML element in no namespace (`<r/>` from DOMParser), not the HTML one.
     def namespace_uri
       return @__ns_uri if @__ns_qname
 
-      ns = Backend.namespace_of(@__node__)
-      ns ? ns.href : HTML_NAMESPACE
+      Backend.namespace_uri(@__node__)
     end
 
     # Without createElementNS metadata the backend's local name is the DOM's:

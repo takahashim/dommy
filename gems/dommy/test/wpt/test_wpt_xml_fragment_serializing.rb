@@ -210,3 +210,61 @@ class TestWPTCreateDocumentAppendsTheDoctype < Minitest::Test
     assert_equal(2, doc.child_nodes.length)
   end
 end
+
+# An element parsed from XML in no namespace has a null namespaceURI (not the
+# HTML namespace), so it keeps its case when it moves into an HTML document.
+#
+# WPT: domparsing/DOMParser-parseFromString-xml-CDATA.html
+# Spec: https://dom.spec.whatwg.org/#dom-element-namespaceuri
+class TestWPTXMLElementInNoNamespace < Minitest::Test
+  def setup
+    @win = Dommy::Window.new
+    @xml = Dommy::DOMParser.new(@win).parse_from_string("<r><k/></r>", "application/xml")
+  end
+
+  def test_its_namespace_is_null
+    assert_nil(@xml.document_element.namespace_uri)
+  end
+
+  def test_it_is_not_an_html_element_in_an_html_document
+    doc = @win.document
+    imported = doc.import_node(@xml.document_element, true)
+    assert_nil(imported.namespace_uri)
+    assert_equal("r", imported.tag_name)
+    adopted = doc.adopt_node(@xml.document_element.first_element_child)
+    assert_equal("k", adopted.tag_name)
+  end
+end
+
+# Moving an upper-case HTML-namespace element (`BR`, `INPUT`) from an XML
+# document into an HTML one: Makiri will not import it (Lexbor would make it
+# that element), so the adopt falls back to importNode's copy and keeps the
+# DOM's name on the moved wrapper.
+class TestWPTAdoptUpperCaseHTMLElement < Minitest::Test
+  XHTML = "http://www.w3.org/1999/xhtml"
+
+  def setup
+    skip "needs Makiri >= 0.11" unless Makiri::HTML::Document.method_defined?(:create_element_ns)
+
+    @win = Dommy::Window.new
+    @doc = @win.document
+  end
+
+  def element(markup)
+    Dommy::DOMParser.new(@win).parse_from_string(markup, "application/xml").document_element
+  end
+
+  def test_adopt_and_append_keep_the_node_and_its_name
+    [%(<BR xmlns="#{XHTML}"/>), %(<h:BR xmlns:h="#{XHTML}"/>)].each do |markup|
+      el = element(markup)
+      assert_same(el, @doc.adopt_node(el))
+      assert_equal(["BR", XHTML], [el.local_name, el.namespace_uri])
+      assert_same(@doc, el.owner_document)
+
+      el = element(markup)
+      @doc.body.append_child(el)
+      assert_equal("BR", el.local_name)
+      assert_same(@doc.body, el.parent_node)
+    end
+  end
+end

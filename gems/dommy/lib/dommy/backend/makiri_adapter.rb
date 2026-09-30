@@ -24,6 +24,7 @@ module Dommy
       DocumentType = ::Makiri::DocumentType
       Node = ::Makiri::Node
       XMLSyntaxError = ::Makiri::XML::SyntaxError
+      ImportError = ::Makiri::Error
 
       # A minimal namespace wrapper exposing the same `href` API that Nokogiri's
       # Namespace object has, so calling code treats both backends uniformly.
@@ -256,6 +257,10 @@ module Dommy
       # SVG / MathML). nil for the HTML namespace, so Element#namespace_uri
       # falls back to its HTML default (and the wrapper is allocated only for
       # genuine foreign content).
+      def namespace_uri(node)
+        presence(node.respond_to?(:namespace_uri) ? node.namespace_uri : nil)
+      end
+
       def namespace_of(node)
         return nil unless node.respond_to?(:namespace_uri)
 

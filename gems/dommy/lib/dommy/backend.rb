@@ -138,6 +138,13 @@ module Dommy
       # node carries the namespace and the name's case itself. Returns nil when
       # the backend cannot (fall back to #create_element); raises ArgumentError
       # for an invalid name (the caller maps it to InvalidCharacterError).
+      # The element's own namespace URI as the DOM reports it: nil for no
+      # namespace (unlike #namespace_of, which folds the HTML namespace into nil
+      # too).
+      def namespace_uri(node)
+        current.namespace_uri(node)
+      end
+
       def create_element_ns(namespace, qualified_name, doc)
         current.respond_to?(:create_element_ns) ? current.create_element_ns(namespace, qualified_name, doc) : nil
       end
@@ -268,6 +275,12 @@ module Dommy
 
       def document_class
         current::Document
+      end
+
+      # What the backend raises when it cannot import a node into another
+      # document (Makiri: an upper-case HTML element name it refuses).
+      def import_error_class
+        current::ImportError
       end
 
       # What the backend raises for markup that is not well-formed XML (an XML

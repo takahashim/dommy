@@ -2616,6 +2616,12 @@ module Dommy
       @template_content_registry.has_content?(nokogiri_node)
     end
 
+    # A deep copy of a backend node from `source_document` into this document —
+    # importNode's copy, for an adopt the backend cannot import.
+    def __internal_clone_into_doc__(source, source_document)
+      clone_into_doc(source, true, source_document)
+    end
+
     private
 
     # Build a Nokogiri copy of the given node inside our @backend_doc.
