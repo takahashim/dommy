@@ -327,7 +327,7 @@ module Dommy
       anchor = nil if anchor && anchor.parent != parent
       @document.__internal_ranges_will_insert__(parent, anchor, new_nodes.size)
       if anchor
-        new_nodes.reverse_each { |n| anchor.add_previous_sibling(n) }
+        new_nodes.each { |n| anchor.add_previous_sibling(n) }
       else
         new_nodes.each { |n| parent.add_child(n) }
       end
