@@ -522,3 +522,37 @@ class TestWPTXMLTemplateContents < Minitest::Test
     assert_equal(0, t.content.child_nodes.length)
   end
 end
+
+# An HTML element moved into an XML document keeps its namespace on the
+# element itself and gains no attribute: the XML serialization declares the
+# namespace where the tree needs it, and nowhere else.
+#
+# WPT: dom/nodes/Document-importNode.html, domparsing/XMLSerializer-serializeToString.html
+# Spec: https://dom.spec.whatwg.org/#concept-node-clone
+class TestWPTHTMLElementInAnXMLDocument < Minitest::Test
+  XHTML = "http://www.w3.org/1999/xhtml"
+
+  def setup
+    @html = Dommy::Window.new.document
+    @xml = Dommy::DOMParser.new.parse_from_string(%(<r xmlns="#{XHTML}"/>), "application/xml")
+    @el = @html.create_element("p")
+    @el.set_attribute("x-on:click", "1")
+  end
+
+  def test_import_and_adopt_add_no_attribute
+    copy = @xml.import_node(@el, true)
+    assert_equal([["x-on:click"], XHTML], [copy.attributes.to_a.map(&:name), copy.namespace_uri])
+
+    @xml.document_element.append_child(@el)
+    assert_equal(["x-on:click"], @el.attributes.to_a.map(&:name))
+  end
+
+  def test_the_serialization_declares_the_namespace_only_where_needed
+    @xml.document_element.append_child(@el)
+    other = Dommy::DOMParser.new.parse_from_string("<q/>", "application/xml")
+    other.document_element.append_child(other.import_node(@html.create_element("div"), true))
+
+    assert_equal(%(<r xmlns="#{XHTML}"><p x-on:click="1"></p></r>), @xml.document_element.outer_html)
+    assert_equal(%(<q><div xmlns="#{XHTML}"></div></q>), Dommy::XMLSerializer.new.serialize_to_string(other))
+  end
+end
