@@ -466,14 +466,14 @@ module Dommy
     end
 
     def get_elements_by_class_name(name)
-      tokens = name.to_s.split(/\s+/).reject(&:empty?)
+      tokens = name.to_s.split(Internal::NodeWrapperCache::ASCII_WHITESPACE).reject(&:empty?)
       root = @__node__
       doc = @document
       HTMLCollection.new do
         next [] if tokens.empty?
 
-        selector = tokens.map { |t| ".#{t}" }.join("")
-        root.css(selector).map { |n| doc.wrap_node(n) }.compact
+        quirks = doc.quirks_mode?
+        Internal::NodeWrapperCache.backend_elements_with_classes(root, tokens, quirks: quirks).map { |n| doc.wrap_node(n) }.compact
       end
     end
 

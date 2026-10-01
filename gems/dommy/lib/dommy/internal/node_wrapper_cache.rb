@@ -125,13 +125,32 @@ module Dommy
       # selector ASCII case-insensitively, as CSS asks, while getElementById
       # still compares case-sensitively: its answer is kept only when the id
       # is exactly `id`, and otherwise the exact one is looked for among the
-      # rest it matches.
+      # rest it matches. CSS.escape cannot make a selector of U+0000, which
+      # CSSOM's "serialize an identifier" turns into U+FFFD — an id holding it
+      # is found by comparing the attribute itself.
       def self.backend_element_by_id(bnode, id)
+        return bnode.css("[id]").find { |n| n["id"] == id } if id.include?("\u0000")
+
         selector = "##{Dommy::CSSNamespace.escape(id)}"
         first = bnode.at_css(selector)
         return first if first.nil? || first["id"] == id
 
         bnode.css(selector).find { |n| n["id"] == id }
+      end
+
+      # The backend elements under `bnode` whose class list contains every one of
+      # `tokens`. The class tokens are compared directly rather than composed into
+      # a `.tok` selector: a token may hold anything but ASCII whitespace (`1`,
+      # `a.b`, `a:b`, `[x]`, a quote, NUL), and none of that can be embedded in a
+      # selector unescaped. In a quirks-mode document they compare ASCII
+      # case-insensitively, as getElementsByClassName requires.
+      def self.backend_elements_with_classes(bnode, tokens, quirks:)
+        tokens = tokens.map { |t| t.downcase(:ascii) } if quirks
+        bnode.css("[class]").select do |n|
+          classes = n["class"].to_s.split(ASCII_WHITESPACE)
+          classes = classes.map { |c| c.downcase(:ascii) } if quirks
+          tokens.all? { |t| classes.include?(t) }
+        end
       end
 
       def get_elements_by_tag_name(name)
@@ -142,8 +161,10 @@ module Dommy
         doc = @document.backend_doc
         cache = self
         key = name.to_s
+        # Compare the attribute rather than compose `[name='…']`: a name with a
+        # quote, a backslash or a newline cannot sit in a selector string unescaped.
         HTMLCollection.new do
-          doc.css("[name='#{key}']").map { |x| cache.wrap(x) }.compact
+          doc.css("[name]").select { |x| x["name"] == key }.map { |x| cache.wrap(x) }.compact
         end
       end
 
@@ -160,14 +181,8 @@ module Dommy
         HTMLCollection.new do
           next [] if tokens.empty?
 
-          # Match class tokens directly rather than composing a `.tok` CSS
-          # selector string — an exotic class token (control chars, Unicode
-          # spaces, quotes) can't be safely embedded in a selector, and the
-          # split must be ASCII-whitespace, not the CSS engine's tokenization.
-          doc.css("[class]").select do |n|
-            classes = n["class"].to_s.split(ASCII_WHITESPACE)
-            tokens.all? { |t| classes.include?(t) }
-          end.map { |n| cache.wrap(n) }.compact
+          quirks = @document.quirks_mode?
+          NodeWrapperCache.backend_elements_with_classes(doc, tokens, quirks: quirks).map { |n| cache.wrap(n) }.compact
         end
       end
 

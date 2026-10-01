@@ -783,6 +783,9 @@ module Dommy
         code = ch.ord
         if code.zero?
           out << "\uFFFD"
+        elsif i.zero? && code == 0x2D && str.length == 1
+          # A lone "-" would read as a delim-token, not an ident.
+          out << "\\-"
         elsif (code >= 0x01 && code <= 0x1F) || code == 0x7F ||
               (i.zero? && code >= 0x30 && code <= 0x39) ||
               (i == 1 && code >= 0x30 && code <= 0x39 && str[0] == "-")
