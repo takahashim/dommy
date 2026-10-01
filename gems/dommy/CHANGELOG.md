@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.
+
 ### Fixed
 
 - `getElementById` compares ids case-sensitively in a quirks-mode document too: `<p id=Bar>` is not found by `"bar"`.
