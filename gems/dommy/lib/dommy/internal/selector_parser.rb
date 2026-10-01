@@ -940,44 +940,12 @@ module Dommy
           false
         end
 
-        # §4.3.8: a backslash starts a valid escape unless a newline follows it.
-        # Every other pair counts, the end of the input included.
-        def valid_escape?(offset = 0)
-          peek(offset) == "\\" && peek(offset + 1) != "\n"
-        end
+        # §4.3.8 — see CssSource.valid_escape_at?.
+        def valid_escape?(offset = 0) = CssSource.valid_escape_at?(@s, @i + offset)
 
-        # css-syntax-3 §4.2 "non-ASCII ident code point". Not everything from
-        # U+0080 up: the spec narrowed it to this list, aligned with HTML's valid
-        # custom element name. U+2603 SNOWMAN falls between two of the ranges, so
-        # it cannot be written into a selector at all except escaped (`.\2603 `).
-        NON_ASCII_IDENT_RANGES = [
-          0xB7..0xB7, 0xC0..0xD6, 0xD8..0xF6, 0xF8..0x37D, 0x37F..0x1FFF,
-          0x200C..0x200D, 0x203F..0x2040, 0x2070..0x218F, 0x2C00..0x2FEF,
-          0x3001..0xD7FF, 0xF900..0xFDCF, 0xFDF0..0xFFFD,
-        ].freeze
+        def ident_letter?(c) = CssSource.ident_start_code_point?(c)
 
-        def non_ascii_ident?(c)
-          codepoint = c.ord
-          return false if codepoint < 0x80
-          return true if codepoint >= 0x10000
-
-          NON_ASCII_IDENT_RANGES.any? { |range| range.cover?(codepoint) }
-        end
-
-        # An ident-start code point: a letter, an underscore, or one of the
-        # non-ASCII ident code points.
-        def ident_letter?(c)
-          return false if c.nil?
-
-          c.match?(/[A-Za-z_]/) || non_ascii_ident?(c)
-        end
-
-        # An ident code point: an ident-start one, a digit, or U+002D.
-        def name_char?(c)
-          return false if c.nil?
-
-          c.match?(/[A-Za-z0-9_\-]/) || non_ascii_ident?(c)
-        end
+        def name_char?(c) = CssSource.name_code_point?(c)
 
         def hex_digit?(c) = !c.nil? && c.match?(/[0-9A-Fa-f]/)
 
@@ -986,7 +954,7 @@ module Dommy
           j = from
           j += 1 if @s[j] == "-"
           while (ch = @s[j])
-            if ch == "\\" && @s[j + 1] != "\n"
+            if CssSource.valid_escape_at?(@s, j)
               j += 1
               if @s[j]&.match?(/[0-9A-Fa-f]/)
                 count = 0

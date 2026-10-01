@@ -17,12 +17,48 @@ module Dommy
     module CssSource
       OPENING_BRACKETS = "([{"
       CLOSING_BRACKETS = ")]}"
-      # css-syntax-3's whitespace (§4.2) and name code points (§4.2), the
-      # latter as a single character class.
+      # css-syntax-3's whitespace (§4.2).
       WHITESPACE = " \t\n\r\f"
-      NAME_CODE_POINT = /[A-Za-z0-9_\-\u0080-\u{10FFFF}]/
+      # css-syntax-3 §4.2 "non-ASCII ident code point". Not everything from
+      # U+0080 up: the spec narrowed it to this list, aligned with HTML's valid
+      # custom element name. U+2603 SNOWMAN falls between two of the ranges, so
+      # it cannot be written into a selector at all except escaped (`.\2603 `).
+      NON_ASCII_IDENT_RANGES = [
+        0xB7..0xB7, 0xC0..0xD6, 0xD8..0xF6, 0xF8..0x37D, 0x37F..0x1FFF,
+        0x200C..0x200D, 0x203F..0x2040, 0x2070..0x218F, 0x2C00..0x2FEF,
+        0x3001..0xD7FF, 0xF900..0xFDCF, 0xFDF0..0xFFFD,
+      ].freeze
 
       module_function
+
+      # §4.3.8: a backslash at `j` starts a valid escape unless a newline
+      # follows it. Every other pair counts, the end of the input included.
+      def valid_escape_at?(source, j)
+        source[j] == "\\" && source[j + 1] != "\n"
+      end
+
+      # §4.2 ident-start code point: a letter, an underscore, or a non-ASCII
+      # ident code point. nil (past the end) is none.
+      def ident_start_code_point?(c)
+        return false if c.nil?
+
+        c.match?(/[A-Za-z_]/) || non_ascii_ident_code_point?(c)
+      end
+
+      # §4.2 ident code point: an ident-start one, a digit, or U+002D.
+      def name_code_point?(c)
+        return false if c.nil?
+
+        c.match?(/[A-Za-z0-9_\-]/) || non_ascii_ident_code_point?(c)
+      end
+
+      def non_ascii_ident_code_point?(c)
+        codepoint = c.ord
+        return false if codepoint < 0x80
+        return true if codepoint >= 0x10000
+
+        NON_ASCII_IDENT_RANGES.any? { |range| range.cover?(codepoint) }
+      end
 
       # Index just past the escape, string, unquoted url or comment starting
       # at `j`, or nil if none starts there. A string ends at its closing
@@ -33,7 +69,7 @@ module Dommy
         if (c == "u" || c == "U") && (k = url_contents_start(source, j))
           url_end(source, k)
         elsif c == "\\"
-          return nil if source[j + 1] == "\n" # not a valid escape
+          return nil unless valid_escape_at?(source, j)
 
           [j + 2, source.length].min
         elsif c == '"' || c == "'"
@@ -58,7 +94,7 @@ module Dommy
       # makes it a `url(` function holding a string instead (§4.3.4).
       def url_contents_start(source, j)
         return nil unless source[j, 4].casecmp?("url(")
-        return nil if j.positive? && source[j - 1].match?(NAME_CODE_POINT)
+        return nil if j.positive? && name_code_point?(source[j - 1])
 
         k = j + 4
         k += 1 while k < source.length && WHITESPACE.include?(source[k])
@@ -75,7 +111,7 @@ module Dommy
           d = source[k]
           return k + 1 if d == ")"
 
-          k += d == "\\" && source[k + 1] != "\n" ? 2 : 1
+          k += valid_escape_at?(source, k) ? 2 : 1
         end
         source.length
       end
@@ -117,7 +153,7 @@ module Dommy
             i = j
             next
           end
-          if source[i, head.length].casecmp?(head) && (i.zero? || !source[i - 1].match?(NAME_CODE_POINT))
+          if source[i, head.length].casecmp?(head) && (i.zero? || !name_code_point?(source[i - 1]))
             return [i, matching_bracket(source, i + name.length)]
           end
 
@@ -194,6 +230,8 @@ module Dommy
         end
         out
       end
+
+      private_class_method :non_ascii_ident_code_point?, :url_contents_start, :url_end
     end
   end
 end
