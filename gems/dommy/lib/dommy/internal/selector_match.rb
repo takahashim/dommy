@@ -90,9 +90,11 @@ module Dommy
         end
 
         # HTML: in a quirks-mode document, id and class selectors match ASCII
-        # case-insensitively (https://html.spec.whatwg.org/#selectors).
+        # case-insensitively (https://html.spec.whatwg.org/#selectors). An
+        # element's id is its `id` attribute in no namespace, as
+        # getElementById reads it, and its classes its classList's.
         def id?(element, value)
-          id = element.get_attribute("id").to_s
+          id = Backend.no_namespace_attribute_value(element.__dommy_backend_node__, "id").to_s
           @quirks ? id.downcase(:ascii) == value.downcase(:ascii) : id == value
         end
 

@@ -124,10 +124,10 @@ module Dommy
         kind, value = prefilter
         case kind
         when :id
-          id = bnode["id"]
+          id = Backend.no_namespace_attribute_value(bnode, "id")
           quirks ? !id.nil? && id.downcase(:ascii) == value.downcase(:ascii) : id == value
         when :class
-          raw = bnode["class"]
+          raw = Backend.no_namespace_attribute_value(bnode, "class")
           quirks ? class_attr_token?(raw&.downcase(:ascii), value.downcase(:ascii)) : class_attr_token?(raw, value)
         when :attr then !bnode[value].nil?
         when :type then (name = bnode.local_name) && name.casecmp?(value)

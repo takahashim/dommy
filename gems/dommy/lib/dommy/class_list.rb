@@ -31,11 +31,11 @@ module Dommy
     end
 
     def value
-      @element.__dommy_backend_node__[@attribute].to_s
+      associated_value.to_s
     end
 
     def value=(new_value)
-      @element.set_attribute(@attribute, new_value.to_s)
+      write(new_value.to_s)
     end
 
     # Spec: contains() does NOT validate (no SyntaxError on empty).
@@ -81,7 +81,7 @@ module Dommy
       # raw attribute string, which would then hand stale tokens to later reads).
       updated = tokens.dup
       updated[idx] = new_s
-      @element.set_attribute(@attribute, updated.uniq.join(" "))
+      write(updated.uniq.join(" "))
       true
     end
 
@@ -209,7 +209,7 @@ module Dommy
     # item, iteration, and contains all operate on this set; `value`/`toString`
     # return the raw attribute. ASCII whitespace per the spec is space/tab/LF/FF/CR.
     def class_tokens
-      raw = @element.__dommy_backend_node__[@attribute].to_s
+      raw = associated_value.to_s
       # Cache the parsed token list keyed by the raw attribute string: a class
       # selector match re-reads this for every element on every querySelector,
       # and the split/reject/uniq dominated heavy-SPA load profiles. The key is
@@ -229,9 +229,20 @@ module Dommy
     # (per spec) is an empty set with no existing attribute — don't create one.
     def update_tokens
       tokens = yield(class_tokens)
-      return if tokens.empty? && !@element.__dommy_backend_node__.key?(@attribute)
+      return if tokens.empty? && associated_value.nil?
 
-      @element.set_attribute(@attribute, tokens.join(" "))
+      write(tokens.join(" "))
+    end
+
+    # The associated attribute is the one of that local name in no namespace
+    # (DOM's "get an attribute by namespace and local name"): a `class` set
+    # with setAttributeNS("urn:x", "class") is not the element's classes.
+    def associated_value
+      Backend.no_namespace_attribute_value(@element.__dommy_backend_node__, @attribute)
+    end
+
+    def write(value)
+      @element.set_attribute_ns(nil, @attribute, value)
     end
   end
 

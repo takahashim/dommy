@@ -103,6 +103,27 @@ class TestLiteralLookups < Minitest::Test
     assert_equal [element], @doc.get_elements_by_name("v").to_a
   end
 
+  # Selectors and classList read the same attributes: an id or a class in a
+  # namespace matches neither `#v` nor `.v`, and is none of classList's
+  # tokens; a classList change writes the attribute in no namespace.
+  def test_selectors_and_class_list_ignore_namespaced_id_and_class
+    other = child(@root, {})
+    other.set_attribute_ns("urn:x", "id", "w")
+    other.set_attribute_ns("urn:x", "class", "w")
+
+    assert_nil @doc.query_selector("#w")
+    assert_nil @doc.query_selector(".w")
+    refute other.matches?("#w")
+    refute other.matches?(".w")
+    refute other.matches?("div .w, p.w")
+    assert_equal [], other.class_list.to_a
+
+    other.class_list.add("z")
+    assert_equal "w", other.get_attribute_ns("urn:x", "class")
+    assert_equal "z", other.get_attribute_ns(nil, "class")
+    assert_same other, @doc.query_selector(".z")
+  end
+
   def test_get_element_by_id_takes_any_value
     fragment = @doc.create_document_fragment
     host = child(@root, {})
