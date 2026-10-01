@@ -369,20 +369,30 @@ module Dommy
         doc.respond_to?(:quirks_mode?) && doc.quirks_mode?
       end
 
+      # Selectors 4 §6.4: the selector names a local name and a namespace
+      # condition, and it matches when ANY attribute meeting both passes the
+      # value test. `[*|att=v]` therefore looks at every `att`, in every
+      # namespace — not just the first one found, and not just the one in no
+      # namespace.
       def matches_attribute?(element, selector)
-        actual = attribute_value(element, selector)
-        return false if actual.nil?
+        attribute_values(element, selector).any? { |actual| attribute_value_matches?(actual, selector) }
+      end
+
+      # §6.3 / §6.3.3: the value is compared ASCII case-insensitively under the
+      # `i` flag (KELVIN SIGN is not `k`), and `~=` splits on ASCII whitespace
+      # (TAB, LF, FF, CR, SPACE — not VT).
+      def attribute_value_matches?(actual, selector)
         return true unless selector.matcher
 
         actual = actual.to_s
         expected = selector.value.to_s
         if selector.case_flag.to_s.downcase == "i"
-          actual = actual.downcase
-          expected = expected.downcase
+          actual = actual.downcase(:ascii)
+          expected = expected.downcase(:ascii)
         end
         case selector.matcher
         when "=" then actual == expected
-        when "~=" then actual.split(/\s+/).include?(expected)
+        when "~=" then actual.split(NodeWrapperCache::ASCII_WHITESPACE).include?(expected)
         when "|=" then actual == expected || actual.start_with?("#{expected}-")
         # `^=`/`$=`/`*=` against the empty string never match (Selectors 4 §6.2).
         when "^=" then !expected.empty? && actual.start_with?(expected)
@@ -392,31 +402,42 @@ module Dommy
         end
       end
 
-      # Selectors 4 §6.1: an unprefixed (or `|`-prefixed) attribute selector matches
-      # only attributes in no namespace, `*|` matches one in any namespace by its
-      # local name, and a declared prefix matches that namespace. querySelector
-      # declares no prefixes, so only the first two shapes reach here from the DOM.
-      def attribute_value(element, selector)
-        name = selector.name.to_s
-        case selector.namespace
-        when :any then any_namespace_attribute_value(element, name)
-        when nil, :none then element.get_attribute(name)
-        else element.get_attribute_ns(selector.namespace, name)
-        end
+      # The values of the attributes the selector's name and namespace accept.
+      # An unprefixed (or `|`-prefixed) selector accepts only attributes in no
+      # namespace, `*|` accepts any, and a declared prefix that namespace. The
+      # name is the LOCAL name, matched with the element's attribute-name case
+      # rule — not the qualified name a by-name lookup (`getAttribute`) uses,
+      # which would take `x:att` or a namespaced `att` for `att`.
+      def attribute_values(element, selector)
+        local_name = element.__internal_normalize_attr_key__(selector.name.to_s)
+        # :none (`|att`) and nil (no prefix) both mean no namespace.
+        namespace = selector.namespace == :none ? nil : selector.namespace
+        return no_namespace_attribute_values(element, local_name) if namespace.nil?
+
+        attribute_values_in(element, local_name, namespace)
       end
 
-      # `[*|att]` — the no-namespace read covers the common case; a namespaced
-      # attribute is found by scanning for the local name, since the qualified
-      # name it is stored under (`xlink:href`) is not what the selector spells.
-      def any_namespace_attribute_value(element, local_name)
-        value = element.get_attribute(local_name)
-        return value unless value.nil?
+      # The common shape, `[att]` / `[att=v]`, on the hot path of every cascade:
+      # an attribute in no namespace has its local name as its qualified name,
+      # so the backend's native by-name read answers it without listing the
+      # attributes. Only when what it finds is a namespaced, unprefixed `att`
+      # (setAttributeNS("u", "att")) does the full scan run.
+      def no_namespace_attribute_values(element, local_name)
+        attr = Backend.attr_by_qualified_name(element.__dommy_backend_node__, local_name)
+        return [] if attr.nil?
+        return [attr.value] if Backend.namespace_uri(attr).nil?
 
-        Backend.attribute_nodes(element.__dommy_backend_node__).each do |attr|
+        attribute_values_in(element, local_name, nil)
+      end
+
+      def attribute_values_in(element, local_name, namespace)
+        Backend.attribute_nodes(element.__dommy_backend_node__).filter_map do |attr|
           info = Backend.attribute_ns_info(attr)
-          return info[:value] if info[:local_name] == local_name
+          next unless info[:local_name] == local_name
+          next unless namespace == :any || info[:namespace_uri] == namespace
+
+          info[:value]
         end
-        nil
       end
 
       def matches_pseudo_class?(element, pseudo, scope:)
