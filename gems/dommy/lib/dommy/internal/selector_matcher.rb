@@ -3,6 +3,7 @@
 require_relative "selector_ast"
 require_relative "element_state"
 require_relative "backend_prefilter"
+require_relative "infra"
 
 module Dommy
   module Internal
@@ -392,7 +393,7 @@ module Dommy
         end
         case selector.matcher
         when "=" then actual == expected
-        when "~=" then actual.split(NodeWrapperCache::ASCII_WHITESPACE).include?(expected)
+        when "~=" then actual.split(Infra::ASCII_WHITESPACE).include?(expected)
         when "|=" then actual == expected || actual.start_with?("#{expected}-")
         # `^=`/`$=`/`*=` against the empty string never match (Selectors 4 §6.2).
         when "^=" then !expected.empty? && actual.start_with?(expected)

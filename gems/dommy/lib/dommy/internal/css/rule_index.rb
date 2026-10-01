@@ -480,7 +480,7 @@ module Dommy
             # HTML ASCII whitespace, exactly as the buckets were filled and as
             # class_tokens / class_attr_token? split (Ruby's default split
             # adds \v, which is NOT a class separator — "a\vb" is ONE token).
-            classes.split(/[ \t\n\f\r]+/).map { |token| bucket_key(token) }.uniq.each { |token| @bucket_class[token]&.each(&block) }
+            classes.split(Internal::Infra::ASCII_WHITESPACE).map { |token| bucket_key(token) }.uniq.each { |token| @bucket_class[token]&.each(&block) }
           end
 
           @bucket_universal.each(&block)

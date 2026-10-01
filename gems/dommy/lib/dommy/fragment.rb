@@ -110,7 +110,7 @@ module Dommy
     def get_element_by_id(id)
       return nil if id.nil? || id.to_s.empty?
 
-      @document.wrap_node(Internal::NodeWrapperCache.backend_element_by_id(@__node__, id.to_s))
+      @document.wrap_node(Internal::LiteralLookup.element_by_id(@__node__, id.to_s))
     end
 
     def __js_get__(key)

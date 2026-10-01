@@ -37,7 +37,9 @@ class TestInternalModuleApi < Minitest::Test
       form_control_optional? read_only_element? read_write_element?
       dir_match? lang_match? link_element?
     ],
+    Dommy::Internal::Infra => %w[ascii_whitespace? split_on_ascii_whitespace],
     Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],
+    Dommy::Internal::LiteralLookup => %w[element_by_id class_tokens elements_with_classes elements_named],
     Dommy::Internal::NodeIdentity => %w[same_node? key_for],
     Dommy::Internal::RenderedText::Fragment => %w[set_inner set_outer],
     Dommy::Internal::SelectorParser::AnPlusB => %w[match],
