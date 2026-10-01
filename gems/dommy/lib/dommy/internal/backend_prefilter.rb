@@ -60,25 +60,22 @@ module Dommy
       # (rightmost) compound. nil when ANY subject lacks a static id/class/attribute
       # to filter on (a universal- or pseudo-only subject), so the whole query
       # falls back to the Ruby matcher.
-      def static_prefilters(selector_ast, quirks: false)
+      def static_prefilters(selector_ast)
         selector_ast.selectors.map do |complex|
           compound = complex.parts.last.compound
           return nil if compound.pseudo_element
 
-          prefilter_for(compound, quirks: quirks) || (return nil)
+          prefilter_for(compound) || (return nil)
         end
       end
 
       # The most selective static check in `compound` (id > class > attribute >
       # type); nil if it has none (universal/pseudo-only subject). The exact
       # case/namespace and pseudo state are still left to the authoritative
-      # #matches? — the prefilter only has to be a SUPERSET. In a quirks-mode
-      # document an id or class selector matches ASCII case-insensitively, so
-      # the exact id / class-token checks are not a superset there: the
-      # attribute's presence is.
-      def prefilter_for(compound, quirks: false)
-        return quirks_prefilter_for(compound) if quirks
-
+      # #matches? — the prefilter only has to be a SUPERSET. An id or class
+      # prefilter is tested as the document's mode compares it (see
+      # #backend_passes? and SelectorIndex).
+      def prefilter_for(compound)
         id = klass = attr = nil
         compound.subclass_selectors.each do |sub|
           case sub
@@ -101,23 +98,13 @@ module Dommy
         nil
       end
 
-      # #prefilter_for in quirks mode: an id or class selector gates on the
-      # `id` / `class` attribute being there at all.
-      def quirks_prefilter_for(compound)
-        subs = compound.subclass_selectors
-        return [:attr, "id"] if subs.any?(SelectorAST::IdSelector)
-        return [:attr, "class"] if subs.any?(SelectorAST::ClassSelector)
-
-        prefilter_for(compound)
-      end
-
       # [:class|:id, value] when `compound` is EXACTLY one class or id selector
       # (no type, no pseudo, nothing else), else nil. For such a compound the index
       # lookup is an exact match — not just a superset — so an index "does an
-      # ancestor match?" answer can be trusted without re-running Match#compound?.
-      # Never in quirks mode, where the index's exact buckets are not the match.
-      def exact_class_or_id_prefilter(compound, quirks: false)
-        return nil if quirks
+      # ancestor match?" answer can be trusted without re-running Match#compound?
+      # — in a quirks-mode document too, whose index folds case as the selector
+      # does.
+      def exact_class_or_id_prefilter(compound)
         return nil unless compound.type.nil? && compound.pseudo_element.nil?
 
         subs = compound.subclass_selectors
@@ -130,12 +117,18 @@ module Dommy
       end
 
       # Does the backend node satisfy a pre-filter? A SUPERSET test (presence /
-      # exact id / class token / tag) — never a false negative, so #matches? can prune.
-      def backend_passes?(bnode, prefilter)
+      # exact id / class token / tag) — never a false negative, so #matches? can
+      # prune. In a quirks-mode document an id or a class token compares ASCII
+      # case-insensitively, as the selector does there.
+      def backend_passes?(bnode, prefilter, quirks: false)
         kind, value = prefilter
         case kind
-        when :id then bnode["id"] == value
-        when :class then class_attr_token?(bnode["class"], value)
+        when :id
+          id = bnode["id"]
+          quirks ? !id.nil? && id.downcase(:ascii) == value.downcase(:ascii) : id == value
+        when :class
+          raw = bnode["class"]
+          quirks ? class_attr_token?(raw&.downcase(:ascii), value.downcase(:ascii)) : class_attr_token?(raw, value)
         when :attr then !bnode[value].nil?
         when :type then (name = bnode.local_name) && name.casecmp?(value)
         end
@@ -176,7 +169,6 @@ module Dommy
       end
 
       # Everything above is the module; everything below is how.
-      private_class_method :quirks_prefilter_for
       private_class_method :each_backend_element_descendant
       private_class_method :each_backend_child_list_descendant
       private_class_method :class_attr_token?

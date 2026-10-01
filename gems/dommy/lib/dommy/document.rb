@@ -500,7 +500,7 @@ module Dommy
       end
       return nil if @__sel_idx_bypass
 
-      @__sel_idx ||= Internal::SelectorIndex.build(@backend_doc)
+      @__sel_idx ||= Internal::SelectorIndex.build(@backend_doc, quirks: quirks_mode?)
       @__sel_idx_served += 1
       @__sel_idx
     end
