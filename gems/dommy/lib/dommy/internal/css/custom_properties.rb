@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "../css_source"
+
 module Dommy
   module Internal
     module CSS
@@ -74,13 +76,10 @@ module Dommy
         # escapes aside, which no caller writes.
         CUSTOM_PROPERTY_NAME = /\A--[\w\-\u0080-\u{10FFFF}]*\z/
 
-        # Brackets of every kind open a level, so a top-level comma is one that
-        # no "(", "[" or "{" is still open at. The same rule the parser applies
-        # when it decides where var()'s name argument ends — asked in two places,
-        # it has to be answered the same way, or a name the parser read as
-        # `{a, b}` would be substituted against as `{a`.
-        OPENING_BRACKETS = "([{"
-        CLOSING_BRACKETS = ")]}"
+        # Where var()'s name argument ends — the first comma outside every
+        # bracket, string and comment — is CssSource's answer, the same one the
+        # parser uses, so a name the parser read as `{a, b}` is not substituted
+        # against as `{a`.
 
         module_function
 
@@ -126,19 +125,13 @@ module Dommy
 
           out = +""
           index = 0
-          while index < value.length
-            at_var = value[index, 4].casecmp("var(").zero? &&
-              (index.zero? || !value[index - 1].match?(/[\w-]/))
-            unless at_var
-              out << value[index]
-              index += 1
-              next
-            end
-
-            close = matching_paren_index(value, index + 3)
+          # A var() inside a string or a comment is text: `"var(--x)"` is copied.
+          while (call = CssSource.next_function(value, "var", index))
+            start, close = call
             return nil unless close
 
-            name, fallback = split_args(value[(index + 4)...close])
+            out << value[index...start]
+            name, fallback = split_args(value[(start + 4)...close])
             # The parser keeps `var(--x ())` and `var({--x})`, because var()'s
             # first argument is only read as a custom property name here, after
             # substitution. A name that does not parse makes the declaration
@@ -157,7 +150,7 @@ module Dommy
             out << replacement
             index = close + 1
           end
-          out
+          out << value[index..]
         end
 
         # The custom-property names that participate in a dependency cycle: the
@@ -178,36 +171,15 @@ module Dommy
         def references(value)
           refs = []
           index = 0
-          while index < value.length
-            unless value[index, 4].casecmp("var(").zero? &&
-                   (index.zero? || !value[index - 1].match?(/[\w-]/))
-              index += 1
-              next
-            end
-
-            close = matching_paren_index(value, index + 3)
+          while (call = CssSource.next_function(value, "var", index))
+            start, close = call
             break unless close
 
-            name, = split_args(value[(index + 4)...close])
+            name, = split_args(value[(start + 4)...close])
             refs << name
             index = close + 1
           end
           refs
-        end
-
-        def matching_paren_index(value, open_index)
-          depth = 0
-          index = open_index
-          while index < value.length
-            case value[index]
-            when "(" then depth += 1
-            when ")"
-              depth -= 1
-              return index if depth.zero?
-            end
-            index += 1
-          end
-          nil
         end
 
         # var()'s arguments split at the first top-level comma: "--name ,
@@ -215,16 +187,13 @@ module Dommy
         # no comma (distinct from the empty-but-valid `var(--x,)` fallback).
         # Public because the parser asks the same question at parse time.
         def split_args(inner)
-          depth = 0
-          inner.each_char.with_index do |char, index|
-            depth += 1 if OPENING_BRACKETS.include?(char)
-            depth -= 1 if CLOSING_BRACKETS.include?(char)
-            return [inner[0...index].strip, inner[(index + 1)..].strip] if char == "," && depth.zero?
-          end
-          [inner.strip, nil]
+          comma = CssSource.index_top_level(inner, ",")
+          return [inner.strip, nil] unless comma
+
+          [inner[0...comma].strip, inner[(comma + 1)..].strip]
         end
 
-        private_class_method :cyclic_properties, :references, :matching_paren_index
+        private_class_method :cyclic_properties, :references
       end
     end
   end
