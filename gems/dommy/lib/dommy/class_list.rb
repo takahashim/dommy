@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "internal/infra"
+
 module Dommy
   # DOMTokenList (`classList`, `relList`) and DOMStringMap (`dataset`) —
   # the two live views over one attribute's text.
@@ -216,7 +218,7 @@ module Dommy
       cached = @token_cache
       return cached[1] if cached && cached[0] == raw
 
-      tokens = raw.split(/[ \t\n\f\r]+/).reject(&:empty?).uniq
+      tokens = Internal::Infra.split_on_ascii_whitespace(raw).uniq
       @token_cache = [raw, tokens]
       tokens
     end

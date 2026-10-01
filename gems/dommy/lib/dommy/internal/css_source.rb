@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "infra"
+
 module Dommy
   module Internal
     # Reading CSS source text by hand without mistaking the inside of a token
@@ -31,8 +33,9 @@ module Dommy
     module CssSource
       OPENING_BRACKETS = "([{"
       CLOSING_BRACKETS = ")]}"
-      # css-syntax-3's whitespace (§4.2).
-      WHITESPACE = " \t\n\r\f"
+      # css-syntax-3's whitespace (§4.2) — before §3.3's preprocessing folds CR
+      # and FF into LF, the same set as Infra's ASCII whitespace.
+      WHITESPACE = Infra::ASCII_WHITESPACE_CHARS
       # css-syntax-3 §4.2 "non-ASCII ident code point". Not everything from
       # U+0080 up: the spec narrowed it to this list, aligned with HTML's valid
       # custom element name. U+2603 SNOWMAN falls between two of the ranges, so

@@ -110,7 +110,7 @@ module Dommy
       # Recursive-descent parser over a character buffer. Methods raise
       # InvalidSelector on the first grammar violation.
       class Parser
-        WS = " \t\r\n\f"
+        WS = CssSource::WHITESPACE
 
         def initialize(string, in_has: false, namespaces: nil)
           @s = CssSource.preprocess(string)
