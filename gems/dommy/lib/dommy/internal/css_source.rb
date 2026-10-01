@@ -33,9 +33,9 @@ module Dommy
       }.freeze
       # The same, or what a declaration's value may not hold at its top level.
       DECLARATION_STOP = %r{[\\"'/uU()\[\]{};!]}
-      # Where a call of each function #next_function is asked for may start,
-      # or an atom.
-      FUNCTION_STOP = {"var" => %r{[\\"'/uUvV]}}.freeze
+      # Where a call of the function #next_function is asked for may start, or
+      # an atom: one pattern per function name, built on its first use.
+      FUNCTION_STOP = Hash.new { |stops, name| stops[name] = Regexp.union(ATOM_START, /#{Regexp.escape(name[0])}/i) }
       # The bracket that closes a block each opening one starts.
       CLOSER = {"(" => ")", "[" => "]", "{" => "}"}.freeze
 
@@ -81,7 +81,7 @@ module Dommy
       # closed. nil when there is no such call.
       def next_function(name, from = 0)
         head = "#{name}("
-        stop = FUNCTION_STOP.fetch(name)
+        stop = FUNCTION_STOP[name]
         i = from
         while (i = @bytes.index(stop, i))
           if (j = CssSyntax.atom_end(@bytes, i))
