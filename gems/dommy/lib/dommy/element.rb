@@ -472,8 +472,7 @@ module Dommy
       HTMLCollection.new do
         next [] if tokens.empty?
 
-        quirks = doc.quirks_mode?
-        Internal::LiteralLookup.elements_with_classes(root, tokens, quirks: quirks).map { |n| doc.wrap_node(n) }.compact
+        Internal::LiteralLookup.elements_with_classes(doc, root, tokens).map { |n| doc.wrap_node(n) }.compact
       end
     end
 

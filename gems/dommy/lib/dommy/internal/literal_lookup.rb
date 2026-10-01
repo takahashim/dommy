@@ -37,14 +37,16 @@ module Dommy
       # The class tokens getElementsByClassName looks for in `names`.
       def class_tokens(names) = Infra.split_on_ascii_whitespace(names)
 
-      # The backend elements under `bnode` whose class list contains every one
-      # of `tokens`, compared directly: a token may hold anything but ASCII
-      # whitespace (`1`, `a.b`, `a:b`, `[x]`, a quote, NUL). In a quirks-mode
-      # document they compare ASCII case-insensitively. The backend's own class
-      # selector narrows the candidates first (see #class_candidates).
-      def elements_with_classes(bnode, tokens, quirks:)
+      # The backend elements under `root`, a node of `document`, whose class
+      # list contains every one of `tokens`, compared directly: a token may
+      # hold anything but ASCII whitespace (`1`, `a.b`, `a:b`, `[x]`, a quote,
+      # NUL). In a quirks-mode document they compare ASCII case-insensitively.
+      # The backend's own class selector narrows the candidates first (see
+      # #class_candidates).
+      def elements_with_classes(document, root, tokens)
+        quirks = document.quirks_mode?
         wanted = quirks ? tokens.map { |t| t.downcase(:ascii) } : tokens
-        class_candidates(bnode, tokens, quirks).select do |n|
+        class_candidates(document, root, tokens).select do |n|
           classes = Infra.split_on_ascii_whitespace(n["class"])
           classes = classes.map { |c| c.downcase(:ascii) } if quirks
           wanted.all? { |t| classes.include?(t) }
@@ -56,16 +58,16 @@ module Dommy
       # natively, where the comparison above runs in Ruby. That selector
       # compares exactly in a no-quirks document and ASCII case-insensitively
       # in one the backend parsed in quirks mode. It cannot spell U+0000
-      # (CSS.escape writes U+FFFD), and it does not fold case when the backend
-      # holds the document in no-quirks mode while Dommy's is quirks; then
-      # every element with a class is a candidate.
-      def class_candidates(bnode, tokens, quirks)
-        doc = bnode.document
-        if tokens.any? { |t| t.include?("\u0000") } || (quirks && !Backend.quirks_mode?(doc))
-          return bnode.css("[class]")
-        end
+      # (CSS.escape writes U+FFFD), and it would not fold case were `document`
+      # in quirks mode while its backend holds it in no-quirks mode (the two
+      # agree wherever Dommy takes the mode from the backend's parser, but a
+      # superset must not rest on that); then every element with a class is a
+      # candidate.
+      def class_candidates(document, root, tokens)
+        backend_folds = !document.quirks_mode? || Backend.quirks_mode?(document.backend_doc)
+        return root.css("[class]") if !backend_folds || tokens.any? { |t| t.include?("\u0000") }
 
-        bnode.css(tokens.map { |t| ".#{Dommy::CSSNamespace.escape(t)}" }.join)
+        root.css(tokens.map { |t| ".#{Dommy::CSSNamespace.escape(t)}" }.join)
       end
 
       # The HTML elements under `bnode` whose `name` is `name`. Only elements

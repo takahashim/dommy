@@ -132,13 +132,12 @@ module Dommy
 
       def get_elements_by_class_name(name)
         tokens = LiteralLookup.class_tokens(name)
-        doc = @document.backend_doc
+        root = @document.backend_doc
         cache = self
         HTMLCollection.new do
           next [] if tokens.empty?
 
-          quirks = @document.quirks_mode?
-          LiteralLookup.elements_with_classes(doc, tokens, quirks: quirks).map { |n| cache.wrap(n) }.compact
+          LiteralLookup.elements_with_classes(@document, root, tokens).map { |n| cache.wrap(n) }.compact
         end
       end
 
