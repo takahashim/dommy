@@ -233,6 +233,27 @@ class TestSelectorParser < Minitest::Test
     assert SP.valid?(".a\\ b")
   end
 
+  # Splitting a selector list and finding the `)` that ends a functional
+  # pseudo-class work on tokens, so an escaped `,` `)` `(` or quote belongs to
+  # its ident (§4.3.8), and a comma or parenthesis inside a comment (§4.3.2) or
+  # a string (§4.3.5) is not structure.
+  def test_escapes_comments_and_strings_are_not_list_structure
+    is_class = ->(source) { SP.parse!(source).selectors.first.rightmost.subclass_selectors.first }
+
+    assert_equal ["a,b"], is_class.(":is(.a\\,b)").argument.selectors.map { |s| s.rightmost.subclass_selectors.first.value }
+    assert SP.valid?(":not(.a\\))")
+    assert SP.valid?(":not(.a\\()")
+    assert SP.valid?(":not(.a\\[, p)")
+    assert SP.valid?(":not(.a\\'b, p)")
+    assert SP.valid?(":is(:not(.a\\)), p)")
+    assert SP.valid?(":not(p /* , */, div)")
+    assert SP.valid?(":not(p /* ) */)")
+    assert SP.valid?(":not(p /* ( */, div)")
+    assert SP.valid?(":not(p, [a=')'])")
+    assert SP.valid?(":not([a='\\''], p)")
+    assert_equal 2, is_class.(":is(.a\\(, p)").argument.selectors.length
+  end
+
   # §3.3 filters the input before the tokenizer runs: a NULL becomes U+FFFD,
   # which is itself an ident code point. So `.a<NUL>b` names a class.
   def test_null_is_filtered_to_the_replacement_character

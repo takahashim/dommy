@@ -501,13 +501,15 @@ module Dommy
             c = peek
             break if c == ")" && depth.zero?
 
+            if (j = Parser.atom_end(@s, @i))
+              @i = j
+              next
+            end
+
             if c == "(" || c == "["
               depth += 1
             elsif c == ")" || c == "]"
               depth -= 1
-            elsif c == '"' || c == "'"
-              consume_string!
-              next
             end
             advance
           end
@@ -553,13 +555,17 @@ module Dommy
           out = []
           current = +""
           depth = 0
-          quote = nil
-          source.each_char do |ch|
-            if quote
-              quote = nil if ch == quote
-            elsif ch == '"' || ch == "'"
-              quote = ch
-            elsif ch == "(" || ch == "["
+          i = 0
+          while i < source.length
+            if (j = Parser.atom_end(source, i))
+              current << source[i...j]
+              i = j
+              next
+            end
+
+            ch = source[i]
+            i += 1
+            if ch == "(" || ch == "["
               depth += 1
             elsif ch == ")" || ch == "]"
               depth -= 1 if depth.positive?
@@ -572,6 +578,34 @@ module Dommy
           end
           out << current.strip
           out.reject(&:empty?)
+        end
+
+        # Index just past the escape, string or comment starting at `j` in
+        # `source`, or nil if none starts there. Their contents are not
+        # structure: an escaped `,` or `)` belongs to an ident (§4.3.8), a
+        # string runs to its closing quote or a newline (§4.3.5), and a comment
+        # produces no token at all (§4.3.2). Anything that splits or balances
+        # selector source must step over them whole.
+        def self.atom_end(source, j)
+          c = source[j]
+          if c == "\\"
+            return nil if source[j + 1] == "\n" # not a valid escape
+
+            [j + 2, source.length].min
+          elsif c == '"' || c == "'"
+            k = j + 1
+            while k < source.length
+              d = source[k]
+              return k + 1 if d == c
+              return k if d == "\n"
+
+              k += d == "\\" ? 2 : 1
+            end
+            source.length
+          elsif c == "/" && source[j + 1] == "*"
+            close = source.index("*/", j + 2)
+            close ? close + 2 : source.length
+          end
         end
 
         def parse_nth_argument(source, allow_of:)
