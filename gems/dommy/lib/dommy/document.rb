@@ -661,10 +661,12 @@ module Dommy
       # element is gone (`document.removeChild(documentElement)`, or a
       # replaceChild that swaps it for a comment), and head / body / title
       # resolve through this.
+      # The backend's `root` is that element in the ordinary case, but once
+      # the element it held is gone it answers the doctype, even when another
+      # element has been appended since — so look past it.
       root = @backend_doc.root
-      return nil unless root&.element?
-
-      wrap_node(root)
+      root = @backend_doc.children.find(&:element?) unless root&.element?
+      root && wrap_node(root)
     end
 
     def head
