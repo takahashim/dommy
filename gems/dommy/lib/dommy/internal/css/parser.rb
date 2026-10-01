@@ -312,16 +312,22 @@ module Dommy
         def custom_property?(name) = name.start_with?("--")
 
         # Whether `value` is usable for the property `name`; a declaration
-        # whose value is not is dropped, not stored. Every var() in it has to
-        # parse. A custom property's value is any run of tokens
-        # (css-variables-1 §2) — empty (`--x:;`, `--x: /* c */`), or with a
-        # colon in it (`--time: 10:30`). Any other property's value has to be
-        # non-empty, with no bare colon outside brackets, strings and comments
-        # (the second one in "color:: invalid").
+        # whose value is not is dropped, not stored. It has to be a
+        # <declaration-value> — no top-level `;` or `!`, no closing bracket
+        # that closes nothing — so a value cannot end its declaration and
+        # start another (`setProperty("--x", "1; color: red")`), and every
+        # var() in it has to parse. A custom property's value is otherwise
+        # any run of tokens (css-variables-1 §2) — empty (`--x:;`,
+        # `--x: /* c */`), or with a colon in it (`--time: 10:30`). Any other
+        # property's value has to be non-empty, with no bare colon outside
+        # brackets, strings and comments (the second one in "color:: invalid").
         def valid_declaration_value?(name, value)
+          source = CssSource.new(value)
+          return false unless source.declaration_value?
+
           unless custom_property?(name)
             return false if value.empty?
-            return false if CssSource.new(value).partition_top_level(":")
+            return false if source.partition_top_level(":")
           end
 
           valid_var_functions?(value)

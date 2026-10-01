@@ -14,11 +14,12 @@
 - `document.compatMode` follows the HTML parser's mode: an XHTML 1.0 Strict or Transitional doctype with its system identifier is `"CSS1Compat"`, a cloned document keeps its original's mode, and removing the doctype later does not change it.
 - A style attribute and a CSSOM declaration block are read in tokens: a `;` or `:` inside a string, a function, a `{}` block, an escape or an unquoted `url()` stays in its value, so `content: "a;b"`, `url(data:image/png;base64,…)` and `url(a/*b.png)` keep the declarations after them, and a comment hides nothing that follows it.
 - A CR, a CRLF and an FF in a style attribute are each one newline, so a backslash before a CRLF in a string no longer swallows the declarations after it.
+- A declaration's value with a `;`, a `!` or an unmatched closing bracket at its top level is dropped, so `setProperty("--x", "1; color: red")` adds nothing, and a bracket closes only a block of its own kind (`calc(1px]; color: red` is all one value).
 - A custom property's value may be empty (`--x:;`, `--x: /* c */`) or hold a colon (`--time: 10:30`), through `setProperty` too.
 - A `var()` inside a string or a comment is text: `content: "var(--x)"` is not substituted, and `content: "var(--"` is kept.
 - `[*|att=v]` matches when any `att`, in any namespace, has the value; `[att]` looks only at the attribute in no namespace; the `i` flag folds ASCII case only, and `~=` splits on ASCII whitespace.
 - An+B is read in tokens: `:nth-child(2n/**/+1)` and `:nth-child(2\6E+1)` parse.
-- A selector argument list splits at commas outside escapes, strings and comments: `:is(.a\,b, c)` is two selectors, not three.
+- A selector argument list splits at commas outside escapes, strings and comments: `:is(.a\,b, c)` is two selectors.
 - A comment may sit between the two delims of an attribute matcher or around a namespace `|` (`[a~/**/=x]`, `*|/**/p`), and the attribute modifier may be escaped (`[a=x \69]`).
 - An escape past U+10FFFF or of a surrogate is U+FFFD instead of raising, a backslash before a newline is no escape, and one at the end of a string is dropped.
 - `getElementsByClassName`, `getElementsByName` and `getElementById` take any value: a class like `1`, `a.b` or `[x]`, a name with a quote, and an id holding NUL are found instead of raising or finding nothing. `getElementsByClassName` folds ASCII case in a quirks-mode document.

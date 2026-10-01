@@ -130,6 +130,33 @@ class TestCssDeclarationTokens < Minitest::Test
     assert_equal "red", style.get_property_value("color")
   end
 
+  # A value is a <declaration-value>: a `;`, a `!` or an unmatched closing
+  # bracket at its top level is no part of one, so setProperty cannot slip a
+  # second declaration in behind it — a custom property's included. Inside a
+  # block they are tokens like any other.
+  def test_set_property_cannot_end_its_declaration
+    style = style_of("")
+    style.set_property("--x", "1; color: red")
+    style.set_property("--y", "1) ; color: green")
+    style.set_property("color", "red !ie")
+    assert_equal 0, style.length
+
+    style.set_property("--z", "{a;b}")
+    style.set_property("--w", "a(]b)")
+    assert_equal "{a;b}", style.get_property_value("--z")
+    assert_equal "a(]b)", style.get_property_value("--w")
+  end
+
+  # A bracket closes only a block of its own kind (§5.4.7): in a `(` block a
+  # `]` is a token, so the `;` after it is still inside the block and ends
+  # nothing.
+  def test_a_bracket_of_another_kind_closes_nothing
+    style = style_of("width: calc(1px]; color: red")
+
+    assert_equal "calc(1px]; color: red", style.get_property_value("width")
+    assert_equal "", style.get_property_value("color")
+  end
+
   # Parse-time validation reads var() the same way: an unclosed `var(` inside
   # a string keeps the declaration.
   def test_a_var_in_a_string_does_not_invalidate_the_declaration
