@@ -142,6 +142,25 @@ class TestWPTDocumentBody < Minitest::Test
     assert_nil doc.body
   end
 
+  # `document.head` is defined the same way: a child of the html element, so
+  # a root that is not HTML's `html` has neither.
+  #
+  # Spec: https://html.spec.whatwg.org/multipage/dom.html#the-head-element-2
+  def test_head_and_body_need_the_html_element
+    doc = create_document
+    svg = doc.append_child(doc.create_element_ns("http://www.w3.org/2000/svg", "svg"))
+    svg.append_child(doc.create_element("head"))
+    svg.append_child(doc.create_element("body"))
+    assert_nil doc.head
+    assert_nil doc.body
+
+    doc = create_document
+    html = html_in(doc)
+    html.append_child(doc.create_element_ns(TEST_NS, "head"))
+    head = html.append_child(doc.create_element("head"))
+    assert_same head, doc.head
+  end
+
   # The same in an XML document: an XHTML document gets a body to append.
   def test_an_xhtml_document
     doc = @window.document.implementation.create_document(Dommy::Internal::Namespaces::HTML, "html", nil)

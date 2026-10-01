@@ -4,13 +4,13 @@
 
 ### Changed
 
-- `document.body` is the first `body` or `frameset` child of an HTML `html` document element, as HTML defines it: a `body` deeper in the tree, one in another namespace, or one under a non-HTML root element is not it, and a `frameset` is.
+- `document.body` is the first `body` or `frameset` child of an HTML `html` document element, as HTML defines it: a `body` deeper in the tree, one in another namespace, or one under a non-HTML root element is not it, and a `frameset` is. `document.head` likewise needs an HTML `html` document element.
 - `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.
 
 ### Fixed
 
 - `document.body = element` sets the body in HTML and XML documents alike: it replaces the current `body` or `frameset`, or is appended to the document element, and throws `HierarchyRequestError` for anything but a `body` or `frameset`.
-- `documentElement` finds an element appended after the root element was removed.
+- `documentElement`, `children`, `firstElementChild`, `lastElementChild` and `childElementCount` find an element appended after the root element was removed, and no longer count the doctype as the document's element child.
 - `getElementById` and `getElementsByClassName` find an id or a class made of a space character such as U+00A0 or U+3000, where they raised a selector syntax error.
 - `getElementById` compares ids case-sensitively in a quirks-mode document too: `<p id=Bar>` is not found by `"bar"`.
 - In a quirks-mode document, id and class selectors match ASCII case-insensitively in `querySelector`, `matches` and the style cascade: `.foo` finds and styles `<p class=Foo>`.

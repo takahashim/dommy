@@ -660,26 +660,18 @@ module Dommy
       # answers null: the backend's `root` falls back to the doctype once the
       # element is gone (`document.removeChild(documentElement)`, or a
       # replaceChild that swaps it for a comment), and head / body / title
-      # resolve through this.
-      # The backend's `root` is that element in the ordinary case, but once
-      # the element it held is gone it answers the doctype, even when another
-      # element has been appended since — so look past it.
-      root = @backend_doc.root
-      root = @backend_doc.children.find(&:element?) unless root&.element?
+      # resolve through this (#backend_document_element).
+      root = backend_document_element
       root && wrap_node(root)
     end
 
+    # HTML's "the head element": the first `head` child, in the HTML
+    # namespace, of the html element (readonly — assignment is a no-op, see
+    # __js_set__).
+    #
+    # Spec: https://html.spec.whatwg.org/multipage/dom.html#the-head-element-2
     def head
-      # The first `head` element child of the document element in the HTML
-      # namespace (readonly — assignment is a no-op, see __js_set__). Not just
-      # `at_css("head")`, which searches the whole tree and ignores namespace.
-      root = document_element
-      return nil unless root
-
-      root.child_nodes.to_a.find do |c|
-        c.respond_to?(:local_name) && c.local_name == "head" &&
-          c.respond_to?(:namespace_uri) && c.namespace_uri == Internal::Namespaces::HTML
-      end
+      wrap_node(html_element_child(%w[head]))
     end
 
     # HTML's "the body element": the first child of the html element — the
@@ -691,10 +683,7 @@ module Dommy
     #
     # Spec: https://html.spec.whatwg.org/multipage/dom.html#the-body-element-2
     def body
-      root = document_element
-      return nil unless root && root.local_name == "html" && root.namespace_uri == Internal::Namespaces::HTML
-
-      root.children.to_a.find { |child| body_or_frameset?(child) }
+      wrap_node(html_element_child(%w[body frameset]))
     end
 
     # The body setter: the new value must be a `body` or a `frameset` in the
@@ -850,7 +839,7 @@ module Dommy
     # in practice the `<html>` root).
     def children
       @live_children ||= HTMLCollection.new do
-        root = @backend_doc.root
+        root = backend_document_element
         root ? [wrap_node(root)].compact : []
       end
     end
@@ -868,13 +857,10 @@ module Dommy
       children.size
     end
 
-    def first_element_child
-      wrap_node(@backend_doc.root)
-    end
+    # A document has at most one element child, the document element.
+    def first_element_child = document_element
 
-    def last_element_child
-      wrap_node(@backend_doc.root)
-    end
+    def last_element_child = document_element
 
 
     # `document.contains(node)` — true if `node` is the document itself or any
@@ -1590,7 +1576,7 @@ module Dommy
     # (at the document start) or after it (just before the document element).
     def __internal_insert_at_doctype__(nodes, after:)
       bns = nodes.filter_map { |n| backend_node(n) }
-      anchor = after ? @backend_doc.root : @backend_doc.children.first
+      anchor = after ? backend_document_element : @backend_doc.children.first
       __internal_ranges_will_insert__(@backend_doc, anchor, bns.size)
       if after
         anchor ? bns.each { |n| anchor.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
@@ -2796,6 +2782,26 @@ module Dommy
 
       frag = @template_content_registry.contents(copy)
       content_nodes.each { |n| frag.add_child(clone_into_doc(n, true, source_document)) }
+    end
+
+    # The document's element child, as a backend node, or nil. The backend's
+    # `root` is that element in the ordinary case, but once the element it
+    # held is gone it answers the doctype, even when another element has been
+    # appended since — so look past it.
+    def backend_document_element
+      root = @backend_doc.root
+      root&.element? ? root : @backend_doc.children.find(&:element?)
+    end
+
+    # The first child of the html element — the document element, when it is
+    # `html` in the HTML namespace — that is an HTML element named one of
+    # `names`, as a backend node; HTML defines both the head and the body
+    # element this way. Only the match is wrapped.
+    def html_element_child(names)
+      root = backend_document_element
+      return nil unless root && root.local_name == "html" && Backend.namespace_uri(root) == Internal::Namespaces::HTML
+
+      root.element_children.find { |c| names.include?(c.local_name) && Backend.namespace_uri(c) == Internal::Namespaces::HTML }
     end
 
     def body_or_frameset?(node)
