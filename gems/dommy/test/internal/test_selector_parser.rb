@@ -254,6 +254,28 @@ class TestSelectorParser < Minitest::Test
     assert_equal 2, is_class.(":is(.a\\(, p)").argument.selectors.length
   end
 
+  # css-syntax-3 §9: An+B is matched on tokens. A comment is no token, escapes
+  # are decoded before the comparison, and `of` is an ident like any other.
+  def test_an_plus_b_is_matched_on_tokens
+    nth = ->(source) { SP.parse!(source).selectors.first.rightmost.subclass_selectors.first.argument }
+
+    assert_equal [2, 1], nth.(":nth-child(2n/**/+1)").then { |e| [e.a, e.b] }
+    assert_equal [2, -1], nth.(":nth-child(2N/**/-/**/1)").then { |e| [e.a, e.b] }
+    assert_equal [2, 1], nth.(":nth-child(/**/2n+1/**/)").then { |e| [e.a, e.b] }
+    assert_equal [2, 1], nth.(":nth-child(2\\6E+1)").then { |e| [e.a, e.b] }
+    assert_equal [-1, 2], nth.(":nth-child(-\\6E+2)").then { |e| [e.a, e.b] }
+    assert_equal [2, 1], nth.(":nth-child(od\\64)").then { |e| [e.a, e.b] }
+    assert_equal [1, 0], nth.(":nth-child(+/**/n)").then { |e| [e.a, e.b] }
+    refute SP.valid?(":nth-child(-/**/n)")
+    refute SP.valid?(":nth-child(+ n)")
+    refute SP.valid?(":nth-child(3/**/n)")
+    refute SP.valid?(":nth-child(1e1)")
+    of = nth.(":nth-child(2n /* of */ of p)")
+    assert_equal [2, 0], [of.a, of.b]
+    assert_equal 1, of.of_selector_list.selectors.length
+    assert_equal 2, nth.(":nth-child(2n of .a\\,b, p)").of_selector_list.selectors.length
+  end
+
   # §3.3 filters the input before the tokenizer runs: a NULL becomes U+FFFD,
   # which is itself an ident code point. So `.a<NUL>b` names a class.
   def test_null_is_filtered_to_the_replacement_character

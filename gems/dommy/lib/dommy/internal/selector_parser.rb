@@ -609,37 +609,173 @@ module Dommy
         end
 
         def parse_nth_argument(source, allow_of:)
-          expr = source.strip
-          of_list = nil
-          if allow_of && (match = expr.match(/\s+of\s+/i))
-            anb = expr[0...match.begin(0)].strip
-            selectors = expr[match.end(0)..].strip
-            of_list = parse_selector_argument_list(selectors, forgiving: false)
-          else
-            anb = expr
-          end
-          a, b = parse_an_plus_b(anb)
+          a, b, rest = Parser.new(source, in_has: @in_has, namespaces: @namespaces)
+                             .parse_an_plus_b!(allow_of: allow_of)
+          of_list = rest && parse_selector_argument_list(rest, forgiving: false)
           SelectorAST::NthExpression.new(a, b, of_list)
         end
 
-        # css-syntax An+B: the sign belongs to the token that follows it — `-n` is
-        # one ident-token and `-3n` one dimension-token — so whitespace after the
-        # sign (`- n`, `- 3n`) breaks the production. Whitespace around the
-        # operator before the B part (`3n + 1`) is what the grammar does allow.
-        AN_PLUS_B = /\A([+-])?(\d+)?n(?:[ \t\r\n\f]*([+-])[ \t\r\n\f]*(\d+))?\z/
+        # css-syntax-3 §9: An+B is a grammar over tokens, not characters. A
+        # comment between two tokens is no token at all (`2n/**/+1` is
+        # `2n +1`), escapes are decoded before the value is compared
+        # (`2\6E+1` is `2n+1`), and a sign binds to the token that follows it
+        # (`- n` is not `-n`). So read the tokens first and match the
+        # productions on them. With `allow_of`, stop at an `of` ident and
+        # return the source after it as the selector list.
+        AnbToken = Struct.new(:type, :value, :integer, :sign, :unit)
 
-        def parse_an_plus_b(source)
-          s = source.strip.downcase
-          return [2, 1] if s == "odd"
-          return [2, 0] if s == "even"
-          return [0, Integer(s)] if s.match?(/\A[+-]?\d+\z/)
-          if (m = s.match(AN_PLUS_B))
-            a = (m[2] ? m[2].to_i : 1)
-            a = -a if m[1] == "-"
-            b = m[3] ? Integer("#{m[3]}#{m[4]}") : 0
-            return [a, b]
+        def parse_an_plus_b!(allow_of:)
+          tokens, rest = an_plus_b_tokens!(allow_of: allow_of)
+          a, b = match_an_plus_b(tokens)
+          [a, b, rest]
+        end
+
+        def an_plus_b_tokens!(allow_of:)
+          tokens = []
+          loop do
+            skip_comment! while at_comment?
+            return [tokens, nil] if eof?
+
+            c = peek
+            if WS.include?(c)
+              advance while !eof? && WS.include?(peek)
+              tokens << AnbToken.new(:ws)
+            elsif starts_number?
+              tokens << consume_numeric_token!
+            elsif ident_start?
+              value = consume_ident!
+              return [tokens, @s[@i..]] if allow_of && value.downcase(:ascii) == "of"
+
+              tokens << AnbToken.new(:ident, value)
+            else
+              advance
+              tokens << AnbToken.new(:delim, c)
+            end
           end
-          fail!("invalid An+B expression")
+        end
+
+        # A code point (or nil, past the end) that is an ASCII digit.
+        def digit?(ch) = !ch.nil? && ch.match?(/[0-9]/)
+
+        # §4.3.10 "check if three code points would start a number".
+        def starts_number?
+          c = peek
+          if c == "+" || c == "-"
+            digit?(peek(1)) || (peek(1) == "." && digit?(peek(2)))
+          elsif c == "."
+            digit?(peek(1))
+          else
+            digit?(c)
+          end
+        end
+
+        # §4.3.3 / §4.3.13, keeping only what An+B looks at: the integer value,
+        # whether it is an integer, the sign character, and a dimension's unit.
+        def consume_numeric_token!
+          sign = (peek == "+" || peek == "-") ? peek : nil
+          advance if sign
+          start = @i
+          advance while digit?(peek)
+          value = @s[start...@i].to_i
+          value = -value if sign == "-"
+          integer = true
+          if peek == "." && digit?(peek(1))
+            integer = false
+            advance
+            advance while digit?(peek)
+          end
+          if (peek == "e" || peek == "E") &&
+             (digit?(peek(1)) || ((peek(1) == "+" || peek(1) == "-") && digit?(peek(2))))
+            integer = false
+            advance
+            advance unless digit?(peek)
+            advance while digit?(peek)
+          end
+          if ident_start?
+            AnbToken.new(:dimension, value, integer, sign, consume_ident!)
+          elsif peek == "%"
+            advance
+            AnbToken.new(:percentage, value, integer, sign)
+          else
+            AnbToken.new(:number, value, integer, sign)
+          end
+        end
+
+        # The productions of §9.2, on tokens. Whitespace may separate any two
+        # tokens except a `+` and the `n`-ident after it (the † note).
+        def match_an_plus_b(tokens)
+          t = tokens.drop_while { |x| x.type == :ws }.reverse.drop_while { |x| x.type == :ws }.reverse
+          fail!("invalid An+B expression") if t.empty?
+
+          plus = t.first.type == :delim && t.first.value == "+"
+          if plus
+            t.shift
+            fail!("invalid An+B expression") unless t.first&.type == :ident
+          end
+          first = t.shift
+          rest = t.drop_while { |x| x.type == :ws }
+
+          case first.type
+          when :ident
+            v = first.value.downcase(:ascii)
+            if !plus && v == "odd" then done(rest, 2, 1)
+            elsif !plus && v == "even" then done(rest, 2, 0)
+            elsif v == "n" then with_b(rest, 1)
+            elsif !plus && v == "-n" then with_b(rest, -1)
+            elsif v == "n-" then with_signless_b(rest, 1)
+            elsif !plus && v == "-n-" then with_signless_b(rest, -1)
+            elsif (m = v.match(/\An-([0-9]+)\z/)) then done(rest, 1, -m[1].to_i)
+            elsif !plus && (m = v.match(/\A-n-([0-9]+)\z/)) then done(rest, -1, -m[1].to_i)
+            else fail!("invalid An+B expression")
+            end
+          when :number
+            fail!("invalid An+B expression") unless first.integer
+
+            done(rest, 0, first.value)
+          when :dimension
+            fail!("invalid An+B expression") unless first.integer
+
+            u = first.unit.downcase(:ascii)
+            if u == "n" then with_b(rest, first.value)
+            elsif u == "n-" then with_signless_b(rest, first.value)
+            elsif (m = u.match(/\An-([0-9]+)\z/)) then done(rest, first.value, -m[1].to_i)
+            else fail!("invalid An+B expression")
+            end
+          else
+            fail!("invalid An+B expression")
+          end
+        end
+
+        def done(rest, a, b)
+          fail!("invalid An+B expression") unless rest.empty?
+
+          [a, b]
+        end
+
+        # After `An`: nothing, a signed integer, or `+`/`-` and a signless one.
+        def with_b(rest, a)
+          return [a, 0] if rest.empty?
+
+          head = rest.first
+          if head.type == :number && head.integer && head.sign
+            done(rest.drop(1), a, head.value)
+          elsif head.type == :delim && (head.value == "+" || head.value == "-")
+            signless = rest.drop(1).drop_while { |x| x.type == :ws }
+            n = signless.first
+            fail!("invalid An+B expression") unless n&.type == :number && n.integer && n.sign.nil?
+
+            done(signless.drop(1), a, head.value == "-" ? -n.value : n.value)
+          else
+            fail!("invalid An+B expression")
+          end
+        end
+
+        # After `An-`: a signless integer, negated.
+        def with_signless_b(rest, a)
+          n = rest.first
+          fail!("invalid An+B expression") unless n&.type == :number && n.integer && n.sign.nil?
+
+          done(rest.drop(1), a, -n.value)
         end
 
         def parse_ident_argument(source)
