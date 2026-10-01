@@ -25,11 +25,10 @@ module Dommy
       # `:scope`-relative selector resolves against the context; the matcher climbs
       # to ancestors above `root` itself when a left-hand combinator needs them.
       def query(root, selector_ast, scope: nil)
-        scope ||= default_scope(root)
-        fast = fast_query(root, selector_ast, scope: scope)
+        match = Match.for(BackendPrefilter.document_of(root), scope || default_scope(root))
+        fast = fast_query(root, selector_ast, match)
         return fast if fast
 
-        match = Match.for(BackendPrefilter.document_of(root), scope)
         element_descendants(root).select do |element|
           match.list?(element, selector_ast)
         end
@@ -42,11 +41,10 @@ module Dommy
       # are single-purpose, so short-circuiting the walk avoids touching (and
       # matching against) the rest of the tree.
       def query_first(root, selector_ast, scope: nil)
-        scope ||= default_scope(root)
-        fast = fast_query(root, selector_ast, scope: scope, first: true)
+        match = Match.for(BackendPrefilter.document_of(root), scope || default_scope(root))
+        fast = fast_query(root, selector_ast, match, first: true)
         return fast.first if fast
 
-        match = Match.for(BackendPrefilter.document_of(root), scope)
         catch(:found) do
           each_descendant(root) do |element|
             throw(:found, element) if match.list?(element, selector_ast)
@@ -67,11 +65,10 @@ module Dommy
       # the same set, in the same document order. Returns the matches (possibly
       # empty), or nil when the selector has no static subject pre-filter (a
       # universal/pseudo-only subject) — then the caller uses the Ruby matcher.
-      def fast_query(root, selector_ast, scope:, first: false)
-        doc = BackendPrefilter.document_of(root)
+      def fast_query(root, selector_ast, match, first: false)
+        doc = match.document
         return nil unless doc
 
-        match = Match.for(doc, scope)
         prefilters = BackendPrefilter.static_prefilters(selector_ast)
         return nil unless prefilters
 
