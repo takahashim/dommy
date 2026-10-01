@@ -1,12 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 — 2026-10-01
 
 ### Added
 
 - `innerText` and `outerText` on HTML elements, following the computed style (`display`, `visibility`, `white-space`, `text-transform`), `<br>`, block and `<p>` breaks, and table cells and rows.
 - `getComputedStyle(el).direction` and `:dir()` follow the `dir` attribute, including `dir="auto"` and `<bdi>`.
 - An HTML document is an `HTMLDocument`: `document.constructor === HTMLDocument`.
+- The `formdata` event fires while a form's entry list is built, and the `FormData` a listener changes is what the form submits.
+- `DataTransfer#items`, and an assignable `input.files`, so `dt.items.add(file); input.files = dt.files` attaches a file.
+- A form submitted with a `target` that names an `<iframe>` loads the response into that frame and fires the frame's `load`; the top page stays.
+- `Browser#frame_navigation_delegate(frame)` gives a frame whose document the host injected a delegate of its own, so a form or link inside it navigates the frame.
+- `Window#event_source_connector` lets an embedder carry a page's `EventSource` connections; dommy-rack connects a same-origin one to the app.
+- `Interaction::EventSynthesis.hover` / `.unhover` fire `mouseover` and a `mouseenter` on each newly entered ancestor (and the reverse), and `.right_click` / `.double_click` fire `contextmenu` and `dblclick`.
+- A runtime may implement `execute_with_args` / `evaluate_with_args` to pass Ruby arguments to a script; dommy-rack and capybara-dommy use them when they are there.
+- `StorageEvent`, `TextEvent`, `DeviceMotionEvent`, `DeviceOrientationEvent` and `TouchEvent`, the interfaces `document.createEvent` names.
 
 ### Changed
 
@@ -16,6 +24,9 @@
 - Inserting a doctype the backend could not create (one with an empty name) into a document throws `NotSupportedError`; it used to do nothing, and a `replaceChild` dropped the node it replaced. `createDocument` still leaves such a doctype out.
 - Popovers fire `beforetoggle` and `toggle` as `ToggleEvent`s, whose `oldState` / `newState` replace the old `CustomEvent`'s `detail`; `toggle` is queued, and an opening `beforetoggle` can be canceled.
 - **Breaking for backends:** the JS half is two bundles, not one — `HostBridge::WEBIDL_TABLES_JS` (the specs' own enumerations: interface members, constants, operation arities, event handler attributes) must be evaluated before `HOST_RUNTIME_JS`, which reads them. A backend that seeds through `HostBridge#seed_runtime!` needs no change; one that evaluates the runtime source itself does.
+- A form submission runs interactive constraint validation first: an invalid form fires `invalid` at its controls and is not submitted, unless the form has `novalidate` or the submitter `formnovalidate`. `form.submit()` still skips it.
+- A form's `enctype` decides the request body: a `text/plain` form sends plain text, and a `multipart/form-data` form a multipart body with its file parts, even with no file in it.
+- **Breaking for embedders:** a navigation delegate's `navigate` receives a `target:` keyword, the submitting form's `target` / `formtarget`.
 - **Breaking for backends:** the wire tags are `Dommy::Bridge::WireTags`, not `Dommy::Js::WireTags` — a tag is true of any host, so it belongs with the protocol. `Dommy::Bridge::Callback`, an adapter for an embedder that never arrived, is removed; `Dommy::Js::HostCallback` is the live one.
 
 ### Fixed
@@ -60,11 +71,9 @@
 - `reportError(e)` reports the position the error carries — its own JS frames, minus Dommy's own plumbing — where it used to report line 0 of no file. An unhandled Observable error reports through that same funnel now, so it reaches the console and the host, not only an `error` listener.
 - Setting a form control's `value` through its prototype accessor — the descriptor React's value tracker wraps — invalidates the DOM caches, so a read after `select.value = x` sees the new selection rather than the epoch's stale snapshot.
 - `Object.defineProperty(localStorage, k, {value})` propagates a setter the spec says throws, where it used to swallow it.
-
 - `select.labels` lists the labels that name it, including a wrapping `<label>`, and no longer breaks on an id containing a quote.
 - An element hidden with `aria-hidden="TRUE"` is hidden from its accessible name too, not only from the accessibility tree.
 - A custom element reaction that throws — `connectedCallback`, `disconnectedCallback`, `attributeChangedCallback` — is reported at the window, where it used to vanish.
-
 - `var()` keeps a name argument that is not a custom property name, such as `var(--x ())` or `var({--x})`: the declaration parses and goes invalid at computed-value time, as the CSS Variables grammar asks.
 - `relList` on the `a` of the MathML namespace is a DOMTokenList, as it already was in HTML and SVG.
 - `compareDocumentPosition` between two trees orders the pair consistently: one node reports PRECEDING and the other FOLLOWING, where both used to say PRECEDING.
@@ -74,6 +83,29 @@
 - `adoptNode` / a cross-document insert of an upper-case HTML-namespace element such as `BR` keeps it and its name instead of raising a backend error.
 - A `DocumentFragment` and a `ShadowRoot` report `null` for `nextSibling` / `previousSibling` (and a `ShadowRoot` for `parentNode`, `parentElement` and `nodeValue`), not `undefined`.
 - A `<script>` from `DOMParser` stays inert when adopted, cloned or imported into the page; `cloneNode` / `importNode` of a script copy its "already started" flag.
+- A form converts its names and values to the submission encoding (`accept-charset`), writing `&#N;` for a character the encoding lacks, and a multipart part's name or filename percent-encodes CR and LF.
+- `enctype="MULTIPART/FORM-DATA"` is multipart: an enumerated attribute matches case-insensitively, and an unknown value means urlencoded.
+- A form's entry list follows the collection rules in full: a value-less hidden `_charset_` reports the encoding, `dirname` adds the control's direction, a disabled `<option>` is left out, and a disabled `<fieldset>` spares only the controls in its first `<legend>`.
+- A submit button submits its `value` property, so `button.value = "x"` reaches the form data without touching the attribute.
+- An `<input>` a `click` listener turns into a submit button submits the form.
+- `new SubmitEvent("submit", {submitter: 1})` and a `FormDataEvent` without a `FormData` throw `TypeError`, and a missing submitter reads `null`.
+- `document.onreadystatechange = f` and the other `on*` handlers on the document fire, where the assignment used to set a plain property.
+- Both clicks of a double click run the full pointer and mouse sequence, and the second one's activation behavior.
+- `new URL(location)` and `new URL(anchor)` take the object's `href`.
+- Assigning to a read-only attribute such as `url.searchParams` or `template.content` throws `TypeError` in strict mode and does nothing otherwise. `legend.form` is `null` without a `<fieldset>`.
+- `document.createEvent` matches its type case-insensitively against the DOM's table and throws `NotSupportedError` for a type the table lacks, such as `"foo"`. `delete window.Event` removes the interface.
+- The `autocomplete` getter answers HTML's autofill processing: `""` without the attribute, and the folded value (`"shipping email"`) with one.
+- `dialog.show()` on a modal dialog throws `InvalidStateError`, and `showModal()` on a non-modal open one does too; each is a no-op on a dialog it opened itself.
+- A `<script>` parsed into a `<template>`'s contents reports `async` as `false`.
+- `document.styleSheets` is a `StyleSheetList`, without `forEach` or `entries`.
+- An interface constructor's `length` is its required argument count (`Event.length === 1`), a `[SameObject]` collection such as `document.forms` or `table.rows` is the same object on every read, and `rule.style = "color: red"` writes the declaration block.
+- `el.scrollTo()`, `scrollBy()`, `scrollIntoView()` and the window's return a `Promise`, and `mediaQueryList.addListener()` returns `undefined`.
+- `<script src="">` counts as an external script and `<iframe src="">` is not the blank frame, as HTML asks whether the attribute is present rather than empty.
+- `XMLHttpRequest#send` sends no body for `GET` and `HEAD`, and with a string, document or `URLSearchParams` body corrects an author-set `Content-Type` charset to `UTF-8`, the encoding the body was sent in.
+- `hsl(120 none 50%)` computes to itself, keeping the missing component, instead of `rgb(128, 128, 128)`.
+- Clicking a `<meter>`, `<output>` or `<progress>` inside a `<label>` no longer overflows the stack.
+- An `<iframe>` with no `src` or `srcdoc` is at `about:blank` (`about:srcdoc` for `srcdoc`) and resolves relative URLs against the base URL of the document that created it.
+- An SVG element never runs HTML's steps for an element of its name: an SVG `<script>` is not in `document.scripts`, and SVG's `<a>` and `<option>` are not in `document.links` or `select.options`.
 
 ## 0.13.0 — 2026-09-23
 
