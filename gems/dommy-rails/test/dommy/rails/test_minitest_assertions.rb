@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "dommy/rails/minitest"
 require "test_helper"
 
