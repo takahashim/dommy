@@ -123,16 +123,16 @@ module Dommy
         def substitute(value, lookup, depth = 0)
           return nil if depth > 32 # runaway guard
 
-          bytes = CssSource.binary(value)
+          source = CssSource.new(value)
           out = +""
           index = 0
           # A var() inside a string or a comment is text: `"var(--x)"` is copied.
-          while (call = CssSource.next_function(bytes, "var", index))
+          while (call = source.next_function("var", index))
             start, close = call
             return nil unless close
 
-            out << CssSource.slice_text(bytes, index, start)
-            name, fallback = split_args(CssSource.slice_text(bytes, start + 4, close))
+            out << source.slice(index, start)
+            name, fallback = split_args(source.slice(start + 4, close))
             # The parser keeps `var(--x ())` and `var({--x})`, because var()'s
             # first argument is only read as a custom property name here, after
             # substitution. A name that does not parse makes the declaration
@@ -151,7 +151,7 @@ module Dommy
             out << replacement
             index = close + 1
           end
-          out << CssSource.slice_text(bytes, index, bytes.bytesize)
+          out << source.slice(index, source.length)
         end
 
         # The custom-property names that participate in a dependency cycle: the
@@ -170,14 +170,14 @@ module Dommy
         # count — a cycle that exists only in an unused fallback is not a cycle
         # (csswg-drafts#11500), so `var(--x, var(--y))` depends on --x only.
         def references(value)
-          bytes = CssSource.binary(value)
+          source = CssSource.new(value)
           refs = []
           index = 0
-          while (call = CssSource.next_function(bytes, "var", index))
+          while (call = source.next_function("var", index))
             start, close = call
             break unless close
 
-            name, = split_args(CssSource.slice_text(bytes, start + 4, close))
+            name, = split_args(source.slice(start + 4, close))
             refs << name
             index = close + 1
           end
@@ -189,7 +189,7 @@ module Dommy
         # no comma (distinct from the empty-but-valid `var(--x,)` fallback).
         # Public because the parser asks the same question at parse time.
         def split_args(inner)
-          name, fallback = CssSource.partition_top_level(inner, ",")
+          name, fallback = CssSource.new(inner).partition_top_level(",")
           return [inner.strip, nil] unless name
 
           [name.strip, fallback.strip]

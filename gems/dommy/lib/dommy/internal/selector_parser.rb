@@ -3,7 +3,7 @@
 require "set"
 
 require_relative "selector_ast"
-require_relative "css_source"
+require_relative "css_syntax"
 require_relative "an_plus_b"
 
 module Dommy
@@ -110,10 +110,10 @@ module Dommy
       # Recursive-descent parser over a character buffer. Methods raise
       # InvalidSelector on the first grammar violation.
       class Parser
-        WS = CssSource::WHITESPACE
+        WS = CssSyntax::WHITESPACE
 
         def initialize(string, in_has: false, namespaces: nil)
-          @s = CssSource.preprocess(string)
+          @s = CssSyntax.preprocess(string)
           @i = 0
           @n = @s.length
           # True while parsing the argument of a `:has()` — a structurally
@@ -512,7 +512,7 @@ module Dommy
             c = peek
             break if c == ")" && depth.zero?
 
-            if (j = CssSource.atom_end(@s, @i))
+            if (j = CssSyntax.atom_end(@s, @i))
               @i = j
               next
             end
@@ -568,7 +568,7 @@ module Dommy
           depth = 0
           i = 0
           while i < source.length
-            if (j = CssSource.atom_end(source, i))
+            if (j = CssSyntax.atom_end(source, i))
               current << source[i...j]
               i = j
               next
@@ -849,12 +849,12 @@ module Dommy
           false
         end
 
-        # §4.3.8 — see CssSource.valid_escape_at?.
-        def valid_escape?(offset = 0) = CssSource.valid_escape_at?(@s, @i + offset)
+        # §4.3.8 — see CssSyntax.valid_escape_at?.
+        def valid_escape?(offset = 0) = CssSyntax.valid_escape_at?(@s, @i + offset)
 
-        def ident_letter?(c) = CssSource.ident_start_code_point?(c)
+        def ident_letter?(c) = CssSyntax.ident_start_code_point?(c)
 
-        def name_char?(c) = CssSource.name_code_point?(c)
+        def name_char?(c) = CssSyntax.name_code_point?(c)
 
         def hex_digit?(c) = !c.nil? && c.match?(/[0-9A-Fa-f]/)
 
@@ -863,7 +863,7 @@ module Dommy
           j = from
           j += 1 if @s[j] == "-"
           while (ch = @s[j])
-            if CssSource.valid_escape_at?(@s, j)
+            if CssSyntax.valid_escape_at?(@s, j)
               j += 1
               if @s[j]&.match?(/[0-9A-Fa-f]/)
                 count = 0
@@ -924,10 +924,10 @@ module Dommy
         def at_comment? = peek == "/" && peek(1) == "*"
 
         # The index at or after `j` that is past any comments starting there —
-        # CssSource's own reading of a comment, so the two cannot disagree on
+        # CssSyntax's own reading of a comment, so the two cannot disagree on
         # where one ends.
         def index_past_comments(j)
-          j = CssSource.atom_end(@s, j) while @s[j] == "/" && @s[j + 1] == "*"
+          j = CssSyntax.atom_end(@s, j) while @s[j] == "/" && @s[j + 1] == "*"
           j
         end
 

@@ -2,6 +2,7 @@
 
 require_relative "../selector_parser"
 require_relative "../css_source"
+require_relative "../css_syntax"
 require_relative "custom_properties"
 
 module Dommy
@@ -242,7 +243,7 @@ module Dommy
         # value is trimmed (css-syntax-3 §5.4.6), so `--x: 1px /* c */` is `1px`
         # and `var(--y, /* ) */ 7px)` falls back to `7px`.
         def declaration_value(value)
-          CssSource.strip_comments(value.to_s).strip
+          CssSource.new(value).without_comments.to_s.strip
         end
 
         def normalize_selectors(selectors, namespaces = {})
@@ -268,7 +269,7 @@ module Dommy
         # a function (`url(data:a;b)`), a {} block or a comment does not end a
         # declaration (css-syntax-3 §5.4.5).
         def parse_block(text)
-          CssSource.split_top_level(CssSource.preprocess(text.to_s), ";").each_with_object({}) do |chunk, out|
+          CssSource.new(CssSyntax.preprocess(text.to_s)).split_top_level(";").each_with_object({}) do |chunk, out|
             decl = parse_declaration(chunk)
             next if decl.nil?
             next if !decl.important && out[decl.name]&.important
@@ -282,7 +283,7 @@ module Dommy
         def parse_declaration(chunk)
           # Comments are no tokens: drop them before reading the name, the
           # colon and the value, so `/* x: y */` hides nothing after it.
-          name, value = CssSource.partition_top_level(CssSource.strip_comments(chunk), ":")
+          name, value = CssSource.new(chunk).without_comments.partition_top_level(":")
           return nil unless name
 
           name = property_name(name.strip)
@@ -320,7 +321,7 @@ module Dommy
         def valid_declaration_value?(name, value)
           unless custom_property?(name)
             return false if value.empty?
-            return false if CssSource.partition_top_level(value, ":")
+            return false if CssSource.new(value).partition_top_level(":")
           end
 
           valid_var_functions?(value)
@@ -329,13 +330,13 @@ module Dommy
         # Every var() outside a string or a comment parses: a `var(` in
         # `content: "var(--"` is text.
         def valid_var_functions?(value)
-          bytes = CssSource.binary(value)
+          source = CssSource.new(value)
           index = 0
-          while (call = CssSource.next_function(bytes, "var", index))
+          while (call = source.next_function("var", index))
             start, close = call
             open = start + 3
             return false if close.nil?
-            return false unless valid_var_name_argument?(CssSource.slice_text(bytes, open + 1, close))
+            return false unless valid_var_name_argument?(source.slice(open + 1, close))
 
             # Continue inside the call, so a nested var() in the fallback is
             # checked by the same rule.
@@ -360,8 +361,9 @@ module Dommy
           return false if name.empty?
           return !name.match?(/[{}]/) unless name.start_with?("{")
 
-          close = CssSource.matching_bracket(name, 0)
-          close == name.length - 1 && !name[1...close].strip.empty?
+          source = CssSource.new(name)
+          close = source.matching_bracket(0)
+          close == source.length - 1 && !source.slice(1, close).strip.empty?
         end
       end
     end
