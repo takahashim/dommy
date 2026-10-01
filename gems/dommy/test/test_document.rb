@@ -231,4 +231,26 @@ class TestDocument < Minitest::Test
     assert_nil(@doc.get_element_by_id("missing:id"))
     assert_nil(@doc.get_element_by_id(""))
   end
+
+  # A quirks-mode document matches an id selector ASCII case-insensitively, but
+  # getElementById compares the attribute case-sensitively there too — on the
+  # document, a DocumentFragment and a ShadowRoot alike.
+  def test_get_element_by_id_is_case_sensitive_in_quirks_mode
+    quirks = Dommy::DOMParser.new.parse_from_string("<div id=r><p id=Bar></p><p id=bar></p></div>", "text/html")
+    assert_equal("BackCompat", quirks.compat_mode)
+    assert_equal(%w[bar Bar], [quirks.get_element_by_id("bar").id, quirks.get_element_by_id("Bar").id])
+    assert_nil(quirks.get_element_by_id("BAR"))
+
+    fragment = quirks.create_document_fragment
+    fragment.append_child(quirks.get_element_by_id("r"))
+    assert_equal("bar", fragment.get_element_by_id("bar").id)
+    assert_nil(fragment.get_element_by_id("BAR"))
+
+    host = quirks.create_element("div")
+    quirks.body.append_child(host)
+    root = host.attach_shadow({"mode" => "open"})
+    root.inner_html = "<p id=Baz></p>"
+    assert_nil(root.get_element_by_id("baz"))
+    assert_equal("Baz", root.get_element_by_id("Baz").id)
+  end
 end

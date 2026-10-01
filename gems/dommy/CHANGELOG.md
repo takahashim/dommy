@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `getElementById` compares ids case-sensitively in a quirks-mode document too: `<p id=Bar>` is not found by `"bar"`.
+
 ## 0.14.0 — 2026-10-01
 
 ### Added

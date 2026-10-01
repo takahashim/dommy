@@ -136,10 +136,7 @@ module Dommy
     def get_element_by_id(id)
       return nil if id.nil? || id.to_s.empty?
 
-      # getElementById matches the `id` attribute literally, not as a CSS
-      # selector, so escape special characters (e.g. React `useId` `:rjm:`) to a
-      # valid id-selector ident — a raw "##{id}" would be an invalid selector.
-      @document.wrap_node(@__node__.at_css("##{Dommy::CSSNamespace.escape(id)}"))
+      @document.wrap_node(Internal::NodeWrapperCache.backend_element_by_id(@__node__, id.to_s))
     end
 
     # Node-level child mutations the spec exposes on a DocumentFragment (and so
