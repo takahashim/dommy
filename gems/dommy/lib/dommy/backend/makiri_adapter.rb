@@ -59,6 +59,13 @@ module Dommy
 
       # An empty document matching `doc`'s kind, for a shallow document clone
       # (cloneNode(false) on a document must keep the same flavor).
+      # Lexbor's document mode: 0 no-quirks, 1 quirks, 2 limited-quirks.
+      QUIRKS = 1
+
+      def quirks_mode?(doc)
+        doc.respond_to?(:quirks_mode) && doc.quirks_mode == QUIRKS
+      end
+
       def empty_document_like(doc)
         doc.is_a?(::Makiri::XML::Document) ? empty_xml_document : empty_document
       end
