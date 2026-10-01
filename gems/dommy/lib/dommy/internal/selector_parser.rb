@@ -273,14 +273,15 @@ module Dommy
         # distinct from a `||` column combinator?
         def namespace_prefix_ahead?
           if peek == "*"
-            return peek(1) == "|" && peek(2) != "|"
+            j = index_past_comments(@i + 1)
+            return @s[j] == "|" && @s[j + 1] != "|"
           end
           if peek == "|"
             return peek(1) != "|"
           end
           if ident_start?
             # Scan the ident, then check for a single '|' (not '||').
-            j = scan_ident_end(@i)
+            j = index_past_comments(scan_ident_end(@i))
             return @s[j] == "|" && @s[j + 1] != "|"
           end
           false
@@ -302,8 +303,12 @@ module Dommy
           else
             fail!("invalid namespace prefix")
           end
+          # A comment is no token (§4.3.2), so one may sit on either side of
+          # the `|`.
+          skip_comments
           fail!("expected '|' in namespace prefix") unless peek == "|"
           advance
+          skip_comments
           ns
         end
 
@@ -363,14 +368,14 @@ module Dommy
         # any-namespace; a bare `|`; a named prefix is undeclared.
         def attribute_namespace_prefix_ahead?
           if peek == "*"
-            return peek(1) == "|"
+            return @s[index_past_comments(@i + 1)] == "|"
           end
           if peek == "|"
             return true
           end
           if ident_start?
-            j = scan_ident_end(@i)
-            return @s[j] == "|" && @s[j + 1] != "="
+            j = index_past_comments(scan_ident_end(@i))
+            return @s[j] == "|" && @s[index_past_comments(j + 1)] != "="
           end
           false
         end
@@ -379,6 +384,9 @@ module Dommy
           c = peek
           if "~|^$*".include?(c)
             advance
+            # Two delim-tokens with nothing between them but, possibly, a
+            # comment — which is no token (§4.3.2), unlike whitespace.
+            skip_comments
             fail!("invalid attribute matcher") unless peek == "="
             advance
             "#{c}="
@@ -401,12 +409,13 @@ module Dommy
         end
 
         # The trailing case-sensitivity flag: a single i/I/s/S, then only WS or ].
+        # The modifier is an ident-token (Selectors §6.3), so it is read as one:
+        # an escape is decoded (`\69` is `i`) and a comment may follow it.
         def consume_attr_flag!
-          flag = peek
-          fail!("invalid attribute flag") unless %w[i I s S].include?(flag)
-          advance
-          fail!("invalid attribute flag") unless eof? || WS.include?(peek) || peek == "]"
-          flag.downcase
+          flag = consume_ident!.downcase(:ascii)
+          fail!("invalid attribute flag") unless %w[i s].include?(flag)
+
+          flag
         end
 
         # The four pseudo-elements that also accept the legacy one-colon syntax;
@@ -1063,6 +1072,15 @@ module Dommy
         end
 
         def at_comment? = peek == "/" && peek(1) == "*"
+
+        # The index at or after `j` that is past any comments starting there.
+        def index_past_comments(j)
+          while @s[j] == "/" && @s[j + 1] == "*"
+            close = @s.index("*/", j + 2)
+            j = close ? close + 2 : @n
+          end
+          j
+        end
 
         def skip_comment!
           advance # '/'

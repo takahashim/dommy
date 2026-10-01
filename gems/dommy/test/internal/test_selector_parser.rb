@@ -276,6 +276,30 @@ class TestSelectorParser < Minitest::Test
     assert_equal 2, nth.(":nth-child(2n of .a\\,b, p)").of_selector_list.selectors.length
   end
 
+  # The attribute modifier is an ident-token, and a comment is no token at all:
+  # so `\69` is the modifier `i`, a comment may follow the modifier, and the
+  # two delims of a matcher or a namespace prefix may have a comment between
+  # them (whitespace there is still an error).
+  def test_comments_and_escapes_between_attribute_and_prefix_tokens
+    attr = ->(source) { SP.parse!(source).selectors.first.rightmost.subclass_selectors.first }
+
+    assert_equal "i", attr.("[a='x' \\69]").case_flag
+    assert_equal "i", attr.("[a='x' i/**/]").case_flag
+    assert_equal "s", attr.("[a='x' S]").case_flag
+    refute SP.valid?("[a='x' ix]")
+    assert_equal "~=", attr.("[a~/**/=x]").matcher
+    assert_equal "|=", attr.("[a|/**/=x]").matcher
+    refute SP.valid?("[a~ =x]")
+    assert SP.valid?("*/**/|div")
+    assert SP.valid?("[*/**/|a]")
+    assert SP.valid?("*|/**/div")
+    assert SP.valid?("[*|/**/a]")
+    assert SP.valid?("[|/**/a]")
+    # With whitespace instead, `|div` is a compound of its own after `*`.
+    assert_equal 2, SP.parse!("* |div").selectors.first.parts.length
+    assert_equal 1, SP.parse!("*/**/|div").selectors.first.parts.length
+  end
+
   # §3.3 filters the input before the tokenizer runs: a NULL becomes U+FFFD,
   # which is itself an ident code point. So `.a<NUL>b` names a class.
   def test_null_is_filtered_to_the_replacement_character
