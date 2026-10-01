@@ -32,6 +32,14 @@ module Dommy
 
     def __dommy_backend_node__ = @__node__
 
+    # "adopt" sets the node document of the element's attributes along with
+    # its own (DOM §4.5 step 3.3.1).
+    def __internal_reseat__(backend_node, document)
+      super
+      @attributes&.__internal_adopt__(document)
+      nil
+    end
+
     def initialize(document, nokogiri_node)
       @document = document
       @__node__ = nokogiri_node

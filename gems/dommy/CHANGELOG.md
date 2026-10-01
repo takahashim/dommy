@@ -29,6 +29,8 @@
 - `getElementById`, `getElementsByClassName`, `getElementsByName`, id and class selectors and `classList` read the `id`, `class` and `name` attributes in no namespace: one set with `setAttributeNS("urn:x", "id", …)` does not count, and a `classList` change writes the attribute in no namespace.
 - `getElementsByName` returns HTML elements only: an `<svg name>` or a `<math name>` is not among them.
 - `CSS.escape("-")` is `"\-"`.
+- `adoptNode(attr)` returns the `Attr` and moves it into the document, leaving it on its element.
+- An `Attr` keeps its node document when it is removed from its element, takes its element's document when appended to one, and moves with an adopted element.
 - `compareDocumentPosition` places an `Attr` at its element, before the element's children: an element contains its attributes, and two attributes of one element compare in attribute order.
 - An `Attr` has `parentNode`, `parentElement`, `firstChild`, `lastChild`, `previousSibling` and `nextSibling` of null, an empty `childNodes`, and `isConnected` of false.
 

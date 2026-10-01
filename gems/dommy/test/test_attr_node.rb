@@ -46,4 +46,34 @@ class TestAttrNode < Minitest::Test
     assert_equal NODE::DOCUMENT_POSITION_FOLLOWING, @b.get_attribute_node("id").compare_document_position(@c.get_attribute_node("id"))
     assert_equal NODE::DOCUMENT_POSITION_PRECEDING, @c.compare_document_position(@b.get_attribute_node("id"))
   end
+
+  def test_adopting_an_attr_keeps_it_on_its_element
+    assert_same @id, @other.adopt_node(@id)
+    assert_same @a, @id.owner_element
+    assert_same @other, @id.owner_document
+  end
+
+  def test_a_removed_attribute_keeps_its_node_document
+    @a.remove_attribute_node(@id)
+
+    assert_nil @id.owner_element
+    assert_same @doc, @id.owner_document
+  end
+
+  def test_appending_an_attribute_sets_its_node_document
+    attr = @other.create_attribute("title")
+    @a.set_attribute_node(attr)
+    assert_same @doc, attr.owner_document
+
+    @a.remove_attribute_node(attr)
+    assert_same @doc, attr.owner_document
+  end
+
+  def test_adopting_an_element_moves_its_attributes
+    @other.adopt_node(@a)
+    assert_same @other, @id.owner_document
+
+    @a.remove_attribute_node(@id)
+    assert_same @other, @id.owner_document
+  end
 end

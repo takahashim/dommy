@@ -33,6 +33,9 @@ module Dommy
         if node.is_a?(Dommy::Document)
           raise DOMException::NotSupportedError, "A Document node cannot be adopted."
         end
+        # An Attr has no parent to be removed from, so it stays on its
+        # element; only its node document changes.
+        return node.__internal_adopt__(@document) if node.is_a?(Attr)
         return nil unless node.respond_to?(:__dommy_backend_node__)
 
         src = node.__dommy_backend_node__
