@@ -40,6 +40,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],
     Dommy::Internal::NodeIdentity => %w[same_node? key_for],
     Dommy::Internal::RenderedText::Fragment => %w[set_inner set_outer],
+    Dommy::Internal::SelectorParser::AnPlusB => %w[match],
     Dommy::Internal::TextFlattening => %w[squish],
   }.freeze
 
