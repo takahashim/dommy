@@ -740,7 +740,7 @@ module Dommy
             hex = value[i, 6].to_s[/\A[0-9A-Fa-f]{1,6}/]
             if hex
               codepoint = hex.to_i(16)
-              out << (codepoint.zero? ? "\uFFFD" : codepoint.chr(Encoding::UTF_8))
+              out << escaped_code_point(codepoint)
               i += hex.length
               i += 1 if i < value.length && WS.include?(value[i])
             else
@@ -749,6 +749,17 @@ module Dommy
             end
           end
           out
+        end
+
+        # §4.3.7: zero, a surrogate, or anything past U+10FFFF (the maximum
+        # allowed code point) is U+FFFD. None of them is a character Ruby can
+        # build, so they must not reach Integer#chr.
+        def escaped_code_point(codepoint)
+          if codepoint.zero? || (0xD800..0xDFFF).cover?(codepoint) || codepoint > 0x10FFFF
+            "\uFFFD"
+          else
+            codepoint.chr(Encoding::UTF_8)
+          end
         end
 
         # ---- character classification --------------------------------------

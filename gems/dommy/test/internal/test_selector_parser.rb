@@ -192,6 +192,20 @@ class TestSelectorParser < Minitest::Test
     assert_equal "a\uFFFD", class_selector.value
   end
 
+  # §4.3.7: an escape whose value is zero, a surrogate, or past U+10FFFF is
+  # U+FFFD, wherever the escape sits (class, id, attribute value, string).
+  def test_an_escape_out_of_range_is_the_replacement_character
+    ["\\0", "\\D800", "\\DFFF ", "\\110000", "\\FFFFFF"].each do |escape|
+      ast = SP.parse!(".#{escape}")
+      class_selector = ast.selectors.first.rightmost.subclass_selectors.first
+
+      assert_equal "\uFFFD", class_selector.value, escape
+    end
+    assert SP.valid?("#\\D800")
+    assert_equal "\uFFFD", SP.parse!("[a='\\110000']").selectors.first.rightmost
+      .subclass_selectors.first.value
+  end
+
   # §3.3 filters the input before the tokenizer runs: a NULL becomes U+FFFD,
   # which is itself an ident code point. So `.a<NUL>b` names a class.
   def test_null_is_filtered_to_the_replacement_character
