@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.
+
 ### Fixed
 
 - `getElementById` and `getElementsByClassName` find an id or a class made of a space character such as U+00A0 or U+3000, where they raised a selector syntax error.

@@ -122,9 +122,13 @@ class TestNodeListReturnedEverywhere < Minitest::Test
     assert_equal(2, list.length)
   end
 
-  def test_get_elements_by_name_returns_live_html_collection
+  # HTML's getElementsByName returns a NodeList, not an HTMLCollection.
+  #
+  # WPT: html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-interface.html
+  def test_get_elements_by_name_returns_live_node_list
     list = @doc.get_elements_by_name("x")
-    assert_kind_of(Dommy::HTMLCollection, list)
+    assert_kind_of(Dommy::LiveNodeList, list)
+    refute_kind_of(Dommy::HTMLCollection, list)
   end
 
   def test_get_elements_by_class_name_returns_live_html_collection

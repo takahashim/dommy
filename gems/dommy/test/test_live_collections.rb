@@ -88,10 +88,6 @@ class TestLiveByName < Minitest::Test
     @doc = @win.document
   end
 
-  def test_returns_HTMLCollection
-    assert_kind_of(Dommy::HTMLCollection, @doc.get_elements_by_name("x"))
-  end
-
   def test_reflects_added_match
     list = @doc.get_elements_by_name("x")
     before = list.length
