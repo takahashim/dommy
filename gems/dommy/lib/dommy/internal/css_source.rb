@@ -31,6 +31,13 @@ module Dommy
         ":" => %r{[\\"'/uU()\[\]{}:]},
         "," => %r{[\\"'/uU()\[\]{},]},
       }.freeze
+      # The same, or what a declaration's value may not hold at its top level.
+      DECLARATION_STOP = %r{[\\"'/uU()\[\]{};!]}
+      # Where a call of each function #next_function is asked for may start,
+      # or an atom.
+      FUNCTION_STOP = {"var" => %r{[\\"'/uUvV]}}.freeze
+      # The bracket that closes a block each opening one starts.
+      CLOSER = {"(" => ")", "[" => "]", "{" => "}"}.freeze
 
       # `bytes:` is a binary String this CssSource may keep as its copy, in
       # place of `text` — a reader handing on what it has already made.
@@ -74,7 +81,7 @@ module Dommy
       # closed. nil when there is no such call.
       def next_function(name, from = 0)
         head = "#{name}("
-        stop = Regexp.union(ATOM_START, /#{Regexp.escape(name[0])}/i)
+        stop = FUNCTION_STOP.fetch(name)
         i = from
         while (i = @bytes.index(stop, i))
           if (j = CssSyntax.atom_end(@bytes, i))
@@ -91,10 +98,11 @@ module Dommy
       end
 
       # The offset of the bracket closing the one at `open`, or nil when it is
-      # never closed. Every kind of bracket opens a level, and escapes,
-      # strings, urls and comments are stepped over.
+      # never closed. A bracket closes only a block of its own kind: inside a
+      # `(` block, a `]` is a token like any other (css-syntax-3 §5.4.7).
+      # Escapes, strings, urls and comments are stepped over.
       def matching_bracket(open)
-        depth = 0
+        blocks = []
         i = open
         while (i = @bytes.index(BRACKET_STOP, i))
           if (j = CssSyntax.atom_end(@bytes, i))
@@ -102,16 +110,35 @@ module Dommy
             next
           end
 
-          c = @bytes[i]
-          if CssSyntax::OPENING_BRACKETS.include?(c)
-            depth += 1
-          elsif CssSyntax::CLOSING_BRACKETS.include?(c)
-            depth -= 1
-            return i if depth.zero?
-          end
+          return i if step_block(blocks, @bytes[i]) == :closed && blocks.empty?
+
           i += 1
         end
         nil
+      end
+
+      # Whether the text can stand as a declaration's value, a
+      # <declaration-value> (css-syntax-3 §8.2): no `;` or `!` at its top
+      # level, and no closing bracket that closes no block — so neither a
+      # value handed to setProperty nor a custom property's can end its
+      # declaration and start another. Inside a block they are tokens like
+      # any other; a block still open at the end is closed by it.
+      def declaration_value?
+        blocks = []
+        i = 0
+        while (i = @bytes.index(DECLARATION_STOP, i))
+          if (j = CssSyntax.atom_end(@bytes, i))
+            i = j
+            next
+          end
+
+          c = @bytes[i]
+          return false if blocks.empty? && (c == ";" || c == "!" || CssSyntax::CLOSING_BRACKETS.include?(c))
+
+          step_block(blocks, c)
+          i += 1
+        end
+        true
       end
 
       # The text with its comments removed, as a CssSource. A comment is no
@@ -147,7 +174,7 @@ module Dommy
       # The offset of the first top-level `char` at or after `from`, or nil.
       def index_top_level(char, from = 0)
         stop = TOP_LEVEL_STOP.fetch(char)
-        depth = 0
+        blocks = []
         i = from
         while (i = @bytes.index(stop, i))
           if (j = CssSyntax.atom_end(@bytes, i))
@@ -156,16 +183,25 @@ module Dommy
           end
 
           c = @bytes[i]
-          return i if c == char && depth.zero?
+          return i if c == char && blocks.empty?
 
-          if CssSyntax::OPENING_BRACKETS.include?(c)
-            depth += 1
-          elsif CssSyntax::CLOSING_BRACKETS.include?(c)
-            depth -= 1 if depth.positive?
-          end
+          step_block(blocks, c)
           i += 1
         end
         nil
+      end
+
+      # Track the blocks open at `c`: an opening bracket opens one, and a
+      # closing bracket closes the innermost only when it is that block's own
+      # kind (:closed); any other closing bracket is a token like any other.
+      def step_block(blocks, c)
+        if (closer = CLOSER[c])
+          blocks.push(closer)
+          :opened
+        elsif !blocks.empty? && blocks.last == c
+          blocks.pop
+          :closed
+        end
       end
 
       # The spacing a removed comment leaves in `out`, and where reading
