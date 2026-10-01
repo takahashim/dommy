@@ -17,17 +17,17 @@ module Dommy
       # The first backend element under `bnode` whose `id` is `id`, in tree
       # order. An id with selector-special characters (e.g. React's `useId`
       # values like `:rjm:`) is escaped into a valid id-selector ident for the
-      # backend's engine. In a quirks-mode document that engine matches an id
-      # selector ASCII case-insensitively, as CSS asks, while getElementById
-      # still compares case-sensitively: its answer is kept only when the id
-      # is exactly `id`, and otherwise the exact one is looked for among the
-      # rest it matches. CSS.escape cannot make a selector of U+0000, which
-      # CSSOM's "serialize an identifier" turns into U+FFFD — an id holding it
-      # is found by comparing the attribute itself.
+      # backend's engine (#selector_ident). In a quirks-mode document that
+      # engine matches an id selector ASCII case-insensitively, as CSS asks,
+      # while getElementById still compares case-sensitively: its answer is
+      # kept only when the id is exactly `id`, and otherwise the exact one is
+      # looked for among the rest it matches. No escape spells U+0000 (it
+      # reads as U+FFFD), so an id holding it is found by comparing the
+      # attribute itself.
       def element_by_id(bnode, id)
         return bnode.css("[id]").find { |n| n["id"] == id } if id.include?("\u0000")
 
-        selector = "##{Dommy::CSSNamespace.escape(id)}"
+        selector = "##{selector_ident(id)}"
         first = bnode.at_css(selector)
         return first if first.nil? || first["id"] == id
 
@@ -54,20 +54,33 @@ module Dommy
       end
 
       # A superset of the elements with every one of `tokens`: what the
-      # backend's class selector, the tokens escaped with CSS.escape, matches —
-      # natively, where the comparison above runs in Ruby. That selector
-      # compares exactly in a no-quirks document and ASCII case-insensitively
-      # in one the backend parsed in quirks mode. It cannot spell U+0000
-      # (CSS.escape writes U+FFFD), and it would not fold case were `document`
-      # in quirks mode while its backend holds it in no-quirks mode (the two
-      # agree wherever Dommy takes the mode from the backend's parser, but a
-      # superset must not rest on that); then every element with a class is a
-      # candidate.
+      # backend's class selector, the tokens escaped by #selector_ident,
+      # matches — natively, where the comparison above runs in Ruby. That
+      # selector compares exactly in a no-quirks document and ASCII
+      # case-insensitively in one the backend parsed in quirks mode. It cannot
+      # spell U+0000 (an escape of it reads as U+FFFD), and it would not fold
+      # case were `document` in quirks mode while its backend holds it in
+      # no-quirks mode (the two agree wherever Dommy takes the mode from the
+      # backend's parser, but a superset must not rest on that); then every
+      # element with a class is a candidate.
       def class_candidates(document, root, tokens)
         backend_folds = !document.quirks_mode? || Backend.quirks_mode?(document.backend_doc)
         return root.css("[class]") if !backend_folds || tokens.any? { |t| t.include?("\u0000") }
 
-        root.css(tokens.map { |t| ".#{Dommy::CSSNamespace.escape(t)}" }.join)
+        root.css(tokens.map { |t| ".#{selector_ident(t)}" }.join)
+      end
+
+      # `value` as an ident a selector can carry whatever it holds: every code
+      # point but an ASCII letter, an underscore, and (after the first) a
+      # digit or U+002D written as a hex escape. CSS.escape is not enough —
+      # it leaves a non-ASCII code point as it is, and css-syntax-3 counts
+      # only some of them as ident code points (§4.2), so a class or an id of
+      # U+00A0 or U+3000 would make an invalid selector.
+      def selector_ident(value)
+        value.each_char.with_index.map do |c, i|
+          plain = i.zero? ? c.match?(/[A-Za-z_]/) : c.match?(/[A-Za-z0-9_-]/)
+          plain ? c : "\\#{c.ord.to_s(16)} "
+        end.join
       end
 
       # The HTML elements under `bnode` whose `name` is `name`. Only elements
@@ -79,7 +92,7 @@ module Dommy
         bnode.css("[name]").select { |n| n["name"] == name && Backend.namespace_uri(n) == Namespaces::HTML }
       end
 
-      private_class_method :class_candidates
+      private_class_method :class_candidates, :selector_ident
     end
   end
 end
