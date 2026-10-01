@@ -56,6 +56,19 @@ class TestLiteralLookups < Minitest::Test
     end
   end
 
+  # Only HTML elements are found: an SVG or MathML element with the same
+  # `name` is not.
+  #
+  # WPT: html/dom/documents/dom-tree-accessors/document.getElementsByName/document.getElementsByName-namespace.html
+  def test_get_elements_by_name_finds_html_elements_only
+    @root.inner_html = %(<p name="math"><math name="math"><mi>a</mi></math></p>) +
+      %(<p name="svg"><svg name="svg"><rect name="svg"/></svg></p>)
+    ps = @root.get_elements_by_tag_name("p").to_a
+
+    assert_equal [ps[0]], @doc.get_elements_by_name("math").to_a
+    assert_equal [ps[1]], @doc.get_elements_by_name("svg").to_a
+  end
+
   def test_get_element_by_id_takes_any_value
     fragment = @doc.create_document_fragment
     host = child(@root, {})

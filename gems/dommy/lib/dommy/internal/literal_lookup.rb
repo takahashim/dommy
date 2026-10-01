@@ -68,9 +68,13 @@ module Dommy
         bnode.css(tokens.map { |t| ".#{Dommy::CSSNamespace.escape(t)}" }.join)
       end
 
-      # The backend elements under `bnode` whose `name` is `name`.
+      # The HTML elements under `bnode` whose `name` is `name`. Only elements
+      # in the HTML namespace count: an SVG or MathML element with a `name`
+      # attribute is not one getElementsByName finds.
+      #
+      # Spec: https://html.spec.whatwg.org/multipage/dom.html#dom-document-getelementsbyname
       def elements_named(bnode, name)
-        bnode.css("[name]").select { |n| n["name"] == name }
+        bnode.css("[name]").select { |n| n["name"] == name && Backend.namespace_uri(n) == Namespaces::HTML }
       end
 
       private_class_method :class_candidates
