@@ -1,3 +1,5 @@
+# frozen_string_literal: true
+
 require "dommy"
 require_relative "rails/version"
 require_relative "rails/form_inspector"
