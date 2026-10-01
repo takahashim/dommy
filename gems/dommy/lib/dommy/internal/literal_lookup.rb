@@ -40,20 +40,40 @@ module Dommy
       # The backend elements under `bnode` whose class list contains every one
       # of `tokens`, compared directly: a token may hold anything but ASCII
       # whitespace (`1`, `a.b`, `a:b`, `[x]`, a quote, NUL). In a quirks-mode
-      # document they compare ASCII case-insensitively.
+      # document they compare ASCII case-insensitively. The backend's own class
+      # selector narrows the candidates first (see #class_candidates).
       def elements_with_classes(bnode, tokens, quirks:)
-        tokens = tokens.map { |t| t.downcase(:ascii) } if quirks
-        bnode.css("[class]").select do |n|
+        wanted = quirks ? tokens.map { |t| t.downcase(:ascii) } : tokens
+        class_candidates(bnode, tokens, quirks).select do |n|
           classes = Infra.split_on_ascii_whitespace(n["class"])
           classes = classes.map { |c| c.downcase(:ascii) } if quirks
-          tokens.all? { |t| classes.include?(t) }
+          wanted.all? { |t| classes.include?(t) }
         end
+      end
+
+      # A superset of the elements with every one of `tokens`: what the
+      # backend's class selector, the tokens escaped with CSS.escape, matches —
+      # natively, where the comparison above runs in Ruby. That selector
+      # compares exactly in a no-quirks document and ASCII case-insensitively
+      # in one the backend parsed in quirks mode. It cannot spell U+0000
+      # (CSS.escape writes U+FFFD), and it does not fold case when the backend
+      # holds the document in no-quirks mode while Dommy's is quirks; then
+      # every element with a class is a candidate.
+      def class_candidates(bnode, tokens, quirks)
+        doc = bnode.document
+        if tokens.any? { |t| t.include?("\u0000") } || (quirks && !Backend.quirks_mode?(doc))
+          return bnode.css("[class]")
+        end
+
+        bnode.css(tokens.map { |t| ".#{Dommy::CSSNamespace.escape(t)}" }.join)
       end
 
       # The backend elements under `bnode` whose `name` is `name`.
       def elements_named(bnode, name)
         bnode.css("[name]").select { |n| n["name"] == name }
       end
+
+      private_class_method :class_candidates
     end
   end
 end
