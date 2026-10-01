@@ -219,6 +219,20 @@ class TestSelectorParser < Minitest::Test
       .subclass_selectors.first.value
   end
 
+  # §4.3.8: a backslash followed by a newline is not a valid escape, so it
+  # neither continues an ident nor starts one (after a leading `-` either). The
+  # backslash is left as a delim-token, and the selector is invalid.
+  def test_a_backslash_before_a_newline_is_not_an_escape
+    refute SP.valid?(".a\\\nb")
+    refute SP.valid?(".a\\\r\nb")
+    refute SP.valid?(".-\\\na")
+    refute SP.valid?("#-\\\na")
+    refute SP.valid?("#\\\n")
+    refute SP.valid?("[a=x\\\ny]")
+    assert SP.valid?(".-\\31 ")
+    assert SP.valid?(".a\\ b")
+  end
+
   # §3.3 filters the input before the tokenizer runs: a NULL becomes U+FFFD,
   # which is itself an ident code point. So `.a<NUL>b` names a class.
   def test_null_is_filtered_to_the_replacement_character

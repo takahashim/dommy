@@ -675,7 +675,7 @@ module Dommy
             # `--foo`: §4.3.11 lets a second U+002D start the ident, so a custom
             # property's name is a class selector like any other.
             advance
-          elsif peek == "\\"
+          elsif valid_escape?
             consume_escape!
           elsif ident_letter?(peek)
             advance
@@ -698,7 +698,7 @@ module Dommy
           count = 0
           loop do
             c = peek
-            if c == "\\"
+            if valid_escape?
               consume_escape!
               count += 1
             elsif name_char?(c)
@@ -779,15 +779,19 @@ module Dommy
           c = peek
           return false if c.nil?
           return true if ident_letter?(c)
-          # A backslash starts an ident unless a newline follows: §4.3.8 calls
-          # every other pair a valid escape, the end of the input included.
-          return true if c == "\\" && peek(1) != "\n"
+          return true if valid_escape?
           # leading '-' is an ident start if followed by ident-letter / '-' / esc
           if c == "-"
             nxt = peek(1)
-            return !nxt.nil? && (ident_letter?(nxt) || nxt == "-" || nxt == "\\")
+            return !nxt.nil? && (ident_letter?(nxt) || nxt == "-" || valid_escape?(1))
           end
           false
+        end
+
+        # §4.3.8: a backslash starts a valid escape unless a newline follows it.
+        # Every other pair counts, the end of the input included.
+        def valid_escape?(offset = 0)
+          peek(offset) == "\\" && peek(offset + 1) != "\n"
         end
 
         # css-syntax-3 §4.2 "non-ASCII ident code point". Not everything from
@@ -830,7 +834,7 @@ module Dommy
           j = from
           j += 1 if @s[j] == "-"
           while (ch = @s[j])
-            if ch == "\\"
+            if ch == "\\" && @s[j + 1] != "\n"
               j += 1
               if @s[j]&.match?(/[0-9A-Fa-f]/)
                 count = 0
