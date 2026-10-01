@@ -9,7 +9,12 @@ require_relative "test_helper"
 class TestLiteralLookups < Minitest::Test
   include DommyTestHelper
 
-  EXOTIC = ["1", "-", "a.b", "a:b", "a'b", "a\\b", "[x]", "a\nb", "\u0000", "a\u0000b"].freeze
+  # The last ones are no ident code points of css-syntax-3 (§4.2), which
+  # CSS.escape leaves as they are: U+000B, U+00A0, U+2000, U+200B, U+3000.
+  EXOTIC = [
+    "1", "-", "a.b", "a:b", "a'b", "a\\b", "[x]", "a\nb", "\u0000", "a\u0000b",
+    "\u000B", "\u00A0", "\u2000", "\u200B", "\u3000", "a\u00A0b",
+  ].freeze
 
   def setup
     @win = make_window("<div id=root></div>")
