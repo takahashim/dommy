@@ -661,10 +661,12 @@ module Dommy
       # element is gone (`document.removeChild(documentElement)`, or a
       # replaceChild that swaps it for a comment), and head / body / title
       # resolve through this.
+      # The backend's `root` is that element in the ordinary case, but once
+      # the element it held is gone it answers the doctype, even when another
+      # element has been appended since — so look past it.
       root = @backend_doc.root
-      return nil unless root&.element?
-
-      wrap_node(root)
+      root = @backend_doc.children.find(&:element?) unless root&.element?
+      root && wrap_node(root)
     end
 
     def head
@@ -680,13 +682,38 @@ module Dommy
       end
     end
 
-    # Resolve `body` fresh from the tree (not memoized) so it tracks a swapped
-    # `<body>` — e.g. Turbo's page render does
-    # `documentElement.replaceChild(newBody, body)`, after which a stale cached
-    # wrapper would keep returning the detached old body. wrap_node caches by
-    # node, so identity (`document.body === document.body`) still holds.
+    # HTML's "the body element": the first child of the html element — the
+    # document element, if it is the HTML namespace's `html` — that is a
+    # `body` or a `frameset` in the HTML namespace; nil without one. Resolved
+    # fresh from the tree (not memoized) so it tracks a swapped `<body>` — e.g.
+    # Turbo's page render does `documentElement.replaceChild(newBody, body)`.
+    # wrap_node caches by node, so `document.body === document.body` holds.
+    #
+    # Spec: https://html.spec.whatwg.org/multipage/dom.html#the-body-element-2
     def body
-      wrap_node(@backend_doc.at_css("body"))
+      root = document_element
+      return nil unless root && root.local_name == "html" && root.namespace_uri == Internal::Namespaces::HTML
+
+      root.children.to_a.find { |child| body_or_frameset?(child) }
+    end
+
+    # The body setter: the new value must be a `body` or a `frameset` in the
+    # HTML namespace. It replaces the body element there is, or else is
+    # appended to the document element; without either, there is nowhere to
+    # put it.
+    #
+    # Spec: https://html.spec.whatwg.org/multipage/dom.html#dom-document-body
+    def body=(element)
+      raise DOMException::HierarchyRequestError, "body must be a body or frameset element" unless body_or_frameset?(element)
+
+      current = body
+      return if element.equal?(current)
+      return current.parent_node.replace_child(element, current) if current
+
+      root = document_element
+      raise DOMException::HierarchyRequestError, "the document has no document element" unless root
+
+      root.append_child(element)
     end
 
     # The document's accessibility tree (built from <body>; the document itself
@@ -1946,6 +1973,12 @@ module Dommy
         # `document.location = url` navigates, same as `location.href = url`.
         loc = @default_view&.__js_get__("location")
         loc&.__js_set__("href", value)
+      when "body"
+        # WebIDL `attribute HTMLElement? body`: anything but an HTMLElement or
+        # null fails the conversion before the setter's own checks run.
+        raise Bridge::TypeError, "document.body must be an HTMLElement or null" unless value.nil? || value.is_a?(HTMLElement)
+
+        self.body = value
       when "head", "documentElement"
         # Readonly attributes: assignment is a silent no-op. Handle it here so the
         # bridge doesn't store a JS-side expando that would shadow the getter.
@@ -2763,6 +2796,11 @@ module Dommy
 
       frag = @template_content_registry.contents(copy)
       content_nodes.each { |n| frag.add_child(clone_into_doc(n, true, source_document)) }
+    end
+
+    def body_or_frameset?(node)
+      node.is_a?(Element) && %w[body frameset].include?(node.local_name) &&
+        node.namespace_uri == Internal::Namespaces::HTML
     end
 
     def read_title

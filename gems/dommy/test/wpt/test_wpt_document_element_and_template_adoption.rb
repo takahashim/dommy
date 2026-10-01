@@ -56,6 +56,15 @@ class TestWPTDocumentElementWithoutARootElement < Minitest::Test
 
     assert_same html, @doc.document_element
   end
+
+  # An element appended after the root was removed is the document element,
+  # though the backend's `root` stays on the doctype.
+  def test_an_element_appended_after_the_root_was_removed
+    @doc.remove_child(@doc.document_element)
+    test = @doc.append_child(@doc.create_element("test"))
+
+    assert_same test, @doc.document_element
+  end
 end
 
 # HTML's adopting steps for `<template>` adopt its template contents too. The
