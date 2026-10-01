@@ -46,7 +46,7 @@ module Dommy
           return false unless compound?(element, parts.last.compound, verified: verified)
           return true if parts.length == 1 && anchor.nil?
 
-          ComplexMatch.new(parts, self, anchor, leading).from(element, parts.length - 1)
+          complex_match(complex, anchor, leading).from(element, parts.length - 1)
         end
 
         # `verified:` (a prefilter tuple already tested on the backend node)
@@ -67,6 +67,17 @@ module Dommy
         end
 
         private
+
+        # The walk for `complex`. One with no :has() anchor depends on nothing
+        # but the selector and this match, so it is made once per selector and
+        # reused — the cascade asks every complex selector of a sheet about
+        # every element through one Match. An anchored one is :has()'s, made
+        # for its anchor.
+        def complex_match(complex, anchor, leading)
+          return ComplexMatch.new(complex.parts, self, anchor, leading) if anchor
+
+          (@complex_matches ||= {}.compare_by_identity)[complex] ||= ComplexMatch.new(complex.parts, self, nil, nil)
+        end
 
         def simple?(element, selector)
           case selector
