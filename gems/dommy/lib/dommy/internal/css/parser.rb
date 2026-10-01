@@ -268,7 +268,7 @@ module Dommy
         # a function (`url(data:a;b)`), a {} block or a comment does not end a
         # declaration (css-syntax-3 §5.4.5).
         def parse_block(text)
-          CssSource.split_top_level(text.to_s, ";").each_with_object({}) do |chunk, out|
+          CssSource.split_top_level(CssSource.preprocess(text.to_s), ";").each_with_object({}) do |chunk, out|
             decl = parse_declaration(chunk)
             next if decl.nil?
             next if !decl.important && out[decl.name]&.important
@@ -282,12 +282,8 @@ module Dommy
         def parse_declaration(chunk)
           # Comments are no tokens: drop them before reading the name, the
           # colon and the value, so `/* x: y */` hides nothing after it.
-          chunk = CssSource.strip_comments(chunk)
-          colon = CssSource.index_top_level(chunk, ":")
-          return nil unless colon
-
-          name = chunk[0...colon]
-          value = chunk[(colon + 1)..]
+          name, value = CssSource.partition_top_level(CssSource.strip_comments(chunk), ":")
+          return nil unless name
 
           name = property_name(name.strip)
           value = value.strip
@@ -320,7 +316,7 @@ module Dommy
         # var() in it parses. A declaration whose value fails is dropped, not stored.
         def valid_declaration_value?(value)
           return false if value.empty?
-          return false if CssSource.index_top_level(value, ":")
+          return false if CssSource.partition_top_level(value, ":")
 
           valid_var_functions?(value)
         end
@@ -328,12 +324,13 @@ module Dommy
         # Every var() outside a string or a comment parses: a `var(` in
         # `content: "var(--"` is text.
         def valid_var_functions?(value)
+          bytes = CssSource.binary(value)
           index = 0
-          while (call = CssSource.next_function(value, "var", index))
+          while (call = CssSource.next_function(bytes, "var", index))
             start, close = call
             open = start + 3
             return false if close.nil?
-            return false unless valid_var_name_argument?(value[(open + 1)...close])
+            return false unless valid_var_name_argument?(CssSource.slice_text(bytes, open + 1, close))
 
             # Continue inside the call, so a nested var() in the fallback is
             # checked by the same rule.

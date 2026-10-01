@@ -113,7 +113,7 @@ module Dommy
         WS = " \t\r\n\f"
 
         def initialize(string, in_has: false, namespaces: nil)
-          @s = preprocess(string)
+          @s = CssSource.preprocess(string)
           @i = 0
           @n = @s.length
           # True while parsing the argument of a `:has()` — a structurally
@@ -689,19 +689,6 @@ module Dommy
         end
 
         # ---- token helpers -------------------------------------------------
-
-        # css-syntax-3 §3.3 "filter code points", the pass that runs before the
-        # tokenizer sees anything: the three newline forms become U+000A, and
-        # U+0000 becomes U+FFFD. The replacement character is itself an ident
-        # code point, so `.a<NUL>b` names the class `a<U+FFFD>b` rather than
-        # being a syntax error.
-        NEEDS_FILTERING = /[\r\f\u0000]/
-
-        def preprocess(string)
-          return string unless string.match?(NEEDS_FILTERING)
-
-          string.gsub(/\r\n|[\r\f]/, "\n").gsub("\u0000", "\uFFFD")
-        end
 
         def consume_string!
           quote = peek

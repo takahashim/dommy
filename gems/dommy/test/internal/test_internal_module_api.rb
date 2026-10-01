@@ -25,8 +25,9 @@ class TestInternalModuleApi < Minitest::Test
     ],
     Dommy::Internal::CSS::Counters => %w[build substitute],
     Dommy::Internal::CssSource => %w[
-      atom_end index_top_level split_top_level matching_bracket next_function
-      strip_comments valid_escape_at? ident_start_code_point? name_code_point?
+      preprocess binary slice_text atom_end matching_bracket next_function
+      split_top_level partition_top_level strip_comments valid_escape_at?
+      ident_start_code_point? name_code_point?
     ],
     Dommy::Internal::CSS::CustomProperties => %w[contains_var? resolve_all substitute split_args],
     Dommy::Internal::CSS::MediaQuery => %w[match?],

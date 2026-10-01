@@ -92,6 +92,28 @@ class TestCssDeclarationTokens < Minitest::Test
     assert_equal "1px", CASCADE.computed_style(doc.get_element_by_id("t"))["--t"]
   end
 
+  # §3.3 runs before the tokenizer: a CR, a CRLF and an FF are each a
+  # newline, so a backslash before a CRLF continues the string over the whole
+  # line break rather than escaping the CR and ending the string at the LF.
+  def test_newline_forms_are_one_newline
+    ["\r\n", "\r", "\f"].each do |newline|
+      style = style_of("content: 'a\\#{newline}b'; color: red")
+
+      assert_equal "red", style.get_property_value("color"), newline.inspect
+    end
+  end
+
+  # Non-ASCII text beside a long url reads the same as ASCII text: the block
+  # is scanned by byte, where every structural code point is ASCII.
+  def test_non_ascii_text_beside_a_url
+    uri = "url(data:image/png;base64,#{"ab/+u9" * 1000})"
+    style = style_of("background-image: #{uri}; font-family: '\u30E1\u30A4\u30EA\u30AA'; color: red")
+
+    assert_equal uri, style.get_property_value("background-image")
+    assert_equal "'\u30E1\u30A4\u30EA\u30AA'", style.get_property_value("font-family")
+    assert_equal "red", style.get_property_value("color")
+  end
+
   # Parse-time validation reads var() the same way: an unclosed `var(` inside
   # a string keeps the declaration.
   def test_a_var_in_a_string_does_not_invalidate_the_declaration
