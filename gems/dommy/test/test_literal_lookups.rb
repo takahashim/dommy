@@ -61,6 +61,16 @@ class TestLiteralLookups < Minitest::Test
     end
   end
 
+  # A document Dommy holds in quirks mode over a backend parse that is not
+  # still folds class case: the native class selector would not, so the
+  # lookup does not lean on it there.
+  def test_quirks_mode_over_a_no_quirks_backend_still_folds_class_case
+    doc = Dommy::DOMParser.new.parse_from_string("<!DOCTYPE html><p class=Foo></p>", "text/html")
+    doc.__internal_quirks_mode__ = true
+
+    assert_equal 1, doc.get_elements_by_class_name("foo").length
+  end
+
   # Only HTML elements are found: an SVG or MathML element with the same
   # `name` is not.
   #

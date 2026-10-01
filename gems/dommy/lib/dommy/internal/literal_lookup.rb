@@ -47,7 +47,7 @@ module Dommy
       def elements_with_classes(document, root, tokens)
         quirks = document.quirks_mode?
         wanted = quirks ? tokens.map { |t| t.downcase(:ascii) } : tokens
-        class_candidates(root, tokens).select do |n|
+        class_candidates(document, root, tokens).select do |n|
           classes = Infra.split_on_ascii_whitespace(attribute(n, "class"))
           classes = classes.map { |c| c.downcase(:ascii) } if quirks
           wanted.all? { |t| classes.include?(t) }
@@ -60,11 +60,13 @@ module Dommy
       # selector compares exactly where the backend parsed a document in
       # no-quirks mode and ASCII case-insensitively where it parsed one in
       # quirks mode; Dommy takes the document's mode from that parse, so the
-      # selector is never stricter than the comparison above. It cannot spell
-      # U+0000 (an escape of it reads as U+FFFD); then every element with a
-      # class is a candidate.
-      def class_candidates(root, tokens)
-        return root.css("[class]") if tokens.any? { |t| t.include?("\u0000") }
+      # selector is never stricter than the comparison above — but a superset
+      # must not rest on that, so a quirks-mode `document` over a backend that
+      # does not fold scans instead. It cannot spell U+0000 (an escape of it
+      # reads as U+FFFD); then too every element with a class is a candidate.
+      def class_candidates(document, root, tokens)
+        backend_folds = !document.quirks_mode? || Backend.quirks_mode?(document.backend_doc)
+        return root.css("[class]") if !backend_folds || tokens.any? { |t| t.include?("\u0000") }
 
         root.css(tokens.map { |t| ".#{selector_ident(t)}" }.join)
       end
