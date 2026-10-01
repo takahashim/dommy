@@ -114,7 +114,7 @@ module Dommy
       # [:class|:id, value] when `compound` is EXACTLY one class or id selector
       # (no type, no pseudo, nothing else), else nil. For such a compound the index
       # lookup is an exact match — not just a superset — so an index "does an
-      # ancestor match?" answer can be trusted without re-running matches_compound?.
+      # ancestor match?" answer can be trusted without re-running Match#compound?.
       # Never in quirks mode, where the index's exact buckets are not the match.
       def exact_class_or_id_prefilter(compound, quirks: false)
         return nil if quirks

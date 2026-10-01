@@ -8,16 +8,16 @@ module Dommy
       # candidate, and a failure further left must retry the next one (`.a >
       # .b .c` where the nearest `.b` ancestor has the wrong parent).
       #
-      # The parts, the match's context and :has()'s anchor and leading
+      # The parts, the Match it belongs to and :has()'s anchor and leading
       # combinator stay the same for the whole match — only the element and the
       # position in the parts move — so they are this object's state.
       class ComplexMatch
         # Prefilters the index can answer an ancestor existence query for.
         INDEXABLE_ANCESTOR_KINDS = %i[id class type].freeze
 
-        def initialize(parts, context, anchor, leading)
+        def initialize(parts, match, anchor, leading)
           @parts = parts
-          @context = context
+          @match = match
           @anchor = anchor
           @leading = leading
         end
@@ -58,7 +58,7 @@ module Dommy
         private
 
         def compound_matches?(element, compound, verified: nil)
-          SelectorMatcher.matches_compound?(element, compound, @context, verified: verified)
+          @match.compound?(element, compound, verified: verified)
         end
 
         # The descendant combinator walks EVERY ancestor of `current`. Wrapping
@@ -68,8 +68,8 @@ module Dommy
         # superset, so #compound_matches? is still authoritative — and only
         # wrap the ancestors that can possibly match.
         def from_ancestor(current, compound, index)
-          doc = @context.document
-          quirks = @context.quirks
+          doc = @match.document
+          quirks = @match.quirks
           prefilter = BackendPrefilter.prefilter_for(compound, quirks: quirks) # nil ⇒ no static gate, must wrap every ancestor
 
           # Ask the index about `current`'s ancestors before walking them. For

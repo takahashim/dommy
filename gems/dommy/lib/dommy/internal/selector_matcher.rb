@@ -8,30 +8,13 @@ require_relative "infra"
 module Dommy
   module Internal
     module SelectorMatcher
-      # What one match is asked in, the same for every element it visits: the
-      # element `:scope` stands for, the document, and whether that document is
-      # in quirks mode (HTML has id and class selectors fold ASCII case there).
-      Context = Struct.new(:scope, :document, :quirks)
-
       module_function
 
-      def context_for(document, scope)
-        Context.new(scope, document, document.respond_to?(:quirks_mode?) && document.quirks_mode?)
-      end
-
-      # `verified:` — see #matches_complex?; only passed by fast_query's
-      # single-selector paths, where the one prefilter belongs to the one
-      # complex selector in the list.
+      # `verified:` — see Match#list?.
       def matches?(element, selector_ast, scope: nil, verified: nil)
         return false unless element&.respond_to?(:__dommy_backend_node__)
 
-        matches_list?(element, selector_ast, context_for(element.owner_document, scope), verified: verified)
-      end
-
-      def matches_list?(element, selector_ast, context, verified: nil)
-        return false unless element&.respond_to?(:__dommy_backend_node__)
-
-        selector_ast.selectors.any? { |complex| matches_complex?(element, complex, context, verified: verified) }
+        Match.for(element.owner_document, scope).list?(element, selector_ast, verified: verified)
       end
 
       # querySelectorAll. The candidate set is exactly `root`'s descendants:
@@ -46,9 +29,9 @@ module Dommy
         fast = fast_query(root, selector_ast, scope: scope)
         return fast if fast
 
-        context = context_for(BackendPrefilter.document_of(root), scope)
+        match = Match.for(BackendPrefilter.document_of(root), scope)
         element_descendants(root).select do |element|
-          matches_list?(element, selector_ast, context)
+          match.list?(element, selector_ast)
         end
       end
 
@@ -63,10 +46,10 @@ module Dommy
         fast = fast_query(root, selector_ast, scope: scope, first: true)
         return fast.first if fast
 
-        context = context_for(BackendPrefilter.document_of(root), scope)
+        match = Match.for(BackendPrefilter.document_of(root), scope)
         catch(:found) do
           each_descendant(root) do |element|
-            throw(:found, element) if matches_list?(element, selector_ast, context)
+            throw(:found, element) if match.list?(element, selector_ast)
           end
           nil
         end
@@ -88,8 +71,8 @@ module Dommy
         doc = BackendPrefilter.document_of(root)
         return nil unless doc
 
-        context = context_for(doc, scope)
-        prefilters = BackendPrefilter.static_prefilters(selector_ast, quirks: context.quirks)
+        match = Match.for(doc, scope)
+        prefilters = BackendPrefilter.static_prefilters(selector_ast, quirks: match.quirks)
         return nil unless prefilters
 
         backend_root = BackendPrefilter.backend_root_of(root)
@@ -118,7 +101,7 @@ module Dommy
             catch(:done) do
               candidates.each do |bnode|
                 element = doc.wrap_node(bnode)
-                next unless element && matches_list?(element, selector_ast, context, verified: verified)
+                next unless element && match.list?(element, selector_ast, verified: verified)
 
                 out << element
                 throw(:done) if first
@@ -138,7 +121,7 @@ module Dommy
             # `single` was just tested on this very backend node, so the
             # subject compound skips its re-read (multi-selector lists don't
             # know WHICH prefilter passed — they stay unverified).
-            next unless element && matches_list?(element, selector_ast, context, verified: single)
+            next unless element && match.list?(element, selector_ast, verified: single)
 
             out << element
             throw(:done) if first
@@ -150,53 +133,17 @@ module Dommy
       def closest(element, selector_ast)
         # DOM Standard: closest keeps the *original* element as the scoping
         # root for every iteration.
-        context = context_for(element.owner_document, element)
+        match = Match.for(element.owner_document, element)
         node = element
         while node&.respond_to?(:matches?)
-          return node if matches_list?(node, selector_ast, context)
+          return node if match.list?(node, selector_ast)
 
           node = node.parent_element
         end
         nil
       end
 
-      # Match a complex selector with the rightmost compound as subject (see
-      # ComplexMatch). A single compound with no :has() anchor is the whole
-      # match, and needs no more than the compound itself.
-      #
-      # `anchor:`/`leading:` carry :has() semantics — when the chain is
-      # fully consumed, its leftmost element must additionally relate to
-      # the anchor via the relative selector's leading combinator.
-      #
-      # `verified:` is a prefilter tuple the caller has ALREADY tested against
-      # the element's backend node (fast_query's gate); the subject compound
-      # skips re-reading that one simple selector's attribute.
-      def matches_complex?(element, complex, context, anchor: nil, leading: nil, verified: nil)
-        parts = complex.parts
-        return false unless matches_compound?(element, parts.last.compound, context, verified: verified)
-        return true if parts.length == 1 && anchor.nil?
-
-        ComplexMatch.new(parts, context, anchor, leading).from(element, parts.length - 1)
-      end
-
       ELEMENT_NODE = 1
-
-      # `verified:` (a prefilter tuple already tested on the backend node)
-      # lets the one simple selector it proves skip its attribute re-read —
-      # the prefilter's id/class/attr-presence checks are exact, not just
-      # supersets, for that selector (a :type prefilter is a superset, so it
-      # is never passed as verified).
-      def matches_compound?(element, compound, context, verified: nil)
-        # A pseudo-element subject never matches an element (querySelector*,
-        # matches). The cascade strips pseudo-elements before matching and
-        # indexes those rules separately.
-        return false if compound.pseudo_element
-        return false unless matches_type?(element, compound.type)
-
-        compound.subclass_selectors.all? do |selector|
-          prefilter_proves?(selector, verified) || matches_simple?(element, selector, context)
-        end
-      end
 
       # Whether the already-tested prefilter tuple proves this simple selector
       # true, making its own backend read redundant. Only exact-equivalence
@@ -244,35 +191,6 @@ module Dommy
         return element.namespace_uri.to_s.empty? if namespace == :none
 
         element.namespace_uri.to_s == namespace.to_s
-      end
-
-      def matches_simple?(element, selector, context)
-        case selector
-        when SelectorAST::IdSelector
-          id_matches?(element, selector.value, context.quirks)
-        when SelectorAST::ClassSelector
-          class_matches?(element, selector.value, context.quirks)
-        when SelectorAST::AttributeSelector
-          matches_attribute?(element, selector)
-        when SelectorAST::PseudoClass
-          matches_pseudo_class?(element, selector, context)
-        else
-          false
-        end
-      end
-
-      # HTML: in a quirks-mode document, id and class selectors match ASCII
-      # case-insensitively (https://html.spec.whatwg.org/#selectors).
-      def id_matches?(element, value, quirks)
-        id = element.get_attribute("id").to_s
-        quirks ? id.downcase(:ascii) == value.downcase(:ascii) : id == value
-      end
-
-      def class_matches?(element, value, quirks)
-        return element.class_list.include?(value) unless quirks
-
-        folded = value.downcase(:ascii)
-        element.class_list.to_a.any? { |token| token.downcase(:ascii) == folded }
       end
 
       # Selectors 4 §6.4: the selector names a local name and a namespace
@@ -346,9 +264,10 @@ module Dommy
         end
       end
 
-      def matches_pseudo_class?(element, pseudo, context)
+      # The pseudo-classes whose answer depends on nothing but the element
+      # (Match answers the rest).
+      def matches_pseudo_class?(element, pseudo)
         case pseudo.name
-        when "scope" then context.scope ? element.equal?(context.scope) : false
         when "root" then element.owner_document&.document_element.equal?(element)
         when "empty" then element.child_nodes.none? { |node| element_node?(node) || text_node_content?(node) }
         when "first-child" then element.previous_element_sibling.nil?
@@ -357,13 +276,8 @@ module Dommy
         when "first-of-type" then previous_of_type(element).nil?
         when "last-of-type" then next_of_type(element).nil?
         when "only-of-type" then previous_of_type(element).nil? && next_of_type(element).nil?
-        when "nth-child" then nth_child?(element, pseudo.argument, false, context)
-        when "nth-last-child" then nth_child?(element, pseudo.argument, true, context)
         when "nth-of-type" then nth_of_type?(element, pseudo.argument, false)
         when "nth-last-of-type" then nth_of_type?(element, pseudo.argument, true)
-        when "is", "where" then matches_list?(element, pseudo.argument, context)
-        when "not" then !matches_list?(element, pseudo.argument, context)
-        when "has" then has_relative?(element, pseudo.argument, context)
         when "checked" then Internal.checked_state?(element)
         when "enabled" then ElementState.enableable_element?(element) && !ElementState.disabled_element?(element)
         when "disabled" then ElementState.enableable_element?(element) && ElementState.disabled_element?(element)
@@ -391,25 +305,6 @@ module Dommy
         end
       end
 
-      # `:has(RS)` — the relative selector is anchored at `element` (the
-      # implied :scope). Candidates are potential *subjects* (the relative
-      # complex's rightmost compound); the anchor relation of the chain's
-      # leftmost element is enforced inside matches_complex? via anchor:/
-      # leading:, so e.g. `section:has(.a .b)` cannot satisfy `.a` with an
-      # ancestor outside the section, and `:has(+ .a .b)` finds subjects
-      # inside the adjacent sibling. Inside :has, `:scope` is the anchor.
-      # `:has(RS)` anchors the relative selector at `element`, but `:scope` keeps
-      # meaning the scoping root of the enclosing query — so `el.closest(":has(> :scope)")`
-      # asks for an ancestor whose child is `el`, not one whose child is itself.
-      def has_relative?(element, relative_selectors, context)
-        relative_selectors.any? do |relative|
-          leading = relative.leading_combinator || :descendant
-          relative_candidates(element, leading).any? do |candidate|
-            matches_complex?(candidate, relative.complex, context, anchor: element, leading: leading)
-          end
-        end
-      end
-
       # The subject search space per leading combinator: descendants for
       # descendant/child relations; the following sibling(s) *and their
       # descendants* for sibling relations (`:has(+ .a .b)`'s subject lives
@@ -431,16 +326,6 @@ module Dommy
         else # :descendant / :child
           element_descendants(element)
         end
-      end
-
-      def nth_child?(element, nth, reverse, context)
-        siblings = element_siblings(element)
-        siblings = siblings.reverse if reverse
-        if nth.of_selector_list
-          siblings = siblings.select { |candidate| matches_list?(candidate, nth.of_selector_list, context) }
-        end
-        index = siblings.index(element)
-        index && nth_match?(index + 1, nth.a, nth.b)
       end
 
       def nth_of_type?(element, nth, reverse)
@@ -548,4 +433,5 @@ module Dommy
   end
 end
 
+require_relative "selector_match"
 require_relative "complex_match"
