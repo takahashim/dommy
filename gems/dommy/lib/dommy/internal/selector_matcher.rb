@@ -242,16 +242,10 @@ module Dommy
       end
 
       # The common shape, `[att]` / `[att=v]`, on the hot path of every cascade:
-      # an attribute in no namespace has its local name as its qualified name,
-      # so the backend's native by-name read answers it without listing the
-      # attributes. Only when what it finds is a namespaced, unprefixed `att`
-      # (setAttributeNS("u", "att")) does the full scan run.
+      # at most one attribute, read natively (Backend.no_namespace_attribute_value).
       def no_namespace_attribute_values(element, local_name)
-        attr = Backend.attr_by_qualified_name(element.__dommy_backend_node__, local_name)
-        return [] if attr.nil?
-        return [attr.value] if Backend.namespace_uri(attr).nil?
-
-        attribute_values_in(element, local_name, nil)
+        value = Backend.no_namespace_attribute_value(element.__dommy_backend_node__, local_name)
+        value.nil? ? [] : [value]
       end
 
       def attribute_values_in(element, local_name, namespace)
