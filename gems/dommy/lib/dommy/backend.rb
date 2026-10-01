@@ -269,6 +269,20 @@ module Dommy
         current.attr_value_by_qualified_name(node, qualified_name)
       end
 
+      # The value of `node`'s attribute named `local_name` in no namespace, or
+      # nil — what a selector's `[att]` and HTML's id, class and name read. An
+      # attribute in no namespace has its local name as its qualified name, so
+      # the native by-name read finds it; only when what it finds is a
+      # namespaced, unprefixed one (setAttributeNS("u", "att")) are the
+      # attributes listed.
+      def no_namespace_attribute_value(node, local_name)
+        attr = attr_by_qualified_name(node, local_name)
+        return nil if attr.nil?
+        return attr.value if namespace_uri(attr).nil?
+
+        get_attribute_ns(node, nil, local_name)
+      end
+
       # The element's attribute nodes (each readable via attribute_ns_info).
       # The single choke point so DOM code doesn't touch parser internals.
       def attribute_nodes(node)

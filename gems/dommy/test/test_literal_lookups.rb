@@ -74,6 +74,25 @@ class TestLiteralLookups < Minitest::Test
     assert_equal [ps[1]], @doc.get_elements_by_name("svg").to_a
   end
 
+  # An element's id, classes and name are its attributes of those names in
+  # no namespace: ones set with setAttributeNS in a namespace are not.
+  #
+  # Spec: https://dom.spec.whatwg.org/#concept-id
+  def test_namespaced_id_class_and_name_attributes_are_not_looked_up
+    other = child(@root, {})
+    %w[id class name].each { |name| other.set_attribute_ns("urn:x", name, "v") }
+
+    assert_nil @doc.get_element_by_id("v")
+    assert_empty @doc.get_elements_by_class_name("v").to_a
+    assert_empty @root.get_elements_by_class_name("v").to_a
+    assert_empty @doc.get_elements_by_name("v").to_a
+
+    element = child(@root, "id" => "v", "class" => "v", "name" => "v")
+    assert_same element, @doc.get_element_by_id("v")
+    assert_equal [element], @doc.get_elements_by_class_name("v").to_a
+    assert_equal [element], @doc.get_elements_by_name("v").to_a
+  end
+
   def test_get_element_by_id_takes_any_value
     fragment = @doc.create_document_fragment
     host = child(@root, {})

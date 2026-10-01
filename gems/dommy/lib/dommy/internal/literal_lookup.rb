@@ -23,15 +23,16 @@ module Dommy
       # kept only when the id is exactly `id`, and otherwise the exact one is
       # looked for among the rest it matches. No escape spells U+0000 (it
       # reads as U+FFFD), so an id holding it is found by comparing the
-      # attribute itself.
+      # attribute itself. An element's id, like its classes and its name, is
+      # the attribute of that name in no namespace (#attribute).
       def element_by_id(bnode, id)
-        return bnode.css("[id]").find { |n| n["id"] == id } if id.include?("\u0000")
+        return bnode.css("[id]").find { |n| attribute(n, "id") == id } if id.include?("\u0000")
 
         selector = "##{selector_ident(id)}"
         first = bnode.at_css(selector)
-        return first if first.nil? || first["id"] == id
+        return first if first.nil? || attribute(first, "id") == id
 
-        bnode.css(selector).find { |n| n["id"] == id }
+        bnode.css(selector).find { |n| attribute(n, "id") == id }
       end
 
       # The class tokens getElementsByClassName looks for in `names`.
@@ -47,7 +48,7 @@ module Dommy
         quirks = document.quirks_mode?
         wanted = quirks ? tokens.map { |t| t.downcase(:ascii) } : tokens
         class_candidates(document, root, tokens).select do |n|
-          classes = Infra.split_on_ascii_whitespace(n["class"])
+          classes = Infra.split_on_ascii_whitespace(attribute(n, "class"))
           classes = classes.map { |c| c.downcase(:ascii) } if quirks
           wanted.all? { |t| classes.include?(t) }
         end
@@ -89,10 +90,14 @@ module Dommy
       #
       # Spec: https://html.spec.whatwg.org/multipage/dom.html#dom-document-getelementsbyname
       def elements_named(bnode, name)
-        bnode.css("[name]").select { |n| n["name"] == name && Backend.namespace_uri(n) == Namespaces::HTML }
+        bnode.css("[name]").select { |n| Backend.namespace_uri(n) == Namespaces::HTML && attribute(n, "name") == name }
       end
 
-      private_class_method :class_candidates, :selector_ident
+      # The value of `node`'s attribute `name` in no namespace: an `id`,
+      # `class` or `name` set with setAttributeNS("urn:x", …) is none of them.
+      def attribute(node, name) = Backend.no_namespace_attribute_value(node, name)
+
+      private_class_method :class_candidates, :selector_ident, :attribute
     end
   end
 end
