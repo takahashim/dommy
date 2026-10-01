@@ -121,11 +121,13 @@ module Dommy
         HTMLCollection.elements_by_tag_name(@document.backend_doc, @document, name)
       end
 
+      # A live NodeList, as HTML's getElementsByName returns — not an
+      # HTMLCollection, so it has no namedItem.
       def get_elements_by_name(name)
         doc = @document.backend_doc
         cache = self
         key = name.to_s
-        HTMLCollection.new do
+        LiveNodeList.new do
           LiteralLookup.elements_named(doc, key).map { |x| cache.wrap(x) }.compact
         end
       end
