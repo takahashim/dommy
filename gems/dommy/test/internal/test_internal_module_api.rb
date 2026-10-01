@@ -41,7 +41,6 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::LiteralLookup => %w[element_by_id class_tokens elements_with_classes elements_named],
     Dommy::Internal::NodeIdentity => %w[same_node? key_for],
     Dommy::Internal::RenderedText::Fragment => %w[set_inner set_outer],
-    Dommy::Internal::SelectorParser::AnPlusB => %w[match],
     Dommy::Internal::TextFlattening => %w[squish],
   }.freeze
 
