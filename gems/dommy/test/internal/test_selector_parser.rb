@@ -206,6 +206,19 @@ class TestSelectorParser < Minitest::Test
       .subclass_selectors.first.value
   end
 
+  # §4.3.5: inside a string, a backslash before a newline continues the line,
+  # and a backslash at the end of the input adds nothing — unlike an ident,
+  # where the latter is U+FFFD. Every newline form is LF after §3.3.
+  def test_a_backslash_in_a_string_continues_the_line_or_adds_nothing
+    ["[a='x\\\ny']", "[a='x\\\r\ny']", "[a='x\\\fy']", "[a=\"x\\\ny\"]"].each do |source|
+      value = SP.parse!(source).selectors.first.rightmost.subclass_selectors.first.value
+
+      assert_equal "xy", value, source.inspect
+    end
+    assert_equal "x", SP.parse!("[a='x\\").selectors.first.rightmost
+      .subclass_selectors.first.value
+  end
+
   # §3.3 filters the input before the tokenizer runs: a NULL becomes U+FFFD,
   # which is itself an ident code point. So `.a<NUL>b` names a class.
   def test_null_is_filtered_to_the_replacement_character

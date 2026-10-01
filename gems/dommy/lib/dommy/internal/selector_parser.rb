@@ -636,6 +636,17 @@ module Dommy
           until eof?
             c = peek
             if c == "\\"
+              # §4.3.5 differs from an ident here: a backslash before the end of
+              # the input adds nothing, and one before a newline continues the
+              # line (both are consumed and dropped).
+              if peek(1).nil?
+                advance
+                next
+              elsif peek(1) == "\n"
+                advance
+                advance
+                next
+              end
               start = @i
               consume_escape!
               escaped = @s[start...@i]
