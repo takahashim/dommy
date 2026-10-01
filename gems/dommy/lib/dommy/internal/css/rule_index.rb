@@ -44,6 +44,7 @@ module Dommy
 
         def initialize(document)
           @document = document
+          @quirks = document.respond_to?(:quirks_mode?) && document.quirks_mode?
           @index = {}.compare_by_identity
           @pseudo_index = Hash.new { |h, k| h[k] = {}.compare_by_identity }
           @order = 0
@@ -415,9 +416,9 @@ module Dommy
 
           compound = complex.parts.last.compound
           if (id = compound.subclass_selectors.find { |s| s.is_a?(Internal::SelectorAST::IdSelector) })
-            (@bucket_id[id.value] ||= []) << entry
+            (@bucket_id[bucket_key(id.value)] ||= []) << entry
           elsif (cls = compound.subclass_selectors.find { |s| s.is_a?(Internal::SelectorAST::ClassSelector) })
-            (@bucket_class[cls.value] ||= []) << entry
+            (@bucket_class[bucket_key(cls.value)] ||= []) << entry
           elsif compound.type.is_a?(Internal::SelectorAST::TypeSelector)
             (@bucket_tag[compound.type.name.to_s.downcase] ||= []) << entry
           else
@@ -472,17 +473,24 @@ module Dommy
           @bucket_tag[tag]&.each(&block)
 
           id = element.get_attribute("id").to_s
-          @bucket_id[id]&.each(&block) unless id.empty?
+          @bucket_id[bucket_key(id)]&.each(&block) unless id.empty?
 
           classes = element.get_attribute("class").to_s
           unless classes.empty?
             # HTML ASCII whitespace, exactly as the buckets were filled and as
             # class_tokens / class_attr_token? split (Ruby's default split
             # adds \v, which is NOT a class separator — "a\vb" is ONE token).
-            classes.split(/[ \t\n\f\r]+/).uniq.each { |token| @bucket_class[token]&.each(&block) }
+            classes.split(/[ \t\n\f\r]+/).map { |token| bucket_key(token) }.uniq.each { |token| @bucket_class[token]&.each(&block) }
           end
 
           @bucket_universal.each(&block)
+        end
+
+        # The id / class bucket an id or class token files under: itself, or in
+        # a quirks-mode document, where those selectors match ASCII
+        # case-insensitively, its ASCII-lowercased form.
+        def bucket_key(value)
+          @quirks ? value.downcase(:ascii) : value
         end
 
         # Record a (fully-qualified) layer's first appearance, idempotently —

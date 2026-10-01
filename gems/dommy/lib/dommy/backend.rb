@@ -65,6 +65,12 @@ module Dommy
         current.empty_xml_document
       end
 
+      # Whether the backend's HTML parser left `doc` in quirks mode (not
+      # limited-quirks, which matches no-quirks everywhere Dommy asks).
+      def quirks_mode?(doc)
+        current.quirks_mode?(doc)
+      end
+
       # An empty backing document matching `doc`'s kind (HTML stays HTML, XML stays
       # XML) — for a shallow document clone, whose result keeps the source flavor.
       def empty_document_like(doc)

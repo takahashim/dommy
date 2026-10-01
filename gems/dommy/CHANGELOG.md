@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `getElementById` compares ids case-sensitively in a quirks-mode document too: `<p id=Bar>` is not found by `"bar"`.
+- In a quirks-mode document, id and class selectors match ASCII case-insensitively in `querySelector`, `matches` and the style cascade: `.foo` finds and styles `<p class=Foo>`.
+- `document.compatMode` follows the HTML parser's mode: an XHTML 1.0 Strict or Transitional doctype with its system identifier is `"CSS1Compat"`, a cloned document keeps its original's mode, and removing the doctype later does not change it.
+
 ## 0.14.0 — 2026-10-01
 
 ### Added

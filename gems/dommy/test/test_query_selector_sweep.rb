@@ -245,3 +245,43 @@ class TestQuerySelectorSweep < Minitest::Test
     refute_nil(@doc.get_element_by_id("dynamic"))
   end
 end
+
+# HTML makes id and class selectors ASCII case-insensitive in a quirks-mode
+# document, and only there: querySelector(All), matches, a descendant
+# combinator's ancestor and the style cascade all follow it.
+#
+# WPT: quirks/classname-query-after-sibling-adoption.html
+# Spec: https://html.spec.whatwg.org/#selectors
+class TestQuirksModeIdAndClassSelectors < Minitest::Test
+  CASCADE = Dommy::Internal::CSS::Cascade
+  MARKUP = %(<div class=Outer><p class=Foo id=Bar>x</p></div><style>.foo { color: red } #bar { background-color: blue }</style>)
+
+  def parse(doctype)
+    Dommy::DOMParser.new.parse_from_string("#{doctype}#{MARKUP}", "text/html")
+  end
+
+  def test_quirks_mode_ignores_ascii_case
+    doc = parse('<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">')
+    p = doc.query_selector("p")
+
+    assert_equal([p], doc.query_selector_all(".foo").to_a)
+    assert_equal([p], doc.query_selector_all("#bar").to_a)
+    assert_equal([p], doc.query_selector_all(".OUTER .FOO").to_a)
+    assert_equal([p], doc.query_selector_all(".outer > #BAR, .none").to_a)
+    assert(p.matches?(".foo#bar"))
+    assert_equal("rgb(255, 0, 0)", CASCADE.computed_style(p)["color"])
+    assert_equal("rgb(0, 0, 255)", CASCADE.computed_style(p)["background-color"])
+    assert_empty(doc.query_selector_all(".foó").to_a, "only ASCII folds")
+  end
+
+  def test_no_quirks_mode_keeps_case
+    doc = parse("<!DOCTYPE html>")
+    p = doc.query_selector("p")
+
+    assert_empty(doc.query_selector_all(".foo").to_a)
+    assert_empty(doc.query_selector_all("#bar").to_a)
+    assert_empty(doc.query_selector_all(".outer .Foo").to_a)
+    refute(p.matches?(".foo"))
+    assert_equal("rgb(0, 0, 0)", CASCADE.computed_style(p)["color"])
+  end
+end

@@ -113,12 +113,25 @@ module Dommy
       def get_element_by_id(id)
         return nil if id.nil? || id.to_s.empty?
 
-        # getElementById matches the `id` attribute literally — it is NOT a CSS
-        # selector, so an id with selector-special characters (e.g. React's
-        # `useId` values like `:rjm:`) is valid and must still resolve. Escape it
-        # to a valid id-selector ident before handing it to the backend's CSS
-        # engine (a raw "##{id}" would be an invalid selector and raise).
-        wrap(@document.backend_doc.at_css("##{Dommy::CSSNamespace.escape(id)}"))
+        wrap(NodeWrapperCache.backend_element_by_id(@document.backend_doc, id.to_s))
+      end
+
+      # The first backend element under `bnode` whose `id` is `id`, in tree
+      # order. getElementById matches the attribute literally — it is NOT a CSS
+      # selector, so an id with selector-special characters (e.g. React's
+      # `useId` values like `:rjm:`) is escaped into a valid id-selector ident
+      # for the backend's engine (a raw "##{id}" would be an invalid selector
+      # and raise). In a quirks-mode document that engine matches an id
+      # selector ASCII case-insensitively, as CSS asks, while getElementById
+      # still compares case-sensitively: its answer is kept only when the id
+      # is exactly `id`, and otherwise the exact one is looked for among the
+      # rest it matches.
+      def self.backend_element_by_id(bnode, id)
+        selector = "##{Dommy::CSSNamespace.escape(id)}"
+        first = bnode.at_css(selector)
+        return first if first.nil? || first["id"] == id
+
+        bnode.css(selector).find { |n| n["id"] == id }
       end
 
       def get_elements_by_tag_name(name)

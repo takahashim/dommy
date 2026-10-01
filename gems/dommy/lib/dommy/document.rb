@@ -595,20 +595,26 @@ module Dommy
       @content_type == "text/html"
     end
 
-    # `document.compatMode` — "CSS1Compat" in no-quirks mode, "BackCompat" in
-    # quirks mode. A missing doctype is quirks; a bare `<!DOCTYPE html>` (no
-    # public/system identifier) is no-quirks. (The full quirks algorithm keys off
-    # specific legacy public ids; this covers the common cases.)
+    # `document.compatMode` — "BackCompat" in quirks mode, "CSS1Compat" in
+    # no-quirks and limited-quirks mode alike.
     def compat_mode
-      # Only HTML documents can be in quirks mode; an XML document
-      # (createDocument / DOMParser XML) is always no-quirks.
-      return "CSS1Compat" unless html_document?
+      quirks_mode? ? "BackCompat" : "CSS1Compat"
+    end
 
-      dt = @backend_doc.internal_subset
-      return "BackCompat" unless dt
-      return "CSS1Compat" if dt.name.to_s.downcase == "html" && dt.external_id.nil?
+    # Whether the document is in quirks mode (DOM's "mode"). Only the HTML
+    # parser puts a document in it, from the doctype it read — a missing one,
+    # or one of HTML's legacy public identifiers (§13.2.6.4.1); the backend's
+    # parser has already run that algorithm. Every other document is in
+    # no-quirks mode, and a clone takes its original's mode. The mode is fixed
+    # once known: changing the doctype later does not change it.
+    def quirks_mode?
+      return @quirks_mode unless @quirks_mode.nil?
 
-      "BackCompat"
+      @quirks_mode = html_document? && Backend.quirks_mode?(@backend_doc)
+    end
+
+    def __internal_quirks_mode__=(value)
+      @quirks_mode = value
     end
 
     # The document's character encoding, as an Encoding Standard name. Dommy
@@ -1575,6 +1581,7 @@ module Dommy
     def clone_node(deep)
       copy = Document.new(nil, backend_doc: Backend.empty_document_like(@backend_doc))
       copy.content_type = @content_type
+      copy.__internal_quirks_mode__ = quirks_mode?
       return copy unless deep
 
       child_nodes.each { |child| copy.append_child(copy.import_node(child, true)) }

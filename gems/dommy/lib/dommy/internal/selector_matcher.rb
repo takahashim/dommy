@@ -67,12 +67,14 @@ module Dommy
       # empty), or nil when the selector has no static subject pre-filter (a
       # universal/pseudo-only subject) — then the caller uses the Ruby matcher.
       def fast_query(root, selector_ast, scope:, first: false)
-        prefilters = BackendPrefilter.static_prefilters(selector_ast)
+        doc = BackendPrefilter.document_of(root)
+        return nil unless doc
+
+        prefilters = BackendPrefilter.static_prefilters(selector_ast, quirks: doc.quirks_mode?)
         return nil unless prefilters
 
         backend_root = BackendPrefilter.backend_root_of(root)
-        doc = BackendPrefilter.document_of(root)
-        return nil unless backend_root && doc
+        return nil unless backend_root
 
         # The overwhelmingly common case is one selector (one pre-filter); skip the
         # Array#any? block dispatch on every node for it.
@@ -211,7 +213,8 @@ module Dommy
 
       def match_descendant_left(current, compound, parts, index, scope:, anchor:, leading:)
         doc = current.owner_document
-        prefilter = BackendPrefilter.prefilter_for(compound) # nil ⇒ no static gate, must wrap every ancestor
+        quirks = doc&.quirks_mode? || false
+        prefilter = BackendPrefilter.prefilter_for(compound, quirks: quirks) # nil ⇒ no static gate, must wrap every ancestor
 
         # Ask the index about `current`'s ancestors before walking them. For an
         # indexable compound this is O(log):
@@ -225,7 +228,7 @@ module Dommy
            (sel_index = doc.__internal_selector_index__) &&
            (enter = sel_index.enter_of(current.__dommy_backend_node__))
           return false unless sel_index.any_ancestor?(prefilter, enter)
-          return true if index == 1 && anchor.nil? && BackendPrefilter.exact_class_or_id_prefilter(compound)
+          return true if index == 1 && anchor.nil? && BackendPrefilter.exact_class_or_id_prefilter(compound, quirks: quirks)
         end
 
         backend = current.__dommy_backend_node__
@@ -335,9 +338,9 @@ module Dommy
       def matches_simple?(element, selector, scope:)
         case selector
         when SelectorAST::IdSelector
-          element.get_attribute("id").to_s == selector.value
+          id_matches?(element, selector.value)
         when SelectorAST::ClassSelector
-          element.class_list.include?(selector.value)
+          class_matches?(element, selector.value)
         when SelectorAST::AttributeSelector
           matches_attribute?(element, selector)
         when SelectorAST::PseudoClass
@@ -345,6 +348,25 @@ module Dommy
         else
           false
         end
+      end
+
+      # HTML: in a quirks-mode document, id and class selectors match ASCII
+      # case-insensitively (https://html.spec.whatwg.org/#selectors).
+      def id_matches?(element, value)
+        id = element.get_attribute("id").to_s
+        quirks?(element) ? id.downcase(:ascii) == value.downcase(:ascii) : id == value
+      end
+
+      def class_matches?(element, value)
+        return element.class_list.include?(value) unless quirks?(element)
+
+        folded = value.downcase(:ascii)
+        element.class_list.to_a.any? { |token| token.downcase(:ascii) == folded }
+      end
+
+      def quirks?(element)
+        doc = element.owner_document
+        doc.respond_to?(:quirks_mode?) && doc.quirks_mode?
       end
 
       def matches_attribute?(element, selector)

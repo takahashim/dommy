@@ -231,4 +231,52 @@ class TestDocument < Minitest::Test
     assert_nil(@doc.get_element_by_id("missing:id"))
     assert_nil(@doc.get_element_by_id(""))
   end
+
+  # The HTML parser decides the mode from the doctype: a missing one or a
+  # legacy public identifier is quirks, while an XHTML 1.0 Strict or
+  # Transitional doctype with its system identifier is no-quirks and
+  # limited-quirks, both "CSS1Compat". A clone keeps the mode, and removing
+  # the doctype later does not change it.
+  #
+  # Spec: https://html.spec.whatwg.org/#the-initial-insertion-mode
+  def test_compat_mode_follows_the_parsers_mode
+    {
+      "<!DOCTYPE html>" => "CSS1Compat",
+      "" => "BackCompat",
+      '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">' => "BackCompat",
+      '<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN">' => "BackCompat",
+      '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">' => "CSS1Compat",
+      '<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">' => "CSS1Compat",
+    }.each do |doctype, mode|
+      doc = Dommy::DOMParser.new.parse_from_string("#{doctype}<p>", "text/html")
+      assert_equal(mode, doc.compat_mode, doctype)
+      assert_equal(mode, doc.clone_node(true).compat_mode, doctype)
+    end
+
+    standard = Dommy::DOMParser.new.parse_from_string("<!DOCTYPE html><p>", "text/html")
+    standard.doctype.remove
+    assert_equal("CSS1Compat", standard.compat_mode)
+  end
+
+  # A quirks-mode document matches an id selector ASCII case-insensitively, but
+  # getElementById compares the attribute case-sensitively there too — on the
+  # document, a DocumentFragment and a ShadowRoot alike.
+  def test_get_element_by_id_is_case_sensitive_in_quirks_mode
+    quirks = Dommy::DOMParser.new.parse_from_string("<div id=r><p id=Bar></p><p id=bar></p></div>", "text/html")
+    assert_equal("BackCompat", quirks.compat_mode)
+    assert_equal(%w[bar Bar], [quirks.get_element_by_id("bar").id, quirks.get_element_by_id("Bar").id])
+    assert_nil(quirks.get_element_by_id("BAR"))
+
+    fragment = quirks.create_document_fragment
+    fragment.append_child(quirks.get_element_by_id("r"))
+    assert_equal("bar", fragment.get_element_by_id("bar").id)
+    assert_nil(fragment.get_element_by_id("BAR"))
+
+    host = quirks.create_element("div")
+    quirks.body.append_child(host)
+    root = host.attach_shadow({"mode" => "open"})
+    root.inner_html = "<p id=Baz></p>"
+    assert_nil(root.get_element_by_id("baz"))
+    assert_equal("Baz", root.get_element_by_id("Baz").id)
+  end
 end
