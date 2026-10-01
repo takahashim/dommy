@@ -58,12 +58,14 @@ module Dommy
       end
 
       # Whether `code_point` may appear in a `:name`: IdentifierStart for the
-      # first, IdentifierPart after that, as ECMAScript defines them.
+      # first, IdentifierPart after that, as ECMAScript defines them. ZWNJ and
+      # ZWJ are ID_Continue from Unicode 15.1 on (Ruby 3.4 still has 15.0), so
+      # they stay listed, outside the class that would hold them twice.
       def self.valid_name_code_point?(code_point, first)
         if first
           code_point.match?(/\A[\p{ID_Start}$_]\z/)
         else
-          code_point.match?(/\A[\p{ID_Continue}$\u200c\u200d]\z/)
+          code_point.match?(/\A(?:\p{ID_Continue}|[$\u200c\u200d])\z/)
         end
       end
 

@@ -105,6 +105,7 @@
 - `hsl(120 none 50%)` computes to itself, keeping the missing component, instead of `rgb(128, 128, 128)`.
 - Clicking a `<meter>`, `<output>` or `<progress>` inside a `<label>` no longer overflows the stack.
 - An `<iframe>` with no `src` or `srcdoc` is at `about:blank` (`about:srcdoc` for `srcdoc`) and resolves relative URLs against the base URL of the document that created it.
+- Loading the URL pattern code on Ruby 4.0 prints no "character class has duplicated range" warning.
 - An SVG element never runs HTML's steps for an element of its name: an SVG `<script>` is not in `document.scripts`, and SVG's `<a>` and `<option>` are not in `document.links` or `select.options`.
 
 ## 0.13.0 — 2026-09-23
