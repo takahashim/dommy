@@ -122,6 +122,15 @@ module Dommy
       when "specified"
         # Legacy/useless attribute — always true (WHATWG DOM).
         true
+      when "parentNode", "parentElement", "firstChild", "lastChild", "previousSibling", "nextSibling"
+        # An Attr is no part of a tree: it has no parent, children or
+        # siblings, and its element is no parent of it.
+        nil
+      when "childNodes"
+        NodeList.new
+      when "isConnected"
+        # Its root is itself, never a document.
+        false
       else
         Bridge::ABSENT
       end

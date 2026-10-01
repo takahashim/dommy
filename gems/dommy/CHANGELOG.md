@@ -29,6 +29,7 @@
 - `getElementById`, `getElementsByClassName`, `getElementsByName`, id and class selectors and `classList` read the `id`, `class` and `name` attributes in no namespace: one set with `setAttributeNS("urn:x", "id", …)` does not count, and a `classList` change writes the attribute in no namespace.
 - `getElementsByName` returns HTML elements only: an `<svg name>` or a `<math name>` is not among them.
 - `CSS.escape("-")` is `"\-"`.
+- An `Attr` has `parentNode`, `parentElement`, `firstChild`, `lastChild`, `previousSibling` and `nextSibling` of null, an empty `childNodes`, and `isConnected` of false.
 
 ## 0.14.0 — 2026-10-01
 
