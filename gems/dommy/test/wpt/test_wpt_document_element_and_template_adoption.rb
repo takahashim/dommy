@@ -64,6 +64,19 @@ class TestWPTDocumentElementWithoutARootElement < Minitest::Test
     test = @doc.append_child(@doc.create_element("test"))
 
     assert_same test, @doc.document_element
+    assert_equal [test], @doc.children.to_a
+    assert_same test, @doc.first_element_child
+    assert_same test, @doc.last_element_child
+  end
+
+  # The doctype is no element child, whatever the backend's `root` says.
+  def test_the_element_children_of_a_document_without_a_root_element
+    @doc.remove_child(@doc.document_element)
+
+    assert_empty @doc.children.to_a
+    assert_equal 0, @doc.child_element_count
+    assert_nil @doc.first_element_child
+    assert_nil @doc.last_element_child
   end
 end
 
