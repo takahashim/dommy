@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "infra"
+
 module Dommy
   module Internal
     # The backend pre-filter behind SelectorMatcher#fast_query.
@@ -147,18 +149,14 @@ module Dommy
         pos = 0
         len = token.length
         while (i = raw.index(token, pos))
-          before = i.zero? || ascii_ws?(raw[i - 1])
+          before = i.zero? || Infra.ascii_whitespace?(raw[i - 1])
           after_index = i + len
-          after = after_index >= raw.length || ascii_ws?(raw[after_index])
+          after = after_index >= raw.length || Infra.ascii_whitespace?(raw[after_index])
           return true if before && after
 
           pos = i + 1
         end
         false
-      end
-
-      def ascii_ws?(char)
-        char == " " || char == "\t" || char == "\n" || char == "\f" || char == "\r"
       end
 
       # The backend (lexbor) node whose subtree holds the candidates.
@@ -182,7 +180,6 @@ module Dommy
       private_class_method :each_backend_element_descendant
       private_class_method :each_backend_child_list_descendant
       private_class_method :class_attr_token?
-      private_class_method :ascii_ws?
     end
   end
 end

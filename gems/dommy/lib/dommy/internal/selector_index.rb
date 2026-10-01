@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "infra"
+
 module Dommy
   module Internal
     # A by-id / by-class / by-tag index over a document's backend element tree,
@@ -157,7 +159,7 @@ module Dommy
         # buckets must be an EXACT token index: matches_compound? trusts an
         # index hit via `verified:`, and exact_class_or_id_prefilter trusts
         # an ancestor answer without re-matching.
-        klass.split(/[ \t\n\f\r]+/).each { |token| (@by_class[token] ||= []) << [enter, bnode] unless token.empty? }
+        klass.split(Infra::ASCII_WHITESPACE).each { |token| (@by_class[token] ||= []) << [enter, bnode] unless token.empty? }
       end
     end
   end

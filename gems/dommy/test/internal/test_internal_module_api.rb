@@ -24,6 +24,9 @@ class TestInternalModuleApi < Minitest::Test
       exact_class_or_id_prefilter backend_passes? backend_root_of document_of
     ],
     Dommy::Internal::CSS::Counters => %w[build substitute],
+    Dommy::Internal::CssSyntax => %w[
+      preprocess valid_escape_at? ident_start_code_point? name_code_point? atom_end
+    ],
     Dommy::Internal::CSS::CustomProperties => %w[contains_var? resolve_all substitute split_args],
     Dommy::Internal::CSS::MediaQuery => %w[match?],
     Dommy::Internal::Directionality => %w[direction_of text_dependent? reflected_dir auto_directionality_form_associated?],
@@ -33,7 +36,9 @@ class TestInternalModuleApi < Minitest::Test
       form_control_optional? read_only_element? read_write_element?
       dir_match? lang_match? link_element?
     ],
+    Dommy::Internal::Infra => %w[ascii_whitespace? split_on_ascii_whitespace],
     Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],
+    Dommy::Internal::LiteralLookup => %w[element_by_id class_tokens elements_with_classes elements_named],
     Dommy::Internal::NodeIdentity => %w[same_node? key_for],
     Dommy::Internal::RenderedText::Fragment => %w[set_inner set_outer],
     Dommy::Internal::TextFlattening => %w[squish],

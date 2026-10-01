@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative "../selector_parser"
+require_relative "../css_source"
+require_relative "../css_syntax"
 require_relative "custom_properties"
 
 module Dommy
@@ -232,7 +234,16 @@ module Dommy
         def build_style_rule(selectors, declarations)
           return nil if selectors.empty?
 
-          StyleRule.new(selectors, declarations.map { |d| Declaration.new(d[:name], d[:value], d[:important]) })
+          StyleRule.new(selectors, declarations.map { |d| Declaration.new(d[:name], declaration_value(d[:value]), d[:important]) })
+        end
+
+        # A declaration's value as the backend hands it over can still hold a
+        # comment (inside a function, or in a custom property's raw value) and
+        # the whitespace around one. A comment is no token and a declaration's
+        # value is trimmed (css-syntax-3 §5.4.6), so `--x: 1px /* c */` is `1px`
+        # and `var(--y, /* ) */ 7px)` falls back to `7px`.
+        def declaration_value(value)
+          CssSource.new(value).without_comments.to_s.strip
         end
 
         def normalize_selectors(selectors, namespaces = {})
@@ -253,8 +264,12 @@ module Dommy
         # normal one for the same property whatever their order, and only
         # between declarations of equal importance does the later win. So a
         # normal declaration never displaces an important one already recorded.
+        #
+        # The block is split at top-level semicolons only: one inside a string,
+        # a function (`url(data:a;b)`), a {} block or a comment does not end a
+        # declaration (css-syntax-3 §5.4.5).
         def parse_block(text)
-          text.to_s.split(";").each_with_object({}) do |chunk, out|
+          CssSource.new(CssSyntax.preprocess(text.to_s)).split_top_level(";").each_with_object({}) do |chunk, out|
             decl = parse_declaration(chunk)
             next if decl.nil?
             next if !decl.important && out[decl.name]&.important
@@ -266,8 +281,10 @@ module Dommy
         # One `property: value` (with an optional `!important`), or nil when the
         # chunk is not a usable declaration.
         def parse_declaration(chunk)
-          name, value = chunk.split(":", 2)
-          return nil unless name && value
+          # Comments are no tokens: drop them before reading the name, the
+          # colon and the value, so `/* x: y */` hides nothing after it.
+          name, value = CssSource.new(chunk).without_comments.partition_top_level(":")
+          return nil unless name
 
           name = property_name(name.strip)
           value = value.strip
@@ -278,7 +295,7 @@ module Dommy
             important = true
             value = stripped.strip
           end
-          return nil if name.empty? || !valid_declaration_value?(value)
+          return nil if name.empty? || !valid_declaration_value?(name, value)
 
           Declaration.new(name, value, important)
         end
@@ -289,33 +306,37 @@ module Dommy
         # case-SENSITIVE (`--Foo` and `--foo` are two properties).
         def property_name(name)
           str = name.to_s
-          str.start_with?("--") ? str : str.downcase
+          custom_property?(str) ? str : str.downcase
         end
 
-        # A value is usable when it is non-empty, has no bare colon outside
-        # parentheses (the second one in "color:: invalid"), and every var() in
-        # it parses. A declaration whose value fails is dropped, not stored.
-        def valid_declaration_value?(value)
-          return false if value.empty?
+        def custom_property?(name) = name.start_with?("--")
 
-          depth = 0
-          value.each_char do |c|
-            case c
-            when "(" then depth += 1
-            when ")" then depth -= 1 if depth.positive?
-            when ":" then return false if depth.zero?
-            end
+        # Whether `value` is usable for the property `name`; a declaration
+        # whose value is not is dropped, not stored. Every var() in it has to
+        # parse. A custom property's value is any run of tokens
+        # (css-variables-1 §2) — empty (`--x:;`, `--x: /* c */`), or with a
+        # colon in it (`--time: 10:30`). Any other property's value has to be
+        # non-empty, with no bare colon outside brackets, strings and comments
+        # (the second one in "color:: invalid").
+        def valid_declaration_value?(name, value)
+          unless custom_property?(name)
+            return false if value.empty?
+            return false if CssSource.new(value).partition_top_level(":")
           end
+
           valid_var_functions?(value)
         end
 
+        # Every var() outside a string or a comment parses: a `var(` in
+        # `content: "var(--"` is text.
         def valid_var_functions?(value)
+          source = CssSource.new(value)
           index = 0
-          while (start = value.index(/var\(/i, index))
-            open = value.index("(", start)
-            close = matching_bracket(value, open)
+          while (call = source.next_function("var", index))
+            start, close = call
+            open = start + 3
             return false if close.nil?
-            return false unless valid_var_name_argument?(value[(open + 1)...close])
+            return false unless valid_var_name_argument?(source.slice(open + 1, close))
 
             # Continue inside the call, so a nested var() in the fallback is
             # checked by the same rule.
@@ -340,24 +361,9 @@ module Dommy
           return false if name.empty?
           return !name.match?(/[{}]/) unless name.start_with?("{")
 
-          close = matching_bracket(name, 0)
-          close == name.length - 1 && !name[1...close].strip.empty?
-        end
-
-        # The index of the bracket closing the one at `open`, or nil when the
-        # value is unbalanced. Every kind of bracket opens a level, so the ")"
-        # inside `var({a)b})` closes nothing.
-        def matching_bracket(value, open)
-          depth = 0
-          (open...value.length).each do |i|
-            case value[i]
-            when "(", "[", "{" then depth += 1
-            when ")", "]", "}"
-              depth -= 1
-              return i if depth.zero?
-            end
-          end
-          nil
+          source = CssSource.new(name)
+          close = source.matching_bracket(0)
+          close == source.length - 1 && !source.slice(1, close).strip.empty?
         end
       end
     end

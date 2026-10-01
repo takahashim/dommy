@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "bounded_cache"
+require_relative "literal_lookup"
 require_relative "node_identity"
 
 module Dommy
@@ -113,25 +114,7 @@ module Dommy
       def get_element_by_id(id)
         return nil if id.nil? || id.to_s.empty?
 
-        wrap(NodeWrapperCache.backend_element_by_id(@document.backend_doc, id.to_s))
-      end
-
-      # The first backend element under `bnode` whose `id` is `id`, in tree
-      # order. getElementById matches the attribute literally — it is NOT a CSS
-      # selector, so an id with selector-special characters (e.g. React's
-      # `useId` values like `:rjm:`) is escaped into a valid id-selector ident
-      # for the backend's engine (a raw "##{id}" would be an invalid selector
-      # and raise). In a quirks-mode document that engine matches an id
-      # selector ASCII case-insensitively, as CSS asks, while getElementById
-      # still compares case-sensitively: its answer is kept only when the id
-      # is exactly `id`, and otherwise the exact one is looked for among the
-      # rest it matches.
-      def self.backend_element_by_id(bnode, id)
-        selector = "##{Dommy::CSSNamespace.escape(id)}"
-        first = bnode.at_css(selector)
-        return first if first.nil? || first["id"] == id
-
-        bnode.css(selector).find { |n| n["id"] == id }
+        wrap(LiteralLookup.element_by_id(@document.backend_doc, id.to_s))
       end
 
       def get_elements_by_tag_name(name)
@@ -143,31 +126,18 @@ module Dommy
         cache = self
         key = name.to_s
         HTMLCollection.new do
-          doc.css("[name='#{key}']").map { |x| cache.wrap(x) }.compact
+          LiteralLookup.elements_named(doc, key).map { |x| cache.wrap(x) }.compact
         end
       end
 
-      # DOM "ASCII whitespace" (https://infra.spec.whatwg.org/#ascii-whitespace):
-      # TAB, LF, FF, CR, SPACE — NOT Ruby's `\s` (which also matches VT / U+000B)
-      # and NOT any Unicode space (U+00A0, U+2000…). Class tokens split on exactly
-      # this set, so a class of a single U+000B or U+00A0 is ONE token.
-      ASCII_WHITESPACE = /[\t\n\f\r ]+/
-
       def get_elements_by_class_name(name)
-        tokens = name.to_s.split(ASCII_WHITESPACE).reject(&:empty?)
-        doc = @document.backend_doc
+        tokens = LiteralLookup.class_tokens(name)
+        root = @document.backend_doc
         cache = self
         HTMLCollection.new do
           next [] if tokens.empty?
 
-          # Match class tokens directly rather than composing a `.tok` CSS
-          # selector string — an exotic class token (control chars, Unicode
-          # spaces, quotes) can't be safely embedded in a selector, and the
-          # split must be ASCII-whitespace, not the CSS engine's tokenization.
-          doc.css("[class]").select do |n|
-            classes = n["class"].to_s.split(ASCII_WHITESPACE)
-            tokens.all? { |t| classes.include?(t) }
-          end.map { |n| cache.wrap(n) }.compact
+          LiteralLookup.elements_with_classes(@document, root, tokens).map { |n| cache.wrap(n) }.compact
         end
       end
 

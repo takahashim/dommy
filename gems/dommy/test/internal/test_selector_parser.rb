@@ -192,6 +192,114 @@ class TestSelectorParser < Minitest::Test
     assert_equal "a\uFFFD", class_selector.value
   end
 
+  # §4.3.7: an escape whose value is zero, a surrogate, or past U+10FFFF is
+  # U+FFFD, wherever the escape sits (class, id, attribute value, string).
+  def test_an_escape_out_of_range_is_the_replacement_character
+    ["\\0", "\\D800", "\\DFFF ", "\\110000", "\\FFFFFF"].each do |escape|
+      ast = SP.parse!(".#{escape}")
+      class_selector = ast.selectors.first.rightmost.subclass_selectors.first
+
+      assert_equal "\uFFFD", class_selector.value, escape
+    end
+    assert SP.valid?("#\\D800")
+    assert_equal "\uFFFD", SP.parse!("[a='\\110000']").selectors.first.rightmost
+      .subclass_selectors.first.value
+  end
+
+  # §4.3.5: inside a string, a backslash before a newline continues the line,
+  # and a backslash at the end of the input adds nothing — unlike an ident,
+  # where the latter is U+FFFD. Every newline form is LF after §3.3.
+  def test_a_backslash_in_a_string_continues_the_line_or_adds_nothing
+    ["[a='x\\\ny']", "[a='x\\\r\ny']", "[a='x\\\fy']", "[a=\"x\\\ny\"]"].each do |source|
+      value = SP.parse!(source).selectors.first.rightmost.subclass_selectors.first.value
+
+      assert_equal "xy", value, source.inspect
+    end
+    assert_equal "x", SP.parse!("[a='x\\").selectors.first.rightmost
+      .subclass_selectors.first.value
+  end
+
+  # §4.3.8: a backslash followed by a newline is not a valid escape, so it
+  # neither continues an ident nor starts one (after a leading `-` either). The
+  # backslash is left as a delim-token, and the selector is invalid.
+  def test_a_backslash_before_a_newline_is_not_an_escape
+    refute SP.valid?(".a\\\nb")
+    refute SP.valid?(".a\\\r\nb")
+    refute SP.valid?(".-\\\na")
+    refute SP.valid?("#-\\\na")
+    refute SP.valid?("#\\\n")
+    refute SP.valid?("[a=x\\\ny]")
+    assert SP.valid?(".-\\31 ")
+    assert SP.valid?(".a\\ b")
+  end
+
+  # Splitting a selector list and finding the `)` that ends a functional
+  # pseudo-class work on tokens, so an escaped `,` `)` `(` or quote belongs to
+  # its ident (§4.3.8), and a comma or parenthesis inside a comment (§4.3.2) or
+  # a string (§4.3.5) is not structure.
+  def test_escapes_comments_and_strings_are_not_list_structure
+    is_class = ->(source) { SP.parse!(source).selectors.first.rightmost.subclass_selectors.first }
+
+    assert_equal ["a,b"], is_class.(":is(.a\\,b)").argument.selectors.map { |s| s.rightmost.subclass_selectors.first.value }
+    assert SP.valid?(":not(.a\\))")
+    assert SP.valid?(":not(.a\\()")
+    assert SP.valid?(":not(.a\\[, p)")
+    assert SP.valid?(":not(.a\\'b, p)")
+    assert SP.valid?(":is(:not(.a\\)), p)")
+    assert SP.valid?(":not(p /* , */, div)")
+    assert SP.valid?(":not(p /* ) */)")
+    assert SP.valid?(":not(p /* ( */, div)")
+    assert SP.valid?(":not(p, [a=')'])")
+    assert SP.valid?(":not([a='\\''], p)")
+    assert_equal 2, is_class.(":is(.a\\(, p)").argument.selectors.length
+  end
+
+  # css-syntax-3 §9: An+B is matched on tokens. A comment is no token, escapes
+  # are decoded before the comparison, and `of` is an ident like any other.
+  def test_an_plus_b_is_matched_on_tokens
+    nth = ->(source) { SP.parse!(source).selectors.first.rightmost.subclass_selectors.first.argument }
+
+    assert_equal [2, 1], nth.(":nth-child(2n/**/+1)").then { |e| [e.a, e.b] }
+    assert_equal [2, -1], nth.(":nth-child(2N/**/-/**/1)").then { |e| [e.a, e.b] }
+    assert_equal [2, 1], nth.(":nth-child(/**/2n+1/**/)").then { |e| [e.a, e.b] }
+    assert_equal [2, 1], nth.(":nth-child(2\\6E+1)").then { |e| [e.a, e.b] }
+    assert_equal [-1, 2], nth.(":nth-child(-\\6E+2)").then { |e| [e.a, e.b] }
+    assert_equal [2, 1], nth.(":nth-child(od\\64)").then { |e| [e.a, e.b] }
+    assert_equal [1, 0], nth.(":nth-child(+/**/n)").then { |e| [e.a, e.b] }
+    refute SP.valid?(":nth-child(-/**/n)")
+    refute SP.valid?(":nth-child(+ n)")
+    refute SP.valid?(":nth-child(3/**/n)")
+    refute SP.valid?(":nth-child(1e1)")
+    of = nth.(":nth-child(2n /* of */ of p)")
+    assert_equal [2, 0], [of.a, of.b]
+    assert_equal 1, of.of_selector_list.selectors.length
+    assert_equal 2, nth.(":nth-child(2n of .a\\,b, p)").of_selector_list.selectors.length
+  end
+
+  # The attribute modifier is an ident-token, and a comment is no token at all:
+  # so `\69` is the modifier `i`, a comment may follow the modifier, and the
+  # two delims of a matcher or a namespace prefix may have a comment between
+  # them (whitespace there is still an error).
+  def test_comments_and_escapes_between_attribute_and_prefix_tokens
+    attr = ->(source) { SP.parse!(source).selectors.first.rightmost.subclass_selectors.first }
+
+    assert_equal "i", attr.("[a='x' \\69]").case_flag
+    assert_equal "i", attr.("[a='x' i/**/]").case_flag
+    assert_equal "s", attr.("[a='x' S]").case_flag
+    refute SP.valid?("[a='x' ix]")
+    assert_equal "~=", attr.("[a~/**/=x]").matcher
+    assert_equal "|=", attr.("[a|/**/=x]").matcher
+    refute SP.valid?("[a~ =x]")
+    assert SP.valid?("*/**/|div")
+    assert SP.valid?("[*/**/|a]")
+    assert SP.valid?("*|/**/div")
+    assert SP.valid?("[*|/**/a]")
+    assert SP.valid?("[|/**/a]")
+    # With whitespace instead, `|div` is a compound of its own after `*`.
+    assert_equal 2, SP.parse!("* |div").selectors.first.parts.length
+    assert_equal 1, SP.parse!("*/**/|div").selectors.first.parts.length
+  end
+
   # §3.3 filters the input before the tokenizer runs: a NULL becomes U+FFFD,
   # which is itself an ident code point. So `.a<NUL>b` names a class.
   def test_null_is_filtered_to_the_replacement_character
