@@ -271,7 +271,7 @@ class TestQuirksModeIdAndClassSelectors < Minitest::Test
     assert(p.matches?(".foo#bar"))
     assert_equal("rgb(255, 0, 0)", CASCADE.computed_style(p)["color"])
     assert_equal("rgb(0, 0, 255)", CASCADE.computed_style(p)["background-color"])
-    assert_empty(doc.query_selector_all(".foó").to_a, "only ASCII folds")
+    assert_empty(doc.query_selector_all(".fo\u00F3").to_a, "only ASCII folds")
   end
 
   def test_no_quirks_mode_keeps_case

@@ -72,7 +72,7 @@ module Dommy
         return nil unless doc
 
         match = Match.for(doc, scope)
-        prefilters = BackendPrefilter.static_prefilters(selector_ast, quirks: match.quirks)
+        prefilters = BackendPrefilter.static_prefilters(selector_ast)
         return nil unless prefilters
 
         backend_root = BackendPrefilter.backend_root_of(root)
@@ -114,7 +114,12 @@ module Dommy
         out = []
         catch(:done) do
           BackendPrefilter.each_backend_descendant(backend_root) do |bnode|
-            hit = single ? BackendPrefilter.backend_passes?(bnode, single) : prefilters.any? { |pf| BackendPrefilter.backend_passes?(bnode, pf) }
+            hit =
+              if single
+                BackendPrefilter.backend_passes?(bnode, single, quirks: match.quirks)
+              else
+                prefilters.any? { |pf| BackendPrefilter.backend_passes?(bnode, pf, quirks: match.quirks) }
+              end
             next unless hit
 
             element = doc.wrap_node(bnode)

@@ -26,11 +26,16 @@ module Dommy
     class SelectorIndex
       EMPTY = [].freeze
 
-      def self.build(backend_doc)
-        new.tap { |index| index.populate(backend_doc) }
+      # In a quirks-mode document (`quirks:`) id and class selectors match ASCII
+      # case-insensitively, so the id and class buckets are keyed, and looked
+      # up, ASCII-lowercased: a bucket is then exactly the elements the
+      # selector matches, in either mode.
+      def self.build(backend_doc, quirks: false)
+        new(quirks: quirks).tap { |index| index.populate(backend_doc) }
       end
 
-      def initialize
+      def initialize(quirks: false)
+        @quirks = quirks
         @by_id = {}
         @by_class = {}
         @by_tag = {}
@@ -136,8 +141,8 @@ module Dommy
       def entries_for(prefilter)
         kind, value = prefilter
         case kind
-        when :id then @by_id[value] || EMPTY
-        when :class then @by_class[value] || EMPTY
+        when :id then @by_id[key(value)] || EMPTY
+        when :class then @by_class[key(value)] || EMPTY
         when :type then @by_tag[value.to_s.downcase] || EMPTY
         end
       end
@@ -149,7 +154,7 @@ module Dommy
         (@by_tag[name.downcase] ||= []) << [enter, bnode] if name && !name.empty?
 
         id = bnode["id"]
-        (@by_id[id] ||= []) << [enter, bnode] if id && !id.empty?
+        (@by_id[key(id)] ||= []) << [enter, bnode] if id && !id.empty?
 
         klass = bnode["class"]
         return if klass.nil? || klass.empty?
@@ -159,8 +164,10 @@ module Dommy
         # buckets must be an EXACT token index: Match#compound? trusts an
         # index hit via `verified:`, and exact_class_or_id_prefilter trusts
         # an ancestor answer without re-matching.
-        klass.split(Infra::ASCII_WHITESPACE).each { |token| (@by_class[token] ||= []) << [enter, bnode] unless token.empty? }
+        klass.split(Infra::ASCII_WHITESPACE).each { |token| (@by_class[key(token)] ||= []) << [enter, bnode] unless token.empty? }
       end
+
+      def key(value) = @quirks ? value.downcase(:ascii) : value
     end
   end
 end

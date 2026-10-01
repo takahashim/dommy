@@ -44,7 +44,10 @@ module Dommy
 
         def initialize(document)
           @document = document
-          @quirks = document.respond_to?(:quirks_mode?) && document.quirks_mode?
+          # Every selector this index matches against an element runs in the
+          # same document with no :scope, so one Match serves them all — and
+          # holds the document's quirks mode the id and class buckets fold by.
+          @match = Internal::SelectorMatcher::Match.for(document, nil)
           @index = {}.compare_by_identity
           @pseudo_index = Hash.new { |h, k| h[k] = {}.compare_by_identity }
           @order = 0
@@ -321,13 +324,13 @@ module Dommy
 
             return host_or_ancestor_matches?(host, argument)
           end
-          argument.nil? || Internal::SelectorMatcher.matches?(host, argument)
+          argument.nil? || @match.list?(host, argument)
         end
 
         def host_or_ancestor_matches?(element, argument)
           current = element
           while current.respond_to?(:parent_element)
-            return true if Internal::SelectorMatcher.matches?(current, argument)
+            return true if @match.list?(current, argument)
 
             current = current.parent_element
           end
@@ -347,7 +350,7 @@ module Dommy
         def slotted_targets(complex, shadow)
           compound = complex.pseudo_element.argument
           list = compound.is_a?(Internal::SelectorAST::SelectorList) ? compound : single_complex_list(compound)
-          assigned_slottables(shadow).select { |el| Internal::SelectorMatcher.matches?(el, list) }
+          assigned_slottables(shadow).select { |el| @match.list?(el, list) }
         end
 
         def assigned_slottables(shadow)
@@ -447,7 +450,7 @@ module Dommy
           out = nil
           each_candidate_entry(element) do |entry|
             next unless entry.pseudo == pseudo
-            next unless Internal::SelectorMatcher.matches?(element, entry.list)
+            next unless @match.list?(element, entry.list)
 
             (out ||= []) << entry.match
           end
@@ -490,7 +493,7 @@ module Dommy
         # a quirks-mode document, where those selectors match ASCII
         # case-insensitively, its ASCII-lowercased form.
         def bucket_key(value)
-          @quirks ? value.downcase(:ascii) : value
+          @match.quirks ? value.downcase(:ascii) : value
         end
 
         # Record a (fully-qualified) layer's first appearance, idempotently —

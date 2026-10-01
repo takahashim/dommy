@@ -69,8 +69,7 @@ module Dommy
         # wrap the ancestors that can possibly match.
         def from_ancestor(current, compound, index)
           doc = @match.document
-          quirks = @match.quirks
-          prefilter = BackendPrefilter.prefilter_for(compound, quirks: quirks) # nil ⇒ no static gate, must wrap every ancestor
+          prefilter = BackendPrefilter.prefilter_for(compound) # nil ⇒ no static gate, must wrap every ancestor
 
           # Ask the index about `current`'s ancestors before walking them. For
           # an indexable compound this is O(log):
@@ -85,13 +84,14 @@ module Dommy
              (sel_index = doc.__internal_selector_index__) &&
              (enter = sel_index.enter_of(current.__dommy_backend_node__))
             return false unless sel_index.any_ancestor?(prefilter, enter)
-            return true if index == 1 && @anchor.nil? && BackendPrefilter.exact_class_or_id_prefilter(compound, quirks: quirks)
+            return true if index == 1 && @anchor.nil? && BackendPrefilter.exact_class_or_id_prefilter(compound)
           end
 
           backend = current.__dommy_backend_node__
           backend = backend && backend.parent
           while backend && doc
-            if backend.node_type == ELEMENT_NODE && (prefilter.nil? || BackendPrefilter.backend_passes?(backend, prefilter))
+            if backend.node_type == ELEMENT_NODE &&
+               (prefilter.nil? || BackendPrefilter.backend_passes?(backend, prefilter, quirks: @match.quirks))
               parent = doc.wrap_node(backend)
               # The prefilter was just tested on this ancestor's backend node.
               return true if parent && compound_matches?(parent, compound, verified: prefilter) && from(parent, index - 1)
