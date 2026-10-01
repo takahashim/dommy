@@ -90,7 +90,7 @@ module Dommy
     # form named getter's live RadioNodeList. Without a block it is a snapshot.
     def initialize(*args, &compute)
       @compute = compute
-      super(*args)
+      super(*args, &nil) # the block is the live source, not Array.new's filler
     end
 
     # Refresh the backing storage from the live source, if any. Returns self so

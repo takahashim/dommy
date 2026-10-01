@@ -3,7 +3,10 @@
 ## 0.14.0 — 2026-10-01
 
 Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.14.0.
-No functional changes to dommy-rails itself.
+
+### Fixed
+
+- Loading dommy-rails on Ruby 4.0 prints no warning that the CGI library is removed.
 
 ## 0.13.0 — 2026-09-23
 

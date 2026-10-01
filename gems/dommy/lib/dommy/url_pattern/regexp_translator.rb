@@ -525,12 +525,7 @@ module Dommy
             fail_syntax("Invalid capture group name") if surrogate?(code)
             c = code.chr(Encoding::UTF_8)
           end
-          valid = if name.empty?
-            c.match?(/[\p{ID_Start}$_]/)
-          else
-            c.match?(/[\p{ID_Continue}$\u200c\u200d]/)
-          end
-          fail_syntax("Invalid capture group name") unless valid
+          fail_syntax("Invalid capture group name") unless Tokenizer.valid_name_code_point?(c, name.empty?)
           name << c
         end
         advance
