@@ -74,6 +74,22 @@ class TestCssDeclarationTokens < Minitest::Test
     assert_equal 0, style_of("color: /* c */").length
   end
 
+  # A custom property's value may hold a colon, through setProperty too; any
+  # other property's value may not have a bare one.
+  def test_a_custom_property_may_hold_a_colon
+    style = style_of("--time: 10:30; --sel: a:hover; width:: 1px; color: red")
+
+    assert_equal "10:30", style.get_property_value("--time")
+    assert_equal "a:hover", style.get_property_value("--sel")
+    assert_equal "", style.get_property_value("width")
+    assert_equal "red", style.get_property_value("color")
+
+    style.set_property("--x", "a:b")
+    style.set_property("color", "a:b")
+    assert_equal "a:b", style.get_property_value("--x")
+    assert_equal "red", style.get_property_value("color")
+  end
+
   def test_var_inside_a_string_or_a_comment_is_text
     doc = Dommy.parse(<<~HTML).document
       <style>

@@ -294,10 +294,7 @@ module Dommy
             important = true
             value = stripped.strip
           end
-          return nil if name.empty?
-          # A custom property's value may be empty (css-variables-1 §2), as
-          # in `--x:;` or `--x: /* c */`; any other property's may not.
-          return nil unless (value.empty? && name.start_with?("--")) || valid_declaration_value?(value)
+          return nil if name.empty? || !valid_declaration_value?(name, value)
 
           Declaration.new(name, value, important)
         end
@@ -308,15 +305,23 @@ module Dommy
         # case-SENSITIVE (`--Foo` and `--foo` are two properties).
         def property_name(name)
           str = name.to_s
-          str.start_with?("--") ? str : str.downcase
+          custom_property?(str) ? str : str.downcase
         end
 
-        # A value is usable when it is non-empty, has no bare colon outside
-        # brackets and strings (the second one in "color:: invalid"), and every
-        # var() in it parses. A declaration whose value fails is dropped, not stored.
-        def valid_declaration_value?(value)
-          return false if value.empty?
-          return false if CssSource.partition_top_level(value, ":")
+        def custom_property?(name) = name.start_with?("--")
+
+        # Whether `value` is usable for the property `name`; a declaration
+        # whose value is not is dropped, not stored. Every var() in it has to
+        # parse. A custom property's value is any run of tokens
+        # (css-variables-1 §2) — empty (`--x:;`, `--x: /* c */`), or with a
+        # colon in it (`--time: 10:30`). Any other property's value has to be
+        # non-empty, with no bare colon outside brackets, strings and comments
+        # (the second one in "color:: invalid").
+        def valid_declaration_value?(name, value)
+          unless custom_property?(name)
+            return false if value.empty?
+            return false if CssSource.partition_top_level(value, ":")
+          end
 
           valid_var_functions?(value)
         end

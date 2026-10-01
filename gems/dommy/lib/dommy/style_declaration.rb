@@ -147,7 +147,7 @@ module Dommy
         # An invalid value is dropped rather than stored, and dropping it is not
         # a change either.
         value = Internal::CssSource.preprocess(value.to_s)
-        return nil unless Internal::CSS::Parser.valid_declaration_value?(value.strip)
+        return nil unless Internal::CSS::Parser.valid_declaration_value?(key, value.strip)
 
         entry = [value, normalized]
         return nil if decls[key] == entry
