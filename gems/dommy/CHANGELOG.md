@@ -23,7 +23,7 @@
 - A comment may sit between the two delims of an attribute matcher or around a namespace `|` (`[a~/**/=x]`, `*|/**/p`), and the attribute modifier may be escaped (`[a=x \69]`).
 - An escape past U+10FFFF or of a surrogate is U+FFFD instead of raising, a backslash before a newline is no escape, and one at the end of a string is dropped.
 - `getElementsByClassName`, `getElementsByName` and `getElementById` take any value: a class like `1`, `a.b` or `[x]`, a name with a quote, and an id holding NUL are found instead of raising or finding nothing. `getElementsByClassName` folds ASCII case in a quirks-mode document.
-- `getElementById`, `getElementsByClassName` and `getElementsByName` read the `id`, `class` and `name` attributes in no namespace: one set with `setAttributeNS("urn:x", "name", …)` does not count.
+- `getElementById`, `getElementsByClassName`, `getElementsByName`, id and class selectors and `classList` read the `id`, `class` and `name` attributes in no namespace: one set with `setAttributeNS("urn:x", "id", …)` does not count, and a `classList` change writes the attribute in no namespace.
 - `getElementsByName` returns HTML elements only: an `<svg name>` or a `<math name>` is not among them.
 - `CSS.escape("-")` is `"\-"`.
 

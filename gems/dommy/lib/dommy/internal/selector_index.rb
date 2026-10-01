@@ -153,10 +153,10 @@ module Dommy
         name = bnode.local_name
         (@by_tag[name.downcase] ||= []) << [enter, bnode] if name && !name.empty?
 
-        id = bnode["id"]
+        id = Backend.no_namespace_attribute_value(bnode, "id")
         (@by_id[key(id)] ||= []) << [enter, bnode] if id && !id.empty?
 
-        klass = bnode["class"]
+        klass = Backend.no_namespace_attribute_value(bnode, "class")
         return if klass.nil? || klass.empty?
 
         # HTML ASCII whitespace, exactly as class_tokens / class_attr_token?

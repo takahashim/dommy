@@ -234,7 +234,19 @@ module Dommy
       end
 
       def set_attribute_ns(node, namespace, prefix, local_name, qualified_name, value)
+        note_namespaced_unprefixed_attribute if prefix.to_s.empty? && !namespace.to_s.empty?
         current.set_attribute_ns(node, namespace, prefix, local_name, qualified_name, value)
+      end
+
+      # Whether an attribute in a namespace but with no prefix has ever been
+      # made (setAttributeNS("urn:x", "id")). That is the only way an
+      # attribute whose qualified name is a plain `id` or `class` can be in a
+      # namespace — a parser's are either prefixed or, `xmlns` aside, in none —
+      # so until one is made, #no_namespace_attribute_value can trust the
+      # by-name read. Process-wide, as an attribute moves between documents
+      # with its node; it only ever decides how fast an answer comes.
+      def note_namespaced_unprefixed_attribute
+        @namespaced_unprefixed_attribute = true
       end
 
       def remove_attribute_ns(node, namespace, local_name)
@@ -276,8 +288,14 @@ module Dommy
       # namespaced, unprefixed one (setAttributeNS("u", "att")) are the
       # attributes listed.
       def no_namespace_attribute_value(node, local_name)
+        # The value alone first: no attribute by that name, the common miss,
+        # costs one native read and no Attr — and so does a hit, unless an
+        # unprefixed namespaced attribute could be the one it read (see
+        # #note_namespaced_unprefixed_attribute; a parsed `xmlns` is one).
+        value = attr_value_by_qualified_name(node, local_name)
+        return value if value.nil? || (!@namespaced_unprefixed_attribute && local_name != "xmlns")
+
         attr = attr_by_qualified_name(node, local_name)
-        return nil if attr.nil?
         return attr.value if namespace_uri(attr).nil?
 
         get_attribute_ns(node, nil, local_name)
