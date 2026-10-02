@@ -365,10 +365,15 @@ module Dommy
     public
 
     # createHTMLDocument(title?) — a fresh HTML document (doctype + html > head,
-    # body), with an optional <title>.
+    # body), with an optional <title>. A given title is a title element in the
+    # head holding one Text node of exactly that data, "" included — which
+    # the title setter's string-replace-all would leave empty.
     def create_html_document(title = nil)
       doc = Document.new(nil, backend_doc: Backend.parse("<!DOCTYPE html><html><head></head><body></body></html>"))
-      doc.title = title.to_s unless title.nil? || title.equal?(Bridge::UNDEFINED)
+      unless title.nil? || title.equal?(Bridge::UNDEFINED)
+        element = doc.head.append_child(doc.create_element("title"))
+        element.append_child(doc.create_text_node(title.to_s))
+      end
       doc
     end
 
@@ -2809,29 +2814,61 @@ module Dommy
         node.namespace_uri == Internal::Namespaces::HTML
     end
 
+    # document.title's getter (HTML §3.1.3): the child text content of the
+    # SVG `title` child of an SVG `svg` document element, else of the title
+    # element, stripped and collapsed of ASCII whitespace. ASCII whitespace is
+    # exactly tab/LF/FF/CR/space — NOT Ruby's String#strip set, which also
+    # removes U+000B (vertical tab) and must be left intact.
     def read_title
-      # The first title element in tree order (usually the head's), with its
-      # child text content stripped and collapsed of ASCII whitespace per WHATWG.
-      # ASCII whitespace is exactly tab/LF/FF/CR/space — NOT Ruby's String#strip
-      # set, which also removes U+000B (vertical tab) and must be left intact.
-      title = @backend_doc.at_css("title")
+      root = backend_document_element
+      title = svg_root?(root) ? svg_title_child(root) : html_title_element
       return "" unless title
 
-      title.text.gsub(/[\t\n\f\r ]+/, " ").gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "")
+      Backend.child_text_content(title).gsub(/[\t\n\f\r ]+/, " ").gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "")
     end
 
+    # document.title's setter: string-replace-all in the SVG title (made the
+    # document element's first child when missing), or in the title element
+    # (appended to the head element when missing, unless there is no head
+    # either). A document element in any other namespace takes no title.
     def write_title(value)
-      head = @backend_doc.at_css("head")
-      return unless head
+      root = backend_document_element
+      if svg_root?(root)
+        title = svg_title_child(root)
+        title = insert_title(root, Internal::Namespaces::SVG, before: root.children.first) unless title
+      elsif root && Backend.namespace_uri(root) == Internal::Namespaces::HTML
+        title = html_title_element
+        unless title
+          head = html_element_child(%w[head])
+          return unless head
 
-      title = head.at_css("title")
-      unless title
-        title = Backend.create_element("title", @backend_doc)
-        head.add_child(title)
+          title = insert_title(head, Internal::Namespaces::HTML)
+        end
+      else
+        return
       end
+      wrap_node(title).text_content = value
+    end
 
-      title.children.to_a.each { |child| detach_node(child) }
-      title.add_child(Backend.create_text(value, @backend_doc))
+    # The title element: the first HTML `title` in the document, in tree order.
+    def html_title_element
+      @backend_doc.css("title").find { |node| Backend.namespace_uri(node) == Internal::Namespaces::HTML }
+    end
+
+    def svg_root?(root)
+      root && root.local_name == "svg" && Backend.namespace_uri(root) == Internal::Namespaces::SVG
+    end
+
+    def svg_title_child(root)
+      root.element_children.find { |c| c.local_name == "title" && Backend.namespace_uri(c) == Internal::Namespaces::SVG }
+    end
+
+    # A new `title` in `namespace`, inserted into `parent` before `before`
+    # (appended when nil), as a backend node.
+    def insert_title(parent, namespace, before: nil)
+      title = create_element_ns(namespace, "title")
+      wrap_node(parent).insert_before(title, before && wrap_node(before))
+      title.__dommy_backend_node__
     end
 
   end
