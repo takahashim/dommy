@@ -1546,6 +1546,10 @@ module Dommy
       Backend.no_namespace_attribute_value(@__node__, local_name)
     end
 
+    def __internal_has_attribute__?(local_name)
+      !Backend.no_namespace_attribute_value(@__node__, local_name).nil?
+    end
+
     def __internal_set_attribute_value__(local_name, value)
       old = Backend.no_namespace_attribute_value(@__node__, local_name)
       Backend.set_attribute_ns(@__node__, nil, nil, local_name, local_name, value.to_s)

@@ -60,7 +60,7 @@ module Dommy
       # `aria-level`, else the `hN` tag's number, else nil. The role itself
       # stays "heading" (level is a separate ARIA property the a11y tree emits).
       def heading_level(element)
-        aria = element.get_attribute("aria-level").to_s
+        aria = element.__internal_attribute_value__("aria-level").to_s
         return aria.to_i if aria.match?(/\A\d+\z/) && aria.to_i.positive?
 
         tag = element.local_name.to_s.downcase
@@ -68,7 +68,7 @@ module Dommy
       end
 
       def explicit_role(element)
-        raw = element.get_attribute("role").to_s.strip
+        raw = element.__internal_attribute_value__("role").to_s.strip
         return nil if raw.empty?
 
         raw.split(/\s+/).each do |token|
@@ -89,7 +89,7 @@ module Dommy
 
       def implicit_role(element)
         case element.tag_name.to_s.downcase
-        when "a", "area" then element.has_attribute?("href") ? "link" : (element.tag_name.casecmp?("a") ? "generic" : nil)
+        when "a", "area" then element.__internal_has_attribute__?("href") ? "link" : (element.tag_name.casecmp?("a") ? "generic" : nil)
         when "article" then "article"
         when "aside" then "complementary"
         when "b", "bdi", "bdo", "data", "i", "q", "samp", "small", "span", "u", "div" then "generic"
@@ -145,7 +145,7 @@ module Dommy
       # --- helpers --------------------------------------------------------
 
       def img_role(element)
-        alt = element.get_attribute("alt")
+        alt = element.__internal_attribute_value__("alt")
         # An explicitly empty alt makes the image presentational. Return the
         # canonical "none" (not its "presentation" synonym) so the accessibility
         # tree flattens it like any other presentational node.
@@ -157,7 +157,7 @@ module Dommy
       # row heads that row, so it is a row header; a header cell with only header
       # neighbors heads its column.
       def th_role(element)
-        case element.get_attribute("scope").to_s.downcase
+        case element.__internal_attribute_value__("scope").to_s.downcase
         when "row", "rowgroup" then "rowheader"
         when "col", "colgroup" then "columnheader"
         else auto_th_role(element)
@@ -191,7 +191,7 @@ module Dommy
       }.freeze
 
       def input_role(element)
-        type = element.get_attribute("type").to_s.downcase
+        type = element.__internal_attribute_value__("type").to_s.downcase
         return "textbox" if type.empty?
 
         # `type=search` is `combobox` when the control has a suggestions list
@@ -201,8 +201,8 @@ module Dommy
       end
 
       def select_role(element)
-        multiple = element.has_attribute?("multiple")
-        size = element.get_attribute("size").to_s.to_i
+        multiple = element.__internal_has_attribute__?("multiple")
+        size = element.__internal_attribute_value__("size").to_s.to_i
         multiple || size > 1 ? "listbox" : "combobox"
       end
 
@@ -219,14 +219,21 @@ module Dommy
       end
 
       def named?(element)
-        return true if present?(element.get_attribute("aria-label"))
-        return true if present?(element.get_attribute("aria-labelledby"))
+        return true if present?(element.__internal_attribute_value__("aria-label"))
+        return true if references?(element, "aria-labelledby")
 
-        present?(element.get_attribute("title"))
+        present?(element.__internal_attribute_value__("title"))
       end
 
       def present?(value)
         !value.nil? && !value.to_s.empty?
+      end
+
+      # Whether an element-list attribute says something: a value, or the
+      # elements set through its reflection (which leave the value "").
+      def references?(element, attribute)
+        present?(element.__internal_attribute_value__(attribute)) ||
+          !element.__internal_aria_associated_elements__(attribute).to_a.empty?
       end
 
       # Presentation conflict resolution (simplified): a focusable element or one
@@ -234,19 +241,20 @@ module Dommy
       def presentation_conflict?(element)
         return true if focusable?(element)
 
-        %w[aria-label aria-labelledby aria-describedby].any? { |a| present?(element.get_attribute(a)) }
+        present?(element.__internal_attribute_value__("aria-label")) ||
+          %w[aria-labelledby aria-describedby].any? { |a| references?(element, a) }
       end
 
       # Whether the element is focusable — a tabindex, or a natively-focusable
       # control (a/area with href, or a non-disabled form control). Native
       # focusability matters: <a href role=presentation> is still a link.
       def focusable?(element)
-        return true if present?(element.get_attribute("tabindex"))
+        return true if present?(element.__internal_attribute_value__("tabindex"))
 
         case element.local_name.to_s.downcase
-        when "a", "area" then element.has_attribute?("href")
-        when "button", "select", "textarea" then !element.has_attribute?("disabled")
-        when "input" then element.get_attribute("type").to_s.downcase != "hidden" && !element.has_attribute?("disabled")
+        when "a", "area" then element.__internal_has_attribute__?("href")
+        when "button", "select", "textarea" then !element.__internal_has_attribute__?("disabled")
+        when "input" then element.__internal_attribute_value__("type").to_s.downcase != "hidden" && !element.__internal_has_attribute__?("disabled")
         else false
         end
       end
@@ -262,6 +270,8 @@ module Dommy
       private_class_method :landmark_or_generic
       private_class_method :named?
       private_class_method :present?
+      private_class_method :references?
+      private_class_method :references?
       private_class_method :presentation_conflict?
       private_class_method :focusable?
     end

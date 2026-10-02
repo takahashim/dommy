@@ -151,6 +151,15 @@ module Dommy
         end
       end
 
+      # The elements an ARIA element-list attribute (`aria-labelledby`)
+      # associates with this one, as its reflection resolves them — the
+      # explicitly-set elements, else the IDREFs found in this element's tree —
+      # for the name, description and role to follow the same references.
+      # nil with neither.
+      def __internal_aria_associated_elements__(content_attr)
+        aria_elements_current(content_attr, ELEMENTS_ATTRIBUTES.key(content_attr))
+      end
+
       # Resolve an ARIA IDREF within this element's tree ROOT (its topmost
       # ancestor) rather than the document — so references keep working when the
       # subtree is disconnected from the document.

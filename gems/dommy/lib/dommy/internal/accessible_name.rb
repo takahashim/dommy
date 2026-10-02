@@ -80,7 +80,7 @@ module Dommy
         end
 
         # 2. aria-label.
-        aria_label = node.get_attribute("aria-label").to_s
+        aria_label = node.__internal_attribute_value__("aria-label").to_s
         return aria_label unless aria_label.strip.empty?
 
         # 3. Native host-language labeling.
@@ -100,7 +100,7 @@ module Dommy
         end
 
         # 5. Tooltip (title) fallback.
-        title = node.get_attribute("title").to_s
+        title = node.__internal_attribute_value__("title").to_s
         return title unless title.empty?
 
         # 6. Placeholder — the lowest-priority name source (below the title).
@@ -117,21 +117,16 @@ module Dommy
       end
 
       # Join the accessible names of the elements an IDREF-list attribute
-      # (aria-labelledby / aria-describedby) points at. Returns nil when the
-      # attribute is absent/empty or resolves to nothing, so the caller falls
-      # through. Each referenced node is named with `referenced: true` (it does
-      # not restart a labelledby traversal) and `allow_content: true`.
+      # (aria-labelledby / aria-describedby) associates — the ones its
+      # reflection gives, explicitly set or found by ID in the element's own
+      # tree. Returns nil when there are none, so the caller falls through.
+      # Each referenced node is named with `referenced: true` (it does not
+      # restart a labelledby traversal) and `allow_content: true`.
       def referenced_names(node, attribute, traversal = Traversal.start)
-        ids = node.get_attribute(attribute).to_s.split(/\s+/).reject(&:empty?)
-        return nil if ids.empty?
+        refs = node.respond_to?(:__internal_aria_associated_elements__) ? node.__internal_aria_associated_elements__(attribute) : nil
+        return nil if refs.nil? || refs.empty?
 
-        doc = node.respond_to?(:document) ? node.document : nil
-        return nil unless doc
-
-        parts = ids.map do |id|
-          ref = doc.get_element_by_id(id)
-          next "" unless ref
-
+        parts = refs.map do |ref|
           name_of(ref, traversal.naming(hidden_root: AccessibilityVisibility.hidden_for_name?(ref)),
             referenced: true, allow_content: true)
         end
@@ -144,7 +139,7 @@ module Dommy
         tag = node.tag_name.to_s.downcase
         case tag
         when "img", "area"
-          alt = node.get_attribute("alt")
+          alt = node.__internal_attribute_value__("alt")
           alt.nil? ? nil : alt
         when "input"
           input_native_name(node, traversal)
@@ -176,9 +171,9 @@ module Dommy
       PLACEHOLDER_TYPES = %w[text search tel url email password].freeze
 
       def input_native_name(node, traversal)
-        type = node.get_attribute("type").to_s.downcase
-        return node.get_attribute("alt") || node.get_attribute("value").to_s if type == "image"
-        return node.get_attribute("value").to_s if %w[button submit reset].include?(type)
+        type = node.__internal_attribute_value__("type").to_s.downcase
+        return node.__internal_attribute_value__("alt") || node.__internal_attribute_value__("value").to_s if type == "image"
+        return node.__internal_attribute_value__("value").to_s if %w[button submit reset].include?(type)
 
         label_text(node, traversal)
       end
@@ -190,12 +185,12 @@ module Dommy
         return placeholder_name(node) if tag == "textarea"
         return nil unless tag == "input"
 
-        type = node.get_attribute("type").to_s.downcase
+        type = node.__internal_attribute_value__("type").to_s.downcase
         (type.empty? || PLACEHOLDER_TYPES.include?(type)) ? placeholder_name(node) : nil
       end
 
       def placeholder_name(node)
-        placeholder = node.get_attribute("placeholder").to_s
+        placeholder = node.__internal_attribute_value__("placeholder").to_s
         placeholder.empty? ? nil : placeholder
       end
 
@@ -324,7 +319,7 @@ module Dommy
         text = +""
         v.scan(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|attr\(\s*([-\w]+)\s*\)/) do
           dq, sq, attr = Regexp.last_match.captures
-          text << (attr ? node.get_attribute(attr).to_s : unescape_css_string(dq || sq))
+          text << (attr ? node.__internal_attribute_value__(attr).to_s : unescape_css_string(dq || sq))
         end
         text
       end

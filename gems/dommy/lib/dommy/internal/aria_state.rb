@@ -73,7 +73,7 @@ module Dommy
         # Only `multiple` allows multiple selection — each marked option is
         # selected. Otherwise the select is single-selection (drop-down or a
         # size>1 list box): the last marked option wins.
-        return option.has_attribute?("selected") if multiple_select?(select)
+        return option.__internal_has_attribute__?("selected") if multiple_select?(select)
 
         same_node?(option, effective_single_selection(select))
       end
@@ -86,14 +86,14 @@ module Dommy
       # drop-down (not multiple and no size>1) — the first option when none is.
       def effective_single_selection(select)
         options = select.query_selector_all("option").to_a
-        marked = options.reverse_each.find { |option| option.has_attribute?("selected") }
+        marked = options.reverse_each.find { |option| option.__internal_has_attribute__?("selected") }
         return marked if marked
 
         dropdown?(select) ? options.first : nil
       end
 
       def dropdown?(select)
-        !multiple_select?(select) && select.get_attribute("size").to_s.to_i <= 1
+        !multiple_select?(select) && select.__internal_attribute_value__("size").to_s.to_i <= 1
       end
 
       # Expanded comes only from aria-expanded. A native <details open> is NOT
@@ -118,7 +118,7 @@ module Dommy
       def native_disabled?(element)
         return element.disabled if element.respond_to?(:disabled)
 
-        DISABLEABLE_TAGS.include?(element.local_name.to_s.downcase) && element.has_attribute?("disabled")
+        DISABLEABLE_TAGS.include?(element.local_name.to_s.downcase) && element.__internal_has_attribute__?("disabled")
       end
 
       def readonly_state(element)
@@ -130,18 +130,18 @@ module Dommy
       end
 
       def tristate(element, attribute)
-        case element.get_attribute(attribute).to_s.downcase
+        case element.__internal_attribute_value__(attribute).to_s.downcase
         when "true" then true
         when "false" then false
         when "mixed" then "mixed"
         end
       end
 
-      def aria_true?(element, attribute) = element.get_attribute(attribute).to_s.casecmp?("true")
+      def aria_true?(element, attribute) = element.__internal_attribute_value__(attribute).to_s.casecmp?("true")
 
       def native_checkbox_radio?(element)
         element.respond_to?(:checked) && tag?(element, "input") &&
-          %w[checkbox radio].include?(element.get_attribute("type").to_s.downcase)
+          %w[checkbox radio].include?(element.__internal_attribute_value__("type").to_s.downcase)
       end
 
       def native_option?(element) = element.respond_to?(:selected) && tag?(element, "option")

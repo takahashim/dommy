@@ -164,4 +164,36 @@ class TestAccessibleName < Minitest::Test
     html = '<label for="i" hidden>Hidden <b>label</b></label><input id="i">'
     assert_equal "Hidden label", label_of(html, "#i")
   end
+
+  # The name, description and role follow the references the ARIA
+  # reflection gives: elements set through ariaLabelledByElements /
+  # ariaDescribedByElements, else IDREFs in the element's own tree — so a
+  # shadow tree's aria-labelledby does not reach the document's elements.
+  def test_references_are_the_reflected_ones
+    doc = make_window('<p id=p role=button>btn</p><i id=t>From T</i><i id=u>From U</i>').document
+    p = doc.get_element_by_id("p")
+    p.__js_set__("ariaLabelledByElements", [doc.get_element_by_id("t")])
+    p.__js_set__("ariaDescribedByElements", [doc.get_element_by_id("u")])
+    assert_equal ["From T", "From U"], [p.computed_label, p.computed_description]
+
+    host = doc.body.append_child(doc.create_element("div"))
+    shadow = host.attach_shadow("mode" => "open")
+    shadow.inner_html = '<button aria-labelledby="t">in</button>'
+    assert_equal "in", shadow.query_selector("button").computed_label
+
+    section = doc.body.append_child(doc.create_element("section"))
+    section.__js_set__("ariaLabelledByElements", [doc.get_element_by_id("t")])
+    assert_equal "region", section.computed_role
+  end
+
+  # They read their attributes in no namespace.
+  def test_attributes_in_another_namespace_say_nothing
+    doc = make_window("<button>Text</button><i id=x>X</i>").document
+    button = doc.query_selector("button")
+    %w[aria-label role aria-labelledby aria-hidden].zip(%w[NS link x true]).each do |name, value|
+      button.set_attribute_ns("urn:x", name, value)
+    end
+    assert_equal ["Text", "button"], [button.computed_label, button.computed_role]
+    assert_includes doc.body.aria_snapshot, "Text"
+  end
 end
