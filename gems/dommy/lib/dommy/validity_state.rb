@@ -65,7 +65,7 @@ module Dommy
         !host_checked?
       when "radio"
         # An unnamed radio is not part of a group and is never missing.
-        return false if @host.respond_to?(:get_attribute) && @host.get_attribute("name").to_s.empty?
+        return false if @host.respond_to?(:__internal_attribute_value__) && @host.__internal_attribute_value__("name").to_s.empty?
 
         # A required radio is missing only when NO member of its group (same
         # name/form owner/tree) is checked — using runtime checkedness.

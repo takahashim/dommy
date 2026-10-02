@@ -202,7 +202,7 @@ module Dommy
 
         def option_like?(node) = node.is_a?(Element) && OPTION_LIKE.include?(tag(node))
 
-        def closed_details?(element) = tag(element) == "details" && !element.has_attribute?("open")
+        def closed_details?(element) = tag(element) == "details" && !element.__internal_has_attribute__?("open")
 
         def element_children(element) = element.child_nodes.to_a.grep(Element)
 

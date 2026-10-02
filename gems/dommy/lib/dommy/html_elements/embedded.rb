@@ -26,7 +26,7 @@ module Dommy
       # (Dommy doesn't fetch), which injects the document via
       # `__internal_set_content_document__`; only a truly blank iframe gets the
       # auto about:blank document here, so we don't shadow a pending navigation.
-      return nil unless get_attribute("src").to_s.empty? && get_attribute("srcdoc").nil?
+      return nil unless __internal_attribute_value__("src").to_s.empty? && __internal_attribute_value__("srcdoc").nil?
 
       @content_document = __internal_build_blank_content_document__
     end
@@ -49,7 +49,7 @@ module Dommy
     # inside the frame — a form's action, a link, an image — would resolve
     # against `about:blank` and go nowhere.
     def __internal_build_blank_content_document__
-      srcdoc = get_attribute("srcdoc")
+      srcdoc = __internal_attribute_value__("srcdoc")
       html = srcdoc.to_s.empty? ? BLANK_DOCUMENT_HTML : srcdoc.to_s
       win = Window.new(nil, backend_doc: Backend.parse(html))
       win.location.__internal_set_url__(srcdoc.nil? ? "about:blank" : "about:srcdoc")

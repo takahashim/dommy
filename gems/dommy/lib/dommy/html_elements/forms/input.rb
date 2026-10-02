@@ -20,7 +20,7 @@ module Dommy
     # where a bare "on"/"off" is invalid rather than passed through.
     reflect_setter :autocomplete
     def autocomplete
-      Internal::Autofill.idl_exposed_value(get_attribute("autocomplete"), anchor_mantle: type == "hidden")
+      Internal::Autofill.idl_exposed_value(__internal_attribute_value__("autocomplete"), anchor_mantle: type == "hidden")
     end
     reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
                        form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
@@ -46,7 +46,7 @@ module Dommy
       raw = @__value.nil? ? reflected_string("value") : @__value
       # checkbox/radio use the "default/on" value mode: with no value content
       # attribute (and no assigned value) the IDL value is "on".
-      return "on" if raw.to_s.empty? && !@__node__.key?("value") && CHECKABLE_TYPES.include?(type)
+      return "on" if raw.to_s.empty? && !__internal_has_attribute__?("value") && CHECKABLE_TYPES.include?(type)
 
       sanitize_value(raw)
     end
@@ -146,7 +146,7 @@ module Dommy
         strip_newlines(raw.to_s)
       when "email"
         stripped = strip_newlines(raw.to_s)
-        if @__node__.key?("multiple")
+        if __internal_has_attribute__?("multiple")
           stripped.split(",").map(&:strip).join(",")
         else
           stripped.strip
@@ -316,7 +316,7 @@ module Dommy
     # owner (two radios with no form owner still group, as long as they share a
     # tree and name).
     def radio_group_members
-      group_name = get_attribute("name").to_s
+      group_name = __internal_attribute_value__("name").to_s
       return [self] if group_name.empty?
 
       owner = form_owner
@@ -325,7 +325,7 @@ module Dommy
 
       members = root.query_selector_all("input[type='radio']").to_a.select do |radio|
         next false unless radio.respond_to?(:form_owner)
-        next false unless radio.get_attribute("name").to_s == group_name
+        next false unless radio.__internal_attribute_value__("name").to_s == group_name
 
         same_form_owner?(owner, radio.form_owner)
       end
@@ -412,7 +412,7 @@ module Dommy
     # The declared step (default 1 for number, 1 for range); "any" disables
     # stepping (returns nil).
     def step_base_value
-      raw = @__node__["step"].to_s.strip
+      raw = __internal_attribute_value__("step").to_s.strip
       return nil if raw.casecmp?("any")
 
       s = (Float(raw) rescue nil)
@@ -600,7 +600,7 @@ module Dommy
     # is no `list` attribute, no element with that id, or the referenced element
     # is not a <datalist>.
     def list
-      id = get_attribute("list")
+      id = __internal_attribute_value__("list")
       return nil if id.nil? || id.empty?
 
       element = @document.get_element_by_id(id)

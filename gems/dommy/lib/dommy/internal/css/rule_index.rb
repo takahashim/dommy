@@ -131,7 +131,7 @@ module Dommy
         # evaluator as @media); `disabled` mutes it.
         def author_sheets
           sheet_elements.filter_map do |element|
-            media = element.get_attribute("media").to_s.strip
+            media = element.__internal_attribute_value__("media").to_s.strip
             next nil unless media.empty? || MediaQuery.match?(media, environment)
 
             link_element?(element) ? link_sheet_rules(element) : style_element_rules(element)
@@ -377,7 +377,7 @@ module Dommy
           return [] unless root
 
           root.query_selector_all("[part]").to_a.select do |el|
-            tokens = el.get_attribute("part").to_s.split(/\s+/)
+            tokens = el.__internal_attribute_value__("part").to_s.split(/\s+/)
             names.all? { |name| tokens.include?(name) }
           end
         end
@@ -475,10 +475,10 @@ module Dommy
           tag = element.local_name.to_s.downcase
           @bucket_tag[tag]&.each(&block)
 
-          id = element.get_attribute("id").to_s
+          id = element.__internal_attribute_value__("id").to_s
           @bucket_id[bucket_key(id)]&.each(&block) unless id.empty?
 
-          classes = element.get_attribute("class").to_s
+          classes = element.__internal_attribute_value__("class").to_s
           unless classes.empty?
             # HTML ASCII whitespace, exactly as the buckets were filled and as
             # class_tokens / class_attr_token? split (Ruby's default split

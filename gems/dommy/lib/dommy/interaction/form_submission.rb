@@ -183,7 +183,7 @@ module Dommy
       end
 
       def attr(el, name)
-        el&.get_attribute(name)
+        el&.__internal_attribute_value__(name)
       end
     end
   end

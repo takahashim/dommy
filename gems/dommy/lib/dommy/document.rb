@@ -757,7 +757,7 @@ module Dommy
       base_el = @backend_doc.at_css("base[href]")
       return doc_url unless base_el
 
-      href = base_el["href"].to_s
+      href = Backend.no_namespace_attribute_value(base_el, "href").to_s
       return doc_url if href.empty?
 
       # HTML "document base URL": the frozen base URL is the href parsed
@@ -1885,9 +1885,9 @@ module Dommy
     def __js_named_props__
       names = []
       named_getter_nodes.each do |node|
-        id = node["id"].to_s
+        id = Backend.no_namespace_attribute_value(node, "id").to_s
         names << id if named_element?(node, id)
-        name = node["name"].to_s
+        name = Backend.no_namespace_attribute_value(node, "name").to_s
         names << name if named_element?(node, name)
       end
       names.uniq
@@ -1923,10 +1923,11 @@ module Dommy
     def named_element?(node, name)
       return false if name.empty?
       return false unless %w[embed form iframe img object].include?(node.name.to_s.downcase)
-      return true if node["name"] == name
-      return true if node.name.to_s.casecmp?("object") && node["id"] == name
+      own_name = Backend.no_namespace_attribute_value(node, "name")
+      return true if own_name == name
+      return true if node.name.to_s.casecmp?("object") && Backend.no_namespace_attribute_value(node, "id") == name
 
-      node.name.to_s.casecmp?("img") && node["id"] == name && !node["name"].to_s.empty?
+      node.name.to_s.casecmp?("img") && Backend.no_namespace_attribute_value(node, "id") == name && !own_name.to_s.empty?
     end
 
     # Elements the document's named getter exposes, in tree order.

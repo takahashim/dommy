@@ -384,7 +384,7 @@ module Dommy
         target = Internal.target_id(element.owner_document)
         return false if target.nil?
 
-        element.get_attribute("id").to_s == target.to_s && element.is_connected?
+        element.__internal_attribute_value__("id").to_s == target.to_s && element.is_connected?
       end
 
       def element_descendants(root)

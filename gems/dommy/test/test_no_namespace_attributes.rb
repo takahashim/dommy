@@ -129,4 +129,27 @@ class TestNoNamespaceAttributes < Minitest::Test
     el.set_attribute_ns(NS, "title", "ns")
     assert_nil(el.__js_attribute_snapshot__)
   end
+
+  # HTML's own algorithms read the attributes in no namespace too: one in
+  # another namespace makes nothing required, a link, a named property of
+  # the document or a checkbox's submitted value.
+  def test_html_algorithms
+    input = element("input")
+    input.set_attribute_ns(NS, "required", "")
+    a = element("a")
+    a.set_attribute_ns(NS, "href", "/")
+    img = element("img")
+    img.set_attribute_ns(NS, "name", "pic")
+    refute input.matches?(":required")
+    refute a.matches?(":any-link")
+    refute_includes @doc.__js_named_props__, "pic"
+
+    form = element("form")
+    box = form.append_child(@doc.create_element("input"))
+    box.set_attribute("type", "checkbox")
+    box.set_attribute("name", "b")
+    box.set_attribute("checked", "")
+    box.set_attribute_ns(NS, "value", "ns")
+    assert_equal [["b", "on"]], Dommy::FormData.new(form).entries.to_a
+  end
 end

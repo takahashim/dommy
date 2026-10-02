@@ -125,7 +125,7 @@ module Dommy
         return unless element.respond_to?(:is_connected?) && element.is_connected?
         # The content attribute: `src=""` names no resource, where the IDL `src`
         # resolves it to the document's own address (a URL reflection).
-        return unless BLANK_IFRAME_SRCS.include?(element.get_attribute("src").to_s.strip)
+        return unless BLANK_IFRAME_SRCS.include?(element.__internal_attribute_value__("src").to_s.strip)
 
         ensure_blank_content_document(element)
         defer do

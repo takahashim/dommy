@@ -94,8 +94,8 @@ module Dommy
 
       def value_of(text, element)
         number = to_number(text)
-        low = (Float(element.get_attribute("min").to_s) rescue 0.0)
-        high = (Float(element.get_attribute("max").to_s) rescue 100.0)
+        low = (Float(element.__internal_attribute_value__("min").to_s) rescue 0.0)
+        high = (Float(element.__internal_attribute_value__("max").to_s) rescue 100.0)
         number = nil if number.nan?
         number ||= high < low ? low : low + (high - low) / 2.0
         number.clamp(low, high)

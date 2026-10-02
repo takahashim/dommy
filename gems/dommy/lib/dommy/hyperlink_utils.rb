@@ -20,7 +20,7 @@ module Dommy
     end
 
     def href
-      raw = @__node__["href"]
+      raw = __internal_attribute_value__("href")
       return "" if raw.nil?
 
       url = hyperlink_url
@@ -28,7 +28,7 @@ module Dommy
     end
 
     def href=(value)
-      set_attribute("href", value.to_s)
+      __internal_set_attribute_value__("href", value.to_s)
     end
 
     def origin
@@ -147,7 +147,7 @@ module Dommy
     # HTML "reinitialize url": the href attribute parsed against the
     # document base URL, or nil when there is none or it does not parse.
     def hyperlink_url
-      raw = @__node__["href"]
+      raw = __internal_attribute_value__("href")
       return nil if raw.nil?
 
       base = @document.base_uri.to_s
@@ -165,7 +165,7 @@ module Dommy
       return unless url
 
       yield url
-      set_attribute("href", url.href)
+      __internal_set_attribute_value__("href", url.href)
     end
   end
 end
