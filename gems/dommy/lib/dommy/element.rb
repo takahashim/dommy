@@ -1528,9 +1528,10 @@ module Dommy
         ns = nil
         recorded_name = key
       end
-      # A direct write to an `aria-*` IDREF attribute drops any explicitly-set
-      # element reference, so the IDL getter re-resolves the new IDREF.
-      clear_aria_element_ref_for(key) if key.start_with?("aria-")
+      # A direct write to an `aria-*` IDREF attribute in no namespace drops
+      # any explicitly-set element reference, so the IDL getter re-resolves
+      # the new IDREF.
+      clear_aria_element_ref_for(key) if ns.nil? && key.start_with?("aria-")
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: recorded_name,
                                           old_value: old, namespace: ns)
       nil
@@ -1605,6 +1606,9 @@ module Dommy
       ns, prefix, local = Internal::Namespaces.validate_and_extract(namespace, qualified_name)
       old = Backend.get_attribute_ns(@__node__, ns, local)
       Backend.set_attribute_ns(@__node__, ns, prefix, local, qualified_name.to_s, value.to_s)
+      # As set_attribute: an `aria-*` IDREF attribute in no namespace drops
+      # its explicitly-set element reference.
+      clear_aria_element_ref_for(local) if ns.nil? && local.start_with?("aria-")
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
       nil
     end

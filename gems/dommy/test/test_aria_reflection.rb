@@ -55,4 +55,33 @@ class TestAriaReflection < Minitest::Test
     @p.set_attribute_ns("urn:x", "aria-owns", "t")
     assert_nil @p.__js_get__("ariaOwnsElements")
   end
+
+  # Any write to the content attribute in no namespace drops an explicitly
+  # set reference, so the IDREF is read again; one in another namespace
+  # leaves it.
+  def test_writing_the_attribute_drops_an_explicit_reference
+    writes = {
+      "setAttribute" => -> { @p.set_attribute("aria-activedescendant", "u") },
+      "setAttributeNS" => -> { @p.set_attribute_ns(nil, "aria-activedescendant", "u") },
+      "Attr#value=" => -> { @p.get_attribute_node("aria-activedescendant").value = "u" },
+      "setAttributeNode" => lambda {
+        attr = @doc.create_attribute("aria-activedescendant")
+        attr.value = "u"
+        @p.set_attribute_node(attr)
+      },
+    }
+    writes.each do |how, write|
+      @p.__js_set__("ariaActiveDescendantElement", @t)
+      write.call
+      assert_same @u, @p.__js_get__("ariaActiveDescendantElement"), how
+    end
+
+    @p.__js_set__("ariaActiveDescendantElement", @t)
+    @p.set_attribute_ns("urn:x", "aria-activedescendant", "u")
+    assert_same @t, @p.__js_get__("ariaActiveDescendantElement")
+
+    @p.__js_set__("ariaLabelledByElements", [@t])
+    @p.set_attribute_ns(nil, "aria-labelledby", "u")
+    assert_equal [@u], @p.__js_get__("ariaLabelledByElements").to_a
+  end
 end
