@@ -260,7 +260,7 @@ module Dommy
 
       # A missing data-* attribute reads as JS `undefined` (and `"foo" in dataset`
       # is false), per DOMStringMap semantics.
-      value = @element.__dommy_backend_node__[attr_name(name)]
+      value = @element.__internal_attribute_value__(attr_name(name))
       value.nil? ? Bridge::ABSENT : value
     end
 
@@ -273,7 +273,7 @@ module Dommy
         raise DOMException::InvalidCharacterError, "#{attribute.inspect} is not a valid attribute name"
       end
 
-      @element.set_attribute(attribute, value.to_s)
+      @element.__internal_set_attribute_value__(attribute, value.to_s)
       nil
     end
 
@@ -284,7 +284,7 @@ module Dommy
       name = key.to_s
       return true unless supported_name?(name)
 
-      @element.remove_attribute(attr_name(name))
+      @element.remove_attribute_ns(nil, attr_name(name))
       true
     end
 
@@ -293,12 +293,14 @@ module Dommy
     end
 
     # WebIDL "supported property names" for DOMStringMap: each `data-*`
-    # attribute's name with the `data-` prefix stripped and `-x` sequences
-    # camel-cased (`data-date-of-birth` → `dateOfBirth`, `data-` → ``).
+    # attribute in no namespace, its name with the `data-` prefix stripped
+    # and `-x` sequences camel-cased (`data-date-of-birth` → `dateOfBirth`,
+    # `data-` → ``).
     def __js_named_props__
       Backend.attribute_nodes(@element.__dommy_backend_node__).filter_map do |a|
-        name = Backend.attribute_ns_info(a)[:qualified_name]
-        next unless name.start_with?("data-")
+        info = Backend.attribute_ns_info(a)
+        name = info[:local_name]
+        next unless info[:namespace_uri].nil? && name.start_with?("data-")
 
         name.sub(/\Adata-/, "").gsub(/-([a-z])/) { ::Regexp.last_match(1).upcase }
       end

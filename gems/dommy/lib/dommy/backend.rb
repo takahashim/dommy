@@ -249,6 +249,10 @@ module Dommy
         @namespaced_unprefixed_attribute = true
       end
 
+      def namespaced_unprefixed_attribute?
+        @namespaced_unprefixed_attribute == true
+      end
+
       def remove_attribute_ns(node, namespace, local_name)
         current.remove_attribute_ns(node, namespace, local_name)
       end
@@ -292,7 +296,8 @@ module Dommy
         # costs one native read and no Attr — and so does a hit, unless an
         # unprefixed namespaced attribute could be the one it read (see
         # #note_namespaced_unprefixed_attribute; a parsed `xmlns` is one).
-        value = attr_value_by_qualified_name(node, local_name)
+        # Straight to the adapter: every reflected read comes this way.
+        value = current.attr_value_by_qualified_name(node, local_name)
         return value if value.nil? || (!@namespaced_unprefixed_attribute && local_name != "xmlns")
 
         attr = attr_by_qualified_name(node, local_name)

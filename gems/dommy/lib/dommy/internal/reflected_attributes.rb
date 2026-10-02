@@ -8,10 +8,11 @@ module Dommy
     #
     # 1. **Instance helpers** (`reflected_string` / `set_reflected_string` /
     #    `reflected_boolean` / `set_reflected_boolean`) delegate to the host
-    #    element's standard attribute API (`get_attribute` / `set_attribute` /
-    #    `has_attribute?` / `remove_attribute`), so case-sensitivity is
-    #    inherited from the host's namespace — HTML lowercases, SVG keeps the
-    #    spec name (`viewBox`).
+    #    content attribute in no namespace, as HTML §2.6.1 reflects it
+    #    (`__internal_attribute_value__` / `__internal_set_attribute_value__`
+    #    / `remove_attribute_ns(nil, …)`) — never another namespace's
+    #    attribute that happens to share the qualified name. HTML names are
+    #    declared in lowercase, SVG ones keep the spec name (`viewBox`).
     #
     #    - **String**: property mirrors the attribute value. Missing → `""`.
     #    - **Boolean**: property is true iff the attribute is present. Setting
@@ -272,6 +273,10 @@ module Dommy
 
           (names.map { |n| [n, nil] } + mapped.to_a).each do |ruby_name, override|
             attr, js, options = _resolve_identifiers(ruby_name, override)
+            # An HTML element's content attributes are named in lowercase
+            # (`noValidate` reflects `novalidate`); an SVG one's keep their
+            # case (`viewBox`). The name is read as it is, in no namespace.
+            attr = attr.downcase if self <= Dommy::HTMLElement
             define_method(ruby_name) { __send__(getter, attr, options) } if getter
             if setter
               define_method(:"#{ruby_name}=") { |value| __send__(setter, attr, value, options) }
@@ -324,11 +329,11 @@ module Dommy
       private
 
       def reflected_string(name, _options = nil)
-        get_attribute(name).to_s
+        __internal_attribute_value__(name).to_s
       end
 
       def set_reflected_string(name, value, _options = nil)
-        set_attribute(name, value.to_s)
+        __internal_set_attribute_value__(name, value.to_s)
       end
 
       # A URL attribute's getter (HTML §2.6.1): "If contentAttributeValue is
@@ -342,7 +347,7 @@ module Dommy
       # The setter is the plain string one: a URL attribute reflects on the way
       # OUT only, and `img.src = "a b"` stores "a b" verbatim.
       def reflected_url(name, _options = nil)
-        raw = get_attribute(name)
+        raw = __internal_attribute_value__(name)
         return "" if raw.nil?
 
         resolve_url(raw)
@@ -375,7 +380,7 @@ module Dommy
       # one and fits a long, else the declared default, else -1 when the
       # attribute is limited to non-negative numbers, else 0.
       def reflected_long(name, options = EMPTY_OPTIONS)
-        raw = get_attribute(name)
+        raw = __internal_attribute_value__(name)
         unless raw.nil?
           parsed = options[:non_negative] ? parse_html_non_negative_integer(raw) : parse_html_integer(raw)
           return parsed if parsed && LONG_RANGE.cover?(parsed)
@@ -395,7 +400,7 @@ module Dommy
         range = options[:range]
         minimum = range ? range.first : (options[:positive] ? 1 : 0)
         maximum = range ? range.last : UNSIGNED_LONG_MAX
-        parsed = parse_html_non_negative_integer(get_attribute(name))
+        parsed = parse_html_non_negative_integer(__internal_attribute_value__(name))
         if parsed
           return parsed if parsed.between?(minimum, maximum)
           return parsed < minimum ? minimum : maximum if range
@@ -413,7 +418,7 @@ module Dommy
           raise DOMException::IndexSizeError, "#{name} cannot be negative"
         end
 
-        set_attribute(name, given.to_s)
+        __internal_set_attribute_value__(name, given.to_s)
       end
 
       # An `unsigned long` attribute's setter. A value outside 0..2147483647
@@ -428,7 +433,7 @@ module Dommy
         minimum = options[:positive] ? 1 : 0
         new_value = options.fetch(:default, minimum)
         new_value = given if given.between?(minimum, UNSIGNED_LONG_MAX)
-        set_attribute(name, new_value.to_s)
+        __internal_set_attribute_value__(name, new_value.to_s)
       end
 
       # A `double` attribute's setter: the value converted to the best
@@ -440,7 +445,7 @@ module Dommy
         # content attribute alone.
         return if options[:positive] && !number.positive?
 
-        set_attribute(name, format_webidl_double(number))
+        __internal_set_attribute_value__(name, format_webidl_double(number))
       end
 
       # WebIDL's `double` (the restricted one): every ES value converts, but a
@@ -495,14 +500,14 @@ module Dommy
       end
 
       def reflected_boolean(name, _options = nil)
-        has_attribute?(name)
+        !__internal_attribute_value__(name).nil?
       end
 
       def set_reflected_boolean(name, value, _options = nil)
         if value
-          set_attribute(name, "")
-        elsif has_attribute?(name)
-          remove_attribute(name)
+          __internal_set_attribute_value__(name, "")
+        elsif !__internal_attribute_value__(name).nil?
+          remove_attribute_ns(nil, name)
         end
       end
 
@@ -511,7 +516,7 @@ module Dommy
       # `nullable:` — when there is no such state, or the state it names has no
       # keyword of its own.
       def reflected_enumerated(name, options = EMPTY_OPTIONS)
-        canonical = enumerated_state_keyword(get_attribute(name), options)
+        canonical = enumerated_state_keyword(__internal_attribute_value__(name), options)
         options[:nullable] ? canonical : canonical.to_s
       end
 
@@ -537,9 +542,9 @@ module Dommy
       # "null".
       def set_reflected_enumerated(name, value, options = EMPTY_OPTIONS)
         if options[:nullable] && value.nil?
-          remove_attribute(name)
+          remove_attribute_ns(nil, name)
         else
-          set_attribute(name, value.to_s)
+          __internal_set_attribute_value__(name, value.to_s)
         end
       end
     end

@@ -144,11 +144,12 @@ module Dommy
         node = el.__dommy_backend_node__
         # `id` matches any element; `name` matches only HTML-namespace elements
         # (WebIDL supported property names), so a null-namespace element's
-        # `name` attribute isn't a supported name.
-        next true if node["id"].to_s == key
+        # `name` attribute isn't a supported name. Both are read in no
+        # namespace.
+        next true if Backend.no_namespace_attribute_value(node, "id").to_s == key
 
         html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == Internal::Namespaces::HTML
-        html_ns && node["name"].to_s == key
+        html_ns && Backend.no_namespace_attribute_value(node, "name").to_s == key
       end
     end
 
@@ -214,10 +215,10 @@ module Dommy
         next unless el.respond_to?(:__dommy_backend_node__)
 
         node = el.__dommy_backend_node__
-        id = node["id"].to_s
+        id = Backend.no_namespace_attribute_value(node, "id").to_s
         names << id if !id.empty? && !names.include?(id)
 
-        name = node["name"].to_s
+        name = Backend.no_namespace_attribute_value(node, "name").to_s
         next if name.empty? || names.include?(name)
 
         html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == Internal::Namespaces::HTML
@@ -262,7 +263,8 @@ module Dommy
         next false unless el.respond_to?(:__dommy_backend_node__)
 
         node = el.__dommy_backend_node__
-        node["id"].to_s == key || node["name"].to_s == key
+        Backend.no_namespace_attribute_value(node, "id").to_s == key ||
+          Backend.no_namespace_attribute_value(node, "name").to_s == key
       end
     end
   end

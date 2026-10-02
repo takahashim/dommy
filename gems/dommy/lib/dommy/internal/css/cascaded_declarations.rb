@@ -219,9 +219,9 @@ module Dommy
         # (StyleDeclaration stores the same data but keeps it private; the
         # attribute string is the canonical source either way.)
         def inline_declarations
-          return [] unless @element.respond_to?(:get_attribute)
+          return [] unless @element.respond_to?(:__internal_attribute_value__)
 
-          text = @element.get_attribute("style").to_s
+          text = @element.__internal_attribute_value__("style").to_s
           return [] if text.empty?
 
           text.split(";").filter_map do |chunk|
