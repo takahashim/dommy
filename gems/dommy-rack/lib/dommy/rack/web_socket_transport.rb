@@ -123,8 +123,8 @@ module Dommy
         @closed = true
         @client_io.close
         @scheduler.queue_microtask(proc do
-          @ws.__transport_error__
-          @ws.__transport_closed__(1006, "", was_clean: false)
+          @ws.__internal_transport_error__
+          @ws.__internal_transport_closed__(1006, "", was_clean: false)
         end)
       end
 
@@ -132,13 +132,13 @@ module Dommy
 
       def run_reader
         protocol = read_handshake_response!
-        post { @ws.__transport_open__(protocol) }
+        post { @ws.__internal_transport_open__(protocol) }
         read_frames
       rescue HandshakeFailed
-        post { @ws.__transport_error__ }
-        post { @ws.__transport_closed__(1006, "", was_clean: false) }
+        post { @ws.__internal_transport_error__ }
+        post { @ws.__internal_transport_closed__(1006, "", was_clean: false) }
       rescue IOError, EOFError, Errno::ECONNRESET, Errno::EPIPE
-        post { @ws.__transport_closed__(1006, "", was_clean: false) } unless @closed
+        post { @ws.__internal_transport_closed__(1006, "", was_clean: false) } unless @closed
       ensure
         @client_io.close rescue nil
       end
@@ -164,12 +164,12 @@ module Dommy
           case opcode
           when WebSocketFrame::TEXT, WebSocketFrame::BINARY # continuation frames unsupported: cable messages are single-frame
             data = opcode == WebSocketFrame::TEXT ? payload.force_encoding(Encoding::UTF_8) : payload
-            post { @ws.__transport_message__(data) }
+            post { @ws.__internal_transport_message__(data) }
           when WebSocketFrame::CLOSE # complete the handshake, then report
             code, reason = WebSocketFrame.parse_close(payload)
             send_close_frame(code == 1005 ? 1000 : code, "")
             @closed = true
-            post { @ws.__transport_closed__(code, reason, was_clean: true) }
+            post { @ws.__internal_transport_closed__(code, reason, was_clean: true) }
             break
           when WebSocketFrame::PING
             write_frame(WebSocketFrame::PONG, payload)

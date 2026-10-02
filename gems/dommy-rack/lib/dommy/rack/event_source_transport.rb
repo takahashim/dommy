@@ -69,17 +69,17 @@ module Dommy
         status, _headers, body = @app.call(env)
         @body = body
         if status >= 400
-          post { @es.__transport_error__ }
+          post { @es.__internal_transport_error__ }
           return
         end
 
-        post { @es.__transport_open__ }
+        post { @es.__internal_transport_open__ }
         body.each { |chunk| feed(chunk) unless @closed }
-        post { @es.__transport_closed__ } unless @closed
+        post { @es.__internal_transport_closed__ } unless @closed
       rescue IOError, Errno::EPIPE, Errno::ECONNRESET
         nil
       rescue StandardError
-        post { @es.__transport_error__ } unless @closed
+        post { @es.__internal_transport_error__ } unless @closed
       ensure
         close_body
       end
@@ -143,7 +143,7 @@ module Dommy
         id = @id
         @data = nil
         @event = nil
-        post { @es.__transport_message__(data, event: event, id: id) }
+        post { @es.__internal_transport_message__(data, event: event, id: id) }
       end
 
       def close_body

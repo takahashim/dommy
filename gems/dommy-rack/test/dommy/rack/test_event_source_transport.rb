@@ -16,10 +16,10 @@ class Dommy::Rack::TestEventSourceTransport < Minitest::Test
       @closes = 0
     end
 
-    def __transport_open__ = @opens += 1
-    def __transport_message__(data, event:, id: nil) = @messages << [data, event, id]
-    def __transport_error__ = @errors += 1
-    def __transport_closed__ = @closes += 1
+    def __internal_transport_open__ = @opens += 1
+    def __internal_transport_message__(data, event:, id: nil) = @messages << [data, event, id]
+    def __internal_transport_error__ = @errors += 1
+    def __internal_transport_closed__ = @closes += 1
   end
 
   # A Rack app streaming a fixed text/event-stream body.
