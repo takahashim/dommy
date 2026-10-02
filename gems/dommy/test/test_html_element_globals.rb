@@ -46,4 +46,32 @@ class TestHTMLElementGlobals < Minitest::Test
     el.__js_set__("tabIndex", 3)
     assert_equal ["3", 3], [el.get_attribute("tabindex"), el.__js_get__("tabIndex")]
   end
+
+  # draggable is auto unless the attribute says "true" or "false": an img,
+  # or an `a` with an href, is draggable then.
+  def test_draggable
+    assert_equal [true, true, false, false], [element("img"), element("a", href: "/"), element("a"), element].map { |e| e.__js_get__("draggable") }
+    assert_equal [true, false], [element(draggable: "TRUE"), element("img", draggable: "false")].map { |e| e.__js_get__("draggable") }
+
+    el = element
+    el.__js_set__("draggable", true)
+    assert_equal "true", el.get_attribute("draggable")
+  end
+
+  # spellcheck and writingSuggestions inherit from the parent when the
+  # attribute says neither; the root's default is on.
+  def test_inherited_hints
+    outer = element(spellcheck: "false", writingsuggestions: "false")
+    inner = outer.append_child(@doc.create_element("p"))
+    assert_equal [false, "false"], %w[spellcheck writingSuggestions].map { |k| inner.__js_get__(k) }
+
+    inner.set_attribute("spellcheck", "")
+    inner.set_attribute("writingsuggestions", "TRUE")
+    assert_equal [true, "true"], %w[spellcheck writingSuggestions].map { |k| inner.__js_get__(k) }
+    assert_equal [true, "true"], %w[spellcheck writingSuggestions].map { |k| element.__js_get__(k) }
+
+    inner.__js_set__("spellcheck", false)
+    inner.__js_set__("writingSuggestions", "false")
+    assert_equal ["false", "false"], [inner.get_attribute("spellcheck"), inner.get_attribute("writingsuggestions")]
+  end
 end

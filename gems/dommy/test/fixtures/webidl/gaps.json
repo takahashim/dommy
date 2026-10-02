@@ -401,7 +401,6 @@
       "autocapitalize",
       "autocorrect",
       "contentEditable",
-      "draggable",
       "enterKeyHint",
       "inputMode",
       "isContentEditable",
@@ -484,9 +483,7 @@
       "onwebkitanimationstart",
       "onwebkittransitionend",
       "onwheel",
-      "scrollParent",
-      "spellcheck",
-      "writingSuggestions"
+      "scrollParent"
     ],
     "HTMLEmbedElement": [
       "align",

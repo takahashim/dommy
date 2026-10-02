@@ -35,6 +35,54 @@ module Dommy
       parsed_long_attribute("tabindex") ||
         (TAB_INDEX_ZERO.include?(local_name) || __internal_summary_details__ ? 0 : -1)
     end
+
+    js_accessor :draggable, :spellcheck
+    reflect_setter writing_suggestions: { attr: "writingsuggestions", js: "writingSuggestions" }
+
+    # `draggable` (HTML §6.11.7): the draggable attribute's "true" or
+    # "false", matched ASCII case-insensitively; otherwise (auto) an img, or
+    # an `a` with an href, is draggable and nothing else is.
+    def draggable
+      case __internal_attribute_value__("draggable")&.downcase(:ascii)
+      when "true" then true
+      when "false" then false
+      else local_name == "img" || (local_name == "a" && __internal_has_attribute__?("href"))
+      end
+    end
+
+    def draggable=(value)
+      __internal_set_attribute_value__("draggable", value ? "true" : "false")
+    end
+
+    # `spellcheck` (HTML §6.8.4): "true" or "" checks spelling and "false"
+    # does not; with neither, the element follows its parent, and the root
+    # checks — the default Dommy picks, as Chromium does.
+    def spellcheck = inherited_hint("spellcheck", "true", "false") != false
+
+    def spellcheck=(value)
+      __internal_set_attribute_value__("spellcheck", value ? "true" : "false")
+    end
+
+    # `writingSuggestions` (HTML §6.8.8): "false" when the attribute says so,
+    # or when it says nothing and the parent's is "false"; else "true".
+    def writing_suggestions = inherited_hint("writingsuggestions", "true", "false") == false ? "false" : "true"
+
+    # The state an inherited true / false hint attribute gives this element:
+    # true for `on` or "", false for `off`, both matched ASCII
+    # case-insensitively; any other value, or none, defers to the parent
+    # element, and nil when no ancestor says.
+    def inherited_hint(name, on, off)
+      node = self
+      while node
+        case node.__internal_attribute_value__(name)&.downcase(:ascii)
+        when on, "" then return true
+        when off then return false
+        end
+        node = node.parent_element
+      end
+      nil
+    end
+    private :inherited_hint
     # `dir` reflects its own content attribute, limited to only known values:
     # ltr / rtl / auto in lowercase, "" otherwise. The setter reflects as is;
     # the getter is written here, as HTMLButtonElement#type is. The computed
