@@ -344,21 +344,43 @@ module Dommy
     # sits relative to this node: 0 for the same node, CONTAINS/CONTAINED_BY for
     # ancestor/descendant, PRECEDING/FOLLOWING for tree order, or DISCONNECTED
     # (with IMPLEMENTATION_SPECIFIC and a consistent direction) for unrelated
-    # nodes. Generic over any node with a backing Nokogiri node.
+    # nodes. An Attr stands at its element, before the element's children: two
+    # attributes of one element compare in attribute-list order, and an
+    # element contains its own attributes.
+    # Spec: https://dom.spec.whatwg.org/#dom-node-comparedocumentposition
     def compare_document_position(other)
       return 0 if equal?(other)
 
-      self_node = compare_backend_node(self)
-      other_node = compare_backend_node(other)
+      attr1 = other if other.is_a?(Attr)
+      attr2 = self if is_a?(Attr)
+      node1 = attr1 ? attr1.owner_element : other
+      node2 = attr2 ? attr2.owner_element : self
+      if attr1 && attr2 && node1 && node1.equal?(node2)
+        return DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC | attribute_order(node2, attr1, attr2)
+      end
+
+      self_node = node2 && compare_backend_node(node2)
+      other_node = node1 && compare_backend_node(node1)
       return disconnected_position(other, self_node, other_node) unless self_node && other_node
+
+      if self_node == other_node
+        # One of the two is an attribute of the other.
+        return attr2 ? DOCUMENT_POSITION_CONTAINS | DOCUMENT_POSITION_PRECEDING : DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING
+      end
 
       self_ancestors = node_ancestor_chain(self_node)
       other_ancestors = node_ancestor_chain(other_node)
 
       common = self_ancestors.find { |a| other_ancestors.include?(a) }
       return disconnected_position(other, self_node, other_node) unless common
-      return DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING if common == self_node
-      return DOCUMENT_POSITION_CONTAINS | DOCUMENT_POSITION_PRECEDING if common == other_node
+      # An attribute of an ancestor is no ancestor: it precedes, as its
+      # element does, and one of a descendant follows.
+      if common == self_node
+        return attr2 ? DOCUMENT_POSITION_FOLLOWING : DOCUMENT_POSITION_CONTAINED_BY | DOCUMENT_POSITION_FOLLOWING
+      end
+      if common == other_node
+        return attr1 ? DOCUMENT_POSITION_PRECEDING : DOCUMENT_POSITION_CONTAINS | DOCUMENT_POSITION_PRECEDING
+      end
 
       self_branch = node_branch_under(common, self_ancestors)
       other_branch = node_branch_under(common, other_ancestors)
@@ -478,6 +500,16 @@ module Dommy
       return obj.__dommy_backend_node__ if obj.respond_to?(:__dommy_backend_node__)
 
       obj.backend_doc if obj.is_a?(Dommy::Document)
+    end
+
+    # Where `other_attr` stands from `self_attr`, two attributes of `element`:
+    # PRECEDING when it comes first in the attribute list, else FOLLOWING.
+    def attribute_order(element, other_attr, self_attr)
+      element.attributes.each do |attr|
+        return DOCUMENT_POSITION_PRECEDING if attr.equal?(other_attr)
+        return DOCUMENT_POSITION_FOLLOWING if attr.equal?(self_attr)
+      end
+      DOCUMENT_POSITION_FOLLOWING
     end
 
     # Nodes in different trees compare in an order the standard leaves to the

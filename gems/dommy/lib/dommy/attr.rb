@@ -9,9 +9,13 @@ module Dommy
   # We represent two states:
   #   - "owned" — the Attr is attached to an Element. value reads/writes
   #     go through the element's Makiri attribute slot.
-  #   - "detached" — created via `document.createAttribute(name)` but
-  #     not yet attached. Value is stored locally; `setAttributeNode`
+  #   - "detached" — created via `document.createAttribute(name)` or removed
+  #     from its element. Value is stored locally; `setAttributeNode`
   #     transfers it to an element.
+  #
+  # Its node document is its own in either state, as the DOM has it: set
+  # when it is created, appended or adopted (with its element or by itself),
+  # and kept when it is removed.
   class Attr
     include Node
     include EventTarget
@@ -25,9 +29,7 @@ module Dommy
     def initialize(name, owner: nil, value: "", namespace_uri: nil, prefix: nil, local_name: nil, document: nil)
       qname = name.to_s
       @owner = owner
-      # The node document (for baseURI/ownerDocument when detached from an
-      # element). Owned attrs derive it from their owner instead.
-      @document = document
+      @document = document || owner&.document
       @detached_value = value.to_s
       if namespace_uri && !namespace_uri.to_s.empty?
         # Namespaced attributes preserve case and carry prefix / localName.
@@ -53,19 +55,13 @@ module Dommy
       @owner
     end
 
-    # Node.baseURI — the node document's base URL. Derived from the owner
-    # element when attached, else the document the attr was created in.
+    # Node.baseURI — the node document's base URL.
     def base_uri
-      return @owner.base_uri if @owner.respond_to?(:base_uri)
-
       @document&.base_uri
     end
 
-    # Node.ownerDocument — the owner element's current document when attached (so
-    # it follows the element across adoptNode), else the creation document.
+    # Node.ownerDocument — the node document.
     def owner_document
-      return @owner.document if @owner.respond_to?(:document)
-
       @document
     end
 
@@ -122,6 +118,15 @@ module Dommy
       when "specified"
         # Legacy/useless attribute — always true (WHATWG DOM).
         true
+      when "parentNode", "parentElement", "firstChild", "lastChild", "previousSibling", "nextSibling"
+        # An Attr is no part of a tree: it has no parent, children or
+        # siblings, and its element is no parent of it.
+        nil
+      when "childNodes"
+        NodeList.new
+      when "isConnected"
+        # Its root is itself, never a document.
+        false
       else
         Bridge::ABSENT
       end
@@ -154,7 +159,7 @@ module Dommy
       when "cloneNode"
         Attr.new(@name, owner: nil, value: value,
                         namespace_uri: @namespace_uri, prefix: @prefix, local_name: @local_name,
-                        document: @document || (@owner.respond_to?(:document) ? @owner.document : nil))
+                        document: @document)
       when "isSameNode"
         is_same_node(args[0])
       when "getRootNode"
@@ -179,11 +184,21 @@ module Dommy
     end
 
     # Internal: called by Element when the attr is being transferred
-    # to (or detached from) an Element.
+    # to (or detached from) an Element. Appending it sets its node document
+    # to the element's; removing it leaves the node document as it is.
     def __internal_attach__(element)
       @owner = element
+      @document = element.document
       @detached_value = ""
       nil
+    end
+
+    # Internal: "adopt" (DOM §4.5) sets the node document — of the Attr
+    # adopted by itself, which stays on its element, or of each attribute of
+    # an adopted element.
+    def __internal_adopt__(document)
+      @document = document
+      self
     end
 
     def __internal_detach__
@@ -236,6 +251,12 @@ module Dommy
                                              local_name: info[:local_name])
       @attrs[key] = attr
       attr
+    end
+
+    # The element was adopted into `document`, and its attributes with it.
+    def __internal_adopt__(document)
+      @attrs.each_value { |attr| attr.__internal_adopt__(document) if attr.owner_element.equal?(@element) }
+      nil
     end
 
     def get_named_item(name)
