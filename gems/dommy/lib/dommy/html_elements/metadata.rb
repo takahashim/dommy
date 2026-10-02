@@ -7,7 +7,7 @@ module Dommy
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
     reflect_url :src
-    reflect_string :type, :integrity, :nonce, html_for: { attr: "for", js: "htmlFor" }
+    reflect_string :type, :integrity, html_for: { attr: "for", js: "htmlFor" }
     reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
     reflect_boolean :defer, no_module: "nomodule"
     # `text` is an alias for textContent on <script>.
@@ -99,11 +99,12 @@ module Dommy
     # HTML's cloning steps for a script: the copy's "already started" is the
     # original's, so cloning a parsed-but-inert script (DOMParser, innerHTML)
     # does not make a copy that runs on insertion.
-    def __cloning_state__
-      @__script_started ? {already_started: true} : nil
+    def __internal_cloning_state__
+      merge_cloning_state(super, @__script_started ? {already_started: true} : {})
     end
 
-    def __apply_cloning_state__(state)
+    def __internal_apply_cloning_state__(state)
+      super
       @__script_started = true if state[:already_started]
     end
 

@@ -966,11 +966,11 @@ module Dommy
       return unless src_nodes.length == copy_nodes.length
 
       src_nodes.zip(copy_nodes).each do |orig, copy|
-        state = source_document.__internal_peek_wrapper__(orig)&.then { |w| w.respond_to?(:__cloning_state__) && w.__cloning_state__ }
+        state = source_document.__internal_peek_wrapper__(orig)&.then { |w| w.respond_to?(:__internal_cloning_state__) && w.__internal_cloning_state__ }
         next unless state
 
         wrapper = wrap_node(copy)
-        wrapper.__apply_cloning_state__(state) if wrapper.respond_to?(:__apply_cloning_state__)
+        wrapper.__internal_apply_cloning_state__(state) if wrapper.respond_to?(:__internal_apply_cloning_state__)
       end
     end
     private :apply_imported_cloning_steps
@@ -1036,12 +1036,12 @@ module Dommy
         clone_template_content(orig, copy) if deep && @template_content_registry.detached?(orig)
 
         wrapper = @node_wrapper_cache.peek(orig)
-        next unless wrapper.respond_to?(:__cloning_state__)
+        next unless wrapper.respond_to?(:__internal_cloning_state__)
 
-        state = wrapper.__cloning_state__
+        state = wrapper.__internal_cloning_state__
         next if state.nil?
 
-        @node_wrapper_cache.wrap(copy).__apply_cloning_state__(state)
+        @node_wrapper_cache.wrap(copy).__internal_apply_cloning_state__(state)
       end
     end
 

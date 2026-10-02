@@ -19,7 +19,7 @@ class TestWPTDOMParserInertScripts < Minitest::Test
   end
 
   def started?(script)
-    script.__cloning_state__ == {already_started: true}
+    script.__internal_cloning_state__ == {already_started: true}
   end
 
   def xhtml_script
@@ -42,6 +42,6 @@ class TestWPTDOMParserInertScripts < Minitest::Test
 
   def test_a_script_created_by_script_is_not_started
     refute(started?(@doc.create_element("script")))
-    assert_nil(@doc.import_node(@doc.create_element("script"), true).__cloning_state__)
+    assert_nil(@doc.import_node(@doc.create_element("script"), true).__internal_cloning_state__)
   end
 end

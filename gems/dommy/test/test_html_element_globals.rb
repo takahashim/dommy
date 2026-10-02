@@ -146,5 +146,27 @@ class TestHTMLElementGlobals < Minitest::Test
     svg = @doc.create_element_ns("http://www.w3.org/2000/svg", "script")
     svg.set_attribute("nonce", "s")
     assert_equal "s", svg.__js_get__("nonce")
+
+    script = element("script", nonce: "a")
+    script.__js_set__("nonce", "b")
+    assert_equal ["b", "a"], [script.__js_get__("nonce"), script.get_attribute("nonce")]
+  end
+
+  # Cloning carries a nonce the setter wrote, by cloneNode and importNode
+  # alike, alongside the cloning steps of the element's own interface.
+  def test_cloning_carries_the_nonce
+    svg = @doc.create_element_ns("http://www.w3.org/2000/svg", "g")
+    [element(nonce: "a"), svg].each do |el|
+      el.__js_set__("nonce", "set")
+      other = Dommy.parse("").document
+      assert_equal ["set", "set"], [el.__js_call__("cloneNode", [false]), other.import_node(el, false)].map { |c| c.__js_get__("nonce") }
+    end
+
+    @host.inner_html = "<script>1</script>"
+    script = @host.first_element_child
+    script.__js_set__("nonce", "s")
+    copy = script.__js_call__("cloneNode", [false])
+    assert_equal({already_started: true, nonce: "s"}, copy.__internal_cloning_state__)
+    assert_equal "s", element.tap { |e| e.append_child(script) }.__js_call__("cloneNode", [true]).first_element_child.__js_get__("nonce")
   end
 end
