@@ -94,4 +94,30 @@ class TestHTMLElementGlobals < Minitest::Test
     div.__js_set__("autocorrect", false)
     assert_equal "off", div.get_attribute("autocorrect")
   end
+
+  # contentEditable is the attribute's state; isContentEditable is whether
+  # the element is an editing host or inside one, which `false` stops and
+  # designMode starts; :read-write matches the same elements.
+  def test_content_editable
+    host = element(contenteditable: "")
+    inner = host.append_child(@doc.create_element("p"))
+    off = host.append_child(@doc.create_element("p"))
+    off.set_attribute("contenteditable", "FALSE")
+    assert_equal ["true", "inherit", "false"], [host, inner, off].map { |e| e.__js_get__("contentEditable") }
+    assert_equal [true, true, false], [host, inner, off].map { |e| e.__js_get__("isContentEditable") }
+    assert inner.matches?(":read-write")
+    refute off.matches?(":read-write")
+
+    inner.__js_set__("contentEditable", "Plaintext-Only")
+    assert_equal "plaintext-only", inner.get_attribute("contenteditable")
+    inner.__js_set__("contentEditable", "inherit")
+    refute inner.has_attribute?("contenteditable")
+    assert_raises(Dommy::DOMException::SyntaxError) { inner.__js_set__("contentEditable", "yes") }
+
+    plain = element
+    refute plain.__js_get__("isContentEditable")
+    @doc.__js_set__("designMode", "on")
+    assert plain.__js_get__("isContentEditable")
+    refute @doc.create_element("p").__js_get__("isContentEditable"), "a detached element is in no document's design mode"
+  end
 end

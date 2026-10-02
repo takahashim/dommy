@@ -113,6 +113,34 @@ module Dommy
     end
     private :autocorrect_form_owner
 
+    js_accessor content_editable: "contentEditable"
+    js_readable is_content_editable: "isContentEditable"
+
+    # `contentEditable` (HTML §6.8.1): the attribute's state as a keyword.
+    def content_editable
+      case Internal::ElementEditing.state(self)
+      when :true then "true"
+      when :plaintext_only then "plaintext-only"
+      when :false then "false"
+      else "inherit"
+      end
+    end
+
+    # "inherit" removes the attribute, "true", "false" and "plaintext-only"
+    # (any case) write it in lowercase, and anything else is a SyntaxError.
+    def content_editable=(value)
+      keyword = value.to_s.downcase(:ascii)
+      if keyword == "inherit"
+        remove_attribute_ns(nil, "contenteditable")
+      elsif %w[true false plaintext-only].include?(keyword)
+        __internal_set_attribute_value__("contenteditable", keyword)
+      else
+        raise DOMException::SyntaxError, "#{value.inspect} is not true, false, plaintext-only or inherit"
+      end
+    end
+
+    def is_content_editable = Internal::ElementEditing.editable?(self)
+
     # The state an inherited true / false hint attribute gives this element:
     # true for `on` or "", false for `off`, both matched ASCII
     # case-insensitively; any other value, or none, defers to the parent

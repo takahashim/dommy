@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "directionality"
+require_relative "element_editing"
 
 module Dommy
   module Internal
@@ -111,8 +112,7 @@ module Dommy
       end
 
       def editable_via_contenteditable?(element)
-        v = element.get_attribute("contenteditable")
-        !v.nil? && v.to_s.downcase != "false"
+        ElementEditing.editable?(element)
       end
 
       def disabled_element?(element)

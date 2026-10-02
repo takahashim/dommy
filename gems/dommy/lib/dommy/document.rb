@@ -648,6 +648,9 @@ module Dommy
       html_element&.__internal_set_attribute_value__("dir", value.to_s)
     end
 
+    # Whether designMode is "on", which makes the whole document editable.
+    def __internal_design_mode__? = @design_mode == "on"
+
     def title=(value)
       write_title(value.to_s)
     end

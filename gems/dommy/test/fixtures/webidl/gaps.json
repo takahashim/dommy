@@ -398,10 +398,8 @@
     ],
     "HTMLElement": [
       "attachInternals",
-      "contentEditable",
       "enterKeyHint",
       "inputMode",
-      "isContentEditable",
       "nonce",
       "onabort",
       "onauxclick",
