@@ -397,17 +397,12 @@
       "align"
     ],
     "HTMLElement": [
-      "accessKey",
       "attachInternals",
       "autocapitalize",
       "autocorrect",
-      "autofocus",
       "contentEditable",
       "draggable",
       "enterKeyHint",
-      "headingOffset",
-      "headingReset",
-      "inert",
       "inputMode",
       "isContentEditable",
       "nonce",

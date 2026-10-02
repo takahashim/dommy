@@ -19,6 +19,10 @@ module Dommy
     # `title` is the advisory information, a plain reflection of its own
     # content attribute — an ancestor's title is not inherited here.
     reflect_string :title
+    reflect_string access_key: { attr: "accesskey", js: "accessKey" }
+    reflect_boolean :autofocus, :inert, heading_reset: { attr: "headingreset", js: "headingReset" }
+    # How many levels a heading inside this element is offset by, 0 to 8.
+    reflect_ulong heading_offset: { attr: "headingoffset", js: "headingOffset", range: 0..8 }
     # `dir` reflects its own content attribute, limited to only known values:
     # ltr / rtl / auto in lowercase, "" otherwise. The setter reflects as is;
     # the getter is written here, as HTMLButtonElement#type is. The computed
