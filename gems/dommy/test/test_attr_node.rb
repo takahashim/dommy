@@ -86,4 +86,17 @@ class TestAttrNode < Minitest::Test
     @a.remove_attribute_node(@id)
     assert_same @other, @id.owner_document
   end
+
+  # An Attr in no namespace writes itself, even when an attribute in another
+  # namespace shares its qualified name and comes first.
+  def test_an_attribute_in_no_namespace_writes_itself
+    el = @doc.create_element("p")
+    el.set_attribute_ns("urn:x", "a", "ns")
+    attr = @doc.create_attribute("a")
+    attr.value = "plain"
+
+    assert_nil el.set_attribute_node(attr)
+    attr.value = "changed"
+    assert_equal [["urn:x", "ns"], [nil, "changed"]], el.attributes.map { |a| [a.namespace_uri, a.value] }
+  end
 end

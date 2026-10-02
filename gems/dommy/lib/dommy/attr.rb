@@ -81,7 +81,9 @@ module Dommy
         if @namespace_uri
           @owner.set_attribute_ns(@namespace_uri, @name, new_value.to_s)
         else
-          @owner.set_attribute(@name, new_value.to_s)
+          # This attribute, in no namespace — not the first with its
+          # qualified name, which may be another namespace's.
+          @owner.__internal_set_attribute_value__(@local_name, new_value.to_s)
         end
       else
         @detached_value = new_value.to_s
@@ -327,7 +329,7 @@ module Dommy
       if ns
         @element.set_attribute_ns(ns, attr.name, value)
       else
-        @element.set_attribute(attr.name, value)
+        @element.__internal_set_attribute_value__(local, value)
       end
       @attrs[key] = attr
       old
