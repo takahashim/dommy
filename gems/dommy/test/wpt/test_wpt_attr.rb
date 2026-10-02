@@ -233,7 +233,9 @@ class TestWPTNamedNodeMap < Minitest::Test
     assert_equal("42", attr.value)
   end
 
-  def test_removeNamedItem_missing_returns_nil
-    assert_nil(@map.remove_named_item("nope"))
+  # DOM: "If attr is null, then throw a NotFoundError", for both forms.
+  def test_removeNamedItem_missing_throws
+    assert_raises(Dommy::DOMException::NotFoundError) { @map.remove_named_item("nope") }
+    assert_raises(Dommy::DOMException::NotFoundError) { @map.remove_named_item_ns("urn:x", "class") }
   end
 end
