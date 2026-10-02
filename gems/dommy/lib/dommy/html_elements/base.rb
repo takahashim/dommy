@@ -370,16 +370,16 @@ module Dommy
   # HyperlinkActivation for the form side.
   module SubmitButtonActivation
     def activation_target?
-      __submit_button__?
+      __internal_submit_button__?
     end
 
     def activation_behavior(_event)
-      return unless __submit_button__?
+      return unless __internal_submit_button__?
 
       # `form` follows the form-owner algorithm (honoring a `form=` attribute) on
       # both input and button, so a form-associated submit button outside its
       # form still submits the right one.
-      form&.__run_form_submission__(self)
+      form&.__internal_run_form_submission__(self)
     end
   end
 

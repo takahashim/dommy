@@ -440,7 +440,7 @@ module Dommy
     # edit only when it's inside a <style> or flips emptiness while a sheet
     # uses `:empty`. The coordinator reports mutations through the
     # `__internal_note_*` seams below, which decide what to bump.
-    attr_accessor :__css_style_cache__
+    attr_accessor :__internal_css_style_cache__
 
 
 

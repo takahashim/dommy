@@ -36,7 +36,7 @@ module Dommy
     reflect_enumerated type: { keywords: TYPE_KEYWORDS, missing: "text", invalid: "text" }
     # Own __js_call__ methods, on top of Element's.
 
-    def __submit_button__? = %w[submit image].include?(type) && !disabled
+    def __internal_submit_button__? = %w[submit image].include?(type) && !disabled
 
     # Runtime value/checked. Dommy has no UI, so the runtime state is
     # initialized from the attribute on first access and tracked
@@ -66,7 +66,7 @@ module Dommy
     end
 
     # `files` — for `<input type="file">`. Browsers populate this via
-    # user interaction; in tests, code uses `__driver_set_files__` to seed it.
+    # user interaction; in tests, code seeds it with `files=`.
     def files
       # `files` is null for every type other than file (WHATWG).
       return nil unless type == "file"
@@ -74,9 +74,11 @@ module Dommy
       @__files ||= FileList.new
     end
 
-    # Test-only seam: set the input's file list directly.
-    # Accepts an array (wrapped in a FileList) or a FileList itself.
-    def __driver_set_files__(files_input)
+    # `input.files = …`: set the input's selected files — what a user's choice
+    # gives it, through a driver (capybara-dommy's attach_file, Interaction's
+    # file field) or a script (`input.files = dt.files`). Takes a FileList, or
+    # an array of files to wrap in one.
+    def files=(files_input)
       @__files = files_input.is_a?(FileList) ? files_input : FileList.new(Array(files_input))
     end
 
@@ -84,7 +86,7 @@ module Dommy
     # `files` is otherwise read-only, so the shared setters never see it.
     def __js_set__(key, value)
       if key == "files"
-        __driver_set_files__(value)
+        self.files = value
         return nil
       end
 
@@ -224,7 +226,7 @@ module Dommy
     # only when connected, so clicking a detached checkbox toggles it silently.
     # Both events are UA-generated, so trusted.
     def activation_behavior(event)
-      return super if __submit_button__?
+      return super if __internal_submit_button__?
       return form&.reset if type == "reset" && !disabled
       return unless CHECKABLE_TYPES.include?(type) && is_connected?
 

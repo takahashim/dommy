@@ -315,7 +315,7 @@ module Dommy
     #   * a null value removes the option at `index`
     #   * otherwise, an in-range index replaces that option; an index at or past
     #     the end appends (padding with blank options for any gap).
-    def __set_indexed__(index, option)
+    def __internal_set_indexed__(index, option)
       i = index.to_i
       if option.nil?
         remove(i)
@@ -374,7 +374,7 @@ module Dommy
         self.length = value
       else
         # Indexed property setter: `options[i] = option | null`.
-        return __set_indexed__(key.to_i, value) if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A\d+\z/))
+        return __internal_set_indexed__(key.to_i, value) if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A\d+\z/))
 
         return Bridge::UNHANDLED
       end

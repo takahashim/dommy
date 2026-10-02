@@ -55,7 +55,7 @@ module Dommy
     # true (a settled single-select has at most one).
     def selected_options
       el = self
-      @selected_options ||= HTMLCollection.new { el.__display_selected__ }
+      @selected_options ||= HTMLCollection.new { el.__internal_display_selected__ }
     end
 
     def length
@@ -81,14 +81,14 @@ module Dommy
     # it changes (see #__internal_settle_selectedness__), so nothing is derived
     # here; a list the parser built is settled once, lazily, in case it was
     # never handed the parsed-document steps.
-    def __display_selected__
+    def __internal_display_selected__
       __internal_settle_selectedness_once__
       options.to_a.select { |o| o.respond_to?(:selected) && o.selected }
     end
 
     def selected_index
       opts = options.to_a
-      sel = __display_selected__.first
+      sel = __internal_display_selected__.first
       return -1 unless sel
 
       opts.find_index { |o| o.__dommy_backend_node__.equal?(sel.__dommy_backend_node__) } || -1
@@ -175,7 +175,7 @@ module Dommy
 
     # `value` of the select = value of the (displayed) selected option, or "".
     def value
-      sel = __display_selected__.first
+      sel = __internal_display_selected__.first
       sel ? sel.value.to_s : ""
     end
 
@@ -286,7 +286,7 @@ module Dommy
     # WebIDL "set an indexed property" algorithm.
     def __js_set__(key, val)
       if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A\d+\z/))
-        return options.__set_indexed__(key.to_i, val)
+        return options.__internal_set_indexed__(key.to_i, val)
       end
 
       super

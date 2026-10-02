@@ -66,7 +66,7 @@ module Dommy
         scope.query_selector_all(LISTED_CONTROL_SELECTOR).select do |c|
           next false if c.tag_name.to_s.casecmp?("input") && c.respond_to?(:type) && c.type.to_s.casecmp?("image")
 
-          el.__owns_control__(c)
+          el.__internal_owns_control__(c)
         end
       end
     end
@@ -75,7 +75,7 @@ module Dommy
     # `form` content attribute, its owner is the form element with that id (or
     # nothing, if the id resolves to a non-form / nothing); otherwise it is the
     # nearest ancestor form element.
-    def __owns_control__(control)
+    def __internal_owns_control__(control)
       owner = control.respond_to?(:__internal_form_owner__) ? control.__internal_form_owner__ : control.closest("form")
       !owner.nil? && owner.__dommy_backend_node__.equal?(__dommy_backend_node__)
     end
@@ -120,7 +120,7 @@ module Dommy
         end
       end
 
-      __run_form_submission__(submitter)
+      __internal_run_form_submission__(submitter)
     end
 
     # The form submission algorithm's observable core, shared by
@@ -131,7 +131,7 @@ module Dommy
     # navigation to the delegate. Returns true if not default-prevented. This is
     # the single home for "a form was submitted". `form.submit()` deliberately
     # does NOT route here: it skips both validation and the submit event.
-    def __run_form_submission__(submitter = nil)
+    def __internal_run_form_submission__(submitter = nil)
       # HTML form submission: "if form cannot navigate, then return" — a form
       # that is not connected has no navigable, so clicking its submit button
       # fires nothing at all.
@@ -216,7 +216,7 @@ module Dommy
       named = named_controls[name]
       if named && !named.empty?
         remember_past_name(name, named.first) if named.length == 1
-        return __named_getter_result__(name, named)
+        return __internal_named_getter_result__(name, named)
       end
       past = past_named_control(name)
       return past if past
@@ -261,7 +261,7 @@ module Dommy
     # RadioNodeList. The list is memoized per name and refreshed in place so
     # repeated named-getter reads return the [SameObject] (WebIDL requires
     # `form.d === form.d`), while still reflecting live membership.
-    def __named_getter_result__(name, matches)
+    def __internal_named_getter_result__(name, matches)
       return matches.first if matches.length == 1
 
       form = self
@@ -333,7 +333,7 @@ module Dommy
       %w[submit reset button].include?(raw) ? raw : "submit"
     end
 
-    def __submit_button__? = type == "submit" && !disabled
+    def __internal_submit_button__? = type == "submit" && !disabled
 
     # A reset button has activation behavior of its own, on top of the
     # submit-button behavior inherited from SubmitButtonActivation.
@@ -342,7 +342,7 @@ module Dommy
     end
 
     def activation_behavior(event)
-      return super if __submit_button__?
+      return super if __internal_submit_button__?
 
       form&.reset if type == "reset" && !disabled
     end

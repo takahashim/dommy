@@ -1888,6 +1888,11 @@ module Dommy
       s.empty? ? nil : s
     end
 
+    # Whether a backend node is an element in the HTML namespace — for the
+    # children a table, a section or a row counts, which skip a same-named
+    # element in another namespace (SVG's <caption>).
+    def html_element_node?(node) = node.element? && Backend.namespace_uri(node) == HTML_NAMESPACE
+
     def element_children
       @__node__.element_children.each_with_object([]) do |node, out|
         wrapped = @document.wrap_node(node)

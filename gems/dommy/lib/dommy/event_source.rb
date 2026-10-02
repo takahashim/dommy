@@ -53,11 +53,11 @@ module Dommy
     # scheduler.post_external). They share the state machine with the test
     # seams so stub-driven and transport-driven streams behave identically.
 
-    def __transport_open__
+    def __internal_transport_open__
       __test_simulate_open__
     end
 
-    def __transport_message__(data, event: "message", id: nil)
+    def __internal_transport_message__(data, event: "message", id: nil)
       return if @ready_state != OPEN
 
       payload = {"data" => data.to_s}
@@ -67,13 +67,13 @@ module Dommy
 
     # A stream error: an EventSource fires `error` and would reconnect;
     # reconnection is not simulated.
-    def __transport_error__
+    def __internal_transport_error__
       __test_simulate_error__ unless @ready_state == CLOSED
     end
 
     # The server ended the stream. An EventSource has no `close` event: it
     # fires `error` and reconnects, so that is what a closed transport reports.
-    def __transport_closed__
+    def __internal_transport_closed__
       return if @ready_state == CLOSED
 
       @ready_state = CLOSED

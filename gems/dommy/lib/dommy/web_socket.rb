@@ -92,7 +92,7 @@ module Dommy
       final_reason = reason.to_s
       if @transport
         # The transport completes the closing handshake and reports back via
-        # __transport_closed__ (which fires the close event).
+        # __internal_transport_closed__ (which fires the close event).
         @transport.close(final_code, final_reason)
       else
         @window.scheduler.queue_microtask(proc { __test_simulate_close__(final_code, final_reason) })
@@ -106,7 +106,7 @@ module Dommy
     # scheduler.post_external). They share the state machine with the test
     # seams so stub-driven and transport-driven sockets behave identically.
 
-    def __transport_open__(protocol = nil)
+    def __internal_transport_open__(protocol = nil)
       @protocol = protocol.to_s unless protocol.nil?
       return if @ready_state != CONNECTING
 
@@ -115,17 +115,17 @@ module Dommy
       dispatch_event(Event.new("open"))
     end
 
-    def __transport_message__(data)
+    def __internal_transport_message__(data)
       __test_simulate_message__(data)
     end
 
-    def __transport_closed__(code = 1000, reason = "", was_clean: true)
+    def __internal_transport_closed__(code = 1000, reason = "", was_clean: true)
       return if @ready_state == CLOSED
 
       __test_simulate_close__(code, reason, was_clean: was_clean)
     end
 
-    def __transport_error__
+    def __internal_transport_error__
       __test_simulate_error__
     end
 

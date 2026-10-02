@@ -47,7 +47,7 @@ module Dommy
         file = Dommy::File.new(
           [::File.binread(path)], ::File.basename(path), "type" => MimeTypes.for(path)
         )
-        input.__driver_set_files__([file])
+        input.files = [file]
         EventSynthesis.change(input)
         input
       end

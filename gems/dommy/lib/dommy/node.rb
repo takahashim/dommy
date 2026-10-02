@@ -95,39 +95,39 @@ module Dommy
 
     # Refresh the backing storage from the live source, if any. Returns self so
     # it can prefix the Array reads below.
-    def __refresh__
+    def __internal_refresh__
       replace(@compute.call || []) if @compute
       self
     end
 
     def length
-      __refresh__
+      __internal_refresh__
       super
     end
 
     def item(index)
-      __refresh__
+      __internal_refresh__
       super
     end
 
     def [](index)
-      __refresh__
+      __internal_refresh__
       super
     end
 
     def each(&block)
-      __refresh__
+      __internal_refresh__
       super
     end
 
     def value
-      __refresh__
+      __internal_refresh__
       radio = find { |el| radio_button?(el) && el.checked }
       radio ? radio.value.to_s : ""
     end
 
     def value=(new_value)
-      __refresh__
+      __internal_refresh__
       target = find { |el| radio_button?(el) && el.value.to_s == new_value.to_s }
       each { |el| el.checked = false if radio_button?(el) }
       target.checked = true if target

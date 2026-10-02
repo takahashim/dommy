@@ -146,25 +146,25 @@ class TestWPTResponseConstructor < Minitest::Test
   end
 
   def test_status_out_of_range_raises_range_error
-    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__construct__(@win, "x", {"status" => 0}) }
-    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__construct__(@win, "x", {"status" => 600}) }
+    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__internal_construct__(@win, "x", {"status" => 0}) }
+    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__internal_construct__(@win, "x", {"status" => 600}) }
   end
 
   def test_null_body_status_with_body_raises_type_error
     [204, 205, 304].each do |status|
       assert_raises(Dommy::Bridge::TypeError, "status #{status} with body") do
-        Dommy::Response.__construct__(@win, "body", {"status" => status})
+        Dommy::Response.__internal_construct__(@win, "body", {"status" => status})
       end
     end
   end
 
   def test_null_body_status_without_body_is_allowed
-    r = Dommy::Response.__construct__(@win, nil, {"status" => 204})
+    r = Dommy::Response.__internal_construct__(@win, nil, {"status" => 204})
     assert_equal(204, r.__js_get__("status"))
   end
 
   def test_default_content_type_for_non_null_body
-    r = Dommy::Response.__construct__(@win, "hi", {})
+    r = Dommy::Response.__internal_construct__(@win, "hi", {})
     assert_equal("text/plain;charset=UTF-8", r.__js_get__("headers").__js_call__("get", ["Content-Type"]))
   end
 
@@ -187,49 +187,49 @@ class TestWPTResponseStatics < Minitest::Test
   end
 
   def test_json_serializes_data_and_sets_content_type
-    r = Dommy::Response.__json__(@win, {"a" => 1})
+    r = Dommy::Response.__internal_json__(@win, {"a" => 1})
     assert_equal('{"a":1}', r.__js_call__("text", []).await)
     assert_equal("application/json", r.__js_get__("headers").__js_call__("get", ["Content-Type"]))
     assert_equal(200, r.__js_get__("status"))
   end
 
   def test_json_honors_init_status_and_keeps_explicit_content_type
-    r = Dommy::Response.__json__(@win, [1, 2], {"status" => 201, "headers" => {"Content-Type" => "application/problem+json"}})
+    r = Dommy::Response.__internal_json__(@win, [1, 2], {"status" => 201, "headers" => {"Content-Type" => "application/problem+json"}})
     assert_equal(201, r.__js_get__("status"))
     assert_equal("application/problem+json", r.__js_get__("headers").__js_call__("get", ["content-type"]))
   end
 
   def test_json_null_body_status_raises_type_error
-    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__json__(@win, {}, {"status" => 204}) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__internal_json__(@win, {}, {"status" => 204}) }
   end
 
   def test_redirect_sets_location_and_status
-    r = Dommy::Response.__redirect__(@win, "https://example.test/x", 301)
+    r = Dommy::Response.__internal_redirect__(@win, "https://example.test/x", 301)
     assert_equal(301, r.__js_get__("status"))
     assert_equal("https://example.test/x", r.__js_get__("headers").__js_call__("get", ["Location"]))
   end
 
   def test_redirect_defaults_to_302
-    assert_equal(302, Dommy::Response.__redirect__(@win, "/y").__js_get__("status"))
+    assert_equal(302, Dommy::Response.__internal_redirect__(@win, "/y").__js_get__("status"))
   end
 
   def test_redirect_invalid_status_raises_range_error
-    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__redirect__(@win, "/y", 200) }
+    assert_raises(Dommy::Bridge::RangeError) { Dommy::Response.__internal_redirect__(@win, "/y", 200) }
   end
 
   # WHATWG: the url is parsed (resolved against the base) and the Location
   # header is the *serialized* parsed URL.
   def test_redirect_resolves_relative_url_against_base
-    r = Dommy::Response.__redirect__(@win, "/path", 302)
+    r = Dommy::Response.__internal_redirect__(@win, "/path", 302)
     assert_equal("http://localhost/path", r.__js_get__("headers").__js_call__("get", ["Location"]))
   end
 
   def test_redirect_invalid_url_raises_type_error
-    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__redirect__(@win, "http://", 302) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__internal_redirect__(@win, "http://", 302) }
   end
 
   def test_error_is_status_zero_not_ok
-    r = Dommy::Response.__error__(@win)
+    r = Dommy::Response.__internal_error__(@win)
     assert_equal(0, r.__js_get__("status"))
     refute(r.__js_get__("ok"))
   end
@@ -237,16 +237,16 @@ class TestWPTResponseStatics < Minitest::Test
   # WHATWG: Response.json serializes the value; JS `undefined` is not
   # JSON-serializable and is a TypeError, while `null` becomes "null".
   def test_json_undefined_raises_type_error
-    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__json__(@win, Dommy::Bridge::UNDEFINED) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__internal_json__(@win, Dommy::Bridge::UNDEFINED) }
   end
 
   def test_json_null_serializes_to_null
-    r = Dommy::Response.__json__(@win, nil)
+    r = Dommy::Response.__internal_json__(@win, nil)
     assert_equal("null", r.__js_call__("text", []).await)
   end
 
   def test_json_false_serializes
-    r = Dommy::Response.__json__(@win, false)
+    r = Dommy::Response.__internal_json__(@win, false)
     assert_equal("false", r.__js_call__("text", []).await)
   end
 end
@@ -262,19 +262,19 @@ class TestWPTResponseImmutableHeaders < Minitest::Test
   end
 
   def test_error_headers_are_immutable
-    headers = Dommy::Response.__error__(@win).__js_get__("headers")
+    headers = Dommy::Response.__internal_error__(@win).__js_get__("headers")
     assert_raises(Dommy::Bridge::TypeError) { headers.__js_call__("set", ["X-A", "1"]) }
     assert_raises(Dommy::Bridge::TypeError) { headers.__js_call__("append", ["X-A", "1"]) }
     assert_raises(Dommy::Bridge::TypeError) { headers.__js_call__("delete", ["location"]) }
   end
 
   def test_redirect_headers_are_immutable
-    headers = Dommy::Response.__redirect__(@win, "/x", 302).__js_get__("headers")
+    headers = Dommy::Response.__internal_redirect__(@win, "/x", 302).__js_get__("headers")
     assert_raises(Dommy::Bridge::TypeError) { headers.__js_call__("set", ["X-A", "1"]) }
   end
 
   def test_constructed_response_headers_are_mutable
-    headers = Dommy::Response.__construct__(@win, "hi", {}).__js_get__("headers")
+    headers = Dommy::Response.__internal_construct__(@win, "hi", {}).__js_get__("headers")
     headers.__js_call__("set", ["X-A", "1"]) # no raise
     assert_equal("1", headers.__js_call__("get", ["x-a"]))
   end
@@ -291,17 +291,17 @@ class TestWPTResponseStatusText < Minitest::Test
   end
 
   def test_valid_status_text_is_accepted
-    r = Dommy::Response.__construct__(@win, "x", {"statusText" => "I'm a teapot"})
+    r = Dommy::Response.__internal_construct__(@win, "x", {"statusText" => "I'm a teapot"})
     assert_equal("I'm a teapot", r.__js_get__("statusText"))
   end
 
   def test_invalid_status_text_raises_type_error
-    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__construct__(@win, "x", {"statusText" => "bad\r\n"}) }
-    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__construct__(@win, "x", {"statusText" => "bad\x01ctl"}) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__internal_construct__(@win, "x", {"statusText" => "bad\r\n"}) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__internal_construct__(@win, "x", {"statusText" => "bad\x01ctl"}) }
   end
 
   def test_json_validates_status_text
-    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__json__(@win, {}, {"statusText" => "x\n"}) }
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::Response.__internal_json__(@win, {}, {"statusText" => "x\n"}) }
   end
 end
 
@@ -357,17 +357,17 @@ class TestWPTResponseType < Minitest::Test
   end
 
   def test_constructed_response_is_default
-    assert_equal("default", Dommy::Response.__construct__(@win, "x", {}).__js_get__("type"))
-    assert_equal("default", Dommy::Response.__json__(@win, {}).__js_get__("type"))
-    assert_equal("default", Dommy::Response.__redirect__(@win, "/x", 302).__js_get__("type"))
+    assert_equal("default", Dommy::Response.__internal_construct__(@win, "x", {}).__js_get__("type"))
+    assert_equal("default", Dommy::Response.__internal_json__(@win, {}).__js_get__("type"))
+    assert_equal("default", Dommy::Response.__internal_redirect__(@win, "/x", 302).__js_get__("type"))
   end
 
   def test_error_response_is_error_type
-    assert_equal("error", Dommy::Response.__error__(@win).__js_get__("type"))
+    assert_equal("error", Dommy::Response.__internal_error__(@win).__js_get__("type"))
   end
 
   def test_clone_preserves_type
-    assert_equal("error", Dommy::Response.__error__(@win).__js_call__("clone", []).__js_get__("type"))
+    assert_equal("error", Dommy::Response.__internal_error__(@win).__js_call__("clone", []).__js_get__("type"))
   end
 end
 
@@ -391,12 +391,12 @@ class TestWPTResponseBody < Minitest::Test
   end
 
   def test_null_body_status_has_null_body
-    r = Dommy::Response.__construct__(@win, nil, {"status" => 204})
+    r = Dommy::Response.__internal_construct__(@win, nil, {"status" => 204})
     assert_nil(r.__js_get__("body"))
   end
 
   def test_no_arg_response_has_null_body
-    assert_nil(Dommy::Response.__construct__(@win, nil, {}).__js_get__("body"))
+    assert_nil(Dommy::Response.__internal_construct__(@win, nil, {}).__js_get__("body"))
   end
 
   def test_body_used_transitions_on_consume
@@ -435,26 +435,26 @@ class TestWPTResponseBodyExtraction < Minitest::Test
 
   def test_blob_body_uses_its_bytes_and_type
     blob = Dommy::Blob.new(["hi there"], "type" => "text/markdown")
-    r = Dommy::Response.__construct__(@win, blob, {})
+    r = Dommy::Response.__internal_construct__(@win, blob, {})
     assert_equal("hi there", r.__js_call__("text", []).await)
     assert_equal("text/markdown", ct(r))
   end
 
   def test_typeless_blob_body_has_no_content_type
-    r = Dommy::Response.__construct__(@win, Dommy::Blob.new(["x"]), {})
+    r = Dommy::Response.__internal_construct__(@win, Dommy::Blob.new(["x"]), {})
     assert_nil(ct(r))
   end
 
   def test_url_search_params_body
     usp = Dommy::URLSearchParams.new("a=1&b=2")
-    r = Dommy::Response.__construct__(@win, usp, {})
+    r = Dommy::Response.__internal_construct__(@win, usp, {})
     assert_equal("a=1&b=2", r.__js_call__("text", []).await)
     assert_equal("application/x-www-form-urlencoded;charset=UTF-8", ct(r))
   end
 
   def test_array_buffer_body_has_no_default_content_type
     bytes = Dommy::Bridge::Bytes.new("Hi".bytes)
-    r = Dommy::Response.__construct__(@win, bytes, {})
+    r = Dommy::Response.__internal_construct__(@win, bytes, {})
     assert_equal("Hi", r.__js_call__("text", []).await)
     assert_nil(ct(r))
   end
@@ -462,7 +462,7 @@ class TestWPTResponseBodyExtraction < Minitest::Test
   def test_form_data_body_is_multipart
     fd = Dommy::FormData.new
     fd.append("name", "alice")
-    r = Dommy::Response.__construct__(@win, fd, {})
+    r = Dommy::Response.__internal_construct__(@win, fd, {})
     assert(ct(r).start_with?("multipart/form-data; boundary="))
     body = r.__js_call__("text", []).await
     assert_includes(body, 'Content-Disposition: form-data; name="name"')
@@ -471,7 +471,7 @@ class TestWPTResponseBodyExtraction < Minitest::Test
 
   def test_explicit_content_type_overrides_extracted_default
     usp = Dommy::URLSearchParams.new("a=1")
-    r = Dommy::Response.__construct__(@win, usp, {"headers" => {"Content-Type" => "text/plain"}})
+    r = Dommy::Response.__internal_construct__(@win, usp, {"headers" => {"Content-Type" => "text/plain"}})
     assert_equal("text/plain", ct(r))
   end
 end
@@ -488,7 +488,7 @@ class TestWPTResponseFormData < Minitest::Test
 
   def test_form_data_from_urlencoded
     usp = Dommy::URLSearchParams.new("a=1&b=hello+world")
-    fd = Dommy::Response.__construct__(@win, usp, {}).__js_call__("formData", []).await
+    fd = Dommy::Response.__internal_construct__(@win, usp, {}).__js_call__("formData", []).await
     assert_equal("1", fd.__js_call__("get", ["a"]))
     assert_equal("hello world", fd.__js_call__("get", ["b"]))
   end
@@ -497,7 +497,7 @@ class TestWPTResponseFormData < Minitest::Test
     src = Dommy::FormData.new
     src.append("name", "alice")
     src.append("upload", Dommy::File.new(["FILE"], "f.txt", "type" => "text/plain"))
-    fd = Dommy::Response.__construct__(@win, src, {}).__js_call__("formData", []).await
+    fd = Dommy::Response.__internal_construct__(@win, src, {}).__js_call__("formData", []).await
 
     assert_equal("alice", fd.__js_call__("get", ["name"]))
     file = fd.__js_call__("get", ["upload"])
@@ -513,7 +513,7 @@ class TestWPTResponseFormData < Minitest::Test
   end
 
   def test_form_data_marks_body_used
-    r = Dommy::Response.__construct__(@win, Dommy::URLSearchParams.new("a=1"), {})
+    r = Dommy::Response.__internal_construct__(@win, Dommy::URLSearchParams.new("a=1"), {})
     r.__js_call__("formData", []).await
     assert(r.__js_get__("bodyUsed"))
   end

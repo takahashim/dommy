@@ -223,7 +223,7 @@ class TestBlob < Minitest::Test
     win = make_window("<input type='file' name='upload'>")
     input = win.document.query_selector("input")
     file = Dommy::File.new(["data"], "report.csv", "type" => "text/csv")
-    input.__driver_set_files__([file])
+    input.files = [file]
     assert_equal(1, input.files.length)
     assert_equal("report.csv", input.files[0].name)
   end
@@ -231,7 +231,7 @@ class TestBlob < Minitest::Test
   def test_input_files_via_js_get
     win = make_window("<input type='file' name='upload'>")
     input = win.document.query_selector("input")
-    input.__driver_set_files__([Dommy::File.new(["x"], "a")])
+    input.files = [Dommy::File.new(["x"], "a")]
     assert_kind_of(Dommy::FileList, input.__js_get__("files"))
   end
 
@@ -248,7 +248,7 @@ class TestBlob < Minitest::Test
     )
     form = win.document.query_selector("form")
     input = form.query_selector("input[type='file']")
-    input.__driver_set_files__([Dommy::File.new(["pdf"], "doc.pdf", "type" => "application/pdf")])
+    input.files = [Dommy::File.new(["pdf"], "doc.pdf", "type" => "application/pdf")]
 
     fd = Dommy::FormData.new(form)
     entries = fd.entries.to_a
@@ -262,12 +262,10 @@ class TestBlob < Minitest::Test
     win = make_window("<form><input type='file' name='photos' multiple></form>")
     form = win.document.query_selector("form")
     input = form.query_selector("input")
-    input.__driver_set_files__(
-      [
-        Dommy::File.new(["a"], "a.jpg"),
-        Dommy::File.new(["b"], "b.jpg")
-      ]
-    )
+    input.files = [
+      Dommy::File.new(["a"], "a.jpg"),
+      Dommy::File.new(["b"], "b.jpg")
+    ]
 
     fd = Dommy::FormData.new(form)
     photo_entries = fd.entries.to_a.select { |name, _| name == "photos" }

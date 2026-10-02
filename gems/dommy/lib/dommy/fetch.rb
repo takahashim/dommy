@@ -791,7 +791,7 @@ module Dommy
     # plain object or a Headers instance, and — per the body-extraction step —
     # defaults Content-Type to text/plain for a non-null body when none was
     # supplied. A constructed response's url is "".
-    def self.__construct__(window, body, init)
+    def self.__internal_construct__(window, body, init)
       opts = init.is_a?(Hash) ? init : {}
       status = coerce_status(opts["status"] || opts[:status] || 200)
       unless status.between?(200, 599)
@@ -825,7 +825,7 @@ module Dommy
 
     # Static `Response.json(data, init)` — serialize `data` to JSON, defaulting
     # Content-Type to application/json. (WHATWG Fetch §Response.json)
-    def self.__json__(window, data, init = nil)
+    def self.__internal_json__(window, data, init = nil)
       # WHATWG: serialize `data` as JSON; if that yields `undefined` (the value
       # is JS `undefined` — or absent — or otherwise non-serializable), throw a
       # TypeError. JS `null` serializes to "null" and is allowed.
@@ -861,7 +861,7 @@ module Dommy
     # TypeError; a non-redirect status is a RangeError. The url is resolved
     # against the window's base URL so a relative target works. (WHATWG Fetch
     # §Response.redirect)
-    def self.__redirect__(window, url, status = nil)
+    def self.__internal_redirect__(window, url, status = nil)
       base = window.respond_to?(:location) && window.location.respond_to?(:href) ? window.location.href : nil
       parsed = Dommy::URL.new(url.to_s, base) # raises Bridge::TypeError on failure
 
@@ -879,7 +879,7 @@ module Dommy
 
     # Static `Response.error()` — a network-error response (status 0, not ok,
     # type "error"). (WHATWG Fetch §Response.error)
-    def self.__error__(window)
+    def self.__internal_error__(window)
       resp = new(window, body: "", status: 0, type: "error", has_body: false)
       # WHATWG: a network-error response's header guard is "immutable".
       resp.__js_get__("headers").make_immutable!

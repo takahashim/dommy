@@ -16,10 +16,10 @@ class Dommy::Rack::TestWebSocketTransport < Minitest::Test
       @errors = 0
     end
 
-    def __transport_open__(protocol = nil) = @opens << protocol
-    def __transport_message__(data) = @messages << data
-    def __transport_closed__(code, reason, was_clean:) = @closes << [code, reason, was_clean]
-    def __transport_error__ = @errors += 1
+    def __internal_transport_open__(protocol = nil) = @opens << protocol
+    def __internal_transport_message__(data) = @messages << data
+    def __internal_transport_closed__(code, reason, was_clean:) = @closes << [code, reason, was_clean]
+    def __internal_transport_error__ = @errors += 1
   end
 
   # --- A tiny in-test Rack WebSocket echo server (RFC 6455 over rack.hijack).

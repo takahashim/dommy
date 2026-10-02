@@ -9,7 +9,7 @@ module Dommy
     # the ones it can actually invalidate, which is the whole point — a text
     # edit inside a <p> must not throw away the rule index.
     #
-    # Host contract: @__css_style_cache__ and #__internal_style_sheet_elements__.
+    # Host contract: @__internal_css_style_cache__ and #__internal_style_sheet_elements__.
     module DocumentGenerations
       def style_generation
         @style_generation || 0
@@ -95,7 +95,7 @@ module Dommy
       end
 
       def __internal_style_value_sensitive__
-        index = @__css_style_cache__&.index
+        index = @__internal_css_style_cache__&.index
         index ? index.value_sensitive? : true
       end
 
@@ -139,7 +139,7 @@ module Dommy
         # as well as `:dir()`, neither of which is a plain attribute selector.
         return true if name.to_s.casecmp?("dir")
 
-        index = @__css_style_cache__&.index
+        index = @__internal_css_style_cache__&.index
         # No RuleIndex yet: the bump is nearly free (at most it drops the
         # author_css?/counters memos), so stay conservative.
         return true unless index
@@ -148,7 +148,7 @@ module Dommy
       end
 
       def __internal_style_text_sensitive__
-        index = @__css_style_cache__&.index
+        index = @__internal_css_style_cache__&.index
         index ? index.text_sensitive? : true
       end
 
