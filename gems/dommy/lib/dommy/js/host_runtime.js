@@ -14,7 +14,7 @@ globalThis.__rbHost = (function () {
     NAMED_PROP_COLLECTIONS, NULL_TO_EMPTY_STRING_SETTERS,
     INTERFACE_NULL_TO_EMPTY_STRING_SETTERS, FORM_VALUE_FIELDS, READONLY_ATTRS,
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
-    INTERFACE_CONSTANTS, INTERFACE_MEMBERS, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
+    INTERFACE_CONSTANTS, INTERFACE_MEMBERS, FROZEN_ARRAY_ATTRIBUTES, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
     BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, CONSTRUCTOR_ARITY,
     VOID_METHODS, INTERFACE_VOID_METHODS, JS_GLOBALS,
@@ -2364,6 +2364,23 @@ globalThis.__rbHost = (function () {
     declined.add(prop);
   }
 
+  // A FrozenArray attribute's read. `items` is what the host answers now, an
+  // array or null; the array last returned for `prop` comes back while it
+  // holds the same items in the same order, and otherwise `items`, frozen,
+  // takes its place — so `el.ariaLabelledByElements` is the same object
+  // across reads until the elements change, and an old one keeps its items.
+  function frozenArrayRead(cache, prop, items) {
+    if (!Array.isArray(items)) {
+      cache.delete(prop);
+      return items;
+    }
+    const last = cache.get(prop);
+    if (last !== undefined && last.length === items.length && last.every((item, i) => item === items[i])) return last;
+    const fresh = Object.freeze(items);
+    cache.set(prop, fresh);
+    return fresh;
+  }
+
   // The proxy handler for one host object: `handle` is the object, `shape` is
   // everything its interface decides (see interfaceShape) and `methodCache`
   // memoizes its method stubs. The per-interface traits used to arrive as eight
@@ -2379,6 +2396,9 @@ globalThis.__rbHost = (function () {
     // Reflected-attribute map, only for Node proxies (elements have the
     // snapshot; other node kinds return null from attrsSnapshot and fall back).
     const reflectAttrs = nodeChain ? REFLECTED_STRING_ATTRS : null;
+    // The frozen array last returned per FrozenArray attribute (see
+    // frozenArrayRead); only Node proxies have such attributes.
+    const frozenArrays = nodeChain ? new Map() : null;
     // Per-epoch cache of stable node props (STABLE_EPOCH_NODE_PROPS). Rebuilt
     // whenever the epoch moves; only used for Node proxies.
     let epochProps = null;
@@ -2494,6 +2514,9 @@ globalThis.__rbHost = (function () {
             const attrs = attrsSnapshot();
             if (attrs !== null) return Object.hasOwn(attrs, attrKey) ? attrs[attrKey] : "";
           }
+        }
+        if (frozenArrays !== null && FROZEN_ARRAY_ATTRIBUTES.has(prop)) {
+          return frozenArrayRead(frozenArrays, prop, rehydrate(__rb_host_get(handle, prop)));
         }
         // Stable-within-epoch node prop (parentNode/nextSibling/textContent/…):
         // answer from a per-epoch cache so a tree-walk's repeated reads cross

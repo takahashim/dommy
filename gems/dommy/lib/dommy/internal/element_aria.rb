@@ -105,15 +105,13 @@ module Dommy
       # Read a plural ARIA element references value (a list of Elements): the
       # explicitly-set array wins; otherwise the content attribute is split as a
       # space-separated IDREF list and each resolved (missing ids dropped).
+      #
+      # The IDL type is FrozenArray<Element>?: the elements cross to script as
+      # a plain Array, and the JS side hands back the frozen array it gave out
+      # last for as long as they are the same ones (host_runtime.js
+      # frozenArrayRead), so this answers only with what they are now.
       def aria_elements_get(content_attr, key)
-        # null when there are neither explicit elements nor a content attribute.
-        return nil if aria_elements_current(content_attr, key).nil?
-
-        # Otherwise a per-property memoized live list, so repeated reads return the
-        # [SameObject] (WebIDL requires a stable FrozenArray) while its contents track
-        # the current references/IDREFs.
-        lists = (@aria_elements_lists ||= {})
-        lists[key] ||= LiveNodeList.new { aria_elements_current(content_attr, key) || [] }
+        aria_elements_current(content_attr, key)
       end
 
       # Set a plural ARIA element references value: null/undefined clears it and

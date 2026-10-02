@@ -84,4 +84,15 @@ class TestAriaReflection < Minitest::Test
     @p.set_attribute_ns(nil, "aria-labelledby", "u")
     assert_equal [@u], @p.__js_get__("ariaLabelledByElements").to_a
   end
+
+  # A FrozenArray<Element>? crosses as an Array of the elements it holds
+  # now — null with neither elements nor attribute, [] for an empty one; the
+  # JS side keeps the frozen array's identity while they stay the same.
+  def test_element_lists_are_arrays
+    assert_nil @p.__js_get__("ariaLabelledByElements")
+    @p.set_attribute("aria-labelledby", "")
+    assert_equal [], @p.__js_get__("ariaLabelledByElements")
+    @p.set_attribute("aria-labelledby", "zz t u")
+    assert_equal [@t, @u], @p.__js_get__("ariaLabelledByElements")
+  end
 end

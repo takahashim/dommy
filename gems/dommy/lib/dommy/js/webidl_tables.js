@@ -270,6 +270,14 @@ globalThis.__rbIdl = (function () {
     "ariaValueText"
   ];
 
+  // FrozenArray<T> attributes: a read returns the same frozen array while it
+  // holds the same items, and a new one once they change (HTML's cached
+  // attr-associated elements, for the ARIA element lists).
+  const FROZEN_ARRAY_ATTRIBUTES = new Set([
+    "ariaControlsElements", "ariaDescribedByElements", "ariaDetailsElements", "ariaErrorMessageElements",
+    "ariaFlowToElements", "ariaLabelledByElements", "ariaOwnsElements"
+  ]);
+
   const INTERFACE_MEMBERS = {
     EventTarget: { m: ["addEventListener", "removeEventListener", "dispatchEvent"] },
     // AbstractRange's attributes live on its prototype, so a StaticRange and a
@@ -618,6 +626,7 @@ globalThis.__rbIdl = (function () {
     FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS,
     INTERFACE_MEMBERS,
+    FROZEN_ARRAY_ATTRIBUTES,
     INTERFACE_UNSCOPABLES,
     PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS,
