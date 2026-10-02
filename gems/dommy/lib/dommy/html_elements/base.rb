@@ -23,6 +23,18 @@ module Dommy
     reflect_boolean :autofocus, :inert, heading_reset: { attr: "headingreset", js: "headingReset" }
     # How many levels a heading inside this element is offset by, 0 to 8.
     reflect_ulong heading_offset: { attr: "headingoffset", js: "headingOffset", range: 0..8 }
+    reflect_long_setter tab_index: { attr: "tabindex", js: "tabIndex" }
+
+    # The elements whose tabIndex is 0 without a tabindex attribute.
+    TAB_INDEX_ZERO = %w[a area button frame iframe input object select textarea].freeze
+
+    # `tabIndex` (HTML §6.6.3): the tabindex attribute parsed as an integer,
+    # else 0 for the elements a user can usually focus — those above, and a
+    # summary that is its details' summary — and -1 for the rest.
+    def tab_index
+      parsed_long_attribute("tabindex") ||
+        (TAB_INDEX_ZERO.include?(local_name) || __internal_summary_details__ ? 0 : -1)
+    end
     # `dir` reflects its own content attribute, limited to only known values:
     # ltr / rtl / auto in lowercase, "" otherwise. The setter reflects as is;
     # the getter is written here, as HTMLButtonElement#type is. The computed

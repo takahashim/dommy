@@ -486,7 +486,6 @@
       "onwheel",
       "scrollParent",
       "spellcheck",
-      "tabIndex",
       "writingSuggestions"
     ],
     "HTMLEmbedElement": [
