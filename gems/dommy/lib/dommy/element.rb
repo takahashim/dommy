@@ -323,12 +323,7 @@ module Dommy
         )
       end
 
-      new_nodes =
-        if @document.html_document?
-          Parser.fragment(html.to_s, owner_doc: @__node__.document).children.to_a
-        else
-          xml_fragment_nodes(html.to_s, parent.element? ? @document.wrap_node(parent) : nil)
-        end
+      new_nodes = fragment_nodes(html.to_s, parent)
       anchor = @__node__.next_sibling
       removed = @__node__
       mark_fragment_scripts_started(new_nodes)
@@ -344,6 +339,13 @@ module Dommy
       end
 
       notify_child_list(added: new_nodes, removed: [removed], target: parent)
+    end
+
+    # The fragment parsing algorithm with this element as its context, for
+    # createContextualFragment: the backend nodes `markup` parses into, not
+    # yet in any tree.
+    def __internal_parse_fragment__(markup)
+      fragment_nodes(markup, @__node__)
     end
 
     # The XML fragment parsing algorithm, for innerHTML / outerHTML outside an
@@ -709,18 +711,19 @@ module Dommy
         raise DOMException::SyntaxError, "The value provided ('#{position}') is not one of 'beforeBegin', 'afterBegin', 'beforeEnd', or 'afterEnd'."
       end
 
-      fragment = Parser.fragment(html.to_s, owner_doc: @__node__.document)
-      nodes = fragment.children.to_a
+      # The context is the parent a sibling goes into, or this element; a
+      # missing or Document parent throws before anything is parsed.
+      context = %w[beforebegin afterend].include?(pos) ? insertion_parent! : @__node__
+      nodes = fragment_nodes(html.to_s, context)
       mark_fragment_scripts_started(nodes)
       # `add_previous_sibling` inserts immediately before the anchor, so a forward
       # walk preserves document order; `add_next_sibling` inserts immediately
       # after, so afterend walks in reverse to keep order.
       case pos
       when "beforebegin"
-        parent = insertion_parent!
-        @document.__internal_ranges_will_insert__(parent, @__node__, nodes.size)
+        @document.__internal_ranges_will_insert__(context, @__node__, nodes.size)
         nodes.each { |n| @__node__.add_previous_sibling(n) }
-        notify_child_list(added: nodes, target: parent)
+        notify_child_list(added: nodes, target: context)
       when "afterbegin"
         first = @__node__.children.first
         @document.__internal_ranges_will_insert__(@__node__, first, nodes.size)
@@ -735,10 +738,9 @@ module Dommy
         nodes.each { |n| @__node__.add_child(n) }
         notify_child_list(added: nodes)
       when "afterend"
-        parent = insertion_parent!
-        @document.__internal_ranges_will_insert__(parent, @__node__.next, nodes.size)
+        @document.__internal_ranges_will_insert__(context, @__node__.next, nodes.size)
         nodes.reverse_each { |n| @__node__.add_next_sibling(n) }
-        notify_child_list(added: nodes, target: parent)
+        notify_child_list(added: nodes, target: context)
       end
 
       nil
@@ -1897,6 +1899,22 @@ module Dommy
     # subtree instead of reaching the document.
     def __internal_event_parent__
       wrap_parent(@__node__.parent)
+    end
+
+    # The fragment parsing algorithm (DOM Parsing): the HTML one in an HTML
+    # document, the XML one anywhere else, inside `context` (a backend node).
+    # A context that is no element — a DocumentFragment or a shadow root —
+    # or an HTML document's `html` element parses as a `body` would, which
+    # is each parser's default; any other element lends its tag and
+    # namespace, so markup inside an `<svg>` is SVG.
+    def fragment_nodes(markup, context)
+      context = nil unless context.element?
+      if @document.html_document?
+        context = nil if context && context.local_name == "html" && Backend.namespace_uri(context) == HTML_NAMESPACE
+        Parser.fragment(markup, owner_doc: @__node__.document, context: context).children.to_a
+      else
+        xml_fragment_nodes(markup, context && @document.wrap_node(context))
+      end
     end
 
     def template_content
