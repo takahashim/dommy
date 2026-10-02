@@ -29,6 +29,19 @@
 - `getElementById`, `getElementsByClassName`, `getElementsByName`, id and class selectors and `classList` read the `id`, `class` and `name` attributes in no namespace: one set with `setAttributeNS("urn:x", "id", …)` does not count, and a `classList` change writes the attribute in no namespace.
 - `getElementsByName` returns HTML elements only: an `<svg name>` or a `<math name>` is not among them.
 - `CSS.escape("-")` is `"\-"`.
+- `el.title` reflects the `title` attribute.
+- `removeNamedItem` and `removeNamedItemNS` throw `NotFoundError` when the element has no such attribute.
+- An `Attr` answers `isEqualNode` and `contains` from script.
+- `attachShadow` takes only an HTML element whose local name, as written, may host a shadow root: a `div` in another namespace or a `DIV` from `createElementNS` throws `NotSupportedError`.
+- `document.title` is the first `title` in the HTML namespace, or an SVG document's own `title` child, and reads only that element's own text, as a title element's `text` does.
+- `insertAdjacentHTML`, the `outerHTML` setter and `createContextualFragment` parse in their context element, so `<rect/>` inserted into an `<svg>` is an SVG element, and `insertAdjacentHTML` parses XML in an XML document.
+- A `<script>` from `createContextualFragment` runs when the fragment is inserted.
+- Reflected attributes, `dataset`, the inline style and a collection's named items use the attribute in no namespace: one made with `setAttributeNS("urn:x", "title", …)` no longer counts.
+- `:lang()` follows `xml:lang`, and `lang=""` matches no language.
+- The ARIA reflections are exactly the ones ARIA defines, on `Element.prototype`, so `el.ariaFoo` is an ordinary property.
+- The ARIA reflections and their IDREFs use attributes in no namespace, and writing the attribute in any way drops an element set through its reflection.
+- `ariaLabelledByElements` and the other element lists are frozen arrays, the same object until their elements change.
+- The accessible name, description and role follow the elements set through `ariaLabelledByElements` and `ariaDescribedByElements`, resolve IDREFs in the element's own tree, and ignore attributes in other namespaces.
 - `adoptNode(attr)` returns the `Attr` and moves it into the document, leaving it on its element.
 - An `Attr` keeps its node document when it is removed from its element, takes its element's document when appended to one, and moves with an adopted element.
 - `compareDocumentPosition` places an `Attr` at its element, before the element's children: an element contains its attributes, and two attributes of one element compare in attribute order.
