@@ -35,4 +35,24 @@ class TestAriaReflection < Minitest::Test
     end
     assert_equal [], @p.attributes.map(&:name).grep(/\Aaria-/)
   end
+
+  # The reflections read and write the attribute in no namespace, and an id
+  # is the `id` in no namespace.
+  def test_reflections_are_the_attributes_in_no_namespace
+    @p.set_attribute_ns("urn:x", "aria-label", "ns")
+    @p.set_attribute_ns("urn:x", "role", "button")
+    assert_equal [nil, nil], %w[ariaLabel role].map { |k| @p.__js_get__(k) }
+
+    @p.__js_set__("ariaLabel", "plain")
+    @p.__js_set__("role", nil)
+    assert_equal [[nil, "p"], ["urn:x", "ns"], ["urn:x", "button"], [nil, "plain"]],
+      @p.attributes.map { |a| [a.namespace_uri, a.value] }
+
+    @u.set_attribute_ns("urn:x", "id", "q")
+    @p.set_attribute("aria-activedescendant", "q")
+    assert_nil @p.__js_get__("ariaActiveDescendantElement")
+
+    @p.set_attribute_ns("urn:x", "aria-owns", "t")
+    assert_nil @p.__js_get__("ariaOwnsElements")
+  end
 end

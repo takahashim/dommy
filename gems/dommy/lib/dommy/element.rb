@@ -1199,16 +1199,16 @@ module Dommy
     # Read a reflected nullable DOMString: the content attribute value, or nil
     # (→ JS null) when the attribute is absent.
     def aria_get(content_attr)
-      @__node__.key?(content_attr) ? @__node__[content_attr].to_s : nil
+      __internal_attribute_value__(content_attr)
     end
 
     # Write a reflected nullable DOMString: null / undefined removes the content
     # attribute; any other value is ToString-coerced and set.
     def aria_set(content_attr, value)
       if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
-        remove_attribute(content_attr) if @__node__.key?(content_attr)
+        remove_attribute_ns(nil, content_attr)
       else
-        set_attribute(content_attr, value.to_s)
+        __internal_set_attribute_value__(content_attr, value.to_s)
       end
       nil
     end
