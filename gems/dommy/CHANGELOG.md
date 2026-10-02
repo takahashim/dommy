@@ -34,6 +34,8 @@
 - An `Attr` keeps its node document when it is removed from its element, takes its element's document when appended to one, and moves with an adopted element.
 - `compareDocumentPosition` places an `Attr` at its element, before the element's children: an element contains its attributes, and two attributes of one element compare in attribute order.
 - An `Attr` has `parentNode`, `parentElement`, `firstChild`, `lastChild`, `previousSibling` and `nextSibling` of null, an empty `childNodes`, and `isConnected` of false.
+- `removeAttributeNode(attr)` removes that attribute and returns it, rather than the first attribute with its qualified name.
+- `removeAttributeNS` drops an ARIA element reference along with its `aria-*` attribute, as `removeAttribute` does.
 
 ## 0.14.0 — 2026-10-01
 

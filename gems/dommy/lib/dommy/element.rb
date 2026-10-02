@@ -529,7 +529,10 @@ module Dommy
           "the attribute #{attr.respond_to?(:name) ? attr.name.inspect : attr.inspect} is not this element's"
       end
 
-      attributes.remove_named_item(attr.name)
+      # "remove an attribute": the attribute itself, by its namespace and
+      # local name — another with the same qualified name may come first.
+      remove_attribute_entry(attr.namespace_uri, attr.local_name)
+      attr
     end
 
     # HTML namespace constants — most HTML elements live in xhtml ns.
@@ -1597,23 +1600,11 @@ module Dommy
 
       # "remove an attribute by name" matches on the QUALIFIED name, so resolve
       # the attribute node first and remove it by its own (namespace, localName).
-      key = normalize_attr_key(name)
-      removed = Backend.attr_by_qualified_name(@__node__, key)
+      removed = Backend.attr_by_qualified_name(@__node__, normalize_attr_key(name))
       return nil if removed.nil?
 
       info = Backend.attribute_ns_info(removed)
-      old = info[:value]
-      # Detach the cached Attr (caching its value) *before* the backend drop, so a
-      # held reference keeps the value it had when removed and reports
-      # `ownerElement === null` (so it's no longer "in use").
-      @attributes&.__internal_evict__(info[:namespace_uri], info[:local_name])
-      Backend.remove_attribute_ns(@__node__, info[:namespace_uri], info[:local_name])
-      # Removing an `aria-*` IDREF attribute also clears any explicitly-set
-      # element reference (the IDL getter then returns null).
-      clear_aria_element_ref_for(key) if key.start_with?("aria-")
-      @document.notify_attribute_mutation(target_node: @__node__,
-                                          attribute_name: info[:namespace_uri] ? info[:local_name] : key,
-                                          old_value: old, namespace: info[:namespace_uri])
+      remove_attribute_entry(info[:namespace_uri], info[:local_name], info[:value])
       nil
     end
 
@@ -1642,14 +1633,7 @@ module Dommy
     def remove_attribute_ns(namespace, local_name)
       return nil if local_name.nil?
 
-      ns = namespace_arg(namespace)
-      local = local_name.to_s
-      old = Backend.get_attribute_ns(@__node__, ns, local)
-      @attributes&.__internal_evict__(ns, local)
-      Backend.remove_attribute_ns(@__node__, ns, local)
-      if old
-        @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
-      end
+      remove_attribute_entry(namespace_arg(namespace), local_name.to_s)
       nil
     end
 
@@ -1857,6 +1841,23 @@ module Dommy
 
     # ---- Internal helpers (single private section) ----
     private
+
+    # DOM "remove an attribute": the attribute with namespace `ns` and local
+    # name `local`, if the element has one, whose value is `old`. The cached
+    # Attr is detached (caching its value) *before* the backend drop, so a
+    # held reference keeps the value it had when removed and reports
+    # `ownerElement === null` (so it's no longer "in use").
+    # Spec: https://dom.spec.whatwg.org/#concept-element-attributes-remove
+    def remove_attribute_entry(ns, local, old = Backend.get_attribute_ns(@__node__, ns, local))
+      return if old.nil?
+
+      @attributes&.__internal_evict__(ns, local)
+      Backend.remove_attribute_ns(@__node__, ns, local)
+      # Removing an `aria-*` IDREF attribute also clears any explicitly-set
+      # element reference (the IDL getter then returns null).
+      clear_aria_element_ref_for(local) if ns.nil? && local.start_with?("aria-")
+      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
+    end
 
     # blur (at the element) then focusout (bubbling), per UI Events order.
     def fire_focus_out(element, new_target)
