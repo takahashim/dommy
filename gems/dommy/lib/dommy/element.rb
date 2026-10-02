@@ -1181,34 +1181,12 @@ module Dommy
     end
 
     # The content attribute an ARIA element-reference IDL attribute reflects
-    # (`ariaActiveDescendantElement` → "aria-activedescendant",
-    # `ariaErrorMessageElement` → "aria-errormessage"), or nil. The IDL name is
-    # `aria<Xxx>Element`; the content attribute is "aria-" + <Xxx> lowercased.
-    def aria_element_attr(key)
-      # Only aria-activedescendant reflects as a SINGULAR element reference; every
-      # other ARIA element reference (controls / describedby / details /
-      # errormessage / flowto / labelledby / owns) is plural (aria*Elements), so
-      # e.g. `ariaErrorMessageElement` must not exist.
-      key == "ariaActiveDescendantElement" ? "aria-activedescendant" : nil
-    end
-
-
-
+    # (`ariaActiveDescendantElement` → "aria-activedescendant"), or nil.
+    def aria_element_attr(key) = Internal::ElementAria::ELEMENT_ATTRIBUTES[key]
 
     # The content attribute a plural ARIA element-references IDL attribute
-    # reflects (`ariaDescribedByElements` → "aria-describedby",
-    # `ariaLabelledByElements` → "aria-labelledby"), or nil. The IDL name is
-    # `aria<Xxx>Elements`; the content attribute is "aria-" + <Xxx> lowercased.
-    def aria_elements_attr(key)
-      return nil unless key.is_a?(String) && key.start_with?("aria") && key.end_with?("Elements")
-      return nil unless key.length > 12 && key[4] =~ /[A-Z]/
-
-      "aria-#{key[4...-8].downcase}"
-    end
-
-
-
-
+    # reflects (`ariaLabelledByElements` → "aria-labelledby"), or nil.
+    def aria_elements_attr(key) = Internal::ElementAria::ELEMENTS_ATTRIBUTES[key]
 
     # Drop any explicit ARIA element reference (singular or plural) whose content
     # attribute was just set directly (so the IDL getter re-resolves the IDREF).
@@ -1217,31 +1195,23 @@ module Dommy
       @aria_elements_refs&.delete_if { |key, _| aria_elements_attr(key) == content_attr }
     end
 
-    # The content attribute a role/ARIA IDL attribute reflects, or nil for a
-    # non-ARIA key. `role` → "role"; `ariaXxx` → "aria-" + the rest, lowercased
-    # with humps removed (`ariaAutoComplete` → "aria-autocomplete",
-    # `ariaColIndexText` → "aria-colindextext").
-    def aria_content_attr(key)
-      return "role" if key == "role"
-      return nil unless key.is_a?(String) && key.length > 4 && key.start_with?("aria")
-      return nil unless key[4] =~ /[A-Z]/
-
-      "aria-#{key[4..].downcase}"
-    end
+    # The content attribute a role/ARIA string IDL attribute reflects
+    # (`ariaAutoComplete` → "aria-autocomplete"), or nil for any other key.
+    def aria_content_attr(key) = Internal::ElementAria::STRING_ATTRIBUTES[key]
 
     # Read a reflected nullable DOMString: the content attribute value, or nil
     # (→ JS null) when the attribute is absent.
     def aria_get(content_attr)
-      @__node__.key?(content_attr) ? @__node__[content_attr].to_s : nil
+      __internal_attribute_value__(content_attr)
     end
 
     # Write a reflected nullable DOMString: null / undefined removes the content
     # attribute; any other value is ToString-coerced and set.
     def aria_set(content_attr, value)
       if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
-        remove_attribute(content_attr) if @__node__.key?(content_attr)
+        remove_attribute_ns(nil, content_attr)
       else
-        set_attribute(content_attr, value.to_s)
+        __internal_set_attribute_value__(content_attr, value.to_s)
       end
       nil
     end
@@ -1561,9 +1531,10 @@ module Dommy
         ns = nil
         recorded_name = key
       end
-      # A direct write to an `aria-*` IDREF attribute drops any explicitly-set
-      # element reference, so the IDL getter re-resolves the new IDREF.
-      clear_aria_element_ref_for(key) if key.start_with?("aria-")
+      # A direct write to an `aria-*` IDREF attribute in no namespace drops
+      # any explicitly-set element reference, so the IDL getter re-resolves
+      # the new IDREF.
+      clear_aria_element_ref_for(key) if ns.nil? && key.start_with?("aria-")
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: recorded_name,
                                           old_value: old, namespace: ns)
       nil
@@ -1576,6 +1547,10 @@ module Dommy
     # attribute value" and "set an attribute value" with a null namespace.
     def __internal_attribute_value__(local_name)
       Backend.no_namespace_attribute_value(@__node__, local_name)
+    end
+
+    def __internal_has_attribute__?(local_name)
+      !Backend.no_namespace_attribute_value(@__node__, local_name).nil?
     end
 
     def __internal_set_attribute_value__(local_name, value)
@@ -1626,6 +1601,9 @@ module Dommy
       ns, prefix, local = Internal::Namespaces.validate_and_extract(namespace, qualified_name)
       old = Backend.get_attribute_ns(@__node__, ns, local)
       Backend.set_attribute_ns(@__node__, ns, prefix, local, qualified_name.to_s, value.to_s)
+      # As set_attribute: an `aria-*` IDREF attribute in no namespace drops
+      # its explicitly-set element reference.
+      clear_aria_element_ref_for(local) if ns.nil? && local.start_with?("aria-")
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
       nil
     end

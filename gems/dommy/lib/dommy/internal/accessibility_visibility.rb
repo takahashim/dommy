@@ -28,13 +28,13 @@ module Dommy
       # with aria-labelledby is still named even when hidden — this only governs
       # the traversal INTO a subtree.
       def hidden_for_name?(element)
-        return true if element.respond_to?(:has_attribute?) && element.has_attribute?("hidden")
+        return true if element.respond_to?(:__internal_has_attribute__?) && element.__internal_has_attribute__?("hidden")
 
         hidden?(element)
       end
 
       def aria_hidden?(element)
-        element.get_attribute("aria-hidden").to_s.casecmp?("true")
+        element.__internal_attribute_value__("aria-hidden").to_s.casecmp?("true")
       end
 
       # Everything above is the module; everything below is how.

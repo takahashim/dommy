@@ -1,0 +1,98 @@
+# frozen_string_literal: true
+
+require "json"
+require_relative "test_helper"
+
+# ARIAMixin (WAI-ARIA §10.1): `role`, the aria* strings and the element
+# references Element reflects.
+class TestAriaReflection < Minitest::Test
+  include DommyTestHelper
+
+  ARIA = Dommy::Internal::ElementAria
+
+  def setup
+    @doc = make_window("<div id=host><p id=p></p><i id=t></i><b id=u></b></div>").document
+    @p = @doc.get_element_by_id("p")
+    @t = @doc.get_element_by_id("t")
+    @u = @doc.get_element_by_id("u")
+  end
+
+  # The tables are the IDL's own: every ARIAMixin attribute, reflecting the
+  # content attribute the IDL names.
+  def test_the_tables_are_the_idl_mixin
+    idl = JSON.parse(File.read(File.join(__dir__, "fixtures/webidl/interfaces.json")))
+    members = idl["interfaces"]["Element"]["members"].select { |m| m["mixin"] == "ARIAMixin" }
+    expected = members.to_h { |m| [m["name"], m.dig("reflect", "attr") || m["name"]] }
+
+    assert_equal expected, ARIA::STRING_ATTRIBUTES.merge(ARIA::ELEMENT_ATTRIBUTES, ARIA::ELEMENTS_ATTRIBUTES)
+  end
+
+  # A name the IDL does not define is an expando, not a reflection.
+  def test_other_aria_names_are_no_reflections
+    %w[ariaFoo ariaLabelledBy ariaActiveDescendant ariaErrorMessageElement ariaFooElements].each do |name|
+      assert_equal Dommy::Bridge::ABSENT, @p.__js_get__(name), name
+      assert_equal Dommy::Bridge::UNHANDLED, @p.__js_set__(name, "x"), name
+    end
+    assert_equal [], @p.attributes.map(&:name).grep(/\Aaria-/)
+  end
+
+  # The reflections read and write the attribute in no namespace, and an id
+  # is the `id` in no namespace.
+  def test_reflections_are_the_attributes_in_no_namespace
+    @p.set_attribute_ns("urn:x", "aria-label", "ns")
+    @p.set_attribute_ns("urn:x", "role", "button")
+    assert_equal [nil, nil], %w[ariaLabel role].map { |k| @p.__js_get__(k) }
+
+    @p.__js_set__("ariaLabel", "plain")
+    @p.__js_set__("role", nil)
+    assert_equal [[nil, "p"], ["urn:x", "ns"], ["urn:x", "button"], [nil, "plain"]],
+      @p.attributes.map { |a| [a.namespace_uri, a.value] }
+
+    @u.set_attribute_ns("urn:x", "id", "q")
+    @p.set_attribute("aria-activedescendant", "q")
+    assert_nil @p.__js_get__("ariaActiveDescendantElement")
+
+    @p.set_attribute_ns("urn:x", "aria-owns", "t")
+    assert_nil @p.__js_get__("ariaOwnsElements")
+  end
+
+  # Any write to the content attribute in no namespace drops an explicitly
+  # set reference, so the IDREF is read again; one in another namespace
+  # leaves it.
+  def test_writing_the_attribute_drops_an_explicit_reference
+    writes = {
+      "setAttribute" => -> { @p.set_attribute("aria-activedescendant", "u") },
+      "setAttributeNS" => -> { @p.set_attribute_ns(nil, "aria-activedescendant", "u") },
+      "Attr#value=" => -> { @p.get_attribute_node("aria-activedescendant").value = "u" },
+      "setAttributeNode" => lambda {
+        attr = @doc.create_attribute("aria-activedescendant")
+        attr.value = "u"
+        @p.set_attribute_node(attr)
+      },
+    }
+    writes.each do |how, write|
+      @p.__js_set__("ariaActiveDescendantElement", @t)
+      write.call
+      assert_same @u, @p.__js_get__("ariaActiveDescendantElement"), how
+    end
+
+    @p.__js_set__("ariaActiveDescendantElement", @t)
+    @p.set_attribute_ns("urn:x", "aria-activedescendant", "u")
+    assert_same @t, @p.__js_get__("ariaActiveDescendantElement")
+
+    @p.__js_set__("ariaLabelledByElements", [@t])
+    @p.set_attribute_ns(nil, "aria-labelledby", "u")
+    assert_equal [@u], @p.__js_get__("ariaLabelledByElements").to_a
+  end
+
+  # A FrozenArray<Element>? crosses as an Array of the elements it holds
+  # now — null with neither elements nor attribute, [] for an empty one; the
+  # JS side keeps the frozen array's identity while they stay the same.
+  def test_element_lists_are_arrays
+    assert_nil @p.__js_get__("ariaLabelledByElements")
+    @p.set_attribute("aria-labelledby", "")
+    assert_equal [], @p.__js_get__("ariaLabelledByElements")
+    @p.set_attribute("aria-labelledby", "zz t u")
+    assert_equal [@t, @u], @p.__js_get__("ariaLabelledByElements")
+  end
+end

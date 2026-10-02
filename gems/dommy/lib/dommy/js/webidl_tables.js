@@ -255,6 +255,29 @@ globalThis.__rbIdl = (function () {
   // interface name; `m` = operations, `g` = readonly attributes, `p` = read-write
   // attributes. Assignment follows WebIDL, not Dommy's Ruby class layout (Node /
   // EventTarget are mixins folded into the Element class there).
+  // The ARIAMixin attributes (WAI-ARIA §10.1), which Element includes: the
+  // reflected strings, `role`, and the element references.
+  const ARIA_MIXIN_ATTRIBUTES = [
+    "role", "ariaActiveDescendantElement", "ariaAtomic", "ariaAutoComplete", "ariaBrailleLabel",
+    "ariaBrailleRoleDescription", "ariaBusy", "ariaChecked", "ariaColCount", "ariaColIndex",
+    "ariaColIndexText", "ariaColSpan", "ariaControlsElements", "ariaCurrent", "ariaDescribedByElements",
+    "ariaDescription", "ariaDetailsElements", "ariaDisabled", "ariaErrorMessageElements", "ariaExpanded",
+    "ariaFlowToElements", "ariaHasPopup", "ariaHidden", "ariaInvalid", "ariaKeyShortcuts", "ariaLabel",
+    "ariaLabelledByElements", "ariaLevel", "ariaLive", "ariaModal", "ariaMultiLine", "ariaMultiSelectable",
+    "ariaOrientation", "ariaOwnsElements", "ariaPlaceholder", "ariaPosInSet", "ariaPressed", "ariaReadOnly",
+    "ariaRelevant", "ariaRequired", "ariaRoleDescription", "ariaRowCount", "ariaRowIndex", "ariaRowIndexText",
+    "ariaRowSpan", "ariaSelected", "ariaSetSize", "ariaSort", "ariaValueMax", "ariaValueMin", "ariaValueNow",
+    "ariaValueText"
+  ];
+
+  // FrozenArray<T> attributes: a read returns the same frozen array while it
+  // holds the same items, and a new one once they change (HTML's cached
+  // attr-associated elements, for the ARIA element lists).
+  const FROZEN_ARRAY_ATTRIBUTES = new Set([
+    "ariaControlsElements", "ariaDescribedByElements", "ariaDetailsElements", "ariaErrorMessageElements",
+    "ariaFlowToElements", "ariaLabelledByElements", "ariaOwnsElements"
+  ]);
+
   const INTERFACE_MEMBERS = {
     EventTarget: { m: ["addEventListener", "removeEventListener", "dispatchEvent"] },
     // AbstractRange's attributes live on its prototype, so a StaticRange and a
@@ -319,7 +342,7 @@ globalThis.__rbIdl = (function () {
         "previousElementSibling", "nextElementSibling"],
       // `classList` is readonly but [PutForwards=value], so it takes a setter
       // like any writable member: assigning to it rewrites the class attribute.
-      p: ["id", "className", "slot", "innerHTML", "outerHTML", "classList"]
+      p: ["id", "className", "slot", "innerHTML", "outerHTML", "classList", ...ARIA_MIXIN_ATTRIBUTES]
     },
     CharacterData: {
       m: ["substringData", "appendData", "insertData", "deleteData", "replaceData",
@@ -603,6 +626,7 @@ globalThis.__rbIdl = (function () {
     FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS,
     INTERFACE_MEMBERS,
+    FROZEN_ARRAY_ATTRIBUTES,
     INTERFACE_UNSCOPABLES,
     PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS,

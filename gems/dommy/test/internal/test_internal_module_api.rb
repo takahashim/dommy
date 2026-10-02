@@ -65,6 +65,7 @@ class TestInternalModuleApi < Minitest::Test
       role role= computed_role computed_label computed_description aria_snapshot
       aria_element_get aria_element_set aria_elements_get aria_elements_set
       aria_elements_current aria_find_in_root aria_ref_in_valid_scope?
+      __internal_aria_associated_elements__
     ],
     Dommy::Internal::DocumentGenerations => %w[
       style_generation dom_generation tree_generation

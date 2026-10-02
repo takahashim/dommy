@@ -23,10 +23,10 @@ module Dommy
         described = AccessibleName.referenced_names(element, "aria-describedby")
         return described.strip if described
 
-        attr = element.get_attribute("aria-description").to_s
+        attr = element.__internal_attribute_value__("aria-description").to_s
         return attr.strip unless attr.strip.empty?
 
-        title = element.get_attribute("title").to_s.strip
+        title = element.__internal_attribute_value__("title").to_s.strip
         return "" if title.empty?
         # title already serves as the accessible name — don't double-count it.
         return "" if AccessibleName.compute(element) == title

@@ -6,14 +6,37 @@ module Dommy
     # description, and the element-reflecting aria-* properties.
     #
     # Host contract: @__node__, @document responding to #wrap_node,
-    # #set_attribute / #remove_attribute, #root_node and #accessibility_tree.
+    # #__internal_attribute_value__ / #__internal_set_attribute_value__ /
+    # #remove_attribute_ns, #root_node and #accessibility_tree. Every content
+    # attribute here is the one in no namespace, as ARIA reflects it.
     module ElementAria
+      # ARIAMixin's IDL attributes (WAI-ARIA §10.1), each with the content
+      # attribute it reflects: "aria-" and the rest of the name in lowercase.
+      # A name outside these is no reflection — `ariaFoo` and `ariaLabelledBy`
+      # are plain expandos, as in a browser.
+      STRING_ATTRIBUTES = %w[
+        ariaAtomic ariaAutoComplete ariaBrailleLabel ariaBrailleRoleDescription ariaBusy ariaChecked
+        ariaColCount ariaColIndex ariaColIndexText ariaColSpan ariaCurrent ariaDescription ariaDisabled
+        ariaExpanded ariaHasPopup ariaHidden ariaInvalid ariaKeyShortcuts ariaLabel ariaLevel ariaLive
+        ariaModal ariaMultiLine ariaMultiSelectable ariaOrientation ariaPlaceholder ariaPosInSet
+        ariaPressed ariaReadOnly ariaRelevant ariaRequired ariaRoleDescription ariaRowCount ariaRowIndex
+        ariaRowIndexText ariaRowSpan ariaSelected ariaSetSize ariaSort ariaValueMax ariaValueMin
+        ariaValueNow ariaValueText
+      ].to_h { |name| [name, "aria-#{name.delete_prefix("aria").downcase}"] }.merge("role" => "role").freeze
+      # The one singular element reference.
+      ELEMENT_ATTRIBUTES = { "ariaActiveDescendantElement" => "aria-activedescendant" }.freeze
+      # The element-list references.
+      ELEMENTS_ATTRIBUTES = %w[
+        ariaControlsElements ariaDescribedByElements ariaDetailsElements ariaErrorMessageElements
+        ariaFlowToElements ariaLabelledByElements ariaOwnsElements
+      ].to_h { |name| [name, "aria-#{name.delete_prefix("aria").delete_suffix("Elements").downcase}"] }.freeze
+
       def role
-        @__node__["role"].to_s
+        __internal_attribute_value__("role").to_s
       end
 
       def role=(value)
-        set_attribute("role", value.to_s)
+        __internal_set_attribute_value__("role", value.to_s)
       end
 
       # The WAI-ARIA computed role (what `getByRole` / WPT's get_computed_role
@@ -53,7 +76,7 @@ module Dommy
           return aria_ref_in_valid_scope?(explicit) ? explicit : nil
         end
 
-        idref = @__node__[content_attr].to_s
+        idref = __internal_attribute_value__(content_attr).to_s
         return nil if idref.empty?
 
         aria_find_in_root(idref)
@@ -66,14 +89,14 @@ module Dommy
         refs = (@aria_element_refs ||= {})
         if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
           refs.delete(key)
-          remove_attribute(content_attr) if @__node__.key?(content_attr)
+          remove_attribute_ns(nil, content_attr)
         else
           # WebIDL: the value is an `Element?` — a non-Element throws a TypeError.
           raise Bridge::TypeError, "value is not an Element or null" unless value.is_a?(Dommy::Element)
 
-          # set_attribute clears explicit refs via its aria-* hook, so store the
+          # The write clears explicit refs via its aria-* hook, so store the
           # new reference afterward.
-          set_attribute(content_attr, "")
+          __internal_set_attribute_value__(content_attr, "")
           refs[key] = value
         end
         nil
@@ -82,15 +105,13 @@ module Dommy
       # Read a plural ARIA element references value (a list of Elements): the
       # explicitly-set array wins; otherwise the content attribute is split as a
       # space-separated IDREF list and each resolved (missing ids dropped).
+      #
+      # The IDL type is FrozenArray<Element>?: the elements cross to script as
+      # a plain Array, and the JS side hands back the frozen array it gave out
+      # last for as long as they are the same ones (host_runtime.js
+      # frozenArrayRead), so this answers only with what they are now.
       def aria_elements_get(content_attr, key)
-        # null when there are neither explicit elements nor a content attribute.
-        return nil if aria_elements_current(content_attr, key).nil?
-
-        # Otherwise a per-property memoized live list, so repeated reads return the
-        # [SameObject] (WebIDL requires a stable FrozenArray) while its contents track
-        # the current references/IDREFs.
-        lists = (@aria_elements_lists ||= {})
-        lists[key] ||= LiveNodeList.new { aria_elements_current(content_attr, key) || [] }
+        aria_elements_current(content_attr, key)
       end
 
       # Set a plural ARIA element references value: null/undefined clears it and
@@ -100,7 +121,7 @@ module Dommy
         refs = (@aria_elements_refs ||= {})
         if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
           refs.delete(key)
-          remove_attribute(content_attr) if @__node__.key?(content_attr)
+          remove_attribute_ns(nil, content_attr)
         else
           # WebIDL: the value is a `sequence<Element>?` — a non-array, or an array
           # containing a non-Element, throws a TypeError.
@@ -108,7 +129,7 @@ module Dommy
             raise Bridge::TypeError, "value is not a sequence of Elements"
           end
 
-          set_attribute(content_attr, "")
+          __internal_set_attribute_value__(content_attr, "")
           refs[key] = value.dup
         end
         nil
@@ -121,11 +142,22 @@ module Dommy
       def aria_elements_current(content_attr, key)
         explicit = (@aria_elements_refs ||= {})[key]
         return explicit.select { |el| aria_ref_in_valid_scope?(el) } if explicit
-        return nil unless @__node__.key?(content_attr)
 
-        @__node__[content_attr].to_s.split(/[ \t\n\f\r]+/).reject(&:empty?).filter_map do |id|
+        idrefs = __internal_attribute_value__(content_attr)
+        return nil if idrefs.nil?
+
+        idrefs.split(/[ \t\n\f\r]+/).reject(&:empty?).filter_map do |id|
           aria_find_in_root(id)
         end
+      end
+
+      # The elements an ARIA element-list attribute (`aria-labelledby`)
+      # associates with this one, as its reflection resolves them — the
+      # explicitly-set elements, else the IDREFs found in this element's tree —
+      # for the name, description and role to follow the same references.
+      # nil with neither.
+      def __internal_aria_associated_elements__(content_attr)
+        aria_elements_current(content_attr, ELEMENTS_ATTRIBUTES.key(content_attr))
       end
 
       # Resolve an ARIA IDREF within this element's tree ROOT (its topmost
@@ -134,7 +166,7 @@ module Dommy
       def aria_find_in_root(id)
         root = @__node__
         root = root.parent while root.parent && !root.parent.is_a?(Backend.document_class)
-        node = ([root] + root.css("*").to_a).find { |n| n["id"].to_s == id }
+        node = ([root] + root.css("*").to_a).find { |n| Backend.no_namespace_attribute_value(n, "id") == id }
         node && @document.wrap_node(node)
       end
 

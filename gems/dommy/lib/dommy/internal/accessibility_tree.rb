@@ -174,7 +174,7 @@ module Dommy
         return nil unless element.local_name.to_s.casecmp?("input")
 
         value = element.value.to_s
-        case element.get_attribute("type").to_s.downcase
+        case element.__internal_attribute_value__("type").to_s.downcase
         when "range" then value.empty? ? range_default(element) : value
         when "color" then value.empty? ? "#000000" : value
         when "number" then value.empty? ? nil : value
@@ -182,8 +182,8 @@ module Dommy
       end
 
       def range_default(element)
-        min = numeric(element.get_attribute("min"), 0.0)
-        max = numeric(element.get_attribute("max"), 100.0)
+        min = numeric(element.__internal_attribute_value__("min"), 0.0)
+        max = numeric(element.__internal_attribute_value__("max"), 100.0)
         format_number(min + ((max - min) / 2.0))
       end
 
@@ -208,7 +208,7 @@ module Dommy
       # make it a real header.
       def lone_unscoped_th?(element)
         return false unless element.local_name.to_s.casecmp?("th")
-        return false unless element.get_attribute("scope").to_s.empty?
+        return false unless element.__internal_attribute_value__("scope").to_s.empty?
 
         table = element.respond_to?(:closest) ? element.closest("table") : nil
         return false unless table
