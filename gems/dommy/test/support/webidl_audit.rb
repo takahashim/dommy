@@ -733,7 +733,7 @@ module WebIdlAudit
       "ShadowRoot" => element.attach_shadow({"mode" => "open"}),
       "URL" => Dommy::URL.new("https://example.com/?a=1"),
       "Request" => Dommy::Request.new("https://example.com/", nil, window),
-      "Response" => Dommy::Response.__construct__(window, nil, nil),
+      "Response" => Dommy::Response.__internal_construct__(window, nil, nil),
       "XMLHttpRequest" => Dommy::XMLHttpRequest.new(window),
       "MutationRecord" => Dommy::MutationRecord.new(type: "childList", target: element),
       "CSSStyleSheet" => sheet,

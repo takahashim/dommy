@@ -88,7 +88,7 @@ class TestResponseConstructor < Minitest::Test
   end
 
   def build(body = nil, init = nil)
-    Dommy::Response.__construct__(@win, body, init)
+    Dommy::Response.__internal_construct__(@win, body, init)
   end
 
   def test_defaults
