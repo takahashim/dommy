@@ -144,8 +144,8 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[cloneNode isSameNode getRootNode hasChildNodes normalize compareDocumentPosition
-      appendChild insertBefore removeChild replaceChild
+    js_methods %w[cloneNode isSameNode isEqualNode contains getRootNode hasChildNodes normalize
+      compareDocumentPosition appendChild insertBefore removeChild replaceChild
       lookupNamespaceURI lookupPrefix isDefaultNamespace
       addEventListener removeEventListener dispatchEvent]
     def __js_call__(method, args)
@@ -162,6 +162,10 @@ module Dommy
                         document: @document)
       when "isSameNode"
         is_same_node(args[0])
+      when "isEqualNode"
+        is_equal_node(args[0])
+      when "contains"
+        contains?(args[0])
       when "getRootNode"
         get_root_node(args[0])
       when "compareDocumentPosition"
@@ -181,6 +185,11 @@ module Dommy
       when "dispatchEvent"
         dispatch_event(args[0])
       end
+    end
+
+    # Node.contains — an Attr has no descendants, so only itself.
+    def contains?(other)
+      equal?(other)
     end
 
     # Internal: called by Element when the attr is being transferred
@@ -278,7 +287,7 @@ module Dommy
       node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
         Backend.attribute_ns_info(a)[:qualified_name] == key
       end
-      return nil unless node
+      raise DOMException::NotFoundError, "no attribute named #{key.inspect}" unless node
 
       removed = attr_for(node)
       @element.remove_attribute(key)
@@ -352,7 +361,7 @@ module Dommy
 
     def remove_named_item_ns(namespace, local_name)
       existing = get_named_item_ns(namespace, local_name)
-      return nil unless existing
+      raise DOMException::NotFoundError, "no attribute #{local_name.inspect} in that namespace" unless existing
 
       @element.remove_attribute_ns(namespace, local_name)
       existing
