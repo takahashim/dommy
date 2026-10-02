@@ -398,8 +398,6 @@
     ],
     "HTMLElement": [
       "attachInternals",
-      "autocapitalize",
-      "autocorrect",
       "contentEditable",
       "enterKeyHint",
       "inputMode",

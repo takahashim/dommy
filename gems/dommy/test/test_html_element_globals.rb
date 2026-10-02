@@ -74,4 +74,24 @@ class TestHTMLElementGlobals < Minitest::Test
     inner.__js_set__("writingSuggestions", "false")
     assert_equal ["false", "false"], [inner.get_attribute("spellcheck"), inner.get_attribute("writingsuggestions")]
   end
+
+  # autocapitalize names the hint its keyword gives, and autocorrect is on
+  # unless "off"; a form control that says nothing takes its form's.
+  def test_autocapitalize_and_autocorrect
+    assert_equal ["none", "sentences", "words", ""],
+      [element(autocapitalize: "off"), element(autocapitalize: "On"), element(autocapitalize: "words"), element(autocapitalize: "x")].map { |e| e.__js_get__("autocapitalize") }
+
+    form = element("form", autocapitalize: "characters", autocorrect: "off")
+    input = form.append_child(@doc.create_element("input"))
+    div = form.append_child(@doc.create_element("div"))
+    assert_equal [["characters", false], ["", true]], [input, div].map { |e| [e.__js_get__("autocapitalize"), e.__js_get__("autocorrect")] }
+
+    input.set_attribute("autocorrect", "")
+    assert input.__js_get__("autocorrect")
+    input.set_attribute("type", "email")
+    refute input.__js_get__("autocorrect")
+
+    div.__js_set__("autocorrect", false)
+    assert_equal "off", div.get_attribute("autocorrect")
+  end
 end

@@ -67,6 +67,52 @@ module Dommy
     # or when it says nothing and the parent's is "false"; else "true".
     def writing_suggestions = inherited_hint("writingsuggestions", "true", "false") == false ? "false" : "true"
 
+    reflect_setter :autocapitalize
+    js_accessor :autocorrect
+
+    # The autocapitalize keywords and the hint each names (HTML §6.8.6).
+    AUTOCAPITALIZE_HINTS = {
+      "off" => "none", "none" => "none", "on" => "sentences", "sentences" => "sentences",
+      "words" => "words", "characters" => "characters",
+    }.freeze
+    # The "autocapitalize-and-autocorrect inheriting elements", which take
+    # their form owner's hint when they give none.
+    AUTOCAPITALIZE_INHERITING = %w[button fieldset input output select textarea].freeze
+    # The input types that never autocorrect.
+    NO_AUTOCORRECT_TYPES = %w[url email password].freeze
+
+    # `autocapitalize`: the element's own autocapitalization hint — its
+    # attribute's keyword, else its form owner's when it is one of the
+    # inheriting elements — or "" when there is none.
+    def autocapitalize = own_autocapitalization_hint || ""
+
+    def own_autocapitalization_hint
+      hint = AUTOCAPITALIZE_HINTS[__internal_attribute_value__("autocapitalize")&.downcase(:ascii)]
+      hint || autocorrect_form_owner&.own_autocapitalization_hint
+    end
+    protected :own_autocapitalization_hint
+
+    # `autocorrect` (HTML §6.8.7): the used autocorrection state — off for a
+    # url, email or password input; else the attribute's ("off" turns it
+    # off, anything else on), or the form owner's for an inheriting element;
+    # else on. The setter writes "on" or "off".
+    def autocorrect
+      return false if local_name == "input" && NO_AUTOCORRECT_TYPES.include?(__internal_attribute_value__("type")&.downcase(:ascii))
+
+      source = __internal_has_attribute__?("autocorrect") ? self : autocorrect_form_owner
+      source.nil? || !source.__internal_attribute_value__("autocorrect").to_s.casecmp?("off")
+    end
+
+    def autocorrect=(value)
+      __internal_set_attribute_value__("autocorrect", value ? "on" : "off")
+    end
+
+    # The form owner an inheriting element takes its hints from, or nil.
+    def autocorrect_form_owner
+      AUTOCAPITALIZE_INHERITING.include?(local_name) && respond_to?(:form) ? form : nil
+    end
+    private :autocorrect_form_owner
+
     # The state an inherited true / false hint attribute gives this element:
     # true for `on` or "", false for `off`, both matched ASCII
     # case-insensitively; any other value, or none, defers to the parent
