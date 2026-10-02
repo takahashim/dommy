@@ -14,6 +14,7 @@ module Dommy
   class HTMLElement < Element
     include Internal::ReflectedAttributes
     include Internal::HTMLOrSVGOrMathMLElement
+    include Internal::ElementCSSInlineStyle
     # `lang` reflects its own content attribute ("" when absent) — not the
     # inherited language the element computes for matching.
     reflect_string :lang

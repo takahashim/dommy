@@ -44,7 +44,6 @@ module Dommy
       @document = document
       @__node__ = nokogiri_node
       @class_list = ClassList.new(self)
-      @style = StyleDeclaration.new(self)
       # `HTMLCollection` re-evaluates the child list on every
       # property access so callers that capture `el[:children]` once
       # see DOM mutations made between iterations — required by list
@@ -209,13 +208,6 @@ module Dommy
     end
 
     SVG_NAMESPACE = Internal::Namespaces::SVG
-
-    # Local names for which a reflected DOMTokenList IDL attribute is defined,
-    # per namespace; elsewhere the attribute does not exist (→ undefined). `rel`
-    # is reflected on the `a` of all three namespaces that define one.
-    def style
-      @style
-    end
 
     def children
       @live_children
@@ -1009,8 +1001,6 @@ module Dommy
         return Bridge::ABSENT unless namespace_uri == Internal::Namespaces::MATHML && local_name == "a"
 
         (@reflected_token_lists ||= {})["rel"] ||= ClassList.new(self, "rel")
-      when "style"
-        @style
       when "className"
         # DOM reflects the `class` attribute as the `className` string
         # property (space-separated tokens, "" when absent).
@@ -1140,12 +1130,6 @@ module Dommy
       when "outerHTML"
         # [CEReactions, LegacyNullToEmptyString] DOMString — null becomes "".
         self.outer_html = value.nil? ? "" : value.to_s
-      when "style"
-        # WHATWG [PutForwards=cssText]: `el.style = "..."` forwards to
-        # `el.style.cssText`, reparsing and rewriting the `style` attribute.
-        # Handling it here stops the bridge from stashing a string expando that
-        # would shadow the CSSStyleDeclaration getter.
-        @style.css_text = value.nil? ? "" : value.to_s
       when "className"
         self.class_name = value
       when "classList"

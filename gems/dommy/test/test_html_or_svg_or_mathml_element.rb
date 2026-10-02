@@ -81,4 +81,17 @@ class TestHTMLOrSVGOrMathMLElement < Minitest::Test
       assert_equal keyword, div.__js_get__("popover"), value
     end
   end
+
+  # style is ElementCSSInlineStyle's, which the same three interfaces
+  # include; `el.style = text` forwards to cssText.
+  def test_style_is_on_html_svg_and_mathml_elements
+    NAMESPACES.each_value do |namespace|
+      el = element(namespace, "x")
+      el.__js_set__("style", "color: red")
+      assert_equal "red", el.__js_get__("style").get_property_value("color"), namespace
+    end
+    plain = element(nil, "x")
+    assert_equal Dommy::Bridge::ABSENT, plain.__js_get__("style")
+    refute plain.respond_to?(:style)
+  end
 end

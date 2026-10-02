@@ -8,5 +8,6 @@ module Dommy
   class MathMLElement < Element
     include Internal::ReflectedAttributes
     include Internal::HTMLOrSVGOrMathMLElement
+    include Internal::ElementCSSInlineStyle
   end
 end

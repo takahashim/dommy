@@ -17,6 +17,7 @@ module Dommy
   class SVGElement < Element
     include Internal::ReflectedAttributes
     include Internal::HTMLOrSVGOrMathMLElement
+    include Internal::ElementCSSInlineStyle
 
     # SVG attribute names are case-sensitive (`viewBox` ≠ `viewbox`).
     # Element's get/set/has/remove_attribute consult this flag to
