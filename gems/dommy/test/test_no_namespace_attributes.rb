@@ -102,6 +102,24 @@ class TestNoNamespaceAttributes < Minitest::Test
     assert_equal([], @host.children.__js_named_props__)
   end
 
+  # :lang reads `xml:lang` first, then `lang` in no namespace on an HTML,
+  # SVG or MathML element; an empty value is an unknown language, which
+  # stops the search.
+  def test_lang
+    outer = element
+    outer.set_attribute("lang", "fr")
+    inner = outer.append_child(@doc.create_element("p"))
+    inner.set_attribute_ns(NS, "lang", "de")
+    assert(inner.matches?(":lang(fr)"))
+
+    inner.set_attribute_ns("http://www.w3.org/XML/1998/namespace", "xml:lang", "de")
+    assert(inner.matches?(":lang(de)"))
+
+    inner.remove_attribute_ns("http://www.w3.org/XML/1998/namespace", "lang")
+    inner.set_attribute_ns(nil, "lang", "")
+    refute(inner.matches?(":lang(fr)"))
+  end
+
   # The JS side answers `el.id` from its attribute snapshot, so an element
   # with an unprefixed namespaced attribute is not snapshotted.
   def test_snapshot

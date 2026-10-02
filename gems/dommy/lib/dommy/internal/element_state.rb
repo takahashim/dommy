@@ -154,23 +154,34 @@ module Dommy
         false
       end
 
-      # `:lang()` accepts a list of language ranges; the element's content
-      # language (nearest lang attribute) must extended-filter-match any of
-      # them (RFC 4647 §3.3.2 — so `de-DE` matches `de-Latn-DE`).
+      # `:lang()` accepts a list of language ranges; the element's language
+      # must extended-filter-match any of them (RFC 4647 §3.3.2 — so `de-DE`
+      # matches `de-Latn-DE`). An unknown language (`lang=""`) matches none.
       def lang_match?(element, ranges)
-        actual = nil
+        actual = language_of(element)
+        return false if actual.nil? || actual.empty?
+
+        actual = actual.downcase
+        Array(ranges).any? { |range| lang_range_match?(actual, range.to_s.downcase) }
+      end
+
+      # The namespaces whose elements take a `lang` attribute in no namespace.
+      LANG_NAMESPACES = [Namespaces::HTML, Namespaces::SVG, Namespaces::MATHML].freeze
+
+      # HTML "the language of a node": the nearest element's `xml:lang` (in
+      # the XML namespace), or else its `lang` in no namespace when it is an
+      # HTML, SVG or MathML element; "" when that value is empty (the
+      # language is unknown, and no ancestor is asked), nil when none says.
+      def language_of(element)
         node = element
         while node
-          value = node.get_attribute("lang") if node.respond_to?(:get_attribute)
-          if value && !value.to_s.empty?
-            actual = value.to_s.downcase
-            break
-          end
+          value = Backend.get_attribute_ns(node.__dommy_backend_node__, Namespaces::XML, "lang")
+          value = node.__internal_attribute_value__("lang") if value.nil? && LANG_NAMESPACES.include?(node.namespace_uri)
+          return value unless value.nil?
+
           node = node.parent_element
         end
-        return false unless actual
-
-        Array(ranges).any? { |range| lang_range_match?(actual, range.to_s.downcase) }
+        nil
       end
 
       def lang_range_match?(actual, range)
@@ -227,6 +238,7 @@ module Dommy
       private_class_method :first_legend_child
       private_class_method :contains_element?
       private_class_method :lang_range_match?
+      private_class_method :language_of
     end
   end
 end
