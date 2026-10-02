@@ -62,6 +62,7 @@ class TestInternalModuleApi < Minitest::Test
       __internal_approx_box approximate_layout?
     ],
     Dommy::Internal::ElementShadow => %w[slot slot= assigned_slot attach_shadow shadow_root __internal_shadow_root__],
+    Dommy::Internal::ElementNonce => %w[nonce nonce=],
     Dommy::Internal::ElementAria => %w[
       role role= computed_role computed_label computed_description aria_snapshot
       aria_element_get aria_element_set aria_elements_get aria_elements_set

@@ -398,7 +398,6 @@
     ],
     "HTMLElement": [
       "attachInternals",
-      "nonce",
       "onabort",
       "onauxclick",
       "onbeforeinput",

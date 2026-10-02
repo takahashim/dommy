@@ -16,6 +16,8 @@ module Dommy
   # `viewBox`, `gradientUnits`, `preserveAspectRatio`).
   class SVGElement < Element
     include Internal::ReflectedAttributes
+    include Internal::ElementNonce
+    js_accessor :nonce
 
     # SVG attribute names are case-sensitive (`viewBox` ≠ `viewbox`).
     # Element's get/set/has/remove_attribute consult this flag to

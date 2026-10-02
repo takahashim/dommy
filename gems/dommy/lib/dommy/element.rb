@@ -1533,10 +1533,7 @@ module Dommy
         ns = nil
         recorded_name = key
       end
-      # A direct write to an `aria-*` IDREF attribute in no namespace drops
-      # any explicitly-set element reference, so the IDL getter re-resolves
-      # the new IDREF.
-      clear_aria_element_ref_for(key) if ns.nil? && key.start_with?("aria-")
+      attribute_change_steps(key, ns)
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: recorded_name,
                                           old_value: old, namespace: ns)
       nil
@@ -1558,9 +1555,7 @@ module Dommy
     def __internal_set_attribute_value__(local_name, value)
       old = Backend.no_namespace_attribute_value(@__node__, local_name)
       Backend.set_attribute_ns(@__node__, nil, nil, local_name, local_name, value.to_s)
-      # As set_attribute: a write to an `aria-*` IDREF attribute drops any
-      # explicitly-set element reference.
-      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-")
+      attribute_change_steps(local_name, nil)
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local_name,
                                           old_value: old, namespace: nil)
       nil
@@ -1603,9 +1598,7 @@ module Dommy
       ns, prefix, local = Internal::Namespaces.validate_and_extract(namespace, qualified_name)
       old = Backend.get_attribute_ns(@__node__, ns, local)
       Backend.set_attribute_ns(@__node__, ns, prefix, local, qualified_name.to_s, value.to_s)
-      # As set_attribute: an `aria-*` IDREF attribute in no namespace drops
-      # its explicitly-set element reference.
-      clear_aria_element_ref_for(local) if ns.nil? && local.start_with?("aria-")
+      attribute_change_steps(local, ns)
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
       nil
     end
@@ -1822,6 +1815,20 @@ module Dommy
     # ---- Internal helpers (single private section) ----
     private
 
+    # The attribute change steps for the state an element keeps beside its
+    # attributes, run whenever the attribute with local name `local_name`
+    # in `namespace` is set, changed or removed. Only attributes in no
+    # namespace have such state: an `aria-*` element reference drops the
+    # element set through its IDL attribute, so the IDREF is read again,
+    # and `nonce` the nonce set through its IDL attribute, so the new value
+    # is the element's nonce.
+    def attribute_change_steps(local_name, namespace)
+      return unless namespace.nil?
+
+      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-")
+      @cryptographic_nonce = nil if local_name == "nonce"
+    end
+
     # DOM "remove an attribute": the attribute with namespace `ns` and local
     # name `local`, if the element has one, whose value is `old`. The cached
     # Attr is detached (caching its value) *before* the backend drop, so a
@@ -1833,9 +1840,7 @@ module Dommy
 
       @attributes&.__internal_evict__(ns, local)
       Backend.remove_attribute_ns(@__node__, ns, local)
-      # Removing an `aria-*` IDREF attribute also clears any explicitly-set
-      # element reference (the IDL getter then returns null).
-      clear_aria_element_ref_for(local) if ns.nil? && local.start_with?("aria-")
+      attribute_change_steps(local, ns)
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
     end
 

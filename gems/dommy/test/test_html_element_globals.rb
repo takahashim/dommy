@@ -128,4 +128,23 @@ class TestHTMLElementGlobals < Minitest::Test
     assert_equal ["go", "numeric"], %w[enterKeyHint inputMode].map { |k| el.__js_get__(k) }
     assert_equal ["", ""], %w[enterKeyHint inputMode].map { |k| element(enterkeyhint: "x").__js_get__(k) }
   end
+
+  # nonce is the element's own slot: the IDL setter changes it alone, and
+  # a change to the attribute makes the attribute's value the nonce again.
+  def test_nonce
+    el = element(nonce: "a")
+    assert_equal "a", el.__js_get__("nonce")
+    el.__js_set__("nonce", "b")
+    assert_equal ["b", "a"], [el.__js_get__("nonce"), el.get_attribute("nonce")]
+
+    el.set_attribute("nonce", "c")
+    assert_equal "c", el.__js_get__("nonce")
+    el.__js_set__("nonce", "d")
+    el.remove_attribute("nonce")
+    assert_equal "", el.__js_get__("nonce")
+
+    svg = @doc.create_element_ns("http://www.w3.org/2000/svg", "script")
+    svg.set_attribute("nonce", "s")
+    assert_equal "s", svg.__js_get__("nonce")
+  end
 end

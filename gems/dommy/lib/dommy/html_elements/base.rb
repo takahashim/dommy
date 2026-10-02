@@ -13,6 +13,8 @@ module Dommy
   # SVGElement).
   class HTMLElement < Element
     include Internal::ReflectedAttributes
+    include Internal::ElementNonce
+    js_accessor :nonce
     # `lang` reflects its own content attribute ("" when absent) — not the
     # inherited language the element computes for matching.
     reflect_string :lang
