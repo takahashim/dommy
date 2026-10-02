@@ -2,22 +2,49 @@
 
 ## Unreleased
 
+### Added
+
+- `accessKey`, `autocapitalize`, `autocorrect`, `autofocus`, `contentEditable`, `draggable`, `enterKeyHint`, `headingOffset`, `headingReset`, `inert`, `inputMode`, `isContentEditable`, `nonce`, `spellcheck`, `tabIndex`, `title` and `writingSuggestions` on HTML elements, and `nonce` on SVG elements.
+- The ARIAMixin attributes are on `Element.prototype`, so `"ariaLabelledByElements" in Element.prototype` is true.
+
 ### Changed
 
 - **Requires makiri >= 0.12.1.** Its queries no longer warn about chilled string literals under Ruby 4.0.
 - `document.body` is the first `body` or `frameset` child of an HTML `html` document element, as HTML defines it: a `body` deeper in the tree, one in another namespace, or one under a non-HTML root element is not it, and a `frameset` is. `document.head` likewise needs an HTML `html` document element.
 - `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.
+- `ariaLabelledByElements` and the other ARIA element lists are frozen arrays, the same object until their elements change, instead of live `NodeList`s.
+- `el.ariaFoo`, `el.ariaLabelledBy` and any other name ARIAMixin does not define are ordinary properties: setting one writes no attribute.
+- A `<script>` from `createContextualFragment` runs when the fragment is inserted.
+- `removeNamedItem` and `removeNamedItemNS` throw `NotFoundError` when the element has no such attribute.
 
 ### Fixed
 
 - `document.body = element` sets the body in HTML and XML documents alike: it replaces the current `body` or `frameset`, or is appended to the document element, and throws `HierarchyRequestError` for anything but a `body` or `frameset`.
-- `documentElement`, `children`, `firstElementChild`, `lastElementChild` and `childElementCount` find an element appended after the root element was removed, and no longer count the doctype as the document's element child.
-- `getElementById` and `getElementsByClassName` find an id or a class made of a space character such as U+00A0 or U+3000, where they raised a selector syntax error.
+- A document's element children skip its doctype: an element appended after the root element was removed is its `documentElement` and its only child element.
+- `document.title` is the first `title` in the HTML namespace, or an SVG document's own `title` child, and reads only that element's own text, as a title element's `text` does.
+- `insertAdjacentHTML`, the `outerHTML` setter and `createContextualFragment` parse in their context element: `<rect/>` inserted into an `<svg>` is an SVG element, and in an XML document `insertAdjacentHTML` parses XML.
+- `attachShadow` takes only an HTML element whose local name, as written, may host a shadow root: a `div` in another namespace or a `DIV` from `createElementNS` throws `NotSupportedError`.
+- `isContentEditable` and `:read-write` hold inside an editing host and in a document whose `designMode` is `"on"`, until a `contenteditable="false"`.
+- `svg.tabIndex` is a number: `-1`, or `0` for an SVG `a`, without a `tabindex` attribute.
 - `getElementById` compares ids case-sensitively in a quirks-mode document too: `<p id=Bar>` is not found by `"bar"`.
 - In a quirks-mode document, id and class selectors match ASCII case-insensitively in `querySelector`, `matches` and the style cascade: `.foo` finds and styles `<p class=Foo>`.
 - `document.compatMode` follows the HTML parser's mode: an XHTML 1.0 Strict or Transitional doctype with its system identifier is `"CSS1Compat"`, a cloned document keeps its original's mode, and removing the doctype later does not change it.
+- `getElementById` and `getElementsByClassName` find an id or a class made of a space character such as U+00A0 or U+3000, where they raised a selector syntax error.
+- `getElementsByClassName`, `getElementsByName` and `getElementById` take any value: a class like `1`, `a.b` or `[x]`, a name with a quote, and an id holding NUL are found. `getElementsByClassName` folds ASCII case in a quirks-mode document.
+- `getElementsByName` returns HTML elements only: an `<svg name>` or a `<math name>` is not among them.
+- An element's HTML attributes are the ones in no namespace: an `id`, `title`, `style` or `required` made with `setAttributeNS("urn:x", …)` does not count for `getElementById`, selectors, `el.title`, the inline style or `:required`, and setting a reflection writes the attribute in no namespace beside it.
+- `:lang()` follows `xml:lang`, and `lang=""` matches no language.
+- An ARIA reflection reads and writes its attribute in no namespace and resolves its IDREFs in the element's own tree, and any write to the attribute drops an element set through the reflection.
+- The accessible name, description and role follow the elements set through `ariaLabelledByElements` and `ariaDescribedByElements` and the IDREFs in the element's own tree: a shadow tree's `aria-labelledby` does not name an element outside it.
+- `adoptNode(attr)` returns the `Attr` and moves it into the document, leaving it on its element.
+- An `Attr` keeps its node document when it is removed from its element, takes its element's document when appended to one, and moves with an adopted element.
+- An `Attr` is outside the tree: its parent, children and siblings are null, its `childNodes` empty and `isConnected` false, and it answers `isEqualNode` and `contains`.
+- `compareDocumentPosition` places an `Attr` at its element, before the element's children: an element contains its attributes, and two attributes of one element compare in attribute order.
+- `removeAttributeNode`, `setAttributeNode` and `attr.value = …` act on the `Attr` they are given even when another attribute shares its qualified name.
+- `removeAttributeNS` drops an ARIA element reference along with its `aria-*` attribute, as `removeAttribute` does.
+- Upgrading a custom element passes each attribute's namespace to `attributeChangedCallback`.
 - A style attribute and a CSSOM declaration block are read in tokens: a `;` or `:` inside a string, a function, a `{}` block, an escape or an unquoted `url()` stays in its value, so `content: "a;b"`, `url(data:image/png;base64,…)` and `url(a/*b.png)` keep the declarations after them, and a comment hides nothing that follows it.
-- A CR, a CRLF and an FF in a style attribute are each one newline, so a backslash before a CRLF in a string no longer swallows the declarations after it.
+- A CR, a CRLF and an FF in a style attribute are each one newline, so a backslash before a CRLF in a string continues the string.
 - A declaration's value with a `;`, a `!` or an unmatched closing bracket at its top level is dropped, so `setProperty("--x", "1; color: red")` adds nothing, and a bracket closes only a block of its own kind (`calc(1px]; color: red` is all one value).
 - A custom property's value may be empty (`--x:;`, `--x: /* c */`) or hold a colon (`--time: 10:30`), through `setProperty` too.
 - A `var()` inside a string or a comment is text: `content: "var(--x)"` is not substituted, and `content: "var(--"` is kept.
@@ -25,30 +52,8 @@
 - An+B is read in tokens: `:nth-child(2n/**/+1)` and `:nth-child(2\6E+1)` parse.
 - A selector argument list splits at commas outside escapes, strings and comments: `:is(.a\,b, c)` is two selectors.
 - A comment may sit between the two delims of an attribute matcher or around a namespace `|` (`[a~/**/=x]`, `*|/**/p`), and the attribute modifier may be escaped (`[a=x \69]`).
-- An escape past U+10FFFF or of a surrogate is U+FFFD instead of raising, a backslash before a newline is no escape, and one at the end of a string is dropped.
-- `getElementsByClassName`, `getElementsByName` and `getElementById` take any value: a class like `1`, `a.b` or `[x]`, a name with a quote, and an id holding NUL are found instead of raising or finding nothing. `getElementsByClassName` folds ASCII case in a quirks-mode document.
-- `getElementById`, `getElementsByClassName`, `getElementsByName`, id and class selectors and `classList` read the `id`, `class` and `name` attributes in no namespace: one set with `setAttributeNS("urn:x", "id", …)` does not count, and a `classList` change writes the attribute in no namespace.
-- `getElementsByName` returns HTML elements only: an `<svg name>` or a `<math name>` is not among them.
+- An escape past U+10FFFF or of a surrogate is U+FFFD, a backslash before a newline is no escape, and one at the end of a string is dropped.
 - `CSS.escape("-")` is `"\-"`.
-- `el.title` reflects the `title` attribute.
-- `removeNamedItem` and `removeNamedItemNS` throw `NotFoundError` when the element has no such attribute.
-- An `Attr` answers `isEqualNode` and `contains` from script.
-- `attachShadow` takes only an HTML element whose local name, as written, may host a shadow root: a `div` in another namespace or a `DIV` from `createElementNS` throws `NotSupportedError`.
-- `document.title` is the first `title` in the HTML namespace, or an SVG document's own `title` child, and reads only that element's own text, as a title element's `text` does.
-- `insertAdjacentHTML`, the `outerHTML` setter and `createContextualFragment` parse in their context element, so `<rect/>` inserted into an `<svg>` is an SVG element, and `insertAdjacentHTML` parses XML in an XML document.
-- A `<script>` from `createContextualFragment` runs when the fragment is inserted.
-- Reflected attributes, `dataset`, the inline style and a collection's named items use the attribute in no namespace: one made with `setAttributeNS("urn:x", "title", …)` no longer counts.
-- `:lang()` follows `xml:lang`, and `lang=""` matches no language.
-- The ARIA reflections are exactly the ones ARIA defines, on `Element.prototype`, so `el.ariaFoo` is an ordinary property.
-- The ARIA reflections and their IDREFs use attributes in no namespace, and writing the attribute in any way drops an element set through its reflection.
-- `ariaLabelledByElements` and the other element lists are frozen arrays, the same object until their elements change.
-- The accessible name, description and role follow the elements set through `ariaLabelledByElements` and `ariaDescribedByElements`, resolve IDREFs in the element's own tree, and ignore attributes in other namespaces.
-- `adoptNode(attr)` returns the `Attr` and moves it into the document, leaving it on its element.
-- An `Attr` keeps its node document when it is removed from its element, takes its element's document when appended to one, and moves with an adopted element.
-- `compareDocumentPosition` places an `Attr` at its element, before the element's children: an element contains its attributes, and two attributes of one element compare in attribute order.
-- An `Attr` has `parentNode`, `parentElement`, `firstChild`, `lastChild`, `previousSibling` and `nextSibling` of null, an empty `childNodes`, and `isConnected` of false.
-- `removeAttributeNode(attr)` removes that attribute and returns it, rather than the first attribute with its qualified name.
-- `removeAttributeNS` drops an ARIA element reference along with its `aria-*` attribute, as `removeAttribute` does.
 
 ## 0.14.0 — 2026-10-01
 
