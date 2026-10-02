@@ -190,19 +190,19 @@ module Dommy
     end
 
     def id
-      @__node__["id"].to_s
+      __internal_attribute_value__("id").to_s
     end
 
     def id=(value)
-      set_attribute("id", value.to_s)
+      __internal_set_attribute_value__("id", value.to_s)
     end
 
     def class_name
-      @__node__["class"].to_s
+      __internal_attribute_value__("class").to_s
     end
 
     def class_name=(value)
-      set_attribute("class", value.to_s)
+      __internal_set_attribute_value__("class", value.to_s)
     end
 
     def class_list
@@ -942,6 +942,7 @@ module Dommy
     # `name.toLowerCase()` lookup matches get_attribute's normalize_attr_key.
     def __js_attribute_snapshot__
       return nil if case_sensitive_attribute_names?
+      return nil if namespaced_unprefixed_attribute?
 
       # Two attributes can share a qualified name (differing only by namespace);
       # get-an-attribute-by-name returns the FIRST in list order, so keep the
@@ -1060,9 +1061,9 @@ module Dommy
       when "className"
         # DOM reflects the `class` attribute as the `className` string
         # property (space-separated tokens, "" when absent).
-        @__node__["class"].to_s
+        class_name
       when "id"
-        @__node__["id"].to_s
+        id
       when "translate"
         # `translate` is a boolean reflecting the element's translation mode,
         # which inherits: translate="yes"/"" → true, "no" → false, else the
@@ -1312,20 +1313,20 @@ module Dommy
         # The setter is a plain boolean → "yes" / "no".
         set_attribute("translate", value ? "yes" : "no")
       when "className"
-        set_attribute("class", value.to_s)
+        self.class_name = value
       when "classList"
         # WHATWG [PutForwards=value]: `el.classList = x` forwards to
         # `el.classList.value = x` (set the class attribute). Handling it here
         # (instead of letting the write fall through as unhandled) stops the JS
         # bridge from stashing a string expando that would shadow the classList
         # getter for the rest of the element's life.
-        set_attribute("class", value.to_s)
+        self.class_name = value
       when "id"
-        set_attribute("id", value.to_s)
+        self.id = value
       when "value"
         set_attribute("value", value.to_s)
       when "slot"
-        set_attribute("slot", value.to_s)
+        self.slot = value
       when "role"
         aria_set("role", value)
       else
@@ -1563,6 +1564,26 @@ module Dommy
       clear_aria_element_ref_for(key) if key.start_with?("aria-")
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: recorded_name,
                                           old_value: old, namespace: ns)
+      nil
+    end
+
+    # HTML reads and writes a content attribute in no namespace — every
+    # reflected IDL attribute, `id`, `class` and the algorithms that consult
+    # one — where get_attribute / set_attribute take the first attribute
+    # with the qualified name, whichever namespace it is in. DOM "get an
+    # attribute value" and "set an attribute value" with a null namespace.
+    def __internal_attribute_value__(local_name)
+      Backend.no_namespace_attribute_value(@__node__, local_name)
+    end
+
+    def __internal_set_attribute_value__(local_name, value)
+      old = Backend.no_namespace_attribute_value(@__node__, local_name)
+      Backend.set_attribute_ns(@__node__, nil, nil, local_name, local_name, value.to_s)
+      # As set_attribute: a write to an `aria-*` IDREF attribute drops any
+      # explicitly-set element reference.
+      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-")
+      @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local_name,
+                                          old_value: old, namespace: nil)
       nil
     end
 
@@ -1918,6 +1939,20 @@ module Dommy
     # preserves case (WHATWG "set/get/has attribute" lowercasing condition).
     def case_sensitive_attribute_names?
       !(namespace_uri == Internal::Namespaces::HTML && @document.html_document?)
+    end
+
+    # Whether one of the attributes is in a namespace with no prefix, so
+    # that its qualified name is a plain one (`id`) the JS side's snapshot
+    # would also answer `el.id` with — it reads no namespace there. Only
+    # setAttributeNS makes such an attribute, so until one is made anywhere
+    # (Backend.namespaced_unprefixed_attribute?) no element is asked.
+    def namespaced_unprefixed_attribute?
+      return false unless Backend.namespaced_unprefixed_attribute?
+
+      Backend.attribute_nodes(@__node__).any? do |a|
+        info = Backend.attribute_ns_info(a)
+        info[:namespace_uri] && info[:prefix].nil?
+      end
     end
 
     # Insertion / scroll / popover helpers.

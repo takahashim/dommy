@@ -34,11 +34,11 @@ module Dommy
       # `slot` and `role` are simple reflected string attributes —
       # added as named accessors for happy-dom test parity.
       def slot
-        @__node__["slot"].to_s
+        __internal_attribute_value__("slot").to_s
       end
 
       def slot=(value)
-        set_attribute("slot", value.to_s)
+        __internal_set_attribute_value__("slot", value.to_s)
       end
 
       # `assignedSlot` — for a slottable (a direct light-DOM child of a shadow

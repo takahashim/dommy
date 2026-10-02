@@ -64,12 +64,23 @@ class TestFirstSetAttribute < Minitest::Test
 
   def test_get_attribute_returns_first_of_shared_qualified_name
     el = make_window("<div id='d'></div>").document.get_element_by_id("d")
-    el.__js_call__("setAttributeNS", ["ab", "attr", "t1"])
-    el.__js_call__("setAttributeNS", ["kl", "attr", "t2"])
+    el.__js_call__("setAttributeNS", ["ab", "p:attr", "t1"])
+    el.__js_call__("setAttributeNS", ["kl", "p:attr", "t2"])
 
-    assert_equal "t1", el.get_attribute("attr"), "getAttribute returns the first"
-    assert_equal "t1", el.__js_attribute_snapshot__["attr"], "bridge snapshot keeps the first"
+    assert_equal "t1", el.get_attribute("p:attr"), "getAttribute returns the first"
+    assert_equal "t1", el.__js_attribute_snapshot__["p:attr"], "bridge snapshot keeps the first"
     assert_equal "t1", el.__js_call__("getAttributeNS", ["ab", "attr"])
     assert_equal "t2", el.__js_call__("getAttributeNS", ["kl", "attr"])
+  end
+
+  # An unprefixed attribute in a namespace has a plain qualified name, which
+  # the snapshot would also answer `el.id` with, though `id` reflects the
+  # attribute in no namespace — such an element is not snapshotted.
+  def test_no_snapshot_with_an_unprefixed_namespaced_attribute
+    el = make_window("<div id='d'></div>").document.get_element_by_id("d")
+    el.__js_call__("setAttributeNS", ["ab", "attr", "t1"])
+
+    assert_nil el.__js_attribute_snapshot__
+    assert_equal "t1", el.get_attribute("attr")
   end
 end
