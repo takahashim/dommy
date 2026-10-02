@@ -6,12 +6,15 @@
 
 - `accessKey`, `autocapitalize`, `autocorrect`, `autofocus`, `contentEditable`, `draggable`, `enterKeyHint`, `headingOffset`, `headingReset`, `inert`, `inputMode`, `isContentEditable`, `nonce`, `spellcheck`, `tabIndex`, `title` and `writingSuggestions` on HTML elements, and `nonce` on SVG elements.
 - The ARIAMixin attributes are on `Element.prototype`, so `"ariaLabelledByElements" in Element.prototype` is true.
+- An element in the MathML namespace is a `MathMLElement`, with `dataset`, `nonce`, `autofocus`, `tabIndex`, `style`, `focus()` and `blur()`.
 
 ### Changed
 
 - **Requires makiri >= 0.12.1.** Its queries no longer warn about chilled string literals under Ruby 4.0.
 - `document.body` is the first `body` or `frameset` child of an HTML `html` document element, as HTML defines it: a `body` deeper in the tree, one in another namespace, or one under a non-HTML root element is not it, and a `frameset` is. `document.head` likewise needs an HTML `html` document element.
 - `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.
+- An element in no namespace, or in one other than HTML, SVG and MathML, is a plain `Element` without `dataset`, `style`, `tabIndex`, `focus()` and the rest HTML and CSSOM give only to those three: `createElementNS(null, "div").dataset` is undefined, and the Ruby object has no `dataset` method.
+- `hidden`, `translate`, `popover`, `value`, `accessKeyLabel` and the `offset*` metrics are on HTML elements only.
 - `ariaLabelledByElements` and the other ARIA element lists are frozen arrays, the same object until their elements change, instead of live `NodeList`s.
 - `el.ariaFoo`, `el.ariaLabelledBy` and any other name ARIAMixin does not define are ordinary properties: setting one writes no attribute.
 - A `<script>` from `createContextualFragment` runs when the fragment is inserted.
@@ -54,6 +57,8 @@
 - A comment may sit between the two delims of an attribute matcher or around a namespace `|` (`[a~/**/=x]`, `*|/**/p`), and the attribute modifier may be escaped (`[a=x \69]`).
 - An escape past U+10FFFF or of a surrogate is U+FFFD, a backslash before a newline is no escape, and one at the end of a string is dropped.
 - `CSS.escape("-")` is `"\-"`.
+- `popover` is limited to its keywords: null without the attribute, `"auto"` for an empty one, `"manual"` for an unknown one.
+- `script.nonce = …` sets the script's nonce and leaves its attribute, as for any element, and cloning carries a nonce set that way.
 
 ## 0.14.0 — 2026-10-01
 
