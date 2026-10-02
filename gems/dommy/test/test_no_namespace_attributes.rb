@@ -93,6 +93,15 @@ class TestNoNamespaceAttributes < Minitest::Test
     assert_equal([[NS, "color: red"], [nil, "color: blue;"]], attrs(el))
   end
 
+  def test_collection_named_items
+    p = element("p")
+    p.set_attribute_ns(NS, "id", "i")
+    p.set_attribute_ns(NS, "name", "n")
+    assert_nil(@host.children.named_item("i"))
+    assert_nil(@host.children.named_item("n"))
+    assert_equal([], @host.children.__js_named_props__)
+  end
+
   # The JS side answers `el.id` from its attribute snapshot, so an element
   # with an unprefixed namespaced attribute is not snapshotted.
   def test_snapshot
