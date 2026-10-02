@@ -188,7 +188,7 @@ module Dommy
     # The declaration block as an ordered { property => [value, priority] } hash,
     # where priority is "important" or "".
     def declarations
-      parse_declarations(@element.__dommy_backend_node__["style"].to_s)
+      parse_declarations(@element.__internal_attribute_value__("style").to_s)
     end
 
     # Just the values, for the value-only readers (getPropertyValue, indexing,
@@ -225,7 +225,7 @@ module Dommy
       # the attribute STAYS present (style="") — it is removed only via an
       # explicit removeAttribute("style"), never as a side effect of clearing the
       # last property.
-      @element.set_attribute("style", serialize_properties(decls))
+      @element.__internal_set_attribute_value__("style", serialize_properties(decls))
     end
   end
 

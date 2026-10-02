@@ -83,6 +83,16 @@ class TestNoNamespaceAttributes < Minitest::Test
     assert_equal([[NS, "ns"]], attrs(el))
   end
 
+  def test_style
+    el = element
+    el.set_attribute_ns(NS, "style", "color: red")
+    assert_equal("", el.style.get_property_value("color"))
+    assert_nil(Dommy::Internal::CSS::Cascade.computed_style(el)["color"]&.then { |c| c == "red" ? c : nil })
+
+    el.style.set_property("color", "blue")
+    assert_equal([[NS, "color: red"], [nil, "color: blue;"]], attrs(el))
+  end
+
   # The JS side answers `el.id` from its attribute snapshot, so an element
   # with an unprefixed namespaced attribute is not snapshotted.
   def test_snapshot
