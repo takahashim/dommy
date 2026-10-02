@@ -7,8 +7,8 @@ module Dommy
     # Host contract: @__node__, @document responding to #wrap_node and
     # #__internal_shadow_root_for_host__, and #set_attribute.
     module ElementShadow
-      # Elements that may host a Shadow DOM tree per the HTML spec.
-      # Custom-element-style names (containing "-") are also allowed.
+      # The local names that may host a shadow tree besides a valid custom
+      # element name — together, DOM's "valid shadow host name".
       SHADOW_HOST_TAGS = %w[
         article
         aside
@@ -66,12 +66,15 @@ module Dommy
       # Nokogiri fragment and is invisible to the outer querySelector /
       # children chain. Per spec:
       #   - the `mode` field is REQUIRED in the init dict
-      #   - only certain host element types are valid (see SHADOW_HOST_TAGS)
+      #   - only an HTML element with a valid shadow host name may host one:
+      #     a name in SHADOW_HOST_TAGS or a valid custom element name, matched
+      #     case-sensitively (DOM attachShadow steps 1-2)
       #   - re-attaching to an element that already has a shadow throws
       def attach_shadow(options = nil)
-        tag = @__node__.name.downcase
-        unless SHADOW_HOST_TAGS.include?(tag) || tag.include?("-")
-          raise DOMException::NotSupportedError, "<#{tag}> cannot host a shadow root"
+        name = local_name
+        unless namespace_uri == Namespaces::HTML &&
+            (SHADOW_HOST_TAGS.include?(name) || CustomElementRegistry.valid_name?(name))
+          raise DOMException::NotSupportedError, "<#{name}> cannot host a shadow root"
         end
 
         raise DOMException::NotSupportedError, "Shadow root already attached" if __internal_shadow_root__
