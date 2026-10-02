@@ -397,20 +397,7 @@
       "align"
     ],
     "HTMLElement": [
-      "accessKey",
       "attachInternals",
-      "autocapitalize",
-      "autocorrect",
-      "autofocus",
-      "contentEditable",
-      "draggable",
-      "enterKeyHint",
-      "headingOffset",
-      "headingReset",
-      "inert",
-      "inputMode",
-      "isContentEditable",
-      "nonce",
       "onabort",
       "onauxclick",
       "onbeforeinput",
@@ -489,10 +476,7 @@
       "onwebkitanimationstart",
       "onwebkittransitionend",
       "onwheel",
-      "scrollParent",
-      "spellcheck",
-      "tabIndex",
-      "writingSuggestions"
+      "scrollParent"
     ],
     "HTMLEmbedElement": [
       "align",

@@ -30,6 +30,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::CSS::CustomProperties => %w[contains_var? resolve_all substitute split_args],
     Dommy::Internal::CSS::MediaQuery => %w[match?],
     Dommy::Internal::Directionality => %w[direction_of text_dependent? reflected_dir auto_directionality_form_associated?],
+    Dommy::Internal::ElementEditing => %w[state editable?],
     Dommy::Internal::ElementState => %w[
       html_element? html_document? enableable_element? disabled_element?
       constraint_invalid? constraint_valid? form_control_required?
@@ -61,6 +62,7 @@ class TestInternalModuleApi < Minitest::Test
       __internal_approx_box approximate_layout?
     ],
     Dommy::Internal::ElementShadow => %w[slot slot= assigned_slot attach_shadow shadow_root __internal_shadow_root__],
+    Dommy::Internal::ElementNonce => %w[nonce nonce=],
     Dommy::Internal::ElementAria => %w[
       role role= computed_role computed_label computed_description aria_snapshot
       aria_element_get aria_element_set aria_elements_get aria_elements_set

@@ -50,7 +50,7 @@ module Dommy
       # What the audit calls each declaration. The three setter-only spellings
       # differ in the conversion their setter runs; to the IDL they are one
       # thing, [ReflectSetter].
-      DECLARED_AS = { ulong_setter: :setter_only, double_setter: :setter_only }.freeze
+      DECLARED_AS = { long_setter: :setter_only, ulong_setter: :setter_only, double_setter: :setter_only }.freeze
 
       # WebIDL's `long` and `unsigned long`, which bound what a reflected number
       # can be before HTML's own defaults and ranges apply.
@@ -67,6 +67,7 @@ module Dommy
         boolean: %i[reflected_boolean set_reflected_boolean],
         enumerated: %i[reflected_enumerated set_reflected_enumerated],
         setter_only: [nil, :set_reflected_string],
+        long_setter: [nil, :set_reflected_long],
         ulong_setter: [nil, :set_reflected_ulong],
         double_setter: [nil, :set_reflected_double],
       }.freeze
@@ -147,6 +148,10 @@ module Dommy
         # that the getter is prose, not what the setter converts, and that comes
         # from the IDL type — `img.width` is an `unsigned long` and `meter.value`
         # a `double` however their getters are written.
+        def reflect_long_setter(*names, **mapped)
+          _reflect(:long_setter, names, mapped)
+        end
+
         def reflect_ulong_setter(*names, **mapped)
           _reflect(:ulong_setter, names, mapped)
         end
@@ -380,15 +385,23 @@ module Dommy
       # one and fits a long, else the declared default, else -1 when the
       # attribute is limited to non-negative numbers, else 0.
       def reflected_long(name, options = EMPTY_OPTIONS)
-        raw = __internal_attribute_value__(name)
-        unless raw.nil?
-          parsed = options[:non_negative] ? parse_html_non_negative_integer(raw) : parse_html_integer(raw)
-          return parsed if parsed && LONG_RANGE.cover?(parsed)
-        end
+        parsed = parsed_long_attribute(name, non_negative: options[:non_negative])
+        return parsed if parsed
         return options[:default] if options.key?(:default)
         return -1 if options[:non_negative]
 
         0
+      end
+
+      # The content attribute parsed as a `long`, or nil when it is missing,
+      # does not parse or does not fit — the half of a long's getter before
+      # its default, which a prose getter (`tabIndex`) supplies itself.
+      def parsed_long_attribute(name, non_negative: false)
+        raw = __internal_attribute_value__(name)
+        return nil if raw.nil?
+
+        parsed = non_negative ? parse_html_non_negative_integer(raw) : parse_html_integer(raw)
+        parsed if parsed && LONG_RANGE.cover?(parsed)
       end
 
       # An `unsigned long` attribute's getter. The range is 0..2147483647 unless

@@ -13,12 +13,158 @@ module Dommy
   # SVGElement).
   class HTMLElement < Element
     include Internal::ReflectedAttributes
+    include Internal::ElementNonce
+    js_accessor :nonce
     # `lang` reflects its own content attribute ("" when absent) — not the
     # inherited language the element computes for matching.
     reflect_string :lang
     # `title` is the advisory information, a plain reflection of its own
     # content attribute — an ancestor's title is not inherited here.
     reflect_string :title
+    reflect_string access_key: { attr: "accesskey", js: "accessKey" }
+    reflect_boolean :autofocus, :inert, heading_reset: { attr: "headingreset", js: "headingReset" }
+    # How many levels a heading inside this element is offset by, 0 to 8.
+    reflect_ulong heading_offset: { attr: "headingoffset", js: "headingOffset", range: 0..8 }
+    reflect_long_setter tab_index: { attr: "tabindex", js: "tabIndex" }
+    # The virtual keyboard's enter key and layout, limited to only known
+    # values (HTML §6.8.5).
+    reflect_enumerated enter_key_hint: { attr: "enterkeyhint", js: "enterKeyHint",
+                                         keywords: %w[enter done go next previous search send] },
+                       input_mode: { attr: "inputmode", js: "inputMode",
+                                     keywords: %w[none text tel url email numeric decimal search] }
+
+    # The elements whose tabIndex is 0 without a tabindex attribute.
+    TAB_INDEX_ZERO = %w[a area button frame iframe input object select textarea].freeze
+
+    # `tabIndex` (HTML §6.6.3): the tabindex attribute parsed as an integer,
+    # else 0 for the elements a user can usually focus — those above, and a
+    # summary that is its details' summary — and -1 for the rest.
+    def tab_index
+      parsed_long_attribute("tabindex") ||
+        (TAB_INDEX_ZERO.include?(local_name) || __internal_summary_details__ ? 0 : -1)
+    end
+
+    js_accessor :draggable, :spellcheck
+    reflect_setter writing_suggestions: { attr: "writingsuggestions", js: "writingSuggestions" }
+
+    # `draggable` (HTML §6.11.7): the draggable attribute's "true" or
+    # "false", matched ASCII case-insensitively; otherwise (auto) an img, or
+    # an `a` with an href, is draggable and nothing else is.
+    def draggable
+      case __internal_attribute_value__("draggable")&.downcase(:ascii)
+      when "true" then true
+      when "false" then false
+      else local_name == "img" || (local_name == "a" && __internal_has_attribute__?("href"))
+      end
+    end
+
+    def draggable=(value)
+      __internal_set_attribute_value__("draggable", value ? "true" : "false")
+    end
+
+    # `spellcheck` (HTML §6.8.4): "true" or "" checks spelling and "false"
+    # does not; with neither, the element follows its parent, and the root
+    # checks — the default Dommy picks, as Chromium does.
+    def spellcheck = inherited_hint("spellcheck", "true", "false") != false
+
+    def spellcheck=(value)
+      __internal_set_attribute_value__("spellcheck", value ? "true" : "false")
+    end
+
+    # `writingSuggestions` (HTML §6.8.8): "false" when the attribute says so,
+    # or when it says nothing and the parent's is "false"; else "true".
+    def writing_suggestions = inherited_hint("writingsuggestions", "true", "false") == false ? "false" : "true"
+
+    reflect_setter :autocapitalize
+    js_accessor :autocorrect
+
+    # The autocapitalize keywords and the hint each names (HTML §6.8.6).
+    AUTOCAPITALIZE_HINTS = {
+      "off" => "none", "none" => "none", "on" => "sentences", "sentences" => "sentences",
+      "words" => "words", "characters" => "characters",
+    }.freeze
+    # The "autocapitalize-and-autocorrect inheriting elements", which take
+    # their form owner's hint when they give none.
+    AUTOCAPITALIZE_INHERITING = %w[button fieldset input output select textarea].freeze
+    # The input types that never autocorrect.
+    NO_AUTOCORRECT_TYPES = %w[url email password].freeze
+
+    # `autocapitalize`: the element's own autocapitalization hint — its
+    # attribute's keyword, else its form owner's when it is one of the
+    # inheriting elements — or "" when there is none.
+    def autocapitalize = own_autocapitalization_hint || ""
+
+    def own_autocapitalization_hint
+      hint = AUTOCAPITALIZE_HINTS[__internal_attribute_value__("autocapitalize")&.downcase(:ascii)]
+      hint || autocorrect_form_owner&.own_autocapitalization_hint
+    end
+    protected :own_autocapitalization_hint
+
+    # `autocorrect` (HTML §6.8.7): the used autocorrection state — off for a
+    # url, email or password input; else the attribute's ("off" turns it
+    # off, anything else on), or the form owner's for an inheriting element;
+    # else on. The setter writes "on" or "off".
+    def autocorrect
+      return false if local_name == "input" && NO_AUTOCORRECT_TYPES.include?(__internal_attribute_value__("type")&.downcase(:ascii))
+
+      source = __internal_has_attribute__?("autocorrect") ? self : autocorrect_form_owner
+      source.nil? || !source.__internal_attribute_value__("autocorrect").to_s.casecmp?("off")
+    end
+
+    def autocorrect=(value)
+      __internal_set_attribute_value__("autocorrect", value ? "on" : "off")
+    end
+
+    # The form owner an inheriting element takes its hints from, or nil.
+    def autocorrect_form_owner
+      AUTOCAPITALIZE_INHERITING.include?(local_name) && respond_to?(:form) ? form : nil
+    end
+    private :autocorrect_form_owner
+
+    js_accessor content_editable: "contentEditable"
+    js_readable is_content_editable: "isContentEditable"
+
+    # `contentEditable` (HTML §6.8.1): the attribute's state as a keyword.
+    def content_editable
+      case Internal::ElementEditing.state(self)
+      when :true then "true"
+      when :plaintext_only then "plaintext-only"
+      when :false then "false"
+      else "inherit"
+      end
+    end
+
+    # "inherit" removes the attribute, "true", "false" and "plaintext-only"
+    # (any case) write it in lowercase, and anything else is a SyntaxError.
+    def content_editable=(value)
+      keyword = value.to_s.downcase(:ascii)
+      if keyword == "inherit"
+        remove_attribute_ns(nil, "contenteditable")
+      elsif %w[true false plaintext-only].include?(keyword)
+        __internal_set_attribute_value__("contenteditable", keyword)
+      else
+        raise DOMException::SyntaxError, "#{value.inspect} is not true, false, plaintext-only or inherit"
+      end
+    end
+
+    def is_content_editable = Internal::ElementEditing.editable?(self)
+
+    # The state an inherited true / false hint attribute gives this element:
+    # true for `on` or "", false for `off`, both matched ASCII
+    # case-insensitively; any other value, or none, defers to the parent
+    # element, and nil when no ancestor says.
+    def inherited_hint(name, on, off)
+      node = self
+      while node
+        case node.__internal_attribute_value__(name)&.downcase(:ascii)
+        when on, "" then return true
+        when off then return false
+        end
+        node = node.parent_element
+      end
+      nil
+    end
+    private :inherited_hint
     # `dir` reflects its own content attribute, limited to only known values:
     # ltr / rtl / auto in lowercase, "" otherwise. The setter reflects as is;
     # the getter is written here, as HTMLButtonElement#type is. The computed
