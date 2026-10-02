@@ -37,6 +37,23 @@ class TestShadowRootBasics < Minitest::Test
     assert_raises(Dommy::DOMException::NotSupportedError) { @host.attach_shadow({"mode" => "open"}) }
   end
 
+  # The host must be an HTML element, and its local name is matched as it
+  # is: a `div` in another namespace or a `DIV` made by createElementNS is
+  # no valid host, nor is a reserved hyphenated name.
+  def test_attach_needs_an_html_element_with_a_host_name
+    [
+      @doc.create_element_ns("urn:x", "div"),
+      @doc.create_element_ns("http://www.w3.org/2000/svg", "g"),
+      @doc.create_element_ns("http://www.w3.org/1999/xhtml", "DIV"),
+      @doc.create_element_ns("http://www.w3.org/2000/svg", "font-face"),
+      @doc.create_element("font-face"),
+    ].each do |host|
+      assert_raises(Dommy::DOMException::NotSupportedError, host.local_name) { host.attach_shadow({"mode" => "open"}) }
+    end
+    assert @doc.create_element_ns("http://www.w3.org/1999/xhtml", "div").attach_shadow({"mode" => "open"})
+    assert @doc.create_element("x-el").attach_shadow({"mode" => "open"})
+  end
+
   def test_shadow_root_returns_open_root
     sr = @host.attach_shadow({"mode" => "open"})
     assert_equal(sr, @host.shadow_root)
