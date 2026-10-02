@@ -1178,34 +1178,12 @@ module Dommy
     end
 
     # The content attribute an ARIA element-reference IDL attribute reflects
-    # (`ariaActiveDescendantElement` → "aria-activedescendant",
-    # `ariaErrorMessageElement` → "aria-errormessage"), or nil. The IDL name is
-    # `aria<Xxx>Element`; the content attribute is "aria-" + <Xxx> lowercased.
-    def aria_element_attr(key)
-      # Only aria-activedescendant reflects as a SINGULAR element reference; every
-      # other ARIA element reference (controls / describedby / details /
-      # errormessage / flowto / labelledby / owns) is plural (aria*Elements), so
-      # e.g. `ariaErrorMessageElement` must not exist.
-      key == "ariaActiveDescendantElement" ? "aria-activedescendant" : nil
-    end
-
-
-
+    # (`ariaActiveDescendantElement` → "aria-activedescendant"), or nil.
+    def aria_element_attr(key) = Internal::ElementAria::ELEMENT_ATTRIBUTES[key]
 
     # The content attribute a plural ARIA element-references IDL attribute
-    # reflects (`ariaDescribedByElements` → "aria-describedby",
-    # `ariaLabelledByElements` → "aria-labelledby"), or nil. The IDL name is
-    # `aria<Xxx>Elements`; the content attribute is "aria-" + <Xxx> lowercased.
-    def aria_elements_attr(key)
-      return nil unless key.is_a?(String) && key.start_with?("aria") && key.end_with?("Elements")
-      return nil unless key.length > 12 && key[4] =~ /[A-Z]/
-
-      "aria-#{key[4...-8].downcase}"
-    end
-
-
-
-
+    # reflects (`ariaLabelledByElements` → "aria-labelledby"), or nil.
+    def aria_elements_attr(key) = Internal::ElementAria::ELEMENTS_ATTRIBUTES[key]
 
     # Drop any explicit ARIA element reference (singular or plural) whose content
     # attribute was just set directly (so the IDL getter re-resolves the IDREF).
@@ -1214,17 +1192,9 @@ module Dommy
       @aria_elements_refs&.delete_if { |key, _| aria_elements_attr(key) == content_attr }
     end
 
-    # The content attribute a role/ARIA IDL attribute reflects, or nil for a
-    # non-ARIA key. `role` → "role"; `ariaXxx` → "aria-" + the rest, lowercased
-    # with humps removed (`ariaAutoComplete` → "aria-autocomplete",
-    # `ariaColIndexText` → "aria-colindextext").
-    def aria_content_attr(key)
-      return "role" if key == "role"
-      return nil unless key.is_a?(String) && key.length > 4 && key.start_with?("aria")
-      return nil unless key[4] =~ /[A-Z]/
-
-      "aria-#{key[4..].downcase}"
-    end
+    # The content attribute a role/ARIA string IDL attribute reflects
+    # (`ariaAutoComplete` → "aria-autocomplete"), or nil for any other key.
+    def aria_content_attr(key) = Internal::ElementAria::STRING_ATTRIBUTES[key]
 
     # Read a reflected nullable DOMString: the content attribute value, or nil
     # (→ JS null) when the attribute is absent.

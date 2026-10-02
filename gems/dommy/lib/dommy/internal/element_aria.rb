@@ -8,6 +8,27 @@ module Dommy
     # Host contract: @__node__, @document responding to #wrap_node,
     # #set_attribute / #remove_attribute, #root_node and #accessibility_tree.
     module ElementAria
+      # ARIAMixin's IDL attributes (WAI-ARIA §10.1), each with the content
+      # attribute it reflects: "aria-" and the rest of the name in lowercase.
+      # A name outside these is no reflection — `ariaFoo` and `ariaLabelledBy`
+      # are plain expandos, as in a browser.
+      STRING_ATTRIBUTES = %w[
+        ariaAtomic ariaAutoComplete ariaBrailleLabel ariaBrailleRoleDescription ariaBusy ariaChecked
+        ariaColCount ariaColIndex ariaColIndexText ariaColSpan ariaCurrent ariaDescription ariaDisabled
+        ariaExpanded ariaHasPopup ariaHidden ariaInvalid ariaKeyShortcuts ariaLabel ariaLevel ariaLive
+        ariaModal ariaMultiLine ariaMultiSelectable ariaOrientation ariaPlaceholder ariaPosInSet
+        ariaPressed ariaReadOnly ariaRelevant ariaRequired ariaRoleDescription ariaRowCount ariaRowIndex
+        ariaRowIndexText ariaRowSpan ariaSelected ariaSetSize ariaSort ariaValueMax ariaValueMin
+        ariaValueNow ariaValueText
+      ].to_h { |name| [name, "aria-#{name.delete_prefix("aria").downcase}"] }.merge("role" => "role").freeze
+      # The one singular element reference.
+      ELEMENT_ATTRIBUTES = { "ariaActiveDescendantElement" => "aria-activedescendant" }.freeze
+      # The element-list references.
+      ELEMENTS_ATTRIBUTES = %w[
+        ariaControlsElements ariaDescribedByElements ariaDetailsElements ariaErrorMessageElements
+        ariaFlowToElements ariaLabelledByElements ariaOwnsElements
+      ].to_h { |name| [name, "aria-#{name.delete_prefix("aria").delete_suffix("Elements").downcase}"] }.freeze
+
       def role
         @__node__["role"].to_s
       end
