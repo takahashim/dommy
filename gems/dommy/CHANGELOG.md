@@ -16,6 +16,7 @@
 - `el.ariaFoo`, `el.ariaLabelledBy` and any other name ARIAMixin does not define are ordinary properties: setting one writes no attribute.
 - A `<script>` from `createContextualFragment` runs when the fragment is inserted.
 - `removeNamedItem` and `removeNamedItemNS` throw `NotFoundError` when the element has no such attribute.
+- A file input's files are set from Ruby with `input.files = [file]`, as `input.files = dt.files` sets them from script; `__driver_set_files__` is gone.
 
 ### Fixed
 

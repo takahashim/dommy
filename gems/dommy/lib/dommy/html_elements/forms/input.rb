@@ -66,7 +66,7 @@ module Dommy
     end
 
     # `files` — for `<input type="file">`. Browsers populate this via
-    # user interaction; in tests, code uses `__driver_set_files__` to seed it.
+    # user interaction; in tests, code seeds it with `files=`.
     def files
       # `files` is null for every type other than file (WHATWG).
       return nil unless type == "file"
@@ -74,9 +74,11 @@ module Dommy
       @__files ||= FileList.new
     end
 
-    # Test-only seam: set the input's file list directly.
-    # Accepts an array (wrapped in a FileList) or a FileList itself.
-    def __driver_set_files__(files_input)
+    # `input.files = …`: set the input's selected files — what a user's choice
+    # gives it, through a driver (capybara-dommy's attach_file, Interaction's
+    # file field) or a script (`input.files = dt.files`). Takes a FileList, or
+    # an array of files to wrap in one.
+    def files=(files_input)
       @__files = files_input.is_a?(FileList) ? files_input : FileList.new(Array(files_input))
     end
 
@@ -84,7 +86,7 @@ module Dommy
     # `files` is otherwise read-only, so the shared setters never see it.
     def __js_set__(key, value)
       if key == "files"
-        __driver_set_files__(value)
+        self.files = value
         return nil
       end
 

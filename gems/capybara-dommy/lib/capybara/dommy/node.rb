@@ -484,7 +484,7 @@ module Capybara
             "type" => ::Dommy::Rack::FileUpload.mime_type_for(path)
           )
         end
-        native.__driver_set_files__(files)
+        native.files = files
       end
 
       def deselect_all(select_el)

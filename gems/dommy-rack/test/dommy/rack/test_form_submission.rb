@@ -189,7 +189,7 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
       </form>
     HTML
     file = Dommy::File.new(["hi"], "a.txt", "type" => "text/plain")
-    form.query_selector("input[type='file']").__driver_set_files__([file])
+    form.query_selector("input[type='file']").files = [file]
 
     result = Dommy::Rack::FormSubmission.new(form, nil, config).submit!
     assert_same file, param(result, "doc")
@@ -373,7 +373,7 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
       </form>
     HTML
     file = Dommy::File.new(["hi"], "a.txt", "type" => "text/plain")
-    form.query_selector("input[type='file']").__driver_set_files__([file])
+    form.query_selector("input[type='file']").files = [file]
 
     result = Dommy::Rack::FormSubmission.new(form, nil, config).submit!
     assert_equal "multipart/form-data", result[:enctype]
@@ -398,7 +398,7 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
       </form>
     HTML
     file = Dommy::File.new(["hi"], "a.txt", "type" => "text/plain")
-    form.query_selector("input[type='file']").__driver_set_files__([file])
+    form.query_selector("input[type='file']").files = [file]
 
     result = Dommy::Rack::FormSubmission.new(form, nil, config).submit!
     assert_equal "application/x-www-form-urlencoded", result[:enctype]
