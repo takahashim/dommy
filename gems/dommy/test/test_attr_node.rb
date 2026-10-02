@@ -25,6 +25,16 @@ class TestAttrNode < Minitest::Test
     refute @id.__js_get__("isConnected")
   end
 
+  # An Attr has no descendants, and two are equal when their namespace,
+  # local name and value are (the prefix aside).
+  def test_an_attr_contains_and_equals
+    assert @id.__js_call__("contains", [@id])
+    refute @id.__js_call__("contains", [@class])
+    a = @doc.create_attribute_ns("urn:a", "p:x")
+    assert a.__js_call__("isEqualNode", [@doc.create_attribute_ns("urn:a", "q:x")])
+    refute a.__js_call__("isEqualNode", [@doc.create_attribute_ns("urn:b", "p:x")])
+  end
+
   def test_an_element_contains_its_attributes
     assert_equal NODE::DOCUMENT_POSITION_CONTAINED_BY | NODE::DOCUMENT_POSITION_FOLLOWING, @a.compare_document_position(@id)
     assert_equal NODE::DOCUMENT_POSITION_CONTAINS | NODE::DOCUMENT_POSITION_PRECEDING, @id.compare_document_position(@a)
