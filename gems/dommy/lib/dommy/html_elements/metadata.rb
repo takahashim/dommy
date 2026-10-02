@@ -7,7 +7,7 @@ module Dommy
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
     reflect_url :src
-    reflect_string :type, :integrity, :nonce, html_for: { attr: "for", js: "htmlFor" }
+    reflect_string :type, :integrity, html_for: { attr: "for", js: "htmlFor" }
     reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
     reflect_boolean :defer, no_module: "nomodule"
     # `text` is an alias for textContent on <script>.

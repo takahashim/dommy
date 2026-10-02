@@ -146,5 +146,9 @@ class TestHTMLElementGlobals < Minitest::Test
     svg = @doc.create_element_ns("http://www.w3.org/2000/svg", "script")
     svg.set_attribute("nonce", "s")
     assert_equal "s", svg.__js_get__("nonce")
+
+    script = element("script", nonce: "a")
+    script.__js_set__("nonce", "b")
+    assert_equal ["b", "a"], [script.__js_get__("nonce"), script.get_attribute("nonce")]
   end
 end
