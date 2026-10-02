@@ -1077,7 +1077,7 @@ module Dommy
         # `defaultChecked` reflects).
         return Bridge::ABSENT unless boolean_idl_attribute?(key)
 
-        @__node__.key?(key)
+        !__internal_attribute_value__(key).nil?
       when "value"
         # For form elements `value` is a property that defaults to the
         # `value` attribute. We don't model the property/attribute
@@ -1290,17 +1290,16 @@ module Dommy
         self.outer_html = value.nil? ? "" : value.to_s
       when "hidden", "checked"
         # See the getter: the two that are not reflections. Funnel through
-        # set_attribute / remove_attribute so MutationObserver attribute records
-        # fire. On an element the IDL attribute does not belong to, the
-        # assignment is an ordinary JS expando and must not touch the content
-        # attribute.
+        # the attribute API so MutationObserver attribute records fire, in no
+        # namespace as the getter reads. On an element the IDL attribute does
+        # not belong to, the assignment is an ordinary JS expando and must not
+        # touch the content attribute.
         return Bridge::UNHANDLED unless boolean_idl_attribute?(key)
 
-        name = key
         if value
-          set_attribute(name, "")
-        elsif @__node__.key?(name)
-          remove_attribute(name)
+          __internal_set_attribute_value__(key, "")
+        else
+          remove_attribute_ns(nil, key)
         end
 
       when "style"

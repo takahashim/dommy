@@ -66,7 +66,7 @@ module Dommy
       def dir_state(element)
         return nil unless html_element?(element)
 
-        dir_keyword(element.get_attribute("dir"))
+        dir_keyword(element.__internal_attribute_value__("dir"))
       end
 
       # The state a dir attribute value names, or nil (Undefined) for a

@@ -640,7 +640,7 @@ module Dommy
     end
 
     def dir=(value)
-      html_element&.set_attribute("dir", value.to_s)
+      html_element&.__internal_set_attribute_value__("dir", value.to_s)
     end
 
     def title=(value)

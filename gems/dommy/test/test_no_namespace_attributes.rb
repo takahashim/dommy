@@ -35,6 +35,42 @@ class TestNoNamespaceAttributes < Minitest::Test
     assert_equal(["ns", "ns", "ns"], %w[id class slot].map { |name| el.get_attribute_ns(NS, name) })
   end
 
+  def test_reflected_attributes
+    link = element("link")
+    link.set_attribute_ns(NS, "disabled", "")
+    link.set_attribute_ns(NS, "rel", "ns")
+    link.set_attribute_ns(NS, "href", "/ns")
+    assert_equal([false, "", ""], %w[disabled rel href].map { |k| link.__js_get__(k) })
+
+    link.__js_set__("rel", "icon")
+    link.__js_set__("disabled", true)
+    assert_equal(["icon", true], %w[rel disabled].map { |k| link.__js_get__(k) })
+    link.__js_set__("disabled", false)
+    assert_equal([[NS, ""], [NS, "ns"], [NS, "/ns"], [nil, "icon"]], attrs(link))
+
+    ol = element("ol")
+    ol.set_attribute_ns(NS, "start", "5")
+    assert_equal(1, ol.__js_get__("start"))
+  end
+
+  # A camel-cased IDL name reflects its lowercase content attribute.
+  def test_a_camel_cased_reflection_names_its_attribute_in_lowercase
+    form = element("form")
+    form.__js_set__("noValidate", true)
+    assert_equal(["novalidate"], form.attributes.map(&:name))
+  end
+
+  def test_hidden_and_dir
+    el = element
+    el.set_attribute_ns(NS, "hidden", "")
+    el.set_attribute_ns(NS, "dir", "rtl")
+    assert_equal([false, ""], %w[hidden dir].map { |k| el.__js_get__(k) })
+
+    el.__js_set__("hidden", true)
+    el.__js_set__("hidden", false)
+    assert_equal("", el.get_attribute_ns(NS, "hidden"))
+  end
+
   # The JS side answers `el.id` from its attribute snapshot, so an element
   # with an unprefixed namespaced attribute is not snapshotted.
   def test_snapshot
