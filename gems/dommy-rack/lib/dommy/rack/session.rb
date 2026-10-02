@@ -17,14 +17,14 @@ module Dommy
       end
 
       def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
-        @session.__enqueue_page_navigation__(@window, {
+        @session.__internal_enqueue_page_navigation__(@window, {
           url: url, method: method, body: body, params: params, enctype: enctype,
           target: target, headers: headers, replace: replace, source: source
         })
       end
 
       def traverse(delta)
-        @session.__enqueue_page_traverse__(@window, delta)
+        @session.__internal_enqueue_page_traverse__(@window, delta)
       end
     end
 
@@ -196,7 +196,7 @@ module Dommy
       # #advance_time.
       def settle
         require_js!.settle
-        __flush_page_navigation__
+        __internal_flush_page_navigation__
         check_js_errors!
         self
       end
@@ -443,18 +443,18 @@ module Dommy
       # performing it synchronously could dispose the JS realm still on the
       # stack, so it is recorded and performed at the next drain (#after_interaction
       # / #settle), exactly like the standalone Browser.
-      def __navigation_delegate_for__(window)
+      def __internal_navigation_delegate_for__(window)
         PageNavigationDelegate.new(self, window)
       end
 
-      def __enqueue_page_navigation__(window, nav)
+      def __internal_enqueue_page_navigation__(window, nav)
         # A retained handle to a navigated-away page must not steer the session.
         return unless window.equal?(@current_window)
 
         @pending_navigation = nav
       end
 
-      def __enqueue_page_traverse__(window, delta)
+      def __internal_enqueue_page_traverse__(window, delta)
         return unless window.equal?(@current_window)
 
         @pending_navigation = {traverse: delta}
@@ -463,7 +463,7 @@ module Dommy
       # Perform a recorded page navigation, if any. Called after the JS runtime
       # drains so the document/realm swap never runs with the outgoing realm's
       # JS on the stack.
-      def __flush_page_navigation__
+      def __internal_flush_page_navigation__
         nav = @pending_navigation
         return unless nav
 
@@ -953,7 +953,7 @@ module Dommy
       # before the next line. A no-op when JS is disabled (the mixin default).
       def after_interaction
         @js_runtime&.drain
-        __flush_page_navigation__
+        __internal_flush_page_navigation__
         check_js_errors!
       end
 

@@ -173,7 +173,7 @@ module Dommy
           # Page-initiated navigations (JS location.href=, form submit, activated
           # <a>) route through the core NavigationDelegate port to the session,
           # which defers and performs them at the next drain.
-          window.navigation_delegate = @session.__navigation_delegate_for__(window)
+          window.navigation_delegate = @session.__internal_navigation_delegate_for__(window)
           resources = ::Dommy::Rack::Resources.new(@session)
           # Off-thread network is opt-in: with a session executor, fetch / XHR
           # resolve through a DeferredResponse on this window's scheduler;
