@@ -109,7 +109,7 @@ module Dommy
         return @__direction_sensitive[1] if @__direction_sensitive&.first == generation
 
         sensitive = @backend_doc.css("[dir], bdi").any? do |node|
-          Directionality.text_dependent?(node.name, node["dir"])
+          Directionality.text_dependent?(node.name, Backend.no_namespace_attribute_value(node, "dir"))
         end
         @__direction_sensitive = [generation, sensitive]
         sensitive
@@ -122,7 +122,10 @@ module Dommy
       def __internal_direction_sensitive_ancestor__(node)
         current = node
         while current
-          return true if current.respond_to?(:name) && Directionality.text_dependent?(current.name, current["dir"])
+          if current.respond_to?(:element?) && current.element? &&
+             Directionality.text_dependent?(current.name, Backend.no_namespace_attribute_value(current, "dir"))
+            return true
+          end
 
           current = current.respond_to?(:parent) ? current.parent : nil
         end

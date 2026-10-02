@@ -272,11 +272,11 @@ module Dommy
     reflect_ulong_setter :width, :height
 
     def width
-      parse_html_non_negative_integer(get_attribute("width")) || 0
+      parse_html_non_negative_integer(__internal_attribute_value__("width")) || 0
     end
 
     def height
-      parse_html_non_negative_integer(get_attribute("height")) || 0
+      parse_html_non_negative_integer(__internal_attribute_value__("height")) || 0
     end
 
     # No real loader → these are constants.

@@ -55,7 +55,7 @@ module Dommy
         sr = host.shadow_root
         return nil unless sr
 
-        slot_name = @__node__.element? ? @__node__["slot"].to_s : ""
+        slot_name = @__node__.element? ? __internal_attribute_value__("slot").to_s : ""
         sr.query_selector_all("slot").find do |slot|
           (slot.respond_to?(:name) ? slot.name.to_s : "") == slot_name
         end

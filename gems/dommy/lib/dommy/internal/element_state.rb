@@ -71,11 +71,11 @@ module Dommy
       end
 
       def form_control_required?(element)
-        requirable_element?(element) && element.has_attribute?("required")
+        requirable_element?(element) && element.__internal_has_attribute__?("required")
       end
 
       def form_control_optional?(element)
-        requirable_element?(element) && !element.has_attribute?("required")
+        requirable_element?(element) && !element.__internal_has_attribute__?("required")
       end
 
       # `:read-write` matches an editable control (a mutable text input / textarea,
@@ -84,12 +84,12 @@ module Dommy
       def read_write_element?(element)
         name = element.local_name.to_s.downcase
         if name == "textarea"
-          return !element.has_attribute?("readonly") && !disabled_element?(element)
+          return !element.__internal_has_attribute__?("readonly") && !disabled_element?(element)
         end
         if name == "input"
           return false unless mutable_input_type?(element)
 
-          return !element.has_attribute?("readonly") && !disabled_element?(element)
+          return !element.__internal_has_attribute__?("readonly") && !disabled_element?(element)
         end
         editable_via_contenteditable?(element)
       end
@@ -106,7 +106,7 @@ module Dommy
       def mutable_input_type?(element)
         %w[text search url tel email password date month week time
            datetime-local number range color].include?(
-             (element.get_attribute("type") || "text").to_s.downcase
+             (element.__internal_attribute_value__("type") || "text").to_s.downcase
            )
       end
 
@@ -116,11 +116,11 @@ module Dommy
       end
 
       def disabled_element?(element)
-        return true if element.has_attribute?("disabled")
+        return true if element.__internal_has_attribute__?("disabled")
 
         if element.local_name.to_s.downcase == "option"
           parent = element.parent_element
-          return true if parent&.local_name.to_s.downcase == "optgroup" && parent.has_attribute?("disabled")
+          return true if parent&.local_name.to_s.downcase == "optgroup" && parent.__internal_has_attribute__?("disabled")
         end
         fieldset_disabled?(element)
       end
@@ -128,7 +128,7 @@ module Dommy
       def fieldset_disabled?(element)
         parent = element.parent_element
         while parent
-          if parent.local_name.to_s.downcase == "fieldset" && parent.has_attribute?("disabled")
+          if parent.local_name.to_s.downcase == "fieldset" && parent.__internal_has_attribute__?("disabled")
             # A control inside the fieldset's FIRST legend is not disabled by
             # THIS fieldset, but an outer disabled fieldset can still disable it.
             legend = first_legend_child(parent)
@@ -216,7 +216,7 @@ module Dommy
       # is not a hyperlink for selector purposes, however much its name suggests
       # otherwise.
       def link_element?(element)
-        %w[a area].include?(element.local_name.to_s.downcase) && element.has_attribute?("href")
+        %w[a area].include?(element.local_name.to_s.downcase) && element.__internal_has_attribute__?("href")
       end
 
       # `:dir()` — the element's computed directionality, from the `dir`

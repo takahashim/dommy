@@ -62,7 +62,7 @@ module Dommy
     # or into one — and with no such attribute the owner is the nearest ancestor
     # form.
     def __internal_form_owner__
-      form_id = get_attribute("form").to_s
+      form_id = __internal_attribute_value__("form").to_s
       return closest("form") if form_id.empty?
 
       root = get_root_node
@@ -78,7 +78,7 @@ module Dommy
     def disabled_by_ancestor_fieldset?
       node = parent_element
       while node
-        if node.local_name.to_s.casecmp?("fieldset") && node.has_attribute?("disabled")
+        if node.local_name.to_s.casecmp?("fieldset") && node.__internal_has_attribute__?("disabled")
           legend = node.child_nodes.to_a.find do |c|
             c.respond_to?(:local_name) && c.local_name.to_s.casecmp?("legend")
           end
@@ -122,7 +122,7 @@ module Dommy
     def __internal_actually_disabled__
       return false unless DISABLEABLE_LOCAL_NAMES.include?(local_name.to_s)
 
-      has_attribute?("disabled") || disabled_by_ancestor_fieldset?
+      __internal_has_attribute__?("disabled") || disabled_by_ancestor_fieldset?
     end
 
     # Shared "limited to only non-negative numbers" long reflection (maxLength /
@@ -191,13 +191,13 @@ module Dommy
   # delegate (which performs the real navigation, or records it by default).
   module HyperlinkActivation
     def activation_target?
-      has_attribute?("href")
+      __internal_has_attribute__?("href")
     end
 
     def activation_behavior(_event)
-      return unless has_attribute?("href")
+      return unless __internal_has_attribute__?("href")
       # download turns the click into a save, not a navigation — out of scope.
-      return if has_attribute?("download")
+      return if __internal_has_attribute__?("download")
 
       target = anchor_href
       win = @document&.default_view
@@ -252,7 +252,7 @@ module Dommy
     private
 
     def submission_url(name)
-      raw = get_attribute(name).to_s
+      raw = __internal_attribute_value__(name).to_s
       return @document.url.to_s if raw.empty?
 
       resolve_url(raw)

@@ -148,7 +148,7 @@ module Dommy
 
       # Whether the script is external is whether it HAS a src attribute; what to
       # fetch is the IDL `src`, which resolves it against the document.
-      if get_attribute("src").nil?
+      if __internal_attribute_value__("src").nil?
         body = text_content.to_s
         return nil if body.strip.empty?
 
@@ -239,7 +239,7 @@ module Dommy
         owner_node: self,
         href: href,
         media: media,
-        title: @__node__["title"].to_s,
+        title: __internal_attribute_value__("title").to_s,
         type: (type.empty? ? "text/css" : type),
         source_text: source_text
       )
@@ -281,7 +281,7 @@ module Dommy
       @__sheet = CSSStyleSheet.new(
         owner_node: self,
         media: media,
-        title: @__node__["title"].to_s,
+        title: __internal_attribute_value__("title").to_s,
         type: (type.empty? ? "text/css" : type),
         source_text: text
       )
@@ -329,7 +329,7 @@ module Dommy
     # all — and returns the attribute verbatim when that fails.
     # https://html.spec.whatwg.org/multipage/semantics.html#dom-base-href
     def href
-      raw = get_attribute("href").to_s
+      raw = __internal_attribute_value__("href").to_s
       fallback = @document.url.to_s
       return raw if fallback.empty?
 

@@ -75,7 +75,7 @@ module Dommy
           return [] unless element.is_a?(HTMLElement)
 
           specificities = []
-          specificities << [0, 2, 0] if element.has_attribute?("dir")
+          specificities << [0, 2, 0] if element.__internal_has_attribute__?("dir")
           specificities << [0, 1, 1] if element.local_name == "bdi"
           tel = element.local_name == "input" && element.type == "tel"
           return [] if specificities.empty? && !tel

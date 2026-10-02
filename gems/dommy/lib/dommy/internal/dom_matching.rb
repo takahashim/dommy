@@ -170,12 +170,12 @@ module Dommy
       # @api private (kept module-level only because visible? calls them)
 
       def node_invisible_self?(node)
-        return false unless node.respond_to?(:[])
+        return false unless node.respond_to?(:element?) && node.element?
 
-        return true if node["hidden"]
-        return true if node.respond_to?(:name) && node.name == "input" && node["type"] == "hidden"
+        return true if Backend.no_namespace_attribute_value(node, "hidden")
+        return true if node.name == "input" && Backend.no_namespace_attribute_value(node, "type") == "hidden"
 
-        style = node["style"].to_s
+        style = Backend.no_namespace_attribute_value(node, "style").to_s
         style.match?(/display\s*:\s*none/i) ||
           style.match?(/visibility\s*:\s*hidden/i) ||
           # Inline zero opacity hides too — the same number grammar as the

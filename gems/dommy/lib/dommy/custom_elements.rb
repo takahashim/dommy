@@ -170,24 +170,20 @@ module Dommy
       end
     end
 
-    # "Upgrade an element" step 6: the element's *existing* attributes are
-    # replayed through attributeChangedCallback (oldValue null) before
-    # connectedCallback, so a definition registered after the markup was parsed
-    # still sees the attributes that were already there.
+    # "Upgrade an element" step 6: each attribute in the element's attribute
+    # list, in order, is replayed through attributeChangedCallback with its
+    # local name, a null old value, its value and its namespace, before
+    # connectedCallback, so a definition registered after the markup was
+    # parsed still sees the attributes that were already there. Routed
+    # through the coordinator, which decides what is observed and how many
+    # arguments the callback takes, as for any other attribute change.
     def replay_observed_attributes(element)
-      klass = element.class
-      return unless klass.respond_to?(:observed_attributes)
+      return unless element.class.respond_to?(:observed_attributes)
 
-      observed = Array(klass.observed_attributes).map { |a| a.to_s.downcase }
-      return if observed.empty?
-
-      element.get_attribute_names.each do |name|
-        next unless observed.include?(name.to_s.downcase)
-
-        # Routed through the coordinator so the callback's arity handling (the
-        # optional 4th namespace argument) stays in one place.
+      Backend.attribute_nodes(element.__dommy_backend_node__).each do |attr|
+        info = Backend.attribute_ns_info(attr)
         @window.document.__internal_notify_attribute_changed__(
-          element, name, nil, element.get_attribute(name)
+          element, info[:local_name], nil, info[:value], info[:namespace_uri]
         )
       end
     end

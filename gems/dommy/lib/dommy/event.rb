@@ -369,7 +369,7 @@ module Dommy
       root = host.__internal_shadow_root__
       return nil unless root
 
-      name = node.respond_to?(:get_attribute) ? node.get_attribute("slot").to_s : ""
+      name = node.respond_to?(:__internal_attribute_value__) ? node.__internal_attribute_value__("slot").to_s : ""
       root.query_selector_all("slot").find { |slot| (slot.respond_to?(:name) ? slot.name.to_s : "") == name }
     end
 

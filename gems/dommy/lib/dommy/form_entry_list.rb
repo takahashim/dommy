@@ -62,7 +62,7 @@ module Dommy
         return true
       end
       return false if %w[reset button].include?(type) # never submitted
-      if type == "hidden" && !el.has_attribute?("value") &&
+      if type == "hidden" && !el.__internal_has_attribute__?("value") &&
          attr(el, "name").to_s.casecmp?("_charset_")
         # A hidden `_charset_` with no `value` reports the submission encoding.
         collect_named(el, @encoding.name, data)
@@ -72,7 +72,7 @@ module Dommy
       case type
       when "checkbox", "radio"
         if el.checked
-          value = el.has_attribute?("value") ? el.get_attribute("value") : "on"
+          value = el.__internal_has_attribute__?("value") ? el.__internal_attribute_value__("value") : "on"
           collect_named(el, value, data)
         end
       when "file"
@@ -177,8 +177,8 @@ module Dommy
     def controls
       form_id = attr(@form, "id")
       @form.document.query_selector_all("input, textarea, select, button").select do |el|
-        if el.has_attribute?("form")
-          !blank?(form_id) && el.get_attribute("form") == form_id
+        if el.__internal_has_attribute__?("form")
+          !blank?(form_id) && el.__internal_attribute_value__("form") == form_id
         else
           el.closest("form")&.equal?(@form)
         end
@@ -209,7 +209,7 @@ module Dommy
     end
 
     def attr(el, name)
-      el&.get_attribute(name)
+      el&.__internal_attribute_value__(name)
     end
 
     def blank?(value)

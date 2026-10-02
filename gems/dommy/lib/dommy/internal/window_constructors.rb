@@ -150,14 +150,14 @@ module Dommy
         # `new Image() instanceof HTMLImageElement` holds.
         "Image" => Bridge::Constructor.new { |args|
           img = win.document.create_element("img")
-          img.set_attribute("width", args[0].to_s) unless args[0].nil?
-          img.set_attribute("height", args[1].to_s) unless args[1].nil?
+          img.__internal_set_attribute_value__("width", args[0].to_s) unless args[0].nil?
+          img.__internal_set_attribute_value__("height", args[1].to_s) unless args[1].nil?
           img
         },
         "Audio" => Bridge::Constructor.new { |args|
           audio = win.document.create_element("audio")
-          audio.set_attribute("preload", "auto")
-          audio.set_attribute("src", args[0].to_s) unless args[0].nil?
+          audio.__internal_set_attribute_value__("preload", "auto")
+          audio.__internal_set_attribute_value__("src", args[0].to_s) unless args[0].nil?
           audio
         },
         "Option" => Bridge::Constructor.new { |args|

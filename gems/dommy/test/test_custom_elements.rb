@@ -203,6 +203,27 @@ class TestCustomElementUpgrade < Minitest::Test
     assert_equal(1, el.connected_count)
   end
 
+  # Upgrading replays each attribute in list order with its local name, a
+  # null old value, its value and its namespace — a namespaced one too, and
+  # not the first attribute that merely shares its qualified name.
+  def test_upgrade_replays_each_attribute_with_its_namespace
+    @doc.body.inner_html = "<my-replay id='r'></my-replay>"
+    pending = @doc.get_element_by_id("r")
+    pending.set_attribute_ns("urn:x", "a", "ns")
+    pending.set_attribute_ns(nil, "a", "plain")
+    klass = Class.new(Dommy::HTMLElement) do
+      define_singleton_method(:observed_attributes) { %w[a] }
+      attr_reader(:changes)
+      define_method(:attribute_changed_callback) do |name, old, new, namespace|
+        (@changes ||= []) << [name, old, new, namespace]
+      end
+    end
+
+    @registry.define("my-replay", klass)
+
+    assert_equal([["a", nil, "ns", "urn:x"], ["a", nil, "plain", nil]], @doc.get_element_by_id("r").changes)
+  end
+
   def test_upgrade_walks_subtree
     klass = Class.new(Dommy::HTMLElement) do
       attr_accessor(:connected_count)

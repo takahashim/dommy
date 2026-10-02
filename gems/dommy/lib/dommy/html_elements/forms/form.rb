@@ -162,9 +162,9 @@ module Dommy
     # HTML's no-validate state: true when the form carries `novalidate`, or
     # when the clicked control is a submit button carrying `formnovalidate`.
     def no_validate?(submitter)
-      return true if has_attribute?("novalidate")
+      return true if __internal_has_attribute__?("novalidate")
 
-      submitter.respond_to?(:has_attribute?) && submitter.has_attribute?("formnovalidate")
+      submitter.respond_to?(:__internal_has_attribute__?) && submitter.__internal_has_attribute__?("formnovalidate")
     end
 
     # Build the form data set and hand the resulting navigation to the delegate.
@@ -285,9 +285,9 @@ module Dommy
         next unless el.respond_to?(:__dommy_backend_node__)
 
         node = el.__dommy_backend_node__
-        name = node["name"].to_s
+        name = Backend.no_namespace_attribute_value(node, "name").to_s
         map[name] << el unless name.empty?
-        id = node["id"].to_s
+        id = Backend.no_namespace_attribute_value(node, "id").to_s
         map[id] << el unless id.empty? || id == name
       end
       map
@@ -329,7 +329,7 @@ module Dommy
     def form_action = submission_url("formaction")
 
     def type
-      raw = @__node__["type"].to_s.downcase
+      raw = __internal_attribute_value__("type").to_s.downcase
       %w[submit reset button].include?(raw) ? raw : "submit"
     end
 
@@ -450,7 +450,7 @@ module Dommy
     # it always wears the "autofill expectation mantle".
     reflect_setter :autocomplete
     def autocomplete
-      Internal::Autofill.idl_exposed_value(get_attribute("autocomplete"))
+      Internal::Autofill.idl_exposed_value(__internal_attribute_value__("autocomplete"))
     end
     # Own __js_call__ methods, on top of Element's.
 
@@ -500,7 +500,7 @@ module Dommy
     end
 
     def rows
-      (@__node__["rows"] || "2").to_i
+      (__internal_attribute_value__("rows") || "2").to_i
     end
 
     def rows=(v)
@@ -508,7 +508,7 @@ module Dommy
     end
 
     def cols
-      (@__node__["cols"] || "20").to_i
+      (__internal_attribute_value__("cols") || "20").to_i
     end
 
     def cols=(v)
@@ -1032,7 +1032,7 @@ module Dommy
     # getter always returns a number: 0 when indeterminate/invalid, else the
     # value clamped to [0, max].
     def value
-      raw = @__node__["value"].to_s
+      raw = __internal_attribute_value__("value").to_s
       return 0.0 if raw.empty?
 
       v = Float(raw) rescue 0.0
@@ -1041,7 +1041,7 @@ module Dommy
     end
 
     def max
-      raw = @__node__["max"].to_s
+      raw = __internal_attribute_value__("max").to_s
       m = raw.empty? ? 1.0 : (Float(raw) rescue 1.0)
       # A `max` not greater than zero is invalid; the default (1) applies.
       m > 0 ? m : 1.0
@@ -1074,7 +1074,7 @@ module Dommy
 
     # Determinate iff the `value` content attribute is present and parseable.
     def determinate?
-      raw = @__node__["value"].to_s
+      raw = __internal_attribute_value__("value").to_s
       return false if raw.empty?
 
       !!(Float(raw) rescue nil)

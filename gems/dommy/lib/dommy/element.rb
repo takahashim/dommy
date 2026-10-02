@@ -992,7 +992,7 @@ module Dommy
       when "offsetParent"
         nil
       when "popover"
-        get_attribute("popover")
+        __internal_attribute_value__("popover")
       when "children"
         @live_children
       when "childNodes"
@@ -1087,7 +1087,7 @@ module Dommy
         # For form elements `value` is a property that defaults to the
         # `value` attribute. We don't model the property/attribute
         # split here — both reads and writes go through the attribute.
-        @__node__["value"].to_s
+        __internal_attribute_value__("value").to_s
       when "href"
         anchor_href
       when "attributes"
@@ -1148,7 +1148,7 @@ module Dommy
     # against the document base URL (browser semantics). Routers rely on
     # this to compare origins and detect external links.
     def anchor_href
-      raw = @__node__["href"]
+      raw = __internal_attribute_value__("href")
       return "" if raw.nil?
 
       resolve_url(raw)
@@ -1176,7 +1176,7 @@ module Dommy
     # (empty, or multiple/multi-char tokens) yields the empty string. The exact
     # modifier varies by platform — tests only assert non-empty vs empty.
     def access_key_label
-      keys = @__node__["accesskey"].to_s.split(/[ \t\n\f\r]+/).reject(&:empty?)
+      keys = __internal_attribute_value__("accesskey").to_s.split(/[ \t\n\f\r]+/).reject(&:empty?)
       return "" unless keys.length == 1 && keys.first.length == 1
 
       "Alt+#{keys.first.upcase}"
@@ -1242,7 +1242,7 @@ module Dommy
     def translate_mode?
       node = self
       while node
-        attr = node.respond_to?(:get_attribute) ? node.get_attribute("translate") : nil
+        attr = node.respond_to?(:__internal_attribute_value__) ? node.__internal_attribute_value__("translate") : nil
         unless attr.nil?
           value = attr.to_s.downcase
           return true if value == "yes" || value.empty?
@@ -1285,7 +1285,7 @@ module Dommy
         @style.css_text = value.nil? ? "" : value.to_s
       when "translate"
         # The setter is a plain boolean → "yes" / "no".
-        set_attribute("translate", value ? "yes" : "no")
+        __internal_set_attribute_value__("translate", value ? "yes" : "no")
       when "className"
         self.class_name = value
       when "classList"
@@ -1298,7 +1298,7 @@ module Dommy
       when "id"
         self.id = value
       when "value"
-        set_attribute("value", value.to_s)
+        __internal_set_attribute_value__("value", value.to_s)
       when "slot"
         self.slot = value
       when "role"
@@ -1851,7 +1851,7 @@ module Dommy
     # elements are all treated as focusable — no layout means no visibility /
     # tabindex modelling.
     def disabled_form_control?
-      %w[input button select textarea].include?(local_name) && has_attribute?("disabled")
+      %w[input button select textarea].include?(local_name) && __internal_has_attribute__?("disabled")
     end
 
     def attribute_signature

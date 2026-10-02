@@ -409,7 +409,7 @@ module Dommy
       return nil if name.empty? || RESERVED_TARGETS.include?(name.downcase)
 
       @window.document.query_selector_all("iframe").find do |frame|
-        frame.get_attribute("name").to_s == name
+        frame.__internal_attribute_value__("name").to_s == name
       end
     end
 
@@ -463,9 +463,9 @@ module Dommy
     # reloads and is left alone to avoid a busy loop).
     def meta_refresh_target(document)
       document.query_selector_all("meta").each do |meta|
-        next unless meta.get_attribute("http-equiv").to_s.casecmp?("refresh")
+        next unless meta.__internal_attribute_value__("http-equiv").to_s.casecmp?("refresh")
 
-        _delay, separator, rest = meta.get_attribute("content").to_s.partition(";")
+        _delay, separator, rest = meta.__internal_attribute_value__("content").to_s.partition(";")
         next if separator.empty?
 
         url = rest.strip.sub(/\Aurl\s*=\s*/i, "").gsub(/\A["']|["']\z/, "").strip

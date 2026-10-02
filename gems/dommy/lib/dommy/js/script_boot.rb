@@ -199,7 +199,7 @@ module Dommy
       # IDL `src` is a URL reflection, so `src=""` reads back as the document's
       # own address rather than as the empty string, and an empty src is the one
       # case where the two answers differ.
-      def external?(element) = !element.get_attribute("src").nil?
+      def external?(element) = !element.__internal_attribute_value__("src").nil?
 
       # Wire the ESM resolver before any module runs: parse the page's first
       # <script type="importmap">, then resolve bare specifiers through it and

@@ -33,7 +33,7 @@ module Dommy
     # connectedness or the popover-showing state — only whether the dialog is
     # already open, and if so whether it is modal.
     def show
-      if has_attribute?("open")
+      if __internal_has_attribute__?("open")
         return nil unless @__dialog_is_modal__
 
         raise DOMException::InvalidStateError, "show() called on an open modal dialog"
@@ -42,7 +42,7 @@ module Dommy
       return nil unless fire_beforetoggle(false, true)
       # A beforetoggle listener may have opened the dialog itself (from
       # within its own handler); re-check before committing to our own open.
-      return nil if has_attribute?("open")
+      return nil if __internal_has_attribute__?("open")
 
       self.open = true
       queue_toggle_event(dialog_toggle_tracker, false, true)
@@ -57,7 +57,7 @@ module Dommy
     # move focus — it is otherwise the same as show(), plus the `is modal`
     # flag.
     def show_modal
-      if has_attribute?("open")
+      if __internal_has_attribute__?("open")
         return nil if @__dialog_is_modal__
 
         raise DOMException::InvalidStateError, "showModal() called on an open dialog"
@@ -72,7 +72,7 @@ module Dommy
       return nil unless fire_beforetoggle(false, true)
       # A beforetoggle listener may have opened, disconnected, or
       # popover-shown the dialog itself; re-check before committing to modal.
-      return nil if has_attribute?("open") || !is_connected? || popover_showing?
+      return nil if __internal_has_attribute__?("open") || !is_connected? || popover_showing?
 
       self.open = true
       @__dialog_is_modal__ = true
@@ -85,12 +85,12 @@ module Dommy
     # modal` flag), optionally set returnValue, and QUEUE (async) a trusted,
     # non-bubbling `close` event.
     def close(value = nil)
-      return nil unless has_attribute?("open")
+      return nil unless __internal_has_attribute__?("open")
       fire_beforetoggle(true, false)
       # beforetoggle isn't cancelable here, but a listener can still close
       # the dialog itself from inside its own handler; re-check before
       # queuing our own toggle/close.
-      return nil unless has_attribute?("open")
+      return nil unless __internal_has_attribute__?("open")
 
       self.open = false
       @__dialog_is_modal__ = false
@@ -234,7 +234,7 @@ module Dommy
     # scope) may be open. The other members of this element's group — details
     # elements in the same tree sharing its non-empty `name`.
     def group_peers
-      group = @__node__["name"].to_s
+      group = __internal_attribute_value__("name").to_s
       return [] if group.empty?
 
       root = get_root_node
@@ -346,7 +346,7 @@ module Dommy
           wrapped = @document.wrap_node(child)
           next nil unless wrapped
 
-          attr_value = child.element? ? child["slot"].to_s : ""
+          attr_value = child.element? ? Backend.no_namespace_attribute_value(child, "slot").to_s : ""
           if slot_name.empty?
             attr_value.empty? ? wrapped : nil
           else
