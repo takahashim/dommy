@@ -488,11 +488,11 @@ module Dommy
 
     # HTML cloning steps: copy the dirty value flag + raw value so a clone keeps
     # the user-entered text rather than reverting to the default (child text).
-    def __cloning_state__
+    def __internal_cloning_state__
       @__value_dirty ? { value: @__value, dirty: true } : nil
     end
 
-    def __apply_cloning_state__(state)
+    def __internal_apply_cloning_state__(state)
       return unless state[:dirty]
 
       @__value = state[:value]

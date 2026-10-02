@@ -579,7 +579,7 @@ module Dommy
     # checkedness flag + checkedness (plus indeterminate) — the user-modified
     # state a clone must retain beyond the default* content attributes. Returns
     # nil when the control is still pristine, so the walk skips it.
-    def __cloning_state__
+    def __internal_cloning_state__
       state = {}
       state[:value] = @__value unless @__value.nil?
       state[:raw_value] = @__raw_value unless @__raw_value.nil?
@@ -588,7 +588,7 @@ module Dommy
       state.empty? ? nil : state
     end
 
-    def __apply_cloning_state__(state)
+    def __internal_apply_cloning_state__(state)
       @__value = state[:value] if state.key?(:value)
       @__raw_value = state[:raw_value] if state.key?(:raw_value)
       @__checked = state[:checked] if state.key?(:checked)
