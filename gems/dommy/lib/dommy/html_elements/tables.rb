@@ -39,14 +39,12 @@ module Dommy
   # `rowIndex` walks the enclosing table; `sectionRowIndex` walks
   # the enclosing thead/tbody/tfoot.
   class HTMLTableRowElement < HTMLElement
-    HTML_NAMESPACE = Internal::Namespaces::HTML
-
     # Own __js_call__ methods, on top of Element's.
     def cells
       el = self
       @cells ||= HTMLCollection.new do
         el.__dommy_backend_node__.element_children
-          .select { |n| %w[td th].include?(n.name) && el.__html_ns_node__(n) }
+          .select { |n| %w[td th].include?(n.name) && html_element_node?(n) }
           .map { |n| el.document.wrap_node(n) }.compact
       end
     end
@@ -62,11 +60,11 @@ module Dommy
 
     def section_row_index
       parent = @__node__.parent
-      return -1 unless parent && parent.element? && __html_ns_node__(parent) &&
+      return -1 unless parent && parent.element? && html_element_node?(parent) &&
                        %w[table thead tbody tfoot].include?(parent.name)
 
       parent.element_children
-        .select { |n| n.name == "tr" && __html_ns_node__(n) }
+        .select { |n| n.name == "tr" && html_element_node?(n) }
         .find_index { |n| n == @__node__ } || -1
     end
 
@@ -97,11 +95,6 @@ module Dommy
       nil
     end
 
-    def __html_ns_node__(node)
-      el = @document.wrap_node(node)
-      !el.respond_to?(:namespace_uri) || el.namespace_uri == HTML_NAMESPACE
-    end
-
     js_readable :cells, :row_index, :section_row_index
 
     js_methods %w[insertCell deleteCell]
@@ -124,13 +117,12 @@ module Dommy
   # collection + insertRow / deleteRow.
   class HTMLTableSectionElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
-    HTML_NAMESPACE = Internal::Namespaces::HTML
 
     def rows
       el = self
       @rows ||= HTMLCollection.new do
         el.__dommy_backend_node__.element_children
-          .select { |n| n.name == "tr" && el.__html_ns_node__(n) }
+          .select { |n| n.name == "tr" && html_element_node?(n) }
           .map { |n| el.document.wrap_node(n) }.compact
       end
     end
@@ -158,11 +150,6 @@ module Dommy
       target = i == -1 ? list.last : list[i]
       target&.remove
       nil
-    end
-
-    def __html_ns_node__(node)
-      el = @document.wrap_node(node)
-      !el.respond_to?(:namespace_uri) || el.namespace_uri == HTML_NAMESPACE
     end
 
     def __js_get__(key)
@@ -198,8 +185,6 @@ module Dommy
   # tbody elements. `insertRow(-1)` appends to the last tbody (or
   # creates one); `deleteRow` works against the merged `rows` list.
   class HTMLTableElement < HTMLElement
-    HTML_NAMESPACE = Internal::Namespaces::HTML
-
     # Own __js_call__ methods, on top of Element's.
     def caption
       first_html_child("caption")
@@ -231,7 +216,7 @@ module Dommy
       el = self
       @t_bodies ||= HTMLCollection.new do
         el.__dommy_backend_node__.element_children
-          .select { |n| n.name == "tbody" && el.__html_namespace_node__(n) }
+          .select { |n| n.name == "tbody" && html_element_node?(n) }
           .map { |n| el.document.wrap_node(n) }.compact
       end
     end
@@ -246,15 +231,15 @@ module Dommy
         body_rows = []
         foot_rows = []
         el.__dommy_backend_node__.element_children.each do |n|
-          next unless el.__html_namespace_node__(n)
+          next unless html_element_node?(n)
 
           case n.name
           when "thead"
-            el.__tr_children__(n).each { |c| head_rows << c }
+            tr_children(n).each { |c| head_rows << c }
           when "tfoot"
-            el.__tr_children__(n).each { |c| foot_rows << c }
+            tr_children(n).each { |c| foot_rows << c }
           when "tbody"
-            el.__tr_children__(n).each { |c| body_rows << c }
+            tr_children(n).each { |c| body_rows << c }
           when "tr"
             body_rows << n
           end
@@ -264,21 +249,16 @@ module Dommy
     end
 
     # The HTML-namespaced <tr> element children of a section node.
-    def __tr_children__(section)
-      section.element_children.select { |n| n.name == "tr" && __html_namespace_node__(n) }
+    def tr_children(section)
+      section.element_children.select { |n| n.name == "tr" && html_element_node?(n) }
     end
+    private :tr_children
 
     # The first HTML-namespaced element child with the given local name (a
     # same-name element in another namespace, e.g. SVG's <caption>, is skipped).
     def first_html_child(local)
-      node = @__node__.element_children.find { |n| n.name == local && __html_namespace_node__(n) }
+      node = @__node__.element_children.find { |n| n.name == local && html_element_node?(n) }
       node && @document.wrap_node(node)
-    end
-
-    # Whether a raw backend node is in the HTML namespace.
-    def __html_namespace_node__(node)
-      el = @document.wrap_node(node)
-      !el.respond_to?(:namespace_uri) || el.namespace_uri == HTML_NAMESPACE
     end
 
     def create_caption
