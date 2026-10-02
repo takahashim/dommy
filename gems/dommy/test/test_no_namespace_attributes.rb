@@ -71,6 +71,18 @@ class TestNoNamespaceAttributes < Minitest::Test
     assert_equal("", el.get_attribute_ns(NS, "hidden"))
   end
 
+  def test_dataset
+    el = element
+    el.set_attribute_ns(NS, "data-a", "ns")
+    assert_equal([], el.dataset.__js_named_props__)
+    assert_equal(Dommy::Bridge::ABSENT, el.dataset.__js_get__("a"))
+
+    el.dataset.__js_set__("a", "plain")
+    assert_equal([[NS, "ns"], [nil, "plain"]], attrs(el))
+    el.dataset.__js_delete__("a")
+    assert_equal([[NS, "ns"]], attrs(el))
+  end
+
   # The JS side answers `el.id` from its attribute snapshot, so an element
   # with an unprefixed namespaced attribute is not snapshotted.
   def test_snapshot
