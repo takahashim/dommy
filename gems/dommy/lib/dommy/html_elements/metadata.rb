@@ -301,8 +301,9 @@ module Dommy
   end
 
   class HTMLTitleElement < HTMLElement
+    # The child text content: a descendant element's text is no part of it.
     def text
-      text_content
+      Backend.child_text_content(@__node__)
     end
 
     def text=(v)

@@ -486,6 +486,16 @@ class TestHTMLHeadMetadata < Minitest::Test
     assert_equal("Page", t.text)
     assert_equal("Page", t.text_content)
   end
+
+  # `text` is the child text content: a descendant element's text is no part
+  # of it.
+  def test_title_text_is_child_text_only
+    t = @doc.create_element("title")
+    t.text = "Page"
+    t.append_child(@doc.create_element("b")).text_content = "X"
+    assert_equal("Page", t.text)
+    assert_equal("PageX", t.text_content)
+  end
 end
 
 class TestHTMLQuoteMod < Minitest::Test
