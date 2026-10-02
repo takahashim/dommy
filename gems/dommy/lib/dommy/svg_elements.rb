@@ -16,8 +16,7 @@ module Dommy
   # `viewBox`, `gradientUnits`, `preserveAspectRatio`).
   class SVGElement < Element
     include Internal::ReflectedAttributes
-    include Internal::ElementNonce
-    js_accessor :nonce
+    include Internal::HTMLOrSVGOrMathMLElement
 
     # SVG attribute names are case-sensitive (`viewBox` ≠ `viewbox`).
     # Element's get/set/has/remove_attribute consult this flag to
@@ -28,13 +27,9 @@ module Dommy
 
     # Common SVG attributes shared across all elements.
     reflect_string :id, class_name: "class"
-    reflect_long_setter tab_index: { attr: "tabindex", js: "tabIndex" }
 
-    # `tabIndex` (HTML §6.6.3): the tabindex attribute parsed as an integer,
-    # else 0 for an SVG `a` and -1 for any other SVG element.
-    def tab_index
-      parsed_long_attribute("tabindex") || (local_name == "a" ? 0 : -1)
-    end
+    # tabIndex's default (HTML §6.6.3): 0 for an SVG `a`, -1 for the rest.
+    def default_tab_index = local_name == "a" ? 0 : -1
   end
 
   # `<svg>` — the root of an SVG subtree.

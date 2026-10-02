@@ -45,7 +45,6 @@ module Dommy
       @__node__ = nokogiri_node
       @class_list = ClassList.new(self)
       @style = StyleDeclaration.new(self)
-      @dataset = DatasetMap.new(self)
       # `HTMLCollection` re-evaluates the child list on every
       # property access so callers that capture `el[:children]` once
       # see DOM mutations made between iterations — required by list
@@ -216,10 +215,6 @@ module Dommy
     # is reflected on the `a` of all three namespaces that define one.
     def style
       @style
-    end
-
-    def dataset
-      @dataset
     end
 
     def children
@@ -617,33 +612,6 @@ module Dommy
 
     alias connected? is_connected?
 
-    # `focus()` — the HTML focusing steps, minus layout: Dommy treats any
-    # element as focusable (except a disabled form control), then updates
-    # document.activeElement AND fires the focus-change events a real
-    # browser would — blur/focusout on the previously focused element, then
-    # focus/focusin here, with relatedTarget linking the two. JS calling
-    # `input.focus()` therefore triggers the same focus handlers a user's
-    # click/tab would; already-focused and disabled targets are no-ops.
-    def focus
-      return nil if disabled_form_control?
-      return nil if @document.__internal_focused_element__.equal?(self)
-
-      previous = @document.__internal_focused_element__
-      fire_focus_out(previous, self) if previous
-      @document.__internal_set_active_element__(self)
-      dispatch_event(Dommy::FocusEvent.new("focus", "composed" => true, "relatedTarget" => previous))
-      dispatch_event(Dommy::FocusEvent.new("focusin",
-        "bubbles" => true, "composed" => true, "relatedTarget" => previous))
-      nil
-    end
-
-    def blur
-      return nil unless @document.__internal_focused_element__.equal?(self)
-
-      @document.__internal_set_active_element__(nil)
-      fire_focus_out(self, nil)
-      nil
-    end
 
 
 
@@ -1054,13 +1022,6 @@ module Dommy
         (@reflected_token_lists ||= {})["rel"] ||= ClassList.new(self, "rel")
       when "style"
         @style
-      when "dataset"
-        # HTMLOrSVGOrMathMLElement.dataset: only those three namespaces have one.
-        if is_a?(HTMLElement) || is_a?(SVGElement) || namespace_uri == Internal::Namespaces::MATHML
-          @dataset
-        else
-          Bridge::ABSENT
-        end
       when "content"
         template_content
       when "className"
@@ -1330,7 +1291,7 @@ module Dommy
       getAttributeNS setAttributeNS hasAttributeNS removeAttributeNS getAttributeNodeNS setAttributeNodeNS
       querySelector querySelectorAll getElementsByClassName getElementsByTagName getElementsByTagNameNS
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches webkitMatchesSelector
-      toString getAttributeNode setAttributeNode removeAttributeNode focus blur attachShadow
+      toString getAttributeNode setAttributeNode removeAttributeNode attachShadow
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
       replaceChild cloneNode append prepend replaceChildren moveBefore before after getInnerHTML getHTML
       remove replaceWith click getBoundingClientRect getClientRects scrollIntoView scroll
@@ -1427,10 +1388,6 @@ module Dommy
         set_attribute_node(args[0])
       when "removeAttributeNode"
         remove_attribute_node(args[0])
-      when "focus"
-        focus
-      when "blur"
-        blur
       when "attachShadow"
         attach_shadow(args[0])
       when "addEventListener"

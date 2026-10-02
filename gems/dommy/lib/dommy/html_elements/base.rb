@@ -13,8 +13,7 @@ module Dommy
   # SVGElement).
   class HTMLElement < Element
     include Internal::ReflectedAttributes
-    include Internal::ElementNonce
-    js_accessor :nonce
+    include Internal::HTMLOrSVGOrMathMLElement
     # `lang` reflects its own content attribute ("" when absent) — not the
     # inherited language the element computes for matching.
     reflect_string :lang
@@ -22,10 +21,9 @@ module Dommy
     # content attribute — an ancestor's title is not inherited here.
     reflect_string :title
     reflect_string access_key: { attr: "accesskey", js: "accessKey" }
-    reflect_boolean :autofocus, :inert, heading_reset: { attr: "headingreset", js: "headingReset" }
+    reflect_boolean :inert, heading_reset: { attr: "headingreset", js: "headingReset" }
     # How many levels a heading inside this element is offset by, 0 to 8.
     reflect_ulong heading_offset: { attr: "headingoffset", js: "headingOffset", range: 0..8 }
-    reflect_long_setter tab_index: { attr: "tabindex", js: "tabIndex" }
     # The virtual keyboard's enter key and layout, limited to only known
     # values (HTML §6.8.5).
     reflect_enumerated enter_key_hint: { attr: "enterkeyhint", js: "enterKeyHint",
@@ -36,13 +34,9 @@ module Dommy
     # The elements whose tabIndex is 0 without a tabindex attribute.
     TAB_INDEX_ZERO = %w[a area button frame iframe input object select textarea].freeze
 
-    # `tabIndex` (HTML §6.6.3): the tabindex attribute parsed as an integer,
-    # else 0 for the elements a user can usually focus — those above, and a
-    # summary that is its details' summary — and -1 for the rest.
-    def tab_index
-      parsed_long_attribute("tabindex") ||
-        (TAB_INDEX_ZERO.include?(local_name) || __internal_summary_details__ ? 0 : -1)
-    end
+    # tabIndex's default (HTML §6.6.3): 0 for the elements above and a
+    # summary that is its details' summary, -1 for the rest.
+    def default_tab_index = TAB_INDEX_ZERO.include?(local_name) || __internal_summary_details__ ? 0 : -1
 
     js_accessor :draggable, :spellcheck
     reflect_setter writing_suggestions: { attr: "writingsuggestions", js: "writingSuggestions" }

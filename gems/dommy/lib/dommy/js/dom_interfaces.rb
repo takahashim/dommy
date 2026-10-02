@@ -68,6 +68,7 @@ module Dommy
         %w[Element Node EventTarget],
         %w[HTMLElement Element Node EventTarget],
         %w[SVGElement Element Node EventTarget],
+        %w[MathMLElement Element Node EventTarget],
         %w[CharacterData Node EventTarget],
         %w[Text CharacterData Node EventTarget],
         %w[Comment CharacterData Node EventTarget],
