@@ -36,7 +36,7 @@ module Dommy
     reflect_enumerated type: { keywords: TYPE_KEYWORDS, missing: "text", invalid: "text" }
     # Own __js_call__ methods, on top of Element's.
 
-    def __submit_button__? = %w[submit image].include?(type) && !disabled
+    def __internal_submit_button__? = %w[submit image].include?(type) && !disabled
 
     # Runtime value/checked. Dommy has no UI, so the runtime state is
     # initialized from the attribute on first access and tracked
@@ -224,7 +224,7 @@ module Dommy
     # only when connected, so clicking a detached checkbox toggles it silently.
     # Both events are UA-generated, so trusted.
     def activation_behavior(event)
-      return super if __submit_button__?
+      return super if __internal_submit_button__?
       return form&.reset if type == "reset" && !disabled
       return unless CHECKABLE_TYPES.include?(type) && is_connected?
 

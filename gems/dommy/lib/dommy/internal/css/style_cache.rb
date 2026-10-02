@@ -22,10 +22,10 @@ module Dommy
         # The document's cache for its current style generation, replacing a
         # stale one.
         def self.for(document)
-          cache = document.__css_style_cache__
+          cache = document.__internal_css_style_cache__
           unless cache&.current?(document.style_generation)
             cache = new(document.style_generation)
-            document.__css_style_cache__ = cache
+            document.__internal_css_style_cache__ = cache
           end
           cache
         end

@@ -39,7 +39,7 @@ module Dommy
       # so recomputing per read would be quadratic.
       def direction_of(element)
         document = element.owner_document
-        return compute_direction(element) unless document.respond_to?(:__css_style_cache__)
+        return compute_direction(element) unless document.respond_to?(:__internal_css_style_cache__)
 
         CSS::StyleCache.for(document).direction(element) { compute_direction(element) }
       end

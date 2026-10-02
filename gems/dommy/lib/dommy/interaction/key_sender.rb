@@ -98,7 +98,7 @@ module Dommy
           EventSynthesis.click(submitter)
         else
           # No submit button: HTML implicit submission with no submitter.
-          form.__run_form_submission__(nil)
+          form.__internal_run_form_submission__(nil)
         end
       end
 
