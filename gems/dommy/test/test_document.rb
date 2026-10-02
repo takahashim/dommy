@@ -184,6 +184,44 @@ class TestDocument < Minitest::Test
     assert_equal("", @doc.title)
   end
 
+  SVG_NS = "http://www.w3.org/2000/svg"
+
+  # The title element is the first title in the HTML namespace; an SVG
+  # `title` earlier in the tree is not it, and only its Text children count.
+  def test_title_reads_the_html_title_element
+    doc = make_window("<body><svg><title>svg</title></svg></body>").document
+    assert_equal("", doc.title)
+
+    doc.title = "page"
+    assert_equal(["page", "svg"], doc.query_selector_all("title").map(&:text_content))
+    assert_equal("page", doc.title)
+
+    doc.query_selector("head title").append_child(doc.create_element("b")).text_content = "X"
+    assert_equal("page", doc.title)
+  end
+
+  # In a document whose element is an SVG `svg`, the title is its SVG
+  # `title` child, made as its first child when set.
+  def test_title_of_an_svg_document
+    doc = @doc.implementation.create_document(SVG_NS, "svg", nil)
+    root = doc.document_element
+    root.append_child(doc.create_element_ns(SVG_NS, "g"))
+    assert_equal("", doc.title)
+
+    doc.title = " a  b "
+    title = root.first_child
+    assert_equal([SVG_NS, "title"], [title.namespace_uri, title.local_name])
+    assert_equal("a b", doc.title)
+  end
+
+  # A document element in another namespace takes no title.
+  def test_title_of_another_document_is_left_alone
+    doc = @doc.implementation.create_document("urn:x", "r", nil)
+    doc.title = "x"
+    assert_equal("", doc.title)
+    assert_equal(0, doc.document_element.child_nodes.length)
+  end
+
   def test_create_element_returns_an_element_with_given_tag
     el = @doc.create_element("p")
     assert_kind_of(Dommy::Element, el)

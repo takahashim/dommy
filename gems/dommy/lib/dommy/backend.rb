@@ -146,6 +146,12 @@ module Dommy
         current.create_element_loose(qualified_name, prefix, local, namespace, doc)
       end
 
+      # DOM "child text content": the data of `node`'s Text (and CDATA
+      # section) children, in order — no deeper descendant's.
+      def child_text_content(node)
+        node.children.select { |c| c.text? || c.cdata? }.map(&:content).join
+      end
+
       # The element's own namespace URI as the DOM reports it: nil for no
       # namespace.
       def namespace_uri(node)
