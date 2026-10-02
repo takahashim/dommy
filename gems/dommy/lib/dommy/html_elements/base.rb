@@ -31,6 +31,70 @@ module Dommy
                        input_mode: { attr: "inputmode", js: "inputMode",
                                      keywords: %w[none text tel url email numeric decimal search] }
 
+    # `popover` (HTML §6.12), limited to its keywords: null without the
+    # attribute, "auto" for an empty one, "manual" for any other value.
+    reflect_enumerated popover: { keywords: %w[auto manual hint], missing: nil, empty: "auto",
+                                  invalid: "manual", nullable: true }
+    js_accessor :hidden, :translate, :value
+    js_readable :access_key_label, :offset_parent, :offset_top, :offset_left, :offset_width, :offset_height
+
+    # `hidden`: whether the hidden attribute is present; true writes it, false
+    # removes it.
+    def hidden = __internal_has_attribute__?("hidden")
+
+    def hidden=(value)
+      value ? __internal_set_attribute_value__("hidden", "") : remove_attribute_ns(nil, "hidden")
+    end
+
+    # `translate`: the element's translation mode — the nearest
+    # ancestor-or-self with a valid translate attribute decides ("yes" or ""
+    # translates, "no" does not); with none, the root translates. The setter
+    # writes "yes" or "no".
+    def translate
+      node = self
+      while node
+        case node.__internal_attribute_value__("translate")&.downcase(:ascii)
+        when "yes", "" then return true
+        when "no" then return false
+        end
+        node = node.parent_element
+      end
+      true
+    end
+
+    def translate=(value)
+      __internal_set_attribute_value__("translate", value ? "yes" : "no")
+    end
+
+    # `value` for an HTML element whose interface gives it none of its own:
+    # the value attribute, as a string. The form controls and the other
+    # interfaces with a `value` declare their own.
+    def value = __internal_attribute_value__("value").to_s
+
+    def value=(value)
+      __internal_set_attribute_value__("value", value.to_s)
+    end
+
+    # `accessKeyLabel`: the `accesskey` content attribute is a set of
+    # one-code-point candidates; a single valid candidate yields a
+    # (modifier-prefixed) label, anything else (empty, or multiple /
+    # multi-char tokens) yields the empty string. The exact modifier varies by
+    # platform — tests only assert non-empty vs empty.
+    def access_key_label
+      keys = __internal_attribute_value__("accesskey").to_s.split(/[ \t\n\f\r]+/).reject(&:empty?)
+      return "" unless keys.length == 1 && keys.first.length == 1
+
+      "Alt+#{keys.first.upcase}"
+    end
+
+    # cssom-view's offsets: nothing lays the element out, so it has no offset
+    # parent, sits at 0, and measures what its layout size does.
+    def offset_parent = nil
+    def offset_top = 0
+    def offset_left = 0
+    def offset_width = layout_size(:width)
+    def offset_height = layout_size(:height)
+
     # The elements whose tabIndex is 0 without a tabindex attribute.
     TAB_INDEX_ZERO = %w[a area button frame iframe input object select textarea].freeze
 

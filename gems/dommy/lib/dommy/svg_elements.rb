@@ -28,6 +28,11 @@ module Dommy
     # Common SVG attributes shared across all elements.
     reflect_string :id, class_name: "class"
 
+    # The href URL an SVG element without one of its own answers with (its
+    # `a` and textPath reflect theirs).
+    js_readable :href
+    def href = anchor_href
+
     # tabIndex's default (HTML §6.6.3): 0 for an SVG `a`, -1 for the rest.
     def default_tab_index = local_name == "a" ? 0 : -1
   end

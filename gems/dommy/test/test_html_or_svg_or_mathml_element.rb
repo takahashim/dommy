@@ -58,4 +58,27 @@ class TestHTMLOrSVGOrMathMLElement < Minitest::Test
     assert_same el, @doc.active_element
     assert_equal(-1, @doc.create_element_ns(NAMESPACES[:mathml], "mi").__js_get__("tabIndex"))
   end
+
+  HTML_ONLY = %w[hidden translate value popover accessKeyLabel offsetParent offsetTop offsetLeft offsetWidth offsetHeight].freeze
+
+  # HTMLElement's own attributes are on HTML elements only.
+  def test_html_element_attributes_are_on_html_elements_only
+    html = element(NAMESPACES[:html], "div")
+    HTML_ONLY.each { |key| refute_equal Dommy::Bridge::ABSENT, html.__js_get__(key), key }
+    [nil, "urn:x", NAMESPACES[:svg], NAMESPACES[:mathml]].each do |namespace|
+      el = element(namespace, "x")
+      HTML_ONLY.each { |key| assert_equal Dommy::Bridge::ABSENT, el.__js_get__(key), "#{namespace.inspect} #{key}" }
+    end
+    %w[href content parent].each { |key| assert_equal Dommy::Bridge::ABSENT, element(nil, "x").__js_get__(key), key }
+  end
+
+  # popover is limited to its keywords.
+  def test_popover
+    div = element(NAMESPACES[:html], "div")
+    assert_nil div.__js_get__("popover")
+    { "" => "auto", "Hint" => "hint", "x" => "manual" }.each do |value, keyword|
+      div.set_attribute("popover", value)
+      assert_equal keyword, div.__js_get__("popover"), value
+    end
+  end
 end

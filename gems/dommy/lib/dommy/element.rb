@@ -944,23 +944,12 @@ module Dommy
         1
       when "isConnected"
         is_connected?
-      when "scrollTop", "scrollLeft", "clientTop", "clientLeft", "offsetTop", "offsetLeft"
+      when "scrollTop", "scrollLeft", "clientTop", "clientLeft"
         # Position-ish metrics: 0 (we never lay elements out in the page), as a
         # real browser reports for hidden / pre-paint elements.
         0
-      when "clientWidth", "clientHeight", "scrollWidth", "scrollHeight", "offsetWidth", "offsetHeight"
-        # Size metrics: 0 by default; a best-effort estimate when the window opts
-        # into approximate geometry (see #get_bounding_client_rect).
-        if approximate_layout?
-          box = __internal_approx_box
-          key.end_with?("Width") ? box[:width] : box[:height]
-        else
-          0
-        end
-      when "offsetParent"
-        nil
-      when "popover"
-        __internal_attribute_value__("popover")
+      when "clientWidth", "clientHeight", "scrollWidth", "scrollHeight"
+        layout_size(key.end_with?("Width") ? :width : :height)
       when "children"
         @live_children
       when "childNodes"
@@ -983,7 +972,7 @@ module Dommy
         previous_element_sibling
       when "firstElementChild"
         first_element_child
-      when "parentElement", "parent"
+      when "parentElement"
         # parentElement is null unless the parent is an element (the document /
         # a fragment parent is a parentNode but not a parentElement).
         @__node__.parent&.element? ? wrap_parent(@__node__.parent) : nil
@@ -1022,35 +1011,12 @@ module Dommy
         (@reflected_token_lists ||= {})["rel"] ||= ClassList.new(self, "rel")
       when "style"
         @style
-      when "content"
-        template_content
       when "className"
         # DOM reflects the `class` attribute as the `className` string
         # property (space-separated tokens, "" when absent).
         class_name
       when "id"
         id
-      when "translate"
-        # `translate` is a boolean reflecting the element's translation mode,
-        # which inherits: translate="yes"/"" → true, "no" → false, else the
-        # nearest ancestor's mode; the root defaults to translate (true).
-        translate_mode?
-      when "hidden", "checked"
-        # The two boolean-ish properties that are NOT reflections, and so are
-        # not declared with reflect_boolean on the interfaces that have them:
-        # `hidden` is a union type on every HTML element, and `checked` is the
-        # element's checkedness rather than the `checked` attribute (which
-        # `defaultChecked` reflects).
-        return Bridge::ABSENT unless boolean_idl_attribute?(key)
-
-        !__internal_attribute_value__(key).nil?
-      when "value"
-        # For form elements `value` is a property that defaults to the
-        # `value` attribute. We don't model the property/attribute
-        # split here — both reads and writes go through the attribute.
-        __internal_attribute_value__("value").to_s
-      when "href"
-        anchor_href
       when "attributes"
         attributes
       when "namespaceURI"
@@ -1063,8 +1029,6 @@ module Dommy
         slot
       when "role"
         aria_get("role")
-      when "accessKeyLabel"
-        access_key_label
       when "baseURI"
         base_uri
       when "shadowRoot"
@@ -1131,18 +1095,6 @@ module Dommy
       raw.to_s
     end
 
-    # `accessKeyLabel` — the assigned access key's platform label. The
-    # `accesskey` content attribute is a set of one-code-point candidates; a
-    # single valid candidate yields a (modifier-prefixed) label, anything else
-    # (empty, or multiple/multi-char tokens) yields the empty string. The exact
-    # modifier varies by platform — tests only assert non-empty vs empty.
-    def access_key_label
-      keys = __internal_attribute_value__("accesskey").to_s.split(/[ \t\n\f\r]+/).reject(&:empty?)
-      return "" unless keys.length == 1 && keys.first.length == 1
-
-      "Alt+#{keys.first.upcase}"
-    end
-
     # The content attribute an ARIA element-reference IDL attribute reflects
     # (`ariaActiveDescendantElement` → "aria-activedescendant"), or nil.
     def aria_element_attr(key) = Internal::ElementAria::ELEMENT_ATTRIBUTES[key]
@@ -1179,42 +1131,6 @@ module Dommy
       nil
     end
 
-    # Which HTML elements these two are defined on. `hidden` is global (it lives
-    # on HTMLElement); `checked` belongs to input alone, and an element that
-    # answered it would be claiming an IDL attribute HTML never gave it — which
-    # feature detection reads as a checkbox. The reflected booleans used to need
-    # a table like this because they were answered here rather than by the
-    # interfaces that declare them; they are reflect_boolean declarations now,
-    # and the interface a declaration sits on IS the answer.
-    BOOLEAN_IDL_OWNERS = {
-      "checked" => %w[input].freeze
-    }.freeze
-
-    def boolean_idl_attribute?(key)
-      owners = BOOLEAN_IDL_OWNERS[key]
-      return true if owners.nil? # `hidden`, on every HTML element
-
-      namespace_uri == HTML_NAMESPACE && owners.include?(local_name.to_s.downcase)
-    end
-
-    # The element's translation mode (HTML `translate`): the nearest ancestor-or-
-    # self with a valid translate attribute decides ("yes"/"" → true, "no" →
-    # false); with none, the root default is translate (true).
-    def translate_mode?
-      node = self
-      while node
-        attr = node.respond_to?(:__internal_attribute_value__) ? node.__internal_attribute_value__("translate") : nil
-        unless attr.nil?
-          value = attr.to_s.downcase
-          return true if value == "yes" || value.empty?
-          return false if value == "no"
-          # An invalid value inherits — keep walking up.
-        end
-        node = node.respond_to?(:parent_element) ? node.parent_element : nil
-      end
-      true
-    end
-
     def __js_set__(key, value)
       case key
       when "textContent"
@@ -1224,29 +1140,12 @@ module Dommy
       when "outerHTML"
         # [CEReactions, LegacyNullToEmptyString] DOMString — null becomes "".
         self.outer_html = value.nil? ? "" : value.to_s
-      when "hidden", "checked"
-        # See the getter: the two that are not reflections. Funnel through
-        # the attribute API so MutationObserver attribute records fire, in no
-        # namespace as the getter reads. On an element the IDL attribute does
-        # not belong to, the assignment is an ordinary JS expando and must not
-        # touch the content attribute.
-        return Bridge::UNHANDLED unless boolean_idl_attribute?(key)
-
-        if value
-          __internal_set_attribute_value__(key, "")
-        else
-          remove_attribute_ns(nil, key)
-        end
-
       when "style"
         # WHATWG [PutForwards=cssText]: `el.style = "..."` forwards to
         # `el.style.cssText`, reparsing and rewriting the `style` attribute.
         # Handling it here stops the bridge from stashing a string expando that
         # would shadow the CSSStyleDeclaration getter.
         @style.css_text = value.nil? ? "" : value.to_s
-      when "translate"
-        # The setter is a plain boolean → "yes" / "no".
-        __internal_set_attribute_value__("translate", value ? "yes" : "no")
       when "className"
         self.class_name = value
       when "classList"
@@ -1258,8 +1157,6 @@ module Dommy
         self.class_name = value
       when "id"
         self.id = value
-      when "value"
-        __internal_set_attribute_value__("value", value.to_s)
       when "slot"
         self.slot = value
       when "role"
@@ -1787,6 +1684,11 @@ module Dommy
     def merge_cloning_state(state, own)
       own.empty? ? state : (state || {}).merge(own)
     end
+
+    # A layout size, `:width` or `:height`: 0, as an element nothing lays out
+    # measures, or a best-effort estimate when the window opts into
+    # approximate geometry (see #get_bounding_client_rect).
+    def layout_size(dimension) = approximate_layout? ? __internal_approx_box[dimension] : 0
 
     # The attribute change steps for the state an element keeps beside its
     # attributes, run whenever the attribute with local name `local_name`
