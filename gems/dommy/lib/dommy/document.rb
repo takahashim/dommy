@@ -2358,8 +2358,8 @@ module Dommy
       @mutation_coordinator.notify_disconnected_subtree(nk)
     end
 
-    def __internal_notify_attribute_changed__(element, name, old_value, new_value)
-      @mutation_coordinator.notify_attribute_changed(element, name, old_value, new_value)
+    def __internal_notify_attribute_changed__(element, name, old_value, new_value, namespace = nil)
+      @mutation_coordinator.notify_attribute_changed(element, name, old_value, new_value, namespace)
     end
 
     def register_observer(observer)
