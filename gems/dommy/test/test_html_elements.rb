@@ -420,6 +420,16 @@ class TestLangTranslateAttributes < Minitest::Test
     assert_equal "", doc.get_element_by_id("e").__js_get__("lang"), "unset lang is empty"
   end
 
+  def test_title_reflects_own_attribute
+    doc = make_window("<div id='d' title='hint'><p id='p'></p></div>").document
+    d = doc.get_element_by_id("d")
+    assert_equal "hint", d.__js_get__("title")
+    assert_equal "", doc.get_element_by_id("p").__js_get__("title"), "an ancestor's title is not inherited"
+
+    d.__js_set__("title", "new")
+    assert_equal "new", d.get_attribute("title")
+  end
+
   def test_translate_inherits
     doc = make_window(
       "<div id='w' translate='no'><p id='p'><span id='s' translate='yes'></span></p><b id='b'></b></div>"

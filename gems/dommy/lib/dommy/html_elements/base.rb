@@ -16,6 +16,9 @@ module Dommy
     # `lang` reflects its own content attribute ("" when absent) — not the
     # inherited language the element computes for matching.
     reflect_string :lang
+    # `title` is the advisory information, a plain reflection of its own
+    # content attribute — an ancestor's title is not inherited here.
+    reflect_string :title
     # `dir` reflects its own content attribute, limited to only known values:
     # ltr / rtl / auto in lowercase, "" otherwise. The setter reflects as is;
     # the getter is written here, as HTMLButtonElement#type is. The computed

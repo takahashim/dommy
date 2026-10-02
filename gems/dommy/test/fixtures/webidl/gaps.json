@@ -492,7 +492,6 @@
       "scrollParent",
       "spellcheck",
       "tabIndex",
-      "title",
       "writingSuggestions"
     ],
     "HTMLEmbedElement": [
