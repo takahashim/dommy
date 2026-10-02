@@ -1548,6 +1548,16 @@ module Dommy
       Backend.no_namespace_attribute_value(@__node__, local_name)
     end
 
+    # HTML's cloning steps, for the state an element keeps beside its
+    # attributes: what a copy takes over, as a Hash, or nil when there is
+    # nothing. Each interface and mixin with such state adds its own to what
+    # `super` gives (#merge_cloning_state) and takes its own back, so the
+    # steps run together as HTML's do — a script's "already started" and
+    # its nonce, say.
+    def __internal_cloning_state__ = nil
+
+    def __internal_apply_cloning_state__(_state) = nil
+
     def __internal_has_attribute__?(local_name)
       !Backend.no_namespace_attribute_value(@__node__, local_name).nil?
     end
@@ -1814,6 +1824,12 @@ module Dommy
 
     # ---- Internal helpers (single private section) ----
     private
+
+    # `state`, what `super`'s cloning steps gave, with `own` added; nil while
+    # both are empty.
+    def merge_cloning_state(state, own)
+      own.empty? ? state : (state || {}).merge(own)
+    end
 
     # The attribute change steps for the state an element keeps beside its
     # attributes, run whenever the attribute with local name `local_name`

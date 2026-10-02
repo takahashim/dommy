@@ -100,10 +100,11 @@ module Dommy
     # original's, so cloning a parsed-but-inert script (DOMParser, innerHTML)
     # does not make a copy that runs on insertion.
     def __internal_cloning_state__
-      @__script_started ? {already_started: true} : nil
+      merge_cloning_state(super, @__script_started ? {already_started: true} : {})
     end
 
     def __internal_apply_cloning_state__(state)
+      super
       @__script_started = true if state[:already_started]
     end
 

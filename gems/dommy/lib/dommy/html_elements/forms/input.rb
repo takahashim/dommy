@@ -585,10 +585,11 @@ module Dommy
       state[:raw_value] = @__raw_value unless @__raw_value.nil?
       state[:checked] = @__checked unless @__checked.nil?
       state[:indeterminate] = @__indeterminate unless @__indeterminate.nil?
-      state.empty? ? nil : state
+      merge_cloning_state(super, state)
     end
 
     def __internal_apply_cloning_state__(state)
+      super
       @__value = state[:value] if state.key?(:value)
       @__raw_value = state[:raw_value] if state.key?(:raw_value)
       @__checked = state[:checked] if state.key?(:checked)
