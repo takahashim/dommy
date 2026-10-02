@@ -111,13 +111,16 @@ module Dommy
 
   # Map a (local name, namespace) pair to its DOM interface class. HTML-namespace
   # names match case-SENSITIVELY (createElement lower-cases first, but
-  # createElementNS preserves case, so "SPAN" is unknown); any namespace other
-  # than HTML/SVG — including the null namespace — gets the generic Element.
+  # createElementNS preserves case, so "SPAN" is unknown); a MathML element is
+  # a MathMLElement, and any other namespace — including the null namespace —
+  # gets the generic Element.
   def self.element_class_for(tag_name, namespace_uri = nil)
     name = tag_name.to_s
     case namespace_uri
     when SVG_NAMESPACE_URI
       SVG_ELEMENT_CLASSES[name.downcase] || SVGElement
+    when Internal::Namespaces::MATHML
+      MathMLElement
     when HTML_NAMESPACE_URI
       # An unrecognized name that is a *valid custom element name* is an
       # undefined custom element, and its interface is HTMLElement — only a
