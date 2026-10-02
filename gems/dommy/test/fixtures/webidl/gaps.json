@@ -398,8 +398,6 @@
     ],
     "HTMLElement": [
       "attachInternals",
-      "enterKeyHint",
-      "inputMode",
       "nonce",
       "onabort",
       "onauxclick",

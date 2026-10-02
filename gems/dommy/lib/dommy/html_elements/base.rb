@@ -24,6 +24,12 @@ module Dommy
     # How many levels a heading inside this element is offset by, 0 to 8.
     reflect_ulong heading_offset: { attr: "headingoffset", js: "headingOffset", range: 0..8 }
     reflect_long_setter tab_index: { attr: "tabindex", js: "tabIndex" }
+    # The virtual keyboard's enter key and layout, limited to only known
+    # values (HTML §6.8.5).
+    reflect_enumerated enter_key_hint: { attr: "enterkeyhint", js: "enterKeyHint",
+                                         keywords: %w[enter done go next previous search send] },
+                       input_mode: { attr: "inputmode", js: "inputMode",
+                                     keywords: %w[none text tel url email numeric decimal search] }
 
     # The elements whose tabIndex is 0 without a tabindex attribute.
     TAB_INDEX_ZERO = %w[a area button frame iframe input object select textarea].freeze

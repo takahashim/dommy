@@ -120,4 +120,12 @@ class TestHTMLElementGlobals < Minitest::Test
     assert plain.__js_get__("isContentEditable")
     refute @doc.create_element("p").__js_get__("isContentEditable"), "a detached element is in no document's design mode"
   end
+
+  # enterKeyHint and inputMode are limited to their keywords: "" for any
+  # other value or none.
+  def test_virtual_keyboard_hints
+    el = element(enterkeyhint: "GO", inputmode: "numeric")
+    assert_equal ["go", "numeric"], %w[enterKeyHint inputMode].map { |k| el.__js_get__(k) }
+    assert_equal ["", ""], %w[enterKeyHint inputMode].map { |k| element(enterkeyhint: "x").__js_get__(k) }
+  end
 end
