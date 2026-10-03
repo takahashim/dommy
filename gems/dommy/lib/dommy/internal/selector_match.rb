@@ -113,6 +113,8 @@ module Dommy
           when "scope" then @scope ? element.equal?(@scope) : false
           when "nth-child" then nth_child?(element, pseudo.argument, false)
           when "nth-last-child" then nth_child?(element, pseudo.argument, true)
+          when "nth-of-type" then nth_of_type?(element, pseudo.argument, false)
+          when "nth-last-of-type" then nth_of_type?(element, pseudo.argument, true)
           when "is", "where" then list?(element, pseudo.argument)
           when "not" then !list?(element, pseudo.argument)
           when "has" then has?(element, pseudo.argument)
@@ -139,11 +141,46 @@ module Dommy
         end
 
         def nth_child?(element, nth, reverse)
+          return nth_child_of?(element, nth, reverse) if nth.of_selector_list
+
+          nth?(sibling_position(element, reverse, of_type: false), nth)
+        end
+
+        def nth_of_type?(element, nth, reverse)
+          nth?(sibling_position(element, reverse, of_type: true), nth)
+        end
+
+        # `:nth-child(An+B of S)`: whether a sibling matches S hangs on more
+        # than the tree's shape, so the siblings are filtered each time.
+        def nth_child_of?(element, nth, reverse)
           siblings = SelectorMatcher.element_siblings(element)
           siblings = siblings.reverse if reverse
-          siblings = siblings.select { |candidate| list?(candidate, nth.of_selector_list) } if nth.of_selector_list
+          siblings = siblings.select { |candidate| list?(candidate, nth.of_selector_list) }
           index = siblings.index(element)
-          index && SelectorMatcher.nth_match?(index + 1, nth.a, nth.b)
+          nth?(index && index + 1, nth)
+        end
+
+        def nth?(position, nth) = position && SelectorMatcher.nth_match?(position, nth.a, nth.b)
+
+        # An element without a parent element stands alone, the first of one.
+        def sibling_position(element, reverse, of_type:)
+          parent = element.parent_element
+          return 1 unless parent
+
+          positions = sibling_positions(parent.__dommy_backend_node__, element.owner_document)
+          node = element.__dommy_backend_node__
+          of_type ? positions.of_type(node, reverse) : positions.of(node, reverse)
+        end
+
+        # One parent's SiblingPositions, kept for as long as the tree does not
+        # change: a match lives through a whole query, and the cascade's
+        # through a whole style pass.
+        def sibling_positions(parent_node, document)
+          version = parent_node.document.tree_version
+          kept = (@sibling_positions ||= {}.compare_by_identity)[parent_node]
+          return kept if kept&.current?(version)
+
+          @sibling_positions[parent_node] = SiblingPositions.new(parent_node, document, version)
         end
       end
     end
