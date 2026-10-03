@@ -39,6 +39,14 @@ module Dommy
       class ComputedStyleBuilder
         ROOT_FONT_SIZE_PX = 16.0
 
+        EMPTY_CUSTOM = {}.freeze
+
+        # Each computed style this builder made (by identity) to its custom
+        # property set, so a child inherits the set without scanning every
+        # property of its parent's style for the custom ones. Weak: a style
+        # its cache has dropped takes its entry with it.
+        CUSTOM_SETS = ObjectSpace::WeakMap.new
+
         def initialize(element, document, index, style_for, pseudo_element: nil)
           @element = element
           @document = document
@@ -62,6 +70,7 @@ module Dommy
           # children inherit them from here, and getPropertyValue("--x")
           # reads them.
           result.merge!(@custom)
+          CUSTOM_SETS[result] = @custom.freeze
           result
         end
 
@@ -83,7 +92,11 @@ module Dommy
         # guaranteed-invalid value.
         def resolve_custom_properties(declarations)
           winners = declarations.custom
-          merged = @parent_styles ? @parent_styles.select { |key, _| key.start_with?("--") } : {}
+          inherited = inherited_custom_properties
+          # Nothing of its own: the parent's set, already resolved.
+          return inherited if winners.empty?
+
+          merged = inherited.dup
           winners.each_property do |name|
             next unless name.start_with?("--")
 
@@ -91,6 +104,14 @@ module Dommy
             value.nil? ? merged.delete(name) : merged[name] = value
           end
           CustomProperties.resolve_all(merged)
+        end
+
+        # The parent's computed custom property set: the one it was built
+        # with when this builder built it, picked out of its style otherwise.
+        def inherited_custom_properties
+          return EMPTY_CUSTOM unless @parent_styles
+
+          CUSTOM_SETS[@parent_styles] || @parent_styles.select { |key, _| key.start_with?("--") }
         end
 
         # font-size first: every other property's em resolves against it.

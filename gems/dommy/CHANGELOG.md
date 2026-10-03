@@ -25,6 +25,8 @@
 - A `<script>` from `createContextualFragment` runs when the fragment is inserted.
 - `removeNamedItem` and `removeNamedItemNS` throw `NotFoundError` when the element has no such attribute.
 - A file input's files are set from Ruby with `input.files = [file]`, as `input.files = dt.files` sets them from script; `__driver_set_files__` is gone.
+- `innerText` finds a table's last row and a row's last cell once rather than once per row and cell: a page with an 800-row table reads in 521 ms instead of 910 ms.
+- `isConnected` takes about 1.1 µs instead of 2.7 µs, a computed style about 7% less when an element declares no custom property, and a node already wrapped is found in 150 ns instead of 198 ns.
 
 ### Fixed
 
