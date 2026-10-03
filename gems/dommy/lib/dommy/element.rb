@@ -141,6 +141,8 @@ module Dommy
     end
 
     HTML_NAMESPACE = Internal::Namespaces::HTML
+    # More ancestors than any real tree has, shadow hops included.
+    MAX_TREE_DEPTH = 100_000
 
     # Record the namespace/prefix/localName an element was created with via
     # createElementNS, so the getters report them faithfully (Nokogiri can't
@@ -579,18 +581,15 @@ module Dommy
     # open or closed shadow tree is connected iff its host is.
     def is_connected?
       current = @__node__
-      seen = {}
-      loop do
-        # Guard against unexpected cycles in malformed trees.
-        return false if seen[Backend.identity_key(current)]
-
-        seen[Backend.identity_key(current)] = true
-
-        parent = current.respond_to?(:parent) ? current.parent : nil
+      # A tree has no cycles, nor does the hop from a shadow root to its
+      # host; the cap only keeps a malformed one from hanging.
+      MAX_TREE_DEPTH.times do
+        parent = current.parent
         return false unless parent
         return true if parent.is_a?(Backend.document_class)
 
-        sr = @document.__internal_shadow_root_for_fragment__(parent)
+        # Only a fragment can be a shadow root's.
+        sr = parent.document_fragment? && @document.__internal_shadow_root_for_fragment__(parent)
         if sr
           host = sr.host
           return false unless host
@@ -600,6 +599,7 @@ module Dommy
           current = parent
         end
       end
+      false
     end
 
     alias connected? is_connected?
