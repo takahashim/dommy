@@ -78,7 +78,9 @@ module Dommy
 
         klass = element.class
         return unless klass.respond_to?(:observed_attributes)
-        return unless klass.observed_attributes.include?(name.to_s.downcase)
+        # The local name as it is: observedAttributes is matched exactly, so a
+        # `fooBar` made by setAttributeNS is observed as "fooBar" alone.
+        return unless Array(klass.observed_attributes).map(&:to_s).include?(name.to_s)
 
         # attributeChangedCallback's 4th arg is the attribute's namespace (null
         # for a plain HTML attribute). Pass it only to callbacks that accept it

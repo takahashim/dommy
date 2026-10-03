@@ -224,6 +224,21 @@ class TestCustomElementUpgrade < Minitest::Test
     assert_equal([["a", nil, "ns", "urn:x"], ["a", nil, "plain", nil]], @doc.get_element_by_id("r").changes)
   end
 
+  # observedAttributes is matched against the local name exactly.
+  def test_observed_attributes_match_the_local_name_exactly
+    klass = Class.new(Dommy::HTMLElement) do
+      define_singleton_method(:observed_attributes) { %w[fooBar] }
+      attr_reader(:changes)
+      define_method(:attribute_changed_callback) { |name, _old, _new| (@changes ||= []) << name }
+    end
+    @registry.define("my-exact", klass)
+    el = @doc.create_element("my-exact")
+
+    el.set_attribute_ns(nil, "fooBar", "1")
+    el.set_attribute_ns(nil, "foobar", "2")
+    assert_equal ["fooBar"], el.changes
+  end
+
   def test_upgrade_walks_subtree
     klass = Class.new(Dommy::HTMLElement) do
       attr_accessor(:connected_count)
