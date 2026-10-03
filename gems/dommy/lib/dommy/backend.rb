@@ -173,15 +173,12 @@ module Dommy
         doc.create_element_ns(namespace, qualified_name.to_s)
       end
 
-      # A detached DocumentType node owned by `doc` (for
-      # DOMImplementation.createDocumentType). Only the HTML document ships
-      # the factory; nil signals the caller to fall back to a synthetic
-      # (non-tree) DocumentType. Raises ArgumentError for a name the factory
-      # rejects (the caller then also falls back, since createDocumentType is
-      # permissive).
+      # A detached DocumentType node owned by `doc`, HTML or XML (for
+      # DOMImplementation.createDocumentType). Makiri takes any name the DOM
+      # does but the empty one, which Lexbor reads as no name, and raises
+      # ArgumentError for it; the caller then falls back to a synthetic
+      # (non-tree) DocumentType, since createDocumentType is permissive.
       def create_document_type(name, public_id, system_id, doc)
-        return nil unless doc.respond_to?(:create_document_type)
-
         doc.create_document_type(name.to_s, public_id.to_s, system_id.to_s)
       end
 
