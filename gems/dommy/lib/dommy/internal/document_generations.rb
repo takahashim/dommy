@@ -9,14 +9,25 @@ module Dommy
     # the ones it can actually invalidate, which is the whole point — a text
     # edit inside a <p> must not throw away the rule index.
     #
-    # Host contract: @__internal_css_style_cache__ and #__internal_style_sheet_elements__.
+    # Each is the sum of the document's own count, which its mutation paths
+    # move, and Makiri's count of the matching edits — tree_version for the
+    # child lists, attribute_version for the attributes — which moves however
+    # the backend was edited. Every term only grows, so the sum changes with
+    # any of them: an edit that reached Makiri without passing through the
+    # document's paths still retires what hangs on the counter. Makiri counts
+    # no character-data edit, so a text edit that flips nothing moves nothing
+    # here either; one that flips `:empty` is seen through the document's
+    # own path alone.
+    #
+    # Host contract: @backend_doc, @__internal_css_style_cache__ and
+    # #__internal_style_sheet_elements__.
     module DocumentGenerations
       def style_generation
-        @style_generation || 0
+        (@style_generation || 0) + backend_tree_version
       end
 
       def dom_generation
-        @dom_generation || 0
+        (@dom_generation || 0) + backend_tree_version + backend_attribute_version
       end
 
       # Moves only on childList mutations — the coarsest epoch. Keys memos
@@ -24,23 +35,23 @@ module Dommy
       # exist, in what order), like the document's <style>/<link> list: an
       # attribute-triggered cascade rebuild can then skip re-walking for them.
       def tree_generation
-        @tree_generation || 0
+        (@tree_generation || 0) + backend_tree_version
       end
 
       def __internal_bump_style_generation__
-        @style_generation = style_generation + 1
+        @style_generation = (@style_generation || 0) + 1
         nil
       end
 
       def __internal_bump_dom_generation__
-        @dom_generation = dom_generation + 1
+        @dom_generation = (@dom_generation || 0) + 1
         nil
       end
 
       # A childList mutation: tree shape feeds both selector matching and the
       # rule -> element index, so everything is suspect.
       def __internal_note_tree_mutation__
-        @tree_generation = tree_generation + 1
+        @tree_generation = (@tree_generation || 0) + 1
         __internal_bump_dom_generation__
         __internal_bump_style_generation__
       end
@@ -167,6 +178,12 @@ module Dommy
         end
         false
       end
+
+      private
+
+      def backend_tree_version = @backend_doc ? @backend_doc.tree_version : 0
+
+      def backend_attribute_version = @backend_doc ? @backend_doc.attribute_version : 0
     end
   end
 end
