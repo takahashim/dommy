@@ -2170,10 +2170,6 @@ module Dommy
       @node_wrapper_cache.wrap(node)
     end
 
-    def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
-      @node_factory.wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
-    end
-
     # The task scheduler this document's own tasks run on: its browsing context's
     # when it has one, otherwise the one handed to it by whatever built it (a
     # DOMParser document has no defaultView but still queues tasks on the window
@@ -2254,21 +2250,6 @@ module Dommy
     # The wrapper already cached for a backend node, or nil — never builds one.
     def __internal_cached_wrapper__(node)
       @node_wrapper_cache.cached_wrapper(node)
-    end
-
-    # Recorded when an element is created outside the HTML namespace or with a
-    # prefix. Deep cloning only has to carry that metadata across for a document
-    # that has some — which the overwhelming majority never do, so the ordinary
-    # `body.cloneNode(true)` keeps walking nothing.
-    def __internal_note_namespaced_element__(namespace, prefix)
-      return if namespace == Element::HTML_NAMESPACE && prefix.nil?
-
-      @namespaced_elements = true
-      nil
-    end
-
-    def __internal_namespaced_elements__?
-      @namespaced_elements == true
     end
 
     # Clear the cached wrapper so the next `wrap_node` creates a new
@@ -2716,11 +2697,12 @@ module Dommy
 
     # "Clone a single node" (§4.4): the copy implements the SAME interface as
     # the original — a ProcessingInstruction clones to one, not to the comment
-    # its serialization looks like — and carries the same data. Elements are
-    # cloned by #clone_element_into_doc; children are the caller's business.
+    # its serialization looks like — and carries the same data. An element's
+    # copy keeps its name, namespace, prefix and attributes as the backend
+    # holds them; children are the caller's business.
     def clone_single_node_into_doc(source, source_document)
       if source.element?
-        clone_element_into_doc(source, source_document)
+        Backend.import_element(source, @backend_doc)
       elsif (cdata = Backend.cdata_class) && source.is_a?(cdata)
         # CDATA is a Text subtype in the backend, so ask about it first.
         Backend.create_cdata(source.content, @backend_doc)
@@ -2752,36 +2734,6 @@ module Dommy
     # element stays `A:B`, where the DOM's setAttribute would lower-case it).
     # Only a createElementNS name the backend node does not carry lives on the
     # original's wrapper, so the copy's wrapper is given the same metadata.
-    def clone_element_into_doc(source, source_document)
-      wrapper = source_document.wrap_node(source)
-      namespace, prefix, local, qualified = clone_name_parts(wrapper, source)
-      copy = Backend.import_element(source, @backend_doc)
-      note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
-      copy
-    end
-
-    # The four parts of the original's name — namespace, prefix, local name and
-    # qualified name. The wrapper's own metadata has them whenever there is
-    # anything to carry (createElementNS's case and prefix, an XML document's,
-    # the HTML parser's SVG names); otherwise the element is an unprefixed one
-    # whose namespace the backend knows.
-    def clone_name_parts(wrapper, source)
-      meta = wrapper.__internal_namespace_metadata__ if wrapper.respond_to?(:__internal_namespace_metadata__)
-      return meta if meta
-
-      local = wrapper ? wrapper.local_name.to_s : source.name
-      [wrapper&.namespace_uri, nil, local, local]
-    end
-
-    # Give the copy's wrapper the namespace metadata whenever the backend node
-    # alone would report something else (see #clone_element_into_doc).
-    def note_cloned_element_namespace(copy, namespace, prefix, local, qualified)
-      derived = Backend.namespace_uri(copy)
-      return if derived == namespace && prefix.nil? && local == copy.name
-
-      wrap_cloned_element_ns(copy, namespace, prefix, local, qualified)
-    end
-
     # HTML's cloning steps for a <template>: a deep copy of each of the
     # source's contents, appended to the copy's contents.
     def clone_template_content(source, copy, source_document = self)

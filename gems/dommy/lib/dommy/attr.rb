@@ -274,9 +274,7 @@ module Dommy
       # getNamedItem / getAttribute lowercase the qualified name only for an HTML
       # element in an HTML document; other elements match case-sensitively.
       key = @element.__internal_normalize_attr_key__(name)
-      node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
-        Backend.attribute_ns_info(a)[:qualified_name] == key
-      end
+      node = Backend.attr_by_qualified_name(@element.__dommy_backend_node__, key)
       node && attr_for(node)
     end
 
@@ -286,9 +284,7 @@ module Dommy
 
     def remove_named_item(name)
       key = @element.__internal_normalize_attr_key__(name)
-      node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
-        Backend.attribute_ns_info(a)[:qualified_name] == key
-      end
+      node = Backend.attr_by_qualified_name(@element.__dommy_backend_node__, key)
       raise DOMException::NotFoundError, "no attribute named #{key.inspect}" unless node
 
       removed = attr_for(node)
@@ -348,11 +344,7 @@ module Dommy
     # ----- Namespaced named-item access (getNamedItemNS etc.) -----
 
     def get_named_item_ns(namespace, local_name)
-      node = Backend.attribute_nodes(@element.__dommy_backend_node__).find do |a|
-        info = Backend.attribute_ns_info(a)
-        info[:local_name] == local_name.to_s &&
-          (info[:namespace_uri] || nil) == (namespace.to_s.empty? ? nil : namespace.to_s)
-      end
+      node = Backend.attr_by_ns(@element.__dommy_backend_node__, namespace, local_name)
       node && attr_for(node)
     end
 

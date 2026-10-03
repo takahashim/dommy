@@ -12,10 +12,6 @@ module Dommy
     # same generation the identity table is validated against. Creating nodes is
     # NodeFactory's, and asks this for the wrappers.
     class NodeWrapperCache
-      # Distinguishes "no namespace argument given" (derive from the backend /
-      # document) from an explicit nil namespace passed by createElementNS.
-      NAMESPACE_UNSET = Object.new.freeze
-
       # Cap on distinct cached selectors before the query cache is cleared
       # wholesale — a backstop against a page that generates unbounded unique
       # selector strings; real pages reuse a small set (tens).
@@ -171,20 +167,14 @@ module Dommy
 
       # NodeFactory mints the nodes this wraps, so it asks for the wrapper
       # builder directly rather than going through the identity-checked #wrap.
-      # `namespace`/`local_name` let a caller that already knows the element's
-      # namespace and local name (e.g. createElementNS, which preserves case and
-      # carries a prefix the backend node name would otherwise fold in) route the
-      # wrapper class directly, rather than re-deriving it from the backend.
       #
-      # When `namespace` is not supplied it is the backend node's own, the one
+      # The class is the one for the backend node's own namespace — the one
       # Element#namespace_uri reports, so the interface always agrees with it:
       # an XHTML element in an XML document is an HTML element, and a
-      # no-namespace element in an HTML document is a plain Element. The class
-      # is looked up by local name (an XML node's name holds its prefix). An
-      # explicit `namespace:` (including nil from createElementNS) is honored
-      # verbatim.
-      def build_element_wrapper(node, namespace: NAMESPACE_UNSET, local_name: nil)
-        ns = namespace.equal?(NAMESPACE_UNSET) ? Backend.namespace_uri(node) : namespace
+      # no-namespace element in an HTML document is a plain Element — and its
+      # local name (an XML node's name holds its prefix).
+      def build_element_wrapper(node)
+        ns = Backend.namespace_uri(node)
         # A JS-defined custom element (`customElements.define(name, classExpr)`
         # from page script) registers its JS constructor — a HostCallback — not a
         # Ruby class, so we cannot `.new(@document, node)` it. Wrap such a node as
@@ -193,7 +183,7 @@ module Dommy
         # class definition routes a custom Ruby wrapper + #construct.
         custom_klass = custom_element_class_for(node.name)
         ruby_custom = custom_klass if custom_klass.is_a?(::Class)
-        klass = ruby_custom || Dommy.element_class_for(local_name || node.local_name, ns)
+        klass = ruby_custom || Dommy.element_class_for(node.local_name, ns)
         instance = klass.new(@document, node)
 
         @wrappers[identity_key(node)] = instance

@@ -318,9 +318,6 @@ module Dommy
       # wrapper's #namespace_uri, which defaults to the HTML namespace for HTML
       # documents and isn't right for an XML serialization.
       def element_namespace(node)
-        created = created_namespace(node)
-        return presence(created[0]) if created
-
         # The backend's raw namespace — the HTML namespace for an HTML element
         # (which an XML serialization DOES declare as xmlns="…xhtml"), or the
         # parsed namespace for an XML element.
@@ -329,9 +326,6 @@ module Dommy
       end
 
       def element_prefix(node)
-        created = created_namespace(node)
-        return presence(created[1]) if created
-
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
         presence(backend.respond_to?(:prefix) ? backend.prefix : nil)
       end
@@ -339,17 +333,8 @@ module Dommy
       # The backend node name is the local part, case-preserved (the wrapper's
       # #local_name lower-cases for HTML).
       def local_name(node)
-        created = created_namespace(node)
-        return created[2] if created && presence(created[2])
-
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
-        backend ? backend.name.split(":", 2).last : node.__js_get__("nodeName")
-      end
-
-      # The explicit createElementNS [namespace, prefix, local] when the backend
-      # (lexbor) didn't retain it, else nil.
-      def created_namespace(node)
-        node.respond_to?(:__internal_created_namespace__) ? node.__internal_created_namespace__ : nil
+        backend ? backend.local_name : node.__js_get__("nodeName")
       end
 
       # A <template>'s children, for the XML serialization, are those of its

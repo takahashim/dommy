@@ -144,49 +144,17 @@ module Dommy
     # More ancestors than any real tree has, shadow hops included.
     MAX_TREE_DEPTH = 100_000
 
-    # Record the namespace/prefix/localName an element was created with via
-    # createElementNS, so the getters report them faithfully (Nokogiri can't
-    # always round-trip a foreign-namespace prefix).
-    def __internal_set_namespace__(namespace, prefix, local_name, qualified_name)
-      @__ns_uri = namespace
-      @__ns_prefix = prefix
-      @__ns_local = local_name
-      @__ns_qname = qualified_name
-      nil
-    end
-
-    # The createElementNS metadata, but only when it says something wrapping the
-    # backend node would not work out on its own — a namespace other than HTML,
-    # or a prefix. nil otherwise, so a clone walk can skip the node.
-    def __internal_namespace_metadata__
-      return nil if @__ns_qname.nil?
-      return nil if @__ns_uri == HTML_NAMESPACE && @__ns_prefix.nil?
-
-      [@__ns_uri, @__ns_prefix, @__ns_local, @__ns_qname]
-    end
-
     # tagName is the qualified name, ASCII-upper-cased only for an HTML-namespace
     # element whose node document is an HTML document. An XHTML element (HTML
     # namespace, but in an XML document) and any non-HTML-namespace element keep
     # their case.
     def tag_name
-      qname = @__ns_qname || @__node__.name
-      html_ns = @__ns_qname ? @__ns_uri == HTML_NAMESPACE : namespace_uri == HTML_NAMESPACE
-      html_ns && @document.html_document? ? qname.upcase(:ascii) : qname
+      qname = @__node__.name
+      namespace_uri == HTML_NAMESPACE && @document.html_document? ? qname.upcase(:ascii) : qname
     end
 
     def element_prefix
-      @__ns_prefix
-    end
-
-    # The [namespace, prefix, local_name] explicitly assigned via createElementNS,
-    # or nil when the element wasn't created with an explicit namespace. Lets the
-    # XML serializer recover element-namespace info the makiri backend (lexbor,
-    # HTML-only) doesn't retain.
-    def __internal_created_namespace__
-      return nil unless @__ns_qname
-
-      [@__ns_uri, @__ns_prefix, @__ns_local]
+      Backend.prefix(@__node__)
     end
 
     def id
@@ -527,24 +495,19 @@ module Dommy
     end
 
     # HTML namespace constants — most HTML elements live in xhtml ns.
-    # Without createElementNS metadata the backend says: the HTML namespace
-    # for an HTML element, the parsed namespace for an XML one — and null for
-    # an XML element in no namespace (`<r/>` from DOMParser), not the HTML one.
+    # The backend's: the HTML namespace for an HTML element, the parsed or
+    # created namespace for any other — and null for an element in none
+    # (`<r/>` from DOMParser, createElementNS(null, …)), not the HTML one.
     def namespace_uri
-      return @__ns_uri if @__ns_qname
-
       Backend.namespace_uri(@__node__)
     end
 
-    # Without createElementNS metadata the backend's local name is the DOM's:
-    # the HTML parser and createElement already lower-case an HTML element's,
-    # a foreign or XML element keeps its case (an SVG `fooBar` imported from
-    # another document is still `fooBar`), and a prefixed element parsed from
-    # XML drops its prefix (`cp:coreProperties` is `coreProperties`; its
-    # `name` is the qualified one).
+    # The backend's local name is the DOM's: the HTML parser and createElement
+    # already lower-case an HTML element's, a foreign, created or XML element
+    # keeps its case (an SVG `fooBar` imported from another document is still
+    # `fooBar`), and a prefixed element drops its prefix (`cp:coreProperties`
+    # is `coreProperties`; its `name` is the qualified one).
     def local_name
-      return @__ns_local if @__ns_qname
-
       @__node__.local_name
     end
 
@@ -1578,45 +1541,12 @@ module Dommy
       # preserves the element's namespace and attributes (createElement would
       # lose the namespace).
       copy = Backend.clone_node(@__node__, deep: deep_arg)
-      # The backend (lexbor, HTML-only) doesn't retain the createElementNS
-      # prefix/local/qualified-name/namespace, so rebuild the clone's wrapper from
-      # that metadata — routing the interface class by the local name and
-      # reapplying tagName/localName/prefix/namespaceURI. Otherwise the clone loses
-      # its prefix/case and resolves to HTMLUnknownElement.
-      clone =
-        if @__ns_qname
-          @document.wrap_cloned_element_ns(copy, @__ns_uri, @__ns_prefix, @__ns_local, @__ns_qname)
-        else
-          @document.wrap_node(copy)
-        end
-      # A deep clone copies the backend tree, but the createElementNS metadata
-      # lives on the wrappers — so a descendant created in another namespace, or
-      # in none, would come back from the clone reporting the HTML namespace.
-      copy_namespaces_into(@__node__, copy) if deep_arg && @document.__internal_namespaced_elements__?
+      clone = @document.wrap_node(copy)
       # HTML cloning steps: propagate form-control dirty state (an input's value /
       # checkedness, …) that lives on the wrapper, not the backend node.
       @document.__internal_apply_cloning_steps__(@__node__, copy, deep_arg)
       clone
     end
-
-    # Walk the original subtree and its copy in step, reapplying the namespace
-    # metadata of every descendant that carries a non-default one. Only the
-    # originals that already have a wrapper can be carrying it, so this never
-    # builds a wrapper it does not need.
-    def copy_namespaces_into(original, copy)
-      copies = copy.children.to_a
-      original.children.each_with_index do |orig_child, index|
-        copy_child = copies[index]
-        break if copy_child.nil?
-
-        wrapper = @document.__internal_cached_wrapper__(orig_child)
-        meta = wrapper.__internal_namespace_metadata__ if wrapper.respond_to?(:__internal_namespace_metadata__)
-        @document.wrap_cloned_element_ns(copy_child, *meta) if meta
-        copy_namespaces_into(orig_child, copy_child)
-      end
-      nil
-    end
-
 
     # ---- Internal helpers (single private section) ----
     private
