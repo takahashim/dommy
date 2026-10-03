@@ -31,4 +31,16 @@ class TestChildListFastPath < Minitest::Test
     assert_equal [0, 5], [fragment_nodes.length, nodes.length]
     assert_nil nodes.item(9)
   end
+
+  # A shadow root's lists are live and the same object each time, as an
+  # element's are.
+  def test_a_shadow_roots_lists_are_live
+    host = @doc.create_element("div")
+    shadow = host.attach_shadow("mode" => "open")
+    nodes = shadow.__js_get__("childNodes")
+    assert_same nodes, shadow.__js_get__("childNodes")
+
+    shadow.append_child(@doc.create_element("p"))
+    assert_equal [1, 1], [nodes.length, shadow.__js_get__("children").length]
+  end
 end
