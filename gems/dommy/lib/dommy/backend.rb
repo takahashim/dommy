@@ -220,39 +220,6 @@ module Dommy
         node.prefix
       end
 
-      # Bind a *prefixed* element's namespace so the prefix resolves. An XML
-      # document resolves an element's prefix from xmlns declarations at
-      # insertion time, so a prefixed element (createElementNS /
-      # createDocument with a qualified name like "foo:div") must carry an
-      # xmlns:prefix declaration or the insert fails with an unbound-prefix
-      # error. The namespaceURI itself is tracked on the Dommy wrapper, so the
-      # unprefixed case needs nothing here — and must add no attribute, lest a
-      # spurious xmlns surface in the DOM view (attributes/isEqualNode). An
-      # HTML (Lexbor) document tracks the namespace natively and needs no
-      # declaration either.
-      def add_namespace_definition(node, prefix, href)
-        return if prefix.nil? || prefix.empty?
-        return unless node.document.is_a?(::Makiri::XML::Document)
-
-        node["xmlns:#{prefix}"] = href.to_s
-        nil
-      rescue ArgumentError, ::Makiri::Error
-        # DOM validates a qualified name against the Name production, which
-        # admits prefixes an XML backend cannot spell as an `xmlns:` attribute
-        # ("0:a", ";:a" — ArgumentError), and binds prefixes Namespaces in XML
-        # forbids declaring ("f" to the XML namespace, anything to the XMLNS
-        # one — Makiri::Error). The element is still valid — its prefix and
-        # namespace live on the wrapper — so the declaration is simply not
-        # written.
-        nil
-      end
-
-      # The element's in-scope namespace declarations. Makiri tracks no XML
-      # namespace declarations, so there are none.
-      def namespace_definitions(_node)
-        []
-      end
-
       # Makiri's own fragment holding a `<template>` element's contents
       # (Lexbor keeps them off the child list), the same one every time; nil
       # for a node that has none — any node of an XML document, whose contents

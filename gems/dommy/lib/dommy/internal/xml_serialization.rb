@@ -6,9 +6,8 @@ module Dommy
     # Dommy node wrappers so it is backend-agnostic. Produces namespace-correct
     # XML — default-namespace inheritance/reset, dropping redundant/inconsistent
     # `xmlns`, generating `ns1`/`ns2` prefixes — which a backend's own `to_xml`
-    # does not. Namespace declarations are read via Backend.namespace_definitions
-    # (libxml2 models them as namespace nodes, not attributes) and presented to
-    # the algorithm as the `xmlns`/`xmlns:*` attributes the spec expects.
+    # does not. Namespace declarations are the `xmlns`/`xmlns:*` attributes the
+    # spec expects, on the attribute list like any other.
     module XmlSerialization
       XML_NS   = "http://www.w3.org/XML/1998/namespace"
       XMLNS_NS = "http://www.w3.org/2000/xmlns/"
@@ -350,28 +349,8 @@ module Dommy
         node.respond_to?(:data) ? node.data.to_s : node.__js_get__("data").to_s
       end
 
-      # Regular attributes plus xmlns / xmlns:* declarations synthesized from the
-      # backend's namespace definitions (which libxml2 keeps off the attribute
-      # list). xmlns declarations come first so they populate the prefix map.
       def element_attributes(node)
-        ns_attrs = backend_namespace_attrs(node)
-        regular = node.respond_to?(:attributes) ? node.attributes.to_a.map { |a| attr_struct(a) } : []
-        ns_attrs + regular
-      end
-
-      def backend_namespace_attrs(node)
-        backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
-        return [] unless backend
-
-        Backend.namespace_definitions(backend).map do |defn|
-          pfx = defn.respond_to?(:prefix) ? defn.prefix : defn.first
-          href = defn.respond_to?(:href) ? defn.href : defn.last
-          if pfx.nil? || pfx.to_s.empty?
-            Attr.new(XMLNS_NS, nil, "xmlns", href.to_s)
-          else
-            Attr.new(XMLNS_NS, "xmlns", pfx.to_s, href.to_s)
-          end
-        end
+        node.respond_to?(:attributes) ? node.attributes.to_a.map { |a| attr_struct(a) } : []
       end
 
       def attr_struct(attr)
