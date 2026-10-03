@@ -18,8 +18,12 @@ module Dommy
   class HTMLCollection
     include Enumerable
 
-    def initialize(&compute)
+    # `count` and `at` are the same fast path LiveList has, for a node's
+    # element children.
+    def initialize(count: nil, at: nil, &compute)
       @compute = compute
+      @count = count
+      @at = at
     end
 
     # Shared `getElementsByTagNameNS(namespace, localName)` — a live collection
@@ -104,19 +108,20 @@ module Dommy
     end
 
     def length
-      to_a.length
+      @count ? @count.call : to_a.length
     end
 
     alias size length
 
     def empty?
-      to_a.empty?
+      length.zero?
     end
 
     def item(index)
       # `index` is a WebIDL unsigned long, so it wraps modulo 2^32 (e.g. item(2^32)
       # is item(0)); Ruby's modulo also normalizes negatives to that range.
-      to_a[index.to_i % 4_294_967_296]
+      i = index.to_i % 4_294_967_296
+      @at ? @at.call(i) : to_a[i]
     end
 
     # The supported-property-name a `namedItem` argument stands for. A numeric
