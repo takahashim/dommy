@@ -111,6 +111,40 @@ class TestPopoverAPI < Minitest::Test
     assert_equal(false, @el.toggle_popover)
   end
 
+  # HTML's "check popover validity": an element without the popover
+  # attribute throws NotSupportedError, a disconnected one or an open modal
+  # dialog InvalidStateError, and a call that would leave the state as it is
+  # does nothing.
+  def test_popover_validity
+    plain = @win.document.create_element("div")
+    @win.document.body.append_child(plain)
+    %i[show_popover hide_popover toggle_popover].each do |method|
+      assert_raises(Dommy::DOMException::NotSupportedError, method.to_s) { plain.public_send(method) }
+    end
+
+    detached = @win.document.create_element("div")
+    detached.set_attribute("popover", "")
+    assert_raises(Dommy::DOMException::InvalidStateError) { detached.show_popover }
+
+    assert_nil @el.hide_popover, "hiding a hidden popover does nothing"
+    @el.show_popover
+    assert_nil @el.show_popover, "showing a shown popover does nothing"
+
+    dialog = @win.document.create_element("dialog")
+    dialog.set_attribute("popover", "")
+    @win.document.body.append_child(dialog)
+    dialog.show_modal
+    assert_raises(Dommy::DOMException::InvalidStateError) { dialog.show_popover }
+  end
+
+  # togglePopover(force): true only opens, false only closes.
+  def test_toggle_popover_force
+    assert_equal(false, @el.toggle_popover(false))
+    assert_equal(true, @el.toggle_popover(true))
+    assert_equal(true, @el.toggle_popover({"force" => true}))
+    assert_equal(false, @el.toggle_popover({"force" => false}))
+  end
+
   def test_toggle_popover_returns_new_state
     assert_equal(true, @el.__js_call__("togglePopover", []))
     assert_equal(false, @el.__js_call__("togglePopover", []))
