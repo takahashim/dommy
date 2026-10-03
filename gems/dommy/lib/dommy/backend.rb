@@ -243,14 +243,15 @@ module Dommy
       end
 
       # The element's own namespace URI as the DOM reports it (Lexbor's HTML /
-      # SVG / MathML, an XML document's own), nil for none.
+      # SVG / MathML, an XML document's own), nil for none — Makiri answers
+      # nil, never "", for a node without one, parsed or created.
       def namespace_uri(node)
-        presence(node.respond_to?(:namespace_uri) ? node.namespace_uri : nil)
+        node.namespace_uri
       end
 
       # The element's own namespace prefix as the DOM reports it, nil for none.
       def prefix(node)
-        presence(node.prefix)
+        node.prefix
       end
 
       # Bind a *prefixed* element's namespace so the prefix resolves. An XML
@@ -299,11 +300,11 @@ module Dommy
       # it (splitting prefix/local), and the attr node reports
       # namespace_uri/prefix/local_name. So *AttributeNS matches on
       # (namespace, local name) faithfully, and Makiri finds an attribute by
-      # that pair natively. `namespace` is an href String or nil throughout;
-      # an empty one is none.
+      # that pair natively. `namespace` is an href String or nil throughout,
+      # and Makiri takes "" as none, as the DOM does.
 
       def get_attribute_ns(node, namespace, local_name)
-        node.attribute_value_ns(presence(namespace), local_name.to_s)
+        node.attribute_value_ns(namespace, local_name.to_s)
       end
 
       def has_attribute_ns?(node, namespace, local_name)
@@ -313,15 +314,15 @@ module Dommy
       # The attribute node in `namespace` with `local_name`, or nil — what
       # getAttributeNodeNS and the NS removals find.
       def attr_by_ns(node, namespace, local_name)
-        node.attribute_node_ns(presence(namespace), local_name.to_s)
+        node.attribute_node_ns(namespace, local_name.to_s)
       end
 
       def set_attribute_ns(node, namespace, prefix, _local_name, qualified_name, value)
-        ns = presence(namespace)
-        note_namespaced_unprefixed_attribute if prefix.to_s.empty? && !ns.nil?
+        none = namespace.to_s.empty?
+        note_namespaced_unprefixed_attribute if prefix.to_s.empty? && !none
         name = qualified_name.to_s
         value = value.to_s
-        node.set_attribute_ns(ns, name, value) unless ns.nil? && set_null_namespace_attribute(node, name, value)
+        node.set_attribute_ns(namespace, name, value) unless none && set_null_namespace_attribute(node, name, value)
         value
       end
 
@@ -343,7 +344,7 @@ module Dommy
       # Remove by (namespace, local name) — removing by qualified name is
       # ambiguous once same-name/different-namespace attributes coexist.
       def remove_attribute_ns(node, namespace, local_name)
-        node.remove_attribute_ns(presence(namespace), local_name.to_s)
+        node.remove_attribute_ns(namespace, local_name.to_s)
         nil
       end
 
@@ -351,8 +352,8 @@ module Dommy
       # local_name:, qualified_name:, value:} (namespace-aware).
       def attribute_ns_info(attr_node)
         {
-          namespace_uri: presence(attr_node.namespace_uri),
-          prefix: presence(attr_node.prefix),
+          namespace_uri: attr_node.namespace_uri,
+          prefix: attr_node.prefix,
           local_name: attr_node.local_name,
           qualified_name: attr_node.name,
           value: attr_node.value,
@@ -438,13 +439,6 @@ module Dommy
 
         node.set_loose_dom_attribute(name, value)
         true
-      end
-
-      def presence(value)
-        return nil if value.nil?
-
-        s = value.to_s
-        s.empty? ? nil : s
       end
     end
   end
