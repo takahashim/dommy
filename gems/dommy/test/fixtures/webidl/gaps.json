@@ -605,10 +605,6 @@
       "textTracks",
       "videoTracks"
     ],
-    "HTMLMetaElement": [
-      "media",
-      "scheme"
-    ],
     "HTMLOListElement": [
       "compact"
     ],
