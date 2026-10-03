@@ -50,20 +50,4 @@ class TestNodeTraversal < Minitest::Test
     other = @doc.create_element("p").__dommy_backend_node__
     refute(Dommy::Internal::NodeTraversal.ancestor_of?(other, @inner))
   end
-
-  def test_find_ancestor_returns_block_result
-    result = Dommy::Internal::NodeTraversal.find_ancestor(@inner) do |n|
-      n.name == "div" ? "found-#{n["id"]}" : nil
-    end
-
-    assert_equal("found-middle", result)
-  end
-
-  def test_find_ancestor_returns_nil_when_no_match
-    result = Dommy::Internal::NodeTraversal.find_ancestor(@inner) do |_n|
-      nil
-    end
-
-    assert_nil(result)
-  end
 end

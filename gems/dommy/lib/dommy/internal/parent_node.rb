@@ -280,7 +280,7 @@ module Dommy
       def shadow_including_root_of(backend_node)
         root = backend_node
         loop do
-          root = root.parent while root.respond_to?(:parent) && root.parent
+          root = NodeTraversal.root_of(root) if root.respond_to?(:parent)
           shadow = @document.__internal_shadow_root_for_fragment__(root)
           host = shadow && shadow.host
           break unless host.respond_to?(:__dommy_backend_node__)

@@ -19,12 +19,11 @@ module Dommy
 
       def initialize(document)
         @document = document
-        @wrappers = {}
-        # Identity recycling (see #wrap) needs a transient node to free, and
-        # transient nodes come from fragment parses. While no fragment parse
-        # has happened since this cache was born, a hit needs no liveness
-        # validation — skipping its backend round trip.
-        @initial_fragment_generation = Parser.fragment_generation
+        # Keyed by the backend node object itself. Makiri hands out one Ruby
+        # object per node for as long as its document lives, and this table
+        # holds each key, so a key never stands for another node: no pointer
+        # a freed document gave up can collide with a live one here.
+        @wrappers = {}.compare_by_identity
         # Memoizes document-rooted CSS query results within a DOM generation.
         # querySelector(All) over a large tree is a full descendant walk, yet a
         # heavy page issues the SAME selector hundreds of times between mutations
@@ -43,28 +42,11 @@ module Dommy
       def wrap(node)
         return nil unless node
 
-        key = identity_key(node)
-        cached = @wrappers[key]
-        # A hit is only trustworthy if the cached wrapper still describes the
-        # SAME kind of node as the one now at this identity key. The key is a
-        # backend pointer/object_id, and a backend MAY recycle a freed node's
-        # identity (Nokogiri reuses object_ids; Makiri reuses the lxb pointer of
-        # a *transient* node — e.g. a throwaway fragment parsed by
-        # `Parser.fragment` — once it's GC'd). When that happens the stale entry
-        # would hand back a wrapper of the wrong type (observed: a Fragment
-        # clone resolving to a cached TextNode). Validate cheaply via nodeType —
-        # compared against a static class→type map so we never dereference the
-        # cached wrapper's (possibly freed) backend node — and rebuild on a miss.
-        # No fragment parse since this cache was born means nothing transient
-        # could have been cached or recycled, so the validation (a backend
-        # round trip per hit) is skipped entirely.
-        if cached
-          return cached if @initial_fragment_generation == Parser.fragment_generation ||
-                           cached_wrapper_live?(cached, node)
-        end
+        cached = @wrappers[node]
+        return cached if cached
 
         wrapper = build_wrapper_for(node)
-        @wrappers[key] = wrapper if wrapper
+        @wrappers[node] = wrapper if wrapper
         wrapper
       end
 
@@ -72,10 +54,7 @@ module Dommy
       # never builds one, for callers that only want state a wrapper is already
       # carrying (the createElementNS metadata a deep clone has to copy over).
       def cached_wrapper(node)
-        return nil unless node
-
-        cached = @wrappers[identity_key(node)]
-        cached if cached && cached_wrapper_live?(cached, node)
+        node && @wrappers[node]
       end
 
       # Factory methods
@@ -147,14 +126,14 @@ module Dommy
       # whole cache costs less than tracking which selectors matched the node.
       def reset_wrapper(nokogiri_node)
         @query_cache.clear
-        @wrappers.delete(identity_key(nokogiri_node))
+        @wrappers.delete(nokogiri_node)
       end
 
       # The cached wrapper for `node`, or nil — WITHOUT creating one (unlike
       # #wrap). Used by cross-document adoption to find the live descendant
       # wrappers that must be reseated onto the imported copy.
       def peek(node)
-        node && @wrappers[identity_key(node)]
+        node && @wrappers[node]
       end
 
       # Register an externally-built wrapper. Used by
@@ -162,7 +141,7 @@ module Dommy
       # document so the existing Ruby object survives the move
       # rather than being replaced by a freshly-built one.
       def register(nokogiri_node, wrapper)
-        @wrappers[identity_key(nokogiri_node)] = wrapper
+        @wrappers[nokogiri_node] = wrapper
       end
 
       # NodeFactory mints the nodes this wraps, so it asks for the wrapper
@@ -186,7 +165,7 @@ module Dommy
         klass = ruby_custom || Dommy.element_class_for(node.local_name, ns)
         instance = klass.new(@document, node)
 
-        @wrappers[identity_key(node)] = instance
+        @wrappers[node] = instance
 
         # A custom element's constructor is the page's code, so an exception in
         # it is reported at the window rather than discarded — the wrapper still
@@ -203,30 +182,6 @@ module Dommy
       end
       private
 
-      # Whether a cached wrapper still describes the node now at its identity
-      # key. A pure class→nodeType lookup: it must NOT dereference the wrapper's
-      # backend node, which may be a freed pointer after identity recycling.
-      # Unknown/exotic wrappers (Document, ShadowRoot, …) aren't produced by the
-      # fragment-parse paths that recycle identities, so we trust those entries
-      # rather than rebuild.
-      def cached_wrapper_live?(wrapper, node)
-        return true unless node.respond_to?(:node_type)
-
-        expected =
-          case wrapper
-          when Fragment then 11
-          when CDATASectionNode then 4 # subclass of TextNode — test first
-          when TextNode then 3
-          when CommentNode then 8
-          when ProcessingInstructionNode then 7
-          else
-            return true unless wrapper.is_a?(Element)
-
-            1
-          end
-        expected == node.node_type
-      end
-
       # The cached value for [kind, selector] if it was computed in the current
       # DOM generation, else nil (a miss, or a stale entry the caller recomputes).
       def query_cache_get(kind, selector)
@@ -241,13 +196,6 @@ module Dommy
       def query_cache_set(kind, selector, value)
         @query_cache[[kind, selector]] = [@document.dom_generation, value]
       end
-
-      # DOM identity key for a backend node (NodeIdentity says why it is not
-      # `==` on the nodes themselves). Every node this cache is handed is a
-      # backend one, so it asks the backend directly rather than through
-      # NodeIdentity.key_for, which first checks for a wrapper — on the path
-      # every traversal takes.
-      def identity_key(node) = Backend.identity_key(node)
 
       def build_wrapper_for(node)
         case node

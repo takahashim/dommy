@@ -272,8 +272,6 @@ module Dommy
         when "first-of-type" then previous_of_type(element).nil?
         when "last-of-type" then next_of_type(element).nil?
         when "only-of-type" then previous_of_type(element).nil? && next_of_type(element).nil?
-        when "nth-of-type" then nth_of_type?(element, pseudo.argument, false)
-        when "nth-last-of-type" then nth_of_type?(element, pseudo.argument, true)
         when "checked" then Internal.checked_state?(element)
         when "enabled" then ElementState.enableable_element?(element) && !ElementState.disabled_element?(element)
         when "disabled" then ElementState.enableable_element?(element) && ElementState.disabled_element?(element)
@@ -322,13 +320,6 @@ module Dommy
         else # :descendant / :child
           element_descendants(element)
         end
-      end
-
-      def nth_of_type?(element, nth, reverse)
-        siblings = element_siblings(element).select { |candidate| same_type?(candidate, element) }
-        siblings = siblings.reverse if reverse
-        index = siblings.index(element)
-        index && nth_match?(index + 1, nth.a, nth.b)
       end
 
       def nth_match?(index, a, b)
@@ -429,5 +420,6 @@ module Dommy
   end
 end
 
+require_relative "sibling_positions"
 require_relative "selector_match"
 require_relative "complex_match"

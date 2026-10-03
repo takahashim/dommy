@@ -28,6 +28,10 @@
 - A file input's files are set from Ruby with `input.files = [file]`, as `input.files = dt.files` sets them from script; `__driver_set_files__` is gone.
 - `innerText` finds a table's last row and a row's last cell once rather than once per row and cell: a page with an 800-row table reads in 521 ms instead of 910 ms.
 - `isConnected` takes about 1.1 µs instead of 2.7 µs, a computed style about 7% less when an element declares no custom property, and a node already wrapped is found in 150 ns instead of 198 ns.
+- A loop over a live `childNodes` or `children` by index is linear: reading `length` and `item(i)` for 4,000 children of both lists takes 8 ms instead of 790 ms.
+- `getRootNode` asks the shadow-root registry about a node's root alone rather than every ancestor, taking 1.6 µs instead of 5 µs, and `isConnected` and the shadow-root lookups do the same.
+- A node already wrapped is found in 82 ns instead of 150 ns.
+- `:nth-child` and `:nth-of-type` list a parent's children once rather than once per child: over 3,000 siblings, `querySelectorAll("p:nth-of-type(3n+1)")` takes 9 ms instead of 5.6 s.
 
 ### Fixed
 

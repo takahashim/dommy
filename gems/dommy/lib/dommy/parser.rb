@@ -18,24 +18,10 @@ module Dommy
   # (e.g. `Document#wrap_node` and any reconciler that keys off
   # node identity). Always pass the destination document.
   module Parser
-    @fragment_generation = 0
-
-    class << self
-      # Monotonic count of fragment parses in this process. A backend MAY
-      # recycle a GC'd transient node's identity (pointer) — the transient
-      # nodes come from fragment parses — so NodeWrapperCache can skip its
-      # per-hit liveness validation (a backend round trip) as long as this
-      # counter hasn't moved since the cache was created: no fragment parse,
-      # no recyclable identity. This is why every fragment parse must go
-      # through here rather than calling the backend's `fragment` directly.
-      attr_reader :fragment_generation
-    end
-
     # `context` is the element the markup is parsed inside of, as a backend
     # node (nil: a `body`), whose tag and namespace decide how it parses — an
     # `<svg>`'s children are SVG, a `<textarea>`'s are text.
     def self.fragment(html, owner_doc: nil, context: nil)
-      @fragment_generation += 1
       if owner_doc
         context ? owner_doc.fragment(html.to_s, context: context) : owner_doc.fragment(html.to_s)
       else
