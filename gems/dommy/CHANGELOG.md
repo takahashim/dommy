@@ -15,7 +15,9 @@
 - `document.body` is the first `body` or `frameset` child of an HTML `html` document element, as HTML defines it: a `body` deeper in the tree, one in another namespace, or one under a non-HTML root element is not it, and a `frameset` is. `document.head` likewise needs an HTML `html` document element.
 - `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.
 - An element in no namespace, or in one other than HTML, SVG and MathML, is a plain `Element` without `dataset`, `style`, `tabIndex`, `focus()` and the rest HTML and CSSOM give only to those three: `createElementNS(null, "div").dataset` is undefined, and the Ruby object has no `dataset` method.
-- `hidden`, `translate`, `popover`, `value`, `accessKeyLabel` and the `offset*` metrics are on HTML elements only.
+- `hidden`, `translate`, `popover`, `accessKeyLabel` and the `offset*` metrics are on HTML elements only, and `value` only on the elements whose interface has one: `div.value` is undefined.
+- `hidden` is `"until-found"` for that state; setting it to `false`, `""`, `null`, `0` or `NaN` removes the attribute, and `hidden=until-found` is not `display: none`.
+- `href` is on the SVG elements that refer to a resource only — `a`, `use`, `image`, the gradients and the like — and reads `xlink:href` when there is no `href`.
 - `ariaLabelledByElements` and the other ARIA element lists are frozen arrays, the same object until their elements change, instead of live `NodeList`s.
 - `el.ariaFoo`, `el.ariaLabelledBy` and any other name ARIAMixin does not define are ordinary properties: setting one writes no attribute.
 - A `<script>` from `createContextualFragment` runs when the fragment is inserted.
@@ -48,6 +50,7 @@
 - `removeAttributeNode`, `setAttributeNode` and `attr.value = …` act on the `Attr` they are given even when another attribute shares its qualified name.
 - `removeAttributeNS` drops an ARIA element reference along with its `aria-*` attribute, as `removeAttribute` does.
 - Upgrading a custom element passes each attribute's namespace to `attributeChangedCallback`.
+- `observedAttributes` matches an attribute's local name exactly: a `fooBar` made with `setAttributeNS` is observed as `"fooBar"`.
 - A style attribute and a CSSOM declaration block are read in tokens: a `;` or `:` inside a string, a function, a `{}` block, an escape or an unquoted `url()` stays in its value, so `content: "a;b"`, `url(data:image/png;base64,…)` and `url(a/*b.png)` keep the declarations after them, and a comment hides nothing that follows it.
 - A CR, a CRLF and an FF in a style attribute are each one newline, so a backslash before a CRLF in a string continues the string.
 - A declaration's value with a `;`, a `!` or an unmatched closing bracket at its top level is dropped, so `setProperty("--x", "1; color: red")` adds nothing, and a bracket closes only a block of its own kind (`calc(1px]; color: red` is all one value).

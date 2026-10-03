@@ -795,6 +795,7 @@ module Dommy
   # `<output>` — calculation result element.
   class HTMLOutputElement < HTMLElement
     reflect_string :name
+    js_accessor :value
     reflect_token_list html_for: { attr: "for", js: "htmlFor" }
 
     # `value` is always the descendant text content. `defaultValue` tracks a

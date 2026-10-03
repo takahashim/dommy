@@ -26,7 +26,8 @@ module Dommy
         ].freeze
 
         TEXT = <<~CSS
-          [hidden] { display: none }
+          [hidden]:not([hidden=until-found i]) { display: none }
+          [hidden=until-found i] { content-visibility: hidden }
           area, base, basefont, datalist, head, link, meta, noembed,
           noframes, param, rp, script, style, template, title { display: none }
           input[type="hidden"] { display: none }

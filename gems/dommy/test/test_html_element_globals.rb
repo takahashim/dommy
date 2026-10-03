@@ -169,4 +169,20 @@ class TestHTMLElementGlobals < Minitest::Test
     assert_equal({already_started: true, nonce: "s"}, copy.__internal_cloning_state__)
     assert_equal "s", element.tap { |e| e.append_child(script) }.__js_call__("cloneNode", [true]).first_element_child.__js_get__("nonce")
   end
+
+  # hidden is "until-found" for that state, true for any other value and
+  # false without the attribute; false, "", null, 0 and NaN remove it, and
+  # until-found is no display: none.
+  def test_hidden
+    assert_equal [false, true, "until-found"], [element, element(hidden: ""), element(hidden: "Until-Found")].map { |e| e.__js_get__("hidden") }
+
+    el = element
+    { "until-found" => "until-found", false => nil, "" => nil, 0 => nil, Float::NAN => nil, nil => nil, 1 => "", "x" => "", true => "" }.each do |value, attribute|
+      el.__js_set__("hidden", value)
+      assert_equal attribute, el.get_attribute("hidden"), value.inspect
+    end
+
+    cascade = Dommy::Internal::CSS::Cascade
+    assert_equal ["none", "block"], [element(hidden: ""), element(hidden: "until-found")].map { |e| cascade.computed_style(e)["display"] }
+  end
 end

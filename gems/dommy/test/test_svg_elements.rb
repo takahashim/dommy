@@ -1022,4 +1022,16 @@ class TestSVGElementsSharingHtmlNames < Minitest::Test
     assert_equal([html_script], @doc.scripts.to_a)
     assert_empty(@doc.links.to_a)
   end
+
+  # href is SVGURIReference's: the elements that refer to a resource have
+  # it, reading `href` or else the deprecated `xlink:href`; a <g> has none.
+  def test_href_on_the_referring_elements
+    doc = make_window(%(<svg><a id=a xlink:href="#x"></a><use id=u href="#y" xlink:href="#z"></use><g id=g></g></svg>)).document
+    a = doc.get_element_by_id("a")
+    assert_equal ["#x", "#y"], [a.__js_get__("href"), doc.get_element_by_id("u").__js_get__("href")]
+    assert_equal Dommy::Bridge::ABSENT, doc.get_element_by_id("g").__js_get__("href")
+
+    a.__js_set__("href", "#n")
+    assert_equal [nil, "#n"], [a.get_attribute("href"), a.get_attribute_ns("http://www.w3.org/1999/xlink", "href")]
+  end
 end

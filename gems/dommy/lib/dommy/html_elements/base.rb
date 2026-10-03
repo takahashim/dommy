@@ -36,16 +36,37 @@ module Dommy
     # attribute, "auto" for an empty one, "manual" for any other value.
     reflect_enumerated popover: { keywords: %w[auto manual hint], missing: nil, empty: "auto",
                                   invalid: "manual", nullable: true }
-    js_accessor :hidden, :translate, :value
+    js_accessor :hidden, :translate
     js_readable :access_key_label, :offset_parent, :offset_top, :offset_left, :offset_width, :offset_height
 
-    # `hidden`: whether the hidden attribute is present; true writes it, false
-    # removes it.
-    def hidden = __internal_has_attribute__?("hidden")
+    # `hidden` (HTML §6.1), a `(boolean or unrestricted double or
+    # DOMString)?`: "until-found" for the hidden-until-found state (the
+    # keyword, matched ASCII case-insensitively), true for any other value,
+    # false without the attribute.
+    def hidden
+      value = __internal_attribute_value__("hidden")
+      return false if value.nil?
 
-    def hidden=(value)
-      value ? __internal_set_attribute_value__("hidden", "") : remove_attribute_ns(nil, "hidden")
+      value.casecmp?("until-found") ? "until-found" : true
     end
+
+    # "until-found" writes that state; false, "", null, 0 and NaN remove the
+    # attribute; anything else writes it empty.
+    def hidden=(value)
+      if value.is_a?(String) && value.casecmp?("until-found")
+        __internal_set_attribute_value__("hidden", "until-found")
+      elsif hidden_removed_by?(value)
+        remove_attribute_ns(nil, "hidden")
+      else
+        __internal_set_attribute_value__("hidden", "")
+      end
+    end
+
+    def hidden_removed_by?(value)
+      value.nil? || value.equal?(false) || value.equal?(Bridge::UNDEFINED) || value == "" ||
+        (value.is_a?(Numeric) && (value.zero? || (value.is_a?(Float) && value.nan?)))
+    end
+    private :hidden_removed_by?
 
     # `translate`: the element's translation mode — the nearest
     # ancestor-or-self with a valid translate attribute decides ("yes" or ""
@@ -65,15 +86,6 @@ module Dommy
 
     def translate=(value)
       __internal_set_attribute_value__("translate", value ? "yes" : "no")
-    end
-
-    # `value` for an HTML element whose interface gives it none of its own:
-    # the value attribute, as a string. The form controls and the other
-    # interfaces with a `value` declare their own.
-    def value = __internal_attribute_value__("value").to_s
-
-    def value=(value)
-      __internal_set_attribute_value__("value", value.to_s)
     end
 
     # `accessKeyLabel`: the `accesskey` content attribute is a set of
