@@ -31,6 +31,7 @@
 - A loop over a live `childNodes` or `children` by index is linear: reading `length` and `item(i)` for 4,000 children of both lists takes 8 ms instead of 790 ms.
 - `getRootNode` asks the shadow-root registry about a node's root alone rather than every ancestor, taking 1.6 µs instead of 5 µs, and `isConnected` and the shadow-root lookups do the same.
 - A node already wrapped is found in 82 ns instead of 150 ns.
+- `:nth-child` and `:nth-of-type` list a parent's children once rather than once per child: over 3,000 siblings, `querySelectorAll("p:nth-of-type(3n+1)")` takes 9 ms instead of 5.6 s.
 
 ### Fixed
 
