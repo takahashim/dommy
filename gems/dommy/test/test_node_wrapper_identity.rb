@@ -2,55 +2,37 @@
 
 require_relative "test_helper"
 
-# NodeWrapperCache keys live wrappers by a backend identity (Makiri's lxb node
-# pointer, Nokogiri's object_id). Both backends can hand a freed *transient*
-# node's identity to a brand-new node — e.g. a throwaway fragment parsed by
-# `Parser.fragment` for `DocumentFragment#cloneNode`, once the original is GC'd.
-# When that happens the cache must NOT return the stale wrapper of the wrong
-# kind; it has to notice the mismatch (via nodeType) and rebuild. Regression
-# for a data-each clone resolving to a cached TextNode instead of a Fragment.
+# NodeWrapperCache keys each wrapper by its backend node object, which Makiri
+# keeps one of per node for as long as the node's document lives. A pointer
+# key let a node of a freed throwaway document — a fragment parsed for
+# `DocumentFragment#cloneNode` — hand its address to a brand-new node, which
+# then resolved to the stale wrapper of the wrong kind (a data-each clone
+# came back a TextNode instead of a Fragment).
 class TestNodeWrapperIdentity < Minitest::Test
   include DommyTestHelper
 
   def setup
     @win = make_window("<div id='host'></div>")
     @doc = @win.document
-    @cache = @doc.instance_variable_get(:@node_wrapper_cache)
   end
 
-  # Force every node to the SAME identity key so a later wrap() sees the prior
-  # wrapper as a (simulated) recycled-identity collision.
-  def with_pinned_identity_key(key)
-    cache = @cache
-    cache.define_singleton_method(:identity_key) { |_node| key }
-    yield
-  ensure
-    cache.singleton_class.send(:remove_method, :identity_key)
+  # Two nodes at the same address, as a node of a freed document and a new
+  # one can be, still get wrappers of their own.
+  def test_nodes_sharing_an_address_get_their_own_wrappers
+    text = Dommy::Parser.fragment("hello").children.first
+    fragment = Dommy::Parser.fragment("<li>row</li>")
+    [text, fragment].each { |node| node.define_singleton_method(:pointer_id) { 42 } }
+
+    assert_instance_of(Dommy::TextNode, @doc.wrap_node(text))
+    assert_instance_of(Dommy::Fragment, @doc.wrap_node(fragment))
   end
 
-  def test_recycled_identity_does_not_return_wrong_kind_wrapper
-    tpl = @doc.create_element("template")
-    tpl.inner_html = "<li>row</li>"
-
-    with_pinned_identity_key(42) do
-      # First occupy the shared key with a TextNode wrapper.
-      text_wrapper = @doc.wrap_node(@doc.backend_doc.fragment("hello").children.first)
-      assert_instance_of(Dommy::TextNode, text_wrapper)
-
-      # A fragment node now lands on the same (pinned) key. The stale TextNode
-      # must not be handed back — the clone has to come through as a Fragment.
-      clone = tpl.content.__js_call__("cloneNode", [true])
-      assert_instance_of(Dommy::Fragment, clone)
-      assert_equal(1, clone.child_element_count)
-      assert_equal("row", clone.first_element_child.text_content)
-    end
-  end
-
-  def test_same_kind_wrapper_is_still_reused
-    # The validation must not defeat normal caching: the SAME live node wraps to
-    # the SAME Ruby object across repeated traversals (DOM identity contract).
-    host = @doc.get_element_by_id("host")
-    again = @doc.get_element_by_id("host")
-    assert_same(host, again)
+  # The same live node wraps to the same Ruby object across traversals and
+  # garbage collections (the DOM's identity).
+  def test_the_same_node_wraps_to_the_same_object
+    host = @doc.get_element_by_id("host").object_id
+    GC.start
+    assert_equal(host, @doc.get_element_by_id("host").object_id)
+    assert_same(@doc.body.first_child, @doc.get_element_by_id("host"))
   end
 end
