@@ -36,7 +36,7 @@ module Dommy
     # attribute, "auto" for an empty one, "manual" for any other value.
     reflect_enumerated popover: { keywords: %w[auto manual hint], missing: nil, empty: "auto",
                                   invalid: "manual", nullable: true }
-    js_accessor :hidden, :translate, :value
+    js_accessor :hidden, :translate
     js_readable :access_key_label, :offset_parent, :offset_top, :offset_left, :offset_width, :offset_height
 
     # `hidden` (HTML §6.1), a `(boolean or unrestricted double or
@@ -86,15 +86,6 @@ module Dommy
 
     def translate=(value)
       __internal_set_attribute_value__("translate", value ? "yes" : "no")
-    end
-
-    # `value` for an HTML element whose interface gives it none of its own:
-    # the value attribute, as a string. The form controls and the other
-    # interfaces with a `value` declare their own.
-    def value = __internal_attribute_value__("value").to_s
-
-    def value=(value)
-      __internal_set_attribute_value__("value", value.to_s)
     end
 
     # `accessKeyLabel`: the `accesskey` content attribute is a set of

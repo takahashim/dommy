@@ -59,7 +59,7 @@ class TestHTMLOrSVGOrMathMLElement < Minitest::Test
     assert_equal(-1, @doc.create_element_ns(NAMESPACES[:mathml], "mi").__js_get__("tabIndex"))
   end
 
-  HTML_ONLY = %w[hidden translate value popover accessKeyLabel offsetParent offsetTop offsetLeft offsetWidth offsetHeight].freeze
+  HTML_ONLY = %w[hidden translate popover accessKeyLabel offsetParent offsetTop offsetLeft offsetWidth offsetHeight].freeze
 
   # HTMLElement's own attributes are on HTML elements only.
   def test_html_element_attributes_are_on_html_elements_only
@@ -93,5 +93,16 @@ class TestHTMLOrSVGOrMathMLElement < Minitest::Test
     plain = element(nil, "x")
     assert_equal Dommy::Bridge::ABSENT, plain.__js_get__("style")
     refute plain.respond_to?(:style)
+  end
+
+  # value belongs to the interfaces that declare one, not to every HTML
+  # element.
+  def test_value_is_on_the_elements_that_have_one
+    %w[button input select textarea output option data li meter progress param].each do |tag|
+      refute_equal Dommy::Bridge::ABSENT, @doc.create_element(tag).__js_get__("value"), tag
+    end
+    div = @doc.create_element("div")
+    div.set_attribute("value", "x")
+    assert_equal Dommy::Bridge::ABSENT, div.__js_get__("value")
   end
 end
