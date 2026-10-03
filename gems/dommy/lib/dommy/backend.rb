@@ -20,9 +20,6 @@ module Dommy
     # rewrites `:scope` to an attribute selector, removing the mark after.
     SCOPE_ATTR = "data-dommy-scope"
 
-    # Lexbor's document mode: 0 no-quirks, 1 quirks, 2 limited-quirks.
-    QUIRKS = 1
-
     class << self
       # The node classes (the shared bases, so both HTML and XML node
       # subclasses match), so the wrapper cache can route each node.
@@ -66,13 +63,10 @@ module Dommy
         node.clone_node(deep)
       end
 
-      # A fresh, empty HTML-backed document (children dropped so it starts
-      # with no documentElement). The backing for a shallow clone of an HTML
-      # document.
+      # A fresh, empty HTML-backed document — no children, no-quirks. The
+      # backing for a shallow clone of an HTML document.
       def empty_document
-        doc = ::Makiri::HTML::Document.parse("")
-        doc.children.to_a.each(&:unlink)
-        doc
+        ::Makiri::HTML::Document.new
       end
 
       # A fresh, empty XML-backed document — the backing for `new Document()` /
@@ -86,9 +80,10 @@ module Dommy
       end
 
       # Whether the HTML parser left `doc` in quirks mode (not limited-quirks,
-      # which matches no-quirks everywhere Dommy asks).
+      # which matches no-quirks everywhere Dommy asks). An XML document is
+      # never in it.
       def quirks_mode?(doc)
-        doc.respond_to?(:quirks_mode) && doc.quirks_mode == QUIRKS
+        doc.respond_to?(:quirks_mode?) && doc.quirks_mode?
       end
 
       # An empty backing document matching `doc`'s kind (HTML stays HTML, XML
@@ -154,15 +149,6 @@ module Dommy
 
       def fragment(html, owner_doc:)
         ::Makiri::DocumentFragment.parse(html.to_s)
-      end
-
-      # Make `node` the sole document element of `doc` (used by
-      # DOMImplementation.createDocument). Lexbor seeds even an empty parse
-      # with an <html> shell and has no `root=`, so clear the existing
-      # children before adopting `node` as the root.
-      def set_document_root(doc, node)
-        doc.children.to_a.each(&:unlink)
-        doc.add_child(node)
       end
 
       # The DOM's createElement: an element whose local name is `local_name`
