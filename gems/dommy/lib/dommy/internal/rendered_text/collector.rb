@@ -41,6 +41,10 @@ module Dommy
         def initialize(element)
           @element = element
           @boxes = {}.compare_by_identity
+          # Each table's (and row's) last row (cell), asked once per row
+          # (cell) and found once.
+          @last_rows = {}.compare_by_identity
+          @last_cells = {}.compare_by_identity
         end
 
         # HTML's "get the text steps": textContent for an element that is not
@@ -168,8 +172,10 @@ module Dommy
           row = element.parent_element
           return false unless row
 
-          cells = element_children(row).select { |child| box(child).display == "table-cell" }
-          !cells.last.equal?(element)
+          last = @last_cells.fetch(row) do
+            @last_cells[row] = element_children(row).reverse_each.find { |child| box(child).display == "table-cell" }
+          end
+          !last.equal?(element)
         end
 
         def table_row_not_last?(element, box)
@@ -179,7 +185,8 @@ module Dommy
           table = table.parent_element while table && box(table).display == "table-row-group"
           return false unless table
 
-          !table_rows(table).last.equal?(element)
+          last = @last_rows.fetch(table) { @last_rows[table] = table_rows(table).last }
+          !last.equal?(element)
         end
 
         # Every table-row box of a table, in tree order, descending through the
