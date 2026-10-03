@@ -2,7 +2,6 @@
 
 require_relative "bounded_cache"
 require_relative "literal_lookup"
-require_relative "node_identity"
 
 module Dommy
   module Internal
@@ -253,9 +252,12 @@ module Dommy
         @query_cache[[kind, selector]] = [@document.dom_generation, value]
       end
 
-      # DOM identity key for a backend node. NodeIdentity owns the choice of
-      # key, and why it is not `==` on the nodes themselves.
-      def identity_key(node) = NodeIdentity.key_for(node)
+      # DOM identity key for a backend node (NodeIdentity says why it is not
+      # `==` on the nodes themselves). Every node this cache is handed is a
+      # backend one, so it asks the backend directly rather than through
+      # NodeIdentity.key_for, which first checks for a wrapper — on the path
+      # every traversal takes.
+      def identity_key(node) = Backend.identity_key(node)
 
       def build_wrapper_for(node)
         case node
