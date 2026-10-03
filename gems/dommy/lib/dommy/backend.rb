@@ -256,6 +256,11 @@ module Dommy
         presence(node.respond_to?(:namespace_uri) ? node.namespace_uri : nil)
       end
 
+      # The element's own namespace prefix as the DOM reports it, nil for none.
+      def prefix(node)
+        presence(node.prefix)
+      end
+
       # Bind a *prefixed* element's namespace so the prefix resolves. An XML
       # document resolves an element's prefix from xmlns declarations at
       # insertion time, so a prefixed element (createElementNS /

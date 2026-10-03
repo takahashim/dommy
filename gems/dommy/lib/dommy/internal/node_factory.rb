@@ -45,10 +45,7 @@ module Dommy
             raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}"
           end
 
-        wrapper = @wrappers.wrap(node)
-        wrapper.__internal_set_namespace__(namespace, nil, local, local)
-        @document.__internal_note_namespaced_element__(namespace, nil)
-        wrapper
+        @wrappers.wrap(node)
       end
 
       def create_text_node(text)
@@ -122,22 +119,7 @@ module Dommy
           end
         Backend.add_namespace_definition(el, prefix, ns) if ns
 
-        wrapper = @wrappers.build_element_wrapper(el, namespace: ns, local_name: local)
-        wrapper.__internal_set_namespace__(ns, prefix, local, qualified_name)
-        @document.__internal_note_namespaced_element__(ns, prefix)
-        wrapper
-      end
-
-      # Wrap a freshly-cloned backend element whose original was built via
-      # createElementNS: route the wrapper class by the known local name (the
-      # backend node name may be the full qualified name, e.g. "foo:div", which
-      # would otherwise resolve to HTMLUnknownElement) and reapply its namespace
-      # metadata (namespaceURI / prefix / localName / tagName).
-      def wrap_cloned_element_ns(node, namespace, prefix, local, qualified_name)
-        @wrappers.reset_wrapper(node)
-        wrapper = @wrappers.build_element_wrapper(node, namespace: namespace, local_name: local)
-        wrapper.__internal_set_namespace__(namespace, prefix, local, qualified_name)
-        wrapper
+        @wrappers.build_element_wrapper(el)
       end
 
       # Query methods
