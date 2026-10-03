@@ -11,6 +11,7 @@
 
 ### Changed
 
+- `Dommy::Backend` is Makiri's adapter itself: `Backend.use`, `Backend.current` and `Dommy.backend` are gone, as is the `DOMMY_BACKEND` test switch, and each DOM call reaches Makiri without a dispatch in between.
 - **Requires makiri >= 0.12.1.** Its queries no longer warn about chilled string literals under Ruby 4.0.
 - `document.body` is the first `body` or `frameset` child of an HTML `html` document element, as HTML defines it: a `body` deeper in the tree, one in another namespace, or one under a non-HTML root element is not it, and a `frameset` is. `document.head` likewise needs an HTML `html` document element.
 - `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.

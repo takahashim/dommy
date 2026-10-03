@@ -1527,8 +1527,7 @@ module Dommy
       # read before the adopt below removes anything.
       record_previous = old_bn.previous && wrap_node(old_bn.previous)
       record_next = ref && wrap_node(ref)
-      cross_document = !Backend.moves_nodes_across_documents? &&
-        new_child.respond_to?(:document) && !new_child.document.equal?(self)
+      cross_document = new_child.respond_to?(:document) && !new_child.document.equal?(self)
       fragment = new_child.is_a?(Dommy::Fragment)
 
       # Same document: WHATWG replace adopts the incoming node — which removes
@@ -1654,7 +1653,7 @@ module Dommy
     def adopted_backend_node(node)
       return nil unless node.respond_to?(:__dommy_backend_node__)
 
-      if !Backend.moves_nodes_across_documents? && node.respond_to?(:document) && !node.document.equal?(self)
+      if node.respond_to?(:document) && !node.document.equal?(self)
         return adopt_node(node)&.__dommy_backend_node__
       end
 

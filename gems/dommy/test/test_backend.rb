@@ -2,51 +2,16 @@
 
 require_relative "test_helper"
 
+# Dommy::Backend is what the DOM asks of Makiri, in one place.
 class TestBackend < Minitest::Test
-  def teardown
-    # Restore the backend the suite is running against (the DOMMY_BACKEND
-    # override, or the auto-detected default) after each test.
-    if (backend = ENV["DOMMY_BACKEND"])
-      Dommy::Backend.use(backend.to_sym)
-    else
-      Dommy::Backend.current = nil
-      Dommy::Backend.send(:detect_default)
-    end
-  rescue StandardError
-    nil
-  end
-
-  def test_default_backend_loaded
-    refute_nil(Dommy::Backend.current)
-    # Makiri adapter is acceptable
-    assert(Dommy::Backend.current.respond_to?(:parse))
-  end
-
-  def test_use_makiri_explicitly
-    Dommy::Backend.use(:makiri)
-    assert_equal(Dommy::Backend::Makiri, Dommy::Backend.current)
-  end
-
-  def test_unknown_backend_raises
-    assert_raises(ArgumentError) { Dommy::Backend.use(:webkit) }
-  end
-
-  def test_parse_works_with_makiri
-    Dommy::Backend.use(:makiri)
+  def test_parse_gives_a_makiri_document
     doc = Dommy::Backend.parse("<div>hello</div>")
-    refute_nil(doc)
+    assert_kind_of(Makiri::HTML::Document, doc)
     assert(doc.at_css("div"))
   end
 
-  def test_dommy_accessor_aliases_backend
-    Dommy::Backend.use(:makiri)
-    assert_equal(Dommy::Backend::Makiri, Dommy.backend)
-  end
-
   # The by-qualified-name lookups under getAttribute / setAttribute /
-  # removeAttribute. The adapter answers them natively when the backend can and
-  # scans in Ruby when it cannot; both spellings have to agree, so these run
-  # against whichever is in use.
+  # removeAttribute: the node and the value spellings have to agree.
   class TestAttributeByQualifiedName < Minitest::Test
     XML_NS = "http://www.w3.org/XML/1998/namespace"
 
