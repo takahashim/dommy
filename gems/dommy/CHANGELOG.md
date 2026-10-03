@@ -35,6 +35,8 @@
 
 ### Fixed
 
+- `createDocumentType` in an XML document returns a doctype node that joins the tree, as in an HTML document.
+- A `querySelector` result memoized by the document is retired by a child-list or attribute edit made on the backend node directly, not only by one made through the DOM.
 - A namespace URI keeps its case: `createElementNS("fooNamespace", "e").namespaceURI` is `"fooNamespace"`, `getAttributeNS("attrNS", "x")` finds the attribute `setAttributeNS("attrNS", "a:x", v)` made, and an element in `HTTP://WWW.W3.ORG/1999/XHTML` is not an HTML element.
 - `document.body = element` sets the body in HTML and XML documents alike: it replaces the current `body` or `frameset`, or is appended to the document element, and throws `HierarchyRequestError` for anything but a `body` or `frameset`.
 - A document's element children skip its doctype: an element appended after the root element was removed is its `documentElement` and its only child element.
