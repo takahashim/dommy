@@ -45,7 +45,7 @@ text = el.query_selector(".inner").first_child
 
 cascade = Dommy::Internal::CSS::Cascade
 
-puts "N=#{N} elements=#{ELEMENTS} rules=#{RULES} backend=#{Dommy::Backend.current.name.split('::').last}"
+puts "N=#{N} elements=#{ELEMENTS} rules=#{RULES}"
 
 # Floor: computed style reads with a warm cache (no mutations at all).
 bench("read computed_style, no mutation (cache floor)") do

@@ -162,15 +162,6 @@ module Dommy
     end
   end
 
-  # Convenience accessor: `Dommy.backend` / `Dommy.backend=`.
-  def self.backend
-    Backend.current
-  end
-
-  def self.backend=(new_backend)
-    Backend.current = new_backend
-  end
-
   # Build a fresh, empty Window (no host). Equivalent to opening a
   # blank document.
   def self.new_window
