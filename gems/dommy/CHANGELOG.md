@@ -7,6 +7,7 @@
 - `accessKey`, `autocapitalize`, `autocorrect`, `autofocus`, `contentEditable`, `draggable`, `enterKeyHint`, `headingOffset`, `headingReset`, `inert`, `inputMode`, `isContentEditable`, `nonce`, `spellcheck`, `tabIndex`, `title` and `writingSuggestions` on HTML elements, and `nonce` on SVG elements.
 - The ARIAMixin attributes are on `Element.prototype`, so `"ariaLabelledByElements" in Element.prototype` is true.
 - An element in the MathML namespace is a `MathMLElement`, with `dataset`, `nonce`, `autofocus`, `tabIndex`, `style`, `focus()` and `blur()`.
+- `Dommy::Js::ModulePreload.enabled = true` reads a page's ES modules of 10 KB or more as bytecode from the second page of the same origin on, with an engine that can preload them (dommy-js-quickjs on quickjs 0.22): a 400 KB module boots in about 9 ms instead of 30 ms. A preloaded module is not fetched again, so it is off by default for apps whose module URLs carry no digest.
 
 ### Changed
 

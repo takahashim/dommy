@@ -145,7 +145,7 @@ module Dommy
       end
 
       def build_runtime(doc)
-        rt = Dommy::Js.build_runtime
+        rt = Dommy::Js::ModulePreload.build_runtime(doc)
         window = doc&.default_view
         # Uncaught errors and unhandled rejections reach us through the window's
         # WHATWG report funnel, so the page's own `window.onerror` /

@@ -42,6 +42,15 @@ module Dommy
     #                                   (DOM nodes cross as JS proxies) as the
     #                                   script's `arguments`
     #     evaluate_with_args(js, args)  evaluate and decode, passing arguments
+    #
+    #   Module preloading (ModulePreload; optional, guarded on the class):
+    #     .register_module(name, source:)  compile a module once per process
+    #                                      under its resolved URL
+    #     new(preload_modules: names)      read registered modules into the new
+    #                                      realm as bytecode; the engine finds
+    #                                      one by name before asking the
+    #                                      module loader, and a loader answer
+    #                                      of `{ as: name }` lands on it
     module Runtime
       # The methods every conforming runtime must respond to.
       REQUIRED_METHODS = %i[
