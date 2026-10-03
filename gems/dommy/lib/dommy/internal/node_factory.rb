@@ -32,18 +32,7 @@ module Dommy
           namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
         end
 
-        # createElement validates against the XML *Name* production, which is
-        # looser than the QName an XML backend insists on: ":", "foo:", "f::oo"
-        # and a local part with a combining char are all valid element names the
-        # backend would reject. The loose creator builds those verbatim; anything
-        # it (or the strict path) still refuses is an InvalidCharacterError.
-        node =
-          begin
-            Backend.create_element_loose(local, nil, local, namespace, @document.backend_doc) ||
-              Backend.create_element(local, @document.backend_doc)
-          rescue ArgumentError
-            raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}"
-          end
+        node = Backend.create_element(local, namespace, @document.backend_doc)
 
         @wrappers.wrap(node)
       end
@@ -104,19 +93,7 @@ module Dommy
         qualified_name = domstring(qualified_name)
         ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
-        # An XML backend rejects some DOM-valid qualified names (an invalid char
-        # in the local part, which DOM permits): the loose creator builds them
-        # verbatim. An HTML backend builds the element in its namespace. A
-        # genuinely invalid name it (or the strict path) rejects with an
-        # ArgumentError becomes an InvalidCharacterError, per DOM.
-        el =
-          begin
-            Backend.create_element_loose(qualified_name, prefix, local, ns, @document.backend_doc) ||
-              Backend.create_element_ns(ns, qualified_name, @document.backend_doc) ||
-              Backend.create_element(qualified_name, @document.backend_doc)
-          rescue ArgumentError
-            raise DOMException::InvalidCharacterError, "'#{qualified_name}' is not a valid element name"
-          end
+        el = Backend.create_element_ns(ns, qualified_name, @document.backend_doc)
         Backend.add_namespace_definition(el, prefix, ns) if ns
 
         @wrappers.build_element_wrapper(el)

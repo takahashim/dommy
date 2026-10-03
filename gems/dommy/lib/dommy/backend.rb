@@ -165,34 +165,26 @@ module Dommy
         doc.add_child(node)
       end
 
-      # Mint from the owning document so HTML docs lower-case the name and
-      # XML docs preserve its case.
-      def create_element(name, doc)
-        doc.create_element(name)
+      # The DOM's createElement: an element whose local name is `local_name`
+      # as written, colons included (`foo:` and `f::oo` are valid local names,
+      # not prefixed ones), in `namespace` — the HTML namespace in an HTML or
+      # XHTML document, nil in any other. An HTML document's own creator takes
+      # the name verbatim; an XML document's parses a QName, so its element is
+      # built from the parts instead.
+      def create_element(local_name, namespace, doc)
+        return doc.create_element(local_name) if doc.is_a?(::Makiri::HTML::Document)
+
+        doc.create_loose_dom_element(local_name, nil, local_name, namespace)
       end
 
-      # Create a namespaced element permitting a DOM-valid qualified name that
-      # a strict XML backend would reject (an internal invalid char like
-      # "f}oo"), preserving case/prefix: Makiri's loose creator builds it
-      # verbatim. Returns nil for an HTML document (fall back to
-      # #create_element); raises ArgumentError for a genuinely invalid name
-      # (the caller maps it to InvalidCharacterError).
-      def create_element_loose(qualified_name, prefix, local, namespace, doc)
-        return nil unless doc.is_a?(::Makiri::XML::Document)
-
-        doc.create_loose_dom_element(qualified_name, prefix, local, namespace)
-      end
-
-      # createElementNS in an HTML document. Makiri builds the element in its
-      # own namespace, so the backend node is what the parser would have made:
-      # an SVG `feGaussianBlur` keeps its case and `[viewBox]` reads its
-      # attribute case-sensitively. Returns nil for an XML document (fall back
-      # to #create_element); raises ArgumentError for an invalid name (the
-      # caller maps it to InvalidCharacterError).
+      # The DOM's createElementNS, in an HTML or an XML document alike: the
+      # element is in `namespace` (nil for none) with `qualified_name` as
+      # written — an SVG `feGaussianBlur` keeps its case, a prefixed name its
+      # prefix. Makiri checks the name as the DOM does, so a name the caller
+      # has validated is never refused; it raises ArgumentError for one it
+      # would not have passed.
       def create_element_ns(namespace, qualified_name, doc)
-        return nil unless doc.is_a?(::Makiri::HTML::Document)
-
-        doc.create_element_ns(presence(namespace), qualified_name.to_s)
+        doc.create_element_ns(namespace, qualified_name.to_s)
       end
 
       # A detached DocumentType node owned by `doc` (for
