@@ -306,15 +306,22 @@ module Dommy
       # Lexbor tracks the attribute's own namespace: set_attribute_ns records
       # it (splitting prefix/local), and the attr node reports
       # namespace_uri/prefix/local_name. So *AttributeNS matches on
-      # (namespace, local name) faithfully. `namespace` is an href String or
-      # nil throughout.
+      # (namespace, local name) faithfully, and Makiri finds an attribute by
+      # that pair natively. `namespace` is an href String or nil throughout;
+      # an empty one is none.
 
       def get_attribute_ns(node, namespace, local_name)
-        attr_by_ns(node, namespace, local_name)&.value
+        node.attribute_value_ns(presence(namespace), local_name.to_s)
       end
 
       def has_attribute_ns?(node, namespace, local_name)
         !attr_by_ns(node, namespace, local_name).nil?
+      end
+
+      # The attribute node in `namespace` with `local_name`, or nil — what
+      # getAttributeNodeNS and the NS removals find.
+      def attr_by_ns(node, namespace, local_name)
+        node.attribute_node_ns(presence(namespace), local_name.to_s)
       end
 
       def set_attribute_ns(node, namespace, prefix, _local_name, qualified_name, value)
@@ -425,37 +432,20 @@ module Dommy
         name == "xmlns" || name.include?(":")
       end
 
-      # Makiri's own `setAttribute` for the setAttribute-only names, which
-      # set_attribute_ns refuses. true when it made the attribute; false
-      # leaves every other name to set_attribute_ns, which matches an existing
-      # attribute by (namespace, local name) rather than by qualified name:
-      # `setAttributeNS("u", "a")` then a null-namespace "a" are two
-      # attributes.
-      #
-      # - An XML document: set_loose_dom_attribute, a plain attribute (never a
-      #   namespace declaration) under the name as given.
-      # - An HTML document: `[]=`. It lower-cases only on an HTML-namespace
-      #   element, as setAttribute does, and makes the colon part of the local
-      #   name.
+      # Makiri's `set_loose_dom_attribute`, the DOM's setAttribute, for the
+      # setAttribute-only names, which set_attribute_ns refuses: a plain
+      # attribute in no namespace (never a namespace declaration) whose local
+      # name is the whole name, colon included, lower-cased only on an
+      # HTML-namespace element of an HTML document. true when it made the
+      # attribute; false leaves every other name to set_attribute_ns, which
+      # matches an existing attribute by (namespace, local name) rather than
+      # by qualified name: `setAttributeNS("u", "a")` then a null-namespace
+      # "a" are two attributes.
       def set_null_namespace_attribute(node, name, value)
         return false unless set_attribute_only_name?(name)
 
-        if node.respond_to?(:set_loose_dom_attribute)
-          node.set_loose_dom_attribute(name, value)
-        else
-          node[name] = value
-        end
+        node.set_loose_dom_attribute(name, value)
         true
-      end
-
-      # Attribute node matching (namespace, local name) case-sensitively; a
-      # null/empty namespace matches a null-namespace attribute.
-      def attr_by_ns(node, namespace, local_name)
-        want_ns = presence(namespace)
-        want_local = local_name.to_s
-        node.attribute_nodes.find do |a|
-          a.local_name == want_local && presence(a.namespace_uri) == want_ns
-        end
       end
 
       def presence(value)
