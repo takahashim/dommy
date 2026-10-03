@@ -296,9 +296,10 @@ module Dommy
       # made (setAttributeNS("urn:x", "id")). That is the only way an
       # attribute whose qualified name is a plain `id` or `class` can be in a
       # namespace — a parser's are either prefixed or, `xmlns` aside, in none —
-      # so until one is made, #no_namespace_attribute_value can trust the
-      # by-name read. Process-wide, as an attribute moves between documents
-      # with its node; it only ever decides how fast an answer comes.
+      # so until one is made, no element need be asked whether it has one
+      # (Element#namespaced_unprefixed_attribute?, which gates the JS bridge's
+      # attribute snapshot). Process-wide, as an attribute moves between
+      # documents with its node; it only ever decides how fast an answer comes.
       def note_namespaced_unprefixed_attribute
         @namespaced_unprefixed_attribute = true
       end
@@ -345,23 +346,12 @@ module Dommy
       end
 
       # The value of `node`'s attribute named `local_name` in no namespace, or
-      # nil — what a selector's `[att]` and HTML's id, class and name read. An
-      # attribute in no namespace has its local name as its qualified name, so
-      # the native by-name read finds it; only when what it finds is a
-      # namespaced, unprefixed one (setAttributeNS("u", "att")) are the
-      # attributes listed.
+      # nil — what a selector's `[att]` and HTML's id, class and name read, on
+      # the hottest path in the library. One native read, which finds the
+      # attribute by namespace and local name, so a namespaced one that shares
+      # the name (setAttributeNS("u", "att"), a parsed `xmlns`) is not it.
       def no_namespace_attribute_value(node, local_name)
-        # The value alone first: no attribute by that name, the common miss,
-        # costs one native read and no Attr — and so does a hit, unless an
-        # unprefixed namespaced attribute could be the one it read (see
-        # #note_namespaced_unprefixed_attribute; a parsed `xmlns` is one).
-        value = node.attribute_value_by_qualified_name(local_name)
-        return value if value.nil? || (!@namespaced_unprefixed_attribute && local_name != "xmlns")
-
-        attr = attr_by_qualified_name(node, local_name)
-        return attr.value if namespace_uri(attr).nil?
-
-        get_attribute_ns(node, nil, local_name)
+        node.attribute_value_ns(nil, local_name)
       end
 
       # The element's attribute nodes (each readable via attribute_ns_info).
