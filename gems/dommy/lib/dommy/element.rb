@@ -830,7 +830,7 @@ module Dommy
       return unless @document.inline_handler_wirer
       return if @__inline_wired&.key?(type)
 
-      code = @__node__["on#{type}"]
+      code = __internal_attribute_value__("on#{type}")
       return if code.nil?
 
       (@__inline_wired ||= {})[type] = true

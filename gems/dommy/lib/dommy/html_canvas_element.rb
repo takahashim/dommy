@@ -79,7 +79,7 @@ module Dommy
     private
 
     def int_dimension(attr, default)
-      raw = @__node__[attr]
+      raw = __internal_attribute_value__(attr)
       raw.nil? || raw.to_s.empty? ? default : raw.to_s.to_i
     end
   end

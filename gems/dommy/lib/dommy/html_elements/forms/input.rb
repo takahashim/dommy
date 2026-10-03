@@ -134,7 +134,7 @@ module Dommy
     def default_step = input_type.default_step
 
     def step_boundary(attr)
-      raw = @__node__[attr].to_s.strip
+      raw = __internal_attribute_value__(attr).to_s.strip
       return nil if raw.empty?
 
       input_type.boundary(raw)

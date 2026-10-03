@@ -391,7 +391,7 @@ module Dommy
     # minLength on input and textarea): a missing / negative / non-numeric
     # content attribute reads as -1; assigning a negative value throws.
     def parse_non_negative_reflected(attr)
-      raw = @__node__[attr]
+      raw = __internal_attribute_value__(attr)
       return -1 if raw.nil?
       # HTML "rules for parsing non-negative integers": leading ASCII whitespace,
       # then digits; anything else (a sign, letters) is an error → -1.
