@@ -33,10 +33,16 @@ class TestShadowRootRegistry < Minitest::Test
     assert_nil(registry.find_for_fragment(nil))
   end
 
-  def test_find_enclosing_walks_ancestors
+  def test_find_enclosing_finds_the_shadow_root_of_the_nodes_tree
     # Document's registry already has the shadow registered
-    result = @doc.__internal_shadow_root_containing__(@btn_node)
-    assert_equal(@shadow, result)
+    @shadow.get_element_by_id("btn").inner_html = "<b id='deep'>X</b>"
+    deep = @shadow.get_element_by_id("deep").__dommy_backend_node__
+    assert_equal([@shadow, @shadow], [@btn_node, deep].map { |n| @doc.__internal_shadow_root_containing__(n) })
+  end
+
+  # A shadow root is not in a shadow tree of its own.
+  def test_find_enclosing_leaves_out_the_shadow_roots_own_fragment
+    assert_nil(@doc.__internal_shadow_root_containing__(@shadow.__dommy_backend_node__))
   end
 
   def test_find_enclosing_returns_nil_outside_shadow_tree

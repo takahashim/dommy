@@ -141,8 +141,8 @@ module Dommy
     end
 
     HTML_NAMESPACE = Internal::Namespaces::HTML
-    # More ancestors than any real tree has, shadow hops included.
-    MAX_TREE_DEPTH = 100_000
+    # More shadow trees nested in one another than any real page has.
+    MAX_SHADOW_DEPTH = 100_000
 
     # Record the namespace/prefix/localName an element was created with via
     # createElementNS, so the getters report them faithfully (Nokogiri can't
@@ -416,22 +416,10 @@ module Dommy
         return sr
       end
 
-      current = @__node__
-      attached = false
-      loop do
-        parent = current.respond_to?(:parent) ? current.parent : nil
-        break unless parent
-        if parent.is_a?(Backend.document_class)
-          attached = true
-          break
-        end
+      root = Internal::NodeTraversal.root_of(@__node__)
+      return @document if root.is_a?(Backend.document_class)
 
-        current = parent
-      end
-
-      return @document if attached
-
-      @document.wrap_node(current) || @document
+      @document.wrap_node(root) || @document
     end
 
     alias get_root_node root_node
@@ -581,23 +569,19 @@ module Dommy
     # open or closed shadow tree is connected iff its host is.
     def is_connected?
       current = @__node__
-      # A tree has no cycles, nor does the hop from a shadow root to its
-      # host; the cap only keeps a malformed one from hanging.
-      MAX_TREE_DEPTH.times do
-        parent = current.parent
-        return false unless parent
-        return true if parent.is_a?(Backend.document_class)
+      # From each tree's root to the host of its shadow root, if it is one.
+      # Shadow trees do not nest in a cycle; the cap only keeps a malformed
+      # chain from hanging.
+      MAX_SHADOW_DEPTH.times do
+        root = Internal::NodeTraversal.root_of(current)
+        return true if root.is_a?(Backend.document_class)
 
         # Only a fragment can be a shadow root's.
-        sr = parent.document_fragment? && @document.__internal_shadow_root_for_fragment__(parent)
-        if sr
-          host = sr.host
-          return false unless host
+        sr = root.document_fragment? && @document.__internal_shadow_root_for_fragment__(root)
+        host = sr && sr.host
+        return false unless host
 
-          current = host.__dommy_backend_node__
-        else
-          current = parent
-        end
+        current = host.__dommy_backend_node__
       end
       false
     end

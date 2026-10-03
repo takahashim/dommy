@@ -40,13 +40,14 @@ module Dommy
         @shadow_roots.values
       end
 
-      # Find the enclosing ShadowRoot for a given node.
-      # Walks up the ancestor chain looking for a shadow root.
-      # Uses NodeTraversal to avoid duplication of tree walking logic.
+      # The ShadowRoot whose tree the node is in, its own fragment aside. A
+      # shadow root's fragment is the root of its tree, so it can only be the
+      # node's root.
       def find_enclosing(nokogiri_node)
-        NodeTraversal.find_ancestor(nokogiri_node) do |ancestor|
-          find_for_fragment(ancestor)
-        end
+        return nil unless nokogiri_node.respond_to?(:parent)
+
+        root = NodeTraversal.root_of(nokogiri_node)
+        find_for_fragment(root) unless root.equal?(nokogiri_node)
       end
     end
   end

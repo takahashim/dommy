@@ -410,7 +410,7 @@ module Dommy
       return self unless respond_to?(:__dommy_backend_node__) && instance_variable_defined?(:@document)
 
       node = __dommy_backend_node__
-      node = node.parent while node.respond_to?(:parent) && node.parent
+      node = Internal::NodeTraversal.root_of(node) if node.respond_to?(:parent)
       # The topmost node of an attached subtree is the Nokogiri document, which
       # has no element wrapper — map it to the Document. A detached node's root is
       # itself.

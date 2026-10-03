@@ -16,6 +16,15 @@ module Dommy
         end
       end
 
+      # The root of the tree a backend node is in: its topmost inclusive
+      # ancestor, the backend document when it is attached.
+      def self.root_of(node)
+        while (parent = node.parent)
+          node = parent
+        end
+        node
+      end
+
       # Check if ancestor is an ancestor of node.
       def self.ancestor_of?(ancestor, node)
         each_ancestor(node) { |n| return true if n == ancestor }
@@ -30,16 +39,6 @@ module Dommy
         nodes = [root]
         root.children.each { |child| nodes.concat(subtree_nodes(child)) } if root.respond_to?(:children)
         nodes
-      end
-
-      # Find the first ancestor matching a predicate.
-      # Returns the result of the block, not the node itself.
-      def self.find_ancestor(node)
-        each_ancestor(node) { |n|
-          result = yield(n)
-          return result if result
-        }
-        nil
       end
     end
   end

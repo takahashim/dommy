@@ -878,12 +878,11 @@ module Dommy
       return true if other.equal?(self)
       return false unless other.respond_to?(:__dommy_backend_node__)
 
-      # Walk parents up to the backend document node. (The backend's #ancestors
+      # Whose root the backend document node is. (The backend's #ancestors
       # stops below the document, so it can't test document membership; the
       # doctype in particular reports an empty ancestor list.)
       node = other.__dommy_backend_node__
-      node = node.parent while node && !node.equal?(@backend_doc)
-      !node.nil?
+      !node.nil? && Internal::NodeTraversal.root_of(node).equal?(@backend_doc)
     end
 
 
@@ -1399,8 +1398,7 @@ module Dommy
     def ensure_document_move_validity!(node, bn, ref_bn)
       # Step 1 — the same root. A document is its own root, so this says the
       # node must already be somewhere in this document.
-      root = bn
-      root = root.parent while root.respond_to?(:parent) && root.parent
+      root = bn.respond_to?(:parent) ? Internal::NodeTraversal.root_of(bn) : bn
       # `==` and not `equal?`: a backend may hand back a fresh Ruby object for
       # the same underlying node on every `parent` call.
       unless bn && root == @backend_doc
