@@ -16,6 +16,8 @@
 - `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.
 - An element in no namespace, or in one other than HTML, SVG and MathML, is a plain `Element` without `dataset`, `style`, `tabIndex`, `focus()` and the rest HTML and CSSOM give only to those three: `createElementNS(null, "div").dataset` is undefined, and the Ruby object has no `dataset` method.
 - `hidden`, `translate`, `popover`, `accessKeyLabel` and the `offset*` metrics are on HTML elements only, and `value` only on the elements whose interface has one: `div.value` is undefined.
+- `click()`, `showPopover()`, `hidePopover()` and `togglePopover()` are on HTML elements only, and `meta.charset`, which no IDL defines, is gone; `meta.media` and `meta.scheme` reflect their attributes.
+- `showPopover()` and `hidePopover()` throw `NotSupportedError` on an element without the `popover` attribute and `InvalidStateError` on a disconnected one or an open modal dialog, and `togglePopover(force)` takes its `force`.
 - `hidden` is `"until-found"` for that state; setting it to `false`, `""`, `null`, `0` or `NaN` removes the attribute, and `hidden=until-found` is not `display: none`.
 - `href` is on the SVG elements that refer to a resource only — `a`, `use`, `image`, the gradients and the like — and reads `xlink:href` when there is no `href`.
 - `ariaLabelledByElements` and the other ARIA element lists are frozen arrays, the same object until their elements change, instead of live `NodeList`s.
@@ -50,6 +52,7 @@
 - `removeAttributeNode`, `setAttributeNode` and `attr.value = …` act on the `Attr` they are given even when another attribute shares its qualified name.
 - `removeAttributeNS` drops an ARIA element reference along with its `aria-*` attribute, as `removeAttribute` does.
 - Upgrading a custom element passes each attribute's namespace to `attributeChangedCallback`.
+- The canvas size, meter values, an input's step bounds and lengths, and the `on*` handler an element compiles on first dispatch read their attribute in no namespace too.
 - `observedAttributes` matches an attribute's local name exactly: a `fooBar` made with `setAttributeNS` is observed as `"fooBar"`.
 - A style attribute and a CSSOM declaration block are read in tokens: a `;` or `:` inside a string, a function, a `{}` block, an escape or an unquoted `url()` stays in its value, so `content: "a;b"`, `url(data:image/png;base64,…)` and `url(a/*b.png)` keep the declarations after them, and a comment hides nothing that follows it.
 - A CR, a CRLF and an FF in a style attribute are each one newline, so a backslash before a CRLF in a string continues the string.
