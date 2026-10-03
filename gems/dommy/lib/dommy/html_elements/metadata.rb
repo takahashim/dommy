@@ -341,7 +341,9 @@ module Dommy
   end
 
   class HTMLMetaElement < HTMLElement
-    reflect_string :name, :content, :charset, http_equiv: "http-equiv"
+    # The IDL reflects no `charset`: the attribute is read by the encoding
+    # sniffing, not exposed.
+    reflect_string :name, :content, :media, :scheme, http_equiv: "http-equiv"
   end
 
   class HTMLHtmlElement < HTMLElement

@@ -152,4 +152,16 @@ class TestNoNamespaceAttributes < Minitest::Test
     box.set_attribute_ns(NS, "value", "ns")
     assert_equal [["b", "on"]], Dommy::FormData.new(form).entries.to_a
   end
+
+  # The getters that read an attribute named by an argument read it in no
+  # namespace too.
+  def test_attributes_read_by_name
+    meter = element("meter")
+    meter.set_attribute_ns(NS, "max", "5")
+    canvas = element("canvas")
+    canvas.set_attribute_ns(NS, "width", "10")
+    input = element("input")
+    input.set_attribute_ns(NS, "maxlength", "3")
+    assert_equal [1.0, 300, -1], [meter.__js_get__("max"), canvas.__js_get__("width"), input.__js_get__("maxLength")]
+  end
 end

@@ -459,10 +459,13 @@ class TestHTMLHeadMetadata < Minitest::Test
     assert_equal("Refresh", m.get_attribute("http-equiv"))
   end
 
-  def test_meta_charset
+  # HTMLMetaElement reflects media and scheme; the IDL has no charset.
+  def test_meta_media_and_scheme
     m = @doc.create_element("meta")
-    m.charset = "utf-8"
-    assert_equal("utf-8", m.charset)
+    m.media = "print"
+    m.scheme = "x"
+    assert_equal(["print", "x"], [m.get_attribute("media"), m.get_attribute("scheme")])
+    refute m.respond_to?(:charset)
   end
 
   def test_style_dispatch

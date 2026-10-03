@@ -1002,7 +1002,7 @@ module Dommy
     private
 
     def numeric_attr(name, default)
-      raw = @__node__[name].to_s
+      raw = __internal_attribute_value__(name).to_s
       raw.empty? ? default : Float(raw) rescue default
     end
 

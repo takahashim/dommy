@@ -19,7 +19,9 @@ module Dommy
     #
     # The per-class `JS_METHOD_NAMES` constant holds the class's OWN names; the
     # suite asserts it matches the class's own `__js_call__` `when` arms — see
-    # test/test_js_call_dispatch_invariant.rb.
+    # test/test_js_call_dispatch_invariant.rb. A mixin module that answers
+    # methods of its own (HTMLOrSVGOrMathMLElement's focus / blur) sets the
+    # same constant on itself, and the classes it is included in expose them.
     module Methods
       def self.included(base)
         base.extend(ClassMethods)
@@ -49,7 +51,15 @@ module Dommy
         def js_method_names
           @js_method_names ||= begin
             inherited_names = superclass.respond_to?(:js_method_names) ? superclass.js_method_names : []
-            (inherited_names + own_js_methods).uniq.freeze
+            (inherited_names + mixin_js_methods + own_js_methods).uniq.freeze
+          end
+        end
+
+        # The names the modules included in this class itself (not in an
+        # ancestor) declare.
+        def mixin_js_methods
+          (ancestors - superclass.ancestors).grep_v(Class).flat_map do |mod|
+            mod.const_defined?(:JS_METHOD_NAMES, false) ? mod::JS_METHOD_NAMES : []
           end
         end
 

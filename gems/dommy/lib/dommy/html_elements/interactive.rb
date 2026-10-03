@@ -29,6 +29,9 @@ module Dommy
       @return_value = v.to_s
     end
 
+    # The dialog's "is modal" flag, for the popover validity check.
+    def __internal_modal__? = @__dialog_is_modal__ ? true : false
+
     # WHATWG "show()" steps. Unlike showModal(), show() never checks
     # connectedness or the popover-showing state — only whether the dialog is
     # already open, and if so whether it is modal.

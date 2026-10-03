@@ -105,4 +105,17 @@ class TestHTMLOrSVGOrMathMLElement < Minitest::Test
     div.set_attribute("value", "x")
     assert_equal Dommy::Bridge::ABSENT, div.__js_get__("value")
   end
+
+  HTML_ONLY_METHODS = %w[click showPopover hidePopover togglePopover].freeze
+
+  # click() and the popover methods are HTMLElement's alone.
+  def test_click_and_popover_methods_are_on_html_elements_only
+    assert_empty HTML_ONLY_METHODS - @doc.create_element("div").class.js_method_names
+    [nil, "urn:x", NAMESPACES[:svg], NAMESPACES[:mathml]].each do |namespace|
+      el = element(namespace, "x")
+      assert_empty HTML_ONLY_METHODS & el.class.js_method_names, namespace.inspect
+      refute el.respond_to?(:click), namespace.inspect
+      refute el.respond_to?(:show_popover), namespace.inspect
+    end
+  end
 end
