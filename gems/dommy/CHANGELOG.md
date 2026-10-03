@@ -31,6 +31,7 @@
 
 ### Fixed
 
+- A namespace URI keeps its case: `createElementNS("fooNamespace", "e").namespaceURI` is `"fooNamespace"`, `getAttributeNS("attrNS", "x")` finds the attribute `setAttributeNS("attrNS", "a:x", v)` made, and an element in `HTTP://WWW.W3.ORG/1999/XHTML` is not an HTML element.
 - `document.body = element` sets the body in HTML and XML documents alike: it replaces the current `body` or `frameset`, or is appended to the document element, and throws `HierarchyRequestError` for anything but a `body` or `frameset`.
 - A document's element children skip its doctype: an element appended after the root element was removed is its `documentElement` and its only child element.
 - `document.title` is the first `title` in the HTML namespace, or an SVG document's own `title` child, and reads only that element's own text, as a title element's `text` does.
