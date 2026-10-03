@@ -56,7 +56,8 @@ class TestInternalModuleApi < Minitest::Test
   # is either API, and goes in the list, or belongs under the module's
   # `private`.
   MIXIN_API = {
-    Dommy::Internal::ElementTopLayer => %w[request_fullscreen show_popover hide_popover toggle_popover],
+    Dommy::Internal::ElementTopLayer => %w[request_fullscreen],
+    Dommy::Internal::ElementPopover => %w[show_popover hide_popover toggle_popover __js_call__],
     Dommy::Internal::ElementGeometry => %w[
       get_bounding_client_rect get_client_rects __test_scroll_log__
       __internal_approx_box approximate_layout?

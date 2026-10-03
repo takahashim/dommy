@@ -18,8 +18,9 @@ module Dommy
         base.js_readable :dataset
         base.reflect_boolean :autofocus
         base.reflect_long_setter tab_index: { attr: "tabindex", js: "tabIndex" }
-        base.js_methods %w[focus blur]
       end
+
+      JS_METHOD_NAMES = %w[focus blur].freeze
 
       def dataset
         @dataset ||= DatasetMap.new(self)

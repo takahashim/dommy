@@ -15,6 +15,7 @@ module Dommy
     include Internal::ReflectedAttributes
     include Internal::HTMLOrSVGOrMathMLElement
     include Internal::ElementCSSInlineStyle
+    include Internal::ElementPopover
     # `lang` reflects its own content attribute ("" when absent) — not the
     # inherited language the element computes for matching.
     reflect_string :lang
@@ -107,6 +108,50 @@ module Dommy
     def offset_left = 0
     def offset_width = layout_size(:width)
     def offset_height = layout_size(:height)
+
+    # `click()` runs the HTML activation behavior around the dispatched event:
+    # pre-click activation may change state (e.g. toggle a checkbox), the click
+    # is dispatched, and then either the activation behavior runs (not canceled)
+    # or the pre-click state is restored (default prevented). Elements with no
+    # activation behavior (the default) just dispatch the event.
+    def click
+      # HTML click(): "if this element is a form control that is disabled,
+      # then return" — a disabled control fires no event at all, so a listener
+      # bound to it never runs.
+      return false if __internal_actually_disabled__
+
+      # HTML click(): "if this element's click in progress flag is set, then
+      # return". It is what stops a label from clicking itself to death: the
+      # label's activation behavior clicks its labeled control, the control's
+      # click bubbles back to the label, and the label forwards it again. A
+      # <meter>, <output> or <progress> in a <label> did exactly that until the
+      # stack ran out, because the "leave interactive content alone" guard in
+      # the label does not cover a control that is not interactive content.
+      return false if @__click_in_progress
+
+      @__click_in_progress = true
+      begin
+        # Everything else (picking the activation target, the pre-activation
+        # toggle, running or undoing the activation behavior) is dispatch's job,
+        # so a synthesized `dispatchEvent(new MouseEvent("click"))` behaves
+        # identically to click().
+        dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+      ensure
+        # Not a method-level `ensure`: the early return above must not clear the
+        # flag the click it returned from is still holding.
+        @__click_in_progress = false
+      end
+    end
+
+    js_methods %w[click]
+    def __js_call__(method, args)
+      case method
+      when "click"
+        click
+      else
+        super
+      end
+    end
 
     # The elements whose tabIndex is 0 without a tabindex attribute.
     TAB_INDEX_ZERO = %w[a area button frame iframe input object select textarea].freeze
