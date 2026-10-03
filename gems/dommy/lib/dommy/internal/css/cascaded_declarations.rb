@@ -29,6 +29,8 @@ module Dommy
         Winners = Struct.new(:by_property, :ua) do
           def each_property(&block) = by_property.each_key(&block)
 
+          def empty? = by_property.empty?
+
           # The cascaded value of `name` with the CSS-wide keywords interpreted,
           # or nil when nothing declared it (or the keyword resolves to "fall
           # back to the inherit/initial default fill").
