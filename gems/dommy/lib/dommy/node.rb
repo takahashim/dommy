@@ -165,20 +165,30 @@ module Dommy
   class LiveList
     include Enumerable
 
-    def initialize(&block)
+    # `count` and `at` are an optional fast path for a list whose length
+    # and nth item can be asked of the backend directly — a node's children
+    # — so reading `length` or walking it by index (idiomorph, morphdom,
+    # every framework that loops `childNodes[i]`) wraps the one item asked
+    # for rather than building the whole list each step.
+    def initialize(count: nil, at: nil, &block)
       @compute = block
+      @count = count
+      @at = at
     end
 
     def length
-      @compute.call.length
+      @count ? @count.call : @compute.call.length
     end
 
     alias size length
 
     def item(index)
       i = index.to_i
+      return nil if i.negative?
+      return @at.call(i) if @at
+
       arr = @compute.call
-      return nil if i < 0 || i >= arr.length
+      return nil if i >= arr.length
 
       arr[i]
     end

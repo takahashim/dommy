@@ -38,7 +38,7 @@ module Dommy
     # collection's block re-runs on every access, so it tracks mutations while
     # `fragment.children === fragment.children` holds.
     def children
-      @live_children ||= HTMLCollection.new do
+      @live_children ||= HTMLCollection.new(**Internal::ChildList.elements(-> { @__node__ }, -> { @document })) do
         @__node__.element_children.each_with_object([]) do |node, out|
           wrapped = @document.wrap_node(node)
           out << wrapped if wrapped
@@ -53,7 +53,7 @@ module Dommy
     # Live, cached childNodes so `fragment.childNodes === fragment.childNodes` and
     # later mutations are reflected (WHATWG live NodeList).
     def child_nodes
-      @live_child_nodes ||= LiveNodeList.new do
+      @live_child_nodes ||= LiveNodeList.new(**Internal::ChildList.nodes(-> { @__node__ }, -> { @document })) do
         @__node__.children.map { |n| @document.wrap_node(n) }.compact
       end
     end

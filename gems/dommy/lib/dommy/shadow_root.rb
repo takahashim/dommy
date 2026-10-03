@@ -61,12 +61,17 @@ module Dommy
       string_replace_all(value)
     end
 
+    # Live lists, as an Element's are.
     def children
-      @__node__.element_children.map { |n| @document.wrap_node(n) }.compact
+      @live_children ||= HTMLCollection.new(**Internal::ChildList.elements(-> { @__node__ }, -> { @document })) do
+        @__node__.element_children.map { |n| @document.wrap_node(n) }.compact
+      end
     end
 
     def child_nodes
-      @__node__.children.map { |n| @document.wrap_node(n) }.compact
+      @live_child_nodes ||= LiveNodeList.new(**Internal::ChildList.nodes(-> { @__node__ }, -> { @document })) do
+        @__node__.children.map { |n| @document.wrap_node(n) }.compact
+      end
     end
 
     def child_element_count

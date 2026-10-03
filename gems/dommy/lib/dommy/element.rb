@@ -49,12 +49,12 @@ module Dommy
       # see DOM mutations made between iterations — required by list
       # reconciliation patterns that rely on the spec's live
       # HTMLCollection semantics to detect already-positioned nodes.
-      @live_children = HTMLCollection.new do
+      @live_children = HTMLCollection.new(**Internal::ChildList.elements(-> { @__node__ }, -> { @document })) do
         @__node__.element_children.map { |n| @document.wrap_node(n) }.compact
       end
       # Live `childNodes` (all node types, not just elements), cached so
       # `el.childNodes === el.childNodes` holds like the spec's live NodeList.
-      @live_child_nodes = LiveNodeList.new do
+      @live_child_nodes = LiveNodeList.new(**Internal::ChildList.nodes(-> { @__node__ }, -> { @document })) do
         @__node__.children.map { |n| @document.wrap_node(n) }.compact
       end
     end
