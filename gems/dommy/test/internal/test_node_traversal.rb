@@ -28,7 +28,7 @@ class TestNodeTraversal < Minitest::Test
   end
 
   def test_each_ancestor_on_orphan_yields_nothing
-    orphan = Dommy::Backend.create_element("p", @doc.backend_doc)
+    orphan = Dommy::Backend.create_element("p", Dommy::Element::HTML_NAMESPACE, @doc.backend_doc)
     ancestors = []
     Dommy::Internal::NodeTraversal.each_ancestor(orphan) { |n| ancestors << n }
     assert_empty(ancestors)
