@@ -75,6 +75,9 @@ module Dommy
         scripts.each { |element| run_one(element) unless deferred?(element) }
         # Pass 2: deferred scripts (modules + classic `defer`), in document order.
         scripts.each { |element| run_one(element) if deferred?(element) }
+        # The modules the page fetched, for the next page of its origin to read
+        # as bytecode.
+        ModulePreload.register(@runtime, @loader.served)
         @runtime.set_document_ready_state("interactive")
         @runtime.set_document_ready_state("complete")
       end
@@ -206,7 +209,8 @@ module Dommy
       # fetch module sources through `resources`. Returns the loader so inline
       # modules can be seeded under a document URL.
       def install_module_loader
-        loader = ModuleLoader.new(@resources, parse_import_map, base_url: document_base)
+        loader = ModuleLoader.new(@resources, parse_import_map, base_url: document_base,
+                                                                preloaded: ModulePreload.preloaded(@runtime))
         # The engine requires a Proc specifically.
         @runtime.module_loader = ->(specifier, importer) { loader.call(specifier, importer) }
         loader

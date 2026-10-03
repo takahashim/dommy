@@ -120,6 +120,7 @@ require_relative "dommy/js/runtime"
 require_relative "dommy/js/runtime_registry"
 require_relative "dommy/js/import_map"
 require_relative "dommy/js/module_loader"
+require_relative "dommy/js/module_preload"
 require_relative "dommy/js/script_boot"
 # Engine-agnostic JS<->Ruby DOM bridge: the marshalling core (HostBridge) and
 # its collaborators, plus the JS-side runtime bundles. A concrete backend

@@ -9,18 +9,26 @@ module Dommy
     # the importer, absolute as-is), then fetches its source through the
     # Resources interface. CSS imports become an empty module (apps that
     # `import "./x.css"` for side effects don't crash). Returns the engine
-    # contract: `{ code:, as: } | nil` (nil → module resolution error).
+    # contract: `{ code:, as: } | nil` (nil → module resolution error), or
+    # `{ as: }` alone for a module the engine has preloaded (ModulePreload).
     class ModuleLoader
       # An empty default export so `import sheet from "./x.css"` yields an
       # object rather than failing — layout/styling is out of scope.
       CSS_STUB = "export default {};"
 
-      def initialize(resources, import_map, base_url: nil)
+      # `preloaded` are the URLs of the modules the engine read in as
+      # bytecode, which a specifier resolving to one is redirected to.
+      def initialize(resources, import_map, base_url: nil, preloaded: [])
         @resources = resources
         @import_map = import_map
         @base_url = base_url.to_s
+        @preloaded = preloaded.to_set
         @seeded = {}
+        @served = {}
       end
+
+      # The modules this loader fetched over the network, URL => source.
+      attr_reader :served
 
       # Register an in-memory module source under `url` (served before any
       # network fetch). Used to give an inline `<script type="module">` a real
@@ -56,12 +64,14 @@ module Dommy
         url = resolve_url(specifier, importer)
         return nil unless url
 
+        return {as: url} if @preloaded.include?(url)
         return {code: @seeded[url], as: url} if @seeded.key?(url)
         return {code: CSS_STUB, as: url} if css?(url)
 
         response = @resources&.get(url)
         return nil unless response&.success?
 
+        @served[url] = response.body
         {code: response.body, as: url}
       end
 

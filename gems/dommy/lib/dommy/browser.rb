@@ -298,7 +298,7 @@ module Dommy
       @runtime&.dispose
       # The JS engine is pluggable: `@backend` selects a registered runtime
       # (nil → the configured default, QuickJS when dommy-js-quickjs is loaded).
-      runtime = Js.build_runtime(@backend)
+      runtime = Js::ModulePreload.build_runtime(window.document, @backend)
       # Every uncaught error the page produces goes through the window's
       # "report an exception" / "notify about rejected promises" funnel, and only
       # what the page left unhandled lands here. A page that installs its own
