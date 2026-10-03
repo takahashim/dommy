@@ -29,11 +29,6 @@ module Dommy
     # Common SVG attributes shared across all elements.
     reflect_string :id, class_name: "class"
 
-    # The href URL an SVG element without one of its own answers with (its
-    # `a` and textPath reflect theirs).
-    js_readable :href
-    def href = anchor_href
-
     # tabIndex's default (HTML §6.6.3): 0 for an SVG `a`, -1 for the rest.
     def default_tab_index = local_name == "a" ? 0 : -1
   end
@@ -98,12 +93,14 @@ module Dommy
 
   # `<use>` — href, x, y, width, height.
   class SVGUseElement < SVGElement
-    reflect_string :href, :x, :y, :width, :height
+    include Internal::SVGURIReference
+    reflect_string :x, :y, :width, :height
   end
 
   # `<image>` — href + box + preserveAspectRatio.
   class SVGImageElement < SVGElement
-    reflect_string :href, :x, :y, :width, :height, :preserve_aspect_ratio
+    include Internal::SVGURIReference
+    reflect_string :x, :y, :width, :height, :preserve_aspect_ratio
   end
 
   # `<symbol>` — reusable template; viewBox + preserveAspectRatio.
@@ -136,17 +133,20 @@ module Dommy
 
   # `<pattern>` — tile-based paint server.
   class SVGPatternElement < SVGElement
-    reflect_string :x, :y, :width, :height, :pattern_units, :pattern_content_units, :href
+    include Internal::SVGURIReference
+    reflect_string :x, :y, :width, :height, :pattern_units, :pattern_content_units
   end
 
   # `<linearGradient>` — linear color gradient paint server.
   class SVGLinearGradientElement < SVGElement
-    reflect_string :x1, :y1, :x2, :y2, :gradient_units, :gradient_transform, :spread_method, :href
+    include Internal::SVGURIReference
+    reflect_string :x1, :y1, :x2, :y2, :gradient_units, :gradient_transform, :spread_method
   end
 
   # `<radialGradient>` — radial color gradient paint server.
   class SVGRadialGradientElement < SVGElement
-    reflect_string :cx, :cy, :r, :fx, :fy, :fr, :gradient_units, :gradient_transform, :spread_method, :href
+    include Internal::SVGURIReference
+    reflect_string :cx, :cy, :r, :fx, :fy, :fr, :gradient_units, :gradient_transform, :spread_method
   end
 
   # `<stop>` — a single gradient color stop.
@@ -156,7 +156,8 @@ module Dommy
 
   # `<filter>` — filter region + primitive units + href.
   class SVGFilterElement < SVGElement
-    reflect_string :x, :y, :width, :height, :filter_units, :primitive_units, :href
+    include Internal::SVGURIReference
+    reflect_string :x, :y, :width, :height, :filter_units, :primitive_units
   end
 
   # `<marker>` — arrowhead / line marker.
@@ -168,12 +169,14 @@ module Dommy
   # Distinct from `HTMLAnchorElement` (the HTML `<a>`).
   class SVGAElement < SVGElement
     reflect_token_list rel_list: { attr: "rel", js: "relList" }
-    reflect_string :href, :target, :download, :rel, :type
+    include Internal::SVGURIReference
+    reflect_string :target, :download, :rel, :type
   end
 
   # `<textPath>` — text laid out along a path.
   class SVGTextPathElement < SVGElement
-    reflect_string :href, :start_offset, :spacing, :text_length, :length_adjust, method_attr: { attr: "method", js: "method" }
+    include Internal::SVGURIReference
+    reflect_string :start_offset, :spacing, :text_length, :length_adjust, method_attr: { attr: "method", js: "method" }
   end
 
   # `<view>` — a named view region referenced by SVG fragment identifier.
@@ -282,7 +285,8 @@ module Dommy
   # `<feImage>` — fetches an external image (or references one by id)
   # and supplies it as input to the filter pipeline.
   class SVGFEImageElement < SVGFilterPrimitiveElement
-    reflect_string :href, :preserve_aspect_ratio, :crossorigin
+    include Internal::SVGURIReference
+    reflect_string :preserve_aspect_ratio, :crossorigin
   end
 
   # `<feDropShadow>` — convenience filter primitive producing a
@@ -387,7 +391,7 @@ module Dommy
   # `<mpath>` — child of `<animateMotion>` that references an external
   # `<path>` by href.
   class SVGMPathElement < SVGElement
-    reflect_string :href
+    include Internal::SVGURIReference
   end
 
   # `<discard>` (SVG 2) — removes the target element from the document
