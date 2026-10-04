@@ -74,9 +74,21 @@ module Dommy
 
       VALID_FLOAT = /\A-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][-+]?\d+)?\z/
 
+      # Float(string), raising ArgumentError for what is no number. A number
+      # past a double's range comes out as ±Infinity, which every caller
+      # already reads as no valid number; Ruby warns about it in verbose mode,
+      # so the warning is held off for the conversion.
+      def self.float(string)
+        verbose = $VERBOSE
+        $VERBOSE = nil
+        Float(string)
+      ensure
+        $VERBOSE = verbose
+      end
+
       def to_number(text)
         string = text.to_s
-        VALID_FLOAT.match?(string) ? (Float(string) rescue ::Float::NAN) : ::Float::NAN
+        VALID_FLOAT.match?(string) ? NumberInputType.float(string) : ::Float::NAN
       end
 
       def from_number(number)
@@ -85,7 +97,7 @@ module Dommy
         number == number.to_i ? number.to_i.to_s : number.to_s
       end
 
-      def boundary(text) = (Float(text) rescue nil)
+      def boundary(text) = (NumberInputType.float(text) rescue nil)
     end
 
     # A range always reads as a number: an unparseable value is the midpoint of
@@ -94,8 +106,8 @@ module Dommy
 
       def value_of(text, element)
         number = to_number(text)
-        low = (Float(element.__internal_attribute_value__("min").to_s) rescue 0.0)
-        high = (Float(element.__internal_attribute_value__("max").to_s) rescue 100.0)
+        low = (NumberInputType.float(element.__internal_attribute_value__("min").to_s) rescue 0.0)
+        high = (NumberInputType.float(element.__internal_attribute_value__("max").to_s) rescue 100.0)
         number = nil if number.nan?
         number ||= high < low ? low : low + (high - low) / 2.0
         number.clamp(low, high)
