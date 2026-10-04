@@ -203,13 +203,17 @@ module Dommy
     NO_AUTOCORRECT_TYPES = %w[url email password].freeze
 
     # `autocapitalize`: the element's own autocapitalization hint — its
-    # attribute's keyword, else its form owner's when it is one of the
-    # inheriting elements — or "" when there is none.
+    # attribute's state, else its form owner's when it is one of the
+    # inheriting elements — or "" when there is none. A value that is no
+    # keyword, the empty one included, is the sentences state (the
+    # attribute's invalid value default), and is not left to the form owner.
     def autocapitalize = own_autocapitalization_hint || ""
 
     def own_autocapitalization_hint
-      hint = AUTOCAPITALIZE_HINTS[__internal_attribute_value__("autocapitalize")&.downcase(:ascii)]
-      hint || autocorrect_form_owner&.own_autocapitalization_hint
+      value = __internal_attribute_value__("autocapitalize")
+      return AUTOCAPITALIZE_HINTS.fetch(value.downcase(:ascii), "sentences") if value
+
+      autocorrect_form_owner&.own_autocapitalization_hint
     end
     protected :own_autocapitalization_hint
 
