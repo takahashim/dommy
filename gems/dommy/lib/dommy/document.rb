@@ -2258,11 +2258,6 @@ module Dommy
       wrapper
     end
 
-    # The wrapper already cached for a backend node, or nil — never builds one.
-    def __internal_cached_wrapper__(node)
-      @node_wrapper_cache.cached_wrapper(node)
-    end
-
     # Clear the cached wrapper so the next `wrap_node` creates a new
     # one. Used by `customElements.define` to upgrade nodes that were
     # constructed before the registration landed.
