@@ -44,19 +44,6 @@ module Dommy
       @document = document
       @__node__ = nokogiri_node
       @class_list = ClassList.new(self)
-      # `HTMLCollection` re-evaluates the child list on every
-      # property access so callers that capture `el[:children]` once
-      # see DOM mutations made between iterations — required by list
-      # reconciliation patterns that rely on the spec's live
-      # HTMLCollection semantics to detect already-positioned nodes.
-      @live_children = HTMLCollection.new(**Internal::ChildList.elements(-> { @__node__ }, -> { @document })) do
-        @__node__.element_children.map { |n| @document.wrap_node(n) }.compact
-      end
-      # Live `childNodes` (all node types, not just elements), cached so
-      # `el.childNodes === el.childNodes` holds like the spec's live NodeList.
-      @live_child_nodes = LiveNodeList.new(**Internal::ChildList.nodes(-> { @__node__ }, -> { @document })) do
-        @__node__.children.map { |n| @document.wrap_node(n) }.compact
-      end
     end
 
     # ----- Public Ruby API (snake_case) -----
@@ -179,8 +166,16 @@ module Dommy
 
     SVG_NAMESPACE = Internal::Namespaces::SVG
 
+    # `HTMLCollection` re-evaluates the child list on every
+    # property access so callers that capture `el[:children]` once
+    # see DOM mutations made between iterations — required by list
+    # reconciliation patterns that rely on the spec's live
+    # HTMLCollection semantics to detect already-positioned nodes.
+    # Made on first read: most wrapped elements are never asked.
     def children
-      @live_children
+      @live_children ||= HTMLCollection.new(**Internal::ChildList.elements(-> { @__node__ }, -> { @document })) do
+        @__node__.element_children.map { |n| @document.wrap_node(n) }.compact
+      end
     end
 
     def parent_element
@@ -217,10 +212,11 @@ module Dommy
       NodeList.new(@__node__.children.map { |n| @document.wrap_node(n) }.compact)
     end
 
-    # Live NodeList over this element's children. Reflects later
-    # mutations on every access.
+    # Live NodeList over this element's children (all node types, not just
+    # elements), cached so `el.childNodes === el.childNodes` holds like the
+    # spec's live NodeList. Made on first read, like #children.
     def live_child_nodes
-      @live_child_nodes ||= LiveNodeList.new do
+      @live_child_nodes ||= LiveNodeList.new(**Internal::ChildList.nodes(-> { @__node__ }, -> { @document })) do
         @__node__.children.map { |n| @document.wrap_node(n) }.compact
       end
     end
@@ -856,9 +852,9 @@ module Dommy
       when "clientWidth", "clientHeight", "scrollWidth", "scrollHeight"
         layout_size(key.end_with?("Width") ? :width : :height)
       when "children"
-        @live_children
+        children
       when "childNodes"
-        @live_child_nodes
+        live_child_nodes
       when "firstChild"
         first_child
       when "lastChild"

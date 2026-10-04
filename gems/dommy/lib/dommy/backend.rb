@@ -15,11 +15,6 @@ module Dommy
   # `Makiri::Node` bases used here for `is_a?` checks. HTML parses go through
   # HTML::Document; `new Document()` / createDocument go through XML::Document.
   module Backend
-    # Throwaway attribute used to bind `:scope` to a context element — Lexbor
-    # has no `:scope`, so a scoped query temporarily marks the element and
-    # rewrites `:scope` to an attribute selector, removing the mark after.
-    SCOPE_ATTR = "data-dommy-scope"
-
     class << self
       # The node classes (the shared bases, so both HTML and XML node
       # subclasses match), so the wrapper cache can route each node.
@@ -122,18 +117,6 @@ module Dommy
       # attributes exactly as the backend holds them.
       def import_element(node, target_doc)
         target_doc.import_node(node, false)
-      end
-
-      # CSS query honoring Dommy's custom pseudo-classes. Lexbor handles
-      # `:disabled`/`:enabled`/`:checked` natively, so only `:scope` needs
-      # help: when `scope_node` is given and the selector uses `:scope`, bind
-      # it to that element via a temporary attribute.
-      def select_all(node, selector, scope_node: nil)
-        with_scope(selector, scope_node) { |sel| node.css(sel) }
-      end
-
-      def select_first(node, selector, scope_node: nil)
-        with_scope(selector, scope_node) { |sel| node.at_css(sel) }
       end
 
       def parse(html)
@@ -388,17 +371,6 @@ module Dommy
       end
 
       private
-
-      def with_scope(selector, scope_node)
-        return yield(selector) unless scope_node && selector.include?(":scope")
-
-        scope_node[SCOPE_ATTR] = ""
-        begin
-          yield(selector.gsub(":scope", "[#{SCOPE_ATTR}]"))
-        ensure
-          scope_node.remove_attribute(SCOPE_ATTR)
-        end
-      end
 
       # A null-namespace name that only the DOM's `setAttribute` can make: one
       # whose local name holds a colon ("xlink:href", "v-on:click") or is
