@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- A session's runtimes preload a page's big ES modules as bytecode when `Dommy::Js::ModulePreload.enabled` is set, so with Turbo served as an ES module a page after the second boots in about 11 ms instead of 24 ms.
+
+### Changed
+
+- **Requires dommy ~> 0.15.0.**
+- A transport reports to its `WebSocket` or `EventSource` through `__internal_transport_open__`, `__internal_transport_message__`, `__internal_transport_error__` and `__internal_transport_closed__`; the `__transport_*__` names are gone.
+- The session's navigation hooks are named with the `__internal_` prefix (`__internal_enqueue_page_navigation__` and the like); a custom navigation delegate calling the old names has to follow.
+
 ## 0.14.0 — 2026-10-01
 
 ### Added
