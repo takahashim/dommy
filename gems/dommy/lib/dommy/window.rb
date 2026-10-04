@@ -80,7 +80,7 @@ module Dommy
     # external_script_runner): `->(ws, url, protocols) -> transport | nil`.
     # A returned transport owns the connection — WebSocket#send / #close
     # delegate to it, and it reports lifecycle back through the
-    # __transport_*__ callbacks (on the page thread). nil falls back to the
+    # __internal_transport_*__ callbacks (on the page thread). nil falls back to the
     # in-memory stub (auto-open + __test_simulate_*__ seams).
     attr_accessor :websocket_connector
 
@@ -88,7 +88,7 @@ module Dommy
     # seam, like websocket_connector): `->(es, url, with_credentials) ->
     # transport | nil`. A returned transport owns the stream — EventSource#close
     # delegates to it, and it reports lifecycle back through the
-    # __transport_*__ callbacks (on the page thread). nil falls back to the
+    # __internal_transport_*__ callbacks (on the page thread). nil falls back to the
     # in-memory stub (auto-open + __test_simulate_*__ seams).
     attr_accessor :event_source_connector
 

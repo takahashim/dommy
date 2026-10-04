@@ -241,8 +241,10 @@ module Dommy
       Backend.no_namespace_attribute_value(@element.__dommy_backend_node__, @attribute)
     end
 
+    # The same attribute, written as every other reflection writes one: its
+    # name is a fixed, valid local name, so there is nothing to validate.
     def write(value)
-      @element.set_attribute_ns(nil, @attribute, value)
+      @element.__internal_set_attribute_value__(@attribute, value)
     end
   end
 

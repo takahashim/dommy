@@ -50,13 +50,6 @@ module Dommy
         wrapper
       end
 
-      # The wrapper already cached for this backend node, or nil — a lookup that
-      # never builds one, for callers that only want state a wrapper is already
-      # carrying (the createElementNS metadata a deep clone has to copy over).
-      def cached_wrapper(node)
-        node && @wrappers[node]
-      end
-
       # Factory methods
 
       def query_selector(selector)

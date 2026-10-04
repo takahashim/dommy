@@ -78,13 +78,20 @@ class TestHTMLElementGlobals < Minitest::Test
   # autocapitalize names the hint its keyword gives, and autocorrect is on
   # unless "off"; a form control that says nothing takes its form's.
   def test_autocapitalize_and_autocorrect
-    assert_equal ["none", "sentences", "words", ""],
-      [element(autocapitalize: "off"), element(autocapitalize: "On"), element(autocapitalize: "words"), element(autocapitalize: "x")].map { |e| e.__js_get__("autocapitalize") }
+    # A value that is no keyword, the empty one included, is the sentences
+    # state; only a missing attribute is the default state, "".
+    assert_equal ["none", "sentences", "words", "sentences", "sentences", ""],
+      [element(autocapitalize: "off"), element(autocapitalize: "On"), element(autocapitalize: "words"),
+       element(autocapitalize: "x"), element(autocapitalize: ""), element].map { |e| e.__js_get__("autocapitalize") }
 
     form = element("form", autocapitalize: "characters", autocorrect: "off")
     input = form.append_child(@doc.create_element("input"))
     div = form.append_child(@doc.create_element("div"))
     assert_equal [["characters", false], ["", true]], [input, div].map { |e| [e.__js_get__("autocapitalize"), e.__js_get__("autocorrect")] }
+    # An invalid value of the input's own is its state, not left to the form.
+    input.set_attribute("autocapitalize", "bogus")
+    assert_equal "sentences", input.__js_get__("autocapitalize")
+    input.remove_attribute("autocapitalize")
 
     input.set_attribute("autocorrect", "")
     assert input.__js_get__("autocorrect")

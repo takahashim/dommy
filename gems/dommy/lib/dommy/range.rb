@@ -278,9 +278,10 @@ module Dommy
     # into nodes (Nuxt's DOM hydration / `<slot>` helpers call it via a Range).
     def create_contextual_fragment(html)
       # The start node if it is an element, else its parent element; with
-      # neither, a new `body` (the fragment parsing algorithm turns an HTML
-      # document's `html` into one too).
-      context = contextual_element || @document.create_element("body")
+      # neither, a new `body` in the HTML namespace, whatever the document's
+      # type (the fragment parsing algorithm turns an HTML document's `html`
+      # into one too).
+      context = contextual_element || @document.create_element_ns(Element::HTML_NAMESPACE, "body")
       # WebIDL DOMString coercion: JS null stringifies to "null" (no
       # [LegacyNullToEmptyString] here), the UNDEFINED sentinel to "undefined".
       nodes = context.__internal_parse_fragment__(html.nil? ? "null" : html.to_s)
