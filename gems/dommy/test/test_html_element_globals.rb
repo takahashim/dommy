@@ -186,7 +186,11 @@ class TestHTMLElementGlobals < Minitest::Test
     el = element
     { "until-found" => "until-found", false => nil, "" => nil, 0 => nil, Float::NAN => nil, nil => nil, 1 => "", "x" => "", true => "" }.each do |value, attribute|
       el.__js_set__("hidden", value)
-      assert_equal attribute, el.get_attribute("hidden"), value.inspect
+      if attribute.nil?
+        assert_nil el.get_attribute("hidden"), value.inspect
+      else
+        assert_equal attribute, el.get_attribute("hidden"), value.inspect
+      end
     end
 
     cascade = Dommy::Internal::CSS::Cascade
