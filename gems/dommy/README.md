@@ -106,6 +106,20 @@ response = win.__js_call__("fetch", ["/api"]).await
 > [!WARNING]
 > Most Dommy accessors (`Blob#text`, `localStorage.get_item`) return synchronous Ruby values — not Promises. `.await` is only for the JS-bridged async surface (e.g., `fetch()`, `window.__js_call__`). Methods like `Response#text()` are Promise-returning and require `.await`.
 
+### Preloading ES modules across page loads
+
+With JavaScript on (dommy-js-quickjs), a test suite boots the same bundles — Turbo, Stimulus, an app's vendored libraries — page after page, and parsing them is most of what booting costs. Turn preloading on, and a page's ES modules of 10 KB or more are compiled to bytecode once per process and read as bytecode by every later page of the same origin:
+
+```ruby
+# spec/rails_helper.rb or test/test_helper.rb
+Dommy::Js::ModulePreload.enabled = true
+```
+
+With Turbo served as an ES module (importmap-rails), a page boots in about 11 ms instead of 24 ms from the third load on: the first registers the module, the second compiles it.
+
+> [!NOTE]
+> A preloaded module is not fetched again for the rest of the process. Turn it on when your module URLs carry a digest (importmap-rails, Propshaft, jsbundling with digested assets); a URL whose content changes without its name changing would keep running what it served first.
+
 ## Test helpers
 
 Dommy ships test-side modules you can `include` into RSpec / Minitest. Matchers accept a `Dommy::Document` / element or a raw HTML string (auto-parsed), matching Capybara's `expect(rendered).to ...` ergonomics.
