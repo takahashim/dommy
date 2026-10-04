@@ -271,7 +271,6 @@ module Dommy
       private_class_method :named?
       private_class_method :present?
       private_class_method :references?
-      private_class_method :references?
       private_class_method :presentation_conflict?
       private_class_method :focusable?
     end

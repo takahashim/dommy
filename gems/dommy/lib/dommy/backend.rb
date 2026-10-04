@@ -137,13 +137,18 @@ module Dommy
       # The DOM's createElement: an element whose local name is `local_name`
       # as written, colons included (`foo:` and `f::oo` are valid local names,
       # not prefixed ones), in `namespace` — the HTML namespace in an HTML or
-      # XHTML document, nil in any other. An HTML document's own creator takes
-      # the name verbatim; an XML document's parses a QName, so its element is
-      # built from the parts instead.
+      # XHTML document, nil in any other. An XML document's own creator parses
+      # a QName, so its element is built from the parts. An HTML-backed one —
+      # which a document typed as XHTML or XML after an HTML parse also is —
+      # makes it by createElementNS, which keeps the name's case and the
+      # namespace given; that splits a name at its colon, so a name with one
+      # takes the HTML document's creator, which keeps the colon but folds the
+      # name into the HTML namespace in lower case.
       def create_element(local_name, namespace, doc)
-        return doc.create_element(local_name) if doc.is_a?(::Makiri::HTML::Document)
+        return doc.create_loose_dom_element(local_name, nil, local_name, namespace) unless doc.is_a?(::Makiri::HTML::Document)
+        return doc.create_element(local_name) if local_name.include?(":")
 
-        doc.create_loose_dom_element(local_name, nil, local_name, namespace)
+        doc.create_element_ns(namespace, local_name)
       end
 
       # The DOM's createElementNS, in an HTML or an XML document alike: the

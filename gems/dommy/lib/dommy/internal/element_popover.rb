@@ -36,14 +36,16 @@ module Dommy
       end
 
       # `togglePopover(force)`, `force` a boolean or `{force:}`: hide when
-      # showing and not forced open, show when hidden and not forced shut;
-      # otherwise only check that the call is valid. Answers whether the
+      # showing and not forced open, else show unless forced shut; forced shut
+      # while hidden, only check that the call is valid. Answers whether the
       # popover is showing.
       def toggle_popover(options = nil)
         force = popover_force(options)
         if popover_showing? && force != true
           hide_popover
-        elsif !popover_showing? && force != false
+        elsif force != false
+          # Already showing and forced open, the show steps' own check finds
+          # nothing to do and returns quietly.
           show_popover
         else
           popover_valid?(expected_showing: popover_showing?)
