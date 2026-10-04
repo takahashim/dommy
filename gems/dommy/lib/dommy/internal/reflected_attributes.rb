@@ -516,8 +516,10 @@ module Dommy
         !__internal_attribute_value__(name).nil?
       end
 
+      # The IDL value is a `boolean`, so a JS 0, "" or NaN removes the
+      # attribute as false does.
       def set_reflected_boolean(name, value, _options = nil)
-        if value
+        if WebIDL.boolean(value)
           __internal_set_attribute_value__(name, "")
         elsif !__internal_attribute_value__(name).nil?
           remove_attribute_ns(nil, name)

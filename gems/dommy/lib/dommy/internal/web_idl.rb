@@ -21,6 +21,17 @@ module Dommy
         raise Bridge::TypeError, "value is not of type '#{interface.name.split("::").last}'."
       end
 
+      # `value` converted to `boolean` (JS ToBoolean): false for false, null,
+      # undefined, +0, -0, NaN and "", true for anything else. The bridge hands
+      # JS NaN over as a Float NaN or as the symbol :NaN.
+      def boolean(value)
+        return false if value.nil? || value == false || value.equal?(Bridge::UNDEFINED)
+        return false if value.is_a?(Numeric) && (value.zero? || (value.is_a?(Float) && value.nan?))
+        return false if value == :NaN || value == ""
+
+        true
+      end
+
       # `value` converted to `Node`.
       def node!(value)
         interface!(value, Dommy::Node)

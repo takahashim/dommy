@@ -63,10 +63,7 @@ module Dommy
       end
     end
 
-    def hidden_removed_by?(value)
-      value.nil? || value.equal?(false) || value.equal?(Bridge::UNDEFINED) || value == "" ||
-        (value.is_a?(Numeric) && (value.zero? || (value.is_a?(Float) && value.nan?)))
-    end
+    def hidden_removed_by?(value) = !Internal::WebIDL.boolean(value)
     private :hidden_removed_by?
 
     # `translate`: the element's translation mode — the nearest
@@ -86,7 +83,7 @@ module Dommy
     end
 
     def translate=(value)
-      __internal_set_attribute_value__("translate", value ? "yes" : "no")
+      __internal_set_attribute_value__("translate", Internal::WebIDL.boolean(value) ? "yes" : "no")
     end
 
     # `accessKeyLabel`: the `accesskey` content attribute is a set of
@@ -175,7 +172,7 @@ module Dommy
     end
 
     def draggable=(value)
-      __internal_set_attribute_value__("draggable", value ? "true" : "false")
+      __internal_set_attribute_value__("draggable", Internal::WebIDL.boolean(value) ? "true" : "false")
     end
 
     # `spellcheck` (HTML §6.8.4): "true" or "" checks spelling and "false"
@@ -184,7 +181,7 @@ module Dommy
     def spellcheck = inherited_hint("spellcheck", "true", "false") != false
 
     def spellcheck=(value)
-      __internal_set_attribute_value__("spellcheck", value ? "true" : "false")
+      __internal_set_attribute_value__("spellcheck", Internal::WebIDL.boolean(value) ? "true" : "false")
     end
 
     # `writingSuggestions` (HTML §6.8.8): "false" when the attribute says so,
@@ -228,7 +225,7 @@ module Dommy
     end
 
     def autocorrect=(value)
-      __internal_set_attribute_value__("autocorrect", value ? "on" : "off")
+      __internal_set_attribute_value__("autocorrect", Internal::WebIDL.boolean(value) ? "on" : "off")
     end
 
     # The form owner an inheriting element takes its hints from, or nil.
