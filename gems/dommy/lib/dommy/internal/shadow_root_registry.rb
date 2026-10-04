@@ -44,7 +44,7 @@ module Dommy
       # shadow root's fragment is the root of its tree, so it can only be the
       # node's root.
       def find_enclosing(nokogiri_node)
-        return nil unless nokogiri_node.respond_to?(:parent)
+        return nil unless nokogiri_node
 
         root = NodeTraversal.root_of(nokogiri_node)
         find_for_fragment(root) unless root.equal?(nokogiri_node)

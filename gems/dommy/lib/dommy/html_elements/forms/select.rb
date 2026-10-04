@@ -479,7 +479,7 @@ module Dommy
       return false unless %w[script style].include?(name)
 
       el = @document.wrap_node(node)
-      ns = el.respond_to?(:namespace_uri) ? el.namespace_uri : nil
+      ns = el.namespace_uri
       html = Internal::Namespaces::HTML
       svg = Internal::Namespaces::SVG
       name == "script" ? [html, svg].include?(ns) : ns == html

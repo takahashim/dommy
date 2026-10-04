@@ -47,7 +47,7 @@ module Dommy
       # returns null (mirrors `Element#shadowRoot` being null when closed).
       def assigned_slot
         parent = @__node__.parent
-        return nil unless parent.respond_to?(:element?) && parent.element?
+        return nil unless parent&.element?
 
         host = @document.wrap_node(parent)
         return nil unless host.respond_to?(:shadow_root)

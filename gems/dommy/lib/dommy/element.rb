@@ -114,7 +114,7 @@ module Dommy
     # is what would otherwise run them — fires.
     def mark_fragment_scripts_started(backend_nodes)
       backend_nodes.each do |nk|
-        next unless nk.respond_to?(:element?) && nk.element?
+        next unless nk.element?
 
         if nk.name == "script"
           wrapped = @document.wrap_node(nk)
@@ -123,7 +123,7 @@ module Dommy
             wrapped.__internal_mark_parser_inserted__
           end
         end
-        mark_fragment_scripts_started(nk.children.to_a) if nk.respond_to?(:children)
+        mark_fragment_scripts_started(nk.children.to_a)
       end
     end
 

@@ -173,7 +173,7 @@ module Dommy
       # The parsed document's DocumentType node (`<!DOCTYPE …>`), or nil when
       # the document declares none.
       def internal_subset(doc)
-        doc.respond_to?(:internal_subset) ? doc.internal_subset : nil
+        doc.internal_subset
       end
 
       def create_text(content, doc)

@@ -82,7 +82,7 @@ module Dommy
 
       # A template element in the HTML namespace — the only kind with contents.
       def template_node?(node)
-        node.respond_to?(:element?) && node.element? && node.local_name == "template" &&
+        node.element? && node.local_name == "template" &&
           Backend.namespace_uri(node) == Namespaces::HTML
       end
 
@@ -96,7 +96,7 @@ module Dommy
       def migrate_descendants(root)
         targets = []
         targets << root if template_node?(root)
-        targets.concat(root.css("template").to_a) if root.respond_to?(:css)
+        targets.concat(root.css("template").to_a)
         targets.each { |t| mark_contents(t) }
       end
 
@@ -152,14 +152,14 @@ module Dommy
       # nothing here — only force async, which `.async` can still observe.
       def mark_parser_inserted_scripts(nodes)
         nodes.each do |node|
-          next unless node.respond_to?(:element?) && node.element?
+          next unless node.element?
 
           if node.name == "script"
             wrapped = @document.wrap_node(node)
             wrapped.__internal_mark_parser_inserted__ if wrapped.respond_to?(:__internal_mark_parser_inserted__)
           end
           mark_contents(node) if template_node?(node)
-          mark_parser_inserted_scripts(node.children.to_a) if node.respond_to?(:children)
+          mark_parser_inserted_scripts(node.children.to_a)
         end
       end
     end

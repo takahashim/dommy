@@ -113,7 +113,7 @@ module Dommy
           reseat_wrapper(orig, copy)
           if destination_registry.template_node?(orig)
             carry_over_template(orig, copy)
-          elsif orig.respond_to?(:children)
+          else
             carry_over_each(orig.children.to_a, copy.children.to_a)
           end
         end

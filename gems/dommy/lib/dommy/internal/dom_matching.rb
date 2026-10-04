@@ -170,7 +170,7 @@ module Dommy
       # @api private (kept module-level only because visible? calls them)
 
       def node_invisible_self?(node)
-        return false unless node.respond_to?(:element?) && node.element?
+        return false unless node.element?
 
         return true if Backend.no_namespace_attribute_value(node, "hidden")
         return true if node.name == "input" && Backend.no_namespace_attribute_value(node, "type") == "hidden"
@@ -189,7 +189,7 @@ module Dommy
       NON_RENDERED_TAGS = %w[head script style template noscript].freeze
 
       def non_rendering_tag?(node)
-        node.respond_to?(:name) && NON_RENDERED_TAGS.include?(node.name)
+        NON_RENDERED_TAGS.include?(node.name)
       end
 
       # Visible text of a node's subtree: like `text_content`, but excluding

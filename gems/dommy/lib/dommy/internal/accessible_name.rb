@@ -158,9 +158,9 @@ module Dommy
       # <fieldset>'s <legend>, a <table>'s <caption>). nil when absent.
       def child_element_name(node, tag, traversal)
         bn = node.__dommy_backend_node__
-        return nil unless bn.respond_to?(:children)
+        return nil unless bn
 
-        child = bn.children.find { |c| c.respond_to?(:name) && c.name.to_s.casecmp?(tag) }
+        child = bn.children.find { |c| c.name.to_s.casecmp?(tag) }
         return nil unless child
 
         name_of(node.document.wrap_node(child), traversal, referenced: false, allow_content: true)
@@ -219,7 +219,7 @@ module Dommy
 
       def closest_label(node)
         bn = node.__dommy_backend_node__&.parent
-        while bn.respond_to?(:name)
+        while bn
           return node.document.wrap_node(bn) if bn.name.to_s.casecmp?("label")
 
           bn = bn.parent
@@ -232,12 +232,12 @@ module Dommy
       # name-from-content folds in generated content).
       def content_name(node, traversal)
         bn = node.__dommy_backend_node__
-        return "" unless bn.respond_to?(:children)
+        return "" unless bn
 
         children = bn.children.map do |child|
-          if child.respond_to?(:text?) && child.text?
+          if child.text?
             child.text.to_s
-          elsif child.respond_to?(:element?) && child.element?
+          elsif child.element?
             wrapped = node.document.wrap_node(child)
             next "" unless wrapped
             # The control a label names contributes nothing to that label's text
