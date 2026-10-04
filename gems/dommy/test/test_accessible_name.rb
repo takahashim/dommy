@@ -196,4 +196,22 @@ class TestAccessibleName < Minitest::Test
     assert_equal ["Text", "button"], [button.computed_label, button.computed_role]
     assert_includes doc.body.aria_snapshot, "Text"
   end
+
+  # An IDREF resolves in the tree the element is in: the document's, by its
+  # id lookup; a detached subtree's, root included; a shadow tree's.
+  def test_a_labelledby_reference_resolves_in_the_elements_own_tree
+    doc = Dommy.parse("<span id=t>Doc</span><button aria-labelledby=t>b</button>").document
+    assert_equal "Doc", doc.query_selector("button").computed_label
+
+    detached = doc.create_element("div")
+    detached.set_attribute("id", "t")
+    detached.inner_html = "<button aria-labelledby=t>b</button>"
+    detached.append_child(doc.create_text_node("Det"))
+    assert_equal "bDet", detached.query_selector("button").computed_label
+
+    shadow = doc.create_element("div").attach_shadow("mode" => "open")
+    shadow.inner_html = "<i id=t>Shadow</i><button aria-labelledby=t>b</button>"
+    assert_equal "Shadow", shadow.query_selector("button").computed_label
+  end
 end
+
