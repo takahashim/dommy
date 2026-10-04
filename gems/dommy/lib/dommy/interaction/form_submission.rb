@@ -71,7 +71,7 @@ module Dommy
         pairs.map do |name, value|
           next [name, value] unless value.respond_to?(:__dommy_bytes__)
 
-          filename = value.respond_to?(:name) ? value.name.to_s : ""
+          filename = value.is_a?(Dommy::File) ? value.name : ""
           [name, basename(filename)]
         end
       end

@@ -199,7 +199,7 @@ module Dommy
         params.each do |name, value|
           body << binary("--#{boundary}\r\n")
           if value.respond_to?(:__dommy_bytes__)
-            filename = value.respond_to?(:name) ? value.name.to_s : ""
+            filename = value.is_a?(File) ? value.name : ""
             type = value.respond_to?(:type) && !value.type.to_s.empty? ? value.type.to_s : "application/octet-stream"
             body << binary(%(Content-Disposition: form-data; name="#{escape_part(name)}"; filename="#{escape_part(filename)}"\r\n))
             body << binary("Content-Type: #{type}\r\n\r\n")
@@ -221,7 +221,7 @@ module Dommy
       def scalar(value)
         return value.to_s unless value.respond_to?(:__dommy_bytes__)
 
-        value.respond_to?(:name) ? value.name.to_s : ""
+        value.is_a?(File) ? value.name : ""
       end
 
       def escape_part(str)

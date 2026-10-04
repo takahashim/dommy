@@ -953,7 +953,7 @@ module Dommy
       form_data.entries.each do |name, value|
         out << "--#{boundary}#{crlf}"
         if value.is_a?(Blob)
-          filename = value.respond_to?(:name) ? value.name : "blob"
+          filename = value.is_a?(File) ? value.name : "blob"
           out << %(Content-Disposition: form-data; name="#{name}"; filename="#{filename}"#{crlf})
           content_type = value.type.to_s.empty? ? "application/octet-stream" : value.type
           out << "Content-Type: #{content_type}#{crlf}#{crlf}"
