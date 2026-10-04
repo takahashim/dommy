@@ -21,4 +21,15 @@ class TestContextualFragmentDocument < Minitest::Test
     assert_same doc, doc.body.last_child.owner_document
     assert_equal "<p>a</p><i>y</i>", doc.body.inner_html
   end
+
+  # With no element to parse in, the context is a `body` in the HTML
+  # namespace even in an XML document, so the markup is HTML.
+  def test_with_no_context_element_an_xml_document_parses_in_an_html_body
+    doc = Dommy::DOMParser.new.parse_from_string("<root/>", "application/xml")
+    range = doc.create_range
+    range.select_node_contents(doc)
+    paragraph = range.create_contextual_fragment("<p/>").first_child
+    assert_equal ["http://www.w3.org/1999/xhtml", Dommy::HTMLParagraphElement], [paragraph.namespace_uri, paragraph.class]
+  end
 end
+
