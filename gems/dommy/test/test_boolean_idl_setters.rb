@@ -43,4 +43,16 @@ class TestBooleanIdlSetters < Minitest::Test
     assert_equal [true, false, true, false],
       [{ "force" => "x" }, { "force" => nil }, {}, { "force" => 0 }].map { |options| div.toggle_popover(options) }
   end
+
+  # Forced open while already showing, togglePopover runs the show steps,
+  # whose own check returns quietly — even where the element could not be
+  # shown now, as the fullscreen element.
+  def test_toggle_popover_forced_open_while_showing_does_not_throw
+    div = @doc.get_element_by_id("d")
+    div.set_attribute("popover", "")
+    div.show_popover
+    @doc.__internal_set_fullscreen_element__(div)
+    assert_equal true, div.toggle_popover(true)
+  end
 end
+
