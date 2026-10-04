@@ -217,29 +217,18 @@ module Dommy
           important ? -layer_index : layer_index
         end
 
-        # The element's style attribute as [name, value, important] triples.
-        # (StyleDeclaration stores the same data but keeps it private; the
-        # attribute string is the canonical source either way.)
+        # The element's style attribute as [name, value, important] triples,
+        # read by the parser the CSSOM's `el.style` reads it with, so the two
+        # agree: split at top-level semicolons only (not one in a string, a
+        # `url(…)` or a comment), comments dropped, and within the block an
+        # important declaration kept over a later normal one.
         def inline_declarations
           return [] unless @element.respond_to?(:__internal_attribute_value__)
 
           text = @element.__internal_attribute_value__("style").to_s
           return [] if text.empty?
 
-          text.split(";").filter_map do |chunk|
-            name, value = chunk.split(":", 2)
-            next unless name && value
-
-            name = name.strip
-            # Property names are ASCII case-insensitive — except custom
-            # properties, which are case-sensitive (css-variables-1 §2).
-            name = name.downcase unless name.start_with?("--")
-            value = value.strip
-            next if name.empty? || value.empty?
-
-            important = !value.sub!(/\s*!\s*important\s*\z/i, "").nil?
-            [name, value, important]
-          end
+          Parser.parse_block(text).each_value.map { |decl| [decl.name, decl.value, decl.important] }
         end
       end
     end
