@@ -91,10 +91,9 @@ module Dommy
         # DOMString (undefined → "undefined", null → "null").
         namespace_uri = nil if namespace_uri.equal?(Bridge::UNDEFINED)
         qualified_name = domstring(qualified_name)
-        ns, prefix, local = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
+        ns, = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
         el = Backend.create_element_ns(ns, qualified_name, @document.backend_doc)
-        Backend.add_namespace_definition(el, prefix, ns) if ns
 
         @wrappers.build_element_wrapper(el)
       end

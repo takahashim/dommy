@@ -128,4 +128,21 @@ class TestAttributeNS < Minitest::Test
     @el.__js_call__("removeAttributeNS", [XLINK, "href"])
     assert_equal false, @el.__js_call__("hasAttributeNS", [XLINK, "href"])
   end
+
+  # An attribute in a namespace with no prefix shares its qualified name
+  # with a null-namespace one. getAttribute, which matches qualified names,
+  # finds it; a reflected IDL attribute, a selector and the JS bridge's
+  # attribute snapshot, which read no namespace, do not.
+  def test_a_namespaced_unprefixed_attribute_is_not_the_null_namespace_one
+    el = @win.document.create_element("p")
+    el.set_attribute_ns(EX, "id", "only")
+    assert_equal ["", "only", nil], [el.id, el.get_attribute("id"), el.get_attribute_ns(nil, "id")]
+    assert_nil el.__js_attribute_snapshot__, "the snapshot would answer el.id with the namespaced one"
+
+    @win.document.body.append_child(el)
+    assert_nil @win.document.query_selector("[id=only]")
+    # setAttribute changes the attribute getAttribute finds, by qualified name.
+    el.set_attribute("id", "plain")
+    assert_equal ["", "plain", "plain"], [el.id, el.get_attribute("id"), el.get_attribute_ns(EX, "id")]
+  end
 end
