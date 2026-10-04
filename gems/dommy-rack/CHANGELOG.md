@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 — 2026-10-04
 
 ### Added
 
@@ -8,7 +8,7 @@
 
 ### Changed
 
-- **Requires dommy ~> 0.15.0.**
+- Requires dommy ~> 0.15.0.
 - A transport reports to its `WebSocket` or `EventSource` through `__internal_transport_open__`, `__internal_transport_message__`, `__internal_transport_error__` and `__internal_transport_closed__`; the `__transport_*__` names are gone.
 - The session's navigation hooks are named with the `__internal_` prefix (`__internal_enqueue_page_navigation__` and the like); a custom navigation delegate calling the old names has to follow.
 

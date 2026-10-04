@@ -1,10 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 — 2026-10-04
 
 ### Changed
 
-- **Requires dommy and dommy-rack ~> 0.15.0.**
+- Requires dommy and dommy-rack ~> 0.15.0.
 - `attach_file` sets a file input's files through `input.files =`, as script does; `__driver_set_files__` is gone from dommy.
 
 ## 0.14.0 — 2026-10-01
