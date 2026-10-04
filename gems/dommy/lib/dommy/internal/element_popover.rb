@@ -40,8 +40,7 @@ module Dommy
       # otherwise only check that the call is valid. Answers whether the
       # popover is showing.
       def toggle_popover(options = nil)
-        force = options.is_a?(Hash) ? options.fetch("force", options[:force]) : options
-        force = nil if force.equal?(Bridge::UNDEFINED)
+        force = popover_force(options)
         if popover_showing? && force != true
           hide_popover
         elsif !popover_showing? && force != false
@@ -62,6 +61,19 @@ module Dommy
       end
 
       private
+
+      # The `force` of `(TogglePopoverOptions or boolean)`: a boolean converts
+      # with ToBoolean (togglePopover(1) shows, togglePopover(0) hides); null
+      # and undefined pick the dictionary, an empty one; a dictionary's
+      # `force`, when present and not undefined, converts too ({force: null}
+      # hides). nil when there is none, and the call toggles.
+      def popover_force(options)
+        return nil if options.nil? || options.equal?(Bridge::UNDEFINED)
+        return WebIDL.boolean(options) unless options.is_a?(Hash)
+
+        key = ["force", :force].find { |k| options.key?(k) }
+        key.nil? || options[key].equal?(Bridge::UNDEFINED) ? nil : WebIDL.boolean(options[key])
+      end
 
       # HTML's "popover showing state" is showing — what <dialog>'s
       # showModal() checks, without reaching into this module's state.

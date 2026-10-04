@@ -217,7 +217,7 @@ module Dommy
       return false if options.nil? || options.equal?(Bridge::UNDEFINED)
       raise Bridge::TypeError, "URLPatternOptions must be an object" unless options.is_a?(Hash)
 
-      js_truthy?(options["ignoreCase"])
+      Internal::WebIDL.boolean(options["ignoreCase"])
     end
 
     def self.primitive?(value)
@@ -237,14 +237,6 @@ module Dommy
       else
         value.equal?(Bridge::UNDEFINED) ? "undefined" : value.to_s
       end
-    end
-
-    def self.js_truthy?(value)
-      return false if value.nil? || value == false || value.equal?(Bridge::UNDEFINED)
-      return false if value == 0 || value == "" # rubocop:disable Style/NumericPredicate
-      return false if value.is_a?(Float) && value.nan?
-
-      true
     end
 
     # A group that did not take part is `undefined` in the result's groups,
