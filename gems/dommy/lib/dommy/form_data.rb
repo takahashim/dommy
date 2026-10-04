@@ -31,14 +31,14 @@ module Dommy
       @pairs = form ? FormEntryList.new(form).form_data.entries : []
     end
 
-    def append(name, value, _filename = nil)
-      @pairs << [name.to_s, stringify(value)]
+    def append(name, value, filename = nil)
+      @pairs << [name.to_s, entry_value(value, filename)]
       nil
     end
 
-    def set(name, value, _filename = nil)
+    def set(name, value, filename = nil)
       key = name.to_s
-      v = stringify(value)
+      v = entry_value(value, filename)
       replaced = false
       @pairs = @pairs.flat_map do |k, existing|
         if k == key
@@ -150,13 +150,16 @@ module Dommy
 
     private
 
-    def stringify(value)
-      # File / Blob values pass through unchanged (multipart form
-      # encoding handles them); other values are stringified per spec.
-      return value if value.is_a?(Blob)
-      return "" if value.nil?
+    # XHR's "create an entry": a Blob that is not a File becomes a File named
+    # "blob", and a File given a filename one of that name, so every file
+    # entry is a File with a name; anything else is a string.
+    def entry_value(value, filename)
+      return value.nil? ? "" : value.to_s unless value.is_a?(Blob)
 
-      value.to_s
+      filename = nil if filename.equal?(Bridge::UNDEFINED)
+      return value if value.is_a?(File) && filename.nil?
+
+      value.__internal_file_named__(filename.nil? ? "blob" : filename.to_s)
     end
   end
 end

@@ -36,6 +36,13 @@ module Dommy
       @window = window
     end
 
+    # A File of the same bytes and type named `name`, as FormData's "create an
+    # entry" makes of a Blob it is given (named "blob") or of a File given a
+    # filename.
+    def __internal_file_named__(name)
+      File.new([@data], name, {"type" => @type}, @window)
+    end
+
     # Return a new Blob over a byte range of this one.
     # Negative indices are treated as offsets from the end (per spec).
     def slice(start = 0, last = @size, content_type = "")
