@@ -284,8 +284,12 @@ module Dommy
       # WebIDL DOMString coercion: JS null stringifies to "null" (no
       # [LegacyNullToEmptyString] here), the UNDEFINED sentinel to "undefined".
       nodes = context.__internal_parse_fragment__(html.nil? ? "null" : html.to_s)
-      fragment = @document.create_document_fragment
-      nodes.each { |node| fragment.append_child(@document.wrap_node(node)) }
+      # The fragment parsing algorithm makes its nodes in the context
+      # element's node document, which a range's boundary need not share
+      # with the range's own: the fragment is that document's.
+      document = context.owner_document
+      fragment = document.create_document_fragment
+      nodes.each { |node| fragment.append_child(document.wrap_node(node)) }
       fragment
     end
 
