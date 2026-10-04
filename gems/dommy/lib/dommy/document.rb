@@ -541,7 +541,20 @@ module Dommy
     end
     # content_type defaults to "text/html"; settable so an integration layer
     # can reflect the response Content-Type. Read-only over the JS bridge.
-    attr_accessor :content_type
+    attr_reader :content_type
+
+    # Whether the document is an HTML one rides on its type, and with it its
+    # mode — only an HTML document can be in quirks mode — and how selectors
+    # fold id and class case. A layer that sets the type after the parse
+    # (dommy-rack does) has the mode worked out again and the selector
+    # results retired.
+    def content_type=(value)
+      return if value == @content_type
+
+      @content_type = value
+      @quirks_mode = nil
+      __internal_note_selector_state_change__
+    end
     # A `->(source_text) {}` set by the JS layer to execute a classic <script>'s
     # body when it's connected (Dommy has no JS engine of its own). nil = inert
     # scripts (the default for a standalone DOM).
