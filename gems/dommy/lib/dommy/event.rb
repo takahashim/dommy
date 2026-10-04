@@ -57,20 +57,12 @@ module Dommy
       # remove the listener. Per spec, if the signal is already aborted
       # the listener must not be registered at all.
       signal = options.is_a?(Hash) ? (options["signal"] || options[:signal]) : nil
-      if signal.respond_to?(:__js_get__)
-        if signal.__js_get__("aborted")
+      if signal.is_a?(AbortSignal)
+        if signal.aborted?
           remove_event_listener(type, cb, options)
         else
           target = self
-          signal.__js_call__(
-            "addEventListener",
-            [
-              "abort",
-              proc {
-                target.remove_event_listener(type, cb, options)
-              }
-            ]
-          )
+          signal.add_event_listener("abort", proc { target.remove_event_listener(type, cb, options) })
         end
       end
 

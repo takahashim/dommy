@@ -543,7 +543,7 @@ module Dommy
         delay_ms.to_i
       )
       signal = init.is_a?(Hash) ? init["signal"] : nil
-      return unless signal.respond_to?(:__js_call__)
+      return unless signal.is_a?(AbortSignal)
 
       window_ref = @window
       abort_cb = lambda do |*_args|
@@ -649,7 +649,7 @@ module Dommy
       # else a fresh, never-aborted one. Never undefined, or consumers that read
       # `request.signal.removeEventListener` crash.
       sig = opts["signal"] || opts[:signal]
-      @signal = sig.respond_to?(:__js_call__) ? sig : AbortSignal.new
+      @signal = sig.is_a?(AbortSignal) ? sig : AbortSignal.new
     end
 
     attr_reader :headers, :credentials, :mode, :cache, :redirect, :signal
