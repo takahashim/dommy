@@ -298,7 +298,7 @@ module Dommy
     # createContextualFragment: the backend nodes `markup` parses into, not
     # yet in any tree.
     def __internal_parse_fragment__(markup)
-      fragment_nodes(markup, @__node__)
+      fragment_nodes(markup, @__node__, html_as_body: true)
     end
 
     # The XML fragment parsing algorithm, for innerHTML / outerHTML outside an
@@ -617,7 +617,7 @@ module Dommy
       # The context is the parent a sibling goes into, or this element; a
       # missing or Document parent throws before anything is parsed.
       context = %w[beforebegin afterend].include?(pos) ? insertion_parent! : @__node__
-      nodes = fragment_nodes(html.to_s, context)
+      nodes = fragment_nodes(html.to_s, context, html_as_body: true)
       mark_fragment_scripts_started(nodes)
       # `add_previous_sibling` inserts immediately before the anchor, so a forward
       # walk preserves document order; `add_next_sibling` inserts immediately
@@ -1641,13 +1641,16 @@ module Dommy
     # The fragment parsing algorithm (DOM Parsing): the HTML one in an HTML
     # document, the XML one anywhere else, inside `context` (a backend node).
     # A context that is no element — a DocumentFragment or a shadow root —
-    # or an HTML document's `html` element parses as a `body` would, which
-    # is each parser's default; any other element lends its tag and
-    # namespace, so markup inside an `<svg>` is SVG.
-    def fragment_nodes(markup, context)
+    # parses as a `body` would, which is each parser's default; any other
+    # element lends its tag and namespace, so markup inside an `<svg>` is SVG
+    # and markup inside an `html` builds its head and body. With
+    # `html_as_body`, an HTML document's `html` element parses as a `body`
+    # too — what insertAdjacentHTML and createContextualFragment ask, and
+    # outerHTML does not.
+    def fragment_nodes(markup, context, html_as_body: false)
       context = nil unless context.element?
       if @document.html_document?
-        context = nil if context && context.local_name == "html" && Backend.namespace_uri(context) == HTML_NAMESPACE
+        context = nil if html_as_body && context && context.local_name == "html" && Backend.namespace_uri(context) == HTML_NAMESPACE
         Parser.fragment(markup, owner_doc: @__node__.document, context: context).children.to_a
       else
         xml_fragment_nodes(markup, context && @document.wrap_node(context))
