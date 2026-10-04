@@ -1231,11 +1231,7 @@ module Dommy
         # `(_, _, h) => h.get(...)` works the same as in a browser.
         cb = args[0]
         sort_and_combine.each do |k, v|
-          if cb.respond_to?(:__js_call__)
-            cb.__js_call__("call", [v, k, self])
-          elsif cb.respond_to?(:call)
-            cb.call(v, k, self)
-          end
+          CallableInvoker.invoke(cb, v, k, self)
         end
         nil
       end

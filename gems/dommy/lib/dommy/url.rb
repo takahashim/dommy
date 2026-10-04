@@ -446,11 +446,7 @@ module Dommy
         # to to_proc it). callback(value, key, this) per WHATWG.
         cb = args[0]
         @pairs.each do |k, v|
-          if cb.respond_to?(:__js_call__)
-            cb.__js_call__("call", [v, k, self])
-          elsif cb.respond_to?(:call)
-            cb.call(v, k, self)
-          end
+          CallableInvoker.invoke(cb, v, k, self)
         end
         nil
       when "keys"

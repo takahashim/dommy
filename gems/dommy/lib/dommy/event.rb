@@ -2198,11 +2198,7 @@ module Dommy
     # not abort the run. (The sole caller — the Observable polyfill — already
     # catches inside its own teardown, so this is a defensive backstop.)
     def invoke_abort_algorithm(algo)
-      if algo.respond_to?(:__js_call__)
-        algo.__js_call__("call", [])
-      elsif algo.respond_to?(:call)
-        algo.call
-      end
+      CallableInvoker.invoke(algo)
     rescue StandardError
       nil
     end

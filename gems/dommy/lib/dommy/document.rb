@@ -2066,11 +2066,7 @@ module Dommy
         # synchronously; return a ViewTransition with already-resolved
         # `finished` / `ready` / `updateCallbackDone` promises.
         callback = args[0]
-        if callback.respond_to?(:__js_call__)
-          callback.__js_call__("call", [])
-        elsif callback.respond_to?(:call)
-          callback.call
-        end
+        CallableInvoker.invoke(callback)
 
         ViewTransition.new(@default_view)
       when "createElement"

@@ -5,11 +5,8 @@ module Dommy
     # Shared callback-invocation contract for the observer trio
     # (IntersectionObserver / ResizeObserver / PerformanceObserver).
     #
-    # Observers accept either a JS-bridge object (anything responding
-    # to `__js_call__("call", args)`) or a plain Ruby Proc. The
-    # invocation order here matches how the JS bridge wires user code
-    # into the polyfill — try the bridge first, then fall back to a
-    # native callable.
+    # Observers accept a JS function or a Ruby callable; CallableInvoker
+    # tells the two apart.
     module ObservableCallback
       private
 

@@ -711,14 +711,14 @@ module Dommy
     end
 
     # ToPrimitive(object, String): invoke `toString`, then `valueOf`, using the
-    # first that returns a primitive. A crossed JS function is a HostCallback
-    # (invoked via `__js_call__("call", ...)`). Falls back to "[object Object]".
+    # first that returns a primitive. A crossed JS function is a JS callable
+    # (CallableInvoker.js_callable?). Falls back to "[object Object]".
     def webidl_object_to_string(hash)
       %w[toString valueOf].each do |name|
         cb = hash[name]
-        next unless cb.respond_to?(:__js_call__)
+        next unless CallableInvoker.js_callable?(cb)
 
-        result = cb.__js_call__("call", [])
+        result = CallableInvoker.invoke(cb)
         return result.to_s unless result.is_a?(Hash)
       end
       "[object Object]"

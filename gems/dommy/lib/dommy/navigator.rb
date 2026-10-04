@@ -617,11 +617,7 @@ module Dommy
     private
 
     def invoke_with_lock(callback, lock)
-      value = if callback.respond_to?(:__js_call__)
-        callback.__js_call__("call", [lock])
-      elsif callback.respond_to?(:call)
-        callback.call(lock)
-      end
+      value = CallableInvoker.invoke(callback, lock)
 
       PromiseValue.resolve(@window, value)
     end

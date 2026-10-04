@@ -23,11 +23,7 @@ module Dommy
       # value.
       def request_permission(window, callback = nil)
         promise = PromiseValue.resolve(window, @permission)
-        if callback.respond_to?(:__js_call__)
-          callback.__js_call__("call", [@permission])
-        elsif callback.respond_to?(:call)
-          callback.call(@permission)
-        end
+        CallableInvoker.invoke(callback, @permission)
 
         promise
       end
