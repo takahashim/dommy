@@ -20,9 +20,6 @@ module Dommy
     # rewrites `:scope` to an attribute selector, removing the mark after.
     SCOPE_ATTR = "data-dommy-scope"
 
-    # Lexbor's document mode: 0 no-quirks, 1 quirks, 2 limited-quirks.
-    QUIRKS = 1
-
     class << self
       # The node classes (the shared bases, so both HTML and XML node
       # subclasses match), so the wrapper cache can route each node.
@@ -66,13 +63,10 @@ module Dommy
         node.clone_node(deep)
       end
 
-      # A fresh, empty HTML-backed document (children dropped so it starts
-      # with no documentElement). The backing for a shallow clone of an HTML
-      # document.
+      # A fresh, empty HTML-backed document — no children, no-quirks. The
+      # backing for a shallow clone of an HTML document.
       def empty_document
-        doc = ::Makiri::HTML::Document.parse("")
-        doc.children.to_a.each(&:unlink)
-        doc
+        ::Makiri::HTML::Document.new
       end
 
       # A fresh, empty XML-backed document — the backing for `new Document()` /
@@ -86,9 +80,10 @@ module Dommy
       end
 
       # Whether the HTML parser left `doc` in quirks mode (not limited-quirks,
-      # which matches no-quirks everywhere Dommy asks).
+      # which matches no-quirks everywhere Dommy asks). An XML document is
+      # never in it.
       def quirks_mode?(doc)
-        doc.respond_to?(:quirks_mode) && doc.quirks_mode == QUIRKS
+        doc.respond_to?(:quirks_mode?) && doc.quirks_mode?
       end
 
       # An empty backing document matching `doc`'s kind (HTML stays HTML, XML
@@ -156,54 +151,34 @@ module Dommy
         ::Makiri::DocumentFragment.parse(html.to_s)
       end
 
-      # Make `node` the sole document element of `doc` (used by
-      # DOMImplementation.createDocument). Lexbor seeds even an empty parse
-      # with an <html> shell and has no `root=`, so clear the existing
-      # children before adopting `node` as the root.
-      def set_document_root(doc, node)
-        doc.children.to_a.each(&:unlink)
-        doc.add_child(node)
+      # The DOM's createElement: an element whose local name is `local_name`
+      # as written, colons included (`foo:` and `f::oo` are valid local names,
+      # not prefixed ones), in `namespace` — the HTML namespace in an HTML or
+      # XHTML document, nil in any other. An HTML document's own creator takes
+      # the name verbatim; an XML document's parses a QName, so its element is
+      # built from the parts instead.
+      def create_element(local_name, namespace, doc)
+        return doc.create_element(local_name) if doc.is_a?(::Makiri::HTML::Document)
+
+        doc.create_loose_dom_element(local_name, nil, local_name, namespace)
       end
 
-      # Mint from the owning document so HTML docs lower-case the name and
-      # XML docs preserve its case.
-      def create_element(name, doc)
-        doc.create_element(name)
-      end
-
-      # Create a namespaced element permitting a DOM-valid qualified name that
-      # a strict XML backend would reject (an internal invalid char like
-      # "f}oo"), preserving case/prefix: Makiri's loose creator builds it
-      # verbatim. Returns nil for an HTML document (fall back to
-      # #create_element); raises ArgumentError for a genuinely invalid name
-      # (the caller maps it to InvalidCharacterError).
-      def create_element_loose(qualified_name, prefix, local, namespace, doc)
-        return nil unless doc.is_a?(::Makiri::XML::Document)
-
-        doc.create_loose_dom_element(qualified_name, prefix, local, namespace)
-      end
-
-      # createElementNS in an HTML document. Makiri builds the element in its
-      # own namespace, so the backend node is what the parser would have made:
-      # an SVG `feGaussianBlur` keeps its case and `[viewBox]` reads its
-      # attribute case-sensitively. Returns nil for an XML document (fall back
-      # to #create_element); raises ArgumentError for an invalid name (the
-      # caller maps it to InvalidCharacterError).
+      # The DOM's createElementNS, in an HTML or an XML document alike: the
+      # element is in `namespace` (nil for none) with `qualified_name` as
+      # written — an SVG `feGaussianBlur` keeps its case, a prefixed name its
+      # prefix. Makiri checks the name as the DOM does, so a name the caller
+      # has validated is never refused; it raises ArgumentError for one it
+      # would not have passed.
       def create_element_ns(namespace, qualified_name, doc)
-        return nil unless doc.is_a?(::Makiri::HTML::Document)
-
-        doc.create_element_ns(presence(namespace), qualified_name.to_s)
+        doc.create_element_ns(namespace, qualified_name.to_s)
       end
 
-      # A detached DocumentType node owned by `doc` (for
-      # DOMImplementation.createDocumentType). Only the HTML document ships
-      # the factory; nil signals the caller to fall back to a synthetic
-      # (non-tree) DocumentType. Raises ArgumentError for a name the factory
-      # rejects (the caller then also falls back, since createDocumentType is
-      # permissive).
+      # A detached DocumentType node owned by `doc`, HTML or XML (for
+      # DOMImplementation.createDocumentType). Makiri takes any name the DOM
+      # does but the empty one, which Lexbor reads as no name, and raises
+      # ArgumentError for it; the caller then falls back to a synthetic
+      # (non-tree) DocumentType, since createDocumentType is permissive.
       def create_document_type(name, public_id, system_id, doc)
-        return nil unless doc.respond_to?(:create_document_type)
-
         doc.create_document_type(name.to_s, public_id.to_s, system_id.to_s)
       end
 
@@ -251,14 +226,15 @@ module Dommy
       end
 
       # The element's own namespace URI as the DOM reports it (Lexbor's HTML /
-      # SVG / MathML, an XML document's own), nil for none.
+      # SVG / MathML, an XML document's own), nil for none — Makiri answers
+      # nil, never "", for a node without one, parsed or created.
       def namespace_uri(node)
-        presence(node.respond_to?(:namespace_uri) ? node.namespace_uri : nil)
+        node.namespace_uri
       end
 
       # The element's own namespace prefix as the DOM reports it, nil for none.
       def prefix(node)
-        presence(node.prefix)
+        node.prefix
       end
 
       # Bind a *prefixed* element's namespace so the prefix resolves. An XML
@@ -307,11 +283,11 @@ module Dommy
       # it (splitting prefix/local), and the attr node reports
       # namespace_uri/prefix/local_name. So *AttributeNS matches on
       # (namespace, local name) faithfully, and Makiri finds an attribute by
-      # that pair natively. `namespace` is an href String or nil throughout;
-      # an empty one is none.
+      # that pair natively. `namespace` is an href String or nil throughout,
+      # and Makiri takes "" as none, as the DOM does.
 
       def get_attribute_ns(node, namespace, local_name)
-        node.attribute_value_ns(presence(namespace), local_name.to_s)
+        node.attribute_value_ns(namespace, local_name.to_s)
       end
 
       def has_attribute_ns?(node, namespace, local_name)
@@ -321,15 +297,15 @@ module Dommy
       # The attribute node in `namespace` with `local_name`, or nil — what
       # getAttributeNodeNS and the NS removals find.
       def attr_by_ns(node, namespace, local_name)
-        node.attribute_node_ns(presence(namespace), local_name.to_s)
+        node.attribute_node_ns(namespace, local_name.to_s)
       end
 
       def set_attribute_ns(node, namespace, prefix, _local_name, qualified_name, value)
-        ns = presence(namespace)
-        note_namespaced_unprefixed_attribute if prefix.to_s.empty? && !ns.nil?
+        none = namespace.to_s.empty?
+        note_namespaced_unprefixed_attribute if prefix.to_s.empty? && !none
         name = qualified_name.to_s
         value = value.to_s
-        node.set_attribute_ns(ns, name, value) unless ns.nil? && set_null_namespace_attribute(node, name, value)
+        node.set_attribute_ns(namespace, name, value) unless none && set_null_namespace_attribute(node, name, value)
         value
       end
 
@@ -351,7 +327,7 @@ module Dommy
       # Remove by (namespace, local name) — removing by qualified name is
       # ambiguous once same-name/different-namespace attributes coexist.
       def remove_attribute_ns(node, namespace, local_name)
-        node.remove_attribute_ns(presence(namespace), local_name.to_s)
+        node.remove_attribute_ns(namespace, local_name.to_s)
         nil
       end
 
@@ -359,8 +335,8 @@ module Dommy
       # local_name:, qualified_name:, value:} (namespace-aware).
       def attribute_ns_info(attr_node)
         {
-          namespace_uri: presence(attr_node.namespace_uri),
-          prefix: presence(attr_node.prefix),
+          namespace_uri: attr_node.namespace_uri,
+          prefix: attr_node.prefix,
           local_name: attr_node.local_name,
           qualified_name: attr_node.name,
           value: attr_node.value,
@@ -446,13 +422,6 @@ module Dommy
 
         node.set_loose_dom_attribute(name, value)
         true
-      end
-
-      def presence(value)
-        return nil if value.nil?
-
-        s = value.to_s
-        s.empty? ? nil : s
       end
     end
   end

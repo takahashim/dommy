@@ -336,7 +336,7 @@ module Dommy
       qn = qualified_name.to_s
       unless qn.empty?
         el = doc.send(:create_element_ns, namespace, qualified_name)
-        Backend.set_document_root(doc.backend_doc, el.__dommy_backend_node__)
+        doc.backend_doc.add_child(el.__dommy_backend_node__)
       end
       adopt_doctype_into(doc, doctype)
       doc

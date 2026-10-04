@@ -12,7 +12,7 @@
 ### Changed
 
 - `Dommy::Backend` is Makiri's adapter itself: `Backend.use`, `Backend.current` and `Dommy.backend` are gone, as is the `DOMMY_BACKEND` test switch, and each DOM call reaches Makiri without a dispatch in between.
-- **Requires makiri >= 0.13.0.** Its queries no longer warn about chilled string literals under Ruby 4.0, it keeps a namespace URI's case, finds an attribute by namespace and local name, and counts the tree's changes (`tree_version`).
+- **Requires makiri >= 0.14.0.** Its queries no longer warn about chilled string literals under Ruby 4.0, it keeps a namespace URI's case, finds an attribute by namespace and local name, creates an element by the DOM's `createElementNS` in an XML document too, and counts the tree's and the attributes' edits (`tree_version`, `attribute_version`).
 - `document.body` is the first `body` or `frameset` child of an HTML `html` document element, as HTML defines it: a `body` deeper in the tree, one in another namespace, or one under a non-HTML root element is not it, and a `frameset` is. `document.head` likewise needs an HTML `html` document element.
 - `getElementsByName` returns a live `NodeList`, as HTML specifies, instead of an `HTMLCollection`; it has no `namedItem`.
 - An element in no namespace, or in one other than HTML, SVG and MathML, is a plain `Element` without `dataset`, `style`, `tabIndex`, `focus()` and the rest HTML and CSSOM give only to those three: `createElementNS(null, "div").dataset` is undefined, and the Ruby object has no `dataset` method.
@@ -35,6 +35,8 @@
 
 ### Fixed
 
+- `createDocumentType` in an XML document returns a doctype node that joins the tree, as in an HTML document.
+- A `querySelector` result memoized by the document is retired by a child-list or attribute edit made on the backend node directly, not only by one made through the DOM.
 - A namespace URI keeps its case: `createElementNS("fooNamespace", "e").namespaceURI` is `"fooNamespace"`, `getAttributeNS("attrNS", "x")` finds the attribute `setAttributeNS("attrNS", "a:x", v)` made, and an element in `HTTP://WWW.W3.ORG/1999/XHTML` is not an HTML element.
 - `document.body = element` sets the body in HTML and XML documents alike: it replaces the current `body` or `frameset`, or is appended to the document element, and throws `HierarchyRequestError` for anything but a `body` or `frameset`.
 - A document's element children skip its doctype: an element appended after the root element was removed is its `documentElement` and its only child element.
