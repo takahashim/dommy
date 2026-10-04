@@ -163,10 +163,10 @@ module Dommy
       # comparison rather than a backend query.
       def collect_elements(added_nodes, name)
         added_nodes.each_with_object([]) do |node, found|
-          next unless node.respond_to?(:element?) && node.element?
+          next unless node.element?
 
           found << node if node.name == name
-          next unless node.respond_to?(:first_element_child) && node.first_element_child
+          next unless node.first_element_child
 
           found.concat(node.css(name).to_a)
         end
@@ -175,12 +175,12 @@ module Dommy
       # The select whose list of options a child-list mutation on `node` touches:
       # the select itself, or the select an optgroup sits in.
       def owning_select_node(node)
-        return nil unless node.respond_to?(:name)
+        return nil unless node
         return node if node.name == "select"
         return nil unless node.name == "optgroup"
 
-        parent = node.respond_to?(:parent) ? node.parent : nil
-        parent if parent.respond_to?(:name) && parent.name == "select"
+        parent = node.parent
+        parent if parent&.name == "select"
       end
 
       # An <option> or <optgroup> that joins or leaves a select's list of
@@ -188,7 +188,7 @@ module Dommy
       # only way to ask is the wrapper (which the document has cached, so this
       # costs a lookup rather than a second wrap in `arrived_options`).
       def option_list_member?(node)
-        return false unless node.respond_to?(:element?) && node.element?
+        return false unless node.element?
         return false unless %w[option optgroup].include?(node.name)
 
         !wrap_html(node).nil?

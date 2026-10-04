@@ -410,7 +410,7 @@ module Dommy
       return self unless respond_to?(:__dommy_backend_node__) && instance_variable_defined?(:@document)
 
       node = __dommy_backend_node__
-      node = Internal::NodeTraversal.root_of(node) if node.respond_to?(:parent)
+      node = Internal::NodeTraversal.root_of(node) if node
       # The topmost node of an attached subtree is the Nokogiri document, which
       # has no element wrapper — map it to the Document. A detached node's root is
       # itself.
@@ -555,7 +555,7 @@ module Dommy
     def node_ancestor_chain(node)
       chain = [node]
       current = node
-      while current.respond_to?(:parent) && (current = current.parent)
+      while (current = current.parent)
         chain << current
       end
       chain
@@ -564,7 +564,7 @@ module Dommy
     def node_branch_under(common, chain)
       chain.each_with_index do |node, i|
         return node if i.zero? && node == common
-        return node if node.respond_to?(:parent) && node.parent == common
+        return node if node.parent == common
       end
       nil
     end
@@ -599,34 +599,21 @@ module Dommy
       node
     end
 
-    def namespace_element?(node)
-      node.respond_to?(:attributes) && node.respond_to?(:namespace_uri) &&
-        node.respond_to?(:__dommy_backend_node__) &&
-        node.__dommy_backend_node__.respond_to?(:element?) &&
-        node.__dommy_backend_node__.element?
-    end
+    def namespace_element?(node) = node.is_a?(Element)
 
     # Yield `el` and each of its ancestor elements (Dommy wrappers) in turn.
     def each_namespace_ancestor(el)
-      doc = el.respond_to?(:document) ? el.document : nil
+      doc = el.document
       while el
         yield el
         parent = el.__dommy_backend_node__.parent
-        el = parent && parent.respond_to?(:element?) && parent.element? && doc ? doc.wrap_node(parent) : nil
+        el = parent&.element? ? doc.wrap_node(parent) : nil
       end
     end
 
     # An element wrapper's prefix (nil when unprefixed).
     def wrapper_prefix(node)
       normalize_ns_prefix(node.__js_get__("prefix"))
-    end
-
-    def nearest_namespaceable_node
-      return nil unless respond_to?(:__dommy_backend_node__)
-
-      nk = __dommy_backend_node__
-      nk = nk.parent while nk.respond_to?(:element?) && !nk.element? && nk.respond_to?(:parent) && nk.parent
-      nk
     end
   end
 end

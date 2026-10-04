@@ -342,9 +342,7 @@ module Dommy
       node = parent_element
       while node
         if node.local_name.to_s.casecmp?("fieldset") && node.__internal_has_attribute__?("disabled")
-          legend = node.child_nodes.to_a.find do |c|
-            c.respond_to?(:local_name) && c.local_name.to_s.casecmp?("legend")
-          end
+          legend = node.children.to_a.find { |c| c.local_name.to_s.casecmp?("legend") }
           return false if legend&.contains?(self)
 
           return true
@@ -371,7 +369,7 @@ module Dommy
       return nil unless local_name.to_s.casecmp?("summary")
 
       parent = parent_element
-      return nil unless parent.respond_to?(:local_name) && parent.local_name.to_s.casecmp?("details")
+      return nil unless parent&.local_name.to_s.casecmp?("details")
 
       first = parent.children.to_a.find { |c| c.local_name.to_s.casecmp?("summary") }
       first&.equal?(self) ? parent : nil

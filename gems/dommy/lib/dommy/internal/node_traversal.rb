@@ -9,10 +9,10 @@ module Dommy
       # Walk from a node up to document, yielding each ancestor.
       # Stops at Nokogiri::XML::Document (the root).
       def self.each_ancestor(node)
-        current = node.respond_to?(:parent) ? node.parent : nil
+        current = node&.parent
         while current && !current.is_a?(Backend.document_class)
           yield current
-          current = current.respond_to?(:parent) ? current.parent : nil
+          current = current.parent
         end
       end
 
@@ -37,7 +37,7 @@ module Dommy
       # copy that stands in for it.
       def self.subtree_nodes(root)
         nodes = [root]
-        root.children.each { |child| nodes.concat(subtree_nodes(child)) } if root.respond_to?(:children)
+        root.children.each { |child| nodes.concat(subtree_nodes(child)) }
         nodes
       end
     end

@@ -50,21 +50,6 @@ module Dommy
       value
     end
 
-    # Map a backend's selector complaints onto the DOM's:
-    # - an "Unregistered function" means a valid pseudo the backend compiled
-    #   but can't evaluate (`:active`, `:invalid`, …) → degrade to no match
-    #   (returns []),
-    # - a backend syntax complaint becomes a DOMException::SyntaxError,
-    # - anything else propagates.
-    def self.with_selector_errors(selector)
-      yield
-    rescue ::StandardError => e
-      return [] if e.message.include?("Unregistered function")
-      raise DOMException::SyntaxError, "'#{selector}' is not a valid selector." if e.message.include?("unexpected")
-
-      raise
-    end
-
     # `:checked`'s checkedness/selectedness is live state, not the attribute:
     # checkbox/radio inputs match on the checked property (which defaults to
     # the attribute), <option> on selectedness.

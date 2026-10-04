@@ -1411,7 +1411,7 @@ module Dommy
     def ensure_document_move_validity!(node, bn, ref_bn)
       # Step 1 — the same root. A document is its own root, so this says the
       # node must already be somewhere in this document.
-      root = bn.respond_to?(:parent) ? Internal::NodeTraversal.root_of(bn) : bn
+      root = bn && Internal::NodeTraversal.root_of(bn)
       # `==` and not `equal?`: a backend may hand back a fresh Ruby object for
       # the same underlying node on every `parent` call.
       unless bn && root == @backend_doc
@@ -2196,8 +2196,6 @@ module Dommy
     # cleared (HTML §4.12.1.1: the HTML/XML parser clears it on every element it
     # inserts, so a plain parsed `<script>` reports `.async === false`).
     def __internal_run_parsed_insertion_steps__
-      return nil unless @backend_doc.respond_to?(:css)
-
       # HTML-namespace only: a `css` query matches on local name, so a
       # `<details>` the parser put inside `<svg>` answers it too, as an
       # SVGElement that has none of these steps.
@@ -2214,7 +2212,7 @@ module Dommy
     # name, so an XML document's prefixed `h:script` counts too.
     def __internal_mark_scripts_already_started__
       Internal::NodeTraversal.subtree_nodes(@backend_doc).each do |node|
-        next unless node.respond_to?(:element?) && node.element?
+        next unless node.element?
         next unless node.local_name == "script"
 
         wrapper = wrap_node(node)
@@ -2295,8 +2293,8 @@ module Dommy
     end
 
     def shadow_including_elements(root, list = [])
-      elements = root.respond_to?(:element?) && root.element? ? [root] : []
-      elements.concat(root.css("*").to_a) if root.respond_to?(:css)
+      elements = root.element? ? [root] : []
+      elements.concat(root.css("*").to_a)
       elements.each do |element|
         list << element
         shadow = @shadow_registry.find_for_host(element)
@@ -2541,7 +2539,7 @@ module Dommy
     # https://github.com/takahashim/dommy/issues/24
     def __internal_normalize__(root)
       text_nodes = []
-      root.traverse { |node| text_nodes << node if node.respond_to?(:text?) && node.text? }
+      root.traverse { |node| text_nodes << node if node.text? }
 
       text_nodes.each do |node|
         next unless node.parent # already removed as part of an earlier run
@@ -2552,7 +2550,7 @@ module Dommy
         end
 
         sib = node.next
-        while sib.respond_to?(:text?) && sib.text?
+        while sib&.text?
           following = sib.next
           data = sib.content.to_s
           # The offset the sibling's data lands at inside the survivor — the
@@ -2688,10 +2686,8 @@ module Dommy
       # child list, so the pass over `children` misses them. It still runs: an
       # XML document's <template> keeps its children in the child list.
       clone_template_content(source, copy, source_document) if source.element? && source.name == "template"
-      if source.respond_to?(:children)
-        source.children.each do |child|
-          copy.add_child(clone_into_doc(child, true, source_document))
-        end
+      source.children.each do |child|
+        copy.add_child(clone_into_doc(child, true, source_document))
       end
 
       copy

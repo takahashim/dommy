@@ -73,7 +73,7 @@ module Dommy
         # Only a Text node's data participates in :empty; a comment/PI edit
         # can't change any match. `target_node` is a backend node, so its data
         # reads through the Nokogiri-compatible #content.
-        text = target_node.respond_to?(:node_type) && target_node.node_type == 3
+        text = target_node.node_type == 3
         flipped = text && (old_value.to_s.empty? != target_node.content.to_s.empty?)
         __internal_bump_dom_generation__ if flipped
         if __internal_inside_style_element__(target_node) ||
@@ -133,18 +133,18 @@ module Dommy
       def __internal_direction_sensitive_ancestor__(node)
         current = node
         while current
-          if current.respond_to?(:element?) && current.element? &&
+          if current.element? &&
              Directionality.text_dependent?(current.name, Backend.no_namespace_attribute_value(current, "dir"))
             return true
           end
 
-          current = current.respond_to?(:parent) ? current.parent : nil
+          current = current.parent
         end
         false
       end
 
       def __internal_style_affected_by_attribute__(name, target_node)
-        owner = target_node.respond_to?(:name) ? target_node.name.to_s.downcase : nil
+        owner = target_node.name.to_s.downcase
         return true if owner == "style" || owner == "link"
         # The `dir` attribute drives the computed `direction` (Directionality)
         # as well as `:dir()`, neither of which is a plain attribute selector.
@@ -170,11 +170,11 @@ module Dommy
         # between childList mutations answers this without re-walking.
         return false unless __internal_style_sheet_elements__.any? { |el| el.local_name.to_s.casecmp?("style") }
 
-        current = node.respond_to?(:parent) ? node.parent : nil
+        current = node.parent
         while current
-          return true if current.respond_to?(:name) && current.name.to_s.downcase == "style"
+          return true if current.name.to_s.downcase == "style"
 
-          current = current.respond_to?(:parent) ? current.parent : nil
+          current = current.parent
         end
         false
       end

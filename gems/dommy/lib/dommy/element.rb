@@ -114,7 +114,7 @@ module Dommy
     # is what would otherwise run them — fires.
     def mark_fragment_scripts_started(backend_nodes)
       backend_nodes.each do |nk|
-        next unless nk.respond_to?(:element?) && nk.element?
+        next unless nk.element?
 
         if nk.name == "script"
           wrapped = @document.wrap_node(nk)
@@ -123,7 +123,7 @@ module Dommy
             wrapped.__internal_mark_parser_inserted__
           end
         end
-        mark_fragment_scripts_started(nk.children.to_a) if nk.respond_to?(:children)
+        mark_fragment_scripts_started(nk.children.to_a)
       end
     end
 
@@ -1369,15 +1369,6 @@ module Dommy
       Internal::SelectorMatcher.closest(self, ast)
     end
 
-    # Map Nokogiri's selector errors to spec behavior:
-    # - a CSS *parse* error ("unexpected … after …") means the selector is
-    #   syntactically invalid → SyntaxError (querySelector/closest must throw);
-    # - an "Unregistered function" means a valid pseudo Nokogiri compiled but
-    #   can't evaluate (`:hover`, `:invalid`, …) → degrade to matching nothing.
-    def with_selector_errors(selector, &block)
-      Internal.with_selector_errors(selector, &block)
-    end
-
     # Web Animations: start an animation on this element.
     # Returns the new Animation. Dommy doesn't interpolate; the
     # animation simply transitions through the `playState` lifecycle,
@@ -1723,50 +1714,5 @@ module Dommy
 
       nil
     end
-
-    def matches_selector?(node, selector)
-      return false if node.nil?
-
-      # A valid pseudo the backend can't evaluate (`:active`, `:invalid`, …)
-      # degrades to not-matching ([] from the rescue) — the same policy as
-      # the query methods.
-      result = with_selector_errors(selector) { matches_selector_uncaught?(node, selector) }
-      result == [] ? false : result
-    end
-
-    def matches_selector_uncaught?(node, selector)
-      return node.document.css(selector).any? { |candidate| candidate == node } unless node.respond_to?(:matches?)
-
-      # A detached node (no parent) breaks Nokogiri's `matches?`, which evaluates
-      # `ancestors.last.search(selector)` — `ancestors.last` is nil with no
-      # ancestors. matches() ignores connectivity (a disconnected element still
-      # matches a selector it satisfies — e.g. Stimulus checks a just-removed
-      # outlet element), so give a parentless node a transient fragment root,
-      # then restore its detached state.
-      if node.respond_to?(:parent) && node.parent.nil? &&
-         node.respond_to?(:document) && node.document.respond_to?(:fragment)
-        return matches_detached_node?(node, selector)
-      end
-
-      node.matches?(selector)
-    end
-
-    # Match a parentless node by wrapping it in a throwaway fragment so the
-    # backend's `matches?` has an ancestor root, then unlinking to leave the
-    # node detached (and its parentNode unchanged) as it was. `fragment("")`
-    # (not the no-arg form) is backend-agnostic — Makiri's takes a source string.
-    #
-    # This is the one place that unlinks a node WITHOUT the pre-removing steps,
-    # deliberately: no DOM removal happened (the node was parentless before and
-    # after), so running them would move live Range / NodeIterator positions for
-    # a purely internal round trip.
-    def matches_detached_node?(node, selector)
-      Parser.fragment("", owner_doc: node.document).add_child(node)
-      node.matches?(selector)
-    ensure
-      node.unlink
-    end
-
-
   end
 end

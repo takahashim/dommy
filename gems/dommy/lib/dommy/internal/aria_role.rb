@@ -210,7 +210,7 @@ module Dommy
       # content; otherwise generic.
       def landmark_or_generic(element, landmark)
         node = element.respond_to?(:__dommy_backend_node__) ? element.__dommy_backend_node__&.parent : nil
-        while node && node.respond_to?(:name)
+        while node
           return "generic" if SECTIONING.include?(node.name.to_s.downcase)
 
           node = node.parent

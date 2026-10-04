@@ -37,7 +37,7 @@ module Dommy
     # (and everything in a non-HTML document) match case-sensitively.
     def self.elements_by_tag_name(root, document, qualified_name)
       qn = qualified_name.to_s
-      html_doc = document.respond_to?(:html_document?) ? document.html_document? : true
+      html_doc = document.html_document?
       qn_lower = ascii_downcase(qn)
       new do
         root.css("*").filter_map do |node|
@@ -46,7 +46,7 @@ module Dommy
           next el if qn == "*"
 
           el_qn = qualified_name_of(el)
-          el_ns = el.respond_to?(:namespace_uri) ? el.namespace_uri : nil
+          el_ns = el.namespace_uri
           # For an HTML-namespace element in an HTML document, only the QUERY is
           # ASCII-lowercased — the element's own qualified name is compared as-is
           # (so an uppercase-localName HTML element, e.g. createElementNS(html,
@@ -70,8 +70,8 @@ module Dommy
     # so a form containing a control named "prefix" would report itself as
     # `prefix:form` and vanish from getElementsByTagName("form").
     def self.qualified_name_of(el)
-      local = el.respond_to?(:local_name) ? el.local_name.to_s : ""
-      prefix = el.respond_to?(:element_prefix) ? el.element_prefix : nil
+      local = el.local_name.to_s
+      prefix = el.element_prefix
       prefix = nil if prefix.nil? || prefix.to_s.empty?
       prefix ? "#{prefix}:#{local}" : local
     end
@@ -96,10 +96,10 @@ module Dommy
           el = document.wrap_node(node)
           next nil unless el
 
-          el_ns = el.respond_to?(:namespace_uri) ? el.namespace_uri : nil
+          el_ns = el.namespace_uri
           next nil unless ns_filter == :any || el_ns == ns_filter
 
-          el_local = el.respond_to?(:local_name) ? el.local_name : nil
+          el_local = el.local_name
           next nil unless local_filter == :any || el_local == local_filter
 
           el
@@ -153,7 +153,7 @@ module Dommy
         # namespace.
         next true if Backend.no_namespace_attribute_value(node, "id").to_s == key
 
-        html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == Internal::Namespaces::HTML
+        html_ns = el.namespace_uri == Internal::Namespaces::HTML
         html_ns && Backend.no_namespace_attribute_value(node, "name").to_s == key
       end
     end
@@ -226,7 +226,7 @@ module Dommy
         name = Backend.no_namespace_attribute_value(node, "name").to_s
         next if name.empty? || names.include?(name)
 
-        html_ns = !el.respond_to?(:namespace_uri) || el.namespace_uri == Internal::Namespaces::HTML
+        html_ns = el.namespace_uri == Internal::Namespaces::HTML
         names << name if html_ns
       end
       names

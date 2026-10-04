@@ -321,12 +321,12 @@ module Dommy
         # (which an XML serialization DOES declare as xmlns="…xhtml"), or the
         # parsed namespace for an XML element.
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
-        presence(backend.respond_to?(:namespace_uri) ? backend.namespace_uri : nil)
+        presence(backend&.namespace_uri)
       end
 
       def element_prefix(node)
         backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
-        presence(backend.respond_to?(:prefix) ? backend.prefix : nil)
+        presence(backend&.prefix)
       end
 
       # The backend node name is the local part, case-preserved (the wrapper's
