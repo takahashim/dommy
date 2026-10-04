@@ -207,7 +207,7 @@ module Dommy
           @document
         when Backend.element_class
           build_element_wrapper(node)
-        when ->(n) { Backend.cdata_class && n.is_a?(Backend.cdata_class) }
+        when Backend.cdata_class
           # CDATA is a Text subtype in the backend, so match it before text_class.
           CDATASectionNode.new(@document, node)
         when Backend.text_class
@@ -222,7 +222,7 @@ module Dommy
           # Fragment wrapper would have no host and no mode, and the walk out of
           # the tree would dead-end there.
           @document.__internal_shadow_root_for_fragment__(node) || Fragment.new(@document, node)
-        when ->(n) { (dt = Backend.document_type_class) && n.is_a?(dt) }
+        when Backend.document_type_class
           DocumentType.new(backend_node: node, document: @document)
         end
       end

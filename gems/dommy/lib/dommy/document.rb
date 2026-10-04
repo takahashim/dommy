@@ -2701,7 +2701,7 @@ module Dommy
     def clone_single_node_into_doc(source, source_document)
       if source.element?
         Backend.import_element(source, @backend_doc)
-      elsif (cdata = Backend.cdata_class) && source.is_a?(cdata)
+      elsif source.is_a?(Backend.cdata_class)
         # CDATA is a Text subtype in the backend, so ask about it first.
         Backend.create_cdata(source.content, @backend_doc)
       elsif source.text?
@@ -2719,7 +2719,7 @@ module Dommy
         # `document_fragment_class.new`, so it works on backends whose fragment
         # class isn't directly instantiable (Makiri).
         Parser.fragment("", owner_doc: @backend_doc)
-      elsif (doctype = Backend.document_type_class) && source.is_a?(doctype)
+      elsif source.is_a?(Backend.document_type_class)
         wrapper = source_document.wrap_node(source)
         Backend.create_document_type(wrapper.name, wrapper.public_id, wrapper.system_id, @backend_doc)
       else
