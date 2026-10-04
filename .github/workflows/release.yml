@@ -1,0 +1,137 @@
+name: Release
+
+# Pushing a vX.Y.Z tag (`rake release` does) releases the four gems, which are
+# versioned in lockstep: check that the tag names the version every gem is at
+# and that they require each other at it, run every gem's tests, build them,
+# attach them to a GitHub Release whose notes are dommy's CHANGELOG section for
+# the version, and — once the `rubygems` environment's approval is given —
+# publish them to RubyGems.
+#
+# Publishing uses RubyGems Trusted Publishing (OIDC), no stored API key. Each
+# of the four gems needs a Trusted Publisher on RubyGems.org: owner=takahashim,
+# repository=dommy, workflow=release.yml, environment=rubygems.
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+      - name: Every gem at the tag's version, requiring the others at it
+        run: TAG="${GITHUB_REF_NAME}" rake version:check
+      - name: dommy's CHANGELOG has a section for it
+        run: grep -q "^## ${GITHUB_REF_NAME#v}\b" gems/dommy/CHANGELOG.md
+
+  test:
+    name: ${{ matrix.gem }}
+    needs: check
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        gem: [dommy, dommy-rack, capybara-dommy, dommy-rails]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+          bundler-cache: true
+      - name: Run ${{ matrix.gem }} tests
+        working-directory: gems/${{ matrix.gem }}
+        run: bundle exec rake
+
+  build:
+    name: Build gems
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+      - name: gem build
+        run: |
+          mkdir -p dist
+          for g in dommy dommy-rack capybara-dommy dommy-rails; do
+            (cd "gems/$g" && gem build "$g.gemspec" -o "../../dist/$g-${GITHUB_REF_NAME#v}.gem")
+          done
+          ls -l dist
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gems
+          path: dist/*.gem
+          if-no-files-found: error
+
+  release:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: gems
+          path: dist
+      - name: Release notes from dommy's CHANGELOG
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          # The section from "## <version>" up to the next "## " heading.
+          awk -v v="$version" '
+            /^## / { if (inside) exit; if (index($0, "## " v) == 1) { inside = 1; next } }
+            inside { print }
+          ' gems/dommy/CHANGELOG.md > notes.md
+          test -s notes.md
+      - name: Create / update the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" dist/*.gem \
+            --repo "${GITHUB_REPOSITORY}" \
+            --title "${GITHUB_REF_NAME}" \
+            --notes-file notes.md \
+            --verify-tag || \
+          gh release upload "${GITHUB_REF_NAME}" dist/*.gem --repo "${GITHUB_REPOSITORY}" --clobber
+
+  # Held until the `rubygems` environment's Required-reviewers rule is approved,
+  # so a tag releases on GitHub at once while the RubyGems push waits.
+  publish:
+    name: Publish to RubyGems
+    needs: build
+    runs-on: ubuntu-latest
+    environment: rubygems
+    permissions:
+      contents: read
+      id-token: write   # OIDC identity token for Trusted Publishing
+    steps:
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "4.0"
+      - uses: actions/download-artifact@v8
+        with:
+          name: gems
+          path: dist
+      - name: Configure RubyGems credentials (OIDC trusted publishing)
+        uses: rubygems/configure-rubygems-credentials@762a4b77c3300434bb57c7ce80b20e36231927aa # v2.0.0
+      - name: gem push, each gem after the ones it requires
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          for g in dommy dommy-rack dommy-rails capybara-dommy; do
+            # A re-run skips what an earlier attempt already published.
+            if gem list --remote --exact --all "$g" | grep -q "[( ]${version}[,)]"; then
+              echo "$g $version is already on RubyGems"
+              continue
+            fi
+            gem push "dist/$g-${version}.gem"
+          done
