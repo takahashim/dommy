@@ -32,9 +32,23 @@
 - `getRootNode` asks the shadow-root registry about a node's root alone rather than every ancestor, taking 1.6 µs instead of 5 µs, and `isConnected` and the shadow-root lookups do the same.
 - A node already wrapped is found in 82 ns instead of 150 ns.
 - `:nth-child` and `:nth-of-type` list a parent's children once rather than once per child: over 3,000 siblings, `querySelectorAll("p:nth-of-type(3n+1)")` takes 9 ms instead of 5.6 s.
+- An element's `children` and `childNodes` lists are made when first read, so wrapping an element allocates 5 objects instead of 24.
+- An `aria-labelledby` or `aria-describedby` reference in the document is resolved by its id lookup: accessible names for 2,400 labelled inputs take 0.8 s instead of 1.9 s.
 
 ### Fixed
 
+- A boolean IDL attribute converts its value as JavaScript does: `el.disabled = 0`, `el.draggable = ""` and `el.translate = NaN` set the false state.
+- `togglePopover` converts its argument as a boolean or a `{force}` dictionary: `togglePopover(1)` shows, `togglePopover(null)` toggles, and `togglePopover(true)` on a showing popover returns `true` without throwing.
+- `:nth-child` and `:nth-of-type` count the children of a `DocumentFragment` or shadow root by their place: in a fragment of three `<i>`, `:nth-child(2)` matches the second.
+- The `outerHTML` setter on a child of `html` parses in the `html` context, so `body.outerHTML = "<body class=x>hi</body>"` makes a `body` with its class.
+- `createContextualFragment` makes the fragment in its context element's document, and with no context element parses in an HTML `body` in an XML document too.
+- Setting a document's `content_type` decides its mode again: an `application/xhtml+xml` response without a doctype is `"CSS1Compat"`.
+- `createElement` in a document parsed as HTML and typed as XHTML or XML keeps the name's case (`fooBar`), and `createElement("xmlns")` makes an HTML element.
+- An invalid `autocapitalize` value, the empty one included, is `"sentences"`.
+- `FormData` stores a `Blob` as a `File` named `"blob"` and names a file by the `filename` argument of `append` and `set`.
+- `addEventListener` and `fetch` take only an `AbortSignal` as their `signal`.
+- A style declaration answers `respond_to?` for CSS property names only, so it is never taken for a callback or an event listener.
+- A host object passed where a callback is expected is not called as a function.
 - `createDocumentType` in an XML document returns a doctype node that joins the tree, as in an HTML document.
 - A `querySelector` result memoized by the document is retired by a child-list or attribute edit made on the backend node directly, not only by one made through the DOM.
 - A namespace URI keeps its case: `createElementNS("fooNamespace", "e").namespaceURI` is `"fooNamespace"`, `getAttributeNS("attrNS", "x")` finds the attribute `setAttributeNS("attrNS", "a:x", v)` made, and an element in `HTTP://WWW.W3.ORG/1999/XHTML` is not an HTML element.
@@ -64,7 +78,7 @@
 - Upgrading a custom element passes each attribute's namespace to `attributeChangedCallback`.
 - The canvas size, meter values, an input's step bounds and lengths, and the `on*` handler an element compiles on first dispatch read their attribute in no namespace too.
 - `observedAttributes` matches an attribute's local name exactly: a `fooBar` made with `setAttributeNS` is observed as `"fooBar"`.
-- A style attribute and a CSSOM declaration block are read in tokens: a `;` or `:` inside a string, a function, a `{}` block, an escape or an unquoted `url()` stays in its value, so `content: "a;b"`, `url(data:image/png;base64,…)` and `url(a/*b.png)` keep the declarations after them, and a comment hides nothing that follows it.
+- A style attribute and a CSSOM declaration block are read in tokens: a `;` or `:` inside a string, a function, a `{}` block, an escape or an unquoted `url()` stays in its value, so `content: "a;b"`, `url(data:image/png;base64,…)` and `url(a/*b.png)` keep the declarations after them, and a comment hides nothing that follows it. The computed style reads the attribute the same way.
 - A CR, a CRLF and an FF in a style attribute are each one newline, so a backslash before a CRLF in a string continues the string.
 - A declaration's value with a `;`, a `!` or an unmatched closing bracket at its top level is dropped, so `setProperty("--x", "1; color: red")` adds nothing, and a bracket closes only a block of its own kind (`calc(1px]; color: red` is all one value).
 - A custom property's value may be empty (`--x:;`, `--x: /* c */`) or hold a colon (`--time: 10:30`), through `setProperty` too.
