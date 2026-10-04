@@ -25,4 +25,11 @@ class TestCreateElementTypedDocument < Minitest::Test
   def test_an_html_document_lowercases_it
     assert_equal %w[foobar FOOBAR http://www.w3.org/1999/xhtml], element("text/html", "fooBar")
   end
+
+  # createElement takes `xmlns` as a local name like any other, though
+  # createElementNS would refuse it outside the XMLNS namespace.
+  def test_an_element_named_xmlns_is_an_html_element
+    assert_equal %w[xmlns XMLNS http://www.w3.org/1999/xhtml], element("text/html", "xmlns")
+  end
 end
+

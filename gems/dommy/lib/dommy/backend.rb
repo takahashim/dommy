@@ -141,12 +141,13 @@ module Dommy
       # a QName, so its element is built from the parts. An HTML-backed one —
       # which a document typed as XHTML or XML after an HTML parse also is —
       # makes it by createElementNS, which keeps the name's case and the
-      # namespace given; that splits a name at its colon, so a name with one
-      # takes the HTML document's creator, which keeps the colon but folds the
-      # name into the HTML namespace in lower case.
+      # namespace given; that splits a name at its colon, and refuses `xmlns`
+      # outside the XMLNS namespace, as createElementNS must — so a name with
+      # a colon, or `xmlns`, takes the HTML document's creator, which keeps
+      # the name as written but folds it into the HTML namespace in lower case.
       def create_element(local_name, namespace, doc)
         return doc.create_loose_dom_element(local_name, nil, local_name, namespace) unless doc.is_a?(::Makiri::HTML::Document)
-        return doc.create_element(local_name) if local_name.include?(":")
+        return doc.create_element(local_name) if local_name.include?(":") || local_name == "xmlns"
 
         doc.create_element_ns(namespace, local_name)
       end
