@@ -162,11 +162,15 @@ module Dommy
 
       # Resolve an ARIA IDREF within this element's tree ROOT (its topmost
       # ancestor) rather than the document — so references keep working when the
-      # subtree is disconnected from the document.
+      # subtree is disconnected from the document or in a shadow tree. In the
+      # document, its own id lookup answers, natively; anywhere else the tree
+      # is searched, as it is small and has no index.
       def aria_find_in_root(id)
-        root = @__node__
-        root = root.parent while root.parent && !root.parent.is_a?(Backend.document_class)
-        node = ([root] + root.css("*").to_a).find { |n| Backend.no_namespace_attribute_value(n, "id") == id }
+        root = NodeTraversal.root_of(@__node__)
+        return @document.get_element_by_id(id) if root.equal?(@document.backend_doc)
+
+        node = root.element? && Backend.no_namespace_attribute_value(root, "id") == id ? root : nil
+        node ||= root.css("*").find { |n| Backend.no_namespace_attribute_value(n, "id") == id }
         node && @document.wrap_node(node)
       end
 
