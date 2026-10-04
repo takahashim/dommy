@@ -71,13 +71,7 @@ module Dommy
           # A NodeFilter's exception must propagate out of the traversal method,
           # so use the raising invocation when the callback supports it (a JS
           # function); a Ruby callable propagates naturally.
-          if cb.respond_to?(:__js_invoke__)
-            cb.__js_invoke__([node], raising: true)
-          elsif cb.respond_to?(:__js_call__)
-            cb.__js_call__("call", [node])
-          else
-            cb.call(node)
-          end
+          CallableInvoker.invoke_raising(cb, node)
         ensure
           @active = false
         end
@@ -103,7 +97,7 @@ module Dommy
     end
 
     def callable?(value)
-      value && (value.respond_to?(:__js_call__) || value.respond_to?(:call))
+      value && CallableInvoker.callable?(value)
     end
   end
 

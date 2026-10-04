@@ -15,10 +15,18 @@ module Dommy
     # carry a second, never-wired one for an embedder that never arrived; if you
     # are about to write a third, this is it.
 
+    # What every adapter for a JS callable is — a function, or a NodeFilter
+    # object — so Dommy can tell a callback the page passed from JS from any
+    # other host object, all of which answer __js_call__ for their methods.
+    # Each one implements __js_invoke__(args, this:, raising:).
+    module Callable; end
+
     # An event listener backed by a live JS function. Implements only the bridge
     # ABI (__js_call__) — not #call/#handle_event — so Dommy's invoke_listener
     # routes through the __js_call__("call", [event]) branch.
     class HostCallback
+      include Callable
+
       attr_reader :id
 
       def initialize(bridge, id)
@@ -74,6 +82,8 @@ module Dommy
     # each invocation runs acceptNode on the JS object (this = object), and the
     # raising variant lets the filter's exception propagate out of the traversal.
     class HostNodeFilter
+      include Callable
+
       attr_reader :ref
 
       def initialize(bridge, ref)

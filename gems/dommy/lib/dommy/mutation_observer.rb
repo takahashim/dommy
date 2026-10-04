@@ -321,13 +321,7 @@ module Dommy
     end
 
     def invoke_observer_callback(records)
-      if @callback.respond_to?(:__js_invoke__)
-        @callback.__js_invoke__([records, self], this: self)
-      elsif @callback.respond_to?(:__js_call__)
-        @callback.__js_call__("call", [records, self])
-      elsif @callback.respond_to?(:call)
-        @callback.call(records, self)
-      end
+      CallableInvoker.invoke(@callback, records, self, this: self)
     end
 
     # Diagnostic only (DOMMY_MO_DEBUG=1): when a page's MutationObserver callback

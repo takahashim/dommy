@@ -159,11 +159,7 @@ module Dommy
     # Invoke onFinally with no arguments, in raising mode so a throw rejects the
     # finally-chain (run_handler's rescue carries the thrown value through).
     def call_finally(on_finally)
-      if on_finally.respond_to?(:__js_invoke__)
-        on_finally.__js_invoke__([], raising: true)
-      else
-        on_finally.call
-      end
+      CallableInvoker.invoke_raising(on_finally)
     end
 
     def coerce_to_promise(value)
@@ -258,18 +254,14 @@ module Dommy
     # A callable handler is a JS function (HostCallback) or a Ruby proc; a plain
     # value (number, null, object) is not, and triggers §2.2.7.3/.4 passthrough.
     def callable?(callback)
-      callback.respond_to?(:__js_call__) || callback.respond_to?(:call)
+      CallableInvoker.callable?(callback)
     end
 
     # Invoke a `.then` handler. A JS callback is invoked in RAISING mode so a
     # thrown value re-raises as a Bridge::ThrowValue (§2.2.7.2) instead of being
     # swallowed; a Ruby callable raises naturally.
     def invoke_handler(callback, value)
-      if callback.respond_to?(:__js_invoke__)
-        callback.__js_invoke__([value], raising: true)
-      else
-        CallableInvoker.invoke(callback, value)
-      end
+      CallableInvoker.invoke_raising(callback, value)
     end
 
     def propagate(child)
@@ -304,34 +296,28 @@ module Dommy
         promise = PromiseValue.new(@window)
         resolve = PromiseSettler.new(promise, fulfilled: true)
         reject = PromiseSettler.new(promise, fulfilled: false)
-        if executor.respond_to?(:__js_call__)
-          executor.__js_call__("call", [resolve, reject])
-        elsif executor.respond_to?(:call)
-          executor.call(resolve, reject)
-        end
+        CallableInvoker.invoke(executor, resolve, reject)
 
         promise
       end
     end
 
-    # Adapter so a Ruby-side executor can deliver resolve/reject
-    # through the same `__js_call__("call", args)` interface that
-    # the scheduler and JS bridge use for callbacks.
+    # The resolve or reject function `new Promise(executor)` hands its
+    # executor: a Ruby callable, and called from JS through the bridge. Being
+    # a Ruby callable, it serves as a callback wherever one is taken —
+    # `new MutationObserver(resolve)` included.
     class PromiseSettler
       def initialize(promise, fulfilled:)
         @promise = promise
         @fulfilled = fulfilled
       end
 
-      def __js_call__(_method, args)
-        if @fulfilled
-          @promise.fulfill(args[0])
-        else
-          @promise.reject(args[0])
-        end
-
+      def call(value = nil)
+        @fulfilled ? @promise.fulfill(value) : @promise.reject(value)
         nil
       end
+
+      def __js_call__(_method, args) = call(args[0])
     end
   end
 end

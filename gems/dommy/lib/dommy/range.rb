@@ -936,11 +936,7 @@ module Dommy
       end
     end
 
-    def clone_wrapped(node)
-      return nil unless node.respond_to?(:__js_call__)
-
-      node.__js_call__("cloneNode", [true])
-    end
+    def clone_wrapped(node) = node.clone_node(true)
 
     def before?(node)
       # node is entirely before the range start

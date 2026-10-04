@@ -56,9 +56,16 @@ module Dommy
       properties.keys.each(&blk)
     end
 
+    # Names a property accessor never is: what Dommy and Ruby ask an object
+    # about to see whether it is callable, a listener or convertible — a
+    # style declaration is none of those.
+    NOT_PROPERTY_ACCESSORS = %w[call handle_event].freeze
+
     # camelCase JS property accessors → kebab-case CSS property name.
     # `style.backgroundColor = "red"` becomes `background-color: red`.
     def method_missing(name, *args)
+      return super unless property_accessor?(name)
+
       key = method_to_css_name(name)
       if name.to_s.end_with?("=")
         set_property(key, args.first)
@@ -69,8 +76,8 @@ module Dommy
       end
     end
 
-    def respond_to_missing?(_name, _include_private = false)
-      true
+    def respond_to_missing?(name, include_private = false)
+      property_accessor?(name) || super
     end
 
     def __js_get__(key)
@@ -177,6 +184,14 @@ module Dommy
     # declaration block's own names are normalized.
     def property_key(name)
       Internal::CSS::Parser.property_name(name)
+    end
+
+    # A name read as a CSS property: lower-case first, as a property's
+    # snake_case or camelCase spelling is, and not a protocol's name
+    # (#call, #handle_event, a to_* conversion) nor a __bridge__ one.
+    def property_accessor?(name)
+      s = name.to_s
+      s.match?(/\A[a-z][a-zA-Z0-9_]*=?\z/) && !s.start_with?("to_") && !NOT_PROPERTY_ACCESSORS.include?(s)
     end
 
     def method_to_css_name(name)

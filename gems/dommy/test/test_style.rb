@@ -132,4 +132,15 @@ class TestStyle < Minitest::Test
     assert_equal("", style.get_property_value("color"))
     assert_equal("1px", style.get_property_value("width"))
   end
+
+  # A style declaration answers its CSS properties as Ruby accessors and
+  # nothing else: not #call or #handle_event, so it is no callable or event
+  # listener to code that asks, and not the bridge's __js_invoke__.
+  def test_a_style_declaration_answers_only_property_accessors
+    style = Dommy.parse("<p style='color: red'>").document.query_selector("p").style
+    assert_equal [true, true], [style.respond_to?(:color), style.respond_to?(:background_color=)]
+    assert_equal [false, false, false, false], %i[call handle_event __js_invoke__ to_str].map { |name| style.respond_to?(name) }
+    assert_raises(NoMethodError) { style.handle_event(nil) }
+  end
 end
+

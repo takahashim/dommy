@@ -34,11 +34,7 @@ module Dommy
     def invoke(window, callback, *args)
       return PromiseValue.resolve(window, nil) if callback.nil?
 
-      result = if callback.respond_to?(:__js_invoke__)
-        callback.__js_invoke__(args, raising: true)
-      else
-        CallableInvoker.invoke(callback, *args)
-      end
+      result = CallableInvoker.invoke_raising(callback, *args)
       to_promise(window, result)
     rescue Bridge::ThrowValue => e
       PromiseValue.reject(window, e.value)
@@ -60,7 +56,7 @@ module Dommy
       return false unless value.respond_to?(:__js_get__) && value.respond_to?(:__js_call__)
 
       then_method = value.__js_get__("then")
-      then_method.respond_to?(:__js_call__) || then_method.respond_to?(:call)
+      CallableInvoker.callable?(then_method)
     end
 
     # Run `on_fulfilled` / `on_rejected` when `promise` settles. Both are
