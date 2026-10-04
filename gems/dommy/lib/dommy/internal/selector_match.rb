@@ -169,7 +169,7 @@ module Dommy
           parent = element.__dommy_backend_node__.parent
           return 1 unless parent
 
-          positions = sibling_positions(parent, element.owner_document)
+          positions = sibling_positions(parent)
           node = element.__dommy_backend_node__
           of_type ? positions.of_type(node, reverse) : positions.of(node, reverse)
         end
@@ -177,12 +177,12 @@ module Dommy
         # One parent's SiblingPositions, kept for as long as the tree does not
         # change: a match lives through a whole query, and the cascade's
         # through a whole style pass.
-        def sibling_positions(parent_node, document)
+        def sibling_positions(parent_node)
           version = parent_node.document.tree_version
           kept = (@sibling_positions ||= {}.compare_by_identity)[parent_node]
           return kept if kept&.current?(version)
 
-          @sibling_positions[parent_node] = SiblingPositions.new(parent_node, document, version)
+          @sibling_positions[parent_node] = SiblingPositions.new(parent_node, version)
         end
       end
     end

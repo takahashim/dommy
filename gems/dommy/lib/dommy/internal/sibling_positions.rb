@@ -13,9 +13,8 @@ module Dommy
       class SiblingPositions
         attr_reader :version
 
-        def initialize(parent_node, document, version)
+        def initialize(parent_node, version)
           @children = parent_node.element_children.to_a
-          @document = document
           @version = version
           @index = {}.compare_by_identity
           @children.each_with_index { |node, i| @index[node] = i }
@@ -51,10 +50,9 @@ module Dommy
           end
         end
 
-        def type_of(node)
-          element = @document.wrap_node(node)
-          [element.namespace_uri, element.local_name]
-        end
+        # The namespace and local name the element reports, read from its
+        # node, as Element#namespace_uri and #local_name read them.
+        def type_of(node) = [Backend.namespace_uri(node), node.local_name]
       end
     end
   end
