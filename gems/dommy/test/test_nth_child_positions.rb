@@ -33,4 +33,23 @@ class TestNthChildPositions < Minitest::Test
     assert_equal %w[x a c], @doc.query_selector_all("li:nth-of-type(odd)").map(&:text_content)
     assert_equal %w[x c], @doc.query_selector_all("li:nth-last-of-type(1)").map(&:text_content)
   end
+
+  # A fragment's and a shadow root's children are siblings as an element's
+  # are, for every :nth-* as for :first-child.
+  def test_the_children_of_a_fragment_or_a_shadow_root_count_their_places
+    fragment = @doc.create_document_fragment
+    3.times { |i| fragment.append_child(@doc.create_element("i")).text_content = i.to_s }
+    host = @doc.create_element("div")
+    shadow = host.attach_shadow("mode" => "open")
+    shadow.inner_html = "<i>0</i><b>x</b><i>1</i><i>2</i>"
+
+    [fragment, shadow].each do |root|
+      assert_equal %w[1], root.query_selector_all("i:nth-of-type(2)").map(&:text_content)
+      assert_equal %w[2], root.query_selector_all("i:nth-last-child(1)").map(&:text_content)
+      assert_equal %w[0], root.query_selector_all(":first-child").map(&:text_content)
+    end
+    assert_equal %w[1], fragment.query_selector_all("i:nth-child(2)").map(&:text_content)
+    assert_equal %w[1], shadow.query_selector_all(":nth-child(2 of i)").map(&:text_content)
+  end
 end
+

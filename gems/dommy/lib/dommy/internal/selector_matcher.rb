@@ -329,9 +329,14 @@ module Dommy
         (n % a).zero? && (n / a) >= 0
       end
 
+      # The element children of `element`'s parent, whatever the parent is (a
+      # fragment's children are siblings too), or the element alone.
       def element_siblings(element)
-        parent = element.parent_element
-        parent ? parent.children.to_a : [element]
+        parent = element.__dommy_backend_node__.parent
+        return [element] unless parent
+
+        document = element.owner_document
+        parent.element_children.map { |node| document.wrap_node(node) }
       end
 
       def previous_of_type(element)

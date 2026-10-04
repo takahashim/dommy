@@ -162,12 +162,14 @@ module Dommy
 
         def nth?(position, nth) = position && SelectorMatcher.nth_match?(position, nth.a, nth.b)
 
-        # An element without a parent element stands alone, the first of one.
+        # Its place among its parent's element children, whatever the parent
+        # is — an element, a DocumentFragment, a shadow root's fragment, the
+        # document. An element without a parent stands alone, the first of one.
         def sibling_position(element, reverse, of_type:)
-          parent = element.parent_element
+          parent = element.__dommy_backend_node__.parent
           return 1 unless parent
 
-          positions = sibling_positions(parent.__dommy_backend_node__, element.owner_document)
+          positions = sibling_positions(parent, element.owner_document)
           node = element.__dommy_backend_node__
           of_type ? positions.of_type(node, reverse) : positions.of(node, reverse)
         end
