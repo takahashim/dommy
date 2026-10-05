@@ -77,6 +77,10 @@ module Dommy
         # HTMLDocument is the legacy alias an HTML document reports as its
         # most-derived interface (`document.constructor === HTMLDocument`).
         %w[HTMLDocument Document Node EventTarget],
+        # XMLDocument is what `implementation.createDocument` returns; a
+        # DOMParser/XML-parsed document reports the base `Document` instead, so
+        # the two are distinguished by a flag, not by content type.
+        %w[XMLDocument Document Node EventTarget],
         %w[DocumentFragment Node EventTarget],
         # ShadowRoot is a DocumentFragment subclass; seeded so bare `node
         # instanceof ShadowRoot` (Alpine.js walks the tree with this) resolves.
@@ -209,8 +213,12 @@ module Dommy
         # An HTML document reports as an HTMLDocument — the legacy alias browsers
         # expose — so `document.constructor === HTMLDocument` and
         # `document.__proto__ === HTMLDocument.prototype` hold.
-        if names.first == "Document" && obj.respond_to?(:html_document?) && obj.html_document?
-          names.unshift("HTMLDocument")
+        if names.first == "Document"
+          if obj.respond_to?(:html_document?) && obj.html_document?
+            names.unshift("HTMLDocument")
+          elsif obj.respond_to?(:xml_document?) && obj.xml_document?
+            names.unshift("XMLDocument")
+          end
         end
         # WebIDL bases Dommy has no Ruby class for, so the superclass walk above
         # cannot find them.
@@ -240,8 +248,11 @@ module Dommy
 
       # Whether this object's WebIDL interface depends on the instance rather
       # than its Ruby class, so callers must not memoize the answer per class.
+      # A CSS rule's interface comes from its `type`; a Document's is
+      # HTMLDocument / XMLDocument / Document, decided per instance.
       def polymorphic?(value)
-        defined?(Dommy::CSSRule) && value.instance_of?(Dommy::CSSRule)
+        (defined?(Dommy::CSSRule) && value.instance_of?(Dommy::CSSRule)) ||
+          (defined?(Dommy::Document) && value.is_a?(Dommy::Document))
       end
 
       # The interface chain for a CSS rule, keyed by CSSOM's `CSSRule.type`

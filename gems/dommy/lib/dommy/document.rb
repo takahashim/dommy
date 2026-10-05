@@ -322,7 +322,16 @@ module Dommy
     # with, in tree order, the doctype (when given) then a document element
     # (namespace, qualifiedName) when qualifiedName is non-empty.
     def create_document(namespace, qualified_name, doctype = nil)
+      # WebIDL converts the interface argument before running the DOM steps
+      # (including qualified-name validation).
+      unless doctype.nil? || doctype.equal?(Bridge::UNDEFINED) || doctype.is_a?(DocumentType)
+        raise Bridge::TypeError, "doctype must be a DocumentType"
+      end
+
       doc = Document.new(nil, backend_doc: Backend.empty_xml_document)
+      # The result is an XMLDocument (DOM's createDocument), unlike a DOMParser
+      # result of the same content type — so the interface is pinned here.
+      doc.__internal_xml_document__ = true
       # createDocument's content type is keyed off the namespace. None is
       # "text/html", so tagName keeps its case; xhtml+xml still routes
       # createElement to the HTML namespace (so an XHTML document isEqualNode
@@ -341,28 +350,6 @@ module Dommy
       adopt_doctype_into(doc, doctype)
       doc
     end
-
-    private
-
-    # Place `doctype` (a DocumentType passed to createDocument) as `doc`'s first
-    # child. createDocument appends the doctype node itself (step 5, before
-    # step 6 appends the element), so it goes through the ordinary insert: the
-    # adoption re-binds the caller's wrapper, and `xmlDoc.firstChild ===
-    # doctype`, its parentNode and ownerDocument all follow.
-    #
-    # No-op for nil/undefined or a non-DocumentType. A doctype the XML backend
-    # cannot hold is left unplaced rather than thrown: createDocument itself
-    # validates none of it — only an XML serialization would.
-    def adopt_doctype_into(doc, doctype)
-      return if doctype.nil? || doctype.equal?(Bridge::UNDEFINED)
-      return unless doctype.is_a?(DocumentType)
-
-      doc.insert_before(doctype, doc.document_element)
-    rescue DOMException::NotSupportedError
-      nil
-    end
-
-    public
 
     # createHTMLDocument(title?) — a fresh HTML document (doctype + html > head,
     # body), with an optional <title>. A given title is a title element in the
@@ -386,6 +373,10 @@ module Dommy
       when "createDocumentType"
         create_document_type(args[0], args[1], args[2])
       when "createDocument"
+        # namespace and qualifiedName are required (either may be null, but
+        # must be present); doctype is optional.
+        raise Bridge::TypeError, "createDocument requires 2 arguments." if args.length < 2
+
         create_document(args[0], args[1], args[2])
       when "createHTMLDocument"
         # title is an OPTIONAL DOMString: a missing or undefined argument leaves
@@ -398,6 +389,27 @@ module Dommy
       when "hasFeature"
         has_feature
       end
+    end
+
+    private
+
+    # Place `doctype` (a DocumentType passed to createDocument) as `doc`'s first
+    # child. createDocument appends the doctype node itself (step 5, before
+    # step 6 appends the element), so it goes through the ordinary insert: the
+    # adoption re-binds the caller's wrapper, and `xmlDoc.firstChild ===
+    # doctype`, its parentNode and ownerDocument all follow.
+    #
+    # No-op for nil/undefined. Any other non-DocumentType is a TypeError: the
+    # IDL converts `doctype` to `DocumentType?`, so `createDocument(ns, name,
+    # false)` throws rather than ignoring the value. A doctype the XML backend
+    # cannot hold is left unplaced rather than thrown: only an XML
+    # serialization would validate its contents.
+    def adopt_doctype_into(doc, doctype)
+      return if doctype.nil? || doctype.equal?(Bridge::UNDEFINED)
+
+      doc.insert_before(doctype, doc.document_element)
+    rescue DOMException::NotSupportedError
+      nil
     end
   end
 
@@ -613,6 +625,17 @@ module Dommy
       @content_type == "text/html"
     end
 
+    # Whether this document is DOM's XMLDocument — the interface
+    # `implementation.createDocument` returns (and a clone of one keeps). A
+    # DOMParser result is the base Document even when parsed from XML, so this
+    # rides on the instance rather than the content type. Together with
+    # #html_document? it decides the document's most-derived interface.
+    def xml_document? = @xml_document == true
+
+    def __internal_xml_document__=(value)
+      @xml_document = value
+    end
+
     # `document.compatMode` — "BackCompat" in quirks mode, "CSS1Compat" in
     # no-quirks and limited-quirks mode alike.
     def compat_mode
@@ -792,10 +815,6 @@ module Dommy
       nil
     end
 
-    private def creator_base_url
-      @creator_base_url if @creator_base_url && FALLBACK_BASE_URLS.include?(url)
-    end
-
     # `document.domain` — host portion of the URL. Real browsers
     # restrict cross-origin reads of this; we just return the bare host.
     def domain
@@ -965,28 +984,6 @@ module Dommy
       wrap_node(copy)
     end
 
-    # importNode is a clone, so the HTML cloning steps run for it as they do
-    # for cloneNode (#__internal_apply_cloning_steps__): the live state Dommy
-    # keeps on a wrapper — an input's dirty value, a script's "already
-    # started" — is copied onto the new node. The originals' wrappers belong
-    # to the source document, so they are looked up there.
-    def apply_imported_cloning_steps(src_root, copy_root, deep, source_document)
-      return unless source_document.respond_to?(:__internal_peek_wrapper__)
-
-      src_nodes = deep ? Internal::NodeTraversal.subtree_nodes(src_root) : [src_root]
-      copy_nodes = deep ? Internal::NodeTraversal.subtree_nodes(copy_root) : [copy_root]
-      return unless src_nodes.length == copy_nodes.length
-
-      src_nodes.zip(copy_nodes).each do |orig, copy|
-        state = source_document.__internal_peek_wrapper__(orig)&.then { |w| w.respond_to?(:__internal_cloning_state__) && w.__internal_cloning_state__ }
-        next unless state
-
-        wrapper = wrap_node(copy)
-        wrapper.__internal_apply_cloning_state__(state) if wrapper.respond_to?(:__internal_apply_cloning_state__)
-      end
-    end
-    private :apply_imported_cloning_steps
-
     def import_attribute(attr)
       Attr.new(
         attr.name,
@@ -1022,11 +1019,6 @@ module Dommy
     def __internal_adopt_backend_node__(node, source_document)
       node_adopter.adopt_backend_node(node, source_document)
     end
-
-    def node_adopter
-      @node_adopter ||= Internal::NodeAdopter.new(self)
-    end
-    private :node_adopter
 
     # HTML "cloning steps": a cloned node copies interface-specific live state
     # that the content attributes don't capture — an input's dirty value and
@@ -1612,6 +1604,7 @@ module Dommy
     def clone_node(deep)
       copy = Document.new(nil, backend_doc: Backend.empty_document_like(@backend_doc))
       copy.content_type = @content_type
+      copy.__internal_xml_document__ = @xml_document
       copy.__internal_quirks_mode__ = quirks_mode?
       return copy unless deep
 
@@ -1921,38 +1914,6 @@ module Dommy
       # the element itself.
       el.local_name.to_s.casecmp?("iframe") && el.respond_to?(:content_window) ? (el.content_window || el) : el
     end
-
-    private
-
-    # "The html element": the document element when it is an HTML <html>.
-    def html_element
-      root = document_element
-      root if root.is_a?(HTMLElement) && root.local_name == "html"
-    end
-
-    # An element is a named element with the name `name` when it is one of the
-    # exposed kinds and either carries that `name`, or is an object with that
-    # `id`, or is an img whose id it is and which also has a non-empty name.
-    def named_element?(node, name)
-      return false if name.empty?
-      return false unless %w[embed form iframe img object].include?(node.name.to_s.downcase)
-      own_name = Backend.no_namespace_attribute_value(node, "name")
-      return true if own_name == name
-      return true if node.name.to_s.casecmp?("object") && Backend.no_namespace_attribute_value(node, "id") == name
-
-      node.name.to_s.casecmp?("img") && Backend.no_namespace_attribute_value(node, "id") == name && !own_name.to_s.empty?
-    end
-
-    # Elements the document's named getter exposes, in tree order.
-    def named_getter_nodes
-      @backend_doc.css("embed, form, iframe, img, object")
-    end
-
-    def document_named_property_nodes(name)
-      named_getter_nodes.select { |node| named_element?(node, name) }.map { |node| wrap_node(node) }.compact
-    end
-
-    public
 
     def __js_set__(key, value)
       if key.start_with?("on") && key.length > 2
@@ -2291,18 +2252,6 @@ module Dommy
       shadow_including_elements(root).each(&block)
       nil
     end
-
-    def shadow_including_elements(root, list = [])
-      elements = root.element? ? [root] : []
-      elements.concat(root.css("*").to_a)
-      elements.each do |element|
-        list << element
-        shadow = @shadow_registry.find_for_host(element)
-        shadow_including_elements(shadow.__dommy_backend_node__, list) if shadow
-      end
-      list
-    end
-    private :shadow_including_elements
 
     def __internal_shadow_root_containing__(node)
       @shadow_registry.find_enclosing(node)
@@ -2673,6 +2622,74 @@ module Dommy
 
 
     private
+
+    def creator_base_url
+      @creator_base_url if @creator_base_url && FALLBACK_BASE_URLS.include?(url)
+    end
+
+    # importNode is a clone, so the HTML cloning steps run for it as they do
+    # for cloneNode (#__internal_apply_cloning_steps__): the live state Dommy
+    # keeps on a wrapper — an input's dirty value, a script's "already
+    # started" — is copied onto the new node. The originals' wrappers belong
+    # to the source document, so they are looked up there.
+    def apply_imported_cloning_steps(src_root, copy_root, deep, source_document)
+      return unless source_document.respond_to?(:__internal_peek_wrapper__)
+
+      src_nodes = deep ? Internal::NodeTraversal.subtree_nodes(src_root) : [src_root]
+      copy_nodes = deep ? Internal::NodeTraversal.subtree_nodes(copy_root) : [copy_root]
+      return unless src_nodes.length == copy_nodes.length
+
+      src_nodes.zip(copy_nodes).each do |orig, copy|
+        state = source_document.__internal_peek_wrapper__(orig)&.then { |w| w.respond_to?(:__internal_cloning_state__) && w.__internal_cloning_state__ }
+        next unless state
+
+        wrapper = wrap_node(copy)
+        wrapper.__internal_apply_cloning_state__(state) if wrapper.respond_to?(:__internal_apply_cloning_state__)
+      end
+    end
+
+    def node_adopter
+      @node_adopter ||= Internal::NodeAdopter.new(self)
+    end
+
+    def shadow_including_elements(root, list = [])
+      elements = root.element? ? [root] : []
+      elements.concat(root.css("*").to_a)
+      elements.each do |element|
+        list << element
+        shadow = @shadow_registry.find_for_host(element)
+        shadow_including_elements(shadow.__dommy_backend_node__, list) if shadow
+      end
+      list
+    end
+
+    # "The html element": the document element when it is an HTML <html>.
+    def html_element
+      root = document_element
+      root if root.is_a?(HTMLElement) && root.local_name == "html"
+    end
+
+    # An element is a named element with the name `name` when it is one of the
+    # exposed kinds and either carries that `name`, or is an object with that
+    # `id`, or is an img whose id it is and which also has a non-empty name.
+    def named_element?(node, name)
+      return false if name.empty?
+      return false unless %w[embed form iframe img object].include?(node.name.to_s.downcase)
+      own_name = Backend.no_namespace_attribute_value(node, "name")
+      return true if own_name == name
+      return true if node.name.to_s.casecmp?("object") && Backend.no_namespace_attribute_value(node, "id") == name
+
+      node.name.to_s.casecmp?("img") && Backend.no_namespace_attribute_value(node, "id") == name && !own_name.to_s.empty?
+    end
+
+    # Elements the document's named getter exposes, in tree order.
+    def named_getter_nodes
+      @backend_doc.css("embed, form, iframe, img, object")
+    end
+
+    def document_named_property_nodes(name)
+      named_getter_nodes.select { |node| named_element?(node, name) }.map { |node| wrap_node(node) }.compact
+    end
 
     # Build a Nokogiri copy of the given node inside our @backend_doc.
     # `deep: true` recurses into children. Used by importNode and

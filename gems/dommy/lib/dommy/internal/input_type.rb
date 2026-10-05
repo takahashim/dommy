@@ -106,11 +106,32 @@ module Dommy
 
       def value_of(text, element)
         number = to_number(text)
-        low = (NumberInputType.float(element.__internal_attribute_value__("min").to_s) rescue 0.0)
-        high = (NumberInputType.float(element.__internal_attribute_value__("max").to_s) rescue 100.0)
-        number = nil if number.nan?
-        number ||= high < low ? low : low + (high - low) / 2.0
-        number.clamp(low, high)
+        low = finite_attribute(element, "min") || 0.0
+        high = finite_attribute(element, "max") || 100.0
+        number = high < low ? low : low / 2.0 + high / 2.0 unless number.finite?
+        number = [number, low].max
+        number = [number, high].min if high >= low
+        return number if element.__internal_attribute_value__("step") == "any"
+
+        step = finite_attribute(element, "step")
+        step = default_step unless step&.positive?
+        base = finite_attribute(element, "min") || finite_attribute(element, "value") || step_base
+        # Round in decimal arithmetic so a valid 0.6 at step 0.1 does not
+        # become 0.6000000000000001, and tiny steps cannot overflow the ratio.
+        number = number.to_s.to_r
+        base = base.to_s.to_r
+        step = step.to_s.to_r
+        offset = (number - base) / step
+        candidates = [offset.floor, offset.ceil].map { |n| base + n * step }
+          .select { |n| n >= low && (high < low || n <= high) }
+        (candidates.min_by { |n| [(n - number).abs, -n] } || number).to_f
+      end
+
+      private
+
+      def finite_attribute(element, name)
+        number = to_number(element.__internal_attribute_value__(name).to_s)
+        number if number.finite?
       end
     end
 
@@ -119,11 +140,11 @@ module Dommy
       def scale_factor = 86_400_000
 
       def to_number(text)
-        match = /\A(\d{4,})-(\d{2})-(\d{2})\z/.match(text.to_s.strip)
+        match = /\A(\d{4,})-(\d{2})-(\d{2})\z/.match(text.to_s)
         return ::Float::NAN unless match
 
         year, month, day = match[1].to_i, match[2].to_i, match[3].to_i
-        return ::Float::NAN if year < 1 || !::Date.valid_date?(year, month, day)
+        return ::Float::NAN if year < 1 || !::Date.valid_date?(year, month, day, ::Date::GREGORIAN)
 
         ::Time.utc(year, month, day).to_i * 1000.0
       end
@@ -145,7 +166,7 @@ module Dommy
       def default_step = 60.0
 
       def to_number(text)
-        match = /\A(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/.match(text.to_s.strip)
+        match = /\A(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/.match(text.to_s)
         return ::Float::NAN unless match
 
         hour, minute, second = match[1].to_i, match[2].to_i, match[3].to_i
@@ -176,6 +197,9 @@ module Dommy
 
     class DatetimeLocalInputType < InputType
 
+      # Match the representable time range of the JS Date/TimeClip domain.
+      MAX_TIME_MS = 8_640_000_000_000_000
+
       def scale_factor = 1000
       def default_step = 60.0
 
@@ -183,12 +207,12 @@ module Dommy
         # The date/time separator may be "T" or a space (the "parse a local date
         # and time string" algorithm accepts both).
         match = /\A(\d{4,})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::(\d{2})(?:\.(\d{1,3}))?)?\z/
-          .match(text.to_s.strip)
+          .match(text.to_s)
         return ::Float::NAN unless match
 
         year, month, day = match[1].to_i, match[2].to_i, match[3].to_i
         hour, minute, second = match[4].to_i, match[5].to_i, match[6].to_i
-        return ::Float::NAN if year < 1 || !::Date.valid_date?(year, month, day)
+        return ::Float::NAN if year < 1 || !::Date.valid_date?(year, month, day, ::Date::GREGORIAN)
         return ::Float::NAN if hour > 23 || minute > 59 || second > 59
 
         fraction = match[7] ? match[7].ljust(3, "0").to_i : 0
@@ -196,10 +220,10 @@ module Dommy
       end
 
       def from_number(number)
-        return "" if number.nan?
+        return "" unless number.finite? && number.abs <= MAX_TIME_MS
 
         time = utc_time_from_ms(number)
-        return "" if time.year < 1 || time.year > 9999
+        return "" if time.year < 1
 
         base = format("%04d-%02d-%02dT%02d:%02d", time.year, time.month, time.day, time.hour, time.min)
         fraction = (number % 1000).to_i
@@ -208,7 +232,7 @@ module Dommy
         elsif fraction.zero?
           base + format(":%02d", time.sec)
         else
-          base + format(":%02d.%03d", time.sec, fraction)
+          base + format(":%02d.%03d", time.sec, fraction).sub(/0+\z/, "")
         end
       rescue ::RangeError, ::ArgumentError, ::FloatDomainError
         ""
@@ -221,7 +245,7 @@ module Dommy
     class MonthInputType < InputType
 
       def to_number(text)
-        match = /\A(\d{4,})-(\d{2})\z/.match(text.to_s.strip)
+        match = /\A(\d{4,})-(\d{2})\z/.match(text.to_s)
         return ::Float::NAN unless match
 
         year, month = match[1].to_i, match[2].to_i
@@ -250,14 +274,14 @@ module Dommy
       def step_base = to_number("1970-W01")
 
       def to_number(text)
-        match = /\A(\d{4,})-W(\d{2})\z/.match(text.to_s.strip)
+        match = /\A(\d{4,})-W(\d{2})\z/.match(text.to_s)
         return ::Float::NAN unless match
 
         year, week = match[1].to_i, match[2].to_i
         return ::Float::NAN if year < 1 || week < 1
 
         # Date.commercial raises for a week beyond the ISO year's 52/53 weeks.
-        date = ::Date.commercial(year, week, 1)
+        date = ::Date.commercial(year, week, 1, ::Date::GREGORIAN)
         ::Time.utc(date.year, date.month, date.day).to_i * 1000.0
       rescue ::ArgumentError
         ::Float::NAN
