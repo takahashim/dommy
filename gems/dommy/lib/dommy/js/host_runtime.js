@@ -1156,33 +1156,75 @@ globalThis.__rbHost = (function () {
       return [norm, { type: options.type }];
     }
     if (name === "URLSearchParams") {
-      // Per spec a non-string iterable init (another URLSearchParams, a Map, an
-      // object with a custom @@iterator) is a *sequence* of pairs — materialize
-      // it through its live iterator HERE so the iterator runs JS-side; Ruby only
-      // ever sees plain pair arrays. Any other object — a function included,
-      // e.g. `new URLSearchParams(DOMException)` — is a record<USVString,
-      // USVString>, converted here too (WebIDL §3.2.19): its own enumerable
-      // keys in [[OwnPropertyKeys]] order, a later duplicate after USVString
-      // conversion overwriting the earlier one in place. It reaches Ruby as the
-      // same pair array, so a host object is never stringified whole and a key
-      // never travels as a hash key (which would cut it at a NUL).
-      const init = args[0];
-      if (init === null || (typeof init !== "object" && typeof init !== "function")) return args;
-      if (init[Symbol.iterator] !== undefined) {
-        if (typeof init[Symbol.iterator] !== "function") {
-          throw new TypeError("Failed to construct 'URLSearchParams': The provided value cannot be converted to a sequence.");
-        }
-        return [Array.from(init, (pair) => Array.from(pair))];
-      }
+      // The init argument is `optional (sequence<sequence<USVString>> or
+      // record<USVString, USVString> or USVString) init = ""`, converted here
+      // per WebIDL so iterators and getters run JS-side and Ruby only ever sees
+      // a string or an array of pairs of strings (a record's keys never travel
+      // as Ruby hash keys, which would cut a key at a NUL).
+      // https://webidl.spec.whatwg.org/#es-union
+      const fail = (what) => new TypeError(
+        "Failed to construct 'URLSearchParams': The provided value cannot be converted to " + what + ".");
+      // USVString: ToString (a Symbol throws, as String(sym) would not), then
+      // every lone surrogate becomes U+FFFD.
       const toUSV = (v) => {
-        const str = `${v}`; // ToString: a Symbol throws, as String(sym) would not
+        const str = `${v}`;
         return typeof str.toWellFormed === "function" ? str.toWellFormed() : str;
       };
+      // "Create a sequence from an iterable", given the @@iterator method
+      // already read: GetIteratorFromMethod, then IteratorStepValue to the end.
+      const fromIterable = (iterable, method, convert, what) => {
+        const iterator = method.call(iterable);
+        if (iterator === null || (typeof iterator !== "object" && typeof iterator !== "function")) throw fail(what);
+        const next = iterator.next;
+        const items = [];
+        for (;;) {
+          const step = next.call(iterator);
+          if (step === null || (typeof step !== "object" && typeof step !== "function")) throw fail(what);
+          if (step.done) return items;
+          items.push(convert(step.value));
+        }
+      };
+      // GetMethod(V, @@iterator): undefined/null mean none; anything else must
+      // be callable.
+      const iteratorMethod = (v, what) => {
+        const method = v[Symbol.iterator];
+        if (method === undefined || method === null) return undefined;
+        if (typeof method !== "function") throw fail(what);
+        return method;
+      };
+      const isObject = (v) => v !== null && (typeof v === "object" || typeof v === "function");
+
+      // An omitted or undefined argument takes the default "". Any other
+      // non-object, null included, is the USVString member.
+      if (args.length === 0 || args[0] === undefined) return [""];
+      const init = args[0];
+      if (!isObject(init)) return [toUSV(init)];
+
+      // An object with an @@iterator method is the sequence member: each
+      // element is itself a sequence<USVString>, so it must be an object with
+      // an @@iterator method too. (The URLSearchParams constructor, in Ruby,
+      // then requires each pair to have exactly two items.)
+      const method = iteratorMethod(init, "a sequence");
+      if (method !== undefined) {
+        return [fromIterable(init, method, (pair) => {
+          if (!isObject(pair)) throw fail("a sequence");
+          const pairMethod = iteratorMethod(pair, "a sequence");
+          if (pairMethod === undefined) throw fail("a sequence");
+          return fromIterable(pair, pairMethod, toUSV, "a sequence");
+        }, "a sequence")];
+      }
+
+      // Any other object, a function included (`new URLSearchParams(DOMException)`),
+      // is the record member: its own enumerable keys in [[OwnPropertyKeys]]
+      // order, each key and value a USVString, a later key equal to an earlier
+      // one after conversion overwriting its value in place.
+      // https://webidl.spec.whatwg.org/#es-record
       const record = new Map();
       for (const key of Reflect.ownKeys(init)) {
         const desc = Reflect.getOwnPropertyDescriptor(init, key);
         if (desc === undefined || !desc.enumerable) continue;
-        record.set(toUSV(key), toUSV(init[key]));
+        const typedKey = toUSV(key);
+        record.set(typedKey, toUSV(init[key]));
       }
       return [Array.from(record)];
     }
@@ -1598,13 +1640,21 @@ globalThis.__rbHost = (function () {
         });
       }
     }
+    // The getter is the attribute's own, so like any WebIDL attribute getter
+    // it checks its receiver: one that does not implement the interface — the
+    // prototype itself, say — is a TypeError, not a host read of nothing.
     const readonlyAttrs = READONLY_ATTRS[name];
     if (readonlyAttrs) {
       for (const field of readonlyAttrs) {
         Object.defineProperty(proto, field, {
           configurable: true,
           enumerable: true,
-          get() { return rehydrate(__rb_host_get(this[HKEY], field)); },
+          get() {
+            if (!isProxy(this) || !interfaceChainOf(this).includes(name)) {
+              throw new TypeError("Illegal invocation: " + name + "." + field + " getter called on a different object");
+            }
+            return rehydrate(__rb_host_get(this[HKEY], field));
+          },
         });
       }
     }

@@ -5,7 +5,8 @@
 ### Fixed
 
 - An empty-string base is a base that fails to parse, not a missing one: `new URL("about:blank", "")` throws, and `URL.parse(url, "")` is null.
-- `new URLSearchParams(init)` converts any non-iterable object as a record, a function included, from its own enumerable properties: `new URLSearchParams(DOMException)` reads its constants instead of stringifying the object, and a key keeps a NUL (`{"a\0b": 1}` is the name `"a\0b"`, not `"a"`). A symbol key throws `TypeError`, and an `@@iterator` that is not callable throws instead of falling back to a record.
+- `new URLSearchParams(init)` converts its argument as WebIDL's union of a sequence of sequences, a record and a string. An object whose `@@iterator` is undefined or null is a record — a function too, so `new URLSearchParams(DOMException)` reads its constants instead of stringifying the object — and a record key keeps a NUL (`{"a\0b": 1}` is the name `"a\0b"`, not `"a"`). A symbol record key, a non-callable `@@iterator` and a sequence element that is not an iterable object throw `TypeError`, and `null` or a number is the string it converts to (`new URLSearchParams(null)` is `"null="`).
+- `DOMException.prototype` has `name`, `message` and `code` getters, and like every other prototype getter for a readonly attribute (`URL.prototype.origin`, `HTMLTemplateElement.prototype.content`, …) they throw `TypeError` on a receiver that does not implement the interface, instead of reading nothing from the host.
 
 ## 0.15.0 — 2026-10-04
 

@@ -105,6 +105,11 @@ globalThis.__rbIdl = (function () {
     // The legend's form back-ref is readonly (HTML's form-associated interfaces
     // all expose one this way); assert_readonly walks the prototype for it.
     HTMLLegendElement: ["form"],
+    // DOMException's attributes are all readonly. On the prototype, a record
+    // conversion of DOMException.prototype finds them enumerable and reads
+    // them, and the getter's brand check throws, as WebIDL has it
+    // (url/urlsearchparams-constructor.any.js).
+    DOMException: ["name", "message", "code"],
   };
 
   // [LegacyUnforgeable] attributes are own accessor properties on EACH instance
