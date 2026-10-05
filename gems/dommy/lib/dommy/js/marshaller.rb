@@ -63,6 +63,10 @@ module Dommy
         if value.is_a?(Dommy::Bridge::Bytes)
           return {Bridge::WireTags::BYTES => value.to_a}
         end
+        # A host-made point in time crosses as a new JS Date.
+        if value.is_a?(::Time)
+          return {Bridge::WireTags::DATE => (value.to_r * 1000).floor.to_f}
+        end
         # An opaque JS value returns as its original JS object (identity kept).
         if value.is_a?(Dommy::Bridge::JSValue)
           return {Bridge::WireTags::JS_REF => value.ref}
@@ -219,6 +223,10 @@ module Dommy
           @listener_objects[ref] ||= HostEventListener.new(@bridge, ref, value[Bridge::WireTags::JS_LABEL])
         elsif value[Bridge::WireTags::ACCEPT_NODE]
           @filter_objects[ref] ||= HostNodeFilter.new(@bridge, ref)
+        elsif value.key?(Bridge::WireTags::DATE)
+          # A JS NaN may cross as a symbol rather than a Float.
+          time_value = value[Bridge::WireTags::DATE]
+          Dommy::Bridge::Date.new(ref, time_value.is_a?(Numeric) ? time_value.to_f : ::Float::NAN)
         else
           Dommy::Bridge::JSValue.new(ref, value[Bridge::WireTags::JS_LABEL],
             Marshaller.stack_frames(value[Bridge::WireTags::JS_STACK]), value[Bridge::WireTags::JS_NAME])

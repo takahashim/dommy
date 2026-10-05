@@ -571,7 +571,6 @@
       "size",
       "src",
       "useMap",
-      "valueAsDate",
       "width"
     ],
     "HTMLLIElement": [

@@ -539,6 +539,18 @@ globalThis.__rbHost = (function () {
     return out;
   }
 
+  // The time value of a Date object, or undefined for anything else. getTime
+  // throws unless its receiver has a [[DateValue]] slot, which is the brand
+  // check; it is captured here so a page replacing it changes nothing.
+  const dateGetTime = Date.prototype.getTime;
+  function dateTimeValue(v) {
+    try {
+      return dateGetTime.call(v);
+    } catch (_) {
+      return undefined;
+    }
+  }
+
   function dehydrate(v, seen) {
     if (typeof v === "string") return /[\ud800-\udfff]/.test(v) ? scrubLoneSurrogates(v) : v;
     if (typeof v === "function") return { __rb_callback: registerCallback(v) };
@@ -587,6 +599,12 @@ globalThis.__rbHost = (function () {
         const ref = { __rb_js_ref: registerJsRef(v) };
         if (handlesEvents) ref.__rb_handle_event = true;
         if (acceptsNodes) ref.__rb_accept_node = true;
+        // A Date also carries its time value, which the host cannot read
+        // through the ref (`input.valueAsDate = d`). Recognised by its internal
+        // slot, as WebIDL does, so a Date from another realm counts and an
+        // object merely inheriting from Date.prototype does not.
+        const time = dateTimeValue(v);
+        if (time !== undefined) ref.__rb_date = time;
         // An Error crossing as an opaque ref still needs a readable label and its
         // frames: the host cannot reach through a ref to read `.message` or
         // `.stack`, so an error the page hands us (`reportError(new
@@ -845,6 +863,8 @@ globalThis.__rbHost = (function () {
       // A host byte buffer tagged as an ArrayBuffer (Response/Blob/FileReader/
       // XHR arrayBuffer) rehydrates to a bare ArrayBuffer.
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
+      // A host point in time (valueAsDate) rehydrates to a new Date.
+      if ("__rb_date" in v) return new Date(v.__rb_date);
       if ("__rb_handle" in v) {
         // A dispatch-in-flight host twin resolves to its JS event, so a
         // listener's argument IS the object the caller constructed.
@@ -910,6 +930,7 @@ globalThis.__rbHost = (function () {
       if ("__rb_js_ref" in v) return jsRefs.get(v.__rb_js_ref);
       if (v.__rb_bytes) return new Uint8Array(v.__rb_bytes);
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
+      if ("__rb_date" in v) return new Date(v.__rb_date);
       if ("__rb_handle" in v) {
         // A dispatch-in-flight host twin resolves to its JS event, so a
         // listener's argument IS the object the caller constructed.

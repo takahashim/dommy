@@ -32,6 +32,13 @@ class TestJsMarshaller < Minitest::Test
     assert_equal({WT::JS_REF => 7}, @m.wrap(B::JSValue.new(7, "label")))
   end
 
+  # A host ::Time becomes a new JS Date; a Date that came from JS goes back as
+  # its ref, so it keeps its identity.
+  def test_wrap_time_and_js_date
+    assert_equal({WT::DATE => 1500.0}, @m.wrap(Time.at(Rational(1500, 1000))))
+    assert_equal({WT::JS_REF => 3}, @m.wrap(B::Date.new(3, 0.0)))
+  end
+
   def test_wrap_bridgeable_object_becomes_handle
     obj = bridgeable_object
     wrapped = @m.wrap(obj)
@@ -88,6 +95,15 @@ class TestJsMarshaller < Minitest::Test
     assert_kind_of B::JSValue, @m.unwrap({WT::JS_REF => "r1"})
     assert_kind_of Dommy::Js::HostEventListener, @m.unwrap({WT::JS_REF => "r2", WT::HANDLE_EVENT => true})
     assert_kind_of Dommy::Js::HostNodeFilter, @m.unwrap({WT::JS_REF => "r3", WT::ACCEPT_NODE => true})
+  end
+
+  def test_unwrap_js_date_carries_its_time_value
+    date = @m.unwrap({WT::JS_REF => "r4", WT::DATE => 86_400_000})
+    assert_kind_of B::Date, date
+    assert_equal "r4", date.ref
+    assert_equal 86_400_000.0, date.time_value
+    # An invalid Date's NaN may cross as a symbol.
+    assert_predicate @m.unwrap({WT::JS_REF => "r5", WT::DATE => :NaN}).time_value, :nan?
   end
 
   def test_unwrap_undefined_tag_and_bare_symbol

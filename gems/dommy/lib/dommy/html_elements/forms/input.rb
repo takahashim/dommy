@@ -119,12 +119,40 @@ module Dommy
 
     def value_as_number = input_type.value_of(value.to_s, self)
 
+    # HTML: an infinite number is a TypeError before applicability is checked,
+    # and NaN clears the value.
     def value_as_number=(number)
+      number = Internal::WebIDL.unrestricted_double(number)
+      raise Bridge::TypeError, "The value provided is infinite." if number.infinite?
       unless input_type.numeric?
         raise DOMException::InvalidStateError, "valueAsNumber is not applicable to input type '#{type}'"
       end
 
-      self.value = input_type.from_number(number.to_f)
+      self.value = number.nan? ? "" : input_type.from_number(number)
+    end
+
+    # The value as a UTC ::Time (a JS Date across the bridge), or nil when the
+    # value is not a valid one or valueAsDate does not apply to the type.
+    def value_as_date
+      return nil unless input_type.date?
+
+      time_value = input_type.to_date_value(value.to_s)
+      ::Time.at(Rational(time_value.to_i, 1000)).utc if time_value.finite?
+    end
+
+    # Takes a Date (a ::Time or ::Date from Ruby) or nil; nil and an invalid
+    # date clear the value. The IDL type is `object?`, so a primitive is a
+    # TypeError before applicability is checked, and any other object one after.
+    def value_as_date=(date)
+      date = Internal::WebIDL.nullable_object!(date)
+      unless input_type.date?
+        raise DOMException::InvalidStateError, "valueAsDate is not applicable to input type '#{type}'"
+      end
+
+      time_value = date.nil? ? ::Float::NAN : Internal::WebIDL.date_time_value(date)
+      raise Bridge::TypeError, "The value provided is not a Date." if time_value.nil?
+
+      self.value = time_value.nan? ? "" : input_type.from_date_value(time_value)
     end
 
     def validation_step_base = min_as_number || input_type.step_base
@@ -366,7 +394,7 @@ module Dommy
     # as `when "validity" then validity` arms. Internal::ReflectedAttributes'
     # shared __js_get__ / __js_set__ answer from this.
     js_accessor :value, :checked, :indeterminate,
-      value_as_number: "valueAsNumber",
+      value_as_number: "valueAsNumber", value_as_date: "valueAsDate",
       selection_start: "selectionStart", selection_end: "selectionEnd",
       selection_direction: "selectionDirection",
       max_length: "maxLength", min_length: "minLength"
