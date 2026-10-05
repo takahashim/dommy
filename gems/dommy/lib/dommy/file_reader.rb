@@ -153,7 +153,7 @@ module Dommy
 
     # Returns the blob's raw bytes as a binary String.
     def extract_raw(blob)
-      if blob.respond_to?(:__dommy_bytes__)
+      if blob.is_a?(Blob)
         blob.__dommy_bytes__.to_s
       else
         blob.to_s

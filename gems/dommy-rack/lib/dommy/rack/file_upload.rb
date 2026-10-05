@@ -18,7 +18,7 @@ module Dommy
       def multipart?(pairs)
         return false unless pairs
 
-        pairs.any? { |(_name, value)| value.respond_to?(:__dommy_bytes__) }
+        pairs.any? { |(_name, value)| value.is_a?(Dommy::Blob) }
       end
 
       # Returns [body (ASCII-8BIT String), content_type with boundary].
@@ -32,8 +32,8 @@ module Dommy
 
       def part(boundary, name, value)
         head = +"--#{boundary}\r\n"
-        if value.respond_to?(:__dommy_bytes__) # File / Blob
-          filename = value.respond_to?(:name) ? value.name.to_s : ""
+        if value.is_a?(Dommy::Blob)
+          filename = value.is_a?(Dommy::File) ? value.name.to_s : ""
           content_type = file_content_type(value)
           head << %(Content-Disposition: form-data; name="#{escape(name)}"; filename="#{escape(filename)}"\r\n)
           head << "Content-Type: #{content_type}\r\n\r\n"
@@ -45,7 +45,7 @@ module Dommy
       end
 
       def file_content_type(value)
-        type = value.respond_to?(:type) ? value.type.to_s : ""
+        type = value.type.to_s
         type.empty? ? "application/octet-stream" : type
       end
 
