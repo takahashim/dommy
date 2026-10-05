@@ -434,7 +434,7 @@ module Dommy
           next false unless label.respond_to?(:control)
 
           c = label.control
-          c.respond_to?(:__dommy_backend_node__) && c.__dommy_backend_node__.equal?(me)
+          c.is_a?(Node) && c.__dommy_backend_node__.equal?(me)
         end
       end
     end

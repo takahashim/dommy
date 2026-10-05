@@ -71,7 +71,7 @@ module Dommy
       # `allow_content`: name-from-content is permitted regardless of role (true
       # for referenced and recursed-into nodes); at the top it is role-gated.
       def name_of(node, traversal, referenced:, allow_content:)
-        return "" unless node.respond_to?(:__dommy_backend_node__)
+        return "" unless node.is_a?(Node) && node.__dommy_backend_node__
 
         # 1. aria-labelledby (not when already inside a labelledby traversal).
         unless referenced

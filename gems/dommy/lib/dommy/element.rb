@@ -355,9 +355,9 @@ module Dommy
     # `el.contains(other)` — true if `other` is `el` itself or any
     # descendant. Per spec, returns false for null/non-Node.
     def contains?(other)
-      return false unless other.respond_to?(:__dommy_backend_node__)
+      other_node = other.__dommy_backend_node__ if other.is_a?(Node)
+      return false unless other_node
 
-      other_node = other.__dommy_backend_node__
       return true if other_node == @__node__
 
       Internal::NodeTraversal.ancestor_of?(@__node__, other_node)
@@ -564,7 +564,7 @@ module Dommy
       unless ADJACENT_POSITIONS.include?(pos)
         raise DOMException::SyntaxError, "'#{position}' is not a valid insertAdjacent position."
       end
-      return nil unless element.respond_to?(:__dommy_backend_node__)
+      return nil unless element.is_a?(Node) && element.__dommy_backend_node__
 
       case pos
       when "beforebegin"
@@ -1698,21 +1698,18 @@ module Dommy
     # Whether two wrapped values back the same backend node (used to detect
     # `insertBefore(x, x)`).
     def same_wrapped_node?(a, b)
-      an = a.respond_to?(:__dommy_backend_node__) ? a.__dommy_backend_node__ : nil
-      bn = b.respond_to?(:__dommy_backend_node__) ? b.__dommy_backend_node__ : nil
-      !an.nil? && an == bn
+      an = unwrap_dom_node(a)
+      !an.nil? && an == unwrap_dom_node(b)
     end
 
     # The wrapped next sibling of a wrapped reference node (nil at end of list).
     def wrapped_next_sibling(reference)
-      nk = reference.respond_to?(:__dommy_backend_node__) ? reference.__dommy_backend_node__&.next : nil
+      nk = unwrap_dom_node(reference)&.next
       nk && @document.wrap_node(nk)
     end
 
     def unwrap_dom_node(value)
-      return value.__dommy_backend_node__ if value.respond_to?(:__dommy_backend_node__)
-
-      nil
+      value.__dommy_backend_node__ if value.is_a?(Node)
     end
   end
 end

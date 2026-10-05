@@ -25,7 +25,7 @@ module Dommy
         # #complex?; only fast_query's single-selector paths pass it, where the
         # one prefilter belongs to the one complex selector in the list.
         def list?(element, selector_ast, verified: nil)
-          return false unless element&.respond_to?(:__dommy_backend_node__)
+          return false unless element.is_a?(Node) && element.__dommy_backend_node__
 
           selector_ast.selectors.any? { |complex| complex?(element, complex, verified: verified) }
         end

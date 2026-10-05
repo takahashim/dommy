@@ -35,9 +35,8 @@ module Dommy
     # insert steps, neither of which the old doctype-specific path did.
     include Internal::ChildNode
 
-    # Mixed into a node-backed doctype only, so a synthetic one does NOT respond
-    # to `__dommy_backend_node__` — leaving the Node mixin's guards (which key off
-    # `respond_to?(:__dommy_backend_node__)`) to treat it as disconnected.
+    # Mixed into a node-backed doctype only, so a synthetic one keeps Node's nil
+    # `__dommy_backend_node__` and is treated as disconnected.
     module NodeBacked
       def __dommy_backend_node__ = @__node__
     end
@@ -908,7 +907,7 @@ module Dommy
     # document expose). Per spec, false for null / a non-Node.
     def contains?(other)
       return true if other.equal?(self)
-      return false unless other.respond_to?(:__dommy_backend_node__)
+      return false unless other.is_a?(Node)
 
       # Whose root the backend document node is. (The backend's #ancestors
       # stops below the document, so it can't test document membership; the
@@ -973,7 +972,7 @@ module Dommy
       # it here with the same qualified name, namespace, prefix and value, owned
       # by no element (importNode never attaches the copy to anything).
       return import_attribute(node) if node.is_a?(Attr)
-      return nil unless node.respond_to?(:__dommy_backend_node__)
+      return nil unless node.is_a?(Node) && node.__dommy_backend_node__
 
       # WebIDL `optional boolean deep = false`: a missing / undefined argument
       # is the default (false / shallow), not a truthy sentinel.
@@ -1270,7 +1269,7 @@ module Dommy
     # createDocument, which the DOM never lets throw here, catches this and
     # leaves the doctype out.
     def ensure_doctypes_have_nodes!(args)
-      return unless args.any? { |a| a.is_a?(Dommy::DocumentType) && !a.respond_to?(:__dommy_backend_node__) }
+      return unless args.any? { |a| a.is_a?(Dommy::DocumentType) && a.__dommy_backend_node__.nil? }
 
       raise DOMException::NotSupportedError, "This doctype cannot be inserted: the backend could not create it."
     end
@@ -1320,7 +1319,7 @@ module Dommy
     # the document element). Adopts the node into this document.
     def append_child(node)
       ensure_document_insertion_validity!([node], nil)
-      return node unless node.respond_to?(:__dommy_backend_node__)
+      return node unless node.is_a?(Node) && node.__dommy_backend_node__
 
       # An append has a null reference child, so insert step 5 shifts nothing.
       nodes = document_insertion_nodes([node])
@@ -1395,14 +1394,13 @@ module Dommy
       nil
     end
 
-    # The backend node an argument to `moveBefore` stands for. A Dommy::Document
-    # has no `__dommy_backend_node__` of its own, but it is a node the algorithm
-    # has to see (step 2 rejects it, step 3 measures its parentage).
+    # The backend node an argument to `moveBefore` stands for. A
+    # Dommy::Document's `__dommy_backend_node__` is nil, but it is a node the
+    # algorithm has to see (step 2 rejects it, step 3 measures its parentage).
     def move_backend_node(value)
       return value.backend_doc if value.is_a?(Dommy::Document)
-      return nil unless value.respond_to?(:__dommy_backend_node__)
 
-      value.__dommy_backend_node__
+      value.__dommy_backend_node__ if value.is_a?(Node)
     end
 
     # "Move" steps 1-6 with a document new parent.
@@ -1619,7 +1617,7 @@ module Dommy
     end
 
     def backend_node(node)
-      node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
+      node.__dommy_backend_node__ if node.is_a?(Node)
     end
 
     # Like `backend_node`, but first adopts a node that belongs to another
@@ -1661,7 +1659,7 @@ module Dommy
     def document_insertion_count(args) = Internal::InsertionPoint.count(args)
 
     def adopted_backend_node(node)
-      return nil unless node.respond_to?(:__dommy_backend_node__)
+      return nil unless node.is_a?(Node) && node.__dommy_backend_node__
 
       if node.respond_to?(:document) && !node.document.equal?(self)
         return adopt_node(node)&.__dommy_backend_node__

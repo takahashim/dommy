@@ -154,11 +154,7 @@ module Dommy
 
       # The backend (lexbor) node whose subtree holds the candidates.
       def backend_root_of(root)
-        if root.is_a?(Document)
-          root.backend_doc
-        elsif root.respond_to?(:__dommy_backend_node__)
-          root.__dommy_backend_node__
-        end
+        root.is_a?(Document) ? root.backend_doc : root.__dommy_backend_node__
       end
 
       # The owning Document (for identity-stable #wrap_node of a backend match).

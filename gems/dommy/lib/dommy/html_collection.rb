@@ -144,8 +144,6 @@ module Dommy
       return nil if key.empty?
 
       to_a.find do |el|
-        next false unless el.respond_to?(:__dommy_backend_node__)
-
         node = el.__dommy_backend_node__
         # `id` matches any element; `name` matches only HTML-namespace elements
         # (WebIDL supported property names), so a null-namespace element's
@@ -217,8 +215,6 @@ module Dommy
     def __js_named_props__
       names = []
       to_a.each do |el|
-        next unless el.respond_to?(:__dommy_backend_node__)
-
         node = el.__dommy_backend_node__
         id = Backend.no_namespace_attribute_value(node, "id").to_s
         names << id if !id.empty? && !names.include?(id)
@@ -265,8 +261,6 @@ module Dommy
     # The controls in this collection whose id or name equals `key`, in order.
     def controls_named(key)
       to_a.select do |el|
-        next false unless el.respond_to?(:__dommy_backend_node__)
-
         node = el.__dommy_backend_node__
         Backend.no_namespace_attribute_value(node, "id").to_s == key ||
           Backend.no_namespace_attribute_value(node, "name").to_s == key
@@ -291,13 +285,13 @@ module Dommy
     # append. The insertion happens in the REFERENCE's parent — which may be an
     # `<optgroup>` — not always the select itself.
     def add(option, before = nil)
-      return nil unless option.respond_to?(:__dommy_backend_node__)
+      return nil unless option.is_a?(Node) && option.__dommy_backend_node__
 
       reference =
         case before
         when nil then nil
         when Integer then item(before)
-        else before.respond_to?(:__dommy_backend_node__) ? before : nil
+        else before.is_a?(Node) && before.__dommy_backend_node__ ? before : nil
         end
 
       parent = reference&.parent_node
@@ -326,7 +320,7 @@ module Dommy
         remove(i)
         return nil
       end
-      return nil unless option.respond_to?(:__dommy_backend_node__)
+      return nil unless option.is_a?(Node) && option.__dommy_backend_node__
 
       current = to_a
       if i < current.length

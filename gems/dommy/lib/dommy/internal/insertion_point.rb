@@ -23,7 +23,7 @@ module Dommy
           case arg
           when Fragment then arg.__dommy_backend_node__.children.to_a.size
           when String then 1
-          else arg.respond_to?(:__dommy_backend_node__) ? 1 : 0
+          else arg.is_a?(Node) && arg.__dommy_backend_node__ ? 1 : 0
           end
         end
       end

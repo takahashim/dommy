@@ -232,7 +232,7 @@ module Dommy
     # Node mutation on the fragment's children (ParentNode covers append/prepend/
     # replaceChildren; these are the remaining Node methods).
     def remove_child(node)
-      bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
+      bn = node.__dommy_backend_node__ if node.is_a?(Node)
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless bn && bn.parent == @__node__
 
       # `remove_node_with_notify`, not the bare `detach_node`: WHATWG remove
@@ -245,7 +245,7 @@ module Dommy
     def insert_before(node, ref)
       Internal::WebIDL.node!(node)
       ensure_pre_insertion_validity!(node, ref)
-      ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
+      ref_bn = ref.__dommy_backend_node__ if ref.is_a?(Node)
       ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
       ref_bn = Internal::InsertionPoint.skip_args(ref_bn, backend_nodes_in([node]))
       # Insert step 6's insertion point, taken before the conversion detaches
@@ -273,7 +273,7 @@ module Dommy
       # `frag.replaceChild(frag, frag)` is a HierarchyRequestError, not the
       # NotFoundError an up-front parentage guard would raise.
       ensure_pre_insertion_validity!(new_child, old_child)
-      old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
+      old_bn = old_child.__dommy_backend_node__ if old_child.is_a?(Node)
       raise DOMException::NotFoundError, "node is not a child of this fragment" unless old_bn && old_bn.parent == @__node__
 
       replace_child_within(new_child, old_bn)
@@ -281,9 +281,9 @@ module Dommy
     end
 
     def contains?(other)
-      return false unless other.respond_to?(:__dommy_backend_node__)
+      on = other.__dommy_backend_node__ if other.is_a?(Node)
+      return false unless on
 
-      on = other.__dommy_backend_node__
       # Walk parents rather than the backend's `ancestors`: Makiri omits a
       # DocumentFragment parent from `ancestors`, so a fragment never appears
       # to contain its own children. `parent` is consistent across backends.

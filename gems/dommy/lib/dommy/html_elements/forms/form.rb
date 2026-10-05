@@ -51,7 +51,7 @@ module Dommy
 
       target = event.__js_get__("target")
       return false if target.nil?
-      return false if target.respond_to?(:__dommy_backend_node__) && target.__dommy_backend_node__ == @__node__
+      return false if target.is_a?(Node) && target.__dommy_backend_node__ == @__node__
 
       true
     end
@@ -110,7 +110,7 @@ module Dommy
     # this form.
     def request_submit(submitter = nil)
       if submitter
-        unless submitter.respond_to?(:__dommy_backend_node__) && submitter.__dommy_backend_node__.ancestors.include?(@__node__)
+        unless submitter.is_a?(Node) && submitter.__dommy_backend_node__&.ancestors&.include?(@__node__)
           raise DOMException::NotFoundError, "submitter is not a descendant of this form"
         end
 
@@ -251,10 +251,10 @@ module Dommy
     end
 
     def own_control?(element)
-      return false unless element.respond_to?(:__dommy_backend_node__)
+      node = element.__dommy_backend_node__ if element.is_a?(Node)
+      return false unless node
 
-      node = element.__dommy_backend_node__
-      elements.any? { |el| el.respond_to?(:__dommy_backend_node__) && el.__dommy_backend_node__.equal?(node) }
+      elements.any? { |el| el.__dommy_backend_node__.equal?(node) }
     end
 
     # A single matching control is returned directly; multiple matches yield a
@@ -282,8 +282,6 @@ module Dommy
     def named_controls
       map = ::Hash.new { |h, k| h[k] = [] }
       elements.each do |el|
-        next unless el.respond_to?(:__dommy_backend_node__)
-
         node = el.__dommy_backend_node__
         name = Backend.no_namespace_attribute_value(node, "name").to_s
         map[name] << el unless name.empty?
