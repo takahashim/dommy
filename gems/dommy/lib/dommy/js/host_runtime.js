@@ -1159,13 +1159,32 @@ globalThis.__rbHost = (function () {
       // Per spec a non-string iterable init (another URLSearchParams, a Map, an
       // object with a custom @@iterator) is a *sequence* of pairs — materialize
       // it through its live iterator HERE so the iterator runs JS-side; Ruby only
-      // ever sees plain pair arrays. Plain records (no @@iterator) and strings
-      // fall through unchanged to the record / string paths.
+      // ever sees plain pair arrays. Any other object — a function included,
+      // e.g. `new URLSearchParams(DOMException)` — is a record<USVString,
+      // USVString>, converted here too (WebIDL §3.2.19): its own enumerable
+      // keys in [[OwnPropertyKeys]] order, a later duplicate after USVString
+      // conversion overwriting the earlier one in place. It reaches Ruby as the
+      // same pair array, so a host object is never stringified whole and a key
+      // never travels as a hash key (which would cut it at a NUL).
       const init = args[0];
-      if (init !== null && typeof init === "object" && typeof init[Symbol.iterator] === "function") {
+      if (init === null || (typeof init !== "object" && typeof init !== "function")) return args;
+      if (init[Symbol.iterator] !== undefined) {
+        if (typeof init[Symbol.iterator] !== "function") {
+          throw new TypeError("Failed to construct 'URLSearchParams': The provided value cannot be converted to a sequence.");
+        }
         return [Array.from(init, (pair) => Array.from(pair))];
       }
-      return args;
+      const toUSV = (v) => {
+        const str = `${v}`; // ToString: a Symbol throws, as String(sym) would not
+        return typeof str.toWellFormed === "function" ? str.toWellFormed() : str;
+      };
+      const record = new Map();
+      for (const key of Reflect.ownKeys(init)) {
+        const desc = Reflect.getOwnPropertyDescriptor(init, key);
+        if (desc === undefined || !desc.enumerable) continue;
+        record.set(toUSV(key), toUSV(init[key]));
+      }
+      return [Array.from(record)];
     }
     const members = CONSTRUCTOR_DICTS[name];
     if (!members) return args;

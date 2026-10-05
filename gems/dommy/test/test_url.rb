@@ -51,6 +51,15 @@ class TestURLBasics < Minitest::Test
     assert_equal("https://example.test/a/b", u.href)
   end
 
+  # An empty-string base is a given base that fails to parse, not an absent
+  # one: WPT url/failure.html, `new URL("about:blank", "")`.
+  def test_empty_string_base_is_a_failure
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::URL.new("about:blank", "") }
+    assert_nil(Dommy::URL.parse("https://example.test/", ""))
+    refute(Dommy::URL.can_parse("https://example.test/", ""))
+    assert_equal("about:blank", Dommy::URL.new("about:blank", nil).href)
+  end
+
   def test_default_port_makes_host_no_port
     u = Dommy::URL.new("https://example.test:443/a")
     assert_equal("example.test", u.host)

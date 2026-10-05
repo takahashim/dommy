@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- An empty-string base is a base that fails to parse, not a missing one: `new URL("about:blank", "")` throws, and `URL.parse(url, "")` is null.
+- `new URLSearchParams(init)` converts any non-iterable object as a record, a function included, from its own enumerable properties: `new URLSearchParams(DOMException)` reads its constants instead of stringifying the object, and a key keeps a NUL (`{"a\0b": 1}` is the name `"a\0b"`, not `"a"`). A symbol key throws `TypeError`, and an `@@iterator` that is not callable throws instead of falling back to a record.
+
 ## 0.15.0 — 2026-10-04
 
 ### Added

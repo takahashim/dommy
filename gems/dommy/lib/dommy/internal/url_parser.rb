@@ -33,9 +33,13 @@ module Dommy
       # which is what the URL API and every other caller uses. It only changes
       # the query, and only for a special URL that is not ws/wss (see
       # BasicParser#query_encoding).
+      #
+      # Only nil means "no base": a given base, the empty string included, is
+      # parsed first, and its failure is the parse's (`new URL("a:b", "")`
+      # throws).
       def parse(input, base_input = nil, encoding: nil)
         base = nil
-        if base_input && base_input != ""
+        unless base_input.nil?
           base = base_input.is_a?(Record) ? base_input : run(base_input.to_s, nil)
         end
         run(input.to_s, base, encoding: encoding)
