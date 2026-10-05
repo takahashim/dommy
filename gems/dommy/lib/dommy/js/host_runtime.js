@@ -15,7 +15,7 @@ globalThis.__rbHost = (function () {
     INTERFACE_NULL_TO_EMPTY_STRING_SETTERS, FORM_VALUE_FIELDS, READONLY_ATTRS,
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS, INTERFACE_MEMBERS, FROZEN_ARRAY_ATTRIBUTES, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
-    NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
+    NODE_OR_STRING_METHODS, DOMSTRING_ARGUMENTS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
     BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, CONSTRUCTOR_ARITY,
     VOID_METHODS, INTERFACE_VOID_METHODS, JS_GLOBALS,
   } = globalThis.__rbIdl;
@@ -231,6 +231,21 @@ globalThis.__rbHost = (function () {
     }
   }
 
+  // The WebIDL DOMString conversion of the arguments DOMSTRING_ARGUMENTS names
+  // for `name` (ES ToString: a Symbol is a TypeError, an object runs its own
+  // toString). Arguments past the ones passed are left for the host's
+  // missing-argument handling.
+  function toDOMStringArguments(name, args) {
+    const indices = Object.prototype.hasOwnProperty.call(DOMSTRING_ARGUMENTS, name)
+      ? DOMSTRING_ARGUMENTS[name] : undefined;
+    if (indices === undefined) return args;
+    const out = args.slice();
+    for (const i of indices) {
+      if (i < out.length) out[i] = `${out[i]}`;
+    }
+    return out;
+  }
+
   function withArity(fn, name, iface) {
     const own = iface === undefined ? undefined : INTERFACE_METHOD_ARITY[iface];
     // Own entries only: a plain-object table would otherwise hand `toString`
@@ -274,7 +289,7 @@ globalThis.__rbHost = (function () {
         const fn = this[name];
         if (typeof fn === "function" && fn !== stub) return fn.apply(this, args);
       }
-      const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
+      const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : toDOMStringArguments(name, args));
       return readOnly
         ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface)
         : callMutating(this[HKEY], name, wire, iface);
@@ -2152,6 +2167,10 @@ globalThis.__rbHost = (function () {
       else if (NON_MUTATING_METHODS.has(prop)) fn = nonMutatingStub(prop, ctx);
       else if (NODE_OR_STRING_METHODS.has(prop)) fn = nodeOrStringStub(prop, ctx);
       else fn = mutatingStub(prop, ctx);
+    }
+    if (Object.prototype.hasOwnProperty.call(DOMSTRING_ARGUMENTS, prop)) {
+      const convert = fn;
+      fn = (...args) => convert(...toDOMStringArguments(prop, args));
     }
     withArity(fn, prop, ctx.ifaceName);
     return fn;

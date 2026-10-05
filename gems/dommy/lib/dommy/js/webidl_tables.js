@@ -395,7 +395,11 @@ globalThis.__rbIdl = (function () {
     HTMLCollection: { m: ["item", "namedItem"] },
     NodeList: { m: ["item"] },
     StyleSheetList: { m: ["item"] },
-    NamedNodeMap: { m: ["item", "getNamedItem", "getNamedItemNS"] }
+    NamedNodeMap: { m: ["item", "getNamedItem", "getNamedItemNS"] },
+    // Storage touches no DOM, so its mutating operations resolve to the
+    // prototype too: `storage.setItem === Storage.prototype.setItem`, and a
+    // stored "setItem" key does not shadow the method.
+    Storage: { m: ["key", "getItem", "setItem", "removeItem", "clear"] }
   };
   // WebIDL `[Unscopable]` members: each interface prototype that declares them
   // exposes a `@@unscopables` object so `with (element) { remove }` resolves to
@@ -414,9 +418,13 @@ globalThis.__rbIdl = (function () {
     // ChildNode only.
     DocumentType: ["after", "before", "remove", "replaceWith"]
   };
-  // Read-only collection operations that resolve to their prototype function
-  // (identity + arity) rather than a per-instance get-trap closure.
-  const PROTO_RESOLVED_METHODS = new Set(["item", "namedItem", "getNamedItem", "getNamedItemNS"]);
+  // Collection operations that resolve to their prototype function (identity +
+  // arity) rather than a per-instance get-trap closure: the read-only ones, and
+  // Storage's.
+  const PROTO_RESOLVED_METHODS = new Set([
+    "item", "namedItem", "getNamedItem", "getNamedItemNS",
+    "key", "getItem", "setItem", "removeItem", "clear",
+  ]);
   // WebIDL `(Node or DOMString)...` variadic operations: each argument is a
   // Node if it's one of our host proxies, otherwise it's ToString-coerced
   // (so `before(null)` inserts the text "null", `before(undefined)` -> "undefined",
@@ -425,6 +433,16 @@ globalThis.__rbIdl = (function () {
   const NODE_OR_STRING_METHODS = new Set([
     "before", "after", "replaceWith", "prepend", "append", "replaceChildren"
   ]);
+  // Operations taking a plain DOMString, by the indices of those arguments. A
+  // JS object becomes a string through its own toString — which may throw, and
+  // must throw before the operation does anything — and that can only happen
+  // here: across the bridge it would be a Ruby Hash or an opaque ref. Each
+  // name means the same operation on every interface that has it.
+  const DOMSTRING_ARGUMENTS = {
+    getItem: [0], setItem: [0, 1], removeItem: [0],
+    querySelector: [0], querySelectorAll: [0], closest: [0], matches: [0],
+    webkitMatchesSelector: [0],
+  };
 
   // The event handler CONTENT attributes HTML (with Pointer/Touch/Animation
   // Events) defines on elements. An `on*` attribute outside this set is not a
@@ -630,6 +648,7 @@ globalThis.__rbIdl = (function () {
     INTERFACE_UNSCOPABLES,
     PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS,
+    DOMSTRING_ARGUMENTS,
     ELEMENT_HANDLER_ATTRIBUTES,
     WINDOW_REFLECTED_HANDLERS,
     BODY_REFLECTED_HANDLERS,
