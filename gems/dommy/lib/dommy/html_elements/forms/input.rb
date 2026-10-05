@@ -33,33 +33,39 @@ module Dommy
       datetime-local number range color checkbox radio file submit image
       reset button
     ].freeze
-    reflect_enumerated type: { keywords: TYPE_KEYWORDS, missing: "text", invalid: "text" }
+    TYPE_STATES = { keywords: TYPE_KEYWORDS, missing: "text", invalid: "text" }.freeze
+    reflect_enumerated type: TYPE_STATES
     # Own __js_call__ methods, on top of Element's.
 
     def __internal_submit_button__? = %w[submit image].include?(type) && !disabled
 
-    # Runtime value/checked. Dommy has no UI, so the runtime state is
-    # initialized from the attribute on first access and tracked
-    # separately thereafter — matching browser semantics where the
-    # `value` IDL attribute can drift from the `value` content attr.
+    # Value-mode controls keep a sanitized current value and a separate dirty
+    # flag. Attribute writes update pristine controls; IDL writes make them
+    # dirty. Default/default-on controls reflect the content attribute instead.
     def value
-      raw = @__value.nil? ? reflected_string("value") : @__value
-      # checkbox/radio use the "default/on" value mode: with no value content
-      # attribute (and no assigned value) the IDL value is "on".
-      return "on" if raw.to_s.empty? && !__internal_has_attribute__?("value") && CHECKABLE_TYPES.include?(type)
-
-      sanitize_value(raw)
+      case value_mode(type)
+      when :default then default_value
+      when :default_on then __internal_attribute_value__("value") || "on"
+      when :filename then files.empty? ? "" : "C:\\fakepath\\#{files.item(0).name}"
+      else current_value
+      end
     end
 
     def value=(v)
       raw = v.to_s
-      # WHATWG: a file input's value IDL setter throws unless set to the empty
-      # string (which clears the selection).
-      if type == "file" && !raw.empty?
-        raise DOMException::InvalidStateError, "a file input's value may only be set to the empty string"
+      case value_mode(type)
+      when :default, :default_on
+        self.default_value = raw
+      when :filename
+        unless raw.empty?
+          raise DOMException::InvalidStateError, "a file input's value may only be set to the empty string"
+        end
+        @__files = FileList.new
+      else
+        @__raw_value = raw
+        @__value = sanitize_value(raw)
+        @__value_dirty = true
       end
-      @__raw_value = raw
-      @__value = raw
       # The IDL value is selector-observable (:invalid / :in-range /
       # :placeholder-shown) with no attribute mutation behind it.
       @document&.__internal_note_value_change__
@@ -106,10 +112,6 @@ module Dommy
       set_non_negative_reflected("minlength", value)
     end
 
-    # Spec: the "value sanitization algorithm" runs lazily on read.
-    # type=email/url trim leading/trailing ASCII whitespace; type=number
-    # rejects non-finite floats by returning "" (badInput stays true
-    # so validity surfaces the original raw value).
     # The strategy for this control's `type`: what a number means here, and what
     # a step is worth. The sixteen `case type` branches that used to answer
     # these live in Internal::InputType, one class per type.
@@ -140,8 +142,9 @@ module Dommy
       input_type.boundary(raw)
     end
 
-    def sanitize_value(raw)
-      case type
+    def sanitize_value(raw, state = type)
+      strategy = Internal::InputType.for(state)
+      case state
       # The one-line text types "strip newlines from the value" (WHATWG value
       # sanitization) — a pasted multi-line string collapses to one line.
       when "text", "search", "tel", "password"
@@ -149,15 +152,20 @@ module Dommy
       when "email"
         stripped = strip_newlines(raw.to_s)
         if __internal_has_attribute__?("multiple")
-          stripped.split(",").map(&:strip).join(",")
+          stripped.split(",").map { |part| strip_ascii_whitespace(part) }.join(",")
         else
-          stripped.strip
+          strip_ascii_whitespace(stripped)
         end
       when "url"
         # Strip newlines, then leading/trailing whitespace.
-        strip_newlines(raw.to_s).strip
-      when "number", "range"
-        sanitize_number(raw)
+        strip_ascii_whitespace(strip_newlines(raw.to_s))
+      when "number", "date", "month", "week", "time"
+        strategy.to_number(raw.to_s).finite? ? raw.to_s : ""
+      when "range"
+        strategy.from_number(strategy.value_of(raw.to_s, self))
+      when "datetime-local"
+        number = strategy.to_number(raw.to_s)
+        number.finite? ? strategy.from_number(number) : ""
       when "color"
         s = raw.to_s.strip.downcase
         s.match?(/\A#[0-9a-f]{6}\z/) ? s : "#000000"
@@ -168,14 +176,6 @@ module Dommy
 
     def strip_newlines(str)
       str.gsub(/[\r\n]/, "")
-    end
-
-    # HTML's value sanitization for number and range: anything that is not a
-    # valid floating-point number, or is out of the finite range, is the
-    # empty string. Ruby's Float() is wider than the spec (" 1", "+1", "1.").
-    def sanitize_number(raw)
-      s = raw.to_s
-      input_type.to_number(s).finite? ? s : ""
     end
 
     # Underlying string the user supplied to `value=`, before any
@@ -238,7 +238,9 @@ module Dommy
     # `value` / `checked` fall back to the `value` / `checked` content attributes.
     def __internal_reset__
       @__value = nil
+      @__value_dirty = false
       @__raw_value = nil
+      @__files = FileList.new
       @__checked = nil
       @__indeterminate = nil
       # Value AND checkedness reverted: both are selector-observable, neither
@@ -377,19 +379,25 @@ module Dommy
     # spinner has none, and its setters raise (HTML "set the selection range").
     def supports_selection? = SELECTION_TYPES.include?(type)
 
-    private def require_selection!
-      return if supports_selection?
+    # Every attribute write path (IDL reflection, Attr, set/removeAttribute,
+    # including NS variants) reaches this hook with the old attribute value.
+    def __internal_attribute_changed__(name, old_value, new_value, namespace)
+      return unless namespace.nil?
 
-      raise DOMException::InvalidStateError,
-        "The input element's type ('#{type}') does not support selection."
+      case name
+      when "type"
+        previous = enumerated_state_keyword(old_value, TYPE_STATES)
+        change_type_state(previous) if previous != type
+      when "value"
+        if value_mode(type) == :value && !@__value_dirty
+          @__value = sanitize_value(new_value.to_s)
+          @__raw_value = nil
+        end
+      when "min", "max", "step", "multiple"
+        @__value = sanitize_value(current_value) if value_mode(type) == :value
+      end
+      nil
     end
-    public
-
-
-
-
-
-
 
     # `select()` selects the whole control on a text control; on any other type
     # it is a silent no-op (it does NOT throw).
@@ -579,11 +587,12 @@ module Dommy
 
     # HTML "cloning steps" for input: the dirty value flag + value and the dirty
     # checkedness flag + checkedness (plus indeterminate) — the user-modified
-    # state a clone must retain beyond the default* content attributes. Returns
-    # nil when the control is still pristine, so the walk skips it.
+    # state a clone must retain beyond the default* content attributes. The
+    # sanitized current value and dirty flag must be copied independently.
     def __internal_cloning_state__
       state = {}
       state[:value] = @__value unless @__value.nil?
+      state[:value_dirty] = true if @__value_dirty
       state[:raw_value] = @__raw_value unless @__raw_value.nil?
       state[:checked] = @__checked unless @__checked.nil?
       state[:indeterminate] = @__indeterminate unless @__indeterminate.nil?
@@ -593,6 +602,7 @@ module Dommy
     def __internal_apply_cloning_state__(state)
       super
       @__value = state[:value] if state.key?(:value)
+      @__value_dirty = true if state[:value_dirty]
       @__raw_value = state[:raw_value] if state.key?(:raw_value)
       @__checked = state[:checked] if state.key?(:checked)
       @__indeterminate = state[:indeterminate] if state.key?(:indeterminate)
@@ -635,6 +645,71 @@ module Dommy
         set_custom_validity(args[0])
       else
         super
+      end
+    end
+
+    private
+
+    def strip_ascii_whitespace(str)
+      str.gsub(/\A[\x09-\x0d ]+|[\x09-\x0d ]+\z/, "")
+    end
+
+    def require_selection!
+      return if supports_selection?
+
+      raise DOMException::InvalidStateError,
+        "The input element's type ('#{type}') does not support selection."
+    end
+
+    def value_mode(state)
+      case state
+      when "hidden", "submit", "image", "reset", "button" then :default
+      when "checkbox", "radio" then :default_on
+      when "file" then :filename
+      else :value
+      end
+    end
+
+    def current_value(state = type)
+      @__value ||= sanitize_value(default_value, state)
+    end
+
+    # Value modes, rather than individual type pairs, decide the transfer of
+    # current value to/from the default. Pristine controls re-read their default
+    # under the new state without making a sanitized fallback dirty.
+    def change_type_state(previous)
+      old_mode = value_mode(previous)
+      new_mode = value_mode(type)
+      if old_mode == :value && %i[default default_on].include?(new_mode)
+        old_value = current_value(previous)
+        self.default_value = old_value unless old_value.empty?
+      elsif old_mode != :value && new_mode == :value
+        @__value_dirty = false
+      end
+
+      if new_mode == :value
+        raw = @__value_dirty ? current_value(previous) : default_value
+        @__value = sanitize_value(raw)
+      else
+        @__value = nil
+      end
+      @__raw_value = nil
+      @__files = FileList.new if new_mode == :filename
+      uncheck_radio_group if type == "radio" && checked
+      reset_selection_on_type_change(previous)
+    end
+
+    def reset_selection_on_type_change(previous)
+      if supports_selection?
+        return if SELECTION_TYPES.include?(previous)
+
+        @__selection_start = 0
+        @__selection_end = 0
+        @__selection_direction = "none"
+      else
+        @__selection_start = nil
+        @__selection_end = nil
+        @__selection_direction = nil
       end
     end
   end

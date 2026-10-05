@@ -408,7 +408,7 @@ module Capybara
       end
 
       def set_text_value(value)
-        string = value.to_s
+        string = form_control_value(value)
         if text_or_password? && attribute_present?("maxlength")
           string = string[0, native.get_attribute("maxlength").to_i].to_s
         end
@@ -422,6 +422,21 @@ module Capybara
         else
           write_text(string)
         end
+      end
+
+      # Capybara accepts Ruby date/time objects for temporal controls. Convert
+      # them to HTML values before the element runs its sanitization algorithm.
+      def form_control_value(value)
+        return value.to_s unless input_field? && value.respond_to?(:strftime)
+
+        format = case native.type
+                 when "date" then "%Y-%m-%d"
+                 when "month" then "%Y-%m"
+                 when "week" then "%G-W%V"
+                 when "time" then "%H:%M:%S.%L"
+                 when "datetime-local" then "%Y-%m-%dT%H:%M:%S.%L"
+                 end
+        format ? value.strftime(format) : value.to_s
       end
 
       # Set a text field's value. Under JavaScript this types like a user:
@@ -449,13 +464,7 @@ module Capybara
       end
 
       def set_range(value)
-        min = (native.get_attribute("min") || 0).to_f
-        max = (native.get_attribute("max") || 100).to_f
-        step = (native.get_attribute("step") || 1).to_f
-        v = value.to_f.clamp(min, max)
-        v = (((v - min) / step).round * step) + min
-        v = v.clamp(min, max)
-        native.value = (v == v.to_i ? v.to_i : v).to_s
+        native.value = value.to_s
       end
 
       def attribute_present?(name)
