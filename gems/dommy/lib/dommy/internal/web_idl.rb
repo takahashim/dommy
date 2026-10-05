@@ -109,7 +109,7 @@ module Dommy
       def date_time_value(value)
         case value
         when Bridge::Date then value.time_value
-        when ::Time then (value.to_r * 1000).floor.to_f
+        when ::Time then Bridge::Date.time_value_of(value)
         when ::DateTime then date_time_value(value.to_time)
         when ::Date then ::Time.utc(value.year, value.month, value.day).to_i * 1000.0
         end

@@ -45,6 +45,17 @@ class TestInputValueAsDate < Minitest::Test
     assert_equal "2020-01-02", @input.value
   end
 
+  # A Ruby ::Time is read the way a JS Date holds it: 0.1 ms before the epoch
+  # is the epoch itself, and a time past the Date range is an invalid date.
+  def test_setter_truncates_a_time_toward_zero_and_clips_its_range
+    input("time").value_as_date = Time.at(Rational(-1, 10_000))
+    assert_equal "00:00", @input.value
+    input("time").value_as_date = Time.at(Rational(-15, 10_000))
+    assert_equal "23:59:59.999", @input.value
+    input("date", "2019-12-10").value_as_date = Time.at(8_640_000_000_001)
+    assert_equal "", @input.value
+  end
+
   def test_setter_clears_on_nil_and_an_invalid_js_date
     input("date", "2019-12-10").value_as_date = nil
     assert_equal "", @input.value

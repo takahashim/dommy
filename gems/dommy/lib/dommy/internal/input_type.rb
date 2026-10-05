@@ -212,9 +212,6 @@ module Dommy
 
     class DatetimeLocalInputType < InputType
 
-      # Match the representable time range of the JS Date/TimeClip domain.
-      MAX_TIME_MS = 8_640_000_000_000_000
-
       def scale_factor = 1000
       def default_step = 60.0
 
@@ -235,7 +232,7 @@ module Dommy
       end
 
       def from_number(number)
-        return "" unless number.finite? && number.abs <= MAX_TIME_MS
+        return "" unless number.finite? && number.abs <= Bridge::Date::MAX_TIME_VALUE
 
         time = utc_time_from_ms(number)
         return "" if time.year < 1

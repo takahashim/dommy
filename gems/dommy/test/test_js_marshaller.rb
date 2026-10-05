@@ -39,6 +39,14 @@ class TestJsMarshaller < Minitest::Test
     assert_equal({WT::JS_REF => 3}, @m.wrap(B::Date.new(3, 0.0)))
   end
 
+  # TimeClip: sub-millisecond parts truncate toward zero, and a time past
+  # ±8.64e15 ms is an invalid Date.
+  def test_wrap_time_clips_like_a_js_date
+    assert_equal({WT::DATE => 0.0}, @m.wrap(Time.at(Rational(-1, 10_000))))
+    assert_equal({WT::DATE => -1.0}, @m.wrap(Time.at(Rational(-15, 10_000))))
+    assert_predicate @m.wrap(Time.at(8_640_000_000_001))[WT::DATE], :nan?
+  end
+
   def test_wrap_bridgeable_object_becomes_handle
     obj = bridgeable_object
     wrapped = @m.wrap(obj)

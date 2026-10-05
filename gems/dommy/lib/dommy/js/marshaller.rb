@@ -65,7 +65,7 @@ module Dommy
         end
         # A host-made point in time crosses as a new JS Date.
         if value.is_a?(::Time)
-          return {Bridge::WireTags::DATE => (value.to_r * 1000).floor.to_f}
+          return {Bridge::WireTags::DATE => Bridge::Date.time_value_of(value)}
         end
         # An opaque JS value returns as its original JS object (identity kept).
         if value.is_a?(Dommy::Bridge::JSValue)

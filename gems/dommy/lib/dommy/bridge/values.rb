@@ -41,6 +41,17 @@ module Dommy
     # taking a Date (`input.valueAsDate = d`) needs to read off it. A Date the
     # host creates crosses from a Ruby ::Time instead.
     class Date < JSValue
+      # The largest time value a JS Date can hold, either side of the epoch.
+      MAX_TIME_VALUE = 8_640_000_000_000_000
+
+      # The time value a JS Date made from `time` holds — ECMAScript's TimeClip:
+      # whole milliseconds truncated toward zero (0.1 ms before the epoch is 0,
+      # not -1), and NaN beyond MAX_TIME_VALUE.
+      def self.time_value_of(time)
+        ms = (time.to_r * 1000).truncate
+        ms.abs > MAX_TIME_VALUE ? ::Float::NAN : ms.to_f
+      end
+
       attr_reader :time_value
 
       def initialize(ref, time_value)
