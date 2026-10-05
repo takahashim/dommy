@@ -175,13 +175,8 @@ module Dommy
 
     # All controls belonging to this form, in document order.
     def controls
-      form_id = attr(@form, "id")
       @form.document.query_selector_all("input, textarea, select, button").select do |el|
-        if el.__internal_has_attribute__?("form")
-          !blank?(form_id) && el.__internal_attribute_value__("form") == form_id
-        else
-          el.closest("form")&.equal?(@form)
-        end
+        @form.__internal_owns_control__(el)
       end
     end
 

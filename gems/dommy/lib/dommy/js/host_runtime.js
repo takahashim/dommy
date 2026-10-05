@@ -2558,10 +2558,12 @@ globalThis.__rbHost = (function () {
         // for a string property that resolves to no value. An out-of-range array
         // index is `undefined` and does NOT fall back to a named lookup (so
         // `coll[2147483648]` is undefined even if an element's id is that digit
-        // string); other unsupported strings (`coll[""]`, `coll["x"]`) too.
+        // string); other unsupported strings (`coll[""]`, `coll["x"]`) too. A
+        // node (a select, a form) answers an unknown name with ABSENT itself, so
+        // its null is a real attribute value (`select.form`) and is kept.
         if (hostHasNoValue && (arrayLike || named) && typeof prop === "string" && prop !== "length") {
           if (arrayLike && isArrayIndex(prop)) return undefined;
-          if (!isNamedKey(prop)) return undefined;
+          if (!nodeChain && !isNamedKey(prop)) return undefined;
         }
         return v;
       },

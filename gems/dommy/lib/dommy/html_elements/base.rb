@@ -320,17 +320,24 @@ module Dommy
       end
     end
 
-    # HTML's form owner. A `form` content attribute names a form BY ID IN THIS
-    # ELEMENT'S OWN TREE — the association never reaches out of a shadow tree,
-    # or into one — and with no such attribute the owner is the nearest ancestor
-    # form.
+    # HTML's form owner ("reset the form owner", steps 3-4). A connected
+    # control with a `form` content attribute — the empty string included —
+    # belongs to the first element in its own tree whose ID is that value, if
+    # that element is a form, and to nothing otherwise; the lookup never reaches
+    # out of a shadow tree, or into one. Any other control, a disconnected one
+    # included, belongs to its nearest ancestor form.
+    #
+    # The owner is derived on each read rather than stored, so the "reset"
+    # triggers (an ID change, an insertion before the current owner, the owner's
+    # removal) are reflected without hooks. The parser's form element pointer,
+    # which can associate a control with a form that is not its ancestor, is not
+    # modelled.
     def __internal_form_owner__
-      form_id = __internal_attribute_value__("form").to_s
-      return closest("form") if form_id.empty?
+      return closest("form") unless __internal_has_attribute__?("form") && is_connected?
 
-      root = get_root_node
-      target = root.get_element_by_id(form_id) if root.respond_to?(:get_element_by_id)
-      target if target.respond_to?(:tag_name) && target.tag_name.to_s.casecmp?("form")
+      form_id = __internal_attribute_value__("form")
+      target = get_root_node.get_element_by_id(form_id) unless form_id.empty?
+      target if target.is_a?(HTMLFormElement)
     end
 
     # WHATWG "actually disabled": a form control is disabled if it (or an
