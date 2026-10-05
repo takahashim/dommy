@@ -311,6 +311,11 @@ module Dommy
     DOCUMENT_POSITION_CONTAINED_BY = 0x10
     DOCUMENT_POSITION_IMPLEMENTATION_SPECIFIC = 0x20
 
+    # The backend (makiri) node behind this one, or nil for the nodes that
+    # sit in no backend tree: a Document, an Attr, a synthetic DocumentType.
+    # The node classes that have one override it.
+    def __dommy_backend_node__ = nil
+
     # WHATWG Node.isEqualNode — deep structural equality (type-specific data
     # plus equal, in-order, recursively-equal children). Available on every node
     # class that includes Node; the bridge routes "isEqualNode" here.
@@ -407,10 +412,10 @@ module Dommy
     # (Element's shadow handling) override it. `{composed: true}` asks for the
     # shadow-including root, so a shadow root hands over to its host's.
     def get_root_node(options = nil)
-      return self unless respond_to?(:__dommy_backend_node__) && instance_variable_defined?(:@document)
-
       node = __dommy_backend_node__
-      node = Internal::NodeTraversal.root_of(node) if node
+      return self unless node && instance_variable_defined?(:@document)
+
+      node = Internal::NodeTraversal.root_of(node)
       # The topmost node of an attached subtree is the Nokogiri document, which
       # has no element wrapper — map it to the Document. A detached node's root is
       # itself.
@@ -501,15 +506,15 @@ module Dommy
 
     private
 
-    # The backend node to position `obj` by. A Document has no
-    # `__dommy_backend_node__` (it must not, or 60-odd `respond_to?` guards would
-    # misclassify it as a plain node), but for tree-position purposes it stands in
-    # for its backend document node — so `document.compareDocumentPosition(child)`
-    # works. Anything without a backend node is disconnected (nil).
+    # The backend node to position `obj` by. A Document's
+    # `__dommy_backend_node__` is nil — it sits in no backend tree as a node —
+    # but for tree-position purposes it stands in for its backend document node,
+    # so `document.compareDocumentPosition(child)` works. Anything without a
+    # backend node is disconnected (nil).
     def compare_backend_node(obj)
-      return obj.__dommy_backend_node__ if obj.respond_to?(:__dommy_backend_node__)
+      return obj.backend_doc if obj.is_a?(Dommy::Document)
 
-      obj.backend_doc if obj.is_a?(Dommy::Document)
+      obj.__dommy_backend_node__ if obj.is_a?(Node)
     end
 
     # Where `other_attr` stands from `self_attr`, two attributes of `element`:

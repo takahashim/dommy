@@ -91,9 +91,9 @@ module Dommy
       # detected through the computed style as well. No layout: geometry-
       # dependent invisibility stays out of scope.
       def visible?(element)
-        return true unless element.respond_to?(:__dommy_backend_node__)
+        node = element.__dommy_backend_node__ if element.is_a?(Node)
+        return true unless node
 
-        node = element.__dommy_backend_node__
         return false if node_invisible_self?(node)
 
         NodeTraversal.each_ancestor(node) do |ancestor|

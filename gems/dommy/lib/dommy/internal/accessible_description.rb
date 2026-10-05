@@ -18,7 +18,7 @@ module Dommy
 
       # The accessible description string ("" when none).
       def compute(element)
-        return "" unless element.respond_to?(:__dommy_backend_node__)
+        return "" unless element.is_a?(Node) && element.__dommy_backend_node__
 
         described = AccessibleName.referenced_names(element, "aria-describedby")
         return described.strip if described

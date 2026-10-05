@@ -23,7 +23,7 @@ module Dommy
       end
 
       def key_for(node)
-        backend = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : node
+        backend = node.is_a?(Node) ? node.__dommy_backend_node__ : node
         backend && Backend.identity_key(backend)
       end
     end

@@ -221,7 +221,7 @@ module Dommy
         # advance it to the node's next sibling so the node lands in old's slot
         # rather than being appended.
         anchor = old_bn.next_sibling
-        new_bn = new_child.respond_to?(:__dommy_backend_node__) ? new_child.__dommy_backend_node__ : nil
+        new_bn = new_child.__dommy_backend_node__ if new_child.is_a?(Node)
         anchor = anchor.next_sibling if anchor && new_bn && anchor == new_bn
         # WHATWG "replace" order: adopt the replacement (step 6, which removes it
         # from its old parent), then remove the old child (step 7), then insert
@@ -283,9 +283,10 @@ module Dommy
           root = NodeTraversal.root_of(root)
           shadow = @document.__internal_shadow_root_for_fragment__(root)
           host = shadow && shadow.host
-          break unless host.respond_to?(:__dommy_backend_node__)
+          host_node = host&.__dommy_backend_node__
+          break unless host_node
 
-          root = host.__dommy_backend_node__
+          root = host_node
         end
         root
       end
@@ -332,9 +333,7 @@ module Dommy
       # before step 3 gets to complain that `ref` is not a child.
       def insertion_backend_node(child)
         return child.backend_doc if child.is_a?(Dommy::Document)
-        return nil unless child.respond_to?(:__dommy_backend_node__)
-
-        node = child.__dommy_backend_node__
+        node = child.__dommy_backend_node__ if child.is_a?(Node)
         node.is_a?(Backend.node_class) ? node : nil
       end
 
@@ -367,7 +366,7 @@ module Dommy
 
         # Step 3 — a non-null reference child must be a child of this parent.
         unless child.nil? || (defined?(Bridge::UNDEFINED) && child.equal?(Bridge::UNDEFINED))
-          ref = child.respond_to?(:__dommy_backend_node__) ? child.__dommy_backend_node__ : nil
+          ref = child.__dommy_backend_node__ if child.is_a?(Node)
           unless ref && ref.parent == @__node__
             raise DOMException::NotFoundError, "The reference child is not a child of this node."
           end

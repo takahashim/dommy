@@ -12,7 +12,7 @@ module Dommy
 
       # `verified:` — see Match#list?.
       def matches?(element, selector_ast, scope: nil, verified: nil)
-        return false unless element&.respond_to?(:__dommy_backend_node__)
+        return false unless element.is_a?(Node) && element.__dommy_backend_node__
 
         Match.for(element.owner_document, scope).list?(element, selector_ast, verified: verified)
       end
@@ -370,7 +370,7 @@ module Dommy
       def default_scope(root)
         return root.document_element if root.is_a?(Document)
 
-        root if root.respond_to?(:__dommy_backend_node__)
+        root if root.__dommy_backend_node__
       end
 
       # `:target` — the element the document's URL fragment points at. It has to

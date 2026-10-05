@@ -312,8 +312,7 @@ module Dommy
         false
       when "contains"
         # A leaf node contains only itself (no descendants).
-        args[0].respond_to?(:__dommy_backend_node__) &&
-          args[0].__dommy_backend_node__ == @__node__
+        args[0].is_a?(Node) && args[0].__dommy_backend_node__ == @__node__
       when "appendChild"
         append_child(args[0])
       when "insertBefore"

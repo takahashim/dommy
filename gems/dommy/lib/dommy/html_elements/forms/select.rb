@@ -206,9 +206,9 @@ module Dommy
 
     # `select.add(option, before)` — appends or inserts before `before`.
     def add(option, before = nil)
-      return nil unless option.respond_to?(:__dommy_backend_node__)
+      return nil unless option.is_a?(Node) && option.__dommy_backend_node__
 
-      if before.respond_to?(:__dommy_backend_node__)
+      if before.is_a?(Node) && before.__dommy_backend_node__
         insert_before(option, before)
       else
         append_child(option)

@@ -150,7 +150,7 @@ module Dommy
     # must support them — not just appendChild.
     def insert_before(node, ref)
       ensure_pre_insertion_validity!(node, ref)
-      ref_bn = ref.respond_to?(:__dommy_backend_node__) ? ref.__dommy_backend_node__ : nil
+      ref_bn = ref.__dommy_backend_node__ if ref.is_a?(Node)
       ref_bn = nil unless ref_bn && ref_bn.parent == @__node__
       ref_bn = Internal::InsertionPoint.skip_args(ref_bn, backend_nodes_in([node]))
       # Insert step 6's insertion point, measured before the conversion moves
@@ -170,7 +170,7 @@ module Dommy
     end
 
     def remove_child(node)
-      bn = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__ : nil
+      bn = node.__dommy_backend_node__ if node.is_a?(Node)
       raise DOMException::NotFoundError, "node is not a child of this shadow root" unless bn && bn.parent == @__node__
 
       @document.detach_node(bn)
@@ -182,7 +182,7 @@ module Dommy
       # As for a DocumentFragment: the validity check (whose step 2 rejects a
       # cycle) precedes the reference child's parentage check.
       ensure_pre_insertion_validity!(new_child, old_child)
-      old_bn = old_child.respond_to?(:__dommy_backend_node__) ? old_child.__dommy_backend_node__ : nil
+      old_bn = old_child.__dommy_backend_node__ if old_child.is_a?(Node)
       raise DOMException::NotFoundError, "node is not a child of this shadow root" unless old_bn && old_bn.parent == @__node__
 
       # The shared "replace a child within a parent" primitive — remove first,
@@ -203,9 +203,9 @@ module Dommy
     end
 
     def contains?(other)
-      return false unless other.respond_to?(:__dommy_backend_node__)
+      other_node = other.__dommy_backend_node__ if other.is_a?(Node)
+      return false unless other_node
 
-      other_node = other.__dommy_backend_node__
       return true if other_node == @__node__
 
       Internal::NodeTraversal.ancestor_of?(@__node__, other_node)

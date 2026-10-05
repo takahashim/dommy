@@ -428,8 +428,8 @@ module Dommy
       # matters for records).
       sc.replace_data(so, length_of(sc) - so, "") if character_data?(sc)
       to_remove.each do |node|
-        if node.respond_to?(:__dommy_backend_node__)
-          @document.remove_node_with_notify(node.__dommy_backend_node__)
+        if (backend = node.__dommy_backend_node__)
+          @document.remove_node_with_notify(backend)
         elsif node.respond_to?(:remove)
           node.remove
         end
@@ -566,7 +566,7 @@ module Dommy
       parent = reference.nil? ? start_node : parent_of(reference)
       # Step 6, ahead of the split: an insertion pre-insert would reject must
       # not leave the Text node split behind it.
-      ref_bn = reference.respond_to?(:__dommy_backend_node__) ? reference.__dommy_backend_node__ : nil
+      ref_bn = reference&.__dommy_backend_node__
       parent.__internal_ensure_insertion_validity__([node], ref_bn)
 
       # Step 7: a Text start node is ALWAYS split, including at offset 0 and at

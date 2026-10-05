@@ -257,8 +257,7 @@ module Dommy
       return [] unless root.respond_to?(:query_selector_all)
 
       root.query_selector_all("details").select do |other|
-        other.respond_to?(:__dommy_backend_node__) &&
-          !other.__dommy_backend_node__.equal?(__dommy_backend_node__) &&
+        !other.__dommy_backend_node__.equal?(__dommy_backend_node__) &&
           other.__dommy_backend_node__["name"].to_s == group
       end
     end
@@ -319,7 +318,7 @@ module Dommy
     # call and fire `slotchange` in both modes; named mode simply
     # ignores the override.
     def assign(*nodes)
-      @__manual_assignment = nodes.flatten.select { |n| n.respond_to?(:__dommy_backend_node__) }
+      @__manual_assignment = nodes.flatten.select { |n| n.is_a?(Node) && n.__dommy_backend_node__ }
       dispatch_event(Event.new("slotchange", "bubbles" => true))
       nil
     end

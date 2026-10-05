@@ -36,9 +36,9 @@ module Dommy
         # An Attr has no parent to be removed from, so it stays on its
         # element; only its node document changes.
         return node.__internal_adopt__(@document) if node.is_a?(Attr)
-        return nil unless node.respond_to?(:__dommy_backend_node__)
+        src = node.__dommy_backend_node__ if node.is_a?(Node)
+        return nil unless src
 
-        src = node.__dommy_backend_node__
         # WHATWG adopt removes the node from its parent first — a full remove, so
         # the old parent gets its removing steps AND its childList record.
         @document.remove_node_with_notify(src) if src.parent

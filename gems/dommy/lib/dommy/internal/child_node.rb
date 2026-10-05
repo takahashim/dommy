@@ -191,7 +191,7 @@ module Dommy
       # locating the viable previous / next sibling.
       def backend_nodes_in(args)
         args.filter_map do |arg|
-          arg.__dommy_backend_node__ if arg.respond_to?(:__dommy_backend_node__)
+          arg.__dommy_backend_node__ if arg.is_a?(Node)
         end
       end
 
@@ -239,7 +239,7 @@ module Dommy
         when String
           [@document.create_text_node(value).__dommy_backend_node__]
         else
-          node = value.respond_to?(:__dommy_backend_node__) ? value.__dommy_backend_node__ : nil
+          node = value.__dommy_backend_node__ if value.is_a?(Node)
           return [] unless node
 
           # WHATWG pre-insert adopts the node into this node's document before

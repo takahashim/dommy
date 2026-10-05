@@ -90,9 +90,10 @@ module Dommy
     # registered; fires `connectedCallback` for each upgraded node
     # that's currently attached to a document tree.
     def upgrade(root)
-      return nil unless root.respond_to?(:__dommy_backend_node__)
+      root_node = root.__dommy_backend_node__ if root.is_a?(Node)
+      return nil unless root_node
 
-      @window.document.__internal_each_shadow_including_element__(root.__dommy_backend_node__) do |nk|
+      @window.document.__internal_each_shadow_including_element__(root_node) do |nk|
         next unless @definitions.key?(nk.name)
 
         wrapped = rewrap_for_upgrade(@window.document, nk)

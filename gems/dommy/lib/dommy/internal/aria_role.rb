@@ -209,7 +209,7 @@ module Dommy
       # <header>/<footer> are landmarks only when not scoped to sectioning
       # content; otherwise generic.
       def landmark_or_generic(element, landmark)
-        node = element.respond_to?(:__dommy_backend_node__) ? element.__dommy_backend_node__&.parent : nil
+        node = element.__dommy_backend_node__&.parent
         while node
           return "generic" if SECTIONING.include?(node.name.to_s.downcase)
 

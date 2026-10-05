@@ -314,7 +314,7 @@ module Dommy
     # body reports no parent at all (and never filters the document element on
     # the way). wrap_node maps the backend document node to the Dommy Document.
     def wrapped_parent(node)
-      parent_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.parent : nil
+      parent_nk = node.__dommy_backend_node__&.parent
       return nil unless parent_nk
 
       doc = node.instance_variable_get(:@document) || (@root.respond_to?(:document) ? @root.document : @root)
@@ -325,11 +325,7 @@ module Dommy
     # or, for a Document (which isn't a wrapped node), its `backend_doc`. Lets a
     # walker rooted at the document descend into its children.
     def backend_node_of(node)
-      if node.respond_to?(:__dommy_backend_node__)
-        node.__dommy_backend_node__
-      elsif node.respond_to?(:backend_doc)
-        node.backend_doc
-      end
+      node.is_a?(Document) ? node.backend_doc : node.__dommy_backend_node__
     end
 
     # Wrap the first Nokogiri node in `list` that has a wrapper, skipping ones
@@ -354,13 +350,13 @@ module Dommy
     end
 
     def next_sibling_wrapped(node)
-      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.next : nil
+      n = node.__dommy_backend_node__&.next
       n = n.next while n && document_for(node).wrap_node(n).nil?
       n && document_for(node).wrap_node(n)
     end
 
     def previous_sibling_wrapped(node)
-      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.previous : nil
+      n = node.__dommy_backend_node__&.previous
       n = n.previous while n && document_for(node).wrap_node(n).nil?
       n && document_for(node).wrap_node(n)
     end
@@ -525,11 +521,7 @@ module Dommy
     # `__dommy_backend_node__`, or a Document's `backend_doc` — so an iterator
     # rooted at the document can descend into its children (doctype, root, …).
     def backend_node_of(node)
-      if node.respond_to?(:__dommy_backend_node__)
-        node.__dommy_backend_node__
-      elsif node.respond_to?(:backend_doc)
-        node.backend_doc
-      end
+      node.is_a?(Document) ? node.backend_doc : node.__dommy_backend_node__
     end
 
     def first_child_node(node)
@@ -545,17 +537,17 @@ module Dommy
     end
 
     def next_sibling_node(node)
-      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.next : nil
+      n = node.__dommy_backend_node__&.next
       n && document_for(node).wrap_node(n)
     end
 
     def previous_sibling_node(node)
-      n = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.previous : nil
+      n = node.__dommy_backend_node__&.previous
       n && document_for(node).wrap_node(n)
     end
 
     def parent_node_of(node)
-      parent_nk = node.respond_to?(:__dommy_backend_node__) ? node.__dommy_backend_node__.parent : nil
+      parent_nk = node.__dommy_backend_node__&.parent
       return nil unless parent_nk
 
       # wrap_node maps the backend document node to the Dommy Document, so an
@@ -571,8 +563,8 @@ module Dommy
       return false unless node_a && node_b
       return true if node_a.equal?(node_b)
 
-      node_a.respond_to?(:__dommy_backend_node__) && node_b.respond_to?(:__dommy_backend_node__) &&
-        node_a.__dommy_backend_node__.equal?(node_b.__dommy_backend_node__)
+      backend_a = node_a.__dommy_backend_node__
+      !backend_a.nil? && backend_a.equal?(node_b.__dommy_backend_node__)
     end
 
     def inclusive_ancestor?(ancestor, descendant)
