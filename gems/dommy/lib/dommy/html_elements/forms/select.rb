@@ -35,6 +35,7 @@ module Dommy
     # HTML's attribute change steps for a select: losing `multiple`, or a change
     # of `size`, changes which rules apply to the list, so settle it again.
     def __internal_attribute_changed__(name, _old_value, _new_value, namespace)
+      super
       return nil unless namespace.nil? && SELECTEDNESS_ATTRIBUTES.any? { |a| name.casecmp?(a) }
 
       __internal_settle_selectedness__
@@ -402,6 +403,7 @@ module Dommy
     # HTML's attribute change steps for an option: while not dirty, selectedness
     # follows the `selected` content attribute.
     def __internal_attribute_changed__(name, _old_value, _new_value, namespace)
+      super
       return nil unless namespace.nil? && name.casecmp?("selected")
 
       sync_selectedness_from_attribute

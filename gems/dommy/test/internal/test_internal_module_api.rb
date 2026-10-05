@@ -57,7 +57,10 @@ class TestInternalModuleApi < Minitest::Test
   # `private`.
   MIXIN_API = {
     Dommy::Internal::ElementTopLayer => %w[request_fullscreen],
-    Dommy::Internal::ElementPopover => %w[show_popover hide_popover toggle_popover __js_call__],
+    Dommy::Internal::ElementPopover => %w[
+      show_popover hide_popover toggle_popover __js_call__ __internal_hide_popover__
+      __internal_popover_opened_mode__ __internal_popover_removed__ __internal_attribute_changed__
+    ],
     Dommy::Internal::ElementGeometry => %w[
       get_bounding_client_rect get_client_rects __test_scroll_log__
       __internal_approx_box approximate_layout?

@@ -12,6 +12,8 @@ module Dommy
   # page; it is otherwise spec-shaped, including the `is modal` flag that
   # distinguishes an open-non-modal dialog (show() no-ops on it, showModal()
   # throws) from an open-modal one (show() throws, showModal() no-ops).
+  # Showing one either way closes the auto and hint popovers it is not nested
+  # in (Internal::PopoverStack).
   #
   # Opening and closing fire `beforetoggle` synchronously (before the `open`
   # attribute changes; an opening can be canceled) and `toggle` asynchronously,
@@ -49,6 +51,7 @@ module Dommy
 
       self.open = true
       queue_toggle_event(dialog_toggle_tracker, false, true)
+      hide_popovers_outside
       nil
     end
 
@@ -80,6 +83,7 @@ module Dommy
       self.open = true
       @__dialog_is_modal__ = true
       queue_toggle_event(dialog_toggle_tracker, false, true)
+      hide_popovers_outside
       nil
     end
 
@@ -122,6 +126,14 @@ module Dommy
 
     private
 
+    # The last steps of showing a dialog, either way: the auto and hint
+    # popovers it is not nested in close — the dialog itself too, when it is
+    # also showing as a popover, since it is no descendant of itself.
+    def hide_popovers_outside
+      stack = @document.__internal_popover_stack__
+      stack.hide_popovers_until(stack.topmost_ancestor(self, nil), false, true)
+    end
+
     # This element's own "dialog toggle task tracker" — separate from any
     # "popover toggle task tracker" the same element also has as a
     # `<dialog popover>`, so the two purposes' rapid changes coalesce
@@ -158,6 +170,7 @@ module Dommy
 
     # HTML's attribute change steps for a details element.
     def __internal_attribute_changed__(name, old_value, new_value, namespace)
+      super
       return nil unless namespace.nil?
 
       if name.casecmp?("open")
