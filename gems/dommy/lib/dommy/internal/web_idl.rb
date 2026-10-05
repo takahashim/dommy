@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "date"
+
 module Dommy
   module Internal
     # WebIDL argument conversion for interface types. A JS value reaches a host
@@ -62,6 +64,55 @@ module Dommy
         return nil if value.nil? || value.equal?(Bridge::UNDEFINED)
 
         node!(value)
+      end
+
+      # `value` converted to `unrestricted double` (JS ToNumber): NaN and the
+      # infinities pass through. The bridge hands JS NaN over as the symbol
+      # :NaN; a Date is its time value. An object Ruby cannot ask for a
+      # primitive is NaN.
+      def unrestricted_double(value)
+        case value
+        when Numeric then value.to_f
+        when nil, false then 0.0
+        when true then 1.0
+        when String then string_to_double(value)
+        when Bridge::Date then value.time_value
+        else ::Float::NAN # undefined, NaN, other objects
+        end
+      end
+
+      # JS StringToNumber for the decimal forms: surrounding whitespace is
+      # ignored and the empty string is 0.
+      def string_to_double(value)
+        text = value.strip
+        return 0.0 if text.empty?
+        return ::Float::INFINITY if text == "Infinity" || text == "+Infinity"
+        return -::Float::INFINITY if text == "-Infinity"
+
+        Float(text, exception: false)&.to_f || ::Float::NAN
+      end
+
+      # `value` converted to `object?`: null and undefined become nil, and a
+      # primitive is a TypeError.
+      def nullable_object!(value)
+        return nil if value.nil? || value.equal?(Bridge::UNDEFINED)
+        if value.is_a?(String) || value.is_a?(Numeric) || value.is_a?(Symbol) || value == true || value == false
+          raise Bridge::TypeError, "value is not of type 'object'."
+        end
+
+        value
+      end
+
+      # The time value (ms since the epoch, NaN for an invalid date) of a Date
+      # object, or nil when `value` is not one. A Ruby ::Time stands in for a
+      # Date, as does a ::Date (its UTC midnight).
+      def date_time_value(value)
+        case value
+        when Bridge::Date then value.time_value
+        when ::Time then (value.to_r * 1000).floor.to_f
+        when ::DateTime then date_time_value(value.to_time)
+        when ::Date then ::Time.utc(value.year, value.month, value.day).to_i * 1000.0
+        end
       end
     end
   end

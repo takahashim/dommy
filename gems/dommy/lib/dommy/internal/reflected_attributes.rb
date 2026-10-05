@@ -464,15 +464,7 @@ module Dommy
       # WebIDL's `double` (the restricted one): every ES value converts, but a
       # non-finite result is a TypeError rather than an attribute saying "NaN".
       def to_webidl_double(value)
-        number =
-          case value
-          when Numeric then value.to_f
-          when nil then 0.0
-          when true then 1.0
-          when false then 0.0
-          when String then value.strip.empty? ? 0.0 : (Float(value.strip) rescue ::Float::NAN)
-          else ::Float::NAN
-          end
+        number = WebIDL.unrestricted_double(value)
         raise Bridge::TypeError, "The provided double value is non-finite." if number.nan? || number.infinite?
 
         number

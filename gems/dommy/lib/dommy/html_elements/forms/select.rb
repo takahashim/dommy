@@ -74,7 +74,7 @@ module Dommy
     end
 
     def form
-      closest("form")
+      __internal_form_owner__
     end
 
     # The options whose selectedness is true. The list is kept consistent as
@@ -487,8 +487,9 @@ module Dommy
 
     public
 
+    # The form owner of the select this option is in, or null outside one.
     def form
-      closest("form")
+      __internal_owner_select__&.form
     end
 
     # `index` — position within the containing select's options list.

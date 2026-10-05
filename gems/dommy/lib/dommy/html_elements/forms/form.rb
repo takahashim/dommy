@@ -76,7 +76,7 @@ module Dommy
     # nothing, if the id resolves to a non-form / nothing); otherwise it is the
     # nearest ancestor form element.
     def __internal_owns_control__(control)
-      owner = control.respond_to?(:__internal_form_owner__) ? control.__internal_form_owner__ : control.closest("form")
+      owner = control.__internal_form_owner__
       !owner.nil? && owner.__dommy_backend_node__.equal?(__dommy_backend_node__)
     end
 
@@ -547,7 +547,7 @@ module Dommy
     end
 
     def form
-      closest("form")
+      __internal_form_owner__
     end
 
     def labels
@@ -690,8 +690,11 @@ module Dommy
       %w[button meter output progress select textarea].include?(tag)
     end
 
+    # The labeled control's form owner, or null when there is no labeled
+    # control or it is not form-associated (a meter or progress).
     def form
-      closest("form")
+      target = control
+      target.form if target.respond_to?(:form)
     end
 
     js_readable :control, :form
@@ -713,7 +716,7 @@ module Dommy
     end
 
     def form
-      closest("form")
+      __internal_form_owner__
     end
 
     def elements
@@ -770,11 +773,12 @@ module Dommy
 
   # `<legend>` — primarily exposes its `form` back-ref.
   class HTMLLegendElement < HTMLElement
-    # HTML: the legend's `form` is its fieldset ancestor's form owner, or null
-    # when there is no fieldset ancestor — it does not fall back to a <form> the
+    # HTML: the legend's `form` is its parent fieldset's form owner, or null
+    # when its parent is not a fieldset — it does not fall back to a <form> the
     # legend merely sits inside.
     def form
-      closest("fieldset")&.form
+      parent = parent_element
+      parent.form if parent.is_a?(HTMLFieldSetElement)
     end
 
     def __js_get__(key)
@@ -833,7 +837,7 @@ module Dommy
     end
 
     def form
-      closest("form")
+      __internal_form_owner__
     end
 
     def labels

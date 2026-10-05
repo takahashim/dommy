@@ -43,12 +43,17 @@ class TestAutocompleteAutofill < Minitest::Test
     assert_equal("", el("i").autocomplete)
   end
 
-  # The field name itself is copied through verbatim (only "section-*" gets
-  # lowercased), but the setter always reflects the attribute as written.
-  def test_a_plain_field_name_is_returned_as_written
+  # The field name is canonicalized to lowercase, but the content attribute
+  # keeps what was written.
+  def test_a_plain_field_name_is_lowercased
     el("i").set_attribute("autocomplete", "Current-Password")
-    assert_equal("Current-Password", el("i").autocomplete)
+    assert_equal("current-password", el("i").autocomplete)
     assert_equal("Current-Password", el("i").get_attribute("autocomplete"))
+  end
+
+  def test_a_credential_field_name_is_lowercased
+    el("i").set_attribute("autocomplete", "Current-Password WebAuthn")
+    assert_equal("current-password webauthn", el("i").autocomplete)
   end
 
   def test_shipping_and_billing_prefix_any_field

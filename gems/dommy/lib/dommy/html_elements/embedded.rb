@@ -114,7 +114,7 @@ module Dommy
     end
 
     def form
-      closest("form")
+      __internal_form_owner__
     end
 
     # An `<object>` is a form-associated element, so it carries the whole

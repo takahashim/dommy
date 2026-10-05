@@ -325,17 +325,14 @@
       "charset",
       "coords",
       "name",
-      "ping",
       "referrerPolicy",
       "rev",
       "shape",
       "text"
     ],
     "HTMLAreaElement": [
-      "download",
       "hreflang",
       "noHref",
-      "ping",
       "referrerPolicy",
       "type"
     ],
@@ -571,7 +568,6 @@
       "size",
       "src",
       "useMap",
-      "valueAsDate",
       "width"
     ],
     "HTMLLIElement": [

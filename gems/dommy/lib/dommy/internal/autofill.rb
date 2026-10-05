@@ -90,7 +90,7 @@ module Dommy
         return "off" if category == :off
         return "on" if category == :automatic
 
-        idl_value = field
+        idl_value = field.downcase(:ascii)
         catch(:done) do
           if category == :credential
             # Only "webauthn" is Credential, so this is that field itself; fold
@@ -102,7 +102,7 @@ module Dommy
             throw :default unless category == :normal || category == :contact
             throw :default if index > max_tokens - 1
 
-            idl_value = "#{tokens[index]} #{idl_value}"
+            idl_value = "#{tokens[index].downcase(:ascii)} #{idl_value}"
           end
 
           throw :done if index.zero?

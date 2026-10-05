@@ -15,7 +15,7 @@ globalThis.__rbHost = (function () {
     INTERFACE_NULL_TO_EMPTY_STRING_SETTERS, FORM_VALUE_FIELDS, READONLY_ATTRS,
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS, INTERFACE_MEMBERS, FROZEN_ARRAY_ATTRIBUTES, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
-    NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
+    NODE_OR_STRING_METHODS, DOMSTRING_ARGUMENTS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
     BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, CONSTRUCTOR_ARITY,
     VOID_METHODS, INTERFACE_VOID_METHODS, JS_GLOBALS,
   } = globalThis.__rbIdl;
@@ -231,6 +231,21 @@ globalThis.__rbHost = (function () {
     }
   }
 
+  // The WebIDL DOMString conversion of the arguments DOMSTRING_ARGUMENTS names
+  // for `name` (ES ToString: a Symbol is a TypeError, an object runs its own
+  // toString). Arguments past the ones passed are left for the host's
+  // missing-argument handling.
+  function toDOMStringArguments(name, args) {
+    const indices = Object.prototype.hasOwnProperty.call(DOMSTRING_ARGUMENTS, name)
+      ? DOMSTRING_ARGUMENTS[name] : undefined;
+    if (indices === undefined) return args;
+    const out = args.slice();
+    for (const i of indices) {
+      if (i < out.length) out[i] = `${out[i]}`;
+    }
+    return out;
+  }
+
   function withArity(fn, name, iface) {
     const own = iface === undefined ? undefined : INTERFACE_METHOD_ARITY[iface];
     // Own entries only: a plain-object table would otherwise hand `toString`
@@ -274,7 +289,7 @@ globalThis.__rbHost = (function () {
         const fn = this[name];
         if (typeof fn === "function" && fn !== stub) return fn.apply(this, args);
       }
-      const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : args);
+      const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : toDOMStringArguments(name, args));
       return readOnly
         ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface)
         : callMutating(this[HKEY], name, wire, iface);
@@ -539,6 +554,18 @@ globalThis.__rbHost = (function () {
     return out;
   }
 
+  // The time value of a Date object, or undefined for anything else. getTime
+  // throws unless its receiver has a [[DateValue]] slot, which is the brand
+  // check; it is captured here so a page replacing it changes nothing.
+  const dateGetTime = Date.prototype.getTime;
+  function dateTimeValue(v) {
+    try {
+      return dateGetTime.call(v);
+    } catch (_) {
+      return undefined;
+    }
+  }
+
   function dehydrate(v, seen) {
     if (typeof v === "string") return /[\ud800-\udfff]/.test(v) ? scrubLoneSurrogates(v) : v;
     if (typeof v === "function") return { __rb_callback: registerCallback(v) };
@@ -587,6 +614,12 @@ globalThis.__rbHost = (function () {
         const ref = { __rb_js_ref: registerJsRef(v) };
         if (handlesEvents) ref.__rb_handle_event = true;
         if (acceptsNodes) ref.__rb_accept_node = true;
+        // A Date also carries its time value, which the host cannot read
+        // through the ref (`input.valueAsDate = d`). Recognised by its internal
+        // slot, as WebIDL does, so a Date from another realm counts and an
+        // object merely inheriting from Date.prototype does not.
+        const time = dateTimeValue(v);
+        if (time !== undefined) ref.__rb_date = time;
         // An Error crossing as an opaque ref still needs a readable label and its
         // frames: the host cannot reach through a ref to read `.message` or
         // `.stack`, so an error the page hands us (`reportError(new
@@ -845,6 +878,8 @@ globalThis.__rbHost = (function () {
       // A host byte buffer tagged as an ArrayBuffer (Response/Blob/FileReader/
       // XHR arrayBuffer) rehydrates to a bare ArrayBuffer.
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
+      // A host point in time (valueAsDate) rehydrates to a new Date.
+      if ("__rb_date" in v) return new Date(v.__rb_date);
       if ("__rb_handle" in v) {
         // A dispatch-in-flight host twin resolves to its JS event, so a
         // listener's argument IS the object the caller constructed.
@@ -910,6 +945,7 @@ globalThis.__rbHost = (function () {
       if ("__rb_js_ref" in v) return jsRefs.get(v.__rb_js_ref);
       if (v.__rb_bytes) return new Uint8Array(v.__rb_bytes);
       if (v.__rb_arraybuffer) return new Uint8Array(v.__rb_arraybuffer).buffer;
+      if ("__rb_date" in v) return new Date(v.__rb_date);
       if ("__rb_handle" in v) {
         // A dispatch-in-flight host twin resolves to its JS event, so a
         // listener's argument IS the object the caller constructed.
@@ -2132,6 +2168,10 @@ globalThis.__rbHost = (function () {
       else if (NODE_OR_STRING_METHODS.has(prop)) fn = nodeOrStringStub(prop, ctx);
       else fn = mutatingStub(prop, ctx);
     }
+    if (Object.prototype.hasOwnProperty.call(DOMSTRING_ARGUMENTS, prop)) {
+      const convert = fn;
+      fn = (...args) => convert(...toDOMStringArguments(prop, args));
+    }
     withArity(fn, prop, ctx.ifaceName);
     return fn;
   }
@@ -2558,10 +2598,12 @@ globalThis.__rbHost = (function () {
         // for a string property that resolves to no value. An out-of-range array
         // index is `undefined` and does NOT fall back to a named lookup (so
         // `coll[2147483648]` is undefined even if an element's id is that digit
-        // string); other unsupported strings (`coll[""]`, `coll["x"]`) too.
+        // string); other unsupported strings (`coll[""]`, `coll["x"]`) too. A
+        // node (a select, a form) answers an unknown name with ABSENT itself, so
+        // its null is a real attribute value (`select.form`) and is kept.
         if (hostHasNoValue && (arrayLike || named) && typeof prop === "string" && prop !== "length") {
           if (arrayLike && isArrayIndex(prop)) return undefined;
-          if (!isNamedKey(prop)) return undefined;
+          if (!nodeChain && !isNamedKey(prop)) return undefined;
         }
         return v;
       },
