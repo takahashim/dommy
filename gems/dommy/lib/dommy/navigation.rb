@@ -198,9 +198,9 @@ module Dommy
         body = +"".b
         params.each do |name, value|
           body << binary("--#{boundary}\r\n")
-          if value.respond_to?(:__dommy_bytes__)
+          if value.is_a?(Blob)
             filename = value.is_a?(File) ? value.name : ""
-            type = value.respond_to?(:type) && !value.type.to_s.empty? ? value.type.to_s : "application/octet-stream"
+            type = value.type.to_s.empty? ? "application/octet-stream" : value.type.to_s
             body << binary(%(Content-Disposition: form-data; name="#{escape_part(name)}"; filename="#{escape_part(filename)}"\r\n))
             body << binary("Content-Type: #{type}\r\n\r\n")
             body << value.__dommy_bytes__ << "\r\n".b
@@ -219,7 +219,7 @@ module Dommy
 
       # A File/Blob contributes its filename to a non-file serialization.
       def scalar(value)
-        return value.to_s unless value.respond_to?(:__dommy_bytes__)
+        return value.to_s unless value.is_a?(Blob)
 
         value.is_a?(File) ? value.name : ""
       end

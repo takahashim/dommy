@@ -204,7 +204,7 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
     result = Dommy::Rack::FormSubmission.new(form, nil, config).submit!
 
     assert has_param?(result, "doc")
-    assert_respond_to param(result, "doc"), :__dommy_bytes__
+    assert_kind_of Dommy::File, param(result, "doc")
   end
 
   def test_collects_later_input_types

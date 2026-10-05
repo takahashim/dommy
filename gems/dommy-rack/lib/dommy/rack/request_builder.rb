@@ -130,9 +130,9 @@ module Dommy
       # File/Blob values can appear in a GET form; reduce them to their
       # filename so build_query never serializes raw bytes into a query.
       def scalar(value)
-        return value.to_s unless value.respond_to?(:__dommy_bytes__)
+        return value.to_s unless value.is_a?(Dommy::Blob)
 
-        value.respond_to?(:name) ? value.name.to_s : ""
+        value.is_a?(Dommy::File) ? value.name.to_s : ""
       end
 
       def normalize_headers(headers)

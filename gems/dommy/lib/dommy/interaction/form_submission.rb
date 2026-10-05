@@ -69,7 +69,7 @@ module Dommy
         return pairs if multipart?
 
         pairs.map do |name, value|
-          next [name, value] unless value.respond_to?(:__dommy_bytes__)
+          next [name, value] unless value.is_a?(Dommy::Blob)
 
           filename = value.is_a?(Dommy::File) ? value.name : ""
           [name, basename(filename)]
