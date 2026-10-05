@@ -1111,6 +1111,12 @@ module Dommy
       Range.new(self)
     end
 
+    # The showing popovers and the state that orders their showing and
+    # hiding (Internal::PopoverStack).
+    def __internal_popover_stack__
+      @popover_stack ||= Internal::PopoverStack.new
+    end
+
     # Fullscreen API — no actual fullscreen mode, just track which
     # element claimed it. `element.requestFullscreen()` sets it; this
     # is the read side.

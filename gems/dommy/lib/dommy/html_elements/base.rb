@@ -35,8 +35,7 @@ module Dommy
 
     # `popover` (HTML §6.12), limited to its keywords: null without the
     # attribute, "auto" for an empty one, "manual" for any other value.
-    reflect_enumerated popover: { keywords: %w[auto manual hint], missing: nil, empty: "auto",
-                                  invalid: "manual", nullable: true }
+    reflect_enumerated popover: Internal::ElementPopover::POPOVER_STATES
     js_accessor :hidden, :translate
     js_readable :access_key_label, :offset_parent, :offset_top, :offset_left, :offset_width, :offset_height
 

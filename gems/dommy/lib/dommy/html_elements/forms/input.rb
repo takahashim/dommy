@@ -410,6 +410,7 @@ module Dommy
     # Every attribute write path (IDL reflection, Attr, set/removeAttribute,
     # including NS variants) reaches this hook with the old attribute value.
     def __internal_attribute_changed__(name, old_value, new_value, namespace)
+      super
       return unless namespace.nil?
 
       case name

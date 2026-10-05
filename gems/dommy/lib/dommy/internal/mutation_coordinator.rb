@@ -68,9 +68,13 @@ module Dommy
         each_shadow_including_element(nk) { |element| notify_moved(element) }
       end
 
-      # Disconnected callbacks, over the same shadow-including walk.
+      # HTML's removing steps for a popover (it hides) and the disconnected
+      # callbacks, over the same shadow-including walk.
       def notify_disconnected_subtree(nk)
-        each_shadow_including_element(nk) { |element| notify_disconnected(element) }
+        each_shadow_including_element(nk) do |element|
+          element.__internal_popover_removed__ if element.respond_to?(:__internal_popover_removed__)
+          notify_disconnected(element)
+        end
       end
 
       def notify_attribute_changed(element, name, old_value, new_value, namespace = nil)

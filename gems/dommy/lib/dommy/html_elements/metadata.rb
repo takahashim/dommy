@@ -54,6 +54,7 @@ module Dommy
     # HTML's attribute change steps for `async`: ADDING the content attribute
     # clears force async, independent of (and in addition to) the IDL setter.
     def __internal_attribute_changed__(name, old_value, _new_value, namespace)
+      super
       @__force_async = false if namespace.nil? && old_value.nil? && name.casecmp?("async")
     end
 
