@@ -27,6 +27,26 @@ RSpec.describe Capybara::Dommy::Node do
     expect(node("<input id='x' value='hi'>", "#x").value).to eq("hi")
   end
 
+  it "converts Ruby times to HTML temporal values" do
+    time = Time.new(2018, 3, 13, 9, 53, 1.125, "+09:00")
+    time_node = node('<input id="x" type="time">', "#x")
+    time_node.set(time)
+    expect(time_node.value).to eq("09:53:01.125")
+
+    datetime_node = node('<input id="x" type="datetime-local">', "#x")
+    datetime_node.set(time)
+    expect(datetime_node.value).to eq("2018-03-13T09:53:01.125")
+  end
+
+  it "delegates range bounds and decimal steps to the input element" do
+    n = node('<input id="x" type="range" min="0" max="1" step="0.1">', "#x")
+    n.set("0.6")
+    expect(n.value).to eq("0.6")
+    n = node('<input id="x" type="range" min="10" max="5" step="any">', "#x")
+    n.set("invalid")
+    expect(n.value).to eq("10")
+  end
+
   it "reports checked / selected / disabled / readonly state" do
     expect(node("<input id='x' type='checkbox' checked>", "#x")).to be_checked
     expect(node("<input id='x' type='checkbox'>", "#x")).not_to be_checked
