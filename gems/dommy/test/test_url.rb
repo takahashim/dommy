@@ -150,6 +150,14 @@ class TestURLIDN < Minitest::Test
     assert_equal("http://u:p@xn--wgv71a.test/", u.href)
   end
 
+  # An ASCII domain is only lowercased: its "xn--" labels are not validated
+  # as Punycode (WPT url/toascii.json "Invalid Punycode").
+  def test_ascii_a_labels_are_only_lowercased
+    assert_equal("xn--zca.com", Dommy::URL.new("http://XN--ZCA.com/").host)
+    assert_equal("xn--a.com", Dommy::URL.new("http://xn--a.com/").host)
+    assert_equal("xn--", Dommy::URL.new("https://xn--/").host)
+  end
+
   def test_idn_host_via_base
     u = Dommy::URL.new("/p", "http://日本.test")
     assert_equal("http://xn--wgv71a.test/p", u.href)

@@ -755,9 +755,9 @@ module WebIdlAudit
       next unless record
 
       operations = record["members"].select { |m| m["kind"] == "operation" }.map { |m| m["name"] }.compact.to_set
-      # A stringifier is an unnamed special operation, and what it gives the
-      # interface is `toString`.
-      operations << "toString" if record["members"].any? { |m| m["special"] == "stringifier" || (m["kind"] == "special" && m["special"] == "stringifier") }
+      # A stringifier — an unnamed special operation, or an attribute declared
+      # `stringifier attribute` — gives the interface `toString`.
+      operations << "toString" if record["members"].any? { |m| m["special"] == "stringifier" || m["stringifier"] }
       attributes = record["members"].select { |m| m["kind"] == "attribute" }.to_h { |m| [m["name"], m] }
       groups[:m].each do |name|
         gaps["#{interface}.#{name}"] = "seeded as an operation the interface does not declare" unless operations.include?(name)

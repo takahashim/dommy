@@ -360,6 +360,18 @@ globalThis.__rbIdl = (function () {
       m: ["click", "focus", "blur"],
       p: ["title", "lang", "dir", "hidden", "innerText"]
     },
+    // The URL Standard's interfaces. URL's two readonly attributes are in
+    // READONLY_ATTRS; URLSearchParams' iterable<> methods (entries, keys,
+    // values, forEach, @@iterator) are installed with the other pair
+    // iterables (ENTRIES_ITERABLES).
+    URL: {
+      m: ["toJSON", "toString"],
+      p: ["href", "protocol", "username", "password", "host", "hostname", "port", "pathname", "search", "hash"]
+    },
+    URLSearchParams: {
+      m: ["append", "delete", "get", "getAll", "has", "set", "sort", "toString"],
+      g: ["size"]
+    },
     // Event interfaces: seed the readonly attributes so they exist on the
     // prototype (WebIDL) — `("view" in ev)` / hasOwnProperty / getOwnPropertyDescriptor
     // resolve, and `Object.getPrototypeOf` walks the right chain. The get trap

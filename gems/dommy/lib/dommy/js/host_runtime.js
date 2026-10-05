@@ -106,8 +106,8 @@ globalThis.__rbHost = (function () {
         if (!isProxy(this) || !interfaceChainOf(this).includes(iface)) {
           throw new TypeError("Illegal invocation: " + iface + "." + name + " called on a different object");
         }
-        const conversions = declaredConversion(iface, "operations", name);
-        const wire = dehydrateArgs(conversions ? convertArguments(conversions, args) : args);
+        const call = declaredConversion(iface, "operations", name);
+        const wire = dehydrateArgs(call ? convertArguments(call, args) : args);
         bumpDomEpoch();
         try {
           return hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface);
@@ -333,6 +333,7 @@ globalThis.__rbHost = (function () {
     const key = iface + "\u0000" + kind + "\u0000" + (name || "");
     if (declarations.has(key)) return declarations.get(key);
     let found = null;
+    let declarer = iface;
     if (kind === "constructor") {
       if (hasOwn(SIGNATURES, iface) && hasOwn(SIGNATURES[iface], "constructor")) found = SIGNATURES[iface].constructor;
     } else {
@@ -341,21 +342,40 @@ globalThis.__rbHost = (function () {
         const table = hasOwn(SIGNATURES, owner) ? SIGNATURES[owner][kind] : undefined;
         if (hasOwn(table, name)) {
           found = table[name];
+          declarer = owner;
           break;
         }
       }
     }
-    if (Array.isArray(found)) found = found.map(conversionFor);
-    else if (typeof found === "string") found = conversionFor(found);
+    if (typeof found === "string") {
+      found = conversionFor(found);
+    } else if (found) {
+      // A call: what WebIDL's overload resolution checks, and how the
+      // arguments convert. The label names it in the TypeError a short call
+      // throws, in the shape engines use.
+      found = {
+        required: found.required || 0,
+        conversions: (found.arguments || []).map(conversionFor),
+        label: kind === "constructor"
+          ? "Failed to construct '" + iface + "'"
+          : "Failed to execute '" + name + "' on '" + declarer + "'",
+      };
+    }
     declarations.set(key, found);
     return found;
   }
 
-  // The arguments a script passed, converted position by position. An optional
-  // argument passed as undefined stays undefined (the operation's default
-  // applies), and arguments past the ones passed are left for the operation's
-  // own missing-argument handling.
-  function convertArguments(conversions, args) {
+  // The arguments a script passed to `call` (a declaredConversion of a call),
+  // checked and converted. Fewer than the required count is a TypeError, as
+  // WebIDL's overload resolution finds no overload for them; then each string
+  // argument is converted in order. An optional argument passed as undefined
+  // stays undefined (the operation's default applies).
+  function convertArguments(call, args) {
+    if (args.length < call.required) {
+      throw new TypeError(call.label + ": " + call.required + " argument" + (call.required === 1 ? "" : "s") +
+        " required, but only " + args.length + " present.");
+    }
+    const conversions = call.conversions;
     let out = args;
     for (let i = 0; i < args.length; i++) {
       const conversion = i < conversions.length
@@ -372,15 +392,23 @@ globalThis.__rbHost = (function () {
     return out;
   }
 
-  // `fn` with its arguments converted as `iface`'s `kind` member `name`
-  // declares them, keeping `this` (a stub may read it); `fn` itself when there
-  // is nothing to convert.
+  // `fn` with its arguments checked and converted as `iface`'s `kind` member
+  // `name` declares them, keeping `this` (a stub may read it); `fn` itself
+  // when there is nothing to check.
   function withConvertedArguments(fn, iface, kind, name) {
-    const conversions = declaredConversion(iface, kind, name);
-    if (!conversions) return fn;
+    const call = declaredConversion(iface, kind, name);
+    if (!call) return fn;
     return function (...args) {
-      return fn.apply(this, convertArguments(conversions, args));
+      return fn.apply(this, convertArguments(call, args));
     };
+  }
+
+  // A static operation's function, named and with the `length` WebIDL gives
+  // it: the shortest overload's required argument count.
+  function withStaticArity(fn, name, call) {
+    Object.defineProperty(fn, "name", { value: name, configurable: true });
+    Object.defineProperty(fn, "length", { value: call ? call.required : 0, configurable: true });
+    return fn;
   }
 
   // The value an attribute setter receives, converted as `iface`'s attribute
@@ -433,8 +461,9 @@ globalThis.__rbHost = (function () {
         const fn = this[name];
         if (typeof fn === "function" && fn !== stub) return fn.apply(this, args);
       }
-      const conversions = declaredConversion(receiverInterface(this, iface), "operations", name);
-      const converted = conversions ? convertArguments(conversions, args) : args;
+      checkReceiver(this, iface, name);
+      const call = declaredConversion(receiverInterface(this, iface), "operations", name);
+      const converted = call ? convertArguments(call, args) : args;
       const wire = dehydrateArgs(coerce ? converted.map(coerceNodeOrString) : converted);
       return readOnly
         ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface)
@@ -472,8 +501,22 @@ globalThis.__rbHost = (function () {
     return handled;
   }
 
-  function memberGetStub(name) {
-    return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };
+  // An operation or attribute on an interface prototype is one function
+  // shared by every instance, so it takes its object from `this`, which WebIDL
+  // requires to implement the interface: anything else — the prototype itself,
+  // a plain object, an instance of another interface — is a TypeError rather
+  // than a host call on no object.
+  function checkReceiver(receiver, iface, name) {
+    if (!isProxy(receiver) || !interfaceChainOf(receiver).includes(iface)) {
+      throw new TypeError("Illegal invocation: " + iface + "." + name + " called on a different object");
+    }
+  }
+
+  function memberGetStub(name, iface) {
+    return function () {
+      checkReceiver(this, iface, name);
+      return rehydrate(__rb_host_get(this[HKEY], name));
+    };
   }
   // The interface a prototype member converts its values as: the receiver's
   // own when it is one of our proxies (a derived interface may declare the
@@ -488,6 +531,7 @@ globalThis.__rbHost = (function () {
     // delegates instance writes to this prototype setter, so it must
     // invalidate the same caches). Called with the element as `this`.
     return function (v) {
+      checkReceiver(this, iface, name);
       hostSet(this[HKEY], name, convertAttributeValue(receiverInterface(this, iface), name, v));
     };
   }
@@ -504,9 +548,9 @@ globalThis.__rbHost = (function () {
     (members.m || []).forEach((mname) =>
       def(mname, { value: memberMethodStub(mname, name), writable: true, enumerable: true, configurable: true }));
     (members.g || []).forEach((gname) =>
-      def(gname, { get: memberGetStub(gname), enumerable: true, configurable: true }));
+      def(gname, { get: memberGetStub(gname, name), enumerable: true, configurable: true }));
     (members.p || []).forEach((pname) =>
-      def(pname, { get: memberGetStub(pname), set: memberSetStub(pname, name), enumerable: true, configurable: true }));
+      def(pname, { get: memberGetStub(pname, name), set: memberSetStub(pname, name), enumerable: true, configurable: true }));
   }
 
   // 1d: custom elements. ceRegistry maps a tag name to its JS constructor;
@@ -1521,8 +1565,8 @@ globalThis.__rbHost = (function () {
   }
 
   function constructInterface(name, rawArgs) {
-    const conversions = declaredConversion(name, "constructor");
-    const args = conversions ? convertArguments(conversions, rawArgs) : rawArgs;
+    const call = declaredConversion(name, "constructor");
+    const args = call ? convertArguments(call, rawArgs) : rawArgs;
     if (name === "Event" || name === "CustomEvent") {
       const coerced = coerceConstructorArgs(name, args);
       return makeJsEvent(name, coerced[0], coerced[1]);
@@ -1530,6 +1574,72 @@ globalThis.__rbHost = (function () {
     const r = rehydrate(__rb_construct(name, dehydrateArgs(coerceConstructorArgs(name, args))));
     if (r == null) throw new TypeError("Illegal constructor");
     return r;
+  }
+
+  // ===== iterable<K, V> (WebIDL §3.7.9) =====
+  //
+  // A pair iterable's prototype gets entries, keys, values and forEach, and an
+  // @@iterator that is the entries function itself. Each of the three returns
+  // a default iterator object: it inherits from the interface's iterator
+  // prototype (whose own [[Prototype]] is %IteratorPrototype%, so iterator
+  // helpers reach it), and its `next` re-reads the object's value pairs every
+  // step, so a change made while iterating is seen — `for (const [k] of params)
+  // params.delete(...)` observes the deletion. The pairs are read straight
+  // from the host's `entries`.
+  const ITERATOR_PROTOTYPE = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+  const pairIteratorState = new WeakMap(); // iterator -> { target, kind, index, iface }
+
+  function hostValuePairs(target) {
+    const pairs = rehydrate(__rb_host_call(target[HKEY], "entries", dehydrateArgs([])));
+    return Array.isArray(pairs) ? pairs : [];
+  }
+
+  function installPairIterable(proto, iface) {
+    const iteratorProto = Object.create(ITERATOR_PROTOTYPE);
+    const next = {
+      next() {
+        const state = pairIteratorState.get(this);
+        if (!state || state.iface !== iface) {
+          throw new TypeError("Illegal invocation: next called on an object that is not a " + iface + " Iterator");
+        }
+        const pairs = hostValuePairs(state.target);
+        if (state.index >= pairs.length) return { value: undefined, done: true };
+        const pair = pairs[state.index++];
+        const value = state.kind === "key" ? pair[0] : state.kind === "value" ? pair[1] : [pair[0], pair[1]];
+        return { value, done: false };
+      },
+    }.next;
+    Object.defineProperty(iteratorProto, "next", { value: next, writable: true, enumerable: true, configurable: true });
+    Object.defineProperty(iteratorProto, Symbol.toStringTag, { value: iface + " Iterator", configurable: true });
+
+    const operation = (opName, length, fn) => {
+      Object.defineProperty(fn, "name", { value: opName, configurable: true });
+      Object.defineProperty(fn, "length", { value: length, configurable: true });
+      Object.defineProperty(proto, opName, { value: fn, writable: true, enumerable: true, configurable: true });
+      return fn;
+    };
+    const iteratorOf = (opName, kind) => operation(opName, 0, function () {
+      checkReceiver(this, iface, opName);
+      const iterator = Object.create(iteratorProto);
+      pairIteratorState.set(iterator, { target: this, kind, index: 0, iface });
+      return iterator;
+    });
+    const entries = iteratorOf("entries", "key+value");
+    iteratorOf("keys", "key");
+    iteratorOf("values", "value");
+    operation("forEach", 1, function (callback, thisArg) {
+      checkReceiver(this, iface, "forEach");
+      if (typeof callback !== "function") {
+        throw new TypeError("Failed to execute 'forEach' on '" + iface + "': The callback provided as parameter 1 is not a function.");
+      }
+      // The pairs are re-read after every call: the callback may change them.
+      let pairs = hostValuePairs(this);
+      for (let i = 0; i < pairs.length; i++) {
+        callback.call(thisArg, pairs[i][1], pairs[i][0], this);
+        pairs = hostValuePairs(this);
+      }
+    });
+    Object.defineProperty(proto, Symbol.iterator, { value: entries, writable: true, enumerable: false, configurable: true });
   }
 
   // 1b: lazily build a JS prototype chain + constructor per DOM interface,
@@ -1658,38 +1768,7 @@ globalThis.__rbHost = (function () {
         define("forEach", A.forEach);
       }
     } else if (ENTRIES_ITERABLES.has(name)) {
-      // A LIVE iterator: re-read entries() at each step (indexed by a running
-      // cursor) so a mutation mid-loop is observed — e.g. URLSearchParams
-      // `for (const e of params) { params.delete(...) }` must see the new state.
-      // entries()/keys()/values()/@@iterator each return such an iterator (the
-      // WebIDL maplike contract) — a `for…of` and a direct `.entries().next()`
-      // both work — rather than a plain Array. keys/values project the pair.
-      // Read the raw [name, value] pairs straight from the host — NOT via
-      // `self.entries()`, which is now this same iterator-returning override.
-      const rawEntries = (self) => {
-        const r = rehydrate(__rb_host_call(self[HKEY], "entries", dehydrateArgs([])));
-        return Array.isArray(r) ? r : [];
-      };
-      const liveIterator = (self, project) => {
-        let i = 0;
-        const it = {
-          next() {
-            const entries = rawEntries(self);
-            if (i >= entries.length) return { value: undefined, done: true };
-            return { value: project(entries[i++]), done: false };
-          },
-        };
-        it[Symbol.iterator] = function () { return this; };
-        return it;
-      };
-      const defineIter = (key, project) => Object.defineProperty(proto, key, {
-        value: function () { return liveIterator(this, project); },
-        configurable: true, writable: true,
-      });
-      defineIter(Symbol.iterator, (e) => e);
-      defineIter("entries", (e) => e);
-      defineIter("keys", (e) => e[0]);
-      defineIter("values", (e) => e[1]);
+      installPairIterable(proto, name);
     }
     if (name === "TextEncoder") {
       // encodeInto mutates the destination Uint8Array in place, so it must run
@@ -1788,9 +1867,7 @@ globalThis.__rbHost = (function () {
           configurable: true,
           enumerable: true,
           get() {
-            if (!isProxy(this) || !interfaceChainOf(this).includes(name)) {
-              throw new TypeError("Illegal invocation: " + name + "." + field + " getter called on a different object");
-            }
+            checkReceiver(this, name, field);
             return rehydrate(__rb_host_get(this[HKEY], field));
           },
         });
@@ -1843,9 +1920,9 @@ globalThis.__rbHost = (function () {
       if (typeof ctor !== "function") continue;
       for (const m of __rb_static_names(name)) {
         if (m in ctor) continue;
-        const conversions = declaredConversion(name, "static_operations", m);
-        ctor[m] = (...args) =>
-          rehydrate(__rb_static_call(name, m, dehydrateArgs(conversions ? convertArguments(conversions, args) : args)));
+        const call = declaredConversion(name, "static_operations", m);
+        ctor[m] = withStaticArity((...args) =>
+          rehydrate(__rb_static_call(name, m, dehydrateArgs(call ? convertArguments(call, args) : args))), m, call);
       }
     }
   }
@@ -2111,12 +2188,12 @@ globalThis.__rbHost = (function () {
     if (cached) return cached;
 
     const methods = new Set(desc.methods);
-    // The maplike iterator methods are served as live iterators from the
-    // prototype (see ENTRIES_ITERABLES), so drop the Ruby array-returning
-    // versions from the method set — otherwise `entries()` would return an
-    // Array (no `.next()`) instead of an iterator.
+    // The iterable<> methods are served from the prototype (see
+    // installPairIterable), so drop the Ruby versions from the method set —
+    // otherwise `entries()` would return an Array (no `.next()`) instead of an
+    // iterator, and forEach would skip WebIDL's callback and thisArg handling.
     if (ENTRIES_ITERABLES.has(desc.name)) {
-      for (const m of ["entries", "keys", "values"]) methods.delete(m);
+      for (const m of ["entries", "keys", "values", "forEach"]) methods.delete(m);
     }
     const shape = {
       name: desc.name,
@@ -2938,7 +3015,10 @@ globalThis.__rbHost = (function () {
         // or ABI method is present.
         if (Reflect.has(t, prop)) return true;
         if (typeof prop === "symbol") return false;
-        if (methods.has(prop) || prop === "length") return true;
+        // (`length` is not assumed: a collection, a select, a form, Storage
+        // and History answer it from the host below, and `"length" in div`
+        // or in a URLSearchParams is false, as it is in a browser.)
+        if (methods.has(prop)) return true;
         // The global window also reports its JS globals (`"Stimulus" in window`);
         // inherited names already answered true via Reflect.has(t) above.
         if (isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return true;

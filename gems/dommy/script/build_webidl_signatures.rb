@@ -97,6 +97,25 @@ module WebIdlSignatures
     end
   end
 
+  # WebIDL's overload resolution throws a TypeError when fewer arguments are
+  # passed than the shortest overload requires: the arguments before the first
+  # optional or variadic one.
+  def required_count(signatures)
+    signatures.map { |sig| sig.take_while { |arg| !arg["optional"] && !arg["variadic"] }.size }.min || 0
+  end
+
+  # What a call is checked and converted by: its required argument count and
+  # its per-position string conversions; nil when there is neither.
+  def call_entry(signatures)
+    required = required_count(signatures)
+    args = trim(merged_arguments(signatures))
+    return nil if required.zero? && args.empty?
+
+    entry = {"required" => required}
+    entry["arguments"] = args unless args.empty?
+    entry
+  end
+
   def interface_entry(record)
     entry = {}
     operations = {}
@@ -107,13 +126,11 @@ module WebIdlSignatures
       when "operation"
         next unless member["name"] && member["signatures"]
 
-        args = merged_arguments(member["signatures"])
-        next if args.none?
-
-        (member["static"] ? statics : operations)[member["name"]] = trim(args)
+        call = call_entry(member["signatures"])
+        (member["static"] ? statics : operations)[member["name"]] = call if call
       when "constructor"
-        args = merged_arguments(member["signatures"])
-        entry["constructor"] = trim(args) if args.any?
+        call = call_entry(member["signatures"])
+        entry["constructor"] = call if call
       when "attribute"
         next if member["readonly"] || member["static"]
 
@@ -131,7 +148,7 @@ module WebIdlSignatures
   # Positions after the last converted one carry no conversion: drop them.
   def trim(args)
     args = args.dup
-    args.pop while args.last.nil?
+    args.pop while !args.empty? && args.last.nil?
     args
   end
 
@@ -181,15 +198,18 @@ module WebIdlSignatures
       // test/fixtures/webidl/interfaces.json (web-platform-tests #{commit}).
       // Do not edit by hand: re-run the script (`rake webidl:signatures`).
       //
-      // For each interface, the string conversions WebIDL makes of a script's
-      // values: per operation, static operation and constructor, one entry per
-      // argument position; per writable attribute, the value's. An entry is a
-      // string type ("DOMString", "USVString", "ByteString"), "?" after it when
-      // nullable, "[LegacyNullToEmptyString] " before it when null means "",
-      // "optional " before it when undefined is left for the default, and
-      // "..." after it when it converts every remaining argument. null is a
-      // position that is not a string type, or a member that is not one where
-      // an ancestor's member of the same name is. `inherits` is the IDL parent.
+      // For each interface, what WebIDL checks and converts of a script's
+      // values before the member sees them. An operation, static operation or
+      // constructor has `required`, the number of arguments a call must pass
+      // (fewer is a TypeError), and `arguments`, one string conversion per
+      // position; a writable attribute has its value's string conversion. A
+      // conversion is a string type ("DOMString", "USVString", "ByteString"),
+      // "?" after it when nullable, "[LegacyNullToEmptyString] " before it when
+      // null means "", "optional " before it when undefined is left for the
+      // default, and "..." after it when it converts every remaining argument.
+      // null is a position that is not a string type, or a member with nothing
+      // to check where an ancestor's member of the same name has something.
+      // `inherits` is the IDL parent.
       //
       // Read by host_runtime.js (see "WebIDL string conversions" there), which
       // is the one place the conversions are carried out.
@@ -197,11 +217,11 @@ module WebIdlSignatures
     JS
   end
 
-  # JSON, one interface member per line: an argument list is short enough to
+  # JSON, one interface member per line: a member's entry is short enough to
   # read whole, and a line per member keeps a regenerated diff to the members
   # whose IDL changed.
   def format_value(value, depth)
-    return JSON.generate(value) unless value.is_a?(Hash)
+    return JSON.generate(value) unless value.is_a?(Hash) && !value.key?("required")
 
     pad = "  " * depth
     lines = value.map { |k, v| "#{pad}  #{JSON.generate(k)}: #{format_value(v, depth + 1)}" }

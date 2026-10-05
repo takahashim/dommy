@@ -174,6 +174,11 @@ module Dommy
         @globals.key?("event") ? @globals["event"] : (@current_event || Bridge::UNDEFINED)
       when "document"
         @document
+      when "length"
+        # HTML `window.length`: the number of document-tree child navigables
+        # (the frames `window[i]` indexes). [Replaceable], like `event`: once a
+        # page assigns it, its own value wins.
+        @globals.key?("length") ? @globals["length"] : frame_windows.size
       when "window", "self", "parent", "top", "frames"
         # A top-level browsing context refers to itself for these. Returning the
         # window (not nil) lets `window === window.parent` and frame-walking

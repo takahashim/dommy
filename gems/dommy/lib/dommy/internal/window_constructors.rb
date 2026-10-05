@@ -27,7 +27,13 @@ module Dommy
       notification.define_class_method("requestPermission") { |args| Notification.request_permission(win, args[0]) }
 
       url = Bridge::Constructor.new { |args| URL.new(args[0], args[1]) }
-      url.define_class_method("createObjectURL") { |args| URL.create_object_url(args[0]) }
+      # `createObjectURL((Blob or MediaSource) obj)`: anything else is a
+      # TypeError, as the union conversion has it (Dommy has no MediaSource).
+      url.define_class_method("createObjectURL") do |args|
+        raise Bridge::TypeError, "Failed to execute 'createObjectURL' on 'URL': parameter 1 is not a Blob." unless args[0].is_a?(Blob)
+
+        URL.create_object_url(args[0], origin: win.origin)
+      end
       url.define_class_method("revokeObjectURL") { |args| URL.revoke_object_url(args[0]) }
       url.define_class_method("parse") { |args| URL.parse(args[0], args[1]) }
       url.define_class_method("canParse") { |args| URL.can_parse(args[0], args[1]) }

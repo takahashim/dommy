@@ -2,21 +2,28 @@
 // test/fixtures/webidl/interfaces.json (web-platform-tests 863077959ca8c1a7ceecfbe2534b75d2527b9013).
 // Do not edit by hand: re-run the script (`rake webidl:signatures`).
 //
-// For each interface, the string conversions WebIDL makes of a script's
-// values: per operation, static operation and constructor, one entry per
-// argument position; per writable attribute, the value's. An entry is a
-// string type ("DOMString", "USVString", "ByteString"), "?" after it when
-// nullable, "[LegacyNullToEmptyString] " before it when null means "",
-// "optional " before it when undefined is left for the default, and
-// "..." after it when it converts every remaining argument. null is a
-// position that is not a string type, or a member that is not one where
-// an ancestor's member of the same name is. `inherits` is the IDL parent.
+// For each interface, what WebIDL checks and converts of a script's
+// values before the member sees them. An operation, static operation or
+// constructor has `required`, the number of arguments a call must pass
+// (fewer is a TypeError), and `arguments`, one string conversion per
+// position; a writable attribute has its value's string conversion. A
+// conversion is a string type ("DOMString", "USVString", "ByteString"),
+// "?" after it when nullable, "[LegacyNullToEmptyString] " before it when
+// null means "", "optional " before it when undefined is left for the
+// default, and "..." after it when it converts every remaining argument.
+// null is a position that is not a string type, or a member with nothing
+// to check where an ancestor's member of the same name has something.
+// `inherits` is the IDL parent.
 //
 // Read by host_runtime.js (see "WebIDL string conversions" there), which
 // is the one place the conversions are carried out.
 globalThis.__rbIdlSignatures = {
   "AbortSignal": {
-    "inherits": "EventTarget"
+    "inherits": "EventTarget",
+    "static_operations": {
+      "any": {"required":1},
+      "timeout": {"required":1}
+    }
   },
   "Attr": {
     "inherits": "Node",
@@ -27,7 +34,7 @@ globalThis.__rbIdlSignatures = {
   "AudioTrackList": {
     "inherits": "EventTarget",
     "operations": {
-      "getTrackById": ["DOMString"]
+      "getTrackById": {"required":1,"arguments":["DOMString"]}
     }
   },
   "BeforeUnloadEvent": {
@@ -38,12 +45,18 @@ globalThis.__rbIdlSignatures = {
   },
   "Blob": {
     "operations": {
-      "slice": [null,null,"optional DOMString"]
+      "slice": {"required":0,"arguments":[null,null,"optional DOMString"]}
     }
   },
   "BroadcastChannel": {
-    "constructor": ["DOMString"],
-    "inherits": "EventTarget"
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "EventTarget",
+    "operations": {
+      "postMessage": {"required":1}
+    }
+  },
+  "ByteLengthQueuingStrategy": {
+    "constructor": {"required":1}
   },
   "CDATASection": {
     "inherits": "Text"
@@ -51,7 +64,8 @@ globalThis.__rbIdlSignatures = {
   "CSSGroupingRule": {
     "inherits": "CSSRule",
     "operations": {
-      "insertRule": ["DOMString"]
+      "deleteRule": {"required":1},
+      "insertRule": {"required":1,"arguments":["DOMString"]}
     }
   },
   "CSSImportRule": {
@@ -93,12 +107,18 @@ globalThis.__rbIdlSignatures = {
       "cssText": "DOMString"
     }
   },
+  "CSSRuleList": {
+    "operations": {
+      "item": {"required":1}
+    }
+  },
   "CSSStyleDeclaration": {
     "operations": {
-      "getPropertyPriority": ["DOMString"],
-      "getPropertyValue": ["DOMString"],
-      "removeProperty": ["DOMString"],
-      "setProperty": ["DOMString","[LegacyNullToEmptyString] DOMString","optional [LegacyNullToEmptyString] DOMString"]
+      "getPropertyPriority": {"required":1,"arguments":["DOMString"]},
+      "getPropertyValue": {"required":1,"arguments":["DOMString"]},
+      "item": {"required":1},
+      "removeProperty": {"required":1,"arguments":["DOMString"]},
+      "setProperty": {"required":2,"arguments":["DOMString","[LegacyNullToEmptyString] DOMString","optional [LegacyNullToEmptyString] DOMString"]}
     },
     "attributes": {
       "cssText": "DOMString"
@@ -119,23 +139,51 @@ globalThis.__rbIdlSignatures = {
   "CSSStyleSheet": {
     "inherits": "StyleSheet",
     "operations": {
-      "addRule": ["optional DOMString","optional DOMString"],
-      "insertRule": ["DOMString"],
-      "replace": ["USVString"],
-      "replaceSync": ["USVString"]
+      "addRule": {"required":0,"arguments":["optional DOMString","optional DOMString"]},
+      "deleteRule": {"required":1},
+      "insertRule": {"required":1,"arguments":["DOMString"]},
+      "replace": {"required":1,"arguments":["USVString"]},
+      "replaceSync": {"required":1,"arguments":["USVString"]}
     }
   },
   "CanvasGradient": {
     "operations": {
-      "addColorStop": [null,"DOMString"]
+      "addColorStop": {"required":2,"arguments":[null,"DOMString"]}
     }
   },
   "CanvasRenderingContext2D": {
     "operations": {
-      "createPattern": [null,"[LegacyNullToEmptyString] DOMString"],
-      "fillText": ["DOMString"],
-      "measureText": ["DOMString"],
-      "strokeText": ["DOMString"]
+      "arc": {"required":5},
+      "arcTo": {"required":5},
+      "bezierCurveTo": {"required":6},
+      "clearRect": {"required":4},
+      "createConicGradient": {"required":3},
+      "createImageData": {"required":1},
+      "createLinearGradient": {"required":4},
+      "createPattern": {"required":2,"arguments":[null,"[LegacyNullToEmptyString] DOMString"]},
+      "createRadialGradient": {"required":6},
+      "drawFocusIfNeeded": {"required":1},
+      "drawImage": {"required":3},
+      "ellipse": {"required":7},
+      "fillRect": {"required":4},
+      "fillText": {"required":3,"arguments":["DOMString"]},
+      "getImageData": {"required":4},
+      "isPointInPath": {"required":2},
+      "isPointInStroke": {"required":2},
+      "lineTo": {"required":2},
+      "measureText": {"required":1,"arguments":["DOMString"]},
+      "moveTo": {"required":2},
+      "putImageData": {"required":3},
+      "quadraticCurveTo": {"required":4},
+      "rect": {"required":4},
+      "rotate": {"required":1},
+      "roundRect": {"required":4},
+      "scale": {"required":2},
+      "setLineDash": {"required":1},
+      "strokeRect": {"required":4},
+      "strokeText": {"required":3,"arguments":["DOMString"]},
+      "transform": {"required":6},
+      "translate": {"required":2}
     },
     "attributes": {
       "filter": "DOMString",
@@ -150,9 +198,11 @@ globalThis.__rbIdlSignatures = {
   "CharacterData": {
     "inherits": "Node",
     "operations": {
-      "appendData": ["DOMString"],
-      "insertData": [null,"DOMString"],
-      "replaceData": [null,null,"DOMString"]
+      "appendData": {"required":1,"arguments":["DOMString"]},
+      "deleteData": {"required":2},
+      "insertData": {"required":2,"arguments":[null,"DOMString"]},
+      "replaceData": {"required":3,"arguments":[null,null,"DOMString"]},
+      "substringData": {"required":2}
     },
     "attributes": {
       "data": "[LegacyNullToEmptyString] DOMString"
@@ -162,59 +212,67 @@ globalThis.__rbIdlSignatures = {
     "inherits": "EventTarget"
   },
   "CommandEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "Comment": {
-    "constructor": ["optional DOMString"],
+    "constructor": {"required":0,"arguments":["optional DOMString"]},
     "inherits": "CharacterData"
   },
   "CompositionEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "UIEvent",
     "operations": {
-      "initCompositionEvent": ["DOMString",null,null,null,"optional DOMString"]
+      "initCompositionEvent": {"required":1,"arguments":["DOMString",null,null,null,"optional DOMString"]}
     }
+  },
+  "CountQueuingStrategy": {
+    "constructor": {"required":1}
   },
   "CustomElementRegistry": {
     "operations": {
-      "define": ["DOMString"],
-      "get": ["DOMString"],
-      "whenDefined": ["DOMString"]
+      "define": {"required":2,"arguments":["DOMString"]},
+      "get": {"required":1,"arguments":["DOMString"]},
+      "getName": {"required":1},
+      "initialize": {"required":1},
+      "upgrade": {"required":1},
+      "whenDefined": {"required":1,"arguments":["DOMString"]}
     }
   },
   "CustomEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event",
     "operations": {
-      "initCustomEvent": ["DOMString"]
+      "initCustomEvent": {"required":1,"arguments":["DOMString"]}
     }
   },
   "DOMImplementation": {
     "operations": {
-      "createDocument": ["DOMString?","[LegacyNullToEmptyString] DOMString"],
-      "createDocumentType": ["DOMString","DOMString","DOMString"],
-      "createHTMLDocument": ["optional DOMString"]
+      "createDocument": {"required":2,"arguments":["DOMString?","[LegacyNullToEmptyString] DOMString"]},
+      "createDocumentType": {"required":3,"arguments":["DOMString","DOMString","DOMString"]},
+      "createHTMLDocument": {"required":0,"arguments":["optional DOMString"]}
     }
   },
   "DOMParser": {
     "operations": {
-      "parseFromString": ["DOMString"]
+      "parseFromString": {"required":2,"arguments":["DOMString"]}
     }
   },
   "DOMStringList": {
     "operations": {
-      "contains": ["DOMString"]
+      "contains": {"required":1,"arguments":["DOMString"]},
+      "item": {"required":1}
     }
   },
   "DOMTokenList": {
     "operations": {
-      "add": ["DOMString..."],
-      "contains": ["DOMString"],
-      "remove": ["DOMString..."],
-      "replace": ["DOMString","DOMString"],
-      "supports": ["DOMString"],
-      "toggle": ["DOMString"]
+      "add": {"required":0,"arguments":["DOMString..."]},
+      "contains": {"required":1,"arguments":["DOMString"]},
+      "item": {"required":1},
+      "remove": {"required":0,"arguments":["DOMString..."]},
+      "replace": {"required":2,"arguments":["DOMString","DOMString"]},
+      "supports": {"required":1,"arguments":["DOMString"]},
+      "toggle": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "value": "DOMString"
@@ -222,58 +280,82 @@ globalThis.__rbIdlSignatures = {
   },
   "DataTransfer": {
     "operations": {
-      "clearData": ["optional DOMString"],
-      "getData": ["DOMString"],
-      "setData": ["DOMString","DOMString"]
+      "clearData": {"required":0,"arguments":["optional DOMString"]},
+      "getData": {"required":1,"arguments":["DOMString"]},
+      "setData": {"required":2,"arguments":["DOMString","DOMString"]},
+      "setDragImage": {"required":3}
     },
     "attributes": {
       "dropEffect": "DOMString",
       "effectAllowed": "DOMString"
     }
   },
+  "DataTransferItem": {
+    "operations": {
+      "getAsString": {"required":1}
+    }
+  },
   "DataTransferItemList": {
     "operations": {
-      "add": [null,"optional DOMString"]
+      "add": {"required":1,"arguments":[null,"optional DOMString"]},
+      "remove": {"required":1}
     }
   },
   "DedicatedWorkerGlobalScope": {
-    "inherits": "WorkerGlobalScope"
+    "inherits": "WorkerGlobalScope",
+    "operations": {
+      "cancelAnimationFrame": {"required":1},
+      "postMessage": {"required":1},
+      "requestAnimationFrame": {"required":1}
+    }
   },
   "Document": {
     "inherits": "Node",
     "operations": {
-      "ariaNotify": ["DOMString"],
-      "createAttribute": ["DOMString"],
-      "createAttributeNS": ["DOMString?","DOMString"],
-      "createCDATASection": ["DOMString"],
-      "createComment": ["DOMString"],
-      "createElement": ["DOMString"],
-      "createElementNS": ["DOMString?","DOMString"],
-      "createEvent": ["DOMString"],
-      "createExpression": ["DOMString"],
-      "createProcessingInstruction": ["DOMString","DOMString"],
-      "createTextNode": ["DOMString"],
-      "evaluate": ["DOMString"],
-      "execCommand": ["DOMString",null,"optional DOMString"],
-      "getElementById": ["DOMString"],
-      "getElementsByClassName": ["DOMString"],
-      "getElementsByName": ["DOMString"],
-      "getElementsByTagName": ["DOMString"],
-      "getElementsByTagNameNS": ["DOMString?","DOMString"],
-      "open": [null,"optional DOMString","optional DOMString"],
-      "queryCommandEnabled": ["DOMString"],
-      "queryCommandIndeterm": ["DOMString"],
-      "queryCommandState": ["DOMString"],
-      "queryCommandSupported": ["DOMString"],
-      "queryCommandValue": ["DOMString"],
-      "querySelector": ["DOMString"],
-      "querySelectorAll": ["DOMString"],
-      "write": ["DOMString..."],
-      "writeln": ["DOMString..."]
+      "adoptNode": {"required":1},
+      "ariaNotify": {"required":1,"arguments":["DOMString"]},
+      "caretPositionFromPoint": {"required":2},
+      "convertPointFromNode": {"required":2},
+      "convertQuadFromNode": {"required":2},
+      "convertRectFromNode": {"required":2},
+      "createAttribute": {"required":1,"arguments":["DOMString"]},
+      "createAttributeNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "createCDATASection": {"required":1,"arguments":["DOMString"]},
+      "createComment": {"required":1,"arguments":["DOMString"]},
+      "createElement": {"required":1,"arguments":["DOMString"]},
+      "createElementNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "createEvent": {"required":1,"arguments":["DOMString"]},
+      "createExpression": {"required":1,"arguments":["DOMString"]},
+      "createNSResolver": {"required":1},
+      "createNodeIterator": {"required":1},
+      "createProcessingInstruction": {"required":2,"arguments":["DOMString","DOMString"]},
+      "createTextNode": {"required":1,"arguments":["DOMString"]},
+      "createTreeWalker": {"required":1},
+      "elementFromPoint": {"required":2},
+      "elementsFromPoint": {"required":2},
+      "evaluate": {"required":2,"arguments":["DOMString"]},
+      "execCommand": {"required":1,"arguments":["DOMString",null,"optional DOMString"]},
+      "getElementById": {"required":1,"arguments":["DOMString"]},
+      "getElementsByClassName": {"required":1,"arguments":["DOMString"]},
+      "getElementsByName": {"required":1,"arguments":["DOMString"]},
+      "getElementsByTagName": {"required":1,"arguments":["DOMString"]},
+      "getElementsByTagNameNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "importNode": {"required":1},
+      "moveBefore": {"required":2},
+      "open": {"required":0,"arguments":[null,"optional DOMString","optional DOMString"]},
+      "queryCommandEnabled": {"required":1,"arguments":["DOMString"]},
+      "queryCommandIndeterm": {"required":1,"arguments":["DOMString"]},
+      "queryCommandState": {"required":1,"arguments":["DOMString"]},
+      "queryCommandSupported": {"required":1,"arguments":["DOMString"]},
+      "queryCommandValue": {"required":1,"arguments":["DOMString"]},
+      "querySelector": {"required":1,"arguments":["DOMString"]},
+      "querySelectorAll": {"required":1,"arguments":["DOMString"]},
+      "write": {"required":0,"arguments":["DOMString..."]},
+      "writeln": {"required":0,"arguments":["DOMString..."]}
     },
     "static_operations": {
-      "parseHTML": ["DOMString"],
-      "parseHTMLUnsafe": ["DOMString"]
+      "parseHTML": {"required":1,"arguments":["DOMString"]},
+      "parseHTMLUnsafe": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "alinkColor": "[LegacyNullToEmptyString] DOMString",
@@ -291,46 +373,55 @@ globalThis.__rbIdlSignatures = {
   "DocumentFragment": {
     "inherits": "Node",
     "operations": {
-      "getElementById": ["DOMString"],
-      "querySelector": ["DOMString"],
-      "querySelectorAll": ["DOMString"]
+      "getElementById": {"required":1,"arguments":["DOMString"]},
+      "moveBefore": {"required":2},
+      "querySelector": {"required":1,"arguments":["DOMString"]},
+      "querySelectorAll": {"required":1,"arguments":["DOMString"]}
     }
   },
   "DocumentType": {
     "inherits": "Node"
   },
   "DragEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "MouseEvent"
   },
   "Element": {
     "inherits": "Node",
     "operations": {
-      "ariaNotify": ["DOMString"],
-      "closest": ["DOMString"],
-      "getAttribute": ["DOMString"],
-      "getAttributeNS": ["DOMString?","DOMString"],
-      "getAttributeNode": ["DOMString"],
-      "getAttributeNodeNS": ["DOMString?","DOMString"],
-      "getElementsByClassName": ["DOMString"],
-      "getElementsByTagName": ["DOMString"],
-      "getElementsByTagNameNS": ["DOMString?","DOMString"],
-      "hasAttribute": ["DOMString"],
-      "hasAttributeNS": ["DOMString?","DOMString"],
-      "insertAdjacentElement": ["DOMString"],
-      "insertAdjacentHTML": ["DOMString","DOMString"],
-      "insertAdjacentText": ["DOMString","DOMString"],
-      "matches": ["DOMString"],
-      "querySelector": ["DOMString"],
-      "querySelectorAll": ["DOMString"],
-      "removeAttribute": ["DOMString"],
-      "removeAttributeNS": ["DOMString?","DOMString"],
-      "setAttribute": ["DOMString","DOMString"],
-      "setAttributeNS": ["DOMString?","DOMString","DOMString"],
-      "setHTML": ["DOMString"],
-      "setHTMLUnsafe": ["DOMString"],
-      "toggleAttribute": ["DOMString"],
-      "webkitMatchesSelector": ["DOMString"]
+      "ariaNotify": {"required":1,"arguments":["DOMString"]},
+      "attachShadow": {"required":1},
+      "closest": {"required":1,"arguments":["DOMString"]},
+      "convertPointFromNode": {"required":2},
+      "convertQuadFromNode": {"required":2},
+      "convertRectFromNode": {"required":2},
+      "getAttribute": {"required":1,"arguments":["DOMString"]},
+      "getAttributeNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "getAttributeNode": {"required":1,"arguments":["DOMString"]},
+      "getAttributeNodeNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "getElementsByClassName": {"required":1,"arguments":["DOMString"]},
+      "getElementsByTagName": {"required":1,"arguments":["DOMString"]},
+      "getElementsByTagNameNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "hasAttribute": {"required":1,"arguments":["DOMString"]},
+      "hasAttributeNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "insertAdjacentElement": {"required":2,"arguments":["DOMString"]},
+      "insertAdjacentHTML": {"required":2,"arguments":["DOMString","DOMString"]},
+      "insertAdjacentText": {"required":2,"arguments":["DOMString","DOMString"]},
+      "matches": {"required":1,"arguments":["DOMString"]},
+      "moveBefore": {"required":2},
+      "querySelector": {"required":1,"arguments":["DOMString"]},
+      "querySelectorAll": {"required":1,"arguments":["DOMString"]},
+      "removeAttribute": {"required":1,"arguments":["DOMString"]},
+      "removeAttributeNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "removeAttributeNode": {"required":1},
+      "setAttribute": {"required":2,"arguments":["DOMString","DOMString"]},
+      "setAttributeNS": {"required":3,"arguments":["DOMString?","DOMString","DOMString"]},
+      "setAttributeNode": {"required":1},
+      "setAttributeNodeNS": {"required":1},
+      "setHTML": {"required":1,"arguments":["DOMString"]},
+      "setHTMLUnsafe": {"required":1,"arguments":["DOMString"]},
+      "toggleAttribute": {"required":1,"arguments":["DOMString"]},
+      "webkitMatchesSelector": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "ariaAtomic": "DOMString?",
@@ -386,7 +477,8 @@ globalThis.__rbIdlSignatures = {
   },
   "ElementInternals": {
     "operations": {
-      "setValidity": [null,"optional DOMString"]
+      "setFormValue": {"required":1},
+      "setValidity": {"required":0,"arguments":[null,"optional DOMString"]}
     },
     "attributes": {
       "ariaAtomic": "DOMString?",
@@ -436,62 +528,79 @@ globalThis.__rbIdlSignatures = {
     }
   },
   "ErrorEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "Event": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "operations": {
-      "initEvent": ["DOMString"]
+      "initEvent": {"required":1,"arguments":["DOMString"]}
+    }
+  },
+  "EventListener": {
+    "operations": {
+      "handleEvent": {"required":1}
     }
   },
   "EventSource": {
-    "constructor": ["USVString"],
+    "constructor": {"required":1,"arguments":["USVString"]},
     "inherits": "EventTarget"
   },
   "EventTarget": {
     "operations": {
-      "addEventListener": ["DOMString"],
-      "removeEventListener": ["DOMString"]
+      "addEventListener": {"required":2,"arguments":["DOMString"]},
+      "dispatchEvent": {"required":1},
+      "removeEventListener": {"required":2,"arguments":["DOMString"]}
     }
   },
   "File": {
-    "constructor": [null,"USVString"],
+    "constructor": {"required":2,"arguments":[null,"USVString"]},
     "inherits": "Blob"
+  },
+  "FileList": {
+    "operations": {
+      "item": {"required":1}
+    }
   },
   "FileReader": {
     "inherits": "EventTarget",
     "operations": {
-      "readAsText": [null,"optional DOMString"]
+      "readAsArrayBuffer": {"required":1},
+      "readAsBinaryString": {"required":1},
+      "readAsDataURL": {"required":1},
+      "readAsText": {"required":1,"arguments":[null,"optional DOMString"]}
     }
   },
   "FileReaderSync": {
     "operations": {
-      "readAsText": [null,"optional DOMString"]
+      "readAsArrayBuffer": {"required":1},
+      "readAsBinaryString": {"required":1},
+      "readAsDataURL": {"required":1},
+      "readAsText": {"required":1,"arguments":[null,"optional DOMString"]}
     }
   },
   "FocusEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "UIEvent"
   },
   "FormData": {
     "operations": {
-      "append": ["USVString",null,"optional USVString"],
-      "delete": ["USVString"],
-      "get": ["USVString"],
-      "getAll": ["USVString"],
-      "has": ["USVString"],
-      "set": ["USVString",null,"optional USVString"]
+      "append": {"required":2,"arguments":["USVString",null,"optional USVString"]},
+      "delete": {"required":1,"arguments":["USVString"]},
+      "get": {"required":1,"arguments":["USVString"]},
+      "getAll": {"required":1,"arguments":["USVString"]},
+      "has": {"required":1,"arguments":["USVString"]},
+      "set": {"required":2,"arguments":["USVString",null,"optional USVString"]}
     }
   },
   "FormDataEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":2,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "HTMLAllCollection": {
     "operations": {
-      "item": ["optional DOMString"],
-      "namedItem": ["DOMString"]
+      "item": {"required":0,"arguments":["optional DOMString"]},
+      "namedItem": {"required":1,"arguments":["DOMString"]}
     }
   },
   "HTMLAnchorElement": {
@@ -577,7 +686,7 @@ globalThis.__rbIdlSignatures = {
   "HTMLButtonElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "setCustomValidity": ["DOMString"]
+      "setCustomValidity": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "command": "DOMString",
@@ -594,14 +703,15 @@ globalThis.__rbIdlSignatures = {
   "HTMLCanvasElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "getContext": ["DOMString"],
-      "toBlob": [null,"optional DOMString"],
-      "toDataURL": ["optional DOMString"]
+      "getContext": {"required":1,"arguments":["DOMString"]},
+      "toBlob": {"required":1,"arguments":[null,"optional DOMString"]},
+      "toDataURL": {"required":0,"arguments":["optional DOMString"]}
     }
   },
   "HTMLCollection": {
     "operations": {
-      "namedItem": ["DOMString"]
+      "item": {"required":1},
+      "namedItem": {"required":1,"arguments":["DOMString"]}
     }
   },
   "HTMLDListElement": {
@@ -625,8 +735,8 @@ globalThis.__rbIdlSignatures = {
   "HTMLDialogElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "close": ["optional DOMString"],
-      "requestClose": ["optional DOMString"]
+      "close": {"required":0,"arguments":["optional DOMString"]},
+      "requestClose": {"required":0,"arguments":["optional DOMString"]}
     },
     "attributes": {
       "closedBy": "DOMString",
@@ -674,7 +784,7 @@ globalThis.__rbIdlSignatures = {
   "HTMLFieldSetElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "setCustomValidity": ["DOMString"]
+      "setCustomValidity": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "name": "DOMString"
@@ -691,7 +801,7 @@ globalThis.__rbIdlSignatures = {
   "HTMLFormControlsCollection": {
     "inherits": "HTMLCollection",
     "operations": {
-      "namedItem": ["DOMString"]
+      "namedItem": {"required":1,"arguments":["DOMString"]}
     }
   },
   "HTMLFormElement": {
@@ -793,9 +903,9 @@ globalThis.__rbIdlSignatures = {
   "HTMLInputElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "setCustomValidity": ["DOMString"],
-      "setRangeText": ["DOMString"],
-      "setSelectionRange": [null,null,"optional DOMString"]
+      "setCustomValidity": {"required":1,"arguments":["DOMString"]},
+      "setRangeText": {"required":1,"arguments":["DOMString"]},
+      "setSelectionRange": {"required":2,"arguments":[null,null,"optional DOMString"]}
     },
     "attributes": {
       "accept": "DOMString",
@@ -880,8 +990,9 @@ globalThis.__rbIdlSignatures = {
   "HTMLMediaElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "addTextTrack": [null,"optional DOMString","optional DOMString"],
-      "canPlayType": ["DOMString"]
+      "addTextTrack": {"required":1,"arguments":[null,"optional DOMString","optional DOMString"]},
+      "canPlayType": {"required":1,"arguments":["DOMString"]},
+      "fastSeek": {"required":1}
     },
     "attributes": {
       "crossOrigin": "DOMString?",
@@ -922,7 +1033,7 @@ globalThis.__rbIdlSignatures = {
   "HTMLObjectElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "setCustomValidity": ["DOMString"]
+      "setCustomValidity": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "align": "DOMString",
@@ -955,12 +1066,16 @@ globalThis.__rbIdlSignatures = {
     }
   },
   "HTMLOptionsCollection": {
-    "inherits": "HTMLCollection"
+    "inherits": "HTMLCollection",
+    "operations": {
+      "add": {"required":1},
+      "remove": {"required":1}
+    }
   },
   "HTMLOutputElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "setCustomValidity": ["DOMString"]
+      "setCustomValidity": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "defaultValue": "DOMString",
@@ -1001,7 +1116,7 @@ globalThis.__rbIdlSignatures = {
   "HTMLScriptElement": {
     "inherits": "HTMLElement",
     "static_operations": {
-      "supports": ["DOMString"]
+      "supports": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "charset": "DOMString",
@@ -1019,8 +1134,10 @@ globalThis.__rbIdlSignatures = {
   "HTMLSelectElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "namedItem": ["DOMString"],
-      "setCustomValidity": ["DOMString"]
+      "add": {"required":1},
+      "item": {"required":1},
+      "namedItem": {"required":1,"arguments":["DOMString"]},
+      "setCustomValidity": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "autocomplete": "DOMString",
@@ -1091,6 +1208,9 @@ globalThis.__rbIdlSignatures = {
   },
   "HTMLTableElement": {
     "inherits": "HTMLElement",
+    "operations": {
+      "deleteRow": {"required":1}
+    },
     "attributes": {
       "align": "DOMString",
       "bgColor": "[LegacyNullToEmptyString] DOMString",
@@ -1105,6 +1225,9 @@ globalThis.__rbIdlSignatures = {
   },
   "HTMLTableRowElement": {
     "inherits": "HTMLElement",
+    "operations": {
+      "deleteCell": {"required":1}
+    },
     "attributes": {
       "align": "DOMString",
       "bgColor": "[LegacyNullToEmptyString] DOMString",
@@ -1115,6 +1238,9 @@ globalThis.__rbIdlSignatures = {
   },
   "HTMLTableSectionElement": {
     "inherits": "HTMLElement",
+    "operations": {
+      "deleteRow": {"required":1}
+    },
     "attributes": {
       "align": "DOMString",
       "ch": "DOMString",
@@ -1134,9 +1260,9 @@ globalThis.__rbIdlSignatures = {
   "HTMLTextAreaElement": {
     "inherits": "HTMLElement",
     "operations": {
-      "setCustomValidity": ["DOMString"],
-      "setRangeText": ["DOMString"],
-      "setSelectionRange": [null,null,"optional DOMString"]
+      "setCustomValidity": {"required":1,"arguments":["DOMString"]},
+      "setRangeText": {"required":1,"arguments":["DOMString"]},
+      "setSelectionRange": {"required":2,"arguments":[null,null,"optional DOMString"]}
     },
     "attributes": {
       "autocomplete": "DOMString",
@@ -1186,40 +1312,48 @@ globalThis.__rbIdlSignatures = {
     }
   },
   "HashChangeEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "Headers": {
     "operations": {
-      "append": ["ByteString","ByteString"],
-      "delete": ["ByteString"],
-      "get": ["ByteString"],
-      "has": ["ByteString"],
-      "set": ["ByteString","ByteString"]
+      "append": {"required":2,"arguments":["ByteString","ByteString"]},
+      "delete": {"required":1,"arguments":["ByteString"]},
+      "get": {"required":1,"arguments":["ByteString"]},
+      "has": {"required":1,"arguments":["ByteString"]},
+      "set": {"required":2,"arguments":["ByteString","ByteString"]}
     }
   },
   "History": {
     "operations": {
-      "pushState": [null,"DOMString","optional USVString?"],
-      "replaceState": [null,"DOMString","optional USVString?"]
+      "pushState": {"required":2,"arguments":[null,"DOMString","optional USVString?"]},
+      "replaceState": {"required":2,"arguments":[null,"DOMString","optional USVString?"]}
     }
   },
+  "ImageBitmapRenderingContext": {
+    "operations": {
+      "transferFromImageBitmap": {"required":1}
+    }
+  },
+  "ImageData": {
+    "constructor": {"required":2}
+  },
   "InputEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "UIEvent"
   },
   "KeyboardEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "UIEvent",
     "operations": {
-      "getModifierState": ["DOMString"],
-      "initKeyboardEvent": ["DOMString",null,null,null,"optional DOMString"]
+      "getModifierState": {"required":1,"arguments":["DOMString"]},
+      "initKeyboardEvent": {"required":1,"arguments":["DOMString",null,null,null,"optional DOMString"]}
     }
   },
   "Location": {
     "operations": {
-      "assign": ["USVString"],
-      "replace": ["USVString"]
+      "assign": {"required":1,"arguments":["USVString"]},
+      "replace": {"required":1,"arguments":["USVString"]}
     },
     "attributes": {
       "hash": "USVString",
@@ -1234,56 +1368,75 @@ globalThis.__rbIdlSignatures = {
   },
   "MediaList": {
     "operations": {
-      "appendMedium": ["DOMString"],
-      "deleteMedium": ["DOMString"]
+      "appendMedium": {"required":1,"arguments":["DOMString"]},
+      "deleteMedium": {"required":1,"arguments":["DOMString"]},
+      "item": {"required":1}
     },
     "attributes": {
       "mediaText": "[LegacyNullToEmptyString] DOMString"
     }
   },
   "MediaQueryList": {
-    "inherits": "EventTarget"
+    "inherits": "EventTarget",
+    "operations": {
+      "addListener": {"required":1},
+      "removeListener": {"required":1}
+    }
   },
   "MediaQueryListEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "MessageEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event",
     "operations": {
-      "initMessageEvent": ["DOMString",null,null,null,"optional USVString","optional DOMString"]
+      "initMessageEvent": {"required":1,"arguments":["DOMString",null,null,null,"optional USVString","optional DOMString"]}
     }
   },
   "MessagePort": {
-    "inherits": "EventTarget"
+    "inherits": "EventTarget",
+    "operations": {
+      "postMessage": {"required":1}
+    }
   },
   "MimeTypeArray": {
     "operations": {
-      "namedItem": ["DOMString"]
+      "item": {"required":1},
+      "namedItem": {"required":1,"arguments":["DOMString"]}
+    }
+  },
+  "MutationObserver": {
+    "constructor": {"required":1},
+    "operations": {
+      "observe": {"required":1}
     }
   },
   "NamedNodeMap": {
     "operations": {
-      "getNamedItem": ["DOMString"],
-      "getNamedItemNS": ["DOMString?","DOMString"],
-      "removeNamedItem": ["DOMString"],
-      "removeNamedItemNS": ["DOMString?","DOMString"]
+      "getNamedItem": {"required":1,"arguments":["DOMString"]},
+      "getNamedItemNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "item": {"required":1},
+      "removeNamedItem": {"required":1,"arguments":["DOMString"]},
+      "removeNamedItemNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "setNamedItem": {"required":1},
+      "setNamedItemNS": {"required":1}
     }
   },
   "NavigateEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":2,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "Navigation": {
     "inherits": "EventTarget",
     "operations": {
-      "navigate": ["USVString"],
-      "traverseTo": ["DOMString"]
+      "navigate": {"required":1,"arguments":["USVString"]},
+      "traverseTo": {"required":1,"arguments":["DOMString"]},
+      "updateCurrentEntry": {"required":1}
     }
   },
   "NavigationCurrentEntryChangeEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":2,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "NavigationHistoryEntry": {
@@ -1291,36 +1444,85 @@ globalThis.__rbIdlSignatures = {
   },
   "NavigationPrecommitController": {
     "operations": {
-      "redirect": ["USVString"]
+      "addHandler": {"required":1},
+      "redirect": {"required":1,"arguments":["USVString"]}
     }
   },
   "Navigator": {
     "operations": {
-      "registerProtocolHandler": ["DOMString","USVString"],
-      "unregisterProtocolHandler": ["DOMString","USVString"]
+      "registerProtocolHandler": {"required":2,"arguments":["DOMString","USVString"]},
+      "unregisterProtocolHandler": {"required":2,"arguments":["DOMString","USVString"]}
     }
   },
   "Node": {
     "inherits": "EventTarget",
     "operations": {
-      "isDefaultNamespace": ["DOMString?"],
-      "lookupNamespaceURI": ["DOMString?"],
-      "lookupPrefix": ["DOMString?"]
+      "appendChild": {"required":1},
+      "compareDocumentPosition": {"required":1},
+      "contains": {"required":1},
+      "insertBefore": {"required":2},
+      "isDefaultNamespace": {"required":1,"arguments":["DOMString?"]},
+      "isEqualNode": {"required":1},
+      "isSameNode": {"required":1},
+      "lookupNamespaceURI": {"required":1,"arguments":["DOMString?"]},
+      "lookupPrefix": {"required":1,"arguments":["DOMString?"]},
+      "removeChild": {"required":1},
+      "replaceChild": {"required":2}
     },
     "attributes": {
       "nodeValue": "DOMString?",
       "textContent": "DOMString?"
     }
   },
+  "NodeFilter": {
+    "operations": {
+      "acceptNode": {"required":1}
+    }
+  },
+  "NodeList": {
+    "operations": {
+      "item": {"required":1}
+    }
+  },
   "OffscreenCanvas": {
-    "inherits": "EventTarget"
+    "constructor": {"required":2},
+    "inherits": "EventTarget",
+    "operations": {
+      "getContext": {"required":1}
+    }
   },
   "OffscreenCanvasRenderingContext2D": {
     "operations": {
-      "createPattern": [null,"[LegacyNullToEmptyString] DOMString"],
-      "fillText": ["DOMString"],
-      "measureText": ["DOMString"],
-      "strokeText": ["DOMString"]
+      "arc": {"required":5},
+      "arcTo": {"required":5},
+      "bezierCurveTo": {"required":6},
+      "clearRect": {"required":4},
+      "createConicGradient": {"required":3},
+      "createImageData": {"required":1},
+      "createLinearGradient": {"required":4},
+      "createPattern": {"required":2,"arguments":[null,"[LegacyNullToEmptyString] DOMString"]},
+      "createRadialGradient": {"required":6},
+      "drawImage": {"required":3},
+      "ellipse": {"required":7},
+      "fillRect": {"required":4},
+      "fillText": {"required":3,"arguments":["DOMString"]},
+      "getImageData": {"required":4},
+      "isPointInPath": {"required":2},
+      "isPointInStroke": {"required":2},
+      "lineTo": {"required":2},
+      "measureText": {"required":1,"arguments":["DOMString"]},
+      "moveTo": {"required":2},
+      "putImageData": {"required":3},
+      "quadraticCurveTo": {"required":4},
+      "rect": {"required":4},
+      "rotate": {"required":1},
+      "roundRect": {"required":4},
+      "scale": {"required":2},
+      "setLineDash": {"required":1},
+      "strokeRect": {"required":4},
+      "strokeText": {"required":3,"arguments":["DOMString"]},
+      "transform": {"required":6},
+      "translate": {"required":2}
     },
     "attributes": {
       "filter": "DOMString",
@@ -1332,49 +1534,74 @@ globalThis.__rbIdlSignatures = {
       "wordSpacing": "DOMString"
     }
   },
+  "Origin": {
+    "operations": {
+      "isSameOrigin": {"required":1},
+      "isSameSite": {"required":1}
+    },
+    "static_operations": {
+      "from": {"required":1}
+    }
+  },
   "PageRevealEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "PageSwapEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "PageTransitionEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
+  },
+  "Path2D": {
+    "operations": {
+      "addPath": {"required":1},
+      "arc": {"required":5},
+      "arcTo": {"required":5},
+      "bezierCurveTo": {"required":6},
+      "ellipse": {"required":7},
+      "lineTo": {"required":2},
+      "moveTo": {"required":2},
+      "quadraticCurveTo": {"required":4},
+      "rect": {"required":4},
+      "roundRect": {"required":4}
+    }
   },
   "Plugin": {
     "operations": {
-      "namedItem": ["DOMString"]
+      "item": {"required":1},
+      "namedItem": {"required":1,"arguments":["DOMString"]}
     }
   },
   "PluginArray": {
     "operations": {
-      "namedItem": ["DOMString"]
+      "item": {"required":1},
+      "namedItem": {"required":1,"arguments":["DOMString"]}
     }
   },
   "PopStateEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "ProcessingInstruction": {
-    "constructor": ["DOMString","optional DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString","optional DOMString"]},
     "inherits": "CharacterData",
     "operations": {
-      "getAttribute": ["DOMString"],
-      "hasAttribute": ["DOMString"],
-      "removeAttribute": ["DOMString"],
-      "setAttribute": ["DOMString","DOMString"],
-      "toggleAttribute": ["DOMString"]
+      "getAttribute": {"required":1,"arguments":["DOMString"]},
+      "hasAttribute": {"required":1,"arguments":["DOMString"]},
+      "removeAttribute": {"required":1,"arguments":["DOMString"]},
+      "setAttribute": {"required":2,"arguments":["DOMString","DOMString"]},
+      "toggleAttribute": {"required":1,"arguments":["DOMString"]}
     }
   },
   "ProgressEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "PromiseRejectionEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":2,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "RadioNodeList": {
@@ -1386,81 +1613,167 @@ globalThis.__rbIdlSignatures = {
   "Range": {
     "inherits": "AbstractRange",
     "operations": {
-      "createContextualFragment": ["DOMString"]
+      "compareBoundaryPoints": {"required":2},
+      "comparePoint": {"required":2},
+      "createContextualFragment": {"required":1,"arguments":["DOMString"]},
+      "insertNode": {"required":1},
+      "intersectsNode": {"required":1},
+      "isPointInRange": {"required":2},
+      "selectNode": {"required":1},
+      "selectNodeContents": {"required":1},
+      "setEnd": {"required":2},
+      "setEndAfter": {"required":1},
+      "setEndBefore": {"required":1},
+      "setStart": {"required":2},
+      "setStartAfter": {"required":1},
+      "setStartBefore": {"required":1},
+      "surroundContents": {"required":1}
     }
+  },
+  "ReadableByteStreamController": {
+    "operations": {
+      "enqueue": {"required":1}
+    }
+  },
+  "ReadableStream": {
+    "operations": {
+      "pipeThrough": {"required":1},
+      "pipeTo": {"required":1}
+    },
+    "static_operations": {
+      "from": {"required":1}
+    }
+  },
+  "ReadableStreamBYOBReader": {
+    "constructor": {"required":1},
+    "operations": {
+      "read": {"required":1}
+    }
+  },
+  "ReadableStreamBYOBRequest": {
+    "operations": {
+      "respond": {"required":1},
+      "respondWithNewView": {"required":1}
+    }
+  },
+  "ReadableStreamDefaultReader": {
+    "constructor": {"required":1}
+  },
+  "Request": {
+    "constructor": {"required":1}
   },
   "Response": {
     "static_operations": {
-      "redirect": ["USVString"]
+      "redirect": {"required":1,"arguments":["USVString"]}
+    }
+  },
+  "Sanitizer": {
+    "operations": {
+      "allowAttribute": {"required":1},
+      "allowElement": {"required":1},
+      "allowProcessingInstruction": {"required":1},
+      "removeAttribute": {"required":1},
+      "removeElement": {"required":1},
+      "removeProcessingInstruction": {"required":1},
+      "replaceElementWithChildren": {"required":1},
+      "setComments": {"required":1},
+      "setDataAttributes": {"required":1},
+      "setJavascriptURLs": {"required":1}
     }
   },
   "Selection": {
     "operations": {
-      "modify": ["optional DOMString","optional DOMString","optional DOMString"]
+      "addRange": {"required":1},
+      "collapse": {"required":1},
+      "containsNode": {"required":1},
+      "extend": {"required":1},
+      "getRangeAt": {"required":1},
+      "modify": {"required":0,"arguments":["optional DOMString","optional DOMString","optional DOMString"]},
+      "removeRange": {"required":1},
+      "selectAllChildren": {"required":1},
+      "setBaseAndExtent": {"required":4},
+      "setPosition": {"required":1}
     }
   },
   "ShadowRoot": {
     "inherits": "DocumentFragment",
     "operations": {
-      "setHTML": ["DOMString"],
-      "setHTMLUnsafe": ["DOMString"]
+      "setHTML": {"required":1,"arguments":["DOMString"]},
+      "setHTMLUnsafe": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "innerHTML": "[LegacyNullToEmptyString] DOMString"
     }
   },
   "SharedWorker": {
-    "constructor": ["USVString"],
+    "constructor": {"required":1,"arguments":["USVString"]},
     "inherits": "EventTarget"
   },
   "SharedWorkerGlobalScope": {
     "inherits": "WorkerGlobalScope"
   },
   "StaticRange": {
+    "constructor": {"required":1},
     "inherits": "AbstractRange"
   },
   "Storage": {
     "operations": {
-      "getItem": ["DOMString"],
-      "removeItem": ["DOMString"],
-      "setItem": ["DOMString","DOMString"]
+      "getItem": {"required":1,"arguments":["DOMString"]},
+      "key": {"required":1},
+      "removeItem": {"required":1,"arguments":["DOMString"]},
+      "setItem": {"required":2,"arguments":["DOMString","DOMString"]}
     }
   },
   "StorageEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event",
     "operations": {
-      "initStorageEvent": ["DOMString",null,null,"optional DOMString?","optional DOMString?","optional DOMString?","optional USVString"]
+      "initStorageEvent": {"required":1,"arguments":["DOMString",null,null,"optional DOMString?","optional DOMString?","optional DOMString?","optional USVString"]}
+    }
+  },
+  "StyleSheetList": {
+    "operations": {
+      "item": {"required":1}
     }
   },
   "SubmitEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "Text": {
-    "constructor": ["optional DOMString"],
-    "inherits": "CharacterData"
+    "constructor": {"required":0,"arguments":["optional DOMString"]},
+    "inherits": "CharacterData",
+    "operations": {
+      "convertPointFromNode": {"required":2},
+      "convertQuadFromNode": {"required":2},
+      "convertRectFromNode": {"required":2},
+      "splitText": {"required":1}
+    }
   },
   "TextDecoder": {
-    "constructor": ["optional DOMString"]
+    "constructor": {"required":0,"arguments":["optional DOMString"]}
   },
   "TextDecoderStream": {
-    "constructor": ["optional DOMString"]
+    "constructor": {"required":0,"arguments":["optional DOMString"]}
   },
   "TextEncoder": {
     "operations": {
-      "encode": ["optional USVString"],
-      "encodeInto": ["USVString"]
+      "encode": {"required":0,"arguments":["optional USVString"]},
+      "encodeInto": {"required":2,"arguments":["USVString"]}
     }
   },
   "TextEvent": {
     "inherits": "UIEvent",
     "operations": {
-      "initTextEvent": ["DOMString",null,null,null,"optional DOMString"]
+      "initTextEvent": {"required":1,"arguments":["DOMString",null,null,null,"optional DOMString"]}
     }
   },
   "TextTrack": {
-    "inherits": "EventTarget"
+    "inherits": "EventTarget",
+    "operations": {
+      "addCue": {"required":1},
+      "removeCue": {"required":1}
+    }
   },
   "TextTrackCue": {
     "inherits": "EventTarget",
@@ -1470,36 +1783,43 @@ globalThis.__rbIdlSignatures = {
   },
   "TextTrackCueList": {
     "operations": {
-      "getCueById": ["DOMString"]
+      "getCueById": {"required":1,"arguments":["DOMString"]}
     }
   },
   "TextTrackList": {
     "inherits": "EventTarget",
     "operations": {
-      "getTrackById": ["DOMString"]
+      "getTrackById": {"required":1,"arguments":["DOMString"]}
+    }
+  },
+  "TimeRanges": {
+    "operations": {
+      "end": {"required":1},
+      "start": {"required":1}
     }
   },
   "ToggleEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "TrackEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
   "UIEvent": {
-    "constructor": ["DOMString"],
+    "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event",
     "operations": {
-      "initUIEvent": ["DOMString"]
+      "initUIEvent": {"required":1,"arguments":["DOMString"]}
     }
   },
   "URL": {
-    "constructor": ["USVString","optional USVString"],
+    "constructor": {"required":1,"arguments":["USVString","optional USVString"]},
     "static_operations": {
-      "canParse": ["USVString","optional USVString"],
-      "parse": ["USVString","optional USVString"],
-      "revokeObjectURL": ["DOMString"]
+      "canParse": {"required":1,"arguments":["USVString","optional USVString"]},
+      "createObjectURL": {"required":1},
+      "parse": {"required":1,"arguments":["USVString","optional USVString"]},
+      "revokeObjectURL": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
       "hash": "USVString",
@@ -1516,18 +1836,18 @@ globalThis.__rbIdlSignatures = {
   },
   "URLSearchParams": {
     "operations": {
-      "append": ["USVString","USVString"],
-      "delete": ["USVString","optional USVString"],
-      "get": ["USVString"],
-      "getAll": ["USVString"],
-      "has": ["USVString","optional USVString"],
-      "set": ["USVString","USVString"]
+      "append": {"required":2,"arguments":["USVString","USVString"]},
+      "delete": {"required":1,"arguments":["USVString","optional USVString"]},
+      "get": {"required":1,"arguments":["USVString"]},
+      "getAll": {"required":1,"arguments":["USVString"]},
+      "has": {"required":1,"arguments":["USVString","optional USVString"]},
+      "set": {"required":2,"arguments":["USVString","USVString"]}
     }
   },
   "VideoTrackList": {
     "inherits": "EventTarget",
     "operations": {
-      "getTrackById": ["DOMString"]
+      "getTrackById": {"required":1,"arguments":["DOMString"]}
     }
   },
   "VisibilityStateEntry": {
@@ -1539,14 +1859,29 @@ globalThis.__rbIdlSignatures = {
   "Window": {
     "inherits": "EventTarget",
     "operations": {
-      "alert": ["optional DOMString"],
-      "atob": ["DOMString"],
-      "btoa": ["DOMString"],
-      "confirm": ["optional DOMString"],
-      "getComputedStyle": [null,"optional DOMString?"],
-      "matchMedia": ["DOMString"],
-      "open": ["optional USVString","optional DOMString","optional [LegacyNullToEmptyString] DOMString"],
-      "prompt": ["optional DOMString","optional DOMString"]
+      "alert": {"required":0,"arguments":["optional DOMString"]},
+      "atob": {"required":1,"arguments":["DOMString"]},
+      "btoa": {"required":1,"arguments":["DOMString"]},
+      "cancelAnimationFrame": {"required":1},
+      "confirm": {"required":0,"arguments":["optional DOMString"]},
+      "createImageBitmap": {"required":1},
+      "fetch": {"required":1},
+      "fetchLater": {"required":1},
+      "getComputedStyle": {"required":1,"arguments":[null,"optional DOMString?"]},
+      "matchMedia": {"required":1,"arguments":["DOMString"]},
+      "moveBy": {"required":2},
+      "moveTo": {"required":2},
+      "open": {"required":0,"arguments":["optional USVString","optional DOMString","optional [LegacyNullToEmptyString] DOMString"]},
+      "postMessage": {"required":1},
+      "prompt": {"required":0,"arguments":["optional DOMString","optional DOMString"]},
+      "queueMicrotask": {"required":1},
+      "reportError": {"required":1},
+      "requestAnimationFrame": {"required":1},
+      "resizeBy": {"required":2},
+      "resizeTo": {"required":2},
+      "setInterval": {"required":1},
+      "setTimeout": {"required":1},
+      "structuredClone": {"required":1}
     },
     "attributes": {
       "name": "DOMString",
@@ -1554,21 +1889,34 @@ globalThis.__rbIdlSignatures = {
     }
   },
   "Worker": {
-    "constructor": ["USVString"],
-    "inherits": "EventTarget"
+    "constructor": {"required":1,"arguments":["USVString"]},
+    "inherits": "EventTarget",
+    "operations": {
+      "postMessage": {"required":1}
+    }
   },
   "WorkerGlobalScope": {
     "inherits": "EventTarget",
     "operations": {
-      "atob": ["DOMString"],
-      "btoa": ["DOMString"],
-      "importScripts": ["USVString..."]
+      "atob": {"required":1,"arguments":["DOMString"]},
+      "btoa": {"required":1,"arguments":["DOMString"]},
+      "createImageBitmap": {"required":1},
+      "fetch": {"required":1},
+      "importScripts": {"required":0,"arguments":["USVString..."]},
+      "queueMicrotask": {"required":1},
+      "reportError": {"required":1},
+      "setInterval": {"required":1},
+      "setTimeout": {"required":1},
+      "structuredClone": {"required":1}
     }
   },
   "Worklet": {
     "operations": {
-      "addModule": ["USVString"]
+      "addModule": {"required":1,"arguments":["USVString"]}
     }
+  },
+  "WritableStreamDefaultWriter": {
+    "constructor": {"required":1}
   },
   "XMLDocument": {
     "inherits": "Document"
@@ -1576,10 +1924,10 @@ globalThis.__rbIdlSignatures = {
   "XMLHttpRequest": {
     "inherits": "XMLHttpRequestEventTarget",
     "operations": {
-      "getResponseHeader": ["ByteString"],
-      "open": ["ByteString","USVString",null,"optional USVString?","optional USVString?"],
-      "overrideMimeType": ["DOMString"],
-      "setRequestHeader": ["ByteString","ByteString"]
+      "getResponseHeader": {"required":1,"arguments":["ByteString"]},
+      "open": {"required":2,"arguments":["ByteString","USVString",null,"optional USVString?","optional USVString?"]},
+      "overrideMimeType": {"required":1,"arguments":["DOMString"]},
+      "setRequestHeader": {"required":2,"arguments":["ByteString","ByteString"]}
     }
   },
   "XMLHttpRequestEventTarget": {
@@ -1588,22 +1936,41 @@ globalThis.__rbIdlSignatures = {
   "XMLHttpRequestUpload": {
     "inherits": "XMLHttpRequestEventTarget"
   },
+  "XMLSerializer": {
+    "operations": {
+      "serializeToString": {"required":1}
+    }
+  },
   "XPathEvaluator": {
     "operations": {
-      "createExpression": ["DOMString"],
-      "evaluate": ["DOMString"]
+      "createExpression": {"required":1,"arguments":["DOMString"]},
+      "createNSResolver": {"required":1},
+      "evaluate": {"required":2,"arguments":["DOMString"]}
+    }
+  },
+  "XPathExpression": {
+    "operations": {
+      "evaluate": {"required":1}
     }
   },
   "XPathNSResolver": {
     "operations": {
-      "lookupNamespaceURI": ["DOMString?"]
+      "lookupNamespaceURI": {"required":1,"arguments":["DOMString?"]}
+    }
+  },
+  "XPathResult": {
+    "operations": {
+      "snapshotItem": {"required":1}
     }
   },
   "XSLTProcessor": {
     "operations": {
-      "getParameter": ["[LegacyNullToEmptyString] DOMString","DOMString"],
-      "removeParameter": ["[LegacyNullToEmptyString] DOMString","DOMString"],
-      "setParameter": ["[LegacyNullToEmptyString] DOMString","DOMString"]
+      "getParameter": {"required":2,"arguments":["[LegacyNullToEmptyString] DOMString","DOMString"]},
+      "importStylesheet": {"required":1},
+      "removeParameter": {"required":2,"arguments":["[LegacyNullToEmptyString] DOMString","DOMString"]},
+      "setParameter": {"required":3,"arguments":["[LegacyNullToEmptyString] DOMString","DOMString"]},
+      "transformToDocument": {"required":1},
+      "transformToFragment": {"required":2}
     }
   }
 };

@@ -14,8 +14,8 @@ module Dommy
       # scheme => default port (file has none).
       SPECIAL = {"ftp" => 21, "file" => nil, "http" => 80, "https" => 443, "ws" => 80, "wss" => 443}.freeze
 
-      # Raised on a parse failure; `URL.new` maps it to DOMException::SyntaxError,
-      # `URL.parse` rescues it and returns nil.
+      # Raised on a parse failure; `URL.new` maps it to a TypeError (as the URL
+      # Standard's constructor throws), `URL.parse` rescues it and returns nil.
       class Failure < StandardError; end
 
       # The spec URL record. `path` is an Array of segments for a hierarchical
@@ -168,7 +168,10 @@ module Dommy
           domain = percent_decode(input).force_encoding("UTF-8").scrub("\uFFFD")
           # The domain parser (beStrict false): an ASCII domain is only
           # lowercased, whatever UTS #46 would make of it, for web
-          # compatibility; a non-ASCII one goes through ToASCII.
+          # compatibility — an "xn--" label is not checked as Punycode, so
+          # `http://xn--a/` and `https://xn--/` parse (WPT url/toascii.json
+          # "Invalid Punycode", urltestdata.json); a non-ASCII one goes
+          # through ToASCII.
           ascii =
             if domain.ascii_only?
               domain.downcase

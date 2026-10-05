@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "securerandom"
+
 require_relative "internal/url_parser"
 require_relative "internal/url_record_accessors"
 
@@ -31,11 +33,16 @@ module Dommy
     class << self
       # Create a unique blob: URL that resolves back to `blob` via
       # `URL.__test_resolve_blob_url__(url)`. Returns nil for non-Blob input.
-      def create_object_url(blob)
+      #
+      # File API "generate a new blob URL": "blob:", the serialized origin of
+      # the environment creating it ("null" when opaque), "/", and a UUID. So
+      # the URL's origin, which the URL Standard reads from the path, is the
+      # creator's: `new URL(URL.createObjectURL(b)).origin === location.origin`.
+      def create_object_url(blob, origin: "null")
         return nil unless blob.is_a?(Blob)
 
-        id = "%032x" % rand(2 ** 128)
-        url = "blob:dommy/#{id}"
+        origin = "null" if origin.nil? || origin.empty?
+        url = "blob:#{origin}/#{SecureRandom.uuid}"
         @blob_urls[url] = blob
         url
       end
@@ -413,7 +420,7 @@ module Dommy
 
     def __js_get__(key)
       case key
-      when "size", "length"
+      when "size"
         size
       else
         Bridge::ABSENT

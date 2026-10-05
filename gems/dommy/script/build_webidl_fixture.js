@@ -180,7 +180,10 @@ function memberRecord(m) {
         unscopable: hasExtAttr(m, "Unscopable"),
         null_to_empty_string: nullToEmptyString(m),
         same_object: hasExtAttr(m, "SameObject"),
-        put_forwards: extAttrValue(m, "PutForwards")
+        put_forwards: extAttrValue(m, "PutForwards"),
+        // `stringifier attribute USVString href`: the attribute is also what
+        // the interface's toString returns.
+        stringifier: m.special === "stringifier"
       };
     case "operation":
       // A getter / setter / deleter / stringifier with no name is not a member
