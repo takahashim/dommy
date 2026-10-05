@@ -58,6 +58,10 @@ module Dommy
       BYTES = "__rb_bytes"
       # A byte buffer crossing as a bare JS ArrayBuffer.
       ARRAY_BUFFER = "__rb_arraybuffer"
+      # A JS Date's time value (ms since the epoch). Host -> JS it builds a new
+      # Date; JS -> host it decorates a JS_REF, so the Date keeps its identity
+      # and the host can still read the time (see Dommy::Bridge::Date).
+      DATE = "__rb_date"
       # A host-raised DOMException/TypeError/RangeError, re-thrown JS-side.
       EXCEPTION = "__rb_exception__"
       # A host-created native JS error (TypeError/RangeError) crossing as a VALUE

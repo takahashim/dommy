@@ -3,8 +3,8 @@
 module Dommy
   module Bridge
     # The Ruby shapes a JS value takes while it is on this side: an opaque
-    # reference, and the two byte buffers that cross as a typed array or a bare
-    # ArrayBuffer.
+    # reference (a Date one carrying its time value), and the two byte buffers
+    # that cross as a typed array or a bare ArrayBuffer.
 
     # An opaque handle to a JS-side value that Ruby only stores and hands back
     # (an AbortSignal's reason, a CustomEvent's detail). A non-plain JS object
@@ -33,6 +33,33 @@ module Dommy
 
       def to_s = (@label || "[object]").to_s
       def inspect = "#<Dommy::Bridge::JSValue #{to_s}>"
+    end
+
+    # A JS Date that crossed into Ruby. It is still an opaque reference, so
+    # handing it back returns the same Date, but it also carries its time value
+    # (ms since the epoch, NaN for an invalid date) — the one thing a host API
+    # taking a Date (`input.valueAsDate = d`) needs to read off it. A Date the
+    # host creates crosses from a Ruby ::Time instead.
+    class Date < JSValue
+      # The largest time value a JS Date can hold, either side of the epoch.
+      MAX_TIME_VALUE = 8_640_000_000_000_000
+
+      # The time value a JS Date made from `time` holds — ECMAScript's TimeClip:
+      # whole milliseconds truncated toward zero (0.1 ms before the epoch is 0,
+      # not -1), and NaN beyond MAX_TIME_VALUE.
+      def self.time_value_of(time)
+        ms = (time.to_r * 1000).truncate
+        ms.abs > MAX_TIME_VALUE ? ::Float::NAN : ms.to_f
+      end
+
+      attr_reader :time_value
+
+      def initialize(ref, time_value)
+        super(ref, nil, nil, "Date")
+        @time_value = time_value
+      end
+
+      def inspect = "#<Dommy::Bridge::Date #{time_value}>"
     end
 
     # A byte buffer that crosses the JS boundary as a `Uint8Array` (rather than a

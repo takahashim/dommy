@@ -13,8 +13,8 @@ module Dommy
     # mid-week, so steps measure from 1970-W01) lived three methods away from
     # the code that converts a week string. Here a type is one class.
     #
-    # Only the numeric surface lives here. Value sanitization stays on the
-    # element, where it reads other attributes (`multiple` for email).
+    # Only the numeric and Date surface lives here. Value sanitization stays on
+    # the element, where it reads other attributes (`multiple` for email).
     class InputType
       # The type `name` stands for. An unknown or non-numeric type answers the
       # one that has no numbers, so callers never branch on nil. REGISTRY and
@@ -24,6 +24,10 @@ module Dommy
 
       # Whether valueAsNumber / stepUp / stepDown apply at all.
       def numeric? = true
+
+      # Whether valueAsDate applies: date, month, week and time only. A
+      # datetime-local value names no instant (it has no time zone).
+      def date? = false
 
       # How many of the number's units one step is worth.
       def scale_factor = 1
@@ -50,6 +54,14 @@ module Dommy
       # is not numeric: the element refuses before it gets here, because it is
       # the one that knows which type to name in the error.
       def from_number(_number) = raise(NotImplementedError)
+
+      # The value string as a Date's time value (ms since the epoch), or NaN
+      # when it is not one. The number valueAsNumber reads, for every date type
+      # but month, which counts months.
+      def to_date_value(text) = to_number(text)
+
+      # A Date's time value as the value string.
+      def from_date_value(time_value) = from_number(time_value)
 
       # A `min`/`max` attribute as a number, or nil when it is not one. The
       # non-numeric type parses nothing, so this is nil for it too.
@@ -138,6 +150,7 @@ module Dommy
     class DateInputType < InputType
 
       def scale_factor = 86_400_000
+      def date? = true
 
       def to_number(text)
         match = /\A(\d{4,})-(\d{2})-(\d{2})\z/.match(text.to_s)
@@ -160,9 +173,11 @@ module Dommy
 
     end
 
+    # A time is the time of day; as a Date it falls on 1970-01-01 UTC.
     class TimeInputType < InputType
 
       def scale_factor = 1000
+      def date? = true
       def default_step = 60.0
 
       def to_number(text)
@@ -197,9 +212,6 @@ module Dommy
 
     class DatetimeLocalInputType < InputType
 
-      # Match the representable time range of the JS Date/TimeClip domain.
-      MAX_TIME_MS = 8_640_000_000_000_000
-
       def scale_factor = 1000
       def default_step = 60.0
 
@@ -220,7 +232,7 @@ module Dommy
       end
 
       def from_number(number)
-        return "" unless number.finite? && number.abs <= MAX_TIME_MS
+        return "" unless number.finite? && number.abs <= Bridge::Date::MAX_TIME_VALUE
 
         time = utc_time_from_ms(number)
         return "" if time.year < 1
@@ -244,6 +256,8 @@ module Dommy
     # its scale is 1.
     class MonthInputType < InputType
 
+      def date? = true
+
       def to_number(text)
         match = /\A(\d{4,})-(\d{2})\z/.match(text.to_s)
         return ::Float::NAN unless match
@@ -262,11 +276,31 @@ module Dommy
         format("%04d-%02d", year, (months % 12) + 1)
       end
 
+      # As a Date, a month is the UTC midnight that starts it.
+      def to_date_value(text)
+        months = to_number(text)
+        return months if months.nan?
+
+        months = months.to_i
+        ::Time.utc(1970 + months.fdiv(12).floor, (months % 12) + 1).to_i * 1000.0
+      end
+
+      def from_date_value(time_value)
+        return "" unless time_value.finite?
+
+        time = utc_time_from_ms(time_value)
+        format("%04d-%02d", time.year, time.month)
+      rescue ::RangeError, ::ArgumentError, ::FloatDomainError
+        ""
+      end
+
     end
 
+    # As a Date, a week is the UTC midnight of its Monday.
     class WeekInputType < InputType
 
       def scale_factor = 604_800_000
+      def date? = true
 
       # The epoch falls mid-week, so a week control aligns to the Monday of
       # 1970-W01; measuring from 0 would report every whole week as a step
