@@ -448,28 +448,10 @@ module WebIdlAudit
   end
 
   # --- WebIDL's legacy extended attributes ----------------------------------
-  # [LegacyNullToEmptyString], [LegacyUnforgeable], [Unscopable] and the two
-  # that shape a legacy platform object's named properties are all written in the
-  # IDL, and all answered in the JS half by a hand-written table.
-
-  # Attributes whose setter turns null into "" — declared per attribute in the
-  # IDL, answered by a table keyed on the property NAME alone, so a name that is
-  # null-to-empty on one interface and a plain DOMString on another (`value` is,
-  # on input and textarea versus option and button) cannot be right for both.
-  def null_to_empty_gaps
-    listed = js_name_set("NULL_TO_EMPTY_STRING_SETTERS")
-    per_interface = js_interface_name_sets("INTERFACE_NULL_TO_EMPTY_STRING_SETTERS")
-    gaps = {}
-    each_implemented_attribute do |interface, member|
-      name = member["name"]
-      declared = listed.include?(name) || (per_interface[interface] || Set.new).include?(name)
-      next if !!member["null_to_empty_string"] == declared
-
-      gaps["#{interface}.#{name}"] =
-        member["null_to_empty_string"] ? "null must become \"\", and does not" : "is not [LegacyNullToEmptyString]"
-    end
-    gaps.sort.to_h
-  end
+  # [LegacyUnforgeable], [Unscopable] and the two that shape a legacy platform
+  # object's named properties are all written in the IDL, and all answered in
+  # the JS half by a hand-written table. ([LegacyNullToEmptyString] is not: it
+  # is part of the string conversions generated into webidl_signatures.js.)
 
   # [LegacyUnforgeable] members are own, non-configurable properties of each
   # instance rather than of the prototype — which is the whole of what stops a
@@ -876,7 +858,6 @@ module WebIdlAudit
       "arity_gaps" => arity_gaps,
       "constructor_arity_gaps" => constructor_arity_gaps,
       "iteration_gaps" => iteration_gaps,
-      "null_to_empty_gaps" => null_to_empty_gaps,
       "unforgeable_gaps" => unforgeable_gaps,
       "unscopable_gaps" => unscopable_gaps,
       "named_property_gaps" => named_property_gaps,

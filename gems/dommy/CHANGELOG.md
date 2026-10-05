@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changed
+
+- Every string a script hands an operation, a constructor, a static operation or an attribute setter is converted as WebIDL declares it — DOMString, USVString or ByteString, nullable, `[LegacyNullToEmptyString]`, optional, variadic — in one place, before it reaches Ruby. The conversions are generated from the specs' own IDL into `lib/dommy/js/webidl_signatures.js` (`rake webidl:signatures`), replacing the hand-kept lists of null-to-empty setters and DOMString arguments. So `el.title = {toString() { return "t" }}` is `"t"` instead of a Ruby inspect string, `new URL("y", location)` resolves against the location, `params.set(obj, obj)` and `headers.set(obj, obj)` call `toString`, `el.id = Symbol()` and `params.append(Symbol(), "v")` throw `TypeError`, `el.id = null` is `"null"`, `new Headers().append("x", "\u0100")` throws `TypeError`, and a toString that throws stops the operation before it does anything.
+
 ### Fixed
 
 - An empty-string base is a base that fails to parse, not a missing one: `new URL("about:blank", "")` throws, and `URL.parse(url, "")` is null.

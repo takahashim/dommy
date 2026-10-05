@@ -55,6 +55,10 @@ module Dommy
       # handler attributes), which host_runtime.js destructures — see the file's
       # header for what belongs there.
       WEBIDL_TABLES_JS = ::File.read(::File.join(__dir__, "webidl_tables.js")).freeze
+      # The string conversions the specs' IDL declares for each operation,
+      # constructor and attribute, generated from it by
+      # script/build_webidl_signatures.rb; host_runtime.js carries them out.
+      WEBIDL_SIGNATURES_JS = ::File.read(::File.join(__dir__, "webidl_signatures.js")).freeze
       HOST_RUNTIME_JS = ::File.read(::File.join(__dir__, "host_runtime.js")).freeze
       # The WICG Observable polyfill (Observable/Subscriber + EventTarget.when),
       # evaluated after the DOM interface prototypes are seeded.
@@ -429,6 +433,7 @@ module Dommy
       # after every host function above is registered.
       def seed_runtime!
         @backend.run_bundle("webidl_tables.js", WEBIDL_TABLES_JS)
+        @backend.run_bundle("webidl_signatures.js", WEBIDL_SIGNATURES_JS)
         @backend.run_bundle("host_runtime.js", HOST_RUNTIME_JS)
         # Seed base interface prototypes from the single Ruby-side hierarchy.
         @backend.eval("__rbHost.seedInterfaces(#{JSON.generate(DomInterfaces::BASE_CHAINS)});")

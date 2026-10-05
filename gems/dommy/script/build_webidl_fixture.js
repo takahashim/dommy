@@ -35,6 +35,7 @@ const SPECS = [
 const interfaces = new Map(); // name -> record
 const includes = [];          // { target, mixin }
 const mixins = new Map();     // name -> members
+const typedefs = new Map();   // name -> the IDL type it names
 
 function extendedAttrs(node) {
   const out = {};
@@ -65,13 +66,20 @@ function requiredCount(args) {
 
 // The IDL type as written, e.g. "DOMString", "unsigned long", "boolean". A
 // nullable or parameterized type keeps its shape ("DOMString?",
-// "FrozenArray<Element>?") because HTML's reflection rules distinguish them.
+// "FrozenArray<Element>?") because HTML's reflection rules distinguish them,
+// and a union is parenthesized as in IDL ("(Node or DOMString)"), so a
+// generic's parameters ("record<USVString, USVString>") stay apart from it.
 function idlTypeName(t) {
   if (!t) return null;
-  const inner = Array.isArray(t.idlType)
-    ? t.idlType.map(idlTypeName).join(" or ")
-    : (typeof t.idlType === "object" ? idlTypeName(t.idlType) : t.idlType);
-  const base = t.generic ? t.generic + "<" + inner + ">" : inner;
+  let base;
+  if (t.generic) {
+    const params = Array.isArray(t.idlType) ? t.idlType : [t.idlType];
+    base = t.generic + "<" + params.map(idlTypeName).join(", ") + ">";
+  } else if (t.union) {
+    base = "(" + t.idlType.map(idlTypeName).join(" or ") + ")";
+  } else {
+    base = typeof t.idlType === "object" ? idlTypeName(t.idlType) : t.idlType;
+  }
   return t.nullable ? base + "?" : base;
 }
 
@@ -133,6 +141,20 @@ function extAttrValue(m, name) {
   return found && found.rhs ? String(found.rhs.value).replace(/^"|"$/g, "") : null;
 }
 
+// One overload's argument list, each argument as the IDL writes it: its type
+// ("USVString", "DOMString?", "(Node or DOMString)"), whether it is optional or
+// variadic, and [LegacyNullToEmptyString] when the type carries it. This is what
+// a binding converts a script's values by before the operation sees them.
+function argumentRecords(args) {
+  return (args || []).map((a) => {
+    const out = { name: a.name, type: idlTypeName(a.idlType) };
+    if (a.optional) out.optional = true;
+    if (a.variadic) out.variadic = true;
+    if (nullToEmptyString(a)) out.null_to_empty_string = true;
+    return out;
+  });
+}
+
 function indexedSpecial(m) {
   const arg = m.arguments && m.arguments[0];
   return !!arg && arg.idlType && arg.idlType.idlType === "unsigned long";
@@ -186,7 +208,10 @@ function memberRecord(m) {
         // undefined rather than as the null a host's "nothing" would cross as.
         returns: idlTypeName(m.idlType),
         required: requiredCount(m.arguments),
-        total: (m.arguments || []).length
+        total: (m.arguments || []).length,
+        // Every overload's arguments, in declaration order: a name declared
+        // more than once is one member with several signatures.
+        signatures: [argumentRecords(m.arguments)]
       };
     // `iterable<>` / `maplike<>` / `setlike<>`: the declarations that give an
     // interface its iteration surface (@@iterator alone for a value iterator,
@@ -197,7 +222,10 @@ function memberRecord(m) {
     case "setlike":
       return { kind: m.type, pair: (m.idlType || []).length >= 2 };
     case "constructor":
-      return { kind: "constructor", required: requiredCount(m.arguments), total: (m.arguments || []).length };
+      return {
+        kind: "constructor", required: requiredCount(m.arguments), total: (m.arguments || []).length,
+        signatures: [argumentRecords(m.arguments)]
+      };
     case "iterable":
     case "maplike":
     case "setlike":
@@ -228,6 +256,10 @@ for (const spec of SPECS) {
   for (const def of tree) {
     if (def.type === "includes") {
       includes.push({ target: def.target, mixin: def.includes });
+      continue;
+    }
+    if (def.type === "typedef") {
+      typedefs.set(def.name, idlTypeName(def.idlType));
       continue;
     }
     if (def.type === "interface mixin") {
@@ -281,7 +313,7 @@ for (const [name, rec] of interfaces) {
 const sorted = {};
 for (const name of [...interfaces.keys()].sort()) {
   const rec = interfaces.get(name);
-  const seen = new Set();
+  const seen = new Map();
   rec.members = rec.members
     .filter((m) => {
       // A special operation has no name, so an interface's indexed and named
@@ -289,8 +321,14 @@ for (const name of [...interfaces.keys()].sort()) {
       const key = m.kind === "special"
         ? [m.kind, m.special, m.indexed].join(":")
         : m.kind + ":" + (m.name || "");
-      if (seen.has(key)) return false;
-      seen.add(key);
+      const first = seen.get(key);
+      if (first) {
+        // An overload: the first declaration stands for the member, and
+        // carries the later ones' arguments as further signatures.
+        if (first.signatures && m.signatures) first.signatures.push(...m.signatures);
+        return false;
+      }
+      seen.set(key, m);
       return true;
     })
     .sort((a, b) => (a.kind + (a.name || a.special || "")).localeCompare(b.kind + (b.name || b.special || "")));
@@ -313,6 +351,9 @@ const out = {
     "checkout's interfaces/*.idl. Do not edit by hand.",
   wpt_commit: head,
   specs: SPECS,
+  // A typedef only names a type (`typedef DOMString CSSOMString`), so a
+  // member written with one is converted as the type it names.
+  typedefs: Object.fromEntries([...typedefs.entries()].sort(([a], [b]) => a.localeCompare(b))),
   interfaces: sorted
 };
 

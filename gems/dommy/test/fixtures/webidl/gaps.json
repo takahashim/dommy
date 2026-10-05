@@ -946,7 +946,6 @@
   "arity_gaps": {},
   "constructor_arity_gaps": {},
   "iteration_gaps": {},
-  "null_to_empty_gaps": {},
   "unforgeable_gaps": {},
   "unscopable_gaps": {},
   "named_property_gaps": {
