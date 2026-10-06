@@ -130,6 +130,12 @@ module Dommy
         # walk for mutations within a still-detached tree — the common case
         # during bulk DOM construction, where nothing in the walk can fire.
         if !moving && (!target.respond_to?(:is_connected?) || target.is_connected?)
+          # A script's children changed steps run before the post-connection
+          # steps of what was inserted into it (DOM "insert" orders them so).
+          # Only for an insertion: DOM runs them for a removal too, but no
+          # browser prepares a script because a child left it, and WPT's
+          # script-does-not-run-on-child-removal holds them to that.
+          @post_insertion_steps.script_children_changed(target) unless added_nodes.empty?
           added_nodes.each { |nk| notify_connected_subtree(nk) }
           removed_nodes.each { |nk| notify_disconnected_subtree(nk) }
         end
@@ -227,6 +233,10 @@ module Dommy
 
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
+        @post_insertion_steps.script_attribute_changed(target, attr, new_value, namespace)
+        # An event handler content attribute (`onclick="…"`) sets or removes
+        # its handler.
+        EventHandlers.attribute_changed(target, attr, new_value, namespace) if attr.start_with?("on") && target.is_a?(Element)
 
         nil
       end

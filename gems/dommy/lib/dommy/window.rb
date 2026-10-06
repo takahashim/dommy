@@ -359,11 +359,11 @@ module Dommy
       when "dispatchEvent"
         dispatch_event(args[0])
       when "setTimeout"
-        @scheduler.set_timeout(args[0], timer_delay(args[1]))
+        @scheduler.set_timeout(timer_handler(args[0]), timer_delay(args[1]), args.drop(2), this: self)
       when "clearTimeout"
         @scheduler.clear_timeout(args[0])
       when "setInterval"
-        @scheduler.set_interval(args[0], timer_delay(args[1]))
+        @scheduler.set_interval(timer_handler(args[0]), timer_delay(args[1]), args.drop(2), this: self)
       when "clearInterval"
         @scheduler.clear_interval(args[0])
       when "requestAnimationFrame"
@@ -475,9 +475,9 @@ module Dommy
       @reporting_exception = true
       handled =
         begin
-          event = ErrorEvent.new("error", "message" => message, "error" => error_value,
-            "filename" => filename, "lineno" => lineno, "colno" => colno, "cancelable" => true)
-          !dispatch_event(event)
+          !__internal_fire_event__("error", {"message" => message, "error" => error_value, "filename" => filename,
+                                             "lineno" => lineno, "colno" => colno, "cancelable" => true},
+            event_class: ErrorEvent)
         ensure
           @reporting_exception = false
         end
@@ -500,10 +500,8 @@ module Dommy
     # engine that instead notifies the moment a promise rejects reports handled
     # code too.
     def __internal_report_rejection__(reason_value, host_error: nil, promise: nil)
-      event = PromiseRejectionEvent.new(
-        "unhandledrejection", "promise" => promise, "reason" => reason_value, "cancelable" => true
-      )
-      return nil unless dispatch_event(event)
+      return nil unless __internal_fire_event__("unhandledrejection",
+        {"promise" => promise, "reason" => reason_value, "cancelable" => true}, event_class: PromiseRejectionEvent)
 
       __internal_notify_unhandled_error__(Internal::ExceptionReport.host_form(reason_value, host_error))
     end
@@ -534,9 +532,8 @@ module Dommy
     # fire `rejectionhandled` and tell the host to take the report back. The
     # event is NOT cancelable — the page is being informed, not consulted.
     def __internal_report_rejection_handled__(reason_value, promise: nil, record: nil)
-      dispatch_event(PromiseRejectionEvent.new(
-        "rejectionhandled", "promise" => promise, "reason" => reason_value
-      ))
+      __internal_fire_event__("rejectionhandled", {"promise" => promise, "reason" => reason_value},
+        event_class: PromiseRejectionEvent)
       __internal_notify_rejection_handled__(record) unless record.nil?
       nil
     end
@@ -1066,11 +1063,27 @@ module Dommy
 
     # The timer delay (WebIDL `long`, default 0). A missing/undefined argument
     # or any non-numeric value coerces to 0 rather than raising.
+    # The timeout argument, a WebIDL `long` (ToNumber, then ToInt32: NaN and
+    # the infinities are 0, everything else truncates and wraps modulo 2^32,
+    # so 2**32 + 1 is 1). The timer steps clamp a negative one to 0.
     def timer_delay(value)
-      return value if value.is_a?(Numeric)
-      return value.to_i if value.is_a?(String) && value =~ /\A\s*-?\d+/
+      value = 0 if value.nil? || value.equal?(Bridge::UNDEFINED)
+      Internal::WebIDL.long(value)
+    end
 
-      0
+    # A timer's handler: a function is invoked as it is; anything else is
+    # converted to a string and, when the timer fires, compiled and run as a
+    # classic script in the window's global scope.
+    def timer_handler(handler)
+      return handler if CallableInvoker.js_callable?(handler) || handler.respond_to?(:call)
+
+      source = handler.nil? || handler.equal?(Bridge::UNDEFINED) ? (handler.nil? ? "null" : "undefined") : handler.to_s
+      proc do
+        @document.script_runner&.call(source)
+      rescue StandardError => e
+        # The compiled script threw: reported like any script's exception.
+        Internal::ExceptionReport.report_at(self, e)
+      end
     end
 
     # WebIDL coercion for the `Text`/`Comment` constructor's `optional DOMString

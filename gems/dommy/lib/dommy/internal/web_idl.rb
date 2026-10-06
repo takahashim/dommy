@@ -54,6 +54,17 @@ module Dommy
         number % (2**32)
       end
 
+      # `value` converted to `long`: ToNumber, then NaN and ±Infinity become
+      # 0, and anything else truncates toward zero and wraps into the signed
+      # 32-bit range (so 2**32 + 1 is 1 and 2**31 is -2**31).
+      def long(value)
+        number = unrestricted_double(value)
+        return 0 unless number.finite?
+
+        wrapped = number.truncate % (2**32)
+        wrapped >= 2**31 ? wrapped - (2**32) : wrapped
+      end
+
       def string_to_integer(value)
         float = Float(value.strip.empty? ? "0" : value.strip, exception: false)
         float&.finite? ? float.truncate : 0

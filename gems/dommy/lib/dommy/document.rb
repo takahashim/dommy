@@ -592,6 +592,25 @@ module Dommy
       nil
     end
 
+    # A `->(element, name, body, window_handler) {}` set by the JS layer that
+    # compiles an event handler content attribute's body into a function (the
+    # element, its form owner and the document in its scope; none for a
+    # Window's handler, whose `onerror` takes five arguments), raising the
+    # SyntaxError of a body that does not parse. nil = no engine, nothing runs.
+    attr_accessor :event_handler_compiler
+
+    # Activate the event handler content attributes of every element the
+    # parser built (it runs no attribute change steps), as though each had
+    # just been set. Run at boot, before any script, and safe to repeat.
+    def __internal_activate_parsed_event_handlers__
+      selector = (Internal::EventHandlers::GLOBAL | Internal::EventHandlers::WINDOW).map { |name| "[#{name}]" }.join(",")
+      @backend_doc.css(selector).each do |node|
+        element = wrap_node(node)
+        element.__internal_wire_inline_handler__(nil) if element.respond_to?(:__internal_wire_inline_handler__)
+      end
+      nil
+    end
+
     def initialize(host = nil, backend_doc: nil, default_view: nil)
       @host = host
       @default_view = default_view
@@ -1895,7 +1914,7 @@ module Dommy
         # DocumentAndElementEventHandlers, plus onreadystatechange and
         # onvisibilitychange): the registered handler, or null when unset —
         # matching Element's on* getter.
-        return @on_handlers&.[](event_name_from_on(key))
+        return on_handler(event_name_from_on(key))
       end
 
       case key
@@ -2257,10 +2276,10 @@ module Dommy
 
       @ready_state = state
       @loading_lifecycle = true if state == "loading"
-      dispatch_event(Event.new("readystatechange"))
+      __internal_fire_event__("readystatechange")
       case state
       when "interactive"
-        dispatch_event(Event.new("DOMContentLoaded", "bubbles" => true))
+        __internal_fire_event__("DOMContentLoaded", {"bubbles" => true})
       when "complete"
         fire_load_and_pageshow
       end
@@ -2303,6 +2322,21 @@ module Dommy
       nil
     end
 
+    # HTML "execute the script element", for a classic script: currentScript
+    # is the element while its script runs (null when the element's root is a
+    # shadow root — not "in a document tree", since a script removed before it
+    # runs still points at itself), then goes back to whatever it was before,
+    # so a script inserted and run from inside another script leaves the outer
+    # one current again. A caller reports the script's exception from inside
+    # the block: the report is part of the run, while currentScript is set.
+    def __internal_with_current_script__(element)
+      old = @__current_script__
+      @__current_script__ = element.root_node.is_a?(ShadowRoot) ? nil : element
+      yield
+    ensure
+      @__current_script__ = old
+    end
+
     # Delegate node wrapping to NodeWrapperCache
     def wrap_node(node)
       @node_wrapper_cache.wrap(node)
@@ -2333,7 +2367,13 @@ module Dommy
       elements = @backend_doc.css("details").filter_map { |node| __internal_html_element_wrapper__(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
       @backend_doc.css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
-      @backend_doc.css("script").each { |node| __internal_html_element_wrapper__(node)&.__internal_mark_parser_inserted__ }
+      @backend_doc.css("script").each do |node|
+        script = __internal_html_element_wrapper__(node)
+        next unless script
+
+        script.__internal_mark_parser_inserted__
+        script.__internal_mark_parser_document__
+      end
       @backend_doc.css("meta[http-equiv]").each { |node| __internal_html_element_wrapper__(node)&.__internal_run_pragma__ }
       # Each element the parser inserted with an autofocus attribute is an
       # autofocus candidate (only in a document with a browsing context).
@@ -2634,7 +2674,7 @@ module Dommy
       @script_created_input = +""
       unless @ready_state == "loading"
         @ready_state = "loading"
-        dispatch_event(Event.new("readystatechange"))
+        __internal_fire_event__("readystatechange")
       end
       self
     end
@@ -2663,9 +2703,19 @@ module Dommy
       else
         added.each { |node| target_bn.add_child(node) }
       end
-      notify_child_list_mutation(target_node: target_bn, added_nodes: added, removed_nodes: [])
+      @__document_writing = true
+      begin
+        notify_child_list_mutation(target_node: target_bn, added_nodes: added, removed_nodes: [])
+      ensure
+        @__document_writing = false
+      end
       nil
     end
+
+    # Whether the insertion under way comes from document.write: an external
+    # script it writes is the parser's pending parsing-blocking script, which
+    # runs as soon as the writing script returns — before the parser goes on.
+    def __internal_document_writing__ = @__document_writing == true
 
     # Re-parse everything written since open() as a whole document and make
     # its children the document's (see "Dynamic markup insertion" above).

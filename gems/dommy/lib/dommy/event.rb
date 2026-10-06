@@ -136,9 +136,13 @@ module Dommy
       nil
     end
 
-    # Event handler IDL attributes (`el.onclick = fn`, `window.onload = fn`): one
-    # named handler registered as a listener, where assignment replaces any
-    # previous handler and a nil value removes it. Shared by Element and Window.
+    # HTML event handlers (`el.onclick = fn`, `window.onload = fn`,
+    # `onclick="…"`). Each handler has a value — a callback, a non-callable
+    # object, or a raw uncompiled handler from a content attribute — and, while
+    # active, ONE listener in the event listener list: added the first time the
+    # handler is set to something non-null and kept in its place when the value
+    # changes again, so `el.onclick = a; el.addEventListener(…); el.onclick = b`
+    # still runs b first. Setting it to null deactivates it (the listener goes).
     def event_name_from_on(key)
       key.to_s.sub(/\Aon/, "").downcase
     end
@@ -152,23 +156,54 @@ module Dommy
       @event_listeners&.each_value { |list| list.each { |entry| entry.removed = true } }
       @event_listeners = nil
       @on_handlers = nil
+      @on_handler_listeners = nil
       nil
     end
 
+    # The event handler IDL attribute getter: "get the current value of the
+    # event handler", which compiles a raw uncompiled handler on first read.
     def on_handler(event_name)
-      @on_handlers&.[](event_name)
+      value = @on_handlers&.[](event_name)
+      return value unless value.is_a?(Internal::EventHandlers::RawHandler)
+
+      compile_raw_event_handler(event_name, value)
     end
 
+    # The event handler IDL attribute setter. EventHandler is
+    # [LegacyTreatNonObjectAsNull]: a value that is not an object (a string, a
+    # number, a boolean) is null.
     def set_on_handler(event_name, value)
-      @on_handlers ||= {}
-      previous = @on_handlers[event_name]
-      remove_event_listener(event_name, previous) if previous
-      if value
-        add_event_listener(event_name, value, event_handler: true)
-        @on_handlers[event_name] = value
-      else
-        @on_handlers.delete(event_name)
-      end
+      value = nil unless event_handler_object?(value)
+      return __internal_deactivate_event_handler__(event_name) if value.nil?
+
+      (@on_handlers ||= {})[event_name] = value
+      activate_event_handler(event_name)
+      nil
+    end
+
+    # An event handler content attribute was set: the handler's value is the
+    # attribute's body, uncompiled (`element` is the element whose scope it
+    # compiles in, nil for a Window's handler), and the handler is activated.
+    def __internal_set_raw_event_handler__(event_name, source, element)
+      (@on_handlers ||= {})[event_name] = Internal::EventHandlers::RawHandler.new(source.to_s, element)
+      activate_event_handler(event_name)
+      nil
+    end
+
+    # HTML "deactivate an event handler": its listener leaves the list and its
+    # value is null.
+    def __internal_deactivate_event_handler__(event_name)
+      @on_handlers&.delete(event_name)
+      listener = @on_handler_listeners&.delete(event_name)
+      remove_event_listener(event_name, listener) if listener
+      nil
+    end
+
+    # DOM/HTML "fire an event": an event the user agent creates — trusted —
+    # dispatched at this target. `event_class` and `init` build it, as
+    # `new EventClass(type, init)` would.
+    def __internal_fire_event__(type, init = nil, event_class: Event)
+      dispatch_event(event_class.new(type, init).__internal_mark_trusted__)
     end
 
     def dispatch_event(event)
@@ -458,19 +493,18 @@ module Dommy
           end
         end
 
-        # The special error event handler (`window.onerror`) is called with
-        # (message, filename, lineno, colno, error) rather than the event.
-        args = __internal_error_handler_args__(event) if entry.event_handler?
-        result =
-          if entry.passive?
-            event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self, args: args) }
-          else
-            invoke_listener_isolated(entry.listener, event, self, args: args)
-          end
-        # Event handler processing algorithm: a handler registered via onX has its
-        # return value processed — onerror on a global cancels on `true`, every
-        # other handler cancels on `false` (`onsubmit="return false"`).
-        __internal_process_event_handler_return__(event, result) if entry.event_handler?
+        if entry.event_handler?
+          # The event handler processing algorithm: the handler's CURRENT value
+          # runs, and its return value is processed — onerror on a global
+          # cancels on `true`, every other handler on `false`
+          # (`onsubmit="return false"`).
+          invoked, result = invoke_event_handler(entry, event)
+          __internal_process_event_handler_return__(event, result) if invoked
+        elsif entry.passive?
+          event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
+        else
+          invoke_listener_isolated(entry.listener, event, self)
+        end
 
         break if event.immediate_propagation_stopped?
       end
@@ -486,7 +520,13 @@ module Dommy
     def __internal_process_event_handler_return__(event, result)
       if special_error_event_handler?(event)
         event.__js_call__("preventDefault", []) if result == true
-      elsif event.type != "beforeunload" && result == false
+      elsif event.is_a?(BeforeUnloadEvent) && event.type == "beforeunload"
+        # OnBeforeUnloadEventHandler returns DOMString?: anything but
+        # null/undefined cancels, and becomes returnValue if that is unset.
+        return if result.nil? || result.equal?(Bridge::UNDEFINED)
+
+        event.__internal_cancel_for_handler__(result)
+      elsif result == false
         event.__js_call__("preventDefault", [])
       end
     end
@@ -500,8 +540,77 @@ module Dommy
       [event.message, event.filename, event.lineno, event.colno, event.error]
     end
 
+    # The special error event handler: `onerror` on a Window, for an
+    # ErrorEvent. A plain `error` Event at the window is an ordinary handler
+    # call (one argument, a `false` return cancels).
     def special_error_event_handler?(event)
-      event.type == "error" && defined?(Dommy::Window) && is_a?(Dommy::Window)
+      event.type == "error" && event.is_a?(ErrorEvent) && defined?(Dommy::Window) && is_a?(Dommy::Window)
+    end
+
+    # HTML "activate an event handler": the first time the handler gets a
+    # value, its listener is added; later values reuse it.
+    def activate_event_handler(event_name)
+      @on_handler_listeners ||= {}
+      return if @on_handler_listeners.key?(event_name)
+
+      listener = Internal::EventHandlers::Listener.new(event_name)
+      @on_handler_listeners[event_name] = listener
+      add_event_listener(event_name, listener, event_handler: true)
+    end
+
+    # A value that can be an EventHandler's: an object. A Ruby string, number,
+    # boolean or JS undefined is not one.
+    def event_handler_object?(value)
+      !(value.nil? || value.is_a?(String) || value.is_a?(Numeric) || value.is_a?(Symbol) ||
+        value == true || value == false || value.equal?(Bridge::UNDEFINED))
+    end
+
+    # Compile a raw uncompiled handler (through the JS engine's compiler, which
+    # the document is given when one is attached). A body that does not parse
+    # makes the handler's value null — without deactivating it, so its listener
+    # keeps its place — and its SyntaxError is reported at the window. Without
+    # a compiler there is nothing to run.
+    def compile_raw_event_handler(event_name, raw)
+      document = event_handler_document
+      compiler = document&.event_handler_compiler
+      return nil unless compiler
+
+      window_handler = defined?(Dommy::Window) && is_a?(Dommy::Window)
+      function = compiler.call(raw.element, "on#{event_name}", raw.source, window_handler)
+      @on_handlers[event_name] = function if @on_handlers&.[](event_name).equal?(raw)
+      function
+    rescue StandardError => e
+      @on_handlers[event_name] = nil if @on_handlers&.[](event_name).equal?(raw)
+      window = window_of(self)
+      Internal::ExceptionReport.report_at(window, e) if window.respond_to?(:__internal_report_exception__)
+      nil
+    end
+
+    # The document whose engine compiles this target's handlers: a node's
+    # node document, a window's document.
+    def event_handler_document
+      if respond_to?(:owner_document) && (doc = owner_document)
+        doc
+      elsif is_a?(Document)
+        self
+      elsif respond_to?(:document)
+        document
+      end
+    end
+
+    # Invoke an event handler's current value, as the event handler processing
+    # algorithm does: nothing for a null handler, `undefined` for a value that
+    # is not callable (an object's `handleEvent` is never looked up), the
+    # special error handler's five arguments for an ErrorEvent at a Window's
+    # onerror, and the event otherwise.
+    def invoke_event_handler(entry, event)
+      callback = on_handler(entry.listener.name)
+      return [false, nil] if callback.nil?
+      return [true, nil] unless CallableInvoker.js_callable?(callback) ||
+                                (callback.respond_to?(:call) && !callback.is_a?(Module))
+
+      args = __internal_error_handler_args__(event)
+      [true, invoke_listener_isolated(callback, event, self, args: args)]
     end
 
     # Run one listener, isolating a throw so it can't escape the dispatch.
@@ -1843,6 +1952,15 @@ module Dommy
     end
 
     attr_accessor :return_value
+
+    # The event handler processing algorithm's beforeunload step: a handler
+    # that returned a value sets the canceled flag, and the value becomes
+    # returnValue unless one was already set.
+    def __internal_cancel_for_handler__(result)
+      @default_prevented = true
+      @return_value = result.to_s if @return_value.empty?
+      nil
+    end
 
     def __js_get__(key)
       case key

@@ -35,7 +35,7 @@ class TestInternalModuleApi < Minitest::Test
       html_element? html_document? enableable_element? disabled_element?
       constraint_invalid? constraint_valid? form_control_required?
       form_control_optional? read_only_element? read_write_element?
-      dir_match? lang_match? link_element? has_focus? focus_within? popover_open? open_element? modal_element? fullscreen_element?
+      dir_match? lang_match? link_element? has_focus? focus_within? popover_open? open_element? modal_element? fullscreen_element? defined_element?
     ],
     Dommy::Internal::Focusability => %w[
       focusable_area? sequentially_focusable? click_focusable? tabindex_value editing_host?

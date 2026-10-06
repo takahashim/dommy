@@ -73,6 +73,8 @@ module Dommy
         @constructor_resolver = ConstructorResolver.new
         @custom_element_bridge = CustomElementBridge.new(self)
         @window_wiring = WindowWiring.new(@backend,
+          script_runner: ->(source) { run_classic_script(source) },
+          event_handler_compiler: ->(*args) { compile_event_handler(*args) },
           constructor_resolver: @constructor_resolver,
           custom_elements: @custom_element_bridge,
           microtask_scheduler: ->(callback) { schedule_native_microtask(callback) })
@@ -148,6 +150,22 @@ module Dommy
       # let a callback error escape their dispatch.
       def invoke_callback(id, args, this_arg = nil, raising: false)
         callback_result(@backend.call_js("__rbHost.invokeCallback", id, wrap(Array(args)), wrap(this_arg)), raising)
+      end
+
+      # Run a classic script's source in the realm's global scope (an inserted
+      # `<script>`, a string timer handler). What it throws — a compile error
+      # included — re-raises as a ThrowValue carrying the thrown value, so the
+      # report of it hands the page the Error it threw.
+      def run_classic_script(source)
+        callback_result(@backend.call_js("__rbHost.runScript", source.to_s), true)
+      end
+
+      # Compile an event handler content attribute's body (see
+      # Document#event_handler_compiler): the function, or the SyntaxError of a
+      # body that does not parse, raised as a ThrowValue.
+      def compile_event_handler(element, name, source, window_handler)
+        callback_result(@backend.call_js("__rbHost.compileEventHandler", wrap(element), name.to_s, source.to_s,
+          window_handler ? true : false), true)
       end
 
       # Invoke a JS EventListener *object*'s handleEvent (see HostEventListener),

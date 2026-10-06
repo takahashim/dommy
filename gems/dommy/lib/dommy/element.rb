@@ -762,23 +762,38 @@ module Dommy
       false
     end
 
-    # HTML compiles an event handler content attribute lazily — the handler only
-    # has to exist by the time an event of that type is dispatched at the
-    # element. Doing it here, rather than only in the boot-time scan, is what
-    # makes `onclick="…"` survive cloneNode / innerHTML: such an element never
-    # went through that scan, so its handler would otherwise never fire.
-    #
-    # Each (element, type) is attempted once — a handler that fails to compile
-    # is not retried on every dispatch.
-    def __internal_wire_inline_handler__(type)
-      return unless @document.inline_handler_wirer
-      return if @__inline_wired&.key?(type)
+    # The parser sets an element's attributes without running attribute
+    # change steps, so the event handler content attributes of an element
+    # built by a parser (the document's, innerHTML's, a clone's) are activated
+    # here instead: by the boot-time scan, or — for one that turned up later —
+    # the first time an event reaches the element. Each attribute once; one
+    # whose handler was since set through the IDL attribute is left alone.
+    def __internal_wire_inline_handler__(_type)
+      return unless @document.event_handler_compiler
+      return if @__parsed_handlers_activated
 
-      code = __internal_attribute_value__("on#{type}")
-      return if code.nil?
+      @__parsed_handlers_activated = true
+      Internal::EventHandlers.activate_parsed(self)
+    end
 
-      (@__inline_wired ||= {})[type] = true
-      @document.__internal_wire_inline_handlers__
+    # The event handler content attributes whose change steps already ran for
+    # this element (set by script, or activated after parsing).
+    def __internal_note_handler_attribute__(name)
+      (@__noted_handler_attributes ||= Set.new) << name
+      nil
+    end
+
+    def __internal_handler_attribute_noted__?(name) = @__noted_handler_attributes&.include?(name) || false
+
+    def __internal_attribute_names__ = get_attribute_names
+
+    # The custom element state an upgrade recorded ("failed" while the
+    # constructor runs, "custom" after), or nil when nothing recorded one —
+    # see ElementState.defined_element? for how the state is otherwise told.
+    attr_reader :__internal_custom_element_state__
+
+    def __internal_set_custom_element_state__(state)
+      @__internal_custom_element_state__ = state
     end
 
     # WHATWG "legacy-pre-activation behavior": run on the activation target
@@ -951,8 +966,9 @@ module Dommy
           # `role` ↔ `role`) — a nullable DOMString (null when absent).
           aria_get(content_attr)
         elsif key.start_with?("on") && key.length > 2
-          # `el.onXxx` event handler property — the registered callback or nil.
-          @on_handlers&.[](event_name_from_on(key))
+          # `el.onXxx` event handler property — its current value (a content
+          # attribute's handler compiled on first read) or nil.
+          on_handler(event_name_from_on(key))
         elsif key.start_with?("_") || key.include?("$")
           # A framework-private expando key (React stores per-node state under
           # keys like `__reactListeners$<id>` and feature-detects it with

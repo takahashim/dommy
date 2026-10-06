@@ -219,6 +219,23 @@ module Dommy
         true
       end
 
+      # `:defined` — an element whose custom element state is "uncustomized"
+      # or "custom". Every element is uncustomized but an HTML element with a
+      # valid custom element name, which is "undefined" until its definition
+      # has constructed it (in Dommy, until it is wrapped as an instance of
+      # the definition its document's window registered for the name). A
+      # document without a browsing context has no registry, so its
+      # custom-named elements stay undefined.
+      def defined_element?(element)
+        return true unless element.namespace_uri == Namespaces::HTML
+        return true unless CustomElementRegistry.valid_name?(element.local_name)
+
+        window = element.owner_document&.default_view
+        registry = window.custom_elements if window.respond_to?(:custom_elements)
+        definition = registry&.get(element.local_name)
+        definition.is_a?(Module) && element.is_a?(definition) && element.__internal_custom_element_state__ != "failed"
+      end
+
       # `:link` / `:any-link` match an `a` or `area` with an href. A `<link href>`
       # is not a hyperlink for selector purposes, however much its name suggests
       # otherwise.

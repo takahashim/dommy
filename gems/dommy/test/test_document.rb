@@ -17,6 +17,9 @@ class TestDocument < Minitest::Test
     inline = @doc.create_element("script").tap { |s| s.set_attribute("type", "module"); s.text_content = "window.x = 1;" }
     external = @doc.create_element("script").tap { |s| s.set_attribute("type", "module"); s.set_attribute("src", "/app.js") }
     classic = @doc.create_element("script").tap { |s| s.text_content = "window.y = 2;" }
+    # Preparing a script needs it connected; with no script runner wired,
+    # inserting one does not prepare it.
+    [inline, external, classic].each { |s| @doc.body.append_child(s) }
 
     assert_equal [:inline, "window.x = 1;"], inline.__internal_take_pending_module__
     assert_nil inline.__internal_take_pending_module__, "started flag prevents a second run"

@@ -84,7 +84,12 @@ module Dommy
       # See CustomElementRegistry#rewrap_for_upgrade: the upgrade replaced
       # `previous`, which a script may be holding.
       def __internal_upgraded_from__(previous)
+        # HTML "upgrade an element": the state is "failed" while the
+        # constructor runs (so the element does not match :defined from inside
+        # it), and "custom" once it returned.
+        __internal_set_custom_element_state__("failed")
         self.class.js_bridge.upgrade_in_place(previous, self)
+        __internal_set_custom_element_state__("custom")
       end
 
       def connected_callback
