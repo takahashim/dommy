@@ -177,13 +177,18 @@ module Dommy
       @globals = {}
       @document = Document.new(host, backend_doc: backend_doc)
       @document.default_view = self
+      # A browsing context's documents — its initial about:blank and every
+      # document a navigation makes — are parsed with declarative shadow
+      # roots allowed.
+      @document.__internal_allow_declarative_shadow_roots__ = true
+      @document.__internal_attach_declarative_shadow_roots__(@document.backend_doc)
       # Per the HTML parsing algorithm, a <template>'s contents are parsed into a
       # separate "template contents" DocumentFragment, not as children of the
       # element. Backends (libxml2) leave them as direct children, so migrate
       # eagerly at page-load time — before any framework walks the tree. Without
       # this, a tree-walk (Alpine's x-for/x-if scan, etc.) descends into the
       # template's inert content and evaluates directives there out of scope.
-      @document.migrate_template_descendants(@document.backend_doc)
+      @document.__internal_parsed_roots__.each { |root| @document.migrate_template_descendants(root) }
       @document.__internal_run_parsed_insertion_steps__
       @custom_elements = CustomElementRegistry.new(self)
       @navigator = Navigator.new(self)

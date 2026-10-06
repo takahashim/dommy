@@ -70,6 +70,8 @@ module Dommy
       def attach_shadow(options = nil)
         init = shadow_root_init(options)
         registry = shadow_root_registry(init)
+        # The document's own registry is what an unset one stands for.
+        registry = :document if registry.equal?(CustomElementRegistry.effective_global_for(owner_document))
         __internal_attach_shadow_root__(
           mode: init[:mode], delegates_focus: init[:delegates_focus], serializable: init[:serializable],
           slot_assignment: init[:slot_assignment], clonable: init[:clonable], registry: registry
@@ -117,9 +119,7 @@ module Dommy
         shadow = ShadowRoot.new(self, mode: mode, delegates_focus: delegates_focus, slot_assignment: slot_assignment,
                                       clonable: clonable, serializable: serializable)
         shadow.__internal_available_to_internals__ = true if constructed
-        unless registry == :document || registry.equal?(CustomElementRegistry.effective_global_for(owner_document))
-          shadow.__internal_custom_element_registry__ = registry
-        end
+        shadow.__internal_custom_element_registry__ = registry unless registry == :document
         @__shadow_root = shadow
       end
 

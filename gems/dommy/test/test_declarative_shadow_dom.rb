@@ -236,3 +236,116 @@ class TestShadowRootCloning < Minitest::Test
     assert_equal "<b>x</b>", fragment.first_child.shadow_root.inner_html
   end
 end
+
+# Declarative shadow roots from the document's parser (a pass over the
+# parsed tree emulating the tree builder's template start tag steps).
+class TestDeclarativeShadowRootsFromThePageParser < Minitest::Test
+  def parse(body)
+    Dommy::Window.new(nil, backend_doc: Dommy::Backend.parse("<!doctype html><html><head></head><body>#{body}</body></html>"))
+  end
+
+  def test_basic_attachment_and_flags
+    doc = parse("<div id=h><template shadowrootmode=open shadowrootdelegatesfocus shadowrootserializable " \
+                "shadowrootclonable shadowrootslotassignment=MANUAL><slot></slot></template><p>light</p></div>").document
+    host = doc.get_element_by_id("h")
+    root = host.shadow_root
+    refute_nil root
+    assert_equal "<slot></slot>", root.inner_html
+    assert_equal "<p>light</p>", host.inner_html
+    assert root.delegates_focus
+    assert root.serializable
+    assert root.clonable
+    assert_equal "manual", root.slot_assignment
+    assert root.__internal_declarative__?
+    assert root.__internal_available_to_internals__?
+    assert doc.__internal_allow_declarative_shadow_roots__?
+  end
+
+  def test_mode_is_case_insensitive_and_invalid_modes_stay_templates
+    doc = parse("<div id=a><template shadowrootmode=OPEN>x</template></div>" \
+                "<div id=b><template shadowrootmode=closed>y</template></div>" \
+                "<div id=c><template shadowrootmode=bogus>z</template></div>").document
+    refute_nil doc.get_element_by_id("a").shadow_root
+    b = doc.get_element_by_id("b")
+    assert_nil b.shadow_root
+    assert_equal "closed", b.__internal_shadow_root__.mode
+    assert_equal "", b.inner_html
+    c = doc.get_element_by_id("c")
+    assert_nil c.__internal_shadow_root__
+    assert_equal "z", c.query_selector("template").content.text_content
+  end
+
+  def test_first_template_wins_and_the_rest_stay
+    doc = parse("<div id=h><template shadowrootmode=open>1</template><template shadowrootmode=closed>2</template></div>").document
+    host = doc.get_element_by_id("h")
+    assert_equal "1", host.shadow_root.inner_html
+    leftover = host.query_selector("template")
+    assert_equal "closed", leftover.get_attribute("shadowrootmode")
+    assert_equal "2", leftover.content.text_content
+  end
+
+  def test_invalid_hosts_keep_the_template
+    doc = parse("<progress id=p><template shadowrootmode=open>x</template></progress>" \
+                "<template id=t><template shadowrootmode=open>y</template></template>").document
+    assert doc.get_element_by_id("p").query_selector("template")
+    inner = doc.get_element_by_id("t").content.first_element_child
+    assert_equal "open", inner.get_attribute("shadowrootmode")
+  end
+
+  def test_nested_and_inside_template_contents
+    doc = parse("<div id=h><template shadowrootmode=open><span id=i><template shadowrootmode=open>deep</template></span>" \
+                "</template></div><template id=t><div id=x><template shadowrootmode=open>tc</template></div></template>").document
+    inner = doc.get_element_by_id("h").shadow_root.get_element_by_id("i")
+    assert_equal "deep", inner.shadow_root.inner_html
+    x = doc.get_element_by_id("t").content.query_selector("#x")
+    assert_equal "tc", x.shadow_root.inner_html
+  end
+
+  # The template was never in the tree, so the text on either side of it is
+  # one Text node, as the parser appended it.
+  def test_text_around_the_template_is_one_node
+    doc = parse("<div id=h>a<template shadowrootmode=open></template>b</div>").document
+    host = doc.get_element_by_id("h")
+    assert_equal 1, host.child_nodes.length
+    assert_equal "ab", host.first_child.data
+  end
+
+  def test_registry_attribute_gives_a_null_registry_kept_on_adoption
+    doc = parse("<div id=h><template shadowrootmode=open shadowrootcustomelementregistry></template></div>").document
+    root = doc.get_element_by_id("h").shadow_root
+    assert root.__internal_custom_element_registry__.nil?
+    assert root.__internal_keep_registry_null__?
+    assert_equal '<template shadowrootmode="open" shadowrootcustomelementregistry=""></template>',
+                 doc.get_element_by_id("h").get_html({"shadowRoots" => [root]})
+  end
+
+  def test_parser_scripts_come_in_parse_order
+    doc = parse("<div id=h><script>a</script><template shadowrootmode=open><script>b</script></template>" \
+                "<script>c</script></div><script>d</script>").document
+    assert_equal %w[a b c d], doc.__internal_parser_scripts__.map(&:text_content)
+    assert_equal %w[a c d], doc.scripts.to_a.map(&:text_content)
+  end
+
+  def test_dommy_parse_of_a_body_fragment
+    doc = Dommy.parse("<div id=h><template shadowrootmode=open>s</template></div>").document
+    refute_nil doc.get_element_by_id("h").shadow_root
+  end
+
+  def test_documents_without_a_browsing_context_do_not_allow_them
+    win = parse("")
+    html_doc = win.document.implementation.create_html_document("")
+    refute html_doc.__internal_allow_declarative_shadow_roots__?
+    parsed = Dommy::DOMParser.new.parse_from_string("<div id=h><template shadowrootmode=open></template></div>", "text/html")
+    assert_nil parsed.get_element_by_id("h").__internal_shadow_root__
+    assert win.document.clone_node(false).__internal_allow_declarative_shadow_roots__?
+  end
+
+  def test_fragment_parsing_setters_do_not_allow_them
+    doc = parse("<div id=w></div>").document
+    w = doc.get_element_by_id("w")
+    w.inner_html = "<div id=h><template shadowrootmode=open></template></div>"
+    assert_nil doc.get_element_by_id("h").__internal_shadow_root__
+    w.insert_adjacent_html("beforeend", "<p id=q><template shadowrootmode=open></template></p>")
+    assert_nil doc.get_element_by_id("q").__internal_shadow_root__
+  end
+end

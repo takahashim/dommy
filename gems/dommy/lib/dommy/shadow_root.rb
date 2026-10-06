@@ -41,6 +41,12 @@ module Dommy
 
     def __internal_keep_registry_null__? = @__internal_keep_registry_null__ ? true : false
 
+    # For a shadow root the document's parser made from a template: the
+    # backend node that followed the template among the host's children
+    # (nil: it was the last), which is where the parser met the shadow
+    # tree's contents — the order its scripts run in.
+    attr_accessor :__internal_parsed_before__
+
     # HTML "available to element internals": attached to a custom element
     # that was being, or had been, constructed.
     attr_writer :__internal_available_to_internals__

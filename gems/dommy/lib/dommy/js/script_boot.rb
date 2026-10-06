@@ -85,7 +85,8 @@ module Dommy
         # navigable (a srcless one fires `load` now; one with a `src` starts
         # navigating in a task, which comes before this document's `load`).
         @document.__internal_process_parsed_iframes__ if @document.respond_to?(:__internal_process_parsed_iframes__)
-        scripts = @document.scripts.to_a
+        # The parser's scripts, those in declarative shadow trees included.
+        scripts = @document.respond_to?(:__internal_parser_scripts__) ? @document.__internal_parser_scripts__ : @document.scripts.to_a
         # Pass 1: parser-blocking classic scripts, in document order.
         scripts.each { |element| run_one(element) unless deferred?(element) }
         the_end(scripts)
