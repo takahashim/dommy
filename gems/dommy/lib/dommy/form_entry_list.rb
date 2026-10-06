@@ -7,11 +7,8 @@ module Dommy
   # (Dommy::Interaction::FormSubmission) and `new FormData(form)` build on this,
   # so the two paths collect and fire identically.
   class FormEntryList
-    # The controls whose `dirname` contributes a directionality entry.
-    DIRNAME_ELEMENTS = %w[INPUT TEXTAREA].freeze
-
     # @param encoding [Encoding] the submission encoding, used for a
-    #   value-less hidden `_charset_`. `new FormData(form)` uses UTF-8.
+    #   hidden `_charset_`. `new FormData(form)` uses UTF-8.
     def initialize(form, submitter: nil, encoding: Encoding::UTF_8)
       @form = form
       @submitter = submitter
@@ -19,91 +16,124 @@ module Dommy
     end
 
     # The constructed entries as a FormData (after any `formdata` listener has
-    # run). Memoized so a submission builds the list once.
+    # run), or nil when the form is already constructing its entry list — HTML
+    # returns null then, which `new FormData(form)` turns into an
+    # InvalidStateError and form submission into a silent return. Memoized so
+    # a submission builds the list once.
     def form_data
-      @form_data ||= build
+      return @form_data if defined?(@form_data)
+
+      @form_data = build
     end
+
+    # HTML's "submit button": a `<button>` in the Submit Button state, or an
+    # `<input>` in the Submit Button or Image Button state. Unlike the
+    # activation check, a disabled one still is one.
+    def self.submit_button?(el)
+      case el
+      when HTMLButtonElement then el.type == "submit"
+      when HTMLInputElement then %w[submit image].include?(el.type)
+      else false
+      end
+    end
+
+    # HTML's "submittable elements": the listed elements that can be submitted.
+    SUBMITTABLE_SELECTOR = "button, input, select, textarea"
 
     private
 
     def build
-      data = FormData.new
-      collect(data)
-      fire_formdata(data)
-      data
+      return nil if @form.__internal_constructing_entry_list__
+
+      @form.__internal_constructing_entry_list__ = true
+      begin
+        data = FormData.new
+        collect(data)
+        @form.dispatch_event(
+          FormDataEvent.new("formdata", "formData" => data, "bubbles" => true).__internal_mark_trusted__
+        )
+        # "Return a clone of entry list": a formData kept from the event and
+        # mutated later does not reach the submission.
+        data.__internal_copy__
+      ensure
+        @form.__internal_constructing_entry_list__ = false
+      end
     end
 
-    # Returns ordered entries in the FormData. The clicked submitter is emitted
-    # at its document position; only if it isn't among the form's controls do we
-    # append it at the end.
+    # HTML "constructing the entry list", step 5: each submittable element whose
+    # form owner is this form, in tree order. A control with a datalist
+    # ancestor, a disabled one, a button other than the submitter and an
+    # unchecked checkbox or radio contribute nothing; the rest contribute an
+    # entry under their name, followed by their dirname entry.
     def collect(data)
-      submitter_emitted = false
       controls.each do |el|
+        next unless el.closest("datalist").nil?
         next if disabled?(el)
+        next if button?(el) && !submitter?(el)
+        next if el.is_a?(HTMLInputElement) && %w[checkbox radio].include?(el.type) && !el.checked
 
-        case el.tag_name
-        when "INPUT" then submitter_emitted = true if collect_input(el, data)
-        when "TEXTAREA" then collect_named(el, el.value.to_s, data)
-        when "SELECT" then collect_select(el, data)
-        when "BUTTON" then submitter_emitted = true if collect_button(el, data)
+        if el.is_a?(HTMLInputElement) && el.type == "image"
+          emit_image_coordinates(el, data)
+          next
         end
+
+        name = attr(el, "name")
+        next if blank?(name)
+
+        collect_value(el, name, data)
         append_dirname(el, data)
       end
-      append_submitter(data) unless submitter_emitted
     end
 
-    # Returns true when this input is the clicked submitter (and was emitted).
-    def collect_input(el, data)
-      type = el.type
-      if %w[submit image].include?(type)
-        return false unless submitter?(el)
+    def collect_value(el, name, data)
+      case el
+      when HTMLSelectElement
+        el.__internal_list_of_options__.each do |option|
+          next unless option.selected
+          next if Internal::ElementState.disabled_element?(option)
 
-        emit_submitter(el, data)
-        return true
-      end
-      return false if %w[reset button].include?(type) # never submitted
-      if type == "hidden" && !el.__internal_has_attribute__?("value") &&
-         attr(el, "name").to_s.casecmp?("_charset_")
-        # A hidden `_charset_` with no `value` reports the submission encoding.
-        collect_named(el, @encoding.name, data)
-        return false
-      end
-
-      case type
-      when "checkbox", "radio"
-        if el.checked
-          value = el.__internal_has_attribute__?("value") ? el.__internal_attribute_value__("value") : "on"
-          collect_named(el, value, data)
+          data.append(name, option.value.to_s)
         end
-      when "file"
-        collect_file(el, data)
+      when HTMLInputElement
+        collect_input(el, name, data)
+      when HTMLTextAreaElement
+        data.append(name, el.__internal_submission_value__)
       else
-        collect_named(el, el.value.to_s, data)
+        data.append(name, el.value.to_s)
       end
-      false
     end
 
-    # Only the clicked submitter button contributes its name/value.
-    def collect_button(el, data)
-      return false unless submitter?(el)
-
-      emit_submitter(el, data)
-      true
+    def collect_input(el, name, data)
+      case el.type
+      when "checkbox", "radio"
+        data.append(name, el.__internal_has_attribute__?("value") ? el.__internal_attribute_value__("value") : "on")
+      when "file"
+        collect_file(el, name, data)
+      when "hidden"
+        # A hidden `_charset_` reports the submission encoding.
+        data.append(name, name.casecmp?("_charset_") ? @encoding.name : el.value.to_s)
+      else
+        data.append(name, el.value.to_s)
+      end
     end
 
     def submitter?(el)
-      @submitter && el.__dommy_backend_node__.equal?(@submitter.__dommy_backend_node__)
+      !@submitter.nil? && el.__dommy_backend_node__.equal?(@submitter.__dommy_backend_node__)
+    end
+
+    # HTML's "button" category: `<button>`, and `<input>` in the Submit Button,
+    # Image Button, Reset Button and Button states.
+    def button?(el)
+      el.is_a?(HTMLButtonElement) ||
+        (el.is_a?(HTMLInputElement) && %w[submit image reset button].include?(el.type))
     end
 
     # Each File becomes its own entry; an empty file input still contributes an
     # empty File so the field name survives. A File value is kept here even for
     # a non-multipart form — reducing it to its basename is the encoder's (or
     # FormSubmission's) job.
-    def collect_file(el, data)
-      name = attr(el, "name")
-      return if blank?(name)
-
-      files = el.respond_to?(:files) ? el.files : nil
+    def collect_file(el, name, data)
+      files = el.files
       if files && !files.empty?
         files.each { |file| data.append(name, file) }
       else
@@ -111,61 +141,18 @@ module Dommy
       end
     end
 
-    def collect_select(el, data)
-      name = attr(el, "name")
-      return if blank?(name)
-
-      each_node(el.selected_options) do |option|
-        next if Internal::ElementState.disabled_element?(option)
-
-        data.append(name, option.value.to_s)
-      end
-    end
-
-    # Browsers submit textarea values with CRLF line endings.
-    def normalize_newlines(value)
-      value.gsub(/\r\n|\r|\n/, "\r\n")
-    end
-
-    def collect_named(el, value, data)
-      name = attr(el, "name")
-      data.append(name, value) unless blank?(name)
-    end
-
-    # Fallback when the submitter is not among the form's controls.
-    def append_submitter(data)
-      return unless @submitter
-
-      emit_submitter(@submitter, data)
-    end
-
-    # The submitter's name/value (or image coordinates) join the form data.
-    def emit_submitter(el, data)
-      if image_submitter?(el)
-        # Image buttons submit click coordinates. With no layout we use 0,0.
-        prefix = blank?(attr(el, "name")) ? "" : "#{attr(el, "name")}."
-        data.append("#{prefix}x", "0")
-        data.append("#{prefix}y", "0")
-        return
-      end
-
-      name = attr(el, "name")
-      return if blank?(name)
-
-      # The submitter's IDL value, not its content attribute: script can set
-      # `input.value = …` on a submit button without touching the attribute.
-      data.append(name, el.respond_to?(:value) ? el.value.to_s : (attr(el, "value") || ""))
-    end
-
-    def image_submitter?(el)
-      el.tag_name == "INPUT" && el.type == "image"
+    # An Image Button submitter contributes its selected coordinate as
+    # `name.x` / `name.y`. Without layout the coordinate is (0, 0).
+    def emit_image_coordinates(el, data)
+      prefix = blank?(attr(el, "name")) ? "" : "#{attr(el, "name")}."
+      x, y = el.__internal_selected_coordinate__
+      data.append("#{prefix}x", x.to_s)
+      data.append("#{prefix}y", y.to_s)
     end
 
     # A `dirname` on an auto-directionality text control contributes the
     # element's directionality under the dirname's name (HTML §4.10.19.2).
     def append_dirname(el, data)
-      return unless DIRNAME_ELEMENTS.include?(el.tag_name)
-
       dirname = attr(el, "dirname")
       return if blank?(dirname)
       return unless Internal::Directionality.auto_directionality_form_associated?(el)
@@ -173,11 +160,14 @@ module Dommy
       data.append(dirname, Internal::Directionality.direction_of(el))
     end
 
-    # All controls belonging to this form, in document order.
+    # The submittable elements whose form owner is this form, in tree order,
+    # searched in the form's own tree (a detached form's subtree, or the shadow
+    # tree it lives in) — a control may sit outside the form and point at it
+    # with `form=`.
     def controls
-      @form.document.query_selector_all("input, textarea, select, button").select do |el|
-        @form.__internal_owns_control__(el)
-      end
+      scope = @form.get_root_node || @form
+      candidates = scope.query_selector_all(SUBMITTABLE_SELECTOR).to_a
+      candidates.select { |el| @form.__internal_owns_control__(el) }
     end
 
     # A control is unsuccessful if it or an ancestor <fieldset> is disabled
@@ -187,36 +177,12 @@ module Dommy
       Internal::ElementState.disabled_element?(el)
     end
 
-    # The `constructing entry list` guard: a nested construction (e.g. a
-    # formdata listener building another FormData from the same form) does not
-    # fire a second event.
-    def fire_formdata(data)
-      return if @form.instance_variable_get(:@constructing_entry_list)
-
-      @form.instance_variable_set(:@constructing_entry_list, true)
-      begin
-        @form.dispatch_event(
-          FormDataEvent.new("formdata", "formData" => data, "bubbles" => true)
-        )
-      ensure
-        @form.instance_variable_set(:@constructing_entry_list, false)
-      end
-    end
-
     def attr(el, name)
       el&.__internal_attribute_value__(name)
     end
 
     def blank?(value)
       value.nil? || value.empty?
-    end
-
-    def each_node(collection)
-      if collection.respond_to?(:each)
-        collection.each { |node| yield node }
-      else
-        collection.length.times { |i| yield collection.item(i) }
-      end
     end
   end
 end

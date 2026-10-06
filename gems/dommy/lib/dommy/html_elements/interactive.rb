@@ -100,9 +100,11 @@ module Dommy
       when "showModal"
         show_modal
       when "close"
-        close(args[0])
+        # `close(optional DOMString returnValue)` and requestClose: undefined
+        # is a missing argument, which leaves returnValue alone.
+        close(args[0].equal?(Bridge::UNDEFINED) ? nil : args[0])
       when "requestClose"
-        request_close(args[0])
+        request_close(args[0].equal?(Bridge::UNDEFINED) ? nil : args[0])
       else
         super
       end

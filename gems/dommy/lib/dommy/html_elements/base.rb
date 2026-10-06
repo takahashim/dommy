@@ -399,23 +399,15 @@ module Dommy
       __internal_has_attribute__?("disabled") || disabled_by_ancestor_fieldset?
     end
 
-    # Shared "limited to only non-negative numbers" long reflection (maxLength /
-    # minLength on input and textarea): a missing / negative / non-numeric
-    # content attribute reads as -1; assigning a negative value throws.
-    def parse_non_negative_reflected(attr)
-      raw = __internal_attribute_value__(attr)
-      return -1 if raw.nil?
-      # HTML "rules for parsing non-negative integers": leading ASCII whitespace,
-      # then digits; anything else (a sign, letters) is an error → -1.
-      m = raw.to_s.match(/\A[\t\n\f\r ]*(\d+)/)
-      m ? m[1].to_i : -1
-    end
+    # The first element in tree order, in this element's own tree (a
+    # document, a shadow root, or a detached subtree), whose ID is `id`.
+    def __internal_tree_element_by_id__(id)
+      root = get_root_node
+      return root.get_element_by_id(id) if root.respond_to?(:get_element_by_id)
+      return nil unless root.is_a?(Element)
+      return root if root.id == id
 
-    def set_non_negative_reflected(attr, value)
-      n = value.to_i
-      raise DOMException::IndexSizeError, "#{attr} must be non-negative" if n.negative?
-
-      set_reflected_string(attr, n.to_s)
+      root.query_selector_all("[id]").to_a.find { |el| el.id == id }
     end
 
     # HTML attribute names are case-insensitive only in an HTML document — the

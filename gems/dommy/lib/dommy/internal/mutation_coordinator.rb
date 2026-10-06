@@ -145,6 +145,12 @@ module Dommy
         # already consistent by the time it is attached.
         @post_insertion_steps.details_inserted(added_nodes)
         @post_insertion_steps.select_mutated(target_node, added_nodes, removed_nodes)
+        connected = target.respond_to?(:is_connected?) && target.is_connected?
+        @post_insertion_steps.radios_moved(added_nodes, connected: connected && !moving)
+        @post_insertion_steps.radios_moved(removed_nodes, connected: false)
+        # HTML's "children changed steps" for the one element that has its own
+        # (a pristine textarea's raw value follows its child text content).
+        target.__internal_children_changed__(added_nodes, removed_nodes) if target.is_a?(HTMLTextAreaElement)
 
         # MutationRecords are only needed when something is observing; skip the
         # eager wrapping + record entirely when no observer is registered.

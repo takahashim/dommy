@@ -195,7 +195,7 @@ class TestNavigation < Minitest::Test
   def test_request_submit_rejects_non_submit_submitter
     form = form_fixture
     plain = @doc.query_selector("input[name=q]")
-    assert_raises(TypeError) { form.request_submit(plain) }
+    assert_raises(Dommy::Bridge::TypeError) { form.request_submit(plain) }
   end
 
   # The form's browsing-context target reaches the delegate (which may ignore it

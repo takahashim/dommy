@@ -16,9 +16,11 @@ module Dommy
     reflect_string :rel
     reflect_setter :action
     def action = submission_url("action")
-    reflect_string :name, :target, accept_charset: "accept-charset"
+    reflect_string :name, :target, :rel, accept_charset: "accept-charset"
+    # `encoding` reflects the same `enctype` attribute as `enctype` does.
     reflect_enumerated method_attr: Internal::EnumeratedKeywordSets::METHOD.merge(attr: "method", js: "method"),
                        enctype: Internal::EnumeratedKeywordSets::ENCTYPE,
+                       encoding: Internal::EnumeratedKeywordSets::ENCTYPE.merge(attr: "enctype"),
                        autocomplete: { keywords: %w[on off], missing: "on", invalid: "on" }
     reflect_boolean no_validate: "novalidate"
     # Own __js_call__ methods, on top of Element's.
@@ -85,11 +87,15 @@ module Dommy
       elements.size
     end
 
-    # Spec: `submit()` performs form submission directly WITHOUT firing a
-    # `submit` event and without constraint validation. Navigation is handed to
-    # the delegate (a no-op recording by default).
+    # HTML's "constructing entry list" flag: set while the form builds its
+    # entry list (and fires `formdata`), so a listener cannot re-enter it.
+    attr_accessor :__internal_constructing_entry_list__
+
+    # Spec: `submit()` submits the form "from the submit() method" — WITHOUT
+    # firing a `submit` event and without constraint validation. Navigation is
+    # handed to the delegate (a no-op recording by default).
     def submit
-      __internal_navigate_for_submit__(nil)
+      __internal_submit_form__(self, from_submit_method: true)
       nil
     end
 
@@ -104,68 +110,91 @@ module Dommy
       true
     end
 
-    # Spec: `requestSubmit(submitter?)` MIRRORS user-initiated submission — it
-    # fires a `submit` event (with the submitter), and on a non-canceled event
-    # hands the form navigation to the delegate. Returns true if not
-    # default-prevented. `submitter` (if given) must be a submit button inside
-    # this form.
+    # `requestSubmit(submitter)` mirrors a user's submission: a non-null
+    # submitter must be a submit button (else TypeError) whose form owner is
+    # this form (else NotFoundError); then the form is submitted from it — or
+    # from the form itself when there is none. Returns true unless the submit
+    # event was canceled (the JS method returns undefined).
     def request_submit(submitter = nil)
-      if submitter
-        unless submitter.is_a?(Node) && submitter.__dommy_backend_node__&.ancestors&.include?(@__node__)
-          raise DOMException::NotFoundError, "submitter is not a descendant of this form"
+      submitter = nil if submitter.equal?(Bridge::UNDEFINED)
+      unless submitter.nil?
+        unless submitter.is_a?(HTMLElement) && FormEntryList.submit_button?(submitter)
+          raise Bridge::TypeError, "The specified element is not a submit button."
         end
-
-        type = submitter.respond_to?(:type) ? submitter.type.to_s.downcase : ""
-        unless %w[submit image].include?(type)
-          raise TypeError, "submitter must be a submit button"
+        unless __internal_owns_control__(submitter)
+          raise DOMException::NotFoundError, "The specified element is not owned by this form element."
         end
       end
 
-      __internal_run_form_submission__(submitter)
+      __internal_submit_form__(submitter || self)
     end
 
-    # The form submission algorithm's observable core, shared by
-    # `requestSubmit()`, a submit button's activation (driver click), and Enter's
-    # implicit submission: interactively validate the constraints (unless the
-    # no-validate state is set), then fire a cancelable `SubmitEvent` (carrying
-    # the submitter), and — when nothing canceled it — hand the resulting
-    # navigation to the delegate. Returns true if not default-prevented. This is
-    # the single home for "a form was submitted". `form.submit()` deliberately
-    # does NOT route here: it skips both validation and the submit event.
+    # The interactive submission path, shared by `requestSubmit()`, a submit
+    # button's activation (driver click), and Enter's implicit submission.
     def __internal_run_form_submission__(submitter = nil)
-      # HTML form submission: "if form cannot navigate, then return" — a form
-      # that is not connected has no navigable, so clicking its submit button
-      # fires nothing at all.
+      __internal_submit_form__(submitter || self)
+    end
+
+    # HTML "submit a form from submitter". Unless submitted from `submit()`:
+    # interactively validate the constraints (unless the no-validate state is
+    # set) and fire a cancelable, trusted `SubmitEvent` carrying the submitter.
+    # Then construct the entry list (firing `formdata`) and either close the
+    # form's dialog (method=dialog) or hand the navigation to the delegate.
+    # Returns false when the submission stopped before that point.
+    def __internal_submit_form__(submitter, from_submit_method: false)
+      # "If form cannot navigate, then return" — a form that is not connected
+      # has no navigable, so clicking its submit button fires nothing at all.
       return false unless is_connected?
+      return false if @__internal_constructing_entry_list__
 
-      # Reentrancy guard: the submission algorithm sets `firing submission
-      # events` so a submit handler that submits the form again is a no-op.
-      return false if @firing_submission_events
-      @firing_submission_events = true
-      begin
-        # "If the submitter element's no-validate state is false, then
-        # interactively validate the constraints ... If the result is negative,
-        # return" — an invalid form fires `invalid` on each failing control and
-        # never fires `submit`.
-        return false unless no_validate?(submitter) || report_validity
+      unless from_submit_method
+        # Reentrancy guard: a submit handler that submits the form again is a
+        # no-op.
+        return false if @firing_submission_events
 
-        not_canceled = dispatch_event(
-          SubmitEvent.new("submit",
-            "bubbles" => true, "cancelable" => true, "composed" => true, "submitter" => submitter)
-        )
-        __internal_navigate_for_submit__(submitter) if not_canceled
-        not_canceled
-      ensure
-        @firing_submission_events = false
+        @firing_submission_events = true
+        begin
+          # "If the submitter element's no-validate state is false, then
+          # interactively validate the constraints ... If the result is
+          # negative, return" — an invalid form fires `invalid` on each failing
+          # control and never fires `submit`.
+          return false unless no_validate?(submitter) || report_validity
+
+          submitter_button = submitter.equal?(self) ? nil : submitter
+          should_continue = dispatch_event(
+            SubmitEvent.new("submit",
+              "bubbles" => true, "cancelable" => true, "submitter" => submitter_button).__internal_mark_trusted__
+          )
+        ensure
+          @firing_submission_events = false
+        end
+        return false unless should_continue
+        return false unless is_connected?
       end
+
+      __internal_navigate_for_submit__(submitter.equal?(self) ? nil : submitter)
+      true
     end
 
     # HTML's no-validate state: true when the form carries `novalidate`, or
     # when the clicked control is a submit button carrying `formnovalidate`.
     def no_validate?(submitter)
       return true if __internal_has_attribute__?("novalidate")
+      return false if submitter.equal?(self)
 
       submitter.respond_to?(:__internal_has_attribute__?) && submitter.__internal_has_attribute__?("formnovalidate")
+    end
+
+    # The submitter's method state: a submit button's `formmethod` when it has
+    # one, else the form's `method` — "get", "post" or "dialog".
+    def __internal_submission_method__(submitter)
+      raw = if submitter && FormEntryList.submit_button?(submitter) && submitter.__internal_has_attribute__?("formmethod")
+              submitter.__internal_attribute_value__("formmethod")
+            else
+              __internal_attribute_value__("method")
+            end
+      method = raw.to_s.downcase(:ascii)
+      %w[get post dialog].include?(method) ? method : "get"
     end
 
     # Build the form data set and hand the resulting navigation to the delegate.
@@ -173,10 +202,13 @@ module Dommy
     # enctype, GET query-stripping) — method-override is a host concern, so it's
     # left off here (the delegate applies its own policy).
     def __internal_navigate_for_submit__(submitter)
+      return submit_dialog(submitter) if __internal_submission_method__(submitter) == "dialog"
+
       win = @document&.default_view
       return if win.nil?
 
       result = Dommy::Interaction::FormSubmission.new(self, submitter).submit!
+      return if result.nil?
       # HTML re-runs "cannot navigate" after constructing the entry list: the
       # `formdata` event may have removed the form (or its document).
       return unless is_connected?
@@ -187,29 +219,59 @@ module Dommy
       )
     end
 
-    # Walk all listed elements; the form is "valid" iff every
-    # candidate control passes its own checkValidity. Dispatches a
-    # non-bubbling `invalid` event on each failing control.
+    # The dialog method: the entry list is still constructed (so `formdata`
+    # fires), then — instead of navigating — the form's nearest ancestor
+    # `<dialog>` closes with the submitter's result: an Image Button's selected
+    # coordinate "x,y", another submit button's optional value (its `value`
+    # attribute, else null), or null.
+    def submit_dialog(submitter)
+      return if FormEntryList.new(self, submitter: submitter).form_data.nil?
+      return unless is_connected?
+
+      subject = parent_element
+      subject = subject.parent_element until subject.nil? || subject.is_a?(HTMLDialogElement)
+      return if subject.nil?
+
+      result =
+        if submitter.is_a?(HTMLInputElement) && submitter.type == "image"
+          submitter.__internal_selected_coordinate__.join(",")
+        elsif submitter && FormEntryList.submit_button?(submitter)
+          submitter.__internal_attribute_value__("value")
+        end
+      subject.close(result)
+      nil
+    end
+    private :submit_dialog
+
+    # HTML "statically validate the constraints": every submittable element
+    # this form owns (image buttons included) that is a candidate for
+    # constraint validation and fails its constraints gets a trusted,
+    # cancelable `invalid` event; the form is valid when there is none.
     def check_validity
-      ok = true
-      elements.each do |el|
-        next unless el.respond_to?(:will_validate)
-        next unless el.will_validate
-        next if el.validity.valid && (el.instance_variable_get(:@custom_validity_message) || "").empty?
-
-        # Fire invalid event on this control (matches spec).
-        el.dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true))
-        ok = false
+      invalid = __internal_submittable_controls__.select do |control|
+        control.will_validate && !control.__internal_satisfies_constraints__?
       end
-
-      ok
+      invalid.each(&:__internal_fire_invalid__)
+      invalid.empty?
     end
 
+    # "Interactively validate the constraints": the same, with no user to
+    # report the problems to.
     def report_validity
       check_validity
     end
 
+    # The submittable elements whose form owner is this form, in tree order.
+    def __internal_submittable_controls__
+      scope = get_root_node || self
+      scope.query_selector_all(FormEntryList::SUBMITTABLE_SELECTOR).to_a.select { |c| __internal_owns_control__(c) }
+    end
+
     def __js_get__(key)
+      if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A(?:0|[1-9]\d*)\z/))
+        return elements.to_a[key.to_i] || Bridge::ABSENT
+      end
+
       # HTMLFormElement is [LegacyOverrideBuiltIns]: a control whose name/id
       # matches a builtin (`elements`, `length`, `submit`, `action`, …) shadows
       # that builtin. So the named getter is consulted BEFORE the builtins.
@@ -301,6 +363,7 @@ module Dommy
         reset
       when "requestSubmit"
         request_submit(args[0])
+        nil
       when "checkValidity"
         check_validity
       when "reportValidity"
@@ -322,6 +385,7 @@ module Dommy
   class HTMLButtonElement < HTMLElement
     include SubmitButtonActivation
     include Internal::PopoverInvokerElement
+    include Internal::ConstraintValidation
     reflect_setter :type, :command
     reflect_element command_for_element: "commandfor"
     reflect_string :name, :value, form_target: "formtarget"
@@ -412,37 +476,10 @@ module Dommy
       labels_node_list
     end
 
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
-
     # Only a submit button is a candidate for constraint validation; reset /
-    # button types are barred, as are disabled controls and datalist descendants.
-    def will_validate
-      type == "submit" && !disabled && !disabled_by_ancestor_fieldset? && closest("datalist").nil?
-    end
-
-    # A button has no constraints of its own, so the only thing it can report is
-    # a message set through setCustomValidity — and only while it validates.
-    def validation_message
-      return "" unless will_validate
-
-      (@custom_validity_message || "").to_s
-    end
-
-    def check_validity
-      ok = !will_validate || validity.valid
-      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
-      ok
-    end
-
-    def report_validity
-      check_validity
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
+    # button types are barred, besides the shared reasons.
+    def __internal_barred_from_constraint_validation__?
+      super || type != "submit"
     end
 
     def __js_get__(key)
@@ -453,12 +490,6 @@ module Dommy
         form
       when "labels"
         labels
-      when "validity"
-        validity
-      when "willValidate"
-        will_validate
-      when "validationMessage"
-        validation_message
       else
         super
       end
@@ -472,21 +503,6 @@ module Dommy
         super
       end
     end
-
-    js_methods %w[checkValidity reportValidity setCustomValidity]
-    def __js_call__(method, args)
-      case method
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
-      else
-        super
-      end
-    end
-
     private
 
     # The command and commandfor half of the activation behavior: fire a
@@ -538,6 +554,10 @@ module Dommy
   # `<textarea>` — multi-line text input.
   class HTMLTextAreaElement < HTMLElement
     include Internal::TextSelection
+    include Internal::ConstraintValidation
+    reflect_string dir_name: "dirname"
+
+
     reflect_boolean :disabled, :required, read_only: "readonly"
     reflect_string :name, :placeholder, :wrap
     # `autocomplete` — the setter reflects, but the getter is HTML's autofill
@@ -549,17 +569,70 @@ module Dommy
     end
     # Own __js_call__ methods, on top of Element's.
 
-    # The API value is the "raw value" — the dirty value once set (a wrapper-level
-    # flag, NOT a content attribute, so `setAttribute("value", …)` can't touch it),
-    # otherwise the default value (the element's child text content).
-    def value
+    # The raw value is the dirty value once set (a wrapper-level flag, NOT a
+    # content attribute, so `setAttribute("value", …)` can't touch it),
+    # otherwise the child text content — HTML's children changed steps keep a
+    # pristine raw value in step with it.
+    def raw_value
       @__value_dirty ? @__value.to_s : default_value
     end
 
+    # The API value (`value`, `textLength`, maxlength, the selection APIs): the
+    # raw value with newlines normalized — CRLF and CR become LF.
+    def value
+      raw_value.gsub(/\r\n?/, "\n")
+    end
+
+    # HTML: the raw value becomes the new value and the dirty value flag is
+    # set; an API value that changed moves the text entry cursor to the end.
     def value=(v)
+      old_value = value
       @__value = v.to_s
       @__value_dirty = true
+      @__last_changed_by_user_edit = false
+      __internal_move_cursor_to_end__ if value != old_value
       @document&.__internal_note_value_change__
+    end
+
+    # A user's edit (a driver typing): tooLong / tooShort apply to it.
+    def __internal_user_edit_value__(raw)
+      self.value = raw
+      @__last_changed_by_user_edit = true
+    end
+
+    def __internal_last_changed_by_user_edit__ = @__last_changed_by_user_edit && @__value_dirty ? true : false
+
+    # HTML's children changed steps: a pristine raw value is the child text
+    # content again, so a selection past its new end is pulled back to it.
+    # A replacement (textContent=, defaultValue=) removes the old children
+    # before inserting the new ones, and the steps run in between too.
+    def __internal_children_changed__(added_nodes, removed_nodes)
+      return if @__value_dirty
+
+      unless removed_nodes.empty? || added_nodes.empty?
+        remaining = @__node__.children.reject { |child| added_nodes.any? { |node| node.equal?(child) } }
+        text = remaining.select { |child| child.text? || child.cdata? }.map(&:content).join
+        clamp_selection_to(Internal::Utf16.length(text.gsub(/\r\n?/, "\n")))
+      end
+      sync_selection
+    end
+
+    # setRangeText's edit of the relevant value: it sets the dirty value flag.
+    def __internal_set_relevant_value__(string)
+      @__value = string
+      @__value_dirty = true
+      @document&.__internal_note_value_change__
+    end
+
+    # The element's value, as form submission sees it: the API value with the
+    # textarea wrapping transformation applied — in the Hard wrap state, line
+    # feeds are inserted so that no line is longer than `cols` characters.
+    def __internal_submission_value__
+      text = value
+      return text unless __internal_attribute_value__("wrap").to_s.casecmp?("hard")
+
+      width = cols
+      text.split("\n", -1).map { |line| line.scan(/.{1,#{width}}/m).then { |parts| parts.empty? ? [""] : parts }.join("\n") }.join("\n")
     end
 
     # HTML reset algorithm: clear the dirty value flag so `value` reverts to the
@@ -567,14 +640,16 @@ module Dommy
     def __internal_reset__
       @__value = nil
       @__value_dirty = false
+      @__last_changed_by_user_edit = false
       @document&.__internal_note_value_change__
       nil
     end
 
-    # defaultValue is the child text content; setting it (or `text`) leaves the
-    # dirty value flag alone.
+    # defaultValue is the child text content (the element's own Text
+    # children, not deeper descendants'); setting it leaves the dirty value
+    # flag alone.
     def default_value
-      text_content
+      Backend.child_text_content(@__node__)
     end
 
     def default_value=(v)
@@ -595,46 +670,33 @@ module Dommy
       @__value_dirty = true
     end
 
-    def rows
-      (__internal_attribute_value__("rows") || "2").to_i
-    end
+    # `rows` / `cols`: unsigned longs limited to only positive numbers with
+    # fallback (HTML's [ReflectPositiveWithFallback]), defaults 2 and 20. The
+    # IDL the audit reads predates their [Reflect], so the getters are written
+    # here over the shared reflection helpers.
+    ROWS = { default: 2, positive: true, fallback: true }.freeze
+    COLS = { default: 20, positive: true, fallback: true }.freeze
+    reflect_ulong_setter rows: ROWS, cols: COLS
+    def rows = reflected_ulong("rows", ROWS)
+    def cols = reflected_ulong("cols", COLS)
 
-    def rows=(v)
-      set_reflected_string("rows", v.to_s)
-    end
-
-    def cols
-      (__internal_attribute_value__("cols") || "20").to_i
-    end
-
-    def cols=(v)
-      set_reflected_string("cols", v.to_s)
-    end
-
-    # `maxLength` / `minLength` reflect a "limited to only non-negative numbers"
-    # long: a missing / negative / non-numeric content attribute is -1.
-    def max_length
-      parse_non_negative_reflected("maxlength")
-    end
-
-    def min_length
-      parse_non_negative_reflected("minlength")
-    end
-
-    def max_length=(value)
-      set_non_negative_reflected("maxlength", value)
-    end
-
-    def min_length=(value)
-      set_non_negative_reflected("minlength", value)
-    end
+    # `maxLength` / `minLength`: [ReflectNonNegative] longs (-1 when missing,
+    # negative or unparseable; a negative value set throws IndexSizeError).
+    # (The IDL the WebIDL audit reads predates their [Reflect], so the getters
+    # are written over the shared helper rather than declared.)
+    MAX_LENGTH = { attr: "maxlength", non_negative: true }.freeze
+    MIN_LENGTH = { attr: "minlength", non_negative: true }.freeze
+    reflect_long_setter max_length: MAX_LENGTH, min_length: MIN_LENGTH
+    def max_length = reflected_long("maxlength", MAX_LENGTH)
+    def min_length = reflected_long("minlength", MIN_LENGTH)
 
     private
 
     public
 
+    # The length of the API value, in UTF-16 code units.
     def text_length
-      value.length
+      Internal::Utf16.length(value)
     end
 
     def type
@@ -652,47 +714,15 @@ module Dommy
 
 
 
-    def validity
-      @__validity ||= ValidityState.new(self)
+    # A readonly textarea is barred from constraint validation.
+    def __internal_barred_from_constraint_validation__?
+      super || __internal_has_attribute__?("readonly")
     end
 
-    def will_validate
-      !reflected_boolean("disabled") && !disabled_by_ancestor_fieldset? &&
-        !reflected_boolean("readonly") && closest("datalist").nil?
-    end
+    js_accessor :value, :default_value, :selection_start, :selection_end, :selection_direction
+    js_readable :text_length, :type, :form, :labels
 
-    def validation_message
-      return "" unless will_validate
-
-      msg = (@custom_validity_message || "").to_s
-      return msg unless msg.empty?
-      return "Please fill out this field." if validity.value_missing
-
-      ""
-    end
-
-    def check_validity
-      ok = !will_validate || validity.valid
-      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
-      ok
-    end
-
-    def report_validity
-      check_validity
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
-    end
-
-    js_accessor :value, :default_value, :rows, :cols, :max_length, :min_length, :selection_start, :selection_end, :selection_direction
-    js_readable :text_length, :type, :form, :labels, :validity, :will_validate, :validation_message
-
-
-    js_methods %w[
-      select setSelectionRange setRangeText checkValidity reportValidity setCustomValidity
-    ]
+    js_methods %w[select setSelectionRange setRangeText]
     def __js_call__(method, args)
       case method
       when "select"
@@ -700,13 +730,7 @@ module Dommy
       when "setSelectionRange"
         set_selection_range(args[0], args[1], args[2])
       when "setRangeText"
-        set_range_text(args[0])
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
+        __internal_js_set_range_text__(args)
       else
         super
       end
@@ -765,8 +789,9 @@ module Dommy
     # Priority: explicit `for=`, then first form control descendant.
     def control
       target = html_for
-      if !target.empty?
-        el = @document.get_element_by_id(target)
+      if __internal_has_attribute__?("for")
+        # The first element in the label's own tree with that ID.
+        el = __internal_tree_element_by_id__(target)
         el if el && labelable_control?(el)
       else
         # The first labelable descendant in tree order (a hidden input, being
@@ -804,6 +829,7 @@ module Dommy
   # `<fieldset>` — disabled-state-propagating wrapper; exposes
   # `elements` collection like form.
   class HTMLFieldSetElement < HTMLElement
+    include Internal::ConstraintValidation
     reflect_string :name
     reflect_boolean :disabled
     def type
@@ -814,52 +840,21 @@ module Dommy
       __internal_form_owner__
     end
 
+    # The listed elements among the fieldset's descendants, in tree order.
     def elements
       el = self
       @elements ||= HTMLCollection.new do
-        el
-          .__dommy_backend_node__
-          .css("input, select, textarea, button, output, fieldset")
-          .map do |n|
-            el.document.wrap_node(n)
-          end
-          .compact
+        el.query_selector_all(HTMLFormElement::LISTED_CONTROL_SELECTOR).to_a
       end
     end
 
-    # [SameObject]: a fieldset's custom validity lives on one ValidityState.
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
+    # A fieldset is not submittable, so it is barred from constraint
+    # validation: willValidate is false, validationMessage is empty and
+    # checkValidity/reportValidity succeed — though setCustomValidity still
+    # sets validity.customError.
+    def __internal_barred_from_constraint_validation__? = true
 
-    # A fieldset is "barred from constraint validation": it never participates,
-    # so willValidate is always false and checkValidity/reportValidity are no-ops
-    # that report success.
-    def will_validate
-      false
-    end
-
-    def check_validity
-      true
-    end
-
-    def report_validity
-      true
-    end
-
-    js_readable :type, :form, :elements, :validity, :will_validate
-
-    js_methods %w[checkValidity reportValidity]
-    def __js_call__(method, args)
-      case method
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      else
-        super
-      end
-    end
+    js_readable :type, :form, :elements
   end
 
   # `<output>` — calculation result element.
@@ -868,6 +863,7 @@ module Dommy
 
   # `<legend>` — primarily exposes its `form` back-ref.
   class HTMLLegendElement < HTMLElement
+    reflect_string :align
     # HTML: the legend's `form` is its parent fieldset's form owner, or null
     # when its parent is not a fieldset — it does not fall back to a <form> the
     # legend merely sits inside.
@@ -893,6 +889,7 @@ module Dommy
 
   # `<output>` — calculation result element.
   class HTMLOutputElement < HTMLElement
+    include Internal::ConstraintValidation
     reflect_string :name
     js_accessor :value
     reflect_token_list html_for: { attr: "for", js: "htmlFor" }
@@ -944,30 +941,16 @@ module Dommy
     end
 
     # An output has a validity state (customError is settable) but is barred
-    # from constraint validation: willValidate is false, validationMessage is
-    # always empty, and check/reportValidity always succeed.
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
+    # from constraint validation.
+    def __internal_barred_from_constraint_validation__? = true
 
-    def will_validate
-      false
-    end
-
-    def validation_message
-      ""
-    end
-
-    def check_validity
-      true
-    end
-
-    def report_validity
-      true
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
+    # HTML's reset algorithm for output: the value mode flag goes back to
+    # "default" and the text content becomes the default value.
+    def __internal_reset__
+      default = default_value
+      @__value_mode = :default
+      @__default_override = nil
+      self.text_content = default
       nil
     end
 
@@ -983,12 +966,6 @@ module Dommy
         form
       when "labels"
         labels
-      when "validity"
-        validity
-      when "willValidate"
-        will_validate
-      when "validationMessage"
-        validation_message
       else
         super
       end
@@ -1002,20 +979,6 @@ module Dommy
         self.default_value = v
       when "htmlFor"
         set_reflected_string("for", v)
-      else
-        super
-      end
-    end
-
-    js_methods %w[checkValidity reportValidity setCustomValidity]
-    def __js_call__(method, args)
-      case method
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
       else
         super
       end

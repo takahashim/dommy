@@ -461,13 +461,6 @@
       "getSVGDocument",
       "name"
     ],
-    "HTMLFieldSetElement": [
-      "setCustomValidity",
-      "validationMessage"
-    ],
-    "HTMLFormElement": [
-      "encoding"
-    ],
     "HTMLFrameElement": [
       "contentDocument",
       "contentWindow",
@@ -530,22 +523,7 @@
       "lowsrc",
       "vspace"
     ],
-    "HTMLInputElement": [
-      "accept",
-      "align",
-      "alpha",
-      "alt",
-      "colorSpace",
-      "dirName",
-      "height",
-      "showPicker",
-      "size",
-      "src",
-      "useMap",
-      "width"
-    ],
     "HTMLLegendElement": [
-      "align",
       "form"
     ],
     "HTMLLinkElement": [
@@ -599,9 +577,6 @@
       "charset",
       "event"
     ],
-    "HTMLSelectElement": [
-      "showPicker"
-    ],
     "HTMLTableCaptionElement": [
       "align"
     ],
@@ -647,9 +622,6 @@
       "chOff",
       "rows",
       "vAlign"
-    ],
-    "HTMLTextAreaElement": [
-      "dirName"
     ],
     "HTMLTitleElement": [
       "text"
