@@ -769,6 +769,32 @@ globalThis.__rbHost = (function () {
     return out;
   }
 
+  // ===== Host promises as realm Promises =====
+  //
+  // A host API that returns a promise (fetch(), img.decode(), media.play(),
+  // clipboard reads, document.fonts.ready, …) hands back a Ruby PromiseValue.
+  // The page must get a Promise of this realm — `p instanceof Promise`,
+  // `Object.prototype.toString.call(p)` "[object Promise]", `Promise.resolve(p)
+  // === p` — so the PromiseValue crosses as a native Promise subscribed to it,
+  // settled when the host settles it. The same PromiseValue keeps giving the
+  // same Promise while that Promise is alive, and the Promise goes back to the
+  // host as the PromiseValue it stands for.
+  const hostPromiseProxies = new WeakMap(); // realm Promise -> host proxy (keeps the handle alive)
+  const realmPromises = new Map();          // handle -> WeakRef(realm Promise)
+  function realmPromiseFor(proxy) {
+    const handle = proxyHandles.get(proxy);
+    const ref = realmPromises.get(handle);
+    const existing = ref && ref.deref();
+    if (existing && hostPromiseProxies.get(existing) === proxy) return existing;
+    let resolveFn, rejectFn;
+    const promise = new Promise((resolve, reject) => { resolveFn = resolve; rejectFn = reject; });
+    hostPromiseProxies.set(promise, proxy);
+    realmPromises.set(handle, new WeakRef(promise));
+    // Subscribe without a chained host promise (nothing to hand back).
+    __rb_host_promise_subscribe(handle, dehydrate(resolveFn), dehydrate(rejectFn));
+    return promise;
+  }
+
   // The time value of a Date object, or undefined for anything else. getTime
   // throws unless its receiver has a [[DateValue]] slot, which is the brand
   // check; it is captured here so a page replacing it changes nothing.
@@ -785,6 +811,7 @@ globalThis.__rbHost = (function () {
     if (typeof v === "string") return /[\ud800-\udfff]/.test(v) ? scrubLoneSurrogates(v) : v;
     if (typeof v === "function") return { __rb_callback: registerCallback(v) };
     if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+    if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
     // A BufferSource (ArrayBuffer or any typed-array/DataView view) crosses as
     // its raw bytes, so host code gets a uniform byte buffer (TextDecoder.decode,
     // Blob, …) rather than a key→value object from Object.keys.
@@ -951,6 +978,7 @@ globalThis.__rbHost = (function () {
     const t = typeof v;
     if (t === "object" || t === "function") {
       if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+      if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
       return { __rb_js_ref: registerJsRef(v) };
     }
     return v;
@@ -964,7 +992,8 @@ globalThis.__rbHost = (function () {
   // TypeError; §2.3.3.3.3 a thenable settles at most once; §2.3.3.3.4 a throwing
   // `then` rejects.
   function resolveHostPromise(handle, value, knownThen) {
-    if (isProxy(value) && proxyHandles.get(value) === handle) {
+    if ((isProxy(value) && proxyHandles.get(value) === handle) ||
+        (hostPromiseProxies.has(value) && proxyHandles.get(hostPromiseProxies.get(value)) === handle)) {
       __rb_settle_host_promise(handle, false, dehydrateSettle(new TypeError("Chaining cycle detected for promise")));
       return;
     }
@@ -1003,6 +1032,8 @@ globalThis.__rbHost = (function () {
   // plain values are unaffected. Used only for callback RETURN values, never for
   // arguments (a promise passed as an argument must not be resolved).
   function dehydrateReturn(v) {
+    // A realm promise standing for a host promise goes back as that promise.
+    if (hostPromiseProxies.has(v)) return dehydrateSettle(v);
     if (v !== null && (typeof v === "object" || typeof v === "function") && !isProxy(v)) {
       // Read `then` ONCE here (§2.3.3.1) and reuse it, so a one-time getter is not
       // consumed by a separate type-probe before resolveHostPromise reads it.
@@ -1100,7 +1131,8 @@ globalThis.__rbHost = (function () {
         // listener's argument IS the object the caller constructed.
         const jsEvent = jsEventByHandle.get(v.__rb_handle);
         if (jsEvent !== undefined) return jsEvent;
-        return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+        const proxy = makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+        return proxyInterfaces.get(proxy) === "PromiseValue" ? realmPromiseFor(proxy) : proxy;
       }
       // An opaque JS-value reference round-tripping back from Ruby — restore the
       // exact original object (identity-preserving).

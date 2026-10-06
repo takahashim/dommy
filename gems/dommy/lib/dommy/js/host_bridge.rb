@@ -319,6 +319,16 @@ module Dommy
           @profile.count(:__rb_new_host_promise)
           dom_guard { @codec.register(Dommy::PromiseValue.new(@window)) }
         end
+        # A host PromiseValue crossing into JS becomes a realm Promise
+        # (host_runtime.js realmPromiseFor), which subscribes here to be settled
+        # with it.
+        @backend.define_host_function("__rb_host_promise_subscribe") do |handle, on_fulfilled, on_rejected|
+          @profile.count(:__rb_host_promise_subscribe)
+          dom_guard do
+            host(handle).__internal_subscribe__(unwrap(on_fulfilled), unwrap(on_rejected))
+            nil
+          end
+        end
         @backend.define_host_function("__rb_settle_host_promise") do |handle, fulfilled, value|
           @profile.count(:__rb_settle_host_promise)
           dom_guard do
