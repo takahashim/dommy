@@ -11,7 +11,7 @@ globalThis.__rbHost = (function () {
   // reads (and costs) the same as when they were written inline.
   const {
     ARRAY_LIKE_COLLECTIONS, INDEXED_SETTER_INTERFACES, ENTRIES_ITERABLES, PAIR_ITERABLE_COLLECTIONS,
-    NAMED_PROP_COLLECTIONS, FORM_VALUE_FIELDS, READONLY_ATTRS,
+    FORM_VALUE_FIELDS, READONLY_ATTRS,
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS, INTERFACE_MEMBERS, FROZEN_ARRAY_ATTRIBUTES, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
@@ -515,9 +515,19 @@ globalThis.__rbHost = (function () {
   }
   // Seed interface `name`'s WebIDL members onto its prototype (idempotent — skips
   // names already present so a subclass never shadows an inherited member).
+  // The generated table (webidl_members.js: the IDL's members that the bridge
+  // classes answer) and the hand-kept INTERFACE_MEMBERS (members answered
+  // other than by name, e.g. JS-side) are seeded together.
+  const GENERATED_MEMBERS = globalThis.__rbIdlMembers || {};
   function seedInterfaceMembers(proto, name) {
-    const members = INTERFACE_MEMBERS[name];
-    if (!members) return;
+    const own = (table) => (Object.prototype.hasOwnProperty.call(table, name) ? table[name] : undefined);
+    const hand = own(INTERFACE_MEMBERS);
+    const generated = own(GENERATED_MEMBERS);
+    if (!hand && !generated) return;
+    const members = {};
+    for (const kind of ["m", "g", "p"]) {
+      members[kind] = [...((hand && hand[kind]) || []), ...((generated && generated[kind]) || [])];
+    }
     const def = (key, desc) => {
       if (!Object.prototype.hasOwnProperty.call(proto, key)) {
         Object.defineProperty(proto, key, desc);
@@ -2178,6 +2188,20 @@ globalThis.__rbHost = (function () {
   // prototype chain, its method-name set, and the traits the traps branch on.
   // Derived once per interface and memoized, where the handler used to be
   // handed them as positional arguments recomputed on every crossing.
+  // The legacy platform objects with named properties, generated from the IDL
+  // (webidl_members.js): { enumerable, writable, overrideBuiltins } per
+  // interface. An object takes the entry of the nearest interface in its chain
+  // that has one — a document's proxy is an HTMLDocument, whose named getter is
+  // Document's.
+  const NAMED_PROPERTIES = new Map(Object.entries(globalThis.__rbIdlNamedProperties || {}));
+  function namedPropertiesOf(chain) {
+    for (const name of chain) {
+      const flags = NAMED_PROPERTIES.get(name);
+      if (flags) return flags;
+    }
+    return null;
+  }
+
   const shapeByInterface = new Map();
   function interfaceShape(desc) {
     const cached = (desc.name != null) ? shapeByInterface.get(desc.name) : undefined;
@@ -2196,7 +2220,7 @@ globalThis.__rbHost = (function () {
       chain: desc.chain,
       methods,
       arrayLike: ARRAY_LIKE_COLLECTIONS.has(desc.name),
-      named: NAMED_PROP_COLLECTIONS.get(desc.name) || null,
+      named: namedPropertiesOf(desc.chain || [desc.name]),
       nodeChain: !!(desc.chain && desc.chain.indexOf("Node") !== -1),
       indexedSetter: INDEXED_SETTER_INTERFACES.has(desc.name),
       constIface: CONST_IFACE_PROPS.get(desc.name) || null,
@@ -2843,7 +2867,22 @@ globalThis.__rbHost = (function () {
     // DOM mutations, and the visibility rule.
     const namedKeys = () => namedKeysOf(handle, named);
     const isIndexInRange = (prop) => arrayLike && isArrayIndex(prop) && Number(prop) < liveLength();
-    const isNamedKey = (prop) => isNamedKeyOf(handle, named, prop);
+    // An object whose named properties override its builtins
+    // ([LegacyOverrideBuiltIns]: a document, a form, a dataset) checks them on
+    // EVERY property read, so its supported names are fetched once per DOM
+    // epoch — they change only when the tree or an attribute does.
+    let namedKeyCache = null;
+    let namedKeyEpoch = -1;
+    const isNamedKey = named && named.overrideBuiltins
+      ? (prop) => {
+        if (typeof prop !== "string") return false;
+        if (namedKeyEpoch !== domEpoch) {
+          namedKeyCache = new Set(namedKeysOf(handle, named));
+          namedKeyEpoch = domEpoch;
+        }
+        return namedKeyCache.has(prop);
+      }
+      : (prop) => isNamedKeyOf(handle, named, prop);
     const namedShadowedByProto = (t, prop) => namedShadowedByProtoOf(named, t, prop);
     // What a method stub can need beyond its own name (see makeMethodStub).
     const stubContext = {
@@ -2865,7 +2904,7 @@ globalThis.__rbHost = (function () {
         // prototype's methods AND accessors, so resolve it before either. An own
         // expando (checked above) still wins.
         if (named && named.overrideBuiltins && typeof prop === "string" && isNamedKey(prop)) {
-          return rehydrate(__rb_host_get(handle, prop));
+          return rehydrate(__rb_named_get(handle, prop));
         }
         if (methods.has(prop)) {
           // A read-only collection operation resolves to the interface

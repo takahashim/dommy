@@ -2055,6 +2055,13 @@ module Dommy
       names.uniq
     end
 
+    # The named getter on its own, for the bridge to read a supported name
+    # BEFORE the builtins ([LegacyOverrideBuiltIns]: `<form name=body>` makes
+    # `document.body` that form).
+    def __js_named_get__(name)
+      document_named_property(name)
+    end
+
     # Resolve a document named-getter property: nil when unsupported, a single
     # element (a named iframe yields its content window), or an HTMLCollection
     # when several elements share the name.
