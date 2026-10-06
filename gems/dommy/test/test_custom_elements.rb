@@ -393,3 +393,72 @@ class TestCustomElementSynchronousConstruction < Minitest::Test
     refute Dommy::Internal::ElementState.defined_element?(el)
   end
 end
+
+# ElementInternals (HTML §4.13.7) for a Ruby-defined custom element: custom
+# states matched by `:state()`, and a form-associated element's submission
+# value, validity and form callbacks.
+class TestElementInternals < Minitest::Test
+  include DommyTestHelper
+
+  class Plain < Dommy::HTMLElement; end
+
+  class Control < Dommy::HTMLElement
+    def self.form_associated = true
+    attr_reader :history
+
+    def construct
+      @history = []
+      @internals = attach_internals
+    end
+
+    def internals = @internals
+    def form_associated_callback(form) = @history << [:form, form&.id]
+    def form_reset_callback = @history << [:reset]
+    def form_disabled_callback(disabled) = @history << [:disabled, disabled]
+  end
+
+  def setup
+    @win = make_window
+    @doc = @win.document
+    @win.custom_elements.define("x-plain", Plain)
+    @win.custom_elements.define("x-control", Control)
+  end
+
+  def test_attach_internals_once_and_only_for_custom_elements
+    el = @doc.create_element("x-plain")
+    assert_instance_of Dommy::ElementInternals, el.attach_internals
+    assert_raises(Dommy::DOMException::NotSupportedError) { el.attach_internals }
+    assert_raises(Dommy::DOMException::NotSupportedError) { @doc.create_element("div").attach_internals }
+    assert_raises(Dommy::DOMException::NotSupportedError) { @doc.create_element("x-undefined").attach_internals }
+  end
+
+  def test_custom_states_match_the_state_pseudo_class
+    el = @doc.create_element("x-plain")
+    @doc.body.append_child(el)
+    internals = el.attach_internals
+    assert_nil @doc.query_selector("x-plain:state(open)")
+    internals.__internal_set_states__(["open"])
+    assert_same el, @doc.query_selector("x-plain:state(open)")
+    assert_raises(Dommy::DOMException::SyntaxError) { @doc.query_selector(":state(16px)") }
+  end
+
+  def test_form_value_validity_and_callbacks
+    @doc.body.inner_html = "<form id=f><x-control name=c></x-control></form>"
+    form = @doc.get_element_by_id("f")
+    control = @doc.query_selector("x-control")
+    assert_equal [[:form, "f"]], control.history
+    control.internals.set_form_value("v")
+    assert_equal [%w[c v]], Dommy::FormData.new(form).entries
+    assert_includes form.elements.to_a, control
+
+    control.internals.set_validity({ "valueMissing" => true }, "fill me")
+    refute form.check_validity
+    assert_equal "fill me", control.internals.validation_message
+
+    form.reset
+    control.set_attribute("disabled", "")
+    assert_equal [[:form, "f"], [:reset], [:disabled, true]], control.history
+    assert_empty Dommy::FormData.new(form).entries
+    assert_raises(Dommy::DOMException::NotSupportedError) { @doc.create_element("x-plain").attach_internals.form }
+  end
+end

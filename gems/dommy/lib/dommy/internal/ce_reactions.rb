@@ -32,7 +32,7 @@ module Dommy
       # definition re-wraps the node), so an element's queue survives the
       # upgrade that its own reactions are being processed for.
       class ElementData
-        attr_accessor :state, :definition, :wrapper, :is_value
+        attr_accessor :state, :definition, :wrapper, :is_value, :form_owner, :disabled
         attr_reader :reactions
 
         def initialize(wrapper, state, is_value = nil)

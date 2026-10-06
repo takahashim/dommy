@@ -119,6 +119,8 @@ Dommy::Internal::IdlReflection.install_all!
 require_relative "dommy/shadow_root"
 require_relative "dommy/internal/ce_reactions"
 require_relative "dommy/custom_elements"
+require_relative "dommy/internal/form_associated_custom_elements"
+require_relative "dommy/element_internals"
 require_relative "dommy/tree_walker"
 require_relative "dommy/url"
 require_relative "dommy/form_data"

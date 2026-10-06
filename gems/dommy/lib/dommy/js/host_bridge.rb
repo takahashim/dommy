@@ -449,11 +449,11 @@ module Dommy
       # fresh element — the Ruby halves of the JS custom element registry (see
       # CustomElementBridge).
       def install_custom_elements_abi!
-        @backend.define_host_function("__rb_define_custom_element") do |registry, id, name, local_name, observed, callbacks, disable_shadow, form_associated|
+        @backend.define_host_function("__rb_define_custom_element") do |registry, id, name, local_name, observed, callbacks, disabled, form_associated|
           @profile.count(:__rb_define_custom_element, nil, name)
           dom_guard do
             @custom_element_bridge.define(host(registry), id, name, local_name, Array(observed), Array(callbacks),
-                                          disable_shadow: disable_shadow, form_associated: form_associated)
+                                          disabled_features: Array(disabled), form_associated: form_associated)
             nil
           end
         end

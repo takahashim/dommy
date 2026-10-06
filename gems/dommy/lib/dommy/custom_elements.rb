@@ -10,16 +10,23 @@ module Dommy
   class CustomElementDefinition
     attr_reader :name, :local_name, :registry, :observed_attributes
 
-    def initialize(registry:, name:, local_name:, observed_attributes:, callbacks:, disable_shadow: false)
+    def initialize(registry:, name:, local_name:, observed_attributes:, callbacks:, disable_shadow: false,
+                   disable_internals: false, form_associated: false)
       @registry = registry
       @name = name
       @local_name = local_name
       @observed_attributes = observed_attributes.map(&:to_s).freeze
       @callbacks = callbacks.map(&:to_s).to_set.freeze
       @disable_shadow = disable_shadow
+      @disable_internals = disable_internals
+      @form_associated = form_associated
     end
 
     def autonomous? = @name == @local_name
+
+    def disable_shadow? = @disable_shadow
+    def disable_internals? = @disable_internals
+    def form_associated? = @form_associated
 
     def callback?(callback_name) = @callbacks.include?(callback_name)
 
@@ -49,7 +56,28 @@ module Dommy
         data.reactions.clear
         raise
       end
+      if form_associated?
+        # Step 9: the form owner is reset, and the callbacks it and the
+        # disabled state call for are enqueued.
+        form = element.__internal_form_owner__
+        disabled = element.__internal_has_attribute__?("disabled") || element.disabled_by_ancestor_fieldset?
+        data.form_owner = form
+        data.disabled = disabled
+        Internal::CEReactions.enqueue_callback(element, "formAssociatedCallback", [form]) if form
+        Internal::CEReactions.enqueue_callback(element, "formDisabledCallback", [true]) if disabled
+      end
+      mark_custom(data)
+    end
+
+    # The element is custom now: its state says so, and an element of a
+    # form-associated definition takes on a form control's constraint
+    # validation surface.
+    def mark_custom(data)
+      data.definition = self
       data.state = "custom"
+      element = data.wrapper
+      element.extend(Internal::FormAssociatedCustomElements::Behavior) if form_associated? && element.is_a?(HTMLElement)
+      data
     end
 
     # WHATWG "report an exception" for the definition's constructor's global.
@@ -65,15 +93,22 @@ module Dommy
   # elements ARE instances of the class: constructing one wraps the node as
   # the class (and calls its `construct`, when it has one), and the callbacks
   # are its methods — `connected_callback`, `disconnected_callback`,
-  # `adopted_callback`, `connected_move_callback` and
-  # `attribute_changed_callback(name, old, new[, namespace])`.
+  # `adopted_callback`, `connected_move_callback`,
+  # `attribute_changed_callback(name, old, new[, namespace])` and the
+  # form-associated ones (`form_associated_callback(form)`,
+  # `form_disabled_callback(disabled)`, `form_reset_callback`). The class
+  # methods `observed_attributes`, `disabled_features` and
+  # `form_associated` stand for the JS statics.
   class RubyCustomElementDefinition < CustomElementDefinition
     RUBY_METHODS = {
       "connectedCallback" => :connected_callback,
       "disconnectedCallback" => :disconnected_callback,
       "connectedMoveCallback" => :connected_move_callback,
       "adoptedCallback" => :adopted_callback,
-      "attributeChangedCallback" => :attribute_changed_callback
+      "attributeChangedCallback" => :attribute_changed_callback,
+      "formAssociatedCallback" => :form_associated_callback,
+      "formResetCallback" => :form_reset_callback,
+      "formDisabledCallback" => :form_disabled_callback
     }.freeze
 
     attr_reader :klass
@@ -82,7 +117,10 @@ module Dommy
       @klass = klass
       observed = klass.respond_to?(:observed_attributes) ? Array(klass.observed_attributes) : []
       callbacks = RUBY_METHODS.select { |_, method| klass.method_defined?(method) }.keys
-      super(registry: registry, name: name, local_name: name, observed_attributes: observed, callbacks: callbacks)
+      disabled = klass.respond_to?(:disabled_features) ? Array(klass.disabled_features).map(&:to_s) : []
+      super(registry: registry, name: name, local_name: name, observed_attributes: observed, callbacks: callbacks,
+            disable_shadow: disabled.include?("shadow"), disable_internals: disabled.include?("internals"),
+            form_associated: klass.respond_to?(:form_associated) && klass.form_associated ? true : false)
     end
 
     def constructor = @klass
@@ -104,10 +142,7 @@ module Dommy
     # node wrapped as the class.
     def construct_synchronously(document)
       node = Backend.create_element(@local_name, Element::HTML_NAMESPACE, document.backend_doc)
-      wrap_as_class(document, node, nil) do |data|
-        data.definition = self
-        data.state = "custom"
-      end
+      wrap_as_class(document, node, nil) { |data| mark_custom(data) }
     end
 
     private
@@ -214,6 +249,7 @@ module Dommy
     # document it applies to, and resolve whenDefined(). A [CEReactions]
     # member, so the upgrades have run when it returns.
     def __internal_add_definition__(definition)
+      Internal::FormAssociatedCustomElements.register(definition)
       Internal::CEReactions.scope do
         @definitions[definition.name] = definition
         upgrade_particular_elements(definition)

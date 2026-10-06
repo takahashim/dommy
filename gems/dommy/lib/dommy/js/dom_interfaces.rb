@@ -113,6 +113,8 @@ module Dommy
         %w[PerformanceObserver], %w[AbortController], %w[AbortSignal EventTarget],
         %w[FormData], %w[URL], %w[URLSearchParams], %w[Headers], %w[Request], %w[Response],
         %w[Blob], %w[File Blob], %w[FileList], %w[DOMStringList], %w[FileReader EventTarget],
+        # attachInternals()'s result; its `states` CustomStateSet is JS-side.
+        %w[ElementInternals],
         %w[XMLHttpRequest XMLHttpRequestEventTarget EventTarget],
         %w[XMLHttpRequestEventTarget EventTarget], %w[XMLHttpRequestUpload XMLHttpRequestEventTarget EventTarget],
         %w[TextEncoder], %w[TextDecoder], %w[DOMParser], %w[XMLSerializer],

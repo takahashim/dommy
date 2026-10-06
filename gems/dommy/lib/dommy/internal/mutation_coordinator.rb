@@ -113,6 +113,14 @@ module Dommy
         return nil unless target
         return nil if added_nodes.empty? && removed_nodes.empty?
 
+        # The form-associated custom elements moved in or out reset their form
+        # owner and disabled state (their insertion / removing steps), ahead
+        # of their connected / disconnected reactions.
+        if FormAssociatedCustomElements.any?
+          removed_nodes.each { |nk| FormAssociatedCustomElements.refresh_subtree(@document, nk) }
+          added_nodes.each { |nk| FormAssociatedCustomElements.refresh_subtree(@document, nk) }
+        end
+
         # Custom Element connected/disconnected callbacks, script execution, and
         # blank-iframe load all require the subtree to be connected to the
         # document (the script/iframe paths already check is_connected?, and
@@ -229,8 +237,8 @@ module Dommy
         target.__internal_attribute_changed__(attr, old_value, new_value, namespace) if
           target.respond_to?(:__internal_attribute_changed__)
 
-        # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
+        form_association_attribute_changed(target, target_node, attr) if namespace.nil? && FormAssociatedCustomElements.any?
         @post_insertion_steps.script_attribute_changed(target, attr, new_value, namespace)
         # An event handler content attribute (`onclick="…"`) sets or removes
         # its handler.
@@ -281,6 +289,17 @@ module Dommy
         end
       end
 
+
+      # A `form` or `disabled` attribute of a form-associated custom element,
+      # a fieldset's `disabled`, or any `id` (a form's, which a `form`
+      # attribute names) can change the form owner or the disabled state.
+      def form_association_attribute_changed(target, target_node, attr)
+        case attr
+        when "form" then FormAssociatedCustomElements.refresh(target)
+        when "disabled" then FormAssociatedCustomElements.refresh_subtree(@document, target_node)
+        when "id" then FormAssociatedCustomElements.refresh_subtree(@document, @document.backend_doc)
+        end
+      end
 
       # DOM move: a custom element gets a connectedMoveCallback reaction
       # (CEReactions turns it into disconnected + connected for a definition

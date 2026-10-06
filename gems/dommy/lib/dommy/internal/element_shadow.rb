@@ -79,6 +79,14 @@ module Dommy
 
         raise DOMException::NotSupportedError, "Shadow root already attached" if __internal_shadow_root__
 
+        # A custom element being constructed or constructed: its definition
+        # may disable shadow, and otherwise the shadow root is available to
+        # its ElementInternals.
+        constructed = %w[precustomized custom].include?(__internal_custom_element_state__)
+        if constructed && __internal_ce_data__.definition&.disable_shadow?
+          raise DOMException::NotSupportedError, "the custom element definition disables shadow"
+        end
+
         opts = options.is_a?(Hash) ? options : {}
         mode_raw = opts.key?("mode") ? opts["mode"] : opts[:mode]
         # `mode` is a required WebIDL dictionary member — omitting it, like an
@@ -96,6 +104,7 @@ module Dommy
           delegates_focus: opts["delegatesFocus"] || opts[:delegatesFocus] || false,
           slot_assignment: opts["slotAssignment"] || opts[:slotAssignment] || "named"
         )
+        @__shadow_root.__internal_available_to_internals__ = true if constructed
         @__shadow_root
       end
 

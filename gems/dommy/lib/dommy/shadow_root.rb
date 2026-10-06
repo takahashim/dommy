@@ -20,6 +20,12 @@ module Dommy
 
     attr_reader :host, :mode, :delegates_focus, :slot_assignment, :document
 
+    # HTML "available to element internals": attached to a custom element
+    # that was being, or had been, constructed.
+    attr_writer :__internal_available_to_internals__
+
+    def __internal_available_to_internals__? = @__internal_available_to_internals__ ? true : false
+
     def __dommy_backend_node__ = @__node__
 
     def initialize(host, mode:, delegates_focus: false, slot_assignment: "named")

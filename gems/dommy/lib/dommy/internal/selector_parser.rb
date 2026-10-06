@@ -39,7 +39,7 @@ module Dommy
       # are functional pseudo-elements handled in the `::` path.
       SELECTOR_LIST_FUNCTIONS = %w[not is where has matches].to_set.freeze
       NTH_FUNCTIONS = %w[nth-child nth-last-child nth-of-type nth-last-of-type nth-col nth-last-col].to_set.freeze
-      IDENT_FUNCTIONS = %w[lang dir].to_set.freeze
+      IDENT_FUNCTIONS = %w[lang dir state].to_set.freeze
       NESTED_SELECTOR_FUNCTIONS = %w[host host-context current].to_set.freeze
 
       # A parsed AST is a pure function of (selector string, namespaces) and never
@@ -490,6 +490,8 @@ module Dommy
             rels
           elsif NTH_FUNCTIONS.include?(name)
             parse_nth_argument(arg, allow_of: %w[nth-child nth-last-child].include?(name))
+          elsif name == "state"
+            parse_custom_ident_argument(arg)
           elsif IDENT_FUNCTIONS.include?(name)
             parse_ident_argument(arg)
           elsif NESTED_SELECTOR_FUNCTIONS.include?(name)
@@ -680,6 +682,17 @@ module Dommy
           else
             AnPlusB::Token.new(:number, value, integer, sign)
           end
+        end
+
+        # `:state(<custom-ident>)`: exactly one CSS identifier (an escape
+        # stands for its character).
+        CUSTOM_IDENT = /\A(?:--|-?(?:[_a-zA-Z]|[^\x00-\x7F]|\\.))(?:[-_a-zA-Z0-9]|[^\x00-\x7F]|\\.)*\z/m
+
+        def parse_custom_ident_argument(source)
+          ident = source.strip
+          fail!("expected an identifier") unless ident.match?(CUSTOM_IDENT)
+
+          ident.gsub(/\\(.)/m, "\\1")
         end
 
         def parse_ident_argument(source)

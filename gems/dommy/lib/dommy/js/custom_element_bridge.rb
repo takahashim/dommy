@@ -54,12 +54,14 @@ module Dommy
 
       # customElements.define()'s steps from "append definition" on: the JS
       # half made the checks and read the callbacks.
-      def define(registry, id, name, local_name, observed, callbacks, disable_shadow: false, form_associated: false)
+      def define(registry, id, name, local_name, observed, callbacks, disabled_features: [], form_associated: false)
         return unless registry.is_a?(CustomElementRegistry)
 
+        disabled = Array(disabled_features).map(&:to_s)
         definition = JsCustomElementDefinition.new(
           bridge: @bridge, id: id, registry: registry, name: name.to_s, local_name: local_name.to_s,
-          observed_attributes: observed, callbacks: callbacks, disable_shadow: disable_shadow ? true : false
+          observed_attributes: observed, callbacks: callbacks, disable_shadow: disabled.include?("shadow"),
+          disable_internals: disabled.include?("internals"), form_associated: form_associated ? true : false
         )
         @definitions[id] = definition
         registry.__internal_add_definition__(definition)

@@ -43,9 +43,7 @@ module Dommy
       def create_custom_element(definition)
         node = Backend.create_element(definition.local_name, Element::HTML_NAMESPACE, @document.backend_doc)
         element = @wrappers.wrap(node)
-        data = element.__internal_init_ce_data__(definition.autonomous? ? nil : definition.name)
-        data.definition = definition
-        data.state = "custom"
+        definition.mark_custom(element.__internal_init_ce_data__(definition.autonomous? ? nil : definition.name))
         element
       end
 

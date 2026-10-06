@@ -14,7 +14,6 @@
     "CaretPosition",
     "CloseWatcher",
     "CustomStateSet",
-    "ElementInternals",
     "FetchLaterResult",
     "HTMLAllCollection",
     "HTMLSelectedContentElement",
@@ -183,6 +182,9 @@
       "setHTMLUnsafe",
       "setPointerCapture"
     ],
+    "ElementInternals": [
+      "states"
+    ],
     "EventSource": [
       "onerror",
       "onmessage",
@@ -206,7 +208,6 @@
       "options"
     ],
     "HTMLElement": [
-      "attachInternals",
       "scrollParent"
     ],
     "HTMLEmbedElement": [

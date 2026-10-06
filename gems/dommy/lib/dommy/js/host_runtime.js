@@ -1789,6 +1789,7 @@ globalThis.__rbHost = (function () {
     } else if (ENTRIES_ITERABLES.has(name)) {
       installPairIterable(proto, name);
     }
+    if (name === "ElementInternals") installElementInternalsStates(proto);
     if (name === "TextEncoder") {
       // encodeInto mutates the destination Uint8Array in place, so it must run
       // JS-side (a host round trip would only see a copy). Encodes scalar values
@@ -3502,7 +3503,7 @@ globalThis.__rbHost = (function () {
     // applies to (their constructors have run when this returns) — then the
     // when-defined promise resolves.
     const raised = __rb_define_custom_element(registry[HKEY], def.id, name, localName, observed,
-      Object.keys(callbacks), disabled.includes("shadow"), formAssociated);
+      Object.keys(callbacks), disabled, formAssociated);
     if (raised && typeof raised === "object" && raised.__rb_exception__) throw makeHostError(raised.__rb_exception__);
     const waiter = state.pending.get(name);
     if (waiter) { state.pending.delete(name); waiter.resolve(ctor); }
@@ -3565,6 +3566,81 @@ globalThis.__rbHost = (function () {
     if (raised && typeof raised === "object" && raised.__rb_exception__) throw makeHostError(raised.__rb_exception__);
   }, 1);
   globalThis.CustomElementRegistry = CustomElementRegistry;
+
+  // CustomStateSet (HTML §4.13.7.5): ElementInternals' `states`, a setlike of
+  // the element's custom states. The Set lives here; each change is mirrored
+  // to the host ElementInternals, which `:state()` matches against.
+  const customStateSetData = new WeakMap();
+  const internalsStates = new WeakMap();
+  function CustomStateSet() { throw new TypeError("Illegal constructor"); }
+  const cssProto = CustomStateSet.prototype;
+  Object.defineProperty(cssProto, Symbol.toStringTag, { value: "CustomStateSet", configurable: true });
+  function customStateSetOf(object) {
+    const data = customStateSetData.get(object);
+    if (!data) throw new TypeError("Illegal invocation: not a CustomStateSet");
+    return data;
+  }
+  function syncCustomStates(data) {
+    bumpDomEpoch();
+    const raised = __rb_host_call(data.internals[HKEY], "__setStates", dehydrateArgs([Array.from(data.set)]));
+    bumpDomEpoch();
+    if (raised && typeof raised === "object" && raised.__rb_exception__) throw makeHostError(raised.__rb_exception__);
+  }
+  const cssMethod = (key, fn, length) => {
+    Object.defineProperty(fn, "length", { value: length, configurable: true });
+    Object.defineProperty(cssProto, key, { value: fn, writable: true, enumerable: true, configurable: true });
+  };
+  cssMethod("add", function add(value) {
+    const data = customStateSetOf(this);
+    value = String(value);
+    if (!data.set.has(value)) { data.set.add(value); syncCustomStates(data); }
+    return this;
+  }, 1);
+  cssMethod("delete", function (value) {
+    const data = customStateSetOf(this);
+    const removed = data.set.delete(String(value));
+    if (removed) syncCustomStates(data);
+    return removed;
+  }, 1);
+  cssMethod("has", function has(value) { return customStateSetOf(this).set.has(String(value)); }, 1);
+  cssMethod("clear", function clear() {
+    const data = customStateSetOf(this);
+    if (data.set.size) { data.set.clear(); syncCustomStates(data); }
+  }, 0);
+  cssMethod("forEach", function forEach(callback, thisArg) {
+    const data = customStateSetOf(this);
+    if (typeof callback !== "function") throw new TypeError("CustomStateSet.forEach: the callback is not a function");
+    data.set.forEach((value) => callback.call(thisArg, value, value, this));
+  }, 1);
+  cssMethod("entries", function entries() { return customStateSetOf(this).set.entries(); }, 0);
+  const cssValues = function values() { return customStateSetOf(this).set.values(); };
+  cssMethod("values", cssValues, 0);
+  Object.defineProperty(cssProto, "keys", { value: cssValues, writable: true, enumerable: true, configurable: true });
+  Object.defineProperty(cssProto, Symbol.iterator, { value: cssValues, writable: true, configurable: true });
+  Object.defineProperty(cssProto, "size", {
+    get: function size() { return customStateSetOf(this).set.size; }, enumerable: true, configurable: true,
+  });
+  globalThis.CustomStateSet = CustomStateSet;
+
+  // ElementInternals.prototype.states ([SameObject]).
+  function installElementInternalsStates(proto) {
+    Object.defineProperty(proto, "states", {
+      get: function states() {
+        checkReceiver(this, "ElementInternals", "states");
+        let set = internalsStates.get(this);
+        if (!set) {
+          // The host keeps the states too, so a set made again for a proxy
+          // that was collected (and its set with it) starts from them.
+          const current = rehydrate(__rb_host_get(this[HKEY], "__states")) || [];
+          set = Object.create(cssProto);
+          customStateSetData.set(set, { set: new Set(current), internals: this });
+          internalsStates.set(this, set);
+        }
+        return set;
+      },
+      enumerable: true, configurable: true,
+    });
+  }
   // The bare `customElements` global is the window's registry (bound once the
   // window is: see exposeConstructorsOnWindow).
 

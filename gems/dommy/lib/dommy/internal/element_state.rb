@@ -30,7 +30,8 @@ module Dommy
       end
 
       def enableable_element?(element)
-        %w[button input select textarea optgroup option fieldset].include?(element.local_name.to_s.downcase)
+        %w[button input select textarea optgroup option fieldset].include?(element.local_name.to_s.downcase) ||
+          FormAssociatedCustomElements.face?(element)
       end
 
       # A candidate for constraint validation: a form-associated control whose
@@ -60,7 +61,7 @@ module Dommy
       end
 
       def descendant_candidates(element)
-        element.query_selector_all("input, select, textarea, button").select do |c|
+        element.query_selector_all(FormAssociatedCustomElements.selector("input, select, textarea, button")).select do |c|
           validation_candidate?(c)
         end
       end
@@ -223,6 +224,13 @@ module Dommy
       # or "custom" (HTML §4.16.3). An HTML element with a valid custom
       # element name is "undefined" until a definition has constructed it,
       # and "failed" when that went wrong.
+      # `:state(name)` — a custom element whose ElementInternals' states
+      # (its CustomStateSet) contain `name`.
+      def custom_state?(element, name)
+        internals = element.__internal_element_internals__ if element.respond_to?(:__internal_element_internals__)
+        internals ? internals.state?(name.to_s) : false
+      end
+
       def defined_element?(element)
         state = element.__internal_custom_element_state__
         state == "uncustomized" || state == "custom"
