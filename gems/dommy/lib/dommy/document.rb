@@ -1126,6 +1126,8 @@ module Dommy
       @fullscreen_element = element
       return if previous == element
 
+      # :fullscreen and :modal match the fullscreen element.
+      __internal_note_selector_state_change__
       dispatch_event(Event.new("fullscreenchange"))
     end
 
@@ -1133,6 +1135,7 @@ module Dommy
       return PromiseValue.resolve(@default_view, nil) if @fullscreen_element.nil?
 
       @fullscreen_element = nil
+      __internal_note_selector_state_change__
       dispatch_event(Event.new("fullscreenchange"))
       PromiseValue.resolve(@default_view, nil)
     end

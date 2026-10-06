@@ -64,6 +64,7 @@ module Dommy
             stack.hint_stack_parent = ancestor if mode == "hint" && ancestor&.__internal_popover_opened_mode__ == "auto"
           end
           @__popover_open__ = true
+          @document.__internal_note_selector_state_change__
           queue_toggle_event(popover_toggle_tracker, false, true)
         ensure
           stack.showing_popover = false
@@ -124,6 +125,7 @@ module Dommy
           stack.remove(self)
           @__popover_opened_mode__ = nil
           @__popover_open__ = false
+          @document.__internal_note_selector_state_change__
           stack.hint_stack_parent = nil if stack.hint_stack_parent.equal?(self) || stack.list("hint").empty?
           queue_toggle_event(popover_toggle_tracker, true, false) if fire_events
         ensure
@@ -136,6 +138,9 @@ module Dommy
       # The mode an auto or hint popover was shown in — "auto" or "hint" — or
       # nil: HTML's "opened in popover mode".
       def __internal_popover_opened_mode__ = @__popover_opened_mode__
+
+      # Whether the popover visibility state is showing, for :popover-open.
+      def __internal_popover_showing__? = popover_showing?
 
       # HTML's removing steps for an element that may be a popover: it hides,
       # without events.

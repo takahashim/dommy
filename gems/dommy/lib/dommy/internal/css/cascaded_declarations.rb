@@ -146,7 +146,10 @@ module Dommy
           return if @pseudo_element
 
           UAStylesheet.element_declarations(@element).each_with_index do |(name, value, specificity), position|
-            rank = precedence(:ua, false, specificity, 0, position, layer_count, nil)
+            # These rules come after the sheet's in source order, so at equal
+            # specificity they win (`dialog:popover-open` over
+            # `dialog:not([open])`).
+            rank = precedence(:ua, false, specificity, INLINE_ORDER, position, layer_count, nil)
             yield name, value, rank, :ua
           end
 

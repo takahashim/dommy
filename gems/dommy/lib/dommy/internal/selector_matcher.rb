@@ -294,6 +294,10 @@ module Dommy
         when "lang" then ElementState.lang_match?(element, pseudo.argument)
         when "link" then ElementState.link_element?(element)
         when "any-link" then ElementState.link_element?(element)
+        when "popover-open" then ElementState.popover_open?(element)
+        when "open" then ElementState.open_element?(element)
+        when "modal" then ElementState.modal_element?(element)
+        when "fullscreen" then ElementState.fullscreen_element?(element)
         else
           false
         end

@@ -41,6 +41,11 @@ module Dommy
           "read-write" => %w[readonly disabled contenteditable type],
           "lang" => %w[lang xml:lang], "dir" => %w[dir],
           "target" => %w[id], "target-within" => %w[id],
+          # Showing and hiding a popover, a dialog's modality and the
+          # fullscreen element are selector-state bumps; the attributes are
+          # what can flip the answer with no such bump.
+          "popover-open" => %w[popover], "open" => %w[open],
+          "modal" => [], "fullscreen" => [],
         }.freeze
 
         TEXT_SENSITIVE_PSEUDOS = %w[empty blank].freeze

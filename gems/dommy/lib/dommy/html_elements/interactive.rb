@@ -81,7 +81,7 @@ module Dommy
       return nil if __internal_has_attribute__?("open") || !is_connected? || popover_showing?
 
       self.open = true
-      @__dialog_is_modal__ = true
+      set_modal(true)
       queue_toggle_event(dialog_toggle_tracker, false, true)
       hide_popovers_outside
       nil
@@ -100,7 +100,7 @@ module Dommy
       return nil unless __internal_has_attribute__?("open")
 
       self.open = false
-      @__dialog_is_modal__ = false
+      set_modal(false)
       @return_value = value.to_s unless value.nil?
       queue_toggle_event(dialog_toggle_tracker, true, false)
       queue_element_task { dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__) }
@@ -125,6 +125,14 @@ module Dommy
     end
 
     private
+
+    # Set "is modal", which :modal reads.
+    def set_modal(value)
+      return if @__dialog_is_modal__ == value
+
+      @__dialog_is_modal__ = value
+      @document.__internal_note_selector_state_change__
+    end
 
     # The last steps of showing a dialog, either way: the auto and hint
     # popovers it is not nested in close — the dialog itself too, when it is

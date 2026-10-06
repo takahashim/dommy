@@ -35,7 +35,7 @@ class TestInternalModuleApi < Minitest::Test
       html_element? html_document? enableable_element? disabled_element?
       constraint_invalid? constraint_valid? form_control_required?
       form_control_optional? read_only_element? read_write_element?
-      dir_match? lang_match? link_element?
+      dir_match? lang_match? link_element? popover_open? open_element? modal_element? fullscreen_element?
     ],
     Dommy::Internal::Infra => %w[ascii_whitespace? split_on_ascii_whitespace],
     Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],
@@ -59,7 +59,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::ElementTopLayer => %w[request_fullscreen],
     Dommy::Internal::ElementPopover => %w[
       show_popover hide_popover toggle_popover __js_call__ __internal_hide_popover__
-      __internal_popover_opened_mode__ __internal_popover_removed__ __internal_attribute_changed__
+      __internal_popover_opened_mode__ __internal_popover_showing__? __internal_popover_removed__ __internal_attribute_changed__
     ],
     Dommy::Internal::ElementGeometry => %w[
       get_bounding_client_rect get_client_rects __test_scroll_log__

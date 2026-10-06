@@ -149,6 +149,9 @@ module Dommy
         # The `dir` attribute drives the computed `direction` (Directionality)
         # as well as `:dir()`, neither of which is a plain attribute selector.
         return true if name.to_s.casecmp?("dir")
+        # The UA rules for popovers and dialogs (UAStylesheet
+        # .top_layer_declarations) read these with no selector of their own.
+        return true if name.to_s.casecmp?("popover") || name.to_s.casecmp?("open")
 
         index = @__internal_css_style_cache__&.index
         # No RuleIndex yet: the bump is nearly free (at most it drops the
