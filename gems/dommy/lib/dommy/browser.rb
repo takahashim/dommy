@@ -384,6 +384,7 @@ module Dommy
 
       new_window = Dommy.parse(response.body)
       new_window.location.__internal_set_url__(final_url)
+      new_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
       new_window.navigation_delegate = self
       @window = new_window
       install_runtime(new_window)
@@ -425,6 +426,7 @@ module Dommy
 
       sub_window = frame_document_for(response)
       sub_window.location.__internal_set_url__(final_url)
+      sub_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
       # A navigation from inside the loaded frame also stays in that frame.
       sub_window.navigation_delegate = frame_navigation_delegate(frame)
       # A nested realm needs the seeded constructors to run the response's
@@ -501,10 +503,15 @@ module Dommy
     # API hit, an image) leave the current page. A response with no Content-Type
     # is treated as a document (fixtures commonly omit it).
     def document_response?(response)
-      headers = response.headers || {}
-      key = headers.keys.find { |k| k.to_s.casecmp?("content-type") }
-      content_type = key ? headers[key].to_s.downcase : ""
+      content_type = response_header(response, "content-type").to_s.downcase
       content_type.empty? || content_type.include?("html") || content_type.include?("xml")
+    end
+
+    # A response header's value by case-insensitive name, or nil.
+    def response_header(response, name)
+      headers = response.headers || {}
+      key = headers.keys.find { |k| k.to_s.casecmp?(name) }
+      key && headers[key]
     end
 
     def submit_button?(button)

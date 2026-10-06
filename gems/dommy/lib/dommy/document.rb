@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "uri"
+require "time"
 
 require_relative "internal/node_wrapper_cache"
 require_relative "internal/directionality"
@@ -845,6 +846,33 @@ module Dommy
       return @origin_document&.origin.to_s unless view&.location
 
       view.origin
+    end
+
+    # `document.lastModified` — the source's last modification (the response's
+    # Last-Modified header, when the embedder passed one on), else the current
+    # time, in local time as "MM/DD/YYYY hh:mm:ss".
+    #
+    # Spec: https://html.spec.whatwg.org/#dom-document-lastmodified
+    def last_modified
+      (@last_modified_time || Time.now).getlocal.strftime("%m/%d/%Y %H:%M:%S")
+    end
+
+    # Record the document's source last-modified time: a Time, or an HTTP date
+    # string (a Last-Modified header value). One that does not parse leaves it
+    # unknown.
+    def __internal_set_last_modified__(value)
+      @last_modified_time =
+        case value
+        when Time then value
+        when nil then nil
+        else
+          begin
+            Time.httpdate(value.to_s.strip)
+          rescue ArgumentError
+            nil
+          end
+        end
+      nil
     end
 
     # `document.referrer` — Dommy never has a referring page, so this
@@ -1874,7 +1902,7 @@ module Dommy
       when "designMode"
         @design_mode || "off"
       when "lastModified"
-        @last_modified || "01/01/1970 00:00:00"
+        last_modified
       when "readyState"
         # "complete" by default (the document is fully parsed before scripts
         # run); an embedder can replay "loading" → "interactive" → "complete"

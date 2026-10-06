@@ -102,6 +102,20 @@ class TestDocumentExtras < Minitest::Test
     end
   end
 
+  # Unknown modification time: the current local time, "MM/DD/YYYY hh:mm:ss".
+  def test_last_modified_defaults_to_now
+    value = @doc.__js_get__("lastModified")
+    assert_match(%r{\A\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}\z}, value)
+    parsed = Time.strptime(value, "%m/%d/%Y %H:%M:%S")
+    assert_in_delta(Time.now.to_f, parsed.to_f, 5)
+  end
+
+  def test_last_modified_from_a_last_modified_header
+    @doc.__internal_set_last_modified__("Thu, 01 Jan 1970 01:23:45 GMT")
+    expected = Time.at(5025).getlocal.strftime("%m/%d/%Y %H:%M:%S")
+    assert_equal(expected, @doc.last_modified)
+  end
+
   def test_node_type_constant
     assert_equal(9, @doc.__js_get__("nodeType"))
   end
