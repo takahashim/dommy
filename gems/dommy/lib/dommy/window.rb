@@ -300,11 +300,11 @@ module Dommy
       when "dispatchEvent"
         dispatch_event(args[0])
       when "setTimeout"
-        @scheduler.set_timeout(args[0], timer_delay(args[1]))
+        @scheduler.set_timeout(timer_handler(args[0]), timer_delay(args[1]), args.drop(2), this: self)
       when "clearTimeout"
         @scheduler.clear_timeout(args[0])
       when "setInterval"
-        @scheduler.set_interval(args[0], timer_delay(args[1]))
+        @scheduler.set_interval(timer_handler(args[0]), timer_delay(args[1]), args.drop(2), this: self)
       when "clearInterval"
         @scheduler.clear_interval(args[0])
       when "requestAnimationFrame"
@@ -689,11 +689,27 @@ module Dommy
 
     # The timer delay (WebIDL `long`, default 0). A missing/undefined argument
     # or any non-numeric value coerces to 0 rather than raising.
+    # The timeout argument, a WebIDL `long` (ToNumber, then ToInt32: NaN and
+    # the infinities are 0, everything else truncates and wraps modulo 2^32,
+    # so 2**32 + 1 is 1). The timer steps clamp a negative one to 0.
     def timer_delay(value)
-      return value if value.is_a?(Numeric)
-      return value.to_i if value.is_a?(String) && value =~ /\A\s*-?\d+/
+      value = 0 if value.nil? || value.equal?(Bridge::UNDEFINED)
+      Internal::WebIDL.long(value)
+    end
 
-      0
+    # A timer's handler: a function is invoked as it is; anything else is
+    # converted to a string and, when the timer fires, compiled and run as a
+    # classic script in the window's global scope.
+    def timer_handler(handler)
+      return handler if CallableInvoker.js_callable?(handler) || handler.respond_to?(:call)
+
+      source = handler.nil? || handler.equal?(Bridge::UNDEFINED) ? (handler.nil? ? "null" : "undefined") : handler.to_s
+      proc do
+        @document.script_runner&.call(source)
+      rescue StandardError => e
+        # The compiled script threw: reported like any script's exception.
+        Internal::ExceptionReport.report_at(self, e)
+      end
     end
 
     # WebIDL coercion for the `Text`/`Comment` constructor's `optional DOMString

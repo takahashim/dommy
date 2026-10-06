@@ -130,7 +130,9 @@ class TestRequestIdleCallback < Minitest::Test
     win.__js_call__("requestIdleCallback", [proc { |dl| called = dl }])
     win.scheduler.advance_time(0)
     refute_nil(called)
-    assert(called["timeRemaining"] > 0)
+    # An IdleDeadline: timeRemaining() is a method, didTimeout an attribute.
+    assert_operator(called.__js_call__("timeRemaining", []), :>, 0)
+    assert_equal(false, called.__js_get__("didTimeout"))
   end
 
   def test_cancel_prevents_callback
@@ -486,5 +488,57 @@ class TestSubtleCrypto < Minitest::Test
 
   def test_returns_promise_value
     assert_kind_of(Dommy::PromiseValue, @subtle.digest("SHA-256", "x"))
+  end
+end
+
+# --- timers ---------------------------------------------------------
+
+class TestTimerIdentifiers < Minitest::Test
+  include DommyTestHelper
+
+  # HTML keeps animation frame callback identifiers apart from the map of
+  # active timers: clearTimeout with a rAF's handle cancels nothing.
+  def test_clear_timeout_does_not_cancel_an_animation_frame
+    win = make_window
+    ran = []
+    raf = win.__js_call__("requestAnimationFrame", [proc { ran << :raf }])
+    win.__js_call__("clearTimeout", [raf])
+    win.__js_call__("clearInterval", [raf])
+    win.scheduler.advance_time(20)
+    assert_equal([:raf], ran)
+  end
+
+  def test_cancel_animation_frame_does_not_cancel_a_timer
+    win = make_window
+    ran = []
+    timer = win.__js_call__("setTimeout", [proc { ran << :timer }, 0])
+    win.__js_call__("cancelAnimationFrame", [timer])
+    win.__js_call__("cancelIdleCallback", [timer])
+    win.scheduler.advance_time(0)
+    assert_equal([:timer], ran)
+  end
+
+  # setTimeout(handler, timeout, ...arguments) passes the extra arguments on.
+  def test_extra_arguments_reach_the_handler
+    win = make_window
+    got = nil
+    win.__js_call__("setTimeout", [proc { |*args| got = args }, 0, "a", 2])
+    win.scheduler.advance_time(0)
+    assert_equal(["a", 2], got)
+  end
+
+  # The timeout is a WebIDL long: Infinity and NaN are 0, 2**32 + 1 wraps to 1.
+  def test_timeout_converts_as_a_webidl_long
+    win = make_window
+    ran = []
+    win.__js_call__("setTimeout", [proc { ran << :inf }, Float::INFINITY])
+    win.__js_call__("setTimeout", [proc { ran << :wrap }, (2**32) + 1])
+    win.__js_call__("setTimeout", [proc { ran << :str }, "5"])
+    win.scheduler.advance_time(0)
+    assert_equal([:inf], ran)
+    win.scheduler.advance_time(1)
+    assert_equal(%i[inf wrap], ran)
+    win.scheduler.advance_time(4)
+    assert_equal(%i[inf wrap str], ran)
   end
 end
