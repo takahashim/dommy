@@ -13,7 +13,6 @@
     "CanvasPattern",
     "CaretPosition",
     "CloseWatcher",
-    "CommandEvent",
     "CustomStateSet",
     "ElementInternals",
     "External",
@@ -359,12 +358,6 @@
       "text",
       "vLink"
     ],
-    "HTMLButtonElement": [
-      "command",
-      "commandForElement",
-      "popoverTargetAction",
-      "popoverTargetElement"
-    ],
     "HTMLCanvasElement": [
       "transferControlToOffscreen"
     ],
@@ -376,10 +369,6 @@
     ],
     "HTMLDetailsElement": [
       "open"
-    ],
-    "HTMLDialogElement": [
-      "closedBy",
-      "requestClose"
     ],
     "HTMLDirectoryElement": [
       "compact"
@@ -551,8 +540,6 @@
       "colorSpace",
       "dirName",
       "height",
-      "popoverTargetAction",
-      "popoverTargetElement",
       "showPicker",
       "size",
       "src",
@@ -754,9 +741,6 @@
       "convertRectFromNode",
       "getBoxQuads",
       "wholeText"
-    ],
-    "ToggleEvent": [
-      "source"
     ],
     "UIEvent": [
       "which"

@@ -67,6 +67,7 @@ module Dommy
         token_list: %i[reflected_token_list set_reflected_token_list],
         boolean: %i[reflected_boolean set_reflected_boolean],
         enumerated: %i[reflected_enumerated set_reflected_enumerated],
+        element_ref: %i[reflected_element set_reflected_element],
         setter_only: [nil, :set_reflected_string],
         long_setter: [nil, :set_reflected_long],
         ulong_setter: [nil, :set_reflected_ulong],
@@ -80,6 +81,12 @@ module Dommy
 
         def reflect_boolean(*names, **mapped)
           _reflect(:boolean, names, mapped)
+        end
+
+        # An `Element?` attribute (HTML §2.6.1 "reflecting element
+        # references"): `button.commandForElement`, `popoverTargetElement`.
+        def reflect_element(*names, **mapped)
+          _reflect(:element_ref, names, mapped)
         end
 
         # An IDL attribute the specs reflect "limited to only known values" —
@@ -589,6 +596,17 @@ module Dommy
       # `iframe.sandbox` is still the same DOMTokenList afterwards.
       def set_reflected_token_list(name, value, options = EMPTY_OPTIONS)
         reflected_token_list(name, options).value = value
+      end
+
+      # The attr-associated element: the element set through the IDL
+      # attribute while it stays in a valid scope, else the first element in
+      # this element's tree whose ID is the content attribute's value (the
+      # ARIA element reflection, Internal::ElementAria, keyed by the content
+      # attribute).
+      def reflected_element(name, _options = nil) = aria_element_get(name, name)
+
+      def set_reflected_element(name, value, _options = nil)
+        aria_element_set(name, name, value)
       end
 
       def reflected_boolean(name, _options = nil)

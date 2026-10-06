@@ -1,6 +1,54 @@
 # frozen_string_literal: true
 
 module Dommy
+  module Internal
+    # DOM's "retarget A against B", which event dispatch applies to the
+    # target and relatedTarget, and which the `source` getters of
+    # ToggleEvent and CommandEvent apply against their currentTarget.
+    module Retargeting
+      module_function
+
+      # While `target` lives in a shadow tree that does not also contain
+      # `against`, hand it up to that tree's host. A listener outside a
+      # shadow boundary therefore sees the host, never the node inside it,
+      # which is what keeps a shadow tree encapsulated. A nil `against`
+      # contains nothing, so the result is outside every shadow tree.
+      def retarget(target, against)
+        current = target
+        loop do
+          root = current.respond_to?(:get_root_node) ? current.get_root_node : nil
+          return current unless root.is_a?(ShadowRoot)
+          return current if against && shadow_including_inclusive_ancestor?(root, against)
+
+          host = root.host
+          return current if host.nil?
+
+          current = host
+        end
+      end
+
+      # Whether `ancestor` is `node` or contains it in the *shadow-including*
+      # tree. Climbs out of each shadow root through its host, which
+      # `parentNode` alone does not do once a slot is involved.
+      def shadow_including_inclusive_ancestor?(ancestor, node)
+        return false unless ancestor
+
+        current = node
+        while current
+          return true if current.equal?(ancestor)
+
+          current =
+            if current.is_a?(ShadowRoot)
+              current.host
+            elsif current.respond_to?(:parent_node)
+              current.parent_node
+            end
+        end
+        false
+      end
+    end
+  end
+
   # Note: `Callback` and `Constructor` live in `Dommy::Bridge::*` —
   # they're bridge-adapter classes, not part of the public DOM
   # surface.
@@ -570,42 +618,11 @@ module Dommy
       @event_listeners[type]
     end
 
-    # WHATWG "retargeting": while `target` lives in a shadow tree that does not
-    # also contain `against`, hand it up to that tree's host. A listener outside
-    # a shadow boundary therefore sees the host, never the node inside it, which
-    # is what keeps a shadow tree encapsulated.
-    def retarget_against(target, against)
-      current = target
-      loop do
-        root = root_of(current)
-        return current unless root.is_a?(ShadowRoot)
-        return current if against && shadow_including_inclusive_ancestor?(root, against)
+    # WHATWG "retargeting" (Internal::Retargeting).
+    def retarget_against(target, against) = Internal::Retargeting.retarget(target, against)
 
-        host = root.host
-        return current if host.nil?
-
-        current = host
-      end
-    end
-
-    # Whether `ancestor` is `node` or contains it in the *shadow-including* tree.
-    # Climbs out of each shadow root through its host, which `parentNode` alone
-    # does not do once a slot is involved.
     def shadow_including_inclusive_ancestor?(ancestor, node)
-      return false unless ancestor
-
-      current = node
-      while current
-        return true if current.equal?(ancestor)
-
-        current =
-          if current.is_a?(ShadowRoot)
-            current.host
-          elsif current.respond_to?(:parent_node)
-            current.parent_node
-          end
-      end
-      false
+      Internal::Retargeting.shadow_including_inclusive_ancestor?(ancestor, node)
     end
   end
 
@@ -1022,20 +1039,71 @@ module Dommy
     end
   end
 
+  module Internal
+    # The `source` member ToggleEvent and CommandEvent share: an `Element?`
+    # in the init dictionary, and a getter that retargets it against the
+    # event's currentTarget, so a listener outside a shadow tree sees the
+    # host rather than the invoker inside it.
+    module EventSource
+      def source
+        @source && Retargeting.retarget(@source, @current_target)
+      end
+
+      private
+
+      def read_source_init(init)
+        value = read_init(init, "source")
+        return nil if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+        raise Bridge::TypeError, "source is not of type 'Element'" unless value.is_a?(Element)
+
+        value
+      end
+    end
+  end
+
   # ToggleEvent — fired at a `<details>` (and other poppable elements) when it
   # opens/closes, exposing the transition via `oldState` / `newState`
   # ("open"/"closed"). A plain Event subclass.
   class ToggleEvent < Event
+    include Internal::EventSource
+
+    attr_reader :old_state, :new_state
+
     def initialize(type, init = nil)
       super
       @old_state = read_init(init, "oldState").to_s
       @new_state = read_init(init, "newState").to_s
+      @source = read_source_init(init)
     end
 
     def __js_get__(key)
       case key
       when "oldState" then @old_state
       when "newState" then @new_state
+      when "source" then source
+      else super
+      end
+    end
+  end
+
+  # `CommandEvent` — fired at the element a `<button commandfor>` controls
+  # when the button is activated: `command` is the button's command
+  # (`"show-modal"`, `"--custom"`), `source` the button.
+  class CommandEvent < Event
+    include Internal::EventSource
+
+    attr_reader :command
+
+    def initialize(type, init = nil)
+      super
+      @source = read_source_init(init)
+      @command = read_init(init, "command").to_s
+    end
+
+    def __js_get__(key)
+      case key
+      when "command" then @command
+      when "source" then source
       else super
       end
     end

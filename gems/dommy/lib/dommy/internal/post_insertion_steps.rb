@@ -29,6 +29,15 @@ module Dommy
         run_connected_script(element)
         fire_blank_iframe_load(element)
         element.__internal_run_pragma__ if element.respond_to?(:__internal_run_pragma__)
+        autofocus_inserted(element)
+      end
+
+      # An element with an autofocus attribute inserted into a document
+      # becomes an autofocus candidate (HTML §6.6.6).
+      def autofocus_inserted(element)
+        return unless element.respond_to?(:autofocus) && element.__internal_has_attribute__?("autofocus")
+
+        @document.__internal_autofocus_inserted__(element)
       end
 
       # A `<details>` among the inserted nodes: exactly one member of a group

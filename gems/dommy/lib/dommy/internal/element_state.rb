@@ -226,6 +226,65 @@ module Dommy
         %w[a area].include?(element.local_name.to_s.downcase) && element.__internal_has_attribute__?("href")
       end
 
+      # `:focus` (HTML's "has the focus"): the focused element, unless it is
+      # a navigable container, and every shadow host whose shadow tree holds
+      # an element that has the focus. (`:focus-visible` answers the same.)
+      def has_focus?(element)
+        focused = element.owner_document&.__internal_focused_element__
+        return false if focused.nil?
+        return false if html_element?(element) && %w[iframe frame].include?(element.local_name)
+
+        current = focused
+        loop do
+          return true if current.equal?(element)
+
+          root = current.get_root_node
+          return false unless root.is_a?(ShadowRoot) && root.host
+
+          current = root.host
+        end
+      end
+
+      # `:focus-within`: the element has the focus, or a flat-tree
+      # descendant does.
+      def focus_within?(element)
+        focused = element.owner_document&.__internal_focused_element__
+        current = focused
+        while current
+          return true if current.equal?(element)
+
+          current = Focusability.flat_tree_parent(current) || current.parent_node.then { |p| p.is_a?(Element) ? p : nil }
+        end
+        false
+      end
+
+      # `:popover-open` — an HTML element whose popover attribute is not in
+      # the No Popover state and whose popover visibility state is showing.
+      def popover_open?(element)
+        element.respond_to?(:__internal_popover_showing__?) && !element.popover.nil? &&
+          element.__internal_popover_showing__?
+      end
+
+      # `:open` — a details or dialog element with an open attribute. (The
+      # select and input pickers it also covers are never open: nothing
+      # renders one.)
+      def open_element?(element)
+        html_element?(element) && %w[details dialog].include?(element.local_name) &&
+          element.__internal_has_attribute__?("open")
+      end
+
+      # `:modal` — a dialog whose "is modal" is true, or the element whose
+      # fullscreen flag is set.
+      def modal_element?(element)
+        (element.is_a?(HTMLDialogElement) && element.__internal_modal__?) || fullscreen_element?(element)
+      end
+
+      # `:fullscreen` — the document's fullscreen element.
+      def fullscreen_element?(element)
+        doc = element.owner_document
+        !doc.nil? && doc.respond_to?(:fullscreen_element) && doc.fullscreen_element.equal?(element)
+      end
+
       # `:dir()` — the element's computed directionality, from the `dir`
       # attribute (including the auto heuristic) or inheritance.
       def dir_match?(element, argument)

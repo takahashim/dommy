@@ -1006,7 +1006,7 @@ module Dommy
     # Drop any explicit ARIA element reference (singular or plural) whose content
     # attribute was just set directly (so the IDL getter re-resolves the IDREF).
     def clear_aria_element_ref_for(content_attr)
-      @aria_element_refs&.delete_if { |key, _| aria_element_attr(key) == content_attr }
+      @aria_element_refs&.delete_if { |key, _| key == content_attr || aria_element_attr(key) == content_attr }
       @aria_elements_refs&.delete_if { |key, _| aria_elements_attr(key) == content_attr }
     end
 
@@ -1544,7 +1544,7 @@ module Dommy
     def attribute_change_steps(local_name, namespace)
       return unless namespace.nil?
 
-      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-")
+      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-") || @aria_element_refs&.key?(local_name)
       @cryptographic_nonce = nil if local_name == "nonce"
     end
 
@@ -1561,21 +1561,6 @@ module Dommy
       Backend.remove_attribute_ns(@__node__, ns, local)
       attribute_change_steps(local, ns)
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
-    end
-
-    # blur (at the element) then focusout (bubbling), per UI Events order.
-    def fire_focus_out(element, new_target)
-      element.dispatch_event(Dommy::FocusEvent.new("blur", "composed" => true, "relatedTarget" => new_target))
-      element.dispatch_event(Dommy::FocusEvent.new("focusout",
-        "bubbles" => true, "composed" => true, "relatedTarget" => new_target))
-      nil
-    end
-
-    # A disabled form control cannot be focused (HTML focusability). Other
-    # elements are all treated as focusable — no layout means no visibility /
-    # tabindex modelling.
-    def disabled_form_control?
-      %w[input button select textarea].include?(local_name) && __internal_has_attribute__?("disabled")
     end
 
     def attribute_signature

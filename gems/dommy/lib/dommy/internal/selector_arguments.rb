@@ -20,7 +20,8 @@ module Dommy
       fullscreen future has host hover in-range indeterminate invalid is lang
       last-child last-of-type left link local-link modal not nth-child nth-col
       nth-last-child nth-last-col nth-last-of-type nth-of-type only-child
-      only-of-type optional out-of-range past placeholder-shown playing paused
+      only-of-type open optional out-of-range past placeholder-shown playing paused
+      popover-open
       read-only read-write required right root scope target target-within
       user-invalid user-valid valid visited where dir
       before after first-line first-letter

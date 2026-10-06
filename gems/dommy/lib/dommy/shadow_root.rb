@@ -101,14 +101,16 @@ module Dommy
       @host.respond_to?(:is_connected?) && @host.is_connected?
     end
 
-    # `shadowRoot.activeElement` — the focused element, retargeted to this shadow
-    # tree: the document's focused element when it is inside this (connected)
-    # shadow root, else null.
+    # `shadowRoot.activeElement` — the focused element retargeted against
+    # this shadow root: the element itself when it is in this tree, the host
+    # (in this tree) of the shadow tree it is in when that is nested inside
+    # this one, else null.
     def active_element
-      return nil unless connected?
-
       focused = @document.__internal_focused_element__
-      focused && contains?(focused) ? focused : nil
+      return nil unless focused
+
+      candidate = Internal::Retargeting.retarget(focused, self)
+      candidate.get_root_node.equal?(self) ? candidate : nil
     end
 
     # `shadowRoot.styleSheets` — the CSSStyleSheets of the `<style>` / `<link>`

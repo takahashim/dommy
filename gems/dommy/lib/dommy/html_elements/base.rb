@@ -131,7 +131,14 @@ module Dommy
         # toggle, running or undoing the activation behavior) is dispatch's job,
         # so a synthesized `dispatchEvent(new MouseEvent("click"))` behaves
         # identically to click().
-        dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+        #
+        # HTML "fire a synthetic pointer event" named click, not trusted: a
+        # PointerEvent that bubbles, is cancelable and composed, with the
+        # window as its view — and, per Pointer Events, pointerId -1 and an
+        # empty pointerType, as a click no pointer made.
+        view = @document.default_view
+        dispatch_event(PointerEvent.new("click", "bubbles" => true, "cancelable" => true, "composed" => true,
+          "button" => 0, "pointerId" => -1, "pointerType" => "", "view" => view.is_a?(Window) ? view : nil))
       ensure
         # Not a method-level `ensure`: the early return above must not clear the
         # flag the click it returned from is still holding.

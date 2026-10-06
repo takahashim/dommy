@@ -31,13 +31,15 @@ module Dommy
       private
 
       # False when a listener canceled an opening, so the caller aborts it.
-      def fire_beforetoggle(old_open, new_open)
+      # `source` is the element that initiated the change (a popover or
+      # command invoker), or nil.
+      def fire_beforetoggle(old_open, new_open, source = nil)
         dispatch_event(ToggleEvent.new("beforetoggle",
           "oldState" => toggle_state(old_open), "newState" => toggle_state(new_open),
-          "bubbles" => false, "cancelable" => new_open).__internal_mark_trusted__)
+          "source" => source, "bubbles" => false, "cancelable" => new_open).__internal_mark_trusted__)
       end
 
-      def queue_toggle_event(tracker, old_open, new_open)
+      def queue_toggle_event(tracker, old_open, new_open, source = nil)
         new_state = toggle_state(new_open)
         generation = tracker.begin_run(toggle_state(old_open))
         queue_element_task do
@@ -45,7 +47,7 @@ module Dommy
 
           tracker.finish
           dispatch_event(ToggleEvent.new("toggle",
-            "oldState" => tracker.old_state, "newState" => new_state,
+            "oldState" => tracker.old_state, "newState" => new_state, "source" => source,
             "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
         end
       end

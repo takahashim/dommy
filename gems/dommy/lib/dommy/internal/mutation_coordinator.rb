@@ -68,11 +68,15 @@ module Dommy
         each_shadow_including_element(nk) { |element| notify_moved(element) }
       end
 
-      # HTML's removing steps for a popover (it hides) and the disconnected
-      # callbacks, over the same shadow-including walk.
+      # HTML's removing steps — the focus fixup, a popover hiding, a dialog
+      # leaving the top layer — and the disconnected callbacks, over the same
+      # shadow-including walk.
       def notify_disconnected_subtree(nk)
+        root = @document.wrap_node(nk)
+        @document.__internal_focused_subtree_removed__(root) if root
         each_shadow_including_element(nk) do |element|
           element.__internal_popover_removed__ if element.respond_to?(:__internal_popover_removed__)
+          element.__internal_dialog_removed__ if element.respond_to?(:__internal_dialog_removed__)
           notify_disconnected(element)
         end
       end

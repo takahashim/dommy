@@ -28,7 +28,7 @@ module Dommy
 
       def __js_call__(method, args)
         case method
-        when "focus" then focus
+        when "focus" then focus(args[0])
         when "blur" then blur
         else super
         end
@@ -42,32 +42,22 @@ module Dommy
 
       def default_tab_index = -1
 
-      # `focus()` — the HTML focusing steps, minus layout: Dommy treats any
-      # such element as focusable (except a disabled form control), then
-      # updates document.activeElement AND fires the focus-change events a
-      # real browser would — blur/focusout on the previously focused element,
-      # then focus/focusin here, with relatedTarget linking the two. JS
-      # calling `input.focus()` therefore triggers the same focus handlers a
-      # user's click/tab would; already-focused and disabled targets are
-      # no-ops.
-      def focus
-        return nil if disabled_form_control?
-        return nil if @document.__internal_focused_element__.equal?(self)
-
-        previous = @document.__internal_focused_element__
-        fire_focus_out(previous, self) if previous
-        @document.__internal_set_active_element__(self)
-        dispatch_event(Dommy::FocusEvent.new("focus", "composed" => true, "relatedTarget" => previous))
-        dispatch_event(Dommy::FocusEvent.new("focusin",
-          "bubbles" => true, "composed" => true, "relatedTarget" => previous))
+      # `focus(options)` — HTML's focusing steps for this element
+      # (Internal::Focusability): a focusable area takes the focus; a shadow
+      # host that delegates focus hands it to its focus delegate; anything
+      # else (a plain div, a disabled or inert control, a disconnected or
+      # display:none element) is left alone, as is the element already
+      # focused. Moving the focus fires blur and focusout at the element that
+      # loses it, then focus and focusin here. Nothing scrolls.
+      def focus(_options = nil)
+        Focusability.run_focusing_steps(self)
         nil
       end
 
+      # `blur()` — HTML's unfocusing steps: the focused element gives the
+      # focus back to the viewport.
       def blur
-        return nil unless @document.__internal_focused_element__.equal?(self)
-
-        @document.__internal_set_active_element__(nil)
-        fire_focus_out(self, nil)
+        Focusability.run_unfocusing_steps(self)
         nil
       end
     end

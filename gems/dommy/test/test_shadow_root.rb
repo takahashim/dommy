@@ -236,8 +236,17 @@ class TestShadowRootEvents < Minitest::Test
   def test_event_inside_shadow_does_not_bubble_to_host_by_default
     seen_outside = false
     @host.add_event_listener("click", proc { seen_outside = true })
-    # default Event bubbles, but should stop at shadow boundary
-    @btn.click
+    # a bubbling event stops at the shadow boundary unless it is composed
+    @btn.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
     refute(seen_outside, "Non-composed event must not cross shadow boundary")
+  end
+
+  # click() fires a composed PointerEvent (HTML "fire a synthetic pointer
+  # event"), which the host sees.
+  def test_click_is_composed_and_reaches_the_host
+    seen_outside = false
+    @host.add_event_listener("click", proc { seen_outside = true })
+    @btn.click
+    assert(seen_outside)
   end
 end

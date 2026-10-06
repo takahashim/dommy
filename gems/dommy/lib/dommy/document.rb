@@ -1183,6 +1183,8 @@ module Dommy
       @fullscreen_element = element
       return if previous == element
 
+      # :fullscreen and :modal match the fullscreen element.
+      __internal_note_selector_state_change__
       dispatch_event(Event.new("fullscreenchange"))
     end
 
@@ -1190,6 +1192,7 @@ module Dommy
       return PromiseValue.resolve(@default_view, nil) if @fullscreen_element.nil?
 
       @fullscreen_element = nil
+      __internal_note_selector_state_change__
       dispatch_event(Event.new("fullscreenchange"))
       PromiseValue.resolve(@default_view, nil)
     end
@@ -2269,6 +2272,12 @@ module Dommy
       @backend_doc.css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
       @backend_doc.css("script").each { |node| __internal_html_element_wrapper__(node)&.__internal_mark_parser_inserted__ }
       @backend_doc.css("meta[http-equiv]").each { |node| __internal_html_element_wrapper__(node)&.__internal_run_pragma__ }
+      # Each element the parser inserted with an autofocus attribute is an
+      # autofocus candidate (only in a document with a browsing context).
+      @backend_doc.css("[autofocus]").each do |node|
+        element = wrap_node(node)
+        __internal_autofocus_inserted__(element) if element.respond_to?(:autofocus) && element.is_connected?
+      end
       nil
     end
 
