@@ -16,16 +16,11 @@ module Dommy
     include Internal::HTMLOrSVGOrMathMLElement
     include Internal::ElementCSSInlineStyle
     include Internal::ElementPopover
-    # `lang` reflects its own content attribute ("" when absent) — not the
-    # inherited language the element computes for matching.
-    reflect_string :lang
-    # `title` is the advisory information, a plain reflection of its own
-    # content attribute — an ancestor's title is not inherited here.
-    reflect_string :title
-    reflect_string access_key: { attr: "accesskey", js: "accessKey" }
-    reflect_boolean :inert, heading_reset: { attr: "headingreset", js: "headingReset" }
-    # How many levels a heading inside this element is offset by, 0 to 8.
-    reflect_ulong heading_offset: { attr: "headingoffset", js: "headingOffset", range: 0..8 }
+    # The plain reflections — `lang` and `title` (this element's own content
+    # attribute, "" when absent: not the language it inherits for matching or
+    # an ancestor's advisory title), `accessKey`, `inert`, `headingOffset`
+    # (0 to 8) — and every subclass's are declared from the IDL
+    # (Internal::IdlReflection, run once all element classes are defined).
     # The virtual keyboard's enter key and layout, limited to only known
     # values (HTML §6.8.5).
     reflect_enumerated enter_key_hint: { attr: "enterkeyhint", js: "enterKeyHint",
@@ -574,7 +569,6 @@ module Dommy
     include HyperlinkUtils
     reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
     reflect_setter :href
-    reflect_string :target, :download, :ping, :rel, :hreflang, :type
     reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
 
     # `a.text` is an alias for the element's descendant text content.
@@ -603,7 +597,6 @@ module Dommy
     include HyperlinkUtils
     reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
     reflect_setter :href
-    reflect_string :alt, :coords, :shape, :target, :download, :ping, :rel
     reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
   end
 end

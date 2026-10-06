@@ -13,8 +13,6 @@ module Dommy
     include SubmissionUrlAttribute
     reflect_setter form_action: "formaction"
     def form_action = submission_url("formaction")
-    reflect_string :name, :placeholder, :min, :max, :step, :pattern, default_value: "value",
-                   form_target: "formtarget"
     # `autocomplete` — the setter reflects, but the getter is HTML's autofill
     # processing model (Internal::Autofill). An input wears the "autofill
     # anchor mantle" only when its type is Hidden, which is HTML's one case
@@ -25,15 +23,12 @@ module Dommy
     end
     reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
                        form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
-    reflect_boolean :autofocus, :disabled, :required, :multiple, read_only: "readonly", default_checked: "checked",
-                    form_no_validate: "formnovalidate"
-    reflect_string :accept, :alt, :align, dir_name: "dirname", use_map: "usemap"
-    reflect_boolean :alpha, :switch
-    reflect_url :src
+    # `switch` (the checkbox switch control) is not in the IDL the table is
+    # generated from yet; the rest of the plain reflections (name, maxLength,
+    # size, …) come from the IDL and its overlay (Internal::IdlReflection).
+    reflect_boolean :switch
     reflect_enumerated color_space: { attr: "colorspace", keywords: %w[limited-srgb display-p3],
                                       missing: "limited-srgb", invalid: "limited-srgb" }
-    # `size` is limited to only positive numbers, default 20.
-    reflect_ulong size: { default: 20, positive: true }
     # `width` / `height` [ReflectSetter]: the getter is the dimensions of an
     # Image Button (its dimension attributes, as nothing is rendered), and 0
     # for every other type.
@@ -133,17 +128,6 @@ module Dommy
 
       super
     end
-
-    # maxLength / minLength: [ReflectNonNegative] longs — a missing, negative
-    # or unparseable content attribute reads as -1; setting a negative value
-    # throws IndexSizeError.
-    # (The IDL the WebIDL audit reads predates their [Reflect], so the getters
-    # are written over the shared helper rather than declared.)
-    MAX_LENGTH = { attr: "maxlength", non_negative: true }.freeze
-    MIN_LENGTH = { attr: "minlength", non_negative: true }.freeze
-    reflect_long_setter max_length: MAX_LENGTH, min_length: MIN_LENGTH
-    def max_length = reflected_long("maxlength", MAX_LENGTH)
-    def min_length = reflected_long("minlength", MIN_LENGTH)
 
     # The strategy for this control's `type`: what a number means here, and what
     # a step is worth. The sixteen `case type` branches that used to answer

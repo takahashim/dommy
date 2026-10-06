@@ -5,13 +5,9 @@ module Dommy
   #
   # One of the HTML element groups; html_elements.rb lists them all.
   class HTMLIFrameElement < HTMLElement
-    reflect_url :src
     reflect_token_list sandbox: { supported: Internal::SupportedTokens::IFRAME_SANDBOX }
-    reflect_string :srcdoc, :name, :allow
     reflect_enumerated loading: Internal::EnumeratedKeywordSets::LAZY_LOADING,
                        referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
-    reflect_boolean allow_fullscreen: "allowfullscreen"
-    reflect_string :width, :height
 
     # The nested browsing context's document. An integration/test layer may
     # inject one via `__internal_set_content_document__` (e.g. the `src`
@@ -106,9 +102,6 @@ module Dommy
 
   class HTMLObjectElement < HTMLElement
     include Internal::ConstraintValidation
-    reflect_url :data
-    reflect_string :type, :name, use_map: "usemap"
-    reflect_string :width, :height
 
     def content_document
       nil
@@ -157,20 +150,12 @@ module Dommy
   end
 
   class HTMLEmbedElement < HTMLElement
-    reflect_url :src
-    reflect_string :type
-    reflect_string :width, :height
-
-    js_accessor :width, :height
-
   end
 
   class HTMLParamElement < HTMLElement
-    reflect_string :name, :value
   end
 
   class HTMLMapElement < HTMLElement
-    reflect_string :name
     def areas
       @areas ||= HTMLCollection.new do
         @__node__.css("area").map { |n| @document.wrap_node(n) }.compact

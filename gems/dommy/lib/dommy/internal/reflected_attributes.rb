@@ -30,6 +30,11 @@ module Dommy
     #        reflect_string view_box: "viewBox", class_name: { attr: "class" }
     #        reflect_boolean :disabled, :required
     #
+    #    Most declarations are not written in the element classes at all:
+    #    Internal::IdlReflection makes them from the specs' IDL once every
+    #    class is defined, for each reflected attribute a class does not
+    #    declare (or write an accessor for) itself.
+    #
     #    Identifier defaults (override via a String or Hash value):
     #      - js_key (camelCase IDL name) = camelize(ruby_name)
     #      - attr   (content attribute)  = camelize(ruby_name)
@@ -285,7 +290,9 @@ module Dommy
           end
         end
 
-        def _reflect(type, names, mapped)
+        # `generated:` marks a declaration Internal::IdlReflection made from the
+        # IDL rather than one the class wrote.
+        def _reflect(type, names, mapped, generated: false)
           @__reflected_props__ ||= {}
           @__writable_props__ ||= {}
           @__reflect_specs__ ||= {}
@@ -307,7 +314,8 @@ module Dommy
               @__writable_props__[js] = ruby_name
             end
             @__reflected_props__[js] = ruby_name
-            @__reflect_specs__[js] = { type: DECLARED_AS.fetch(type, type), attr: attr }
+            @__reflect_specs__[js] = { type: DECLARED_AS.fetch(type, type), attr: attr, options: options,
+                                       generated: generated }.freeze
           end
         end
 

@@ -583,6 +583,7 @@ globalThis.__rbIdl = (function () {
     Document: ["close", "write", "writeln"],
     EventSource: ["close"],
     HTMLDialogElement: ["close"],
+    HTMLMarqueeElement: ["stop"],
     MessagePort: ["close"],
     ReadableStreamDefaultController: ["close"],
     AbortController: ["abort"],

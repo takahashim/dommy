@@ -16,8 +16,6 @@
     "ElementInternals",
     "FetchLaterResult",
     "HTMLAllCollection",
-    "HTMLMarqueeElement",
-    "HTMLMenuElement",
     "HTMLSelectedContentElement",
     "ImageBitmap",
     "ImageBitmapRenderingContext",
@@ -239,58 +237,7 @@
       "vlinkColor"
     ],
     "Element": [
-      "ariaActiveDescendantElement",
-      "ariaAtomic",
-      "ariaAutoComplete",
-      "ariaBrailleLabel",
-      "ariaBrailleRoleDescription",
-      "ariaBusy",
-      "ariaChecked",
-      "ariaColCount",
-      "ariaColIndex",
-      "ariaColIndexText",
-      "ariaColSpan",
-      "ariaControlsElements",
-      "ariaCurrent",
-      "ariaDescribedByElements",
-      "ariaDescription",
-      "ariaDetailsElements",
-      "ariaDisabled",
-      "ariaErrorMessageElements",
-      "ariaExpanded",
-      "ariaFlowToElements",
-      "ariaHasPopup",
-      "ariaHidden",
-      "ariaInvalid",
-      "ariaKeyShortcuts",
-      "ariaLabel",
-      "ariaLabelledByElements",
-      "ariaLevel",
-      "ariaLive",
-      "ariaModal",
-      "ariaMultiLine",
-      "ariaMultiSelectable",
       "ariaNotify",
-      "ariaOrientation",
-      "ariaOwnsElements",
-      "ariaPlaceholder",
-      "ariaPosInSet",
-      "ariaPressed",
-      "ariaReadOnly",
-      "ariaRelevant",
-      "ariaRequired",
-      "ariaRoleDescription",
-      "ariaRowCount",
-      "ariaRowIndex",
-      "ariaRowIndexText",
-      "ariaRowSpan",
-      "ariaSelected",
-      "ariaSetSize",
-      "ariaSort",
-      "ariaValueMax",
-      "ariaValueMin",
-      "ariaValueNow",
-      "ariaValueText",
       "checkVisibility",
       "convertPointFromNode",
       "convertQuadFromNode",
@@ -315,26 +262,9 @@
       "onprogress"
     ],
     "HTMLAnchorElement": [
-      "charset",
-      "coords",
-      "name",
-      "rev",
-      "shape",
       "text"
     ],
-    "HTMLAreaElement": [
-      "hreflang",
-      "noHref",
-      "type"
-    ],
-    "HTMLBRElement": [
-      "clear"
-    ],
     "HTMLBodyElement": [
-      "aLink",
-      "background",
-      "bgColor",
-      "link",
       "onafterprint",
       "onbeforeprint",
       "onbeforeunload",
@@ -352,27 +282,13 @@
       "onrejectionhandled",
       "onstorage",
       "onunhandledrejection",
-      "onunload",
-      "text",
-      "vLink"
+      "onunload"
     ],
     "HTMLCanvasElement": [
       "transferControlToOffscreen"
     ],
-    "HTMLDListElement": [
-      "compact"
-    ],
     "HTMLDataListElement": [
       "options"
-    ],
-    "HTMLDetailsElement": [
-      "open"
-    ],
-    "HTMLDirectoryElement": [
-      "compact"
-    ],
-    "HTMLDivElement": [
-      "align"
     ],
     "HTMLElement": [
       "attachInternals",
@@ -457,24 +373,13 @@
       "scrollParent"
     ],
     "HTMLEmbedElement": [
-      "align",
-      "getSVGDocument",
-      "name"
+      "getSVGDocument"
     ],
     "HTMLFrameElement": [
       "contentDocument",
-      "contentWindow",
-      "frameBorder",
-      "longDesc",
-      "marginHeight",
-      "marginWidth",
-      "name",
-      "noResize",
-      "scrolling",
-      "src"
+      "contentWindow"
     ],
     "HTMLFrameSetElement": [
-      "cols",
       "onafterprint",
       "onbeforeprint",
       "onbeforeunload",
@@ -492,46 +397,13 @@
       "onrejectionhandled",
       "onstorage",
       "onunhandledrejection",
-      "onunload",
-      "rows"
-    ],
-    "HTMLHRElement": [
-      "align",
-      "color",
-      "noShade",
-      "size",
-      "width"
-    ],
-    "HTMLHeadingElement": [
-      "align"
-    ],
-    "HTMLHtmlElement": [
-      "version"
+      "onunload"
     ],
     "HTMLIFrameElement": [
-      "align",
-      "frameBorder",
-      "getSVGDocument",
-      "longDesc",
-      "marginHeight",
-      "marginWidth",
-      "scrolling"
-    ],
-    "HTMLImageElement": [
-      "controls",
-      "hspace",
-      "lowsrc",
-      "vspace"
+      "getSVGDocument"
     ],
     "HTMLLegendElement": [
       "form"
-    ],
-    "HTMLLinkElement": [
-      "charset",
-      "imageSizes",
-      "imageSrcset",
-      "rev",
-      "target"
     ],
     "HTMLMediaElement": [
       "addTextTrack",
@@ -547,90 +419,17 @@
       "textTracks",
       "videoTracks"
     ],
-    "HTMLOListElement": [
-      "compact"
-    ],
     "HTMLObjectElement": [
-      "align",
-      "archive",
-      "border",
-      "code",
-      "codeBase",
-      "codeType",
-      "declare",
-      "getSVGDocument",
-      "hspace",
-      "standby",
-      "vspace"
-    ],
-    "HTMLParagraphElement": [
-      "align"
-    ],
-    "HTMLParamElement": [
-      "type",
-      "valueType"
-    ],
-    "HTMLPreElement": [
-      "width"
-    ],
-    "HTMLScriptElement": [
-      "charset",
-      "event"
-    ],
-    "HTMLTableCaptionElement": [
-      "align"
-    ],
-    "HTMLTableCellElement": [
-      "align",
-      "axis",
-      "bgColor",
-      "ch",
-      "chOff",
-      "height",
-      "noWrap",
-      "vAlign",
-      "width"
-    ],
-    "HTMLTableColElement": [
-      "align",
-      "ch",
-      "chOff",
-      "vAlign",
-      "width"
-    ],
-    "HTMLTableElement": [
-      "align",
-      "bgColor",
-      "border",
-      "cellPadding",
-      "cellSpacing",
-      "frame",
-      "rules",
-      "summary",
-      "width"
-    ],
-    "HTMLTableRowElement": [
-      "align",
-      "bgColor",
-      "ch",
-      "chOff",
-      "vAlign"
+      "getSVGDocument"
     ],
     "HTMLTableSectionElement": [
-      "align",
-      "ch",
-      "chOff",
-      "rows",
-      "vAlign"
+      "rows"
     ],
     "HTMLTitleElement": [
       "text"
     ],
     "HTMLTrackElement": [
       "track"
-    ],
-    "HTMLUListElement": [
-      "compact"
     ],
     "ImageData": [
       "pixelFormat"
@@ -814,19 +613,8 @@
       "onreadystatechange"
     ]
   },
-  "reflect_gaps": {
-    "HTMLInputElement.maxLength": "declared setter_only (expected long)",
-    "HTMLInputElement.minLength": "declared setter_only (expected long)",
-    "HTMLTextAreaElement.cols": "declared setter_only (expected ulong)",
-    "HTMLTextAreaElement.maxLength": "declared setter_only (expected long)",
-    "HTMLTextAreaElement.minLength": "declared setter_only (expected long)",
-    "HTMLTextAreaElement.rows": "declared setter_only (expected ulong)"
-  },
-  "invented_reflect_gaps": {
-    "HTMLCanvasElement.height": "declared ulong though the IDL has no [Reflect]",
-    "HTMLCanvasElement.width": "declared ulong though the IDL has no [Reflect]",
-    "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]"
-  },
+  "reflect_gaps": {},
+  "invented_reflect_gaps": {},
   "void_gaps": {
     "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined",
     "External.AddSearchProvider": "returns undefined, which the bridge does not guarantee",

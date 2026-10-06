@@ -9,9 +9,6 @@ module Dommy
   # happy-dom's full HTMLSelectElement, but covers common test cases.
   class HTMLSelectElement < HTMLElement
     include Internal::ConstraintValidation
-    reflect_string :name
-    reflect_boolean :multiple, :disabled, :required
-    reflect_ulong size: { default: 0 }
     # `autocomplete` — the setter reflects, but the getter is HTML's autofill
     # processing model (Internal::Autofill). A select has no type state, so it
     # always wears the "autofill expectation mantle".
@@ -261,7 +258,7 @@ module Dommy
     end
 
     js_accessor :value, selected_index: "selectedIndex", length: "length"
-    js_readable :options, :size, :form, :labels, :type,
+    js_readable :options, :form, :labels, :type,
       selected_options: "selectedOptions"
 
     # Indexed getter: `select[i]` is the option at index i (WebIDL).
@@ -322,7 +319,6 @@ module Dommy
 
   # `<option>` — value, label, selected, disabled, text, index, form.
   class HTMLOptionElement < HTMLElement
-    reflect_boolean :disabled, default_selected: "selected"
     reflect_setter :value, :label
     def value
       # `value`/`label` reflect the NO-namespace content attribute (a same-named
@@ -513,7 +509,7 @@ module Dommy
       sel.options.find_index { |o| o.__dommy_backend_node__.equal?(@__node__) } || 0
     end
 
-    js_accessor :value, :label, :default_selected, :selected, :text
+    js_accessor :value, :label, :selected, :text
     js_readable :form, :index
 
   end
@@ -524,8 +520,6 @@ module Dommy
 
   # `<optgroup>` — label + disabled, container for options.
   class HTMLOptGroupElement < HTMLElement
-    reflect_string :label
-    reflect_boolean :disabled
   end
 
   # `<textarea>` — multi-line text input.

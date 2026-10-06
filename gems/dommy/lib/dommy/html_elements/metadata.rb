@@ -9,12 +9,9 @@ module Dommy
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
     include Internal::ElementTasks
-    reflect_url :src
-    reflect_string :type, :integrity, html_for: { attr: "for", js: "htmlFor" }
     reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy"),
                        crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin"),
                        fetch_priority: Internal::EnumeratedKeywordSets::FETCH_PRIORITY
-    reflect_boolean :defer, no_module: "nomodule"
     reflect_token_list blocking: { supported: Internal::SupportedTokens::BLOCKING }
     # `text` is an alias for textContent on <script>.
     def text
@@ -289,11 +286,8 @@ module Dommy
 
   # `<link>` — primarily for stylesheets, icons, preload, manifests.
   class HTMLLinkElement < HTMLElement
-    reflect_boolean :disabled
-    reflect_url :href
-    reflect_token_list :sizes, rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::LINK_REL },
-                              blocking: { supported: Internal::SupportedTokens::BLOCKING }
-    reflect_string :rel, :type, :media, :hreflang, :integrity
+    reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::LINK_REL },
+                       blocking: { supported: Internal::SupportedTokens::BLOCKING }
     # The `as` attribute is an enumerated attribute whose keywords are "each of
     # the union of preload destinations and module preload destinations"
     # (semantics.html, the link element), and the IDL attribute reflects it
@@ -382,7 +376,6 @@ module Dommy
   # the browser's number parser to detect "12abc" in a type=number).
 
   class HTMLStyleElement < HTMLElement
-    reflect_string :type, :media
     reflect_token_list blocking: { supported: Internal::SupportedTokens::BLOCKING }
     def disabled
       @__disabled == true
@@ -449,7 +442,6 @@ module Dommy
 
   class HTMLBaseElement < HTMLElement
     reflect_setter :href
-    reflect_string :target
 
     # A `<base>` is what gives the document its base URL, so its own `href`
     # cannot resolve against that: HTML resolves it against the document's
@@ -470,7 +462,6 @@ module Dommy
   class HTMLMetaElement < HTMLElement
     # The IDL reflects no `charset`: the attribute is read by the encoding
     # sniffing, not exposed.
-    reflect_string :name, :content, :media, :scheme, http_equiv: "http-equiv"
 
     # HTML's pragma directives run "when a meta element is inserted into the
     # document" (and only then: a later change to its attributes, or removing

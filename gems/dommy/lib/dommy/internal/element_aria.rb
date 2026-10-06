@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "idl_reflection_table"
+
 module Dommy
   module Internal
     # The ARIA surface: the `role` attribute, the computed role/name/
@@ -11,25 +13,29 @@ module Dommy
     # attribute here is the one in no namespace, as ARIA reflects it.
     module ElementAria
       # ARIAMixin's IDL attributes (WAI-ARIA §10.1), each with the content
-      # attribute it reflects: "aria-" and the rest of the name in lowercase.
-      # A name outside these is no reflection — `ariaFoo` and `ariaLabelledBy`
-      # are plain expandos, as in a browser.
-      STRING_ATTRIBUTES = %w[
-        ariaAtomic ariaAutoComplete ariaBrailleLabel ariaBrailleRoleDescription ariaBusy ariaChecked
-        ariaColCount ariaColIndex ariaColIndexText ariaColSpan ariaCurrent ariaDescription ariaDisabled
-        ariaExpanded ariaHasPopup ariaHidden ariaInvalid ariaKeyShortcuts ariaLabel ariaLevel ariaLive
-        ariaModal ariaMultiLine ariaMultiSelectable ariaOrientation ariaPlaceholder ariaPosInSet
-        ariaPressed ariaReadOnly ariaRelevant ariaRequired ariaRoleDescription ariaRowCount ariaRowIndex
-        ariaRowIndexText ariaRowSpan ariaSelected ariaSetSize ariaSort ariaValueMax ariaValueMin
-        ariaValueNow ariaValueText
-      ].to_h { |name| [name, "aria-#{name.delete_prefix("aria").downcase}"] }.merge("role" => "role").freeze
-      # The one singular element reference.
-      ELEMENT_ATTRIBUTES = { "ariaActiveDescendantElement" => "aria-activedescendant" }.freeze
-      # The element-list references.
-      ELEMENTS_ATTRIBUTES = %w[
-        ariaControlsElements ariaDescribedByElements ariaDetailsElements ariaErrorMessageElements
-        ariaFlowToElements ariaLabelledByElements ariaOwnsElements
-      ].to_h { |name| [name, "aria-#{name.delete_prefix("aria").delete_suffix("Elements").downcase}"] }.freeze
+      # attribute it reflects, read from the specs' own IDL (the generated
+      # IdlReflection::TABLE, where ARIAMixin is folded into Element): the
+      # `DOMString?` ones, the one singular element reference (`Element?`) and
+      # the element-list references (`FrozenArray<Element>?`). A name outside
+      # these is no reflection — `ariaFoo` and `ariaLabelledBy` are plain
+      # expandos, as in a browser. `role` is reflected too.
+      ARIA_REFLECTIONS = IdlReflection::TABLE.fetch("Element").select { |name, _| name.start_with?("aria") }
+      private_constant :ARIA_REFLECTIONS
+
+      def self.aria_attributes(idl_type)
+        ARIA_REFLECTIONS.select { |_, entry| entry[:idl] == idl_type }
+                        .to_h { |name, entry| [name, entry.fetch(:attr)] }
+      end
+      private_class_method :aria_attributes
+
+      STRING_ATTRIBUTES = aria_attributes("DOMString?").merge("role" => "role").freeze
+      ELEMENT_ATTRIBUTES = aria_attributes("Element?").freeze
+      ELEMENTS_ATTRIBUTES = aria_attributes("FrozenArray<Element>?").freeze
+
+      # Every JS property this module answers on an Element's bridge (through
+      # Element#__js_get__'s table lookups rather than a `when` arm), for the
+      # WebIDL audit and the generated prototype members to see.
+      JS_PROPERTY_NAMES = (STRING_ATTRIBUTES.keys + ELEMENT_ATTRIBUTES.keys + ELEMENTS_ATTRIBUTES.keys).freeze
 
       def role
         __internal_attribute_value__("role").to_s

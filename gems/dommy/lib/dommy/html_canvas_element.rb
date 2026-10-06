@@ -13,9 +13,6 @@ module Dommy
   # broke the page's bookmark button. WebGL is reported as genuinely unsupported
   # (getContext returns null) so callers take their fallback path.
   class HTMLCanvasElement < HTMLElement
-    DEFAULT_WIDTH = 300
-    DEFAULT_HEIGHT = 150
-
     # A 1x1 transparent PNG — a constant so a canvas fingerprint reads a stable
     # value instead of crashing; we render nothing into it.
     BLANK_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lE" \
@@ -26,8 +23,8 @@ module Dommy
     # — unsigned long reflection whose default is the content attribute's own
     # (300 and 150), which also stands in for a negative, unparseable or
     # too-large value (`width="-1"` reads 300), and which the setter writes in
-    # place of a value past 2147483647.
-    reflect_ulong width: { default: DEFAULT_WIDTH }, height: { default: DEFAULT_HEIGHT }
+    # place of a value past 2147483647. The IDL says this only in prose, so the
+    # declaration lives in Internal::IdlReflection::OVERLAY.
 
     # Spec: getContext returns the SAME object across calls for one context id.
     # Only '2d' is backed; webgl/webgl2/bitmaprenderer return null so feature
