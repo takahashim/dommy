@@ -29,7 +29,9 @@ module Dommy
     # outside the enum.
     #
     # Spec: https://html.spec.whatwg.org/#dom-domparser-parsefromstring
-    def parse_from_string(string, mime_type)
+    # From script both arguments are required (the JS call checks that); the
+    # Ruby API keeps "text/html" as the default it has always had.
+    def parse_from_string(string, mime_type = "text/html")
       str = string.to_s
       type = mime_type.is_a?(String) ? mime_type : mime_type.to_s
       doc =

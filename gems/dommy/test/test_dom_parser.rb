@@ -17,9 +17,10 @@ class TestDOMParser < Minitest::Test
     assert_equal("hi", doc.get_element_by_id("x").text_content)
   end
 
-  # `type` is a required WebIDL enum: no default, and matched exactly.
+  # `type` is a required WebIDL enum matched exactly: required from script,
+  # while the Ruby API keeps its "text/html" default.
   def test_parseFromString_type_is_a_required_exact_enum
-    assert_raises(ArgumentError) { @parser.parse_from_string("<p>x</p>") }
+    assert_equal("x", @parser.parse_from_string("<p>x</p>").body.text_content)
     assert_raises(Dommy::Bridge::TypeError) { @parser.parse_from_string("<p>", "TEXT/HTML") }
     assert_raises(Dommy::Bridge::TypeError) { @parser.__js_call__("parseFromString", ["<p>"]) }
   end
