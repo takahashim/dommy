@@ -130,10 +130,8 @@
     ],
     "Document": [
       "adoptedStyleSheets",
-      "alinkColor",
       "all",
       "ariaNotify",
-      "bgColor",
       "captureEvents",
       "caretPositionFromPoint",
       "clear",
@@ -146,9 +144,7 @@
       "elementsFromPoint",
       "evaluate",
       "execCommand",
-      "fgColor",
       "getBoxQuads",
-      "linkColor",
       "onabort",
       "onauxclick",
       "onbeforeinput",
@@ -233,8 +229,7 @@
       "queryCommandIndeterm",
       "queryCommandState",
       "queryCommandValue",
-      "releaseEvents",
-      "vlinkColor"
+      "releaseEvents"
     ],
     "Element": [
       "ariaNotify",

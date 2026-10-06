@@ -169,6 +169,24 @@ class TestIdlReflection < Minitest::Test
     assert marquee.turned_on?
   end
 
+  # Document's legacy colors reflect the body element's attributes, and read
+  # "" / ignore writes without a body element (or with a frameset).
+  def test_document_legacy_colors
+    document = make_window("").document
+    document.__js_set__("bgColor", "white")
+    assert_equal "white", document.body.get_attribute("bgcolor")
+    document.body.set_attribute("text", "black")
+    assert_equal "black", document.__js_get__("fgColor")
+    document.__js_set__("alinkColor", nil)
+    assert_equal "", document.body.get_attribute("alink")
+    %w[linkColor vlinkColor].each { |key| assert_equal "", document.__js_get__(key) }
+
+    document.body.remove
+    assert_equal "", document.__js_get__("bgColor")
+    document.__js_set__("bgColor", "red")
+    assert_nil document.query_selector("[bgcolor=red]")
+  end
+
   def test_aria_tables_come_from_the_idl
     aria = Dommy::Internal::ElementAria
     assert_equal "aria-activedescendant", aria::ELEMENT_ATTRIBUTES["ariaActiveDescendantElement"]
