@@ -411,9 +411,9 @@ module Dommy
       @reporting_exception = true
       handled =
         begin
-          event = ErrorEvent.new("error", "message" => message, "error" => error_value,
-            "filename" => filename, "lineno" => lineno, "colno" => colno, "cancelable" => true)
-          !dispatch_event(event)
+          !__internal_fire_event__("error", {"message" => message, "error" => error_value, "filename" => filename,
+                                             "lineno" => lineno, "colno" => colno, "cancelable" => true},
+            event_class: ErrorEvent)
         ensure
           @reporting_exception = false
         end
@@ -436,10 +436,8 @@ module Dommy
     # engine that instead notifies the moment a promise rejects reports handled
     # code too.
     def __internal_report_rejection__(reason_value, host_error: nil, promise: nil)
-      event = PromiseRejectionEvent.new(
-        "unhandledrejection", "promise" => promise, "reason" => reason_value, "cancelable" => true
-      )
-      return nil unless dispatch_event(event)
+      return nil unless __internal_fire_event__("unhandledrejection",
+        {"promise" => promise, "reason" => reason_value, "cancelable" => true}, event_class: PromiseRejectionEvent)
 
       __internal_notify_unhandled_error__(Internal::ExceptionReport.host_form(reason_value, host_error))
     end
@@ -470,9 +468,8 @@ module Dommy
     # fire `rejectionhandled` and tell the host to take the report back. The
     # event is NOT cancelable — the page is being informed, not consulted.
     def __internal_report_rejection_handled__(reason_value, promise: nil, record: nil)
-      dispatch_event(PromiseRejectionEvent.new(
-        "rejectionhandled", "promise" => promise, "reason" => reason_value
-      ))
+      __internal_fire_event__("rejectionhandled", {"promise" => promise, "reason" => reason_value},
+        event_class: PromiseRejectionEvent)
       __internal_notify_rejection_handled__(record) unless record.nil?
       nil
     end

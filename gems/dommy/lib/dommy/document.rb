@@ -2147,12 +2147,12 @@ module Dommy
       return if @ready_state == state
 
       @ready_state = state
-      dispatch_event(Event.new("readystatechange"))
+      __internal_fire_event__("readystatechange")
       case state
       when "interactive"
-        dispatch_event(Event.new("DOMContentLoaded", "bubbles" => true))
+        __internal_fire_event__("DOMContentLoaded", {"bubbles" => true})
       when "complete"
-        @default_view&.dispatch_event(Event.new("load"))
+        @default_view&.__internal_fire_event__("load")
       end
       nil
     end

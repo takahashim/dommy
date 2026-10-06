@@ -138,6 +138,13 @@ module Dommy
       nil
     end
 
+    # DOM/HTML "fire an event": an event the user agent creates — trusted —
+    # dispatched at this target. `event_class` and `init` build it, as
+    # `new EventClass(type, init)` would.
+    def __internal_fire_event__(type, init = nil, event_class: Event)
+      dispatch_event(event_class.new(type, init).__internal_mark_trusted__)
+    end
+
     def dispatch_event(event)
       # WebIDL: the argument is a non-nullable Event, so null (and anything that
       # is not an Event) is a TypeError rather than a silent no-op.

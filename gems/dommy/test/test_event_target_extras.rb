@@ -230,3 +230,69 @@ class TestEventHandlerAttributes < Minitest::Test
     assert_empty @ran
   end
 end
+
+# Events the user agent fires are trusted.
+class TestUserAgentEventsAreTrusted < Minitest::Test
+  include DommyTestHelper
+
+  def record(target, type, log)
+    target.add_event_listener(type, ->(e) { log << [type, e.__js_get__("isTrusted")] })
+  end
+
+  def test_document_lifecycle_events
+    win = make_window
+    doc = win.document
+    log = []
+    record(doc, "readystatechange", log)
+    record(doc, "DOMContentLoaded", log)
+    record(win, "load", log)
+    doc.__internal_set_ready_state__("loading")
+    doc.__internal_set_ready_state__("interactive")
+    doc.__internal_set_ready_state__("complete")
+    assert_equal [["readystatechange", true]] * 2 + [["DOMContentLoaded", true], ["readystatechange", true], ["load", true]],
+                 log.values_at(0, 1, 2, 3, 4)
+  end
+
+  def test_reported_exceptions_and_rejections
+    win = make_window
+    log = []
+    record(win, "error", log)
+    record(win, "unhandledrejection", log)
+    record(win, "rejectionhandled", log)
+    win.__internal_report_exception__(RuntimeError.new("x"), "x")
+    win.__internal_report_rejection__("r")
+    win.__internal_report_rejection_handled__("r")
+    assert_equal [["error", true], ["unhandledrejection", true], ["rejectionhandled", true]], log
+  end
+
+  # The special error handler rule (five arguments, `true` cancels) is for an
+  # ErrorEvent; a plain `error` Event at the window is an ordinary handler call.
+  def test_special_error_handler_only_for_an_error_event
+    win = make_window
+    seen = []
+    win.__js_set__("onerror", ->(*args) { seen << args.size; true })
+    plain = Dommy::Event.new("error", {"cancelable" => true})
+    win.dispatch_event(plain)
+    refute plain.default_prevented?
+    error_event = Dommy::ErrorEvent.new("error", {"cancelable" => true, "message" => "m"})
+    win.dispatch_event(error_event)
+    assert error_event.default_prevented?
+    assert_equal [1, 5], seen
+  end
+
+  # OnBeforeUnloadEventHandler: a non-null return cancels and becomes
+  # returnValue when that is still empty.
+  def test_beforeunload_handler_return_value
+    win = make_window
+    win.__js_set__("onbeforeunload", ->(_e) { "leave?" })
+    event = Dommy::BeforeUnloadEvent.new("beforeunload", {"cancelable" => true})
+    win.dispatch_event(event)
+    assert event.default_prevented?
+    assert_equal "leave?", event.return_value
+
+    win.__js_set__("onbeforeunload", ->(_e) { nil })
+    event = Dommy::BeforeUnloadEvent.new("beforeunload", {"cancelable" => true})
+    win.dispatch_event(event)
+    refute event.default_prevented?
+  end
+end

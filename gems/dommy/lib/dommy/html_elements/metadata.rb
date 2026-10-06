@@ -234,7 +234,7 @@ module Dommy
     end
 
     def queue_script_error_event
-      queue_element_task { dispatch_event(Event.new("error").__internal_mark_trusted__) }
+      queue_element_task { __internal_fire_event__("error") }
       nil
     end
 

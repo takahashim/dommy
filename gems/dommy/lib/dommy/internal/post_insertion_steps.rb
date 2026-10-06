@@ -202,7 +202,7 @@ module Dommy
 
         ensure_blank_content_document(element)
         defer do
-          element.dispatch_event(Event.new("load"))
+          element.__internal_fire_event__("load")
         rescue StandardError => e
           @report.call(e)
         end

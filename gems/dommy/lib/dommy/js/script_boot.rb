@@ -174,9 +174,9 @@ module Dommy
       # attached its handler by now. A listener that throws is reported by the
       # dispatch itself; what the rescue covers is the dispatch failing outright.
       def fire_script_event(element, type)
-        return nil unless element.respond_to?(:dispatch_event)
+        return nil unless element.respond_to?(:__internal_fire_event__)
 
-        element.dispatch_event(Dommy::Event.new(type).__internal_mark_trusted__)
+        element.__internal_fire_event__(type)
         nil
       rescue StandardError => e
         @on_error&.call(e)
