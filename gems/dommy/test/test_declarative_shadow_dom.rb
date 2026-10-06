@@ -165,3 +165,74 @@ class TestShadowRootSerialization < Minitest::Test
     assert_equal "", br.get_html({"serializableShadowRoots" => true})
   end
 end
+
+# DOM "clone a node" step 6: a clonable shadow root is cloned with its host.
+class TestShadowRootCloning < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window("<div id='host'></div>")
+    @doc = @win.document
+    @host = @doc.get_element_by_id("host")
+  end
+
+  def test_clonable_root_is_cloned_deep_and_shallow
+    root = @host.attach_shadow({"mode" => "open", "clonable" => true, "serializable" => true, "delegatesFocus" => true,
+                                "slotAssignment" => "manual"})
+    root.inner_html = "<input><div><span></span></div>"
+    @host.append_child(@doc.create_element("p"))
+    [true, false].each do |deep|
+      clone = @host.clone_node(deep)
+      copy = clone.shadow_root
+      refute_nil copy
+      refute_same root, copy
+      assert copy.clonable
+      assert copy.serializable
+      assert copy.delegates_focus
+      assert_equal "manual", copy.slot_assignment
+      assert_equal "<input><div><span></span></div>", copy.inner_html
+      assert_equal(deep ? 1 : 0, clone.child_nodes.length)
+    end
+  end
+
+  def test_non_clonable_root_is_not_cloned
+    @host.attach_shadow({"mode" => "open"}).inner_html = "<i></i>"
+    assert_nil @host.clone_node(true).shadow_root
+  end
+
+  def test_closed_and_declarative_state_carry_over
+    root = @host.attach_shadow({"mode" => "closed", "clonable" => true})
+    root.__internal_declarative__ = true
+    clone = @host.clone_node(true)
+    copy = clone.__internal_shadow_root__
+    assert_equal "closed", copy.mode
+    assert copy.__internal_declarative__?
+  end
+
+  def test_descendant_hosts_nested_shadows_and_template_contents
+    outer = @doc.create_element("div")
+    outer.append_child(@host)
+    root = @host.attach_shadow({"mode" => "open", "clonable" => true})
+    root.inner_html = "<div id='in'></div>"
+    root.get_element_by_id("in").attach_shadow({"mode" => "open", "clonable" => true}).inner_html = "deep"
+    template = @doc.create_element("template")
+    template.content.append_child(outer)
+    clone = template.clone_node(true)
+    host_copy = clone.content.first_element_child.first_element_child
+    refute_nil host_copy.shadow_root
+    assert_equal "deep", host_copy.shadow_root.get_element_by_id("in").shadow_root.inner_html
+  end
+
+  def test_import_node_and_range_clone
+    @host.attach_shadow({"mode" => "open", "clonable" => true}).inner_html = "<b>x</b>"
+    other = Dommy::Window.new.document
+    imported = other.import_node(@host, true)
+    assert_equal "<b>x</b>", imported.shadow_root.inner_html
+    assert_same other, imported.shadow_root.document
+
+    range = @doc.create_range
+    range.select_node(@host)
+    fragment = range.clone_contents
+    assert_equal "<b>x</b>", fragment.first_child.shadow_root.inner_html
+  end
+end

@@ -1125,6 +1125,7 @@ module Dommy
       copy = clone_into_doc(node.__dommy_backend_node__, deep, source_document)
       apply_imported_cloning_steps(node.__dommy_backend_node__, copy, deep, source_document)
       __internal_enqueue_created_upgrades__(copy, registry) if copy.respond_to?(:element?)
+      __internal_clone_shadow_roots__(node.__dommy_backend_node__, copy, deep, source_document) if copy.respond_to?(:element?)
       wrap_node(copy)
     end
 
@@ -1192,6 +1193,60 @@ module Dommy
         @node_wrapper_cache.wrap(copy).__internal_apply_cloning_state__(state)
       end
     end
+
+    # DOM "clone a node" step 6, for `copy_root` — a clone made in this
+    # document of `src_root` (of `source_document`), with or without its
+    # subtree — and, when `deep`, every element of the copy: the clone of a
+    # shadow host whose shadow root is clonable gets a shadow root of its own
+    # with the same mode, delegates focus, serializable, slot assignment,
+    # declarative and keep-custom-element-registry-null, clonable, holding
+    # clones of the shadow root's children. A shallow clone still does this
+    # for the host itself. The backend copied the subtree (and template
+    # contents) in one go, so the two trees are walked in lockstep.
+    def __internal_clone_shadow_roots__(src_root, copy_root, deep, source_document = self)
+      return unless source_document.__internal_any_shadow_roots__?
+
+      clone_shadow_roots_walk(src_root, copy_root, deep, source_document)
+    end
+
+    def clone_shadow_roots_walk(src, copy, deep, source_document)
+      return unless src.element? || src.is_a?(Backend.document_fragment_class)
+
+      if src.element?
+        shadow = source_document.__internal_shadow_root_for_host__(src)
+        clone_shadow_root(shadow, copy, source_document) if shadow&.clonable
+      end
+      return unless deep
+
+      src_children = src.children.to_a
+      copy_children = copy.children.to_a
+      return unless src_children.length == copy_children.length
+
+      src_children.zip(copy_children).each { |s, c| clone_shadow_roots_walk(s, c, true, source_document) }
+      return unless src.element? && @template_content_registry.template_node?(src)
+
+      src_contents = source_document.__internal_template_registry__.existing_contents(src)
+      copy_contents = @template_content_registry.existing_contents(copy)
+      clone_shadow_roots_walk(src_contents, copy_contents, true, source_document) if src_contents && copy_contents
+    end
+
+    def clone_shadow_root(shadow, copy, source_document)
+      host = wrap_node(copy)
+      # The shadow root's registry; a global one stands for this document's.
+      registry = shadow.__internal_registry_set__? ? shadow.__internal_custom_element_registry__ : :document
+      registry = :document if registry && registry != :document && !registry.scoped?
+      root = host.__internal_attach_shadow_root__(
+        mode: shadow.mode, delegates_focus: shadow.delegates_focus, serializable: shadow.serializable,
+        slot_assignment: shadow.slot_assignment, clonable: true, registry: registry
+      )
+      root.__internal_declarative__ = shadow.__internal_declarative__?
+      root.__internal_keep_registry_null__ = shadow.__internal_keep_registry_null__?
+      shadow.child_nodes.to_a.each do |child|
+        child_copy = source_document.equal?(self) ? child.clone_node(true) : import_node(child, true)
+        root.append_child(child_copy)
+      end
+    end
+    private :clone_shadow_roots_walk, :clone_shadow_root
 
     # Legacy `document.createEvent("EventName")` factory. The DOM Standard
     # matches the type ASCII case-insensitively against a fixed alias table, and

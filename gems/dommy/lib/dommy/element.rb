@@ -1636,6 +1636,7 @@ module Dommy
       # upgraded by a reaction.
       clone.__internal_init_ce_data__(__internal_is_value__) if clone.respond_to?(:__internal_init_ce_data__)
       @document.__internal_enqueue_created_upgrades__(copy, __internal_ce_registry__)
+      @document.__internal_clone_shadow_roots__(@__node__, copy, deep_arg)
       clone
     end
 
