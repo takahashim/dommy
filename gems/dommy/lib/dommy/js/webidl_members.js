@@ -162,16 +162,18 @@ globalThis.__rbIdlMembers = {
 // The legacy platform objects with named properties (a named getter, own
 // or inherited, that the bridge class supports): whether the names are
 // enumerable ([LegacyUnenumerableNamedProperties] on it or an ancestor
-// makes them not), writable (a named setter) and resolved before the
-// prototype chain ([LegacyOverrideBuiltIns]).
+// makes them not), writable (a named setter), resolved before the
+// prototype chain ([LegacyOverrideBuiltIns]), and held by a named
+// properties object rather than the object itself ([Global]: Window).
 globalThis.__rbIdlNamedProperties = {
-  "DOMStringMap": {enumerable: true, writable: true, overrideBuiltins: true},
-  "Document": {enumerable: true, writable: false, overrideBuiltins: true},
-  "HTMLCollection": {enumerable: false, writable: false, overrideBuiltins: false},
-  "HTMLFormControlsCollection": {enumerable: false, writable: false, overrideBuiltins: false},
-  "HTMLFormElement": {enumerable: false, writable: false, overrideBuiltins: true},
-  "HTMLOptionsCollection": {enumerable: false, writable: false, overrideBuiltins: false},
-  "NamedNodeMap": {enumerable: false, writable: false, overrideBuiltins: false},
-  "Storage": {enumerable: true, writable: true, overrideBuiltins: false},
-  "XMLDocument": {enumerable: true, writable: false, overrideBuiltins: true}
+  "DOMStringMap": {enumerable: true, writable: true, overrideBuiltins: true, global: false},
+  "Document": {enumerable: true, writable: false, overrideBuiltins: true, global: false},
+  "HTMLCollection": {enumerable: false, writable: false, overrideBuiltins: false, global: false},
+  "HTMLFormControlsCollection": {enumerable: false, writable: false, overrideBuiltins: false, global: false},
+  "HTMLFormElement": {enumerable: false, writable: false, overrideBuiltins: true, global: false},
+  "HTMLOptionsCollection": {enumerable: false, writable: false, overrideBuiltins: false, global: false},
+  "NamedNodeMap": {enumerable: false, writable: false, overrideBuiltins: false, global: false},
+  "Storage": {enumerable: true, writable: true, overrideBuiltins: false, global: false},
+  "Window": {enumerable: false, writable: false, overrideBuiltins: false, global: true},
+  "XMLDocument": {enumerable: true, writable: false, overrideBuiltins: true, global: false}
 };

@@ -606,8 +606,7 @@
   "named_property_gaps": {
     "MimeTypeArray": "has a named getter and no named-property support",
     "PluginArray": "has a named getter and no named-property support",
-    "TouchEvent": "has a named getter and no named-property support",
-    "Window": "has a named getter and no named-property support"
+    "TouchEvent": "has a named getter and no named-property support"
   },
   "same_object_gaps": {},
   "put_forwards_gaps": {},

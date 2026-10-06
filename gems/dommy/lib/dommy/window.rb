@@ -69,6 +69,55 @@ module Dommy
       end
     end
 
+    # HTML §7.2.2.3 "Named access on the Window object". The Window supports
+    # named properties ([Global], [LegacyUnenumerableNamedProperties]): its
+    # child navigables' target names, the names of its document's embed / form /
+    # img / object elements, and the ids of its document's elements, in tree
+    # order. They sit behind every real member and JS global (no
+    # [LegacyOverrideBuiltIns]) — the bridge asks for them last.
+    WINDOW_NAMED_ELEMENTS = %w[embed form img object].freeze
+
+    def __js_named_props__
+      names = []
+      first_named = Set.new
+      window_named_candidates.each do |el|
+        if (target = child_navigable_name(el))
+          # The document-tree child navigable target name property set: the
+          # first navigable of each non-empty name, kept when its document is
+          # same origin with this window.
+          if !target.empty? && first_named.add?(target) && same_origin_child?(el)
+            names << target
+          end
+        end
+        name = window_named_element_name(el)
+        names << name if name
+        id = el.__internal_attribute_value__("id").to_s
+        names << id unless id.empty?
+      end
+      names.uniq
+    end
+
+    # The value of the named property `name`: the WindowProxy of the first
+    # container whose child navigable is named `name`, else the one element
+    # named or identified by it, else a live HTMLCollection of all of them.
+    def __js_named_get__(name)
+      name = name.to_s
+      return Bridge::ABSENT if name.empty?
+
+      candidates = window_named_candidates
+      container = candidates.find { |el| child_navigable_name(el) == name }
+      # (An iframe whose document the host has not supplied yet has no window
+      # here; its name then falls through to the elements.)
+      window = container&.content_window
+      return window if window
+
+      elements = window_named_elements(candidates, name)
+      return Bridge::ABSENT if elements.empty?
+      return elements.first if elements.size == 1
+
+      HTMLCollection.new { window_named_elements(window_named_candidates, name) }
+    end
+
     # Optional WebSocket transport factory (a host seam, like the document's
     # external_script_runner): `->(ws, url, protocols) -> transport | nil`.
     # A returned transport owns the connection — WebSocket#send / #close
@@ -955,6 +1004,40 @@ module Dommy
     end
 
     private
+
+    def window_named_candidates
+      @document.respond_to?(:__internal_window_named_candidates__) ? @document.__internal_window_named_candidates__ : []
+    end
+
+    # The target name of a document-tree child navigable's container (an
+    # iframe in the document tree), or nil for any other element.
+    def child_navigable_name(el)
+      el.is_a?(HTMLIFrameElement) ? el.__internal_navigable_target_name__ : nil
+    end
+
+    # Whether the container's child navigable's document is same origin with
+    # this window. One not created yet is the initial about:blank document,
+    # which is.
+    def same_origin_child?(container)
+      child = container.__internal_built_content_window__
+      return true unless child
+
+      own = origin
+      !own.empty? && own != "null" && child.origin == own
+    end
+
+    # The name an embed / form / img / object element contributes, or nil.
+    def window_named_element_name(el)
+      return nil unless el.is_a?(HTMLElement) && WINDOW_NAMED_ELEMENTS.include?(el.local_name)
+
+      name = el.__internal_attribute_value__("name").to_s
+      name.empty? ? nil : name
+    end
+
+    # The named objects of this window with the name `name` that are elements.
+    def window_named_elements(candidates, name)
+      candidates.select { |el| window_named_element_name(el) == name || el.__internal_attribute_value__("id").to_s == name }
+    end
 
     # The printing steps: beforeprint at this window and its child frames'
     # windows, the (recorded) print, afterprint likewise.

@@ -2041,6 +2041,15 @@ module Dommy
       end
     end
 
+    # The elements of this document tree that can give its Window a named
+    # property (HTML §7.2.2.3 "Named access on the Window object"), in tree
+    # order: navigable containers, elements with an id, and embed / form /
+    # img / object elements with a name. Window#__js_named_props__ applies the
+    # spec's rules to them.
+    def __internal_window_named_candidates__
+      @backend_doc.css("[id], [name], iframe, frame").filter_map { |node| wrap_node(node) }
+    end
+
     # The document's supported property names (for `"name" in document`): for
     # each exposed element in tree order, its id when it is a named element with
     # that name, then its name.

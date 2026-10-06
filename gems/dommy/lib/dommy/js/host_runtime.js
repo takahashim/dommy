@@ -2660,7 +2660,9 @@ globalThis.__rbHost = (function () {
   // being written and a later rule handles it.
   function rejectNamedWrite(handle, shape, t, prop) {
     const named = shape.named;
-    if (!named || named.writable || Object.hasOwn(t, prop)) return undefined;
+    // A [Global]'s named properties are on its named properties object, so a
+    // write makes an own property that shadows them (`window.someId = 1`).
+    if (!named || named.writable || named.global || Object.hasOwn(t, prop)) return undefined;
     if (!isNamedKeyOf(handle, named, prop)) return undefined;
 
     return false;
@@ -2895,7 +2897,9 @@ globalThis.__rbHost = (function () {
     // epoch — they change only when the tree or an attribute does.
     let namedKeyCache = null;
     let namedKeyEpoch = -1;
-    const isNamedKey = named && named.overrideBuiltins
+    // So does the Window ([Global]), whose names a `"x" in window` check asks
+    // for before anything else.
+    const isNamedKey = named && (named.overrideBuiltins || named.global)
       ? (prop) => {
         if (typeof prop !== "string") return false;
         if (namedKeyEpoch !== domEpoch) {
@@ -3011,6 +3015,12 @@ globalThis.__rbHost = (function () {
         // resolved via `prop in t` above), so e.g. a UMD bundle's
         // `globalThis.Stimulus = …` is visible as `window.Stimulus`.
         if (hostHasNoValue && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return globalThis[prop];
+        // A Window's named properties (HTML "named access on the Window
+        // object") come after every member and global: they live on the named
+        // properties object at the bottom of its prototype chain.
+        if (hostHasNoValue && named && named.global && typeof prop === "string" && isNamedKey(prop)) {
+          return rehydrate(__rb_named_get(handle, prop));
+        }
         // A legacy platform collection returns `undefined` (not the host's null)
         // for a string property that resolves to no value. An out-of-range array
         // index is `undefined` and does NOT fall back to a named lookup (so
@@ -3018,7 +3028,7 @@ globalThis.__rbHost = (function () {
         // string); other unsupported strings (`coll[""]`, `coll["x"]`) too. A
         // node (a select, a form) answers an unknown name with ABSENT itself, so
         // its null is a real attribute value (`select.form`) and is kept.
-        if (hostHasNoValue && (arrayLike || named) && typeof prop === "string" && prop !== "length") {
+        if (hostHasNoValue && (arrayLike || (named && !named.global)) && typeof prop === "string" && prop !== "length") {
           if (arrayLike && isArrayIndex(prop)) return undefined;
           if (!nodeChain && !isNamedKey(prop)) return undefined;
         }
@@ -3058,7 +3068,7 @@ globalThis.__rbHost = (function () {
             writable: false, enumerable: true, configurable: true,
           };
         }
-        if (isNamedKey(prop) && !namedShadowedByProto(t, prop)) {
+        if (isNamedKey(prop) && !named.global && !namedShadowedByProto(t, prop)) {
           return {
             value: rehydrate(__rb_host_get(handle, prop)),
             writable: named.writable, enumerable: named.enumerable, configurable: true,
@@ -3070,7 +3080,7 @@ globalThis.__rbHost = (function () {
         if (typeof prop === "string" && deletedGlobals.has(prop)) deletedGlobals.delete(prop);
         // Cannot redefine a live indexed or read-only named property.
         if (arrayLike && isArrayIndex(prop)) return false;
-        if (named && !named.writable && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
+        if (named && !named.writable && !named.global && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
         // A writable named collection (Storage/DOMStringMap) has a named setter:
         // `Object.defineProperty(storage, k, {value})` routes to it (ToString-
         // coerced) rather than planting a JS expando that the named getter can't
@@ -3103,7 +3113,10 @@ globalThis.__rbHost = (function () {
         if (typeof prop !== "symbol" && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) {
           const removed = delete globalThis[prop];
           if (removed) {
-            deletedGlobals.add(prop);
+            // A named property behind it (`<div id=x>` after `window.x = 1;
+            // delete window.x`) shows through again; the host does not resolve
+            // it, so it needs no tombstone.
+            if (!(named && named.global && isNamedKey(prop))) deletedGlobals.add(prop);
             Reflect.deleteProperty(t, prop);
           }
           return removed;
@@ -3116,7 +3129,7 @@ globalThis.__rbHost = (function () {
             // mutation, so invalidate attribute snapshots.
             bumpDomEpoch();
             if (rehydrate(__rb_host_delete(handle, prop))) return true;
-          } else if (isNamedKey(prop)) {
+          } else if (!named.global && isNamedKey(prop)) {
             return false; // read-only named property cannot be deleted
           }
         }
@@ -3124,7 +3137,8 @@ globalThis.__rbHost = (function () {
       },
       ownKeys(t) {
         const keys = Reflect.ownKeys(t);
-        if (!arrayLike && !named) return keys;
+        // (A [Global]'s named properties are not its own: see `named.global`.)
+        if (!arrayLike && (!named || named.global)) return keys;
         const n = arrayLike ? liveLength() : 0;
         const result = [];
         for (let i = 0; i < n; i++) result.push(String(i));
@@ -3158,9 +3172,10 @@ globalThis.__rbHost = (function () {
         if (isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return true;
         // Event-handler IDL attributes (onclick, oninput, …) the object's
         // interfaces declare exist as null-default properties, so
-        // `("oninput" in document)` is true even when unset — React's isEventSupported feature-detect relies
-        // on this to use the native input event (else it falls back to a keydown
-        // polyfill and controlled-input onChange never fires).
+        // `("oninput" in document)` is true even when unset — React's
+        // isEventSupported feature-detect relies on this to use the native
+        // input event (else it falls back to a keydown polyfill and
+        // controlled-input onChange never fires).
         if (isEventHandlerName(shape, prop)) return true;
         // Otherwise reflect the ABI: a property whose host value is non-null is
         // present; a null/absent one reports missing. We can't distinguish
