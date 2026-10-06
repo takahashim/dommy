@@ -32,9 +32,24 @@ module Dommy
           namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
         end
 
+        definition = CustomElementRegistry.lookup(@document, namespace, local)
+        return create_custom_element_synchronously(definition, local) if definition
+
         node = Backend.create_element(local, namespace, @document.backend_doc)
 
         @wrappers.wrap(node)
+      end
+
+      # The HTML element constructor run for `new MyElement()` (its
+      # definition's construction stack empty): a new element that is custom
+      # from the start.
+      def create_custom_element(definition)
+        node = Backend.create_element(definition.local_name, Element::HTML_NAMESPACE, @document.backend_doc)
+        element = @wrappers.wrap(node)
+        data = element.__internal_ce_data__
+        data.definition = definition
+        data.state = "custom"
+        element
       end
 
       def create_text_node(text)
@@ -93,6 +108,10 @@ module Dommy
         qualified_name = domstring(qualified_name)
         ns, = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
+        local = qualified_name.include?(":") ? qualified_name.split(":", 2).last : qualified_name
+        definition = CustomElementRegistry.lookup(@document, ns, local)
+        return create_custom_element_synchronously(definition, local) if definition
+
         el = Backend.create_element_ns(ns, qualified_name, @document.backend_doc)
 
         @wrappers.build_element_wrapper(el)
@@ -101,6 +120,40 @@ module Dommy
       # Query methods
 
       private
+
+      # DOM "create an element" step 6.2, the synchronous custom elements flag
+      # set (createElement / createElementNS): run the definition's
+      # constructor now. What it returns must be a new, empty, parentless HTML
+      # element of this document with the definition's local name; otherwise
+      # — or when it throws — the exception is reported and the element is an
+      # HTMLUnknownElement whose custom element state is "failed".
+      def create_custom_element_synchronously(definition, local)
+        result = definition.construct_synchronously(@document)
+        check_constructed_element!(result, local)
+        result
+      rescue StandardError => e
+        definition.report(e)
+        node = Backend.create_element(local, Element::HTML_NAMESPACE, @document.backend_doc)
+        element = HTMLUnknownElement.new(@document, node)
+        @wrappers.register(node, element)
+        element.__internal_set_custom_element_state__("failed")
+        element
+      end
+
+      def check_constructed_element!(result, local)
+        unless result.is_a?(HTMLElement) && result.namespace_uri == Element::HTML_NAMESPACE
+          raise Bridge::TypeError, "the custom element constructor did not return an HTMLElement"
+        end
+
+        problem =
+          if result.has_attributes? then "has attributes"
+          elsif result.__dommy_backend_node__.children.any? then "has children"
+          elsif result.__dommy_backend_node__.parent then "has a parent"
+          elsif !result.owner_document.equal?(@document) then "belongs to another document"
+          elsif result.local_name != local then "has the local name #{result.local_name.inspect}"
+          end
+        raise DOMException::NotSupportedError, "the constructed custom element #{problem}" if problem
+      end
 
       # WebIDL DOMString coercion for a name/qualifiedName argument: JS
       # `undefined` → "undefined", JS `null` (Ruby nil) → "null", else #to_s.

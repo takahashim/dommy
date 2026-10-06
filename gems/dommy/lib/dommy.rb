@@ -117,6 +117,7 @@ require_relative "dommy/mathml_elements"
 require_relative "dommy/internal/idl_reflection"
 Dommy::Internal::IdlReflection.install_all!
 require_relative "dommy/shadow_root"
+require_relative "dommy/internal/ce_reactions"
 require_relative "dommy/custom_elements"
 require_relative "dommy/tree_walker"
 require_relative "dommy/url"

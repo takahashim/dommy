@@ -29,7 +29,6 @@ globalThis.__rbIdlMembers = {
   "CharacterData": {"m": ["after","appendData","before","deleteData","insertData","remove","replaceData","replaceWith","substringData"], "g": ["length"], "p": ["data"]},
   "CommandEvent": {"g": ["command","source"]},
   "CompositionEvent": {"g": ["data"]},
-  "CustomElementRegistry": {"m": ["define","get","upgrade","whenDefined"]},
   "DOMImplementation": {"m": ["createDocument","createDocumentType","createHTMLDocument","hasFeature"]},
   "DOMParser": {"m": ["parseFromString"]},
   "DOMStringList": {"m": ["contains","item"], "g": ["length"]},

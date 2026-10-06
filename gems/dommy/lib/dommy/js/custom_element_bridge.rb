@@ -2,12 +2,42 @@
 
 module Dommy
   module Js
-    # Bridges JS-defined custom elements to Dommy's custom element pipeline.
-    # `customElements.define(name, JSClass)` on the JS side calls in here, which
-    # registers a Dommy::HTMLElement subclass for `name` whose lifecycle
-    # reactions (connected/disconnected/adopted/attributeChanged) route back to
-    # the JS instance through the bridge. The JS class's constructor itself runs
-    # on the JS side via the construction-stack upgrade in host_runtime.js.
+    # A custom element definition a page made with `customElements.define(name,
+    # JSClass)`. Its constructor and lifecycle callbacks are JS functions the
+    # JS half of the registry keeps under the definition's id (host_runtime.js
+    # ceConstruct / ceUpgrade / ceInvoke); this runs them through the bridge.
+    class JsCustomElementDefinition < CustomElementDefinition
+      attr_reader :id
+
+      def initialize(bridge:, id:, **attrs)
+        @bridge = bridge
+        @id = id
+        super(**attrs)
+      end
+
+      # The constructor lives JS-side; Ruby has no handle on it.
+      def constructor = nil
+
+      def invoke(element, callback_name, args)
+        @bridge.ce_invoke(@id, element, callback_name, args)
+      end
+
+      # The constructor's result, whatever it is (the caller checks it).
+      def construct_synchronously(_document)
+        @bridge.ce_construct(@id)
+      end
+
+      private
+
+      def construct_for_upgrade(data)
+        @bridge.ce_upgrade(@id, data.wrapper)
+      end
+    end
+
+    # The Ruby half of the JS custom element registry: makes a registry's JS
+    # definitions known to it (so its elements are upgraded and get their
+    # reactions), and mints the element the HTML element constructor returns
+    # for `new MyElement()`.
     #
     # Named distinctly from Dommy::CustomElementRegistry (the DOM
     # window.customElements registry); this is the JS<->Dommy wiring, not the
@@ -18,98 +48,31 @@ module Dommy
       def initialize(bridge)
         @bridge = bridge
         @window = nil
+        # id → JsCustomElementDefinition
+        @definitions = {}
       end
 
-      def define(name, observed)
-        return unless @window.respond_to?(:custom_elements)
+      # customElements.define()'s steps from "append definition" on: the JS
+      # half made the checks and read the callbacks.
+      def define(registry, id, name, local_name, observed, callbacks, disable_shadow: false, form_associated: false)
+        return unless registry.is_a?(CustomElementRegistry)
 
-        @window.custom_elements.define(name, build_class(name, observed))
-        nil
+        definition = JsCustomElementDefinition.new(
+          bridge: @bridge, id: id, registry: registry, name: name.to_s, local_name: local_name.to_s,
+          observed_attributes: observed, callbacks: callbacks, disable_shadow: disable_shadow ? true : false
+        )
+        @definitions[id] = definition
+        registry.__internal_add_definition__(definition)
       end
 
-      # customElements.upgrade(root): delegate to Dommy's registry so a subtree
-      # attached without firing reactions gets its registered elements upgraded.
-      def upgrade(root)
-        return unless @window.respond_to?(:custom_elements)
+      # The HTML element constructor with an empty construction stack: a new
+      # element in the definition's window's document, custom from the start.
+      def create(id)
+        definition = @definitions[id]
+        document = definition&.registry&.window&.document
+        return nil unless document
 
-        @window.custom_elements.upgrade(root)
-        nil
-      end
-
-      # Direct `new MyElement()`: create a fresh, unattached backing element for a
-      # registered tag (its ownerDocument is the window's document). The JS ctor
-      # is already running, so the element must NOT be re-upgraded — the bridge
-      # crosses it with upgrade suppressed. Returns nil when the tag is undefined.
-      def create(name)
-        return unless @window.respond_to?(:custom_elements)
-        return unless @window.custom_elements.get(name.to_s)
-
-        @window.document.create_element(name.to_s)
-      end
-
-      private
-
-      # A Dommy custom element class for `name` whose reactions forward to the JS
-      # instance. A fresh subclass per tag carries the bridge / name / observed
-      # set as class-level attributes; the reaction methods are defined once on
-      # the base (BridgedCustomElement), reading them via `self.class` — so no
-      # per-registration method definition is needed.
-      def build_class(name, observed)
-        klass = Class.new(BridgedCustomElement)
-        klass.js_bridge = @bridge
-        klass.js_name = name
-        klass.js_observed = observed
-        klass
-      end
-    end
-
-    # Base for a JS-defined custom element. Each registered tag is a subclass
-    # carrying its bridge / tag name / observed attributes; the lifecycle
-    # reactions (defined once here) forward to the JS instance through the
-    # bridge. `__js_custom_element_name__` marks the node so the bridge upgrades
-    # it on first crossing (see HostBridge interface info).
-    class BridgedCustomElement < Dommy::HTMLElement
-      class << self
-        attr_accessor :js_bridge, :js_name, :js_observed
-
-        def observed_attributes
-          js_observed
-        end
-      end
-
-      def __js_custom_element_name__
-        self.class.js_name
-      end
-
-      # See CustomElementRegistry#rewrap_for_upgrade: the upgrade replaced
-      # `previous`, which a script may be holding.
-      def __internal_upgraded_from__(previous)
-        # HTML "upgrade an element": the state is "failed" while the
-        # constructor runs (so the element does not match :defined from inside
-        # it), and "custom" once it returned.
-        __internal_set_custom_element_state__("failed")
-        self.class.js_bridge.upgrade_in_place(previous, self)
-        __internal_set_custom_element_state__("custom")
-      end
-
-      def connected_callback
-        self.class.js_bridge.invoke_lifecycle(self, "connectedCallback", [])
-      end
-
-      def disconnected_callback
-        self.class.js_bridge.invoke_lifecycle(self, "disconnectedCallback", [])
-      end
-
-      def connected_move_callback
-        self.class.js_bridge.invoke_lifecycle(self, "connectedMoveCallback", [])
-      end
-
-      def adopted_callback
-        self.class.js_bridge.invoke_lifecycle(self, "adoptedCallback", [])
-      end
-
-      def attribute_changed_callback(attr, old_value, new_value, namespace = nil)
-        self.class.js_bridge.invoke_lifecycle(self, "attributeChangedCallback", [attr, old_value, new_value, namespace])
+        document.__internal_create_custom_element__(definition)
       end
     end
   end

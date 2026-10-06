@@ -582,13 +582,18 @@ globalThis.__rbHost = (function () {
       def(pname, { get: memberGetStub(pname, name), set: memberSetStub(pname, name), enumerable: true, configurable: true }));
   }
 
-  // 1d: custom elements. ceRegistry maps a tag name to its JS constructor;
-  // constructionStack carries the element being upgraded so the interface base
-  // constructor (see protoForChain) adopts it when `super()` runs; cePending
-  // holds whenDefined() resolvers waiting for a name to be defined.
-  const ceRegistry = new Map();
-  const constructionStack = [];
-  const cePending = new Map();
+  // 1d: custom elements. Each CustomElementRegistry (a window's, an iframe's)
+  // keeps its definitions JS-side (ceStates, keyed by the registry's proxy);
+  // a definition is also findable by its id (Ruby names it so) and by its
+  // constructor (the HTML element constructor looks it up by NewTarget). A
+  // definition's construction stack carries the element being upgraded, so
+  // the HTMLElement constructor adopts it when `super()` runs.
+  const ceStates = new WeakMap();
+  const ceDefsById = new Map();
+  const ceDefsByCtor = new Map();
+  let ceNextId = 0;
+  // HTML "already constructed marker".
+  const CE_ALREADY_CONSTRUCTED = Symbol("already constructed");
 
   // When a proxy is garbage-collected, drop the Ruby-side handle entry
   // (unless a live re-proxy for the same handle exists). Keeps the
@@ -1100,7 +1105,7 @@ globalThis.__rbHost = (function () {
         // listener's argument IS the object the caller constructed.
         const jsEvent = jsEventByHandle.get(v.__rb_handle);
         if (jsEvent !== undefined) return jsEvent;
-        return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+        return makeProxy(v.__rb_handle, v.__rb_if);
       }
       // An opaque JS-value reference round-tripping back from Ruby — restore the
       // exact original object (identity-preserving).
@@ -1166,7 +1171,7 @@ globalThis.__rbHost = (function () {
         // listener's argument IS the object the caller constructed.
         const jsEvent = jsEventByHandle.get(v.__rb_handle);
         if (jsEvent !== undefined) return jsEvent;
-        return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+        return makeProxy(v.__rb_handle, v.__rb_if);
       }
       const out = {};
       for (const k of Object.keys(v)) out[k] = wasmUntag(v[k]);
@@ -1708,47 +1713,14 @@ globalThis.__rbHost = (function () {
     const parent = (i + 1 < chain.length) ? protoForChain(chain, i + 1) : Object.prototype;
     const proto = Object.create(parent);
     Object.defineProperty(proto, Symbol.toStringTag, { value: name, configurable: true });
-    // Only node/element constructors adopt an element being upgraded. Otherwise
-    // a non-element `new` (e.g. `new IntersectionObserver()` inside a custom
-    // element's constructor) would greedily adopt the queued element off the
-    // shared construction stack and hijack its prototype.
-    const consultsStack = chain.includes("Node");
     const ctor = function (...args) {
       const nt = new.target;
       if (nt === undefined) throw new TypeError(name + " requires 'new'");
-      // 1d: custom element upgrade — when a construction is queued, `super()`
-      // adopts the element being upgraded (its proxy) and stamps it with the
-      // derived class's prototype, rather than minting a new backing object.
-      if (consultsStack && constructionStack.length > 0) {
-        const el = constructionStack[constructionStack.length - 1];
-        Object.setPrototypeOf(el, nt.prototype);
-        return el;
-      }
-      // 1d: direct `new MyElement()` (no queued upgrade) — the HTMLElement
-      // constructor algorithm. When new.target is a registered custom element
-      // constructor, mint its backing Dommy element now (autonomous custom
-      // element construction), adopt the proxy WITHOUT re-running this ctor, and
-      // stamp it with the derived prototype. An unregistered new.target (bare
-      // `new HTMLElement()` / an unregistered subclass) falls through to Ruby,
-      // which returns null → "Illegal constructor", per spec.
-      // Autonomous custom element construction runs only in the HTMLElement base
-      // ctor: an element's super() chain reaches here iff it `extends HTMLElement`.
-      // A class that extends a built-in interface instead (HTMLParagraphElement,
-      // HTMLButtonElement, …) reaches THAT ctor's name, misses this branch, and
-      // falls through to Ruby → TypeError (Dommy has no customized built-ins).
-      // `nt !== ctor` additionally rejects `new HTMLElement()` itself (even when
-      // HTMLElement was passed to customElements.define): only a user subclass as
-      // new.target may construct.
-      if (name === "HTMLElement" && nt !== ctor) {
-        const ceName = ceNameForCtor(nt);
-        if (ceName !== undefined) {
-          const wire = __rb_create_custom_element(ceName);
-          if (wire && typeof wire === "object" && "__rb_handle" in wire) {
-            const p = makeProxy(wire.__rb_handle, wire.__rb_if, wire.__rb_ce, true);
-            Object.setPrototypeOf(p, nt.prototype);
-            return p;
-          }
-        }
+      // HTML element constructors ([HTMLConstructor]): a custom element's
+      // `super()` reaches here with its class as NewTarget.
+      if (nt !== ctor && name.startsWith("HTML") && name.endsWith("Element")) {
+        const built = constructCustomElement(name, nt);
+        if (built !== undefined) return built;
       }
       const built = constructInterface(name, args);
       // A JS subclass (`class Foo extends Event {}` / `extends EventTarget`)
@@ -1988,6 +1960,16 @@ globalThis.__rbHost = (function () {
     // `instanceof` and `doc.defaultView.X` in iframe documents.
     const w = target || globalThis.window;
     if (!w) return;
+    // The bare `customElements` is the window's registry, the same object as
+    // `window.customElements` ([Replaceable]: an assignment replaces it).
+    if (!target) {
+      const registry = w.customElements;
+      Object.defineProperty(globalThis, "customElements", {
+        get() { return registry; },
+        set(v) { Object.defineProperty(globalThis, "customElements", { value: v, writable: true, enumerable: true, configurable: true }); },
+        enumerable: true, configurable: true,
+      });
+    }
     const names = [...protos.keys()];
     if (typeof globalThis.DOMException === "function") names.push("DOMException");
     // Mirror the JS built-in constructors too, so an iframe's contentWindow
@@ -3203,7 +3185,7 @@ globalThis.__rbHost = (function () {
     };
   }
 
-  function makeProxy(handle, iface, ce, suppressUpgrade) {
+  function makeProxy(handle, iface) {
     const ref = cache.get(handle);
     if (ref) {
       const existing = ref.deref();
@@ -3220,16 +3202,12 @@ globalThis.__rbHost = (function () {
     }
     // Reuse the cached per-interface descriptor when the handle crossed tagged
     // with a known interface — skipping the describe round trip. Otherwise (no
-    // tag, or first sighting of this interface) describe once and cache it. The
-    // custom-element tag is per-instance, so it comes from the handle tag (the
-    // describe path falls back to the describe's own `ce`).
+    // tag, or first sighting of this interface) describe once and cache it.
     let desc = (iface != null) ? descByInterface.get(iface) : undefined;
-    let ceName = ce;
     if (!desc) {
       const d = __rb_host_describe(handle);
       desc = { name: d.name, chain: d.chain, methods: d.methods };
       if (d.name != null) descByInterface.set(d.name, desc);
-      if (ceName === undefined) ceName = d.ce;
     }
     // 2d: the method-name set and the trap traits are per-interface; reuse them
     // across every proxy of that type.
@@ -3260,16 +3238,13 @@ globalThis.__rbHost = (function () {
     // expando-bearing proxy) instead of caching them only weakly. Residency is
     // bounded by the distinct nodes touched — the same set the Ruby-side wrapper
     // cache already retains. Non-node proxies stay weak + finalizer-released.
-    if (isNode) {
+    // A CustomElementRegistry is pinned too: its definitions live JS-side,
+    // keyed by its proxy (see ceStateOf).
+    if (isNode || desc.name === "CustomElementRegistry") {
       pinned.set(handle, p);
     } else {
       finalizers.register(p, handle);
     }
-    // 1d: a Dommy-registered custom element node is upgraded to its JS class on
-    // first crossing — so the constructor runs before any lifecycle callback.
-    // Suppressed when the proxy IS the return value of an in-flight direct
-    // construction (`new MyElement()`), whose ctor is already on the stack.
-    if (ceName && !suppressUpgrade) upgradeElement(p, ceName);
     // An iframe's contentWindow crosses as a NON-global Window proxy. Seed its
     // own constructor set (Event/DOMException/Range/… + JS builtins) the first
     // time it materializes, so a nested realm resolves
@@ -3284,56 +3259,97 @@ globalThis.__rbHost = (function () {
   }
 
   // ===== Custom elements (1d) =====
+  //
+  // A registry's definitions live here, JS-side, because their constructors
+  // and callbacks are JS functions; Ruby holds a definition object per
+  // definition (Js::JsCustomElementDefinition) that runs the reactions
+  // (Internal::CEReactions) and calls back in by the definition's id:
+  // ceConstruct (create an element with the synchronous flag), ceUpgrade
+  // (upgrade an element) and ceInvoke (a lifecycle callback).
 
-  // Run a JS custom element's constructor against an existing Dommy-backed proxy
-  // (the construction-stack adoption proven by the Step 0 spike), making the
-  // proxy an instance of the registered class with its constructor side effects.
-  // Reverse of ceRegistry: the registered tag name for a constructor (the
-  // active new.target of a direct `new MyElement()`), or undefined. Iterates —
-  // a page defines a handful of elements, so a map's bookkeeping isn't worth it.
-  function ceNameForCtor(ctor) {
-    for (const [name, c] of ceRegistry) if (c === ctor) return name;
-    return undefined;
+  // The HTML element constructor steps for a custom element's `super()`
+  // (HTML §3.2.3), `activeName` being the interface whose constructor runs.
+  // Undefined when NewTarget is no defined constructor (the caller then
+  // throws "Illegal constructor", as for any interface without one).
+  function constructCustomElement(activeName, nt) {
+    const def = ceDefsByCtor.get(nt);
+    if (!def) return undefined;
+    if (def.localName === def.name) {
+      if (activeName !== "HTMLElement") {
+        throw new TypeError("Illegal constructor: an autonomous custom element must extend HTMLElement");
+      }
+    } else if (activeName !== def.baseInterface) {
+      throw new TypeError("Illegal constructor: " + activeName + " is not the interface of <" + def.localName + ">");
+    }
+    let proto = nt.prototype;
+    if (proto === null || (typeof proto !== "object" && typeof proto !== "function")) {
+      proto = protos.get(activeName) || Object.prototype;
+    }
+    const stack = def.constructionStack;
+    if (stack.length === 0) {
+      // `new MyElement()`: a fresh element, custom from the start.
+      const el = rehydrate(__rb_create_custom_element(def.id));
+      if (el === null || typeof el !== "object") throw new TypeError("Illegal constructor");
+      Object.setPrototypeOf(el, proto);
+      return el;
+    }
+    const el = stack[stack.length - 1];
+    if (el === CE_ALREADY_CONSTRUCTED) {
+      throw new TypeError("Failed to construct '" + activeName + "': this element was already constructed");
+    }
+    Object.setPrototypeOf(el, proto);
+    stack[stack.length - 1] = CE_ALREADY_CONSTRUCTED;
+    return el;
   }
 
-  function upgradeElement(proxy, name) {
-    const ctor = ceRegistry.get(name);
-    if (!ctor) return;
-    constructionStack.push(proxy);
-    try { Reflect.construct(ctor, [], ctor); }
-    finally { constructionStack.pop(); }
-  }
-
-  // Ruby re-wrapped an element its definition now applies to and moved the
-  // element's handle onto the new wrapper (HostBridge#upgrade_in_place). The
-  // proxy a script already holds is upgraded where it stands, and recorded under
-  // the new interface so a later crossing tagged with it keeps the same object.
-  function upgradeInPlace(handle, name, iface) {
+  // Ruby -> JS: construct the definition's constructor with no arguments
+  // (DOM "create an element" with the synchronous custom elements flag). The
+  // result crosses back as is — Ruby checks it is a fitting element — or
+  // what it threw, tagged.
+  function ceConstruct(id) {
     bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
-    const ref = cache.get(handle);
-    const proxy = ref && ref.deref();
-    if (!proxy) return;
-    if (iface != null) proxyInterfaces.set(proxy, iface);
-    upgradeElement(proxy, name);
+    const def = ceDefsById.get(id);
+    try {
+      return dehydrateReturn(Reflect.construct(def.ctor, []));
+    } catch (e) {
+      return tagThrow(e);
+    }
   }
 
-  // Ruby calls this when a registered custom element fires a lifecycle reaction.
-  // makeProxy upgrades on first crossing, so the constructor has already run.
-  function invokeLifecycle(handle, callback, args) {
-    bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
-    const p = makeProxy(handle);
-    const fn = p[callback];
-    if (typeof fn !== "function") {
-      // HTML "enqueue a custom element callback reaction": without a
-      // connectedMoveCallback, a move runs disconnectedCallback and then
-      // connectedCallback in its place.
-      if (callback === "connectedMoveCallback") {
-        invokeLifecycle(handle, "disconnectedCallback", []);
-        invokeLifecycle(handle, "connectedCallback", []);
+  // Ruby -> JS: HTML "upgrade an element" steps 5-8 for the element `handle`
+  // names — construct the definition's constructor with the element on its
+  // construction stack, so `super()` hands the element itself back.
+  function ceUpgrade(id, handle) {
+    bumpDomEpoch();
+    const def = ceDefsById.get(id);
+    const el = makeProxy(handle);
+    def.constructionStack.push(el);
+    try {
+      const result = Reflect.construct(def.ctor, []);
+      if (result !== el) {
+        throw new TypeError("Failed to upgrade <" + def.name + ">: the constructor did not return the element being upgraded");
       }
       return undefined;
+    } catch (e) {
+      return tagThrow(e);
+    } finally {
+      def.constructionStack.pop();
     }
-    return dehydrateTop(fn.apply(p, rehydrate(args || [])));
+  }
+
+  // Ruby -> JS: invoke one of the definition's lifecycle callbacks (as the
+  // definition read them at define() time) with `this` the element.
+  function ceInvoke(id, handle, callbackName, args) {
+    bumpDomEpoch();
+    const def = ceDefsById.get(id);
+    const fn = def && def.callbacks[callbackName];
+    if (typeof fn !== "function") return undefined;
+    try {
+      fn.apply(makeProxy(handle), rehydrate(args || []));
+      return undefined;
+    } catch (e) {
+      return tagThrow(e);
+    }
   }
 
   // Hyphenated names the HTML spec reserves (SVG / MathML) — not valid custom
@@ -3353,10 +3369,6 @@ globalThis.__rbHost = (function () {
     return typeof name === "string" && CE_NAME_RE.test(name) && !CE_RESERVED.has(name);
   }
 
-  // "element definition is running" flag — a define() reentered while running
-  // (e.g. from a constructor-property getter) is a NotSupportedError.
-  let ceDefinitionRunning = false;
-
   // WebIDL `sequence<DOMString>` conversion: the value must be iterable (a
   // non-iterable like a number throws a TypeError — unlike Array.from, which
   // returns []); each item is stringified. Exceptions from the iterator / items
@@ -3371,125 +3383,192 @@ globalThis.__rbHost = (function () {
     return result;
   }
 
-  // customElements.define(name, JSClass): validate + read the constructor's
-  // definition per WHATWG, register JS-side, and ask Ruby to wire a Dommy custom
-  // element whose reactions route back through invokeLifecycle. Check order:
-  // IsConstructor, name, running-flag, duplicate name, duplicate constructor;
-  // then (flag set) prototype → callbacks → observedAttributes → disabledFeatures
-  // → formAssociated.
-  function defineCustomElement(name, ctor) {
-    if (typeof ctor !== "function") {
-      throw new TypeError("The custom element constructor must be a constructor");
+  // ECMAScript IsConstructor, without touching the function: a Proxy over a
+  // non-constructor has no [[Construct]], so `new` on it throws before any
+  // trap — and the trap keeps a real constructor from running.
+  const CE_CONSTRUCT_PROBE = { construct() { return {}; } };
+  function isConstructor(value) {
+    if (typeof value !== "function") return false;
+    try {
+      new (new Proxy(value, CE_CONSTRUCT_PROBE))();
+      return true;
+    } catch (_) {
+      return false;
     }
+  }
+
+  // The JS half of a CustomElementRegistry: its definitions by name, its
+  // when-defined promises and its "element definition is running" flag.
+  function ceStateOf(registry) {
+    if (!isProxy(registry) || proxyInterfaces.get(registry) !== "CustomElementRegistry") {
+      throw new TypeError("Illegal invocation: not a CustomElementRegistry");
+    }
+    let state = ceStates.get(registry);
+    if (!state) {
+      state = { defs: new Map(), pending: new Map(), running: false };
+      ceStates.set(registry, state);
+    }
+    return state;
+  }
+
+  // The interface of the HTML element `localName` names, as Ruby's element
+  // class table has it ("HTMLUnknownElement" for none).
+  function htmlInterfaceFor(localName) {
+    return __rb_html_interface_for(localName);
+  }
+
+  // customElements.define(name, constructor, options) — HTML §4.13.4.
+  function defineCustomElement(registry, name, ctor, options) {
+    const state = ceStateOf(registry);
+    if (!isConstructor(ctor)) {
+      throw new TypeError("Failed to execute 'define' on 'CustomElementRegistry': The provided value is not a constructor");
+    }
+    name = String(name);
     if (!isValidCustomElementName(name)) {
       throw new DOMException("'" + name + "' is not a valid custom element name", "SyntaxError");
     }
-    if (ceDefinitionRunning) {
-      throw new DOMException("A custom element definition is already being processed", "NotSupportedError");
-    }
-    if (ceRegistry.has(name)) {
+    if (state.defs.has(name)) {
       throw new DOMException("An element with name '" + name + "' is already defined", "NotSupportedError");
     }
-    for (const existing of ceRegistry.values()) {
-      if (existing === ctor) {
+    for (const existing of state.defs.values()) {
+      if (existing.ctor === ctor) {
         throw new DOMException("This constructor has already been registered", "NotSupportedError");
       }
     }
+    let localName = name;
+    let baseInterface = "HTMLElement";
+    // ElementDefinitionOptions: a dictionary — undefined/null is {}, anything
+    // else that is not an object a TypeError.
+    if (options !== undefined && options !== null && typeof options !== "object" && typeof options !== "function") {
+      throw new TypeError("Failed to execute 'define' on 'CustomElementRegistry': The provided value is not of type 'ElementDefinitionOptions'");
+    }
+    const ext = (options === undefined || options === null) ? undefined : options.extends;
+    if (ext !== undefined) {
+      const extName = String(ext);
+      if (isValidCustomElementName(extName)) {
+        throw new DOMException("'" + extName + "' is a valid custom element name, so it cannot be extended", "NotSupportedError");
+      }
+      baseInterface = htmlInterfaceFor(extName);
+      if (baseInterface === "HTMLUnknownElement") {
+        throw new DOMException("'" + extName + "' is not an HTML element that can be extended", "NotSupportedError");
+      }
+      localName = extName;
+    }
+    if (state.running) {
+      throw new DOMException("A custom element definition is already being processed", "NotSupportedError");
+    }
 
-    ceDefinitionRunning = true;
+    state.running = true;
     let observed = [];
+    let disabled = [];
+    let formAssociated = false;
+    const callbacks = {};
     try {
       const proto = ctor.prototype;
-      if (typeof proto !== "object" || proto === null) {
+      if (proto === null || (typeof proto !== "object" && typeof proto !== "function")) {
         throw new TypeError("The custom element constructor's prototype is not an object");
       }
-      // Read each lifecycle reaction callback off the prototype, in spec order;
-      // each must be undefined or a function. connectedMoveCallback is read here
-      // like the rest, though Dommy's moveBefore does not enqueue custom element
-      // reactions yet.
+      // Each lifecycle callback, read off the prototype once, in spec order;
+      // each must be undefined or a function (a WebIDL Function).
       const readCallback = (cb) => {
         const fn = proto[cb];
-        if (fn !== undefined && typeof fn !== "function") {
-          throw new TypeError("The " + cb + " callback is not a function");
-        }
-        return fn;
+        if (fn === undefined) return;
+        if (typeof fn !== "function") throw new TypeError("The " + cb + " callback is not a function");
+        callbacks[cb] = fn;
       };
-      readCallback("connectedCallback");
-      readCallback("disconnectedCallback");
-      readCallback("connectedMoveCallback");
-      readCallback("adoptedCallback");
-      const attributeChanged = readCallback("attributeChangedCallback");
-      if (attributeChanged !== undefined) {
+      ["connectedCallback", "disconnectedCallback", "connectedMoveCallback", "adoptedCallback",
+        "attributeChangedCallback"].forEach(readCallback);
+      if (callbacks.attributeChangedCallback !== undefined) {
         const oa = ctor.observedAttributes;
         if (oa !== undefined) observed = toDOMStringSequence(oa);
       }
-      // disabledFeatures / formAssociated are converted for their observable side
-      // effects (Symbol.iterator access, iteration, ToBoolean); values unmodeled.
       const df = ctor.disabledFeatures;
-      if (df !== undefined) toDOMStringSequence(df);
-      if (ctor.formAssociated) {
-        readCallback("formAssociatedCallback");
-        readCallback("formResetCallback");
-        readCallback("formDisabledCallback");
-        readCallback("formStateRestoreCallback");
+      if (df !== undefined) disabled = toDOMStringSequence(df);
+      formAssociated = !!ctor.formAssociated;
+      if (formAssociated) {
+        ["formAssociatedCallback", "formResetCallback", "formDisabledCallback",
+          "formStateRestoreCallback"].forEach(readCallback);
       }
     } finally {
-      ceDefinitionRunning = false;
+      state.running = false;
     }
 
-    ceRegistry.set(name, ctor);
-    __rb_define_custom_element(name, observed);
-    const waiter = cePending.get(name);
-    if (waiter) { cePending.delete(name); waiter.resolve(ctor); }
+    const def = {
+      id: ++ceNextId, name, localName, ctor, callbacks, baseInterface,
+      observed, formAssociated, constructionStack: []
+    };
+    state.defs.set(name, def);
+    ceDefsById.set(def.id, def);
+    ceDefsByCtor.set(ctor, def);
+    // Ruby appends the definition, upgrades the document's elements it
+    // applies to (their constructors have run when this returns) — then the
+    // when-defined promise resolves.
+    const raised = __rb_define_custom_element(registry[HKEY], def.id, name, localName, observed,
+      Object.keys(callbacks), disabled.includes("shadow"), formAssociated);
+    if (raised && typeof raised === "object" && raised.__rb_exception__) throw makeHostError(raised.__rb_exception__);
+    const waiter = state.pending.get(name);
+    if (waiter) { state.pending.delete(name); waiter.resolve(ctor); }
   }
 
-  // whenDefined stays pending until the name is defined (spec semantics), so
-  // `await customElements.whenDefined(x)` before define() doesn't resolve early.
-  // The SAME promise is returned for a given still-undefined name each call
-  // ([SameObject]-ish per spec), and define() resolves it.
-  function whenDefinedCustomElement(name) {
-    const ctor = ceRegistry.get(name);
-    if (ctor) return Promise.resolve(ctor);
-    let entry = cePending.get(name);
+  // Expose CustomElementRegistry as a real interface object with its operations
+  // on the prototype; every registry (a window's `customElements`, an
+  // iframe's) is a host object of this interface, and the operations find the
+  // registry's definitions from `this`.
+  function CustomElementRegistry() { throw new TypeError("Illegal constructor"); }
+  const cerProto = CustomElementRegistry.prototype;
+  Object.defineProperty(cerProto, Symbol.toStringTag, { value: "CustomElementRegistry", configurable: true });
+  protos.set("CustomElementRegistry", cerProto);
+  const cerMethod = (key, fn, length) => {
+    Object.defineProperty(fn, "length", { value: length, configurable: true });
+    Object.defineProperty(cerProto, key, { value: fn, writable: true, enumerable: true, configurable: true });
+  };
+  cerMethod("define", function define(name, ctor, options) {
+    if (arguments.length < 2) {
+      throw new TypeError("Failed to execute 'define' on 'CustomElementRegistry': 2 arguments required, but only " + arguments.length + " present.");
+    }
+    return defineCustomElement(this, name, ctor, options);
+  }, 2);
+  cerMethod("get", function get(name) {
+    const def = ceStateOf(this).defs.get(String(name));
+    return def ? def.ctor : undefined;
+  }, 1);
+  cerMethod("getName", function getName(ctor) {
+    const state = ceStateOf(this);
+    if (typeof ctor !== "function") {
+      throw new TypeError("Failed to execute 'getName' on 'CustomElementRegistry': parameter 1 is not of type 'Function'.");
+    }
+    for (const [n, def] of state.defs) if (def.ctor === ctor) return n;
+    return null;
+  }, 1);
+  cerMethod("whenDefined", function whenDefined(name) {
+    let state;
+    try { state = ceStateOf(this); } catch (e) { return Promise.reject(e); }
+    name = String(name);
+    if (!isValidCustomElementName(name)) {
+      return Promise.reject(new DOMException("'" + name + "' is not a valid custom element name", "SyntaxError"));
+    }
+    const def = state.defs.get(name);
+    if (def) return Promise.resolve(def.ctor);
+    let entry = state.pending.get(name);
     if (!entry) {
       let resolve;
       const promise = new Promise((r) => { resolve = r; });
       entry = { promise, resolve };
-      cePending.set(name, entry);
+      state.pending.set(name, entry);
     }
     return entry.promise;
-  }
-
-  // Expose CustomElementRegistry as a real interface object with its operations
-  // on the prototype (so `'define' in CustomElementRegistry.prototype`,
-  // `customElements instanceof CustomElementRegistry`, and prototype reflection
-  // work); `customElements` is its sole instance. The operations close over the
-  // JS-side registry, so they ignore `this` (no host handle to route through).
-  function CustomElementRegistry() { throw new TypeError("Illegal constructor"); }
-  const cerProto = CustomElementRegistry.prototype;
-  Object.defineProperty(cerProto, Symbol.toStringTag, { value: "CustomElementRegistry", configurable: true });
-  const cerMethod = (key, fn) =>
-    Object.defineProperty(cerProto, key, { value: fn, writable: true, enumerable: true, configurable: true });
-  cerMethod("define", function (name, ctor) { return defineCustomElement(name, ctor); });
-  cerMethod("get", function (name) { return ceRegistry.get(name); });
-  cerMethod("getName", function (ctor) {
-    if (typeof ctor !== "function") {
-      throw new TypeError("The custom element constructor is not a constructor");
+  }, 1);
+  cerMethod("upgrade", function upgrade(root) {
+    ceStateOf(this);
+    if (!isProxy(root) || !interfaceChainOf(root).includes("Node")) {
+      throw new TypeError("Failed to execute 'upgrade' on 'CustomElementRegistry': parameter 1 is not of type 'Node'.");
     }
-    for (const [n, c] of ceRegistry) if (c === ctor) return n;
-    return null;
-  });
-  cerMethod("whenDefined", function (name) {
-    if (!isValidCustomElementName(name)) {
-      return Promise.reject(new DOMException("'" + name + "' is not a valid custom element name", "SyntaxError"));
-    }
-    return whenDefinedCustomElement(name);
-  });
-  // Delegate manual upgrades to Dommy's registry (define() already upgrades
-  // existing nodes; this covers subtrees attached without reactions).
-  cerMethod("upgrade", function (root) { if (isProxy(root)) __rb_upgrade_custom_elements(root[HKEY]); });
+    const raised = __rb_upgrade_custom_elements(this[HKEY], root[HKEY]);
+    if (raised && typeof raised === "object" && raised.__rb_exception__) throw makeHostError(raised.__rb_exception__);
+  }, 1);
   globalThis.CustomElementRegistry = CustomElementRegistry;
-  globalThis.customElements = Object.create(cerProto);
+  // The bare `customElements` global is the window's registry (bound once the
+  // window is: see exposeConstructorsOnWindow).
 
   // ===== Unhandled-rejection detail capture (opt-in diagnostics) =====
   //
@@ -3566,7 +3645,7 @@ globalThis.__rbHost = (function () {
     installRejectionTracker,
     // The engine's promise-rejection hook (see onPromiseRejection).
     onPromiseRejection,
-    seedInterfaces, invokeLifecycle, upgradeInPlace, attachStatics, exposeConstructorsOnWindow,
+    seedInterfaces, ceConstruct, ceUpgrade, ceInvoke, attachStatics, exposeConstructorsOnWindow,
     // Realm wiring the Ruby bridge drives, kept here rather than as JS built in
     // Ruby strings (see defineGlobal / defineLegacyEventAccessor).
     defineGlobal, exposeConstructorsOnSubWindow, defineLegacyEventAccessor, compileEventHandler,

@@ -131,8 +131,12 @@
       "initCompositionEvent"
     ],
     "CustomElementRegistry": [
+      "define",
+      "get",
       "getName",
-      "initialize"
+      "initialize",
+      "upgrade",
+      "whenDefined"
     ],
     "DataTransfer": [
       "setDragImage"

@@ -1099,6 +1099,7 @@ module Dommy
       source_document = node.respond_to?(:document) ? node.document : self
       copy = clone_into_doc(node.__dommy_backend_node__, deep, source_document)
       apply_imported_cloning_steps(node.__dommy_backend_node__, copy, deep, source_document)
+      __internal_enqueue_created_upgrades__(copy) if copy.respond_to?(:element?)
       wrap_node(copy)
     end
 
@@ -2560,6 +2561,40 @@ module Dommy
       @mutation_coordinator.notify_disconnected_subtree(nk)
     end
 
+    # The element the HTML element constructor makes for `new MyElement()`.
+    def __internal_create_custom_element__(definition)
+      @node_factory.create_custom_element(definition)
+    end
+
+    # HTML "try to upgrade an element": enqueue an upgrade reaction when the
+    # registry `element` looks definitions up in has one for it.
+    def __internal_try_to_upgrade__(element)
+      definition = CustomElementRegistry.lookup(element.owner_document, element.namespace_uri, element.local_name)
+      Internal::CEReactions.enqueue_upgrade(element, definition) if definition
+    end
+
+    # The elements a parser or a clone just created in this document without
+    # the synchronous custom elements flag (DOM "create an element" step 6.3):
+    # each one a definition applies to gets an upgrade reaction. `nodes` are
+    # backend nodes, each walked in tree order (a template's contents are not
+    # its children, and belong to a document with no registry).
+    def __internal_enqueue_created_upgrades__(nodes)
+      registry = CustomElementRegistry.for_document(self)
+      return if registry.nil? || !registry.any_definitions?
+
+      (nodes.is_a?(Array) ? nodes : [nodes]).each do |root|
+        Internal::NodeTraversal.subtree_nodes(root).each do |node|
+          next unless node.element? && Backend.namespace_uri(node) == Element::HTML_NAMESPACE
+
+          definition = registry.definition_for_local_name(node.name)
+          next unless definition
+
+          element = wrap_node(node)
+          Internal::CEReactions.enqueue_upgrade(element, definition) if element
+        end
+      end
+    end
+
     def __internal_notify_attribute_changed__(element, name, old_value, new_value, namespace = nil)
       @mutation_coordinator.notify_attribute_changed(element, name, old_value, new_value, namespace)
     end
@@ -2742,6 +2777,11 @@ module Dommy
       context = target_bn.element? ? target_bn : nil
       added = Parser.fragment(string, owner_doc: @backend_doc, context: context).children.to_a
       return nil if added.empty?
+
+      # The document's parser creates a defined element by running its
+      # constructor; Dommy's parsed the markup already, so each one is
+      # upgraded instead, before it is inserted.
+      __internal_enqueue_created_upgrades__(added)
 
       if in_body
         reference = script_bn

@@ -41,13 +41,21 @@ module Dommy
 
         # WHATWG adopt removes the node from its parent first — a full remove, so
         # the old parent gets its removing steps AND its childList record.
-        @document.remove_node_with_notify(src) if src.parent
+        # The removal is the old document's: its custom elements get their
+        # disconnected reactions there.
+        if src.parent
+          source = node.respond_to?(:document) && node.document.respond_to?(:remove_node_with_notify) ? node.document : @document
+          source.remove_node_with_notify(src)
+        end
 
         # Same document: just return the wrapper after the detach above.
         return @document.wrap_node(src) if src.document == backend_doc
         return adopt_doctype(node, src) if node.is_a?(DocumentType)
 
-        adopt_across_documents(node, src)
+        old_document = node.respond_to?(:document) ? node.document : nil
+        adopted = adopt_across_documents(node, src)
+        enqueue_adopted_callbacks(adopted.__dommy_backend_node__, old_document)
+        adopted
       end
 
       # Adopt a raw backend node that has no wrapper of its own to re-bind — a
@@ -61,6 +69,7 @@ module Dommy
         adopted = Backend.adopt(node, backend_doc)
         if source_document && !source_document.equal?(@document)
           Transfer.new(source_document, @document).carry_over(node, adopted)
+          enqueue_adopted_callbacks(adopted, source_document)
         end
         adopted
       end
@@ -68,6 +77,20 @@ module Dommy
       private
 
       def backend_doc = @document.backend_doc
+
+      # DOM adopt step 3.3: each custom element among the adopted node's
+      # shadow-including inclusive descendants gets an adoptedCallback
+      # reaction, given the old and the new document.
+      def enqueue_adopted_callbacks(root, old_document)
+        return unless root && old_document && !old_document.equal?(@document)
+
+        @document.__internal_each_shadow_including_element__(root) do |node|
+          element = @document.__internal_peek_wrapper__(node)
+          next unless element.respond_to?(:__internal_ce_custom__?) && element.__internal_ce_custom__?
+
+          CEReactions.enqueue_callback(element, "adoptedCallback", [old_document, @document])
+        end
+      end
 
       # Cross-document DocumentType: Makiri can't import a doctype node between
       # arenas, so re-create it in the destination's backend from its name /

@@ -9,9 +9,9 @@ module Dommy
     # Document's public API. The element behaviours an insertion also sets off —
     # a script running, a details group settling — are PostInsertionSteps'.
     #
-    # A custom element reaction that throws is the page's exception, so it is
-    # REPORTED at the window ("report an exception"), the same seam an event
-    # listener's exception takes. It used to be discarded.
+    # The custom element reactions are enqueued (Internal::CEReactions), not
+    # run: they run when the [CEReactions] member that made the mutation
+    # returns, or from the backup element queue.
     class MutationCoordinator
       def initialize(document, observer_manager)
         @document = document
@@ -30,21 +30,24 @@ module Dommy
         nil
       end
 
-      # Fire CustomElement lifecycle: connected (synchronous, before mutation delivery)
+      # DOM insert step 7.7 for one connected element: a custom element gets
+      # a connectedCallback reaction; any other is tried for an upgrade.
       def notify_connected(element)
-        return unless element&.respond_to?(:connected_callback)
+        return unless element.respond_to?(:__internal_ce_custom__?)
 
-        element.connected_callback
-      rescue StandardError => e
-        report_exception(e)
+        if element.__internal_ce_custom__?
+          CEReactions.enqueue_callback(element, "connectedCallback", [])
+        else
+          @document.__internal_try_to_upgrade__(element)
+        end
       end
 
+      # DOM remove step 15: a custom element gets a disconnectedCallback
+      # reaction.
       def notify_disconnected(element)
-        return unless element&.respond_to?(:disconnected_callback)
+        return unless element.respond_to?(:__internal_ce_custom__?) && element.__internal_ce_custom__?
 
-        element.disconnected_callback
-      rescue StandardError => e
-        report_exception(e)
+        CEReactions.enqueue_callback(element, "disconnectedCallback", [])
       end
 
       # Connected callbacks, connected scripts and blank-iframe loads for every
@@ -81,27 +84,14 @@ module Dommy
         end
       end
 
+      # DOM "handle attribute changes" step 2: a custom element gets an
+      # attributeChangedCallback reaction (enqueued only when its definition
+      # observes the attribute — matched exactly, so a `fooBar` made by
+      # setAttributeNS is observed as "fooBar" alone).
       def notify_attribute_changed(element, name, old_value, new_value, namespace = nil)
-        return unless element&.respond_to?(:attribute_changed_callback)
+        return unless element.respond_to?(:__internal_ce_custom__?) && element.__internal_ce_custom__?
 
-        klass = element.class
-        return unless klass.respond_to?(:observed_attributes)
-        # The local name as it is: observedAttributes is matched exactly, so a
-        # `fooBar` made by setAttributeNS is observed as "fooBar" alone.
-        return unless Array(klass.observed_attributes).map(&:to_s).include?(name.to_s)
-
-        # attributeChangedCallback's 4th arg is the attribute's namespace (null
-        # for a plain HTML attribute). Pass it only to callbacks that accept it
-        # (the JS bridge, or a 4-arg Ruby callback) so existing 3-arg Ruby custom
-        # elements keep working.
-        cb = element.method(:attribute_changed_callback)
-        if cb.arity.negative? || cb.arity >= 4
-          element.attribute_changed_callback(name, old_value, new_value, namespace)
-        else
-          element.attribute_changed_callback(name, old_value, new_value)
-        end
-      rescue StandardError => e
-        report_exception(e)
+        CEReactions.enqueue_callback(element, "attributeChangedCallback", [name.to_s, old_value, new_value, namespace])
       end
 
       # Fire MutationObserver childList records
@@ -136,8 +126,10 @@ module Dommy
           # browser prepares a script because a child left it, and WPT's
           # script-does-not-run-on-child-removal holds them to that.
           @post_insertion_steps.script_children_changed(target) unless added_nodes.empty?
-          added_nodes.each { |nk| notify_connected_subtree(nk) }
+          # A replacement removes before it inserts (DOM "replace all"), so the
+          # disconnected reactions are enqueued ahead of the connected ones.
           removed_nodes.each { |nk| notify_disconnected_subtree(nk) }
+          added_nodes.each { |nk| notify_connected_subtree(nk) }
         end
 
         # HTML's details insertion steps run wherever the element lands, not only
@@ -290,19 +282,13 @@ module Dommy
       end
 
 
-      # HTML "enqueue a custom element callback reaction": a definition without
-      # connectedMoveCallback runs disconnectedCallback and then connectedCallback
-      # in its place. (A JS-defined element always answers the Ruby method; the
-      # bridge falls back on the JS side.)
+      # DOM move: a custom element gets a connectedMoveCallback reaction
+      # (CEReactions turns it into disconnected + connected for a definition
+      # without one).
       def notify_moved(element)
-        if element.respond_to?(:connected_move_callback)
-          element.connected_move_callback
-        else
-          notify_disconnected(element)
-          notify_connected(element)
-        end
-      rescue StandardError => e
-        report_exception(e)
+        return unless element.respond_to?(:__internal_ce_custom__?) && element.__internal_ce_custom__?
+
+        CEReactions.enqueue_callback(element, "connectedMoveCallback", [])
       end
     end
   end

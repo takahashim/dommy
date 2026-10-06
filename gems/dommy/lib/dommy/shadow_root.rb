@@ -46,6 +46,7 @@ module Dommy
 
     def inner_html=(html)
       fragment = Parser.fragment(html.to_s, owner_doc: @document.backend_doc)
+      @document.__internal_enqueue_created_upgrades__(fragment.children.to_a)
       __internal_replace_all__(fragment.children.to_a)
       nil
     end
@@ -101,6 +102,8 @@ module Dommy
     def connected?
       @host.respond_to?(:is_connected?) && @host.is_connected?
     end
+
+    alias is_connected? connected?
 
     # `shadowRoot.activeElement` — the focused element retargeted against
     # this shadow root: the element itself when it is in this tree, the host

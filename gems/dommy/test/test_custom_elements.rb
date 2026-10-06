@@ -256,21 +256,16 @@ class TestCustomElementUpgrade < Minitest::Test
     assert_equal(1, b.connected_count)
   end
 
-  # A page's `customElements.define(name, classExpr)` registers a JS constructor
-  # (a HostCallback), not a Ruby class. Wrapping such an element — on the
-  # define-time upgrade and on a later query — must fall back to the built-in
-  # element (the SSR'd content still renders) rather than `.new`-ing the JS
-  # object, which used to crash whole-tree walks (e.g. github's web components).
-  def test_js_constructor_definition_falls_back_without_crashing
+  # define()'s first check (IsConstructor): what is not a class is a
+  # TypeError, and the elements in the document are left as they were.
+  def test_define_rejects_a_non_class
     @doc.body.inner_html = "<x-widget>hello world</x-widget>"
-    js_constructor = Object.new # stand-in for a Dommy::Js::HostCallback
-    @registry.define("x-widget", js_constructor) # upgrade_existing must not crash
+    assert_raises(Dommy::Bridge::TypeError) { @registry.define("x-widget", Object.new) }
 
-    el = @doc.query_selector("x-widget") # wrapping during a query must not crash
-    refute_nil el
-    assert_kind_of Dommy::Element, el
-    refute_kind_of Dommy::Js::HostCallback, el if defined?(Dommy::Js::HostCallback)
+    el = @doc.query_selector("x-widget")
+    assert_instance_of Dommy::HTMLElement, el
     assert_equal "hello world", el.text_content
+    assert_nil @registry.get("x-widget")
   end
 end
 
@@ -285,5 +280,116 @@ class TestCustomElementInterfaceChain < Minitest::Test
     win.custom_elements.define("my-chain", Class.new(Dommy::HTMLElement))
     el = win.document.create_element("my-chain")
     assert_equal %w[HTMLElement Element Node EventTarget], Dommy::Js::DomInterfaces.chain_for(el)
+  end
+end
+
+# HTML §4.13.6 custom element reactions, as Ruby code driving the DOM sees
+# them: an operation's reactions run when it returns, in the order they were
+# enqueued, element by element.
+class TestCustomElementReactions < Minitest::Test
+  include DommyTestHelper
+
+  LOG = []
+
+  class Logged < Dommy::HTMLElement
+    def self.observed_attributes = %w[a]
+    def construct = LOG << [:construct, local_name]
+    def connected_callback = LOG << [:connected, get_attribute("id")]
+    def disconnected_callback = LOG << [:disconnected, get_attribute("id")]
+    def adopted_callback(old_doc, new_doc) = LOG << [:adopted, old_doc.class, new_doc.class]
+    def attribute_changed_callback(name, old, new) = LOG << [:attr, name, old, new]
+  end
+
+  def setup
+    LOG.clear
+    @win = make_window
+    @doc = @win.document
+    @win.custom_elements.define("x-logged", Logged)
+  end
+
+  # innerHTML parses (an upgrade reaction) and inserts (a second, which bails):
+  # the element is constructed and connected once.
+  def test_inner_html_on_a_connected_element_upgrades_and_connects_once
+    @doc.body.inner_html = "<x-logged id=one a=1></x-logged>"
+    assert_equal [[:construct, "x-logged"], [:attr, "a", nil, "1"], [:connected, "one"]], LOG
+    assert_instance_of Logged, @doc.get_element_by_id("one")
+  end
+
+  # The fragment parser upgrades what it creates even into a detached element.
+  def test_inner_html_on_a_detached_element_upgrades_without_connecting
+    div = @doc.create_element("div")
+    div.inner_html = "<x-logged id=two></x-logged>"
+    assert_equal [[:construct, "x-logged"]], LOG
+    assert_instance_of Logged, div.first_element_child
+  end
+
+  def test_clone_node_upgrades_the_copy
+    el = @doc.create_element("x-logged")
+    el.set_attribute("a", "1")
+    LOG.clear
+    copy = el.clone_node(false)
+    assert_instance_of Logged, copy
+    assert_equal [[:construct, "x-logged"], [:attr, "a", nil, "1"]], LOG
+  end
+
+  # DOM adopt: a custom element moved to another document gets
+  # adoptedCallback(old, new) between its disconnected and connected
+  # callbacks.
+  def test_moving_to_another_document_runs_adopted_callback
+    el = @doc.create_element("x-logged")
+    el.id = "m"
+    @doc.body.append_child(el)
+    other = @doc.implementation.create_html_document
+    LOG.clear
+    other.body.append_child(el)
+    assert_equal [[:disconnected, "m"], [:adopted, Dommy::Document, Dommy::Document], [:connected, "m"]], LOG
+  end
+
+  # Only an element that becomes connected — shadow-including — is
+  # connected: a detached host's shadow tree is not.
+  def test_inserting_into_a_detached_shadow_tree_does_not_connect
+    host = @doc.create_element("div")
+    root = host.attach_shadow("mode" => "open")
+    el = @doc.create_element("x-logged")
+    LOG.clear
+    root.append_child(el)
+    assert_empty LOG
+    @doc.body.append_child(host)
+    assert_equal [[:connected, nil]], LOG
+  end
+
+  # A custom element only: an undefined element gets no callbacks, and is
+  # upgraded when it is connected.
+  def test_an_undefined_element_is_upgraded_when_connected
+    early = Dommy::Window.new
+    el = early.document.create_element("x-late")
+    el.set_attribute("a", "1")
+    early.document.body.append_child(el)
+    early.custom_elements.define("x-late", Logged)
+    assert_equal [[:construct, "x-late"], [:attr, "a", nil, "1"], [:connected, nil]], LOG
+  end
+end
+
+# DOM "create an element" with the synchronous custom elements flag: a
+# constructor that throws is reported, and the element is an
+# HTMLUnknownElement whose custom element state is "failed".
+class TestCustomElementSynchronousConstruction < Minitest::Test
+  include DommyTestHelper
+
+  class Throws < Dommy::HTMLElement
+    def construct = raise("boom")
+  end
+
+  def test_a_throwing_constructor_makes_a_failed_unknown_element
+    win = make_window
+    reported = []
+    win.define_singleton_method(:__internal_report_exception__) { |*args| reported << args }
+    win.custom_elements.define("x-throws", Throws)
+    el = win.document.create_element("x-throws")
+    assert_instance_of Dommy::HTMLUnknownElement, el
+    assert_equal "failed", el.__internal_custom_element_state__
+    assert_equal "x-throws", el.local_name
+    refute_empty reported
+    refute Dommy::Internal::ElementState.defined_element?(el)
   end
 end
