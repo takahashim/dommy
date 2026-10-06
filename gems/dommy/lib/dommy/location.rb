@@ -186,11 +186,9 @@ module Dommy
     #
     # [SameObject], so the list is built once and answers live: a page that
     # holds `location.ancestorOrigins` holds the same object the next read would
-    # give it, which is what the IDL promises. It is a live list rather than the
-    # DOMStringList the IDL names — indexing, `length` and `item` are there,
-    # `contains` is not, and it reports as a NodeList.
+    # give it, which is what the IDL promises: a live DOMStringList.
     def ancestor_origins
-      @ancestor_origins ||= LiveNodeList.new { current_ancestor_origins }
+      @ancestor_origins ||= DOMStringList.new { current_ancestor_origins }
     end
 
     def current_ancestor_origins

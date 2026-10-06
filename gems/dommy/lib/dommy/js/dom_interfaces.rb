@@ -110,7 +110,7 @@ module Dommy
         %w[MutationObserver], %w[IntersectionObserver], %w[ResizeObserver],
         %w[PerformanceObserver], %w[AbortController], %w[AbortSignal EventTarget],
         %w[FormData], %w[URL], %w[URLSearchParams], %w[Headers], %w[Request], %w[Response],
-        %w[Blob], %w[File Blob], %w[FileList], %w[FileReader EventTarget],
+        %w[Blob], %w[File Blob], %w[FileList], %w[DOMStringList], %w[FileReader EventTarget],
         %w[XMLHttpRequest XMLHttpRequestEventTarget EventTarget],
         %w[XMLHttpRequestEventTarget EventTarget], %w[XMLHttpRequestUpload XMLHttpRequestEventTarget EventTarget],
         %w[TextEncoder], %w[TextDecoder], %w[DOMParser], %w[XMLSerializer],
