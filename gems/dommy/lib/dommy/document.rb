@@ -1881,6 +1881,7 @@ module Dommy
     # Spec: https://html.spec.whatwg.org/#dom-document-close
     def close
       raise DOMException::InvalidStateError, "close() is not supported on an XML document" unless html_document?
+      raise_if_markup_insertion_forbidden!("close")
       return nil if @script_created_input.nil?
 
       # The parser reaches EOF. With nothing written it has seen no doctype
@@ -2727,6 +2728,7 @@ module Dommy
       string = args.map { |a| a.nil? ? "null" : a.to_s }.join
       string += "\n" if line_feed
       raise DOMException::InvalidStateError, "write() is not supported on an XML document" unless html_document?
+      raise_if_markup_insertion_forbidden!("write")
 
       return boot_script_write(string) if @script_created_input.nil? && boot_script_running?
 
@@ -2753,6 +2755,7 @@ module Dommy
     # Spec: https://html.spec.whatwg.org/#document-open-steps
     def document_open_steps
       raise DOMException::InvalidStateError, "open() is not supported on an XML document" unless html_document?
+      raise_if_markup_insertion_forbidden!("open")
       return self if boot_script_running?
       # A second open() while a script-created parser is open keeps it (the
       # spec's steps re-run, but the written input so far is already gone with
@@ -2813,7 +2816,31 @@ module Dommy
 
     # Re-parse everything written since open() as a whole document and make
     # its children the document's (see "Dynamic markup insertion" above).
+    # HTML's throw-on-dynamic-markup-insertion counter: while the parser runs
+    # custom element constructors and reactions (see #parser_runs_scripts),
+    # open(), write() and close() are an InvalidStateError.
+    def raise_if_markup_insertion_forbidden!(operation)
+      return unless @throw_on_dynamic_markup_insertion_counter.to_i.positive?
+
+      raise DOMException::InvalidStateError, "#{operation}() is not allowed while the parser constructs a custom element"
+    end
+
+    # The parser's custom element work for markup it inserts: the
+    # constructors ("create an element for a token" with willExecuteScript)
+    # and the reactions they enqueue run before it continues, with the
+    # throw-on-dynamic-markup-insertion counter raised.
+    def parser_runs_scripts
+      @throw_on_dynamic_markup_insertion_counter = @throw_on_dynamic_markup_insertion_counter.to_i + 1
+      Internal::CEReactions.scope { yield }
+    ensure
+      @throw_on_dynamic_markup_insertion_counter -= 1
+    end
+
     def reparse_script_created_input
+      parser_runs_scripts { reparse_script_created_input_now }
+    end
+
+    def reparse_script_created_input_now
       parsed = Document.new(nil, backend_doc: Backend.parse(@script_created_input))
       @quirks_mode = parsed.quirks_mode?
       parsed.__internal_mark_scripts_already_started__
