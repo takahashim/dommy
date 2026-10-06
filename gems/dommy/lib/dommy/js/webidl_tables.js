@@ -3,8 +3,9 @@
 // These are the enumerations the specs themselves make: which interfaces have a
 // value iterator or a named getter, what [Constant]s an interface object
 // carries, which members go on which interface prototype and with what `length`,
-// which attributes are [LegacyUnforgeable] or readonly, which operations return
-// undefined, and which `on*` attributes are event handlers. They describe the
+// which attributes are [LegacyUnforgeable] or readonly, and which operations
+// return undefined. (Which `on*` attributes are event handlers is generated
+// from the IDL, into webidl_event_handlers.js.) They describe the
 // platform, not Dommy's bridge — they change when a spec changes, whereas
 // host_runtime.js changes when the bridge's machinery does, which is why they
 // are a file of their own. test/support/webidl_audit.rb reads the [Constant]
@@ -179,7 +180,7 @@ globalThis.__rbIdl = (function () {
   // (`rule.type === CSSRule.STYLE_RULE`).
   const CSSRULE_CONSTANTS = {
     STYLE_RULE: 1, CHARSET_RULE: 2, IMPORT_RULE: 3, MEDIA_RULE: 4, FONT_FACE_RULE: 5,
-    PAGE_RULE: 6, MARGIN_RULE: 9, NAMESPACE_RULE: 10
+    PAGE_RULE: 6, KEYFRAMES_RULE: 7, KEYFRAME_RULE: 8, MARGIN_RULE: 9, NAMESPACE_RULE: 10
   };
 
   // EventSource / FileReader ready-state [Constant]s.
@@ -191,6 +192,9 @@ globalThis.__rbIdl = (function () {
     DOM_KEY_LOCATION_STANDARD: 0x00, DOM_KEY_LOCATION_LEFT: 0x01,
     DOM_KEY_LOCATION_RIGHT: 0x02, DOM_KEY_LOCATION_NUMPAD: 0x03
   };
+
+  // WheelEvent.deltaMode [Constant]s.
+  const WHEELEVENT_CONSTANTS = { DOM_DELTA_PIXEL: 0x00, DOM_DELTA_LINE: 0x01, DOM_DELTA_PAGE: 0x02 };
 
   // HTMLMediaElement networkState / readyState, and HTMLTrackElement readyState.
   const HTMLMEDIAELEMENT_CONSTANTS = {
@@ -209,7 +213,7 @@ globalThis.__rbIdl = (function () {
     WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS, XMLHttpRequest: XHR_CONSTANTS,
     DOMException: DOMEXCEPTION_CONSTANTS, CSSRule: CSSRULE_CONSTANTS,
     EventSource: EVENTSOURCE_CONSTANTS, FileReader: FILEREADER_CONSTANTS,
-    KeyboardEvent: KEYBOARDEVENT_CONSTANTS,
+    KeyboardEvent: KEYBOARDEVENT_CONSTANTS, WheelEvent: WHEELEVENT_CONSTANTS,
     HTMLMediaElement: HTMLMEDIAELEMENT_CONSTANTS,
     HTMLTrackElement: HTMLTRACKELEMENT_CONSTANTS
   };
@@ -415,48 +419,6 @@ globalThis.__rbIdl = (function () {
     "before", "after", "replaceWith", "prepend", "append", "replaceChildren"
   ]);
 
-  // The event handler CONTENT attributes HTML (with Pointer/Touch/Animation
-  // Events) defines on elements. An `on*` attribute outside this set is not a
-  // handler and must stay inert: `onreadystatechange` and `onvisibilitychange`
-  // are IDL attributes of Document only, and `div.setAttribute("onfoobar", …)`
-  // names no event handler at all.
-  const ELEMENT_HANDLER_ATTRIBUTES = new Set([
-    "onabort", "onauxclick", "onbeforeinput", "onbeforetoggle", "onblur", "oncancel",
-    "oncanplay", "oncanplaythrough", "onchange", "onclick", "onclose", "oncommand",
-    "oncontextlost", "oncontextmenu", "oncontextrestored", "oncopy", "oncuechange",
-    "oncut", "ondblclick", "ondrag", "ondragend", "ondragenter", "ondragleave",
-    "ondragover", "ondragstart", "ondrop", "ondurationchange", "onemptied", "onended",
-    "onerror", "onfocus", "onfocusin", "onfocusout", "onformdata", "oninput",
-    "oninvalid", "onkeydown", "onkeypress", "onkeyup", "onload", "onloadeddata",
-    "onloadedmetadata", "onloadstart", "onmousedown", "onmouseenter", "onmouseleave",
-    "onmousemove", "onmouseout", "onmouseover", "onmouseup", "onpaste", "onpause",
-    "onplay", "onplaying", "onprogress", "onratechange", "onreset", "onresize",
-    "onscroll", "onscrollend", "onsecuritypolicyviolation", "onseeked", "onseeking",
-    "onselect", "onselectstart", "onslotchange", "onstalled", "onsubmit", "onsuspend",
-    "ontimeupdate", "ontoggle", "onvolumechange", "onwaiting", "onwheel",
-    "onanimationstart", "onanimationend", "onanimationiteration",
-    "ongotpointercapture", "onlostpointercapture", "onpointercancel", "onpointerdown",
-    "onpointerenter", "onpointerleave", "onpointermove", "onpointerout",
-    "onpointerover", "onpointerrawupdate", "onpointerup",
-    "ontouchcancel", "ontouchend", "ontouchmove", "ontouchstart",
-  ]);
-
-  // Window event handlers that `body` and `frameset` — and only those two —
-  // additionally carry as content attributes, reflecting onto the Window.
-  const WINDOW_REFLECTED_HANDLERS = new Set([
-    "onafterprint", "onbeforeprint", "onbeforeunload", "onhashchange",
-    "onlanguagechange", "onmessage", "onmessageerror", "onoffline", "ononline",
-    "onpagehide", "onpageshow", "onpopstate", "onrejectionhandled", "onstorage",
-    "onunhandledrejection", "onunload",
-  ]);
-
-  // On body/frameset, blur/error/focus/load/resize/scroll are the Window's
-  // handlers too, so they reflect there like the rest of WINDOW_REFLECTED.
-  const BODY_REFLECTED_HANDLERS = new Set([
-    ...WINDOW_REFLECTED_HANDLERS,
-    "onblur", "onerror", "onfocus", "onload", "onresize", "onscroll",
-  ]);
-
   // WebIDL operation `length` = the count of required arguments (it stops at the
   // first optional or variadic one). Our stubs use rest params, so they report 0;
   // stamp the spec length where a WPT test — or a `.length`-branching helper like
@@ -618,9 +580,6 @@ globalThis.__rbIdl = (function () {
     INTERFACE_UNSCOPABLES,
     PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS,
-    ELEMENT_HANDLER_ATTRIBUTES,
-    WINDOW_REFLECTED_HANDLERS,
-    BODY_REFLECTED_HANDLERS,
     METHOD_ARITY,
     INTERFACE_METHOD_ARITY,
     CONSTRUCTOR_ARITY,

@@ -67,6 +67,19 @@ module Dommy
       view.__internal_seed_name__(__internal_attribute_value__("name")) if view.respond_to?(:__internal_seed_name__)
     end
 
+    # The target name of this iframe's content navigable, without creating a
+    # blank one to ask: until it exists it is the `name` attribute it will be
+    # created with. (Window's named properties ask every iframe.)
+    def __internal_navigable_target_name__
+      view = @content_document&.default_view
+      view ? view.name : __internal_attribute_value__("name").to_s
+    end
+
+    # The content navigable's window, when it has been created.
+    def __internal_built_content_window__
+      @content_document&.default_view
+    end
+
     def content_window
       # Go through the lazy accessor so a blank browsing context is created on
       # first `contentWindow` access too (not only via `contentDocument`).

@@ -13,6 +13,7 @@ module Dommy
   # moved out; each one is now readable without the other three.
   class Element
     include EventTarget
+    extend Internal::EventHandlers::AnswersIdlAttributes
     include Node
     include Internal::ParentNode
     include Internal::ElementShadow
@@ -965,9 +966,10 @@ module Dommy
           # ARIA / role reflected IDL attribute (`ariaLabel` ↔ `aria-label`,
           # `role` ↔ `role`) — a nullable DOMString (null when absent).
           aria_get(content_attr)
-        elsif key.start_with?("on") && key.length > 2
-          # `el.onXxx` event handler property — its current value (a content
-          # attribute's handler compiled on first read) or nil.
+        elsif Internal::EventHandlers.idl_attribute?(self, key)
+          # An event handler IDL attribute this element's interface declares
+          # (`el.onclick`) — its current value (a content attribute's handler
+          # compiled on first read) or nil.
           on_handler(event_name_from_on(key))
         elsif key.start_with?("_") || key.include?("$")
           # A framework-private expando key (React stores per-node state under
@@ -1081,8 +1083,9 @@ module Dommy
         elsif (content_attr = aria_content_attr(key))
           # ARIA / role reflected nullable DOMString (null/undefined → remove).
           aria_set(content_attr, value)
-        elsif key.start_with?("on") && key.length > 2
-          # `el.onXxx = fn` registers fn as a single named handler; nil removes.
+        elsif Internal::EventHandlers.idl_attribute?(self, key)
+          # `el.onclick = fn` registers fn as a single named handler; nil
+          # removes. Any other `on…` key is an ordinary expando.
           set_on_handler(event_name_from_on(key), value)
         else
           # Not a known DOM property — tell the JS host to keep it as a

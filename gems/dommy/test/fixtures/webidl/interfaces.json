@@ -14,7 +14,12 @@
   "fetch",
   "streams",
   "cssom-view",
-  "selection-api"
+  "selection-api",
+  "pointerevents",
+  "touch-events",
+  "css-animations",
+  "css-transitions",
+  "fullscreen"
  ],
  "typedefs": {
   "BlobPart": "(BufferSource or Blob or USVString)",
@@ -323,6 +328,83 @@
      "put_forwards": null,
      "replaceable": false,
      "stringifier": false
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
+  "AnimationEvent": {
+   "spec": "css-animations",
+   "inherits": "Event",
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "animationName",
+     "static": false,
+     "readonly": true,
+     "type": "CSSOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "elapsedTime",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pseudoElement",
+     "static": false,
+     "readonly": true,
+     "type": "CSSOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "type",
+        "type": "CSSOMString"
+       },
+       {
+        "name": "animationEventInitDict",
+        "type": "AnimationEventInit",
+        "optional": true
+       }
+      ]
+     ]
     }
    ],
    "override_builtins": false,
@@ -1204,6 +1286,174 @@
    "override_builtins": false,
    "unenumerable_named_properties": false
   },
+  "CSSKeyframeRule": {
+   "spec": "css-animations",
+   "inherits": "CSSRule",
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "keyText",
+     "static": false,
+     "readonly": false,
+     "type": "CSSOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "style",
+     "static": false,
+     "readonly": true,
+     "type": "CSSStyleProperties",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": true,
+     "put_forwards": "cssText",
+     "replaceable": false,
+     "stringifier": false
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
+  "CSSKeyframesRule": {
+   "spec": "css-animations",
+   "inherits": "CSSRule",
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "cssRules",
+     "static": false,
+     "readonly": true,
+     "type": "CSSRuleList",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "length",
+     "static": false,
+     "readonly": true,
+     "type": "unsigned long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "name",
+     "static": false,
+     "readonly": false,
+     "type": "CSSOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "operation",
+     "name": "appendRule",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "rule",
+        "type": "CSSOMString"
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "deleteRule",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "select",
+        "type": "CSSOMString"
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "findRule",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "CSSKeyframeRule?",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "select",
+        "type": "CSSOMString"
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "special",
+     "special": "getter",
+     "indexed": true
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
   "CSSMarginRule": {
    "spec": "cssom",
    "inherits": "CSSRule",
@@ -1644,6 +1894,16 @@
      "kind": "const",
      "name": "IMPORT_RULE",
      "value": "3"
+    },
+    {
+     "kind": "const",
+     "name": "KEYFRAME_RULE",
+     "value": "8"
+    },
+    {
+     "kind": "const",
+     "name": "KEYFRAMES_RULE",
+     "value": "7"
     },
     {
      "kind": "const",
@@ -6623,6 +6883,52 @@
     },
     {
      "kind": "attribute",
+     "name": "fullscreen",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": true,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "fullscreenElement",
+     "static": false,
+     "readonly": true,
+     "type": "Element?",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "DocumentOrShadowRoot"
+    },
+    {
+     "kind": "attribute",
+     "name": "fullscreenEnabled",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
      "name": "head",
      "static": false,
      "readonly": true,
@@ -6775,6 +7081,70 @@
     {
      "kind": "attribute",
      "name": "onabort",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationcancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationiteration",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationstart",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -7302,6 +7672,52 @@
     },
     {
      "kind": "attribute",
+     "name": "onfullscreenchange",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onfullscreenerror",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "ongotpointercapture",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
      "name": "oninput",
      "static": false,
      "readonly": false,
@@ -7431,6 +7847,22 @@
     {
      "kind": "attribute",
      "name": "onloadstart",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onlostpointercapture",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -7607,6 +8039,150 @@
     {
      "kind": "attribute",
      "name": "onplaying",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointercancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerdown",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerenter",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerleave",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointermove",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerout",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerover",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerrawupdate",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerup",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -7910,6 +8486,134 @@
     {
      "kind": "attribute",
      "name": "ontoggle",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchcancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchmove",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchstart",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitioncancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionrun",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionstart",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -8896,6 +9600,21 @@
         "optional": true
        }
       ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "exitFullscreen",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 0,
+     "signatures": [
+      []
      ]
     },
     {
@@ -11147,6 +11866,36 @@
     },
     {
      "kind": "attribute",
+     "name": "onfullscreenchange",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onfullscreenerror",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
      "name": "outerHTML",
      "static": false,
      "readonly": false,
@@ -11858,6 +12607,26 @@
     },
     {
      "kind": "operation",
+     "name": "hasPointerCapture",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "boolean",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "pointerId",
+        "type": "long"
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
      "name": "insertAdjacentElement",
      "static": false,
      "special": null,
@@ -12039,6 +12808,26 @@
     },
     {
      "kind": "operation",
+     "name": "releasePointerCapture",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "pointerId",
+        "type": "long"
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
      "name": "remove",
      "static": false,
      "special": null,
@@ -12160,6 +12949,27 @@
       ]
      ],
      "mixin": "ChildNode"
+    },
+    {
+     "kind": "operation",
+     "name": "requestFullscreen",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "Promise<undefined>",
+     "required": 0,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "options",
+        "type": "FullscreenOptions",
+        "optional": true
+       }
+      ]
+     ]
     },
     {
      "kind": "operation",
@@ -12413,6 +13223,26 @@
         "name": "options",
         "type": "SetHTMLUnsafeOptions",
         "optional": true
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "setPointerCapture",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "pointerId",
+        "type": "long"
        }
       ]
      ]
@@ -18083,6 +18913,70 @@
     },
     {
      "kind": "attribute",
+     "name": "onanimationcancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationiteration",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationstart",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
      "name": "onauxclick",
      "static": false,
      "readonly": false,
@@ -18595,6 +19489,22 @@
     },
     {
      "kind": "attribute",
+     "name": "ongotpointercapture",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
      "name": "oninput",
      "static": false,
      "readonly": false,
@@ -18724,6 +19634,22 @@
     {
      "kind": "attribute",
      "name": "onloadstart",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onlostpointercapture",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -18900,6 +19826,150 @@
     {
      "kind": "attribute",
      "name": "onplaying",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointercancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerdown",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerenter",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerleave",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointermove",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerout",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerover",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerrawupdate",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerup",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -19188,6 +20258,134 @@
     {
      "kind": "attribute",
      "name": "ontoggle",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchcancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchmove",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchstart",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitioncancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionrun",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionstart",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -31569,6 +32767,433 @@
    "override_builtins": false,
    "unenumerable_named_properties": true
   },
+  "MouseEvent": {
+   "spec": "cssom-view",
+   "inherits": "UIEvent",
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "altKey",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "button",
+     "static": false,
+     "readonly": true,
+     "type": "short",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "buttons",
+     "static": false,
+     "readonly": true,
+     "type": "unsigned short",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "clientX",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "clientY",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "ctrlKey",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "layerX",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "layerY",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "metaKey",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "offsetX",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "offsetY",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pageX",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pageY",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "relatedTarget",
+     "static": false,
+     "readonly": true,
+     "type": "EventTarget?",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "screenX",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "screenY",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "shiftKey",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "x",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "y",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "type",
+        "type": "DOMString"
+       },
+       {
+        "name": "eventInitDict",
+        "type": "MouseEventInit",
+        "optional": true
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "getModifierState",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "boolean",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "keyArg",
+        "type": "DOMString"
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "initMouseEvent",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 15,
+     "signatures": [
+      [
+       {
+        "name": "typeArg",
+        "type": "DOMString"
+       },
+       {
+        "name": "bubblesArg",
+        "type": "boolean",
+        "optional": true
+       },
+       {
+        "name": "cancelableArg",
+        "type": "boolean",
+        "optional": true
+       },
+       {
+        "name": "viewArg",
+        "type": "Window?",
+        "optional": true
+       },
+       {
+        "name": "detailArg",
+        "type": "long",
+        "optional": true
+       },
+       {
+        "name": "screenXArg",
+        "type": "long",
+        "optional": true
+       },
+       {
+        "name": "screenYArg",
+        "type": "long",
+        "optional": true
+       },
+       {
+        "name": "clientXArg",
+        "type": "long",
+        "optional": true
+       },
+       {
+        "name": "clientYArg",
+        "type": "long",
+        "optional": true
+       },
+       {
+        "name": "ctrlKeyArg",
+        "type": "boolean",
+        "optional": true
+       },
+       {
+        "name": "altKeyArg",
+        "type": "boolean",
+        "optional": true
+       },
+       {
+        "name": "shiftKeyArg",
+        "type": "boolean",
+        "optional": true
+       },
+       {
+        "name": "metaKeyArg",
+        "type": "boolean",
+        "optional": true
+       },
+       {
+        "name": "buttonArg",
+        "type": "short",
+        "optional": true
+       },
+       {
+        "name": "relatedTargetArg",
+        "type": "EventTarget?",
+        "optional": true
+       }
+      ]
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
   "MutationObserver": {
    "spec": "dom",
    "inherits": null,
@@ -33118,6 +34743,21 @@
      "replaceable": false,
      "stringifier": false,
      "mixin": "NavigatorLanguage"
+    },
+    {
+     "kind": "attribute",
+     "name": "maxTouchPoints",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
     },
     {
      "kind": "attribute",
@@ -37478,6 +39118,263 @@
    "override_builtins": false,
    "unenumerable_named_properties": true
   },
+  "PointerEvent": {
+   "spec": "pointerevents",
+   "inherits": "MouseEvent",
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "altitudeAngle",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "azimuthAngle",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "height",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "isPrimary",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "persistentDeviceId",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pointerId",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pointerType",
+     "static": false,
+     "readonly": true,
+     "type": "DOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pressure",
+     "static": false,
+     "readonly": true,
+     "type": "float",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "tangentialPressure",
+     "static": false,
+     "readonly": true,
+     "type": "float",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "tiltX",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "tiltY",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "twist",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "width",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "type",
+        "type": "DOMString"
+       },
+       {
+        "name": "eventInitDict",
+        "type": "PointerEventInit",
+        "optional": true
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "getCoalescedEvents",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "sequence<PointerEvent>",
+     "required": 0,
+     "total": 0,
+     "signatures": [
+      []
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "getPredictedEvents",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "sequence<PointerEvent>",
+     "required": 0,
+     "total": 0,
+     "signatures": [
+      []
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
   "PopStateEvent": {
    "spec": "html",
    "inherits": "Event",
@@ -40761,6 +42658,22 @@
     },
     {
      "kind": "attribute",
+     "name": "fullscreenElement",
+     "static": false,
+     "readonly": true,
+     "type": "Element?",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "DocumentOrShadowRoot"
+    },
+    {
+     "kind": "attribute",
      "name": "host",
      "static": false,
      "readonly": true,
@@ -43029,6 +44942,464 @@
    "override_builtins": false,
    "unenumerable_named_properties": false
   },
+  "Touch": {
+   "spec": "touch-events",
+   "inherits": null,
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "altitudeAngle",
+     "static": false,
+     "readonly": true,
+     "type": "float",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "azimuthAngle",
+     "static": false,
+     "readonly": true,
+     "type": "float",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "clientX",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "clientY",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "force",
+     "static": false,
+     "readonly": true,
+     "type": "float",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "identifier",
+     "static": false,
+     "readonly": true,
+     "type": "long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pageX",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pageY",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "radiusX",
+     "static": false,
+     "readonly": true,
+     "type": "float",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "radiusY",
+     "static": false,
+     "readonly": true,
+     "type": "float",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "rotationAngle",
+     "static": false,
+     "readonly": true,
+     "type": "float",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "screenX",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "screenY",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "target",
+     "static": false,
+     "readonly": true,
+     "type": "EventTarget",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "touchType",
+     "static": false,
+     "readonly": true,
+     "type": "TouchType",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "touchInitDict",
+        "type": "TouchInit"
+       }
+      ]
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
+  "TouchEvent": {
+   "spec": "touch-events",
+   "inherits": "UIEvent",
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "altKey",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "changedTouches",
+     "static": false,
+     "readonly": true,
+     "type": "TouchList",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "ctrlKey",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "metaKey",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "shiftKey",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "targetTouches",
+     "static": false,
+     "readonly": true,
+     "type": "TouchList",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "touches",
+     "static": false,
+     "readonly": true,
+     "type": "TouchList",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "type",
+        "type": "DOMString"
+       },
+       {
+        "name": "eventInitDict",
+        "type": "TouchEventInit",
+        "optional": true
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "getModifierState",
+     "static": false,
+     "special": "getter",
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": false,
+     "returns": "boolean",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "keyArg",
+        "type": "DOMString"
+       }
+      ]
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
+  "TouchList": {
+   "spec": "touch-events",
+   "inherits": null,
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "length",
+     "static": false,
+     "readonly": true,
+     "type": "unsigned long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "operation",
+     "name": "item",
+     "static": false,
+     "special": "getter",
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": true,
+     "returns": "Touch?",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "index",
+        "type": "unsigned long"
+       }
+      ]
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
   "TrackEvent": {
    "spec": "html",
    "inherits": "Event",
@@ -43224,6 +45595,83 @@
      "total": 0,
      "signatures": [
       []
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
+  "TransitionEvent": {
+   "spec": "css-transitions",
+   "inherits": "Event",
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "elapsedTime",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "propertyName",
+     "static": false,
+     "readonly": true,
+     "type": "CSSOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "pseudoElement",
+     "static": false,
+     "readonly": true,
+     "type": "CSSOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "type",
+        "type": "CSSOMString"
+       },
+       {
+        "name": "transitionEventInitDict",
+        "type": "TransitionEventInit",
+        "optional": true
+       }
+      ]
      ]
     }
    ],
@@ -44715,6 +47163,128 @@
    "override_builtins": false,
    "unenumerable_named_properties": false
   },
+  "WheelEvent": {
+   "spec": "pointerevents",
+   "inherits": "MouseEvent",
+   "exposed": [
+    "Window"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "deltaMode",
+     "static": false,
+     "readonly": true,
+     "type": "unsigned long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "deltaX",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "deltaY",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "deltaZ",
+     "static": false,
+     "readonly": true,
+     "type": "double",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "momentum",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "const",
+     "name": "DOM_DELTA_LINE",
+     "value": "0x01"
+    },
+    {
+     "kind": "const",
+     "name": "DOM_DELTA_PAGE",
+     "value": "0x02"
+    },
+    {
+     "kind": "const",
+     "name": "DOM_DELTA_PIXEL",
+     "value": "0x00"
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "type",
+        "type": "DOMString"
+       },
+       {
+        "name": "eventInitDict",
+        "type": "WheelEventInit",
+        "optional": true
+       }
+      ]
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
   "Window": {
    "spec": "dom",
    "inherits": "EventTarget",
@@ -45089,6 +47659,70 @@
      "replaceable": false,
      "stringifier": false,
      "mixin": "WindowEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationcancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationiteration",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onanimationstart",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
     },
     {
      "kind": "attribute",
@@ -45636,6 +48270,22 @@
     },
     {
      "kind": "attribute",
+     "name": "ongotpointercapture",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
      "name": "onhashchange",
      "static": false,
      "readonly": false,
@@ -45797,6 +48447,22 @@
     {
      "kind": "attribute",
      "name": "onloadstart",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onlostpointercapture",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -46101,6 +48767,150 @@
     {
      "kind": "attribute",
      "name": "onplaying",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointercancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerdown",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerenter",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerleave",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointermove",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerout",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerover",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerrawupdate",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "onpointerup",
      "static": false,
      "readonly": false,
      "type": "EventHandler",
@@ -46437,6 +49247,134 @@
     {
      "kind": "attribute",
      "name": "ontoggle",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchcancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchmove",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontouchstart",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitioncancel",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionend",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionrun",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false,
+     "mixin": "GlobalEventHandlers"
+    },
+    {
+     "kind": "attribute",
+     "name": "ontransitionstart",
      "static": false,
      "readonly": false,
      "type": "EventHandler",

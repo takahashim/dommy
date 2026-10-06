@@ -25,6 +25,10 @@ globalThis.__rbIdlSignatures = {
       "timeout": {"required":1}
     }
   },
+  "AnimationEvent": {
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "Event"
+  },
   "Attr": {
     "inherits": "Node",
     "attributes": {
@@ -70,6 +74,23 @@ globalThis.__rbIdlSignatures = {
   },
   "CSSImportRule": {
     "inherits": "CSSRule"
+  },
+  "CSSKeyframeRule": {
+    "inherits": "CSSRule",
+    "attributes": {
+      "keyText": "DOMString"
+    }
+  },
+  "CSSKeyframesRule": {
+    "inherits": "CSSRule",
+    "operations": {
+      "appendRule": {"required":1,"arguments":["DOMString"]},
+      "deleteRule": {"required":1,"arguments":["DOMString"]},
+      "findRule": {"required":1,"arguments":["DOMString"]}
+    },
+    "attributes": {
+      "name": "DOMString"
+    }
   },
   "CSSMarginRule": {
     "inherits": "CSSRule"
@@ -404,6 +425,7 @@ globalThis.__rbIdlSignatures = {
       "getElementsByTagNameNS": {"required":2,"arguments":["DOMString?","DOMString"]},
       "hasAttribute": {"required":1,"arguments":["DOMString"]},
       "hasAttributeNS": {"required":2,"arguments":["DOMString?","DOMString"]},
+      "hasPointerCapture": {"required":1},
       "insertAdjacentElement": {"required":2,"arguments":["DOMString"]},
       "insertAdjacentHTML": {"required":2,"arguments":["DOMString","DOMString"]},
       "insertAdjacentText": {"required":2,"arguments":["DOMString","DOMString"]},
@@ -411,6 +433,7 @@ globalThis.__rbIdlSignatures = {
       "moveBefore": {"required":2},
       "querySelector": {"required":1,"arguments":["DOMString"]},
       "querySelectorAll": {"required":1,"arguments":["DOMString"]},
+      "releasePointerCapture": {"required":1},
       "removeAttribute": {"required":1,"arguments":["DOMString"]},
       "removeAttributeNS": {"required":2,"arguments":["DOMString?","DOMString"]},
       "removeAttributeNode": {"required":1},
@@ -420,6 +443,7 @@ globalThis.__rbIdlSignatures = {
       "setAttributeNodeNS": {"required":1},
       "setHTML": {"required":1,"arguments":["DOMString"]},
       "setHTMLUnsafe": {"required":1,"arguments":["DOMString"]},
+      "setPointerCapture": {"required":1},
       "toggleAttribute": {"required":1,"arguments":["DOMString"]},
       "webkitMatchesSelector": {"required":1,"arguments":["DOMString"]}
     },
@@ -1406,6 +1430,14 @@ globalThis.__rbIdlSignatures = {
       "namedItem": {"required":1,"arguments":["DOMString"]}
     }
   },
+  "MouseEvent": {
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "UIEvent",
+    "operations": {
+      "getModifierState": {"required":1,"arguments":["DOMString"]},
+      "initMouseEvent": {"required":1,"arguments":["DOMString"]}
+    }
+  },
   "MutationObserver": {
     "constructor": {"required":1},
     "operations": {
@@ -1580,6 +1612,10 @@ globalThis.__rbIdlSignatures = {
       "item": {"required":1},
       "namedItem": {"required":1,"arguments":["DOMString"]}
     }
+  },
+  "PointerEvent": {
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "MouseEvent"
   },
   "PopStateEvent": {
     "constructor": {"required":1,"arguments":["DOMString"]},
@@ -1802,7 +1838,26 @@ globalThis.__rbIdlSignatures = {
     "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
+  "Touch": {
+    "constructor": {"required":1}
+  },
+  "TouchEvent": {
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "UIEvent",
+    "operations": {
+      "getModifierState": {"required":1,"arguments":["DOMString"]}
+    }
+  },
+  "TouchList": {
+    "operations": {
+      "item": {"required":1}
+    }
+  },
   "TrackEvent": {
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "Event"
+  },
+  "TransitionEvent": {
     "constructor": {"required":1,"arguments":["DOMString"]},
     "inherits": "Event"
   },
@@ -1855,6 +1910,10 @@ globalThis.__rbIdlSignatures = {
   },
   "VisualViewport": {
     "inherits": "EventTarget"
+  },
+  "WheelEvent": {
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "MouseEvent"
   },
   "Window": {
     "inherits": "EventTarget",

@@ -14,6 +14,7 @@ module Dommy
   # `internal/css/rule_index.rb` and css-cascade.md.
   class ShadowRoot
     include EventTarget
+    extend Internal::EventHandlers::AnswersIdlAttributes
     include Node
     include Internal::ParentNode
 
@@ -263,6 +264,9 @@ module Dommy
         # inserted as a child of it: no parent, no siblings, and a null
         # nodeValue (null, not undefined).
         nil
+      when ->(k) { Internal::EventHandlers.idl_attribute?(self, k) }
+        # ShadowRoot's own event handler, onslotchange: its value or null.
+        on_handler(event_name_from_on(key))
       else
         # Any unknown key (incl. framework-private `_`/`$` expandos like
         # lit-html's `_$litPart$`, which it probes with `=== undefined`) is
@@ -277,6 +281,8 @@ module Dommy
         self.inner_html = value
       when "textContent"
         self.text_content = value
+      when ->(k) { Internal::EventHandlers.idl_attribute?(self, k) }
+        set_on_handler(event_name_from_on(key), value)
       else
         return Bridge::UNHANDLED
       end

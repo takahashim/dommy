@@ -28,6 +28,7 @@ namespace :webidl do
     sh "node", "script/build_webidl_fixture.js", wpt
     Rake::Task["webidl:signatures"].invoke
     Rake::Task["webidl:reflection"].invoke
+    Rake::Task["webidl:event_handlers"].invoke
     Rake::Task["webidl:members"].invoke
     Rake::Task["webidl:record"].invoke
   end
@@ -40,6 +41,11 @@ namespace :webidl do
   desc "Regenerate lib/dommy/internal/idl_reflection_table.rb (the reflected attributes) from the WebIDL fixture"
   task :reflection do
     sh RbConfig.ruby, "script/build_idl_reflection_table.rb"
+  end
+
+  desc "Regenerate the event handler tables (webidl_event_handlers.js, internal/event_handler_tables.rb) from the WebIDL fixture"
+  task :event_handlers do
+    sh RbConfig.ruby, "script/build_event_handlers.rb"
   end
 
   desc "Regenerate lib/dommy/js/webidl_members.js (the prototype members) from the fixture and the bridge classes"

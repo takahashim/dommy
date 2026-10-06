@@ -88,7 +88,7 @@ module WebIdlMembers
     end
   end
 
-  # { "Interface" => { "enumerable" => …, "writable" => …, "overrideBuiltins" => … } }
+  # { "Interface" => { "enumerable" => …, "writable" => …, "overrideBuiltins" => …, "global" => … } }
   # for each interface with a named property getter (its own or inherited) whose
   # bridge class supports named properties (`__js_named_props__`): the WebIDL
   # legacy-platform-object behaviour the proxy gives them. Enumerable unless
@@ -103,7 +103,10 @@ module WebIdlMembers
       out[name] = {
         "enumerable" => !WebIdlAudit.inherited_flag?(name, "unenumerable_named_properties"),
         "writable" => named_setter?(name),
-        "overrideBuiltins" => WebIdlAudit.inherited_flag?(name, "override_builtins")
+        "overrideBuiltins" => WebIdlAudit.inherited_flag?(name, "override_builtins"),
+        # A [Global] interface's named properties live on its named properties
+        # object, in the prototype chain: not own properties of the global.
+        "global" => WebIdlAudit.data["interfaces"][name]["global"] == true
       }
     end
   end
@@ -146,8 +149,9 @@ module WebIdlMembers
       // The legacy platform objects with named properties (a named getter, own
       // or inherited, that the bridge class supports): whether the names are
       // enumerable ([LegacyUnenumerableNamedProperties] on it or an ancestor
-      // makes them not), writable (a named setter) and resolved before the
-      // prototype chain ([LegacyOverrideBuiltIns]).
+      // makes them not), writable (a named setter), resolved before the
+      // prototype chain ([LegacyOverrideBuiltIns]), and held by a named
+      // properties object rather than the object itself ([Global]: Window).
       globalThis.__rbIdlNamedProperties = {
       #{named.join(",\n")}
       };

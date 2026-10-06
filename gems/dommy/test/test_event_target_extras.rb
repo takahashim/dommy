@@ -52,21 +52,25 @@ class TestEventTargetExtras < Minitest::Test
     assert_equal([:a, :b], fired)
   end
 
-  def test_arbitrary_event_type_does_not_fire_on_unrelated_dispatch
-    # Setting el.onweird = fn registers as listener for "weird" events.
-    # Dispatching a "click" should NOT invoke the weird handler.
-    fired = false
-    @btn[:onweird] = proc { fired = true }
+  def test_an_on_name_no_interface_declares_is_not_an_event_handler
+    # HTML §8.1.8.1: only the event handler IDL attributes an interface
+    # declares are handlers. `el.oncustom = fn` is an ordinary property, so a
+    # dispatched "custom" event does not run it, and the name is case-sensitive.
+    seen = []
+    assert_equal(Dommy::Bridge::UNHANDLED, @btn.__js_set__("oncustom", proc { seen << :custom }))
+    assert_equal(Dommy::Bridge::UNHANDLED, @btn.__js_set__("onClick", proc { seen << :click }))
+    @btn.dispatch_event(Dommy::Event.new("custom"))
     @btn.click
-    refute(fired)
+    assert_empty(seen)
+    assert_equal(Dommy::Bridge::ABSENT, @btn.__js_get__("oncustom"))
   end
 
-  def test_arbitrary_on_handler_fires_when_dispatched
-    # If a user does dispatch the matching event, the handler fires.
-    seen = false
-    @btn[:oncustom] = proc { seen = true }
-    @btn.dispatch_event(Dommy::Event.new("custom"))
-    assert(seen)
+  def test_a_declared_handler_fires
+    seen = []
+    @btn.__js_set__("onclick", proc { seen << :click })
+    @btn.click
+    assert_equal([:click], seen)
+    refute_nil(@btn.__js_get__("onclick"))
   end
 
   def test_throwing_listener_is_isolated_and_dispatch_continues

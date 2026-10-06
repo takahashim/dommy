@@ -430,6 +430,7 @@ module Dommy
     include Internal::DocumentLiveRanges
     include Internal::DocumentInteractionState
     include EventTarget
+    extend Internal::EventHandlers::AnswersIdlAttributes
     include Node
 
     attr_reader :backend_doc
@@ -1932,11 +1933,10 @@ module Dommy
     end
 
     def __js_get__(key)
-      if key.start_with?("on") && key.length > 2
-        # An event handler IDL attribute (GlobalEventHandlers /
-        # DocumentAndElementEventHandlers, plus onreadystatechange and
-        # onvisibilitychange): the registered handler, or null when unset —
-        # matching Element's on* getter.
+      if Internal::EventHandlers.idl_attribute?(self, key)
+        # An event handler IDL attribute Document declares (GlobalEventHandlers,
+        # plus onreadystatechange, onvisibilitychange, onfullscreenchange, …):
+        # the registered handler, or null when unset — matching Element's.
         return on_handler(event_name_from_on(key))
       end
 
@@ -2069,6 +2069,15 @@ module Dommy
       end
     end
 
+    # The elements of this document tree that can give its Window a named
+    # property (HTML §7.2.2.3 "Named access on the Window object"), in tree
+    # order: navigable containers, elements with an id, and embed / form /
+    # img / object elements with a name. Window#__js_named_props__ applies the
+    # spec's rules to them.
+    def __internal_window_named_candidates__
+      @backend_doc.css("[id], [name], iframe, frame").filter_map { |node| wrap_node(node) }
+    end
+
     # The document's supported property names (for `"name" in document`): for
     # each exposed element in tree order, its id when it is a named element with
     # that name, then its name.
@@ -2107,7 +2116,7 @@ module Dommy
     end
 
     def __js_set__(key, value)
-      if key.start_with?("on") && key.length > 2
+      if Internal::EventHandlers.idl_attribute?(self, key)
         # `document.onXxx = fn` registers fn as a single named handler; nil
         # removes it. Without this the assignment became a plain JS expando and
         # the handler never fired (e.g. `document.onreadystatechange`).
