@@ -442,6 +442,23 @@ class TestEventSource < Minitest::Test
     assert_equal("event-1", payload)
   end
 
+  # `new EventSource(url)` from script goes through the window's constructor
+  # table, which lives in Dommy::Internal: it must build the SSE interface,
+  # not resolve to an Internal module of the same name.
+  def test_window_constructor_builds_an_event_source
+    es = @win.__js_get__("EventSource").__js_new__(["/sse"])
+    assert_instance_of Dommy::EventSource, es
+  end
+
+  # No Internal constant may shadow an interface the window constructs: the
+  # table's blocks resolve their class names inside Dommy::Internal.
+  def test_no_internal_constant_shadows_a_window_constructor
+    shadowed = @win.instance_variable_get(:@constructors).names.select do |name|
+      Dommy.const_defined?(name, false) && Dommy::Internal.const_defined?(name, false)
+    end
+    assert_empty shadowed
+  end
+
   def test_custom_event_name
     es = Dommy::EventSource.new(@win, "/sse")
     @win.scheduler.drain_microtasks

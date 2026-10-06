@@ -1153,8 +1153,10 @@ module Dommy
     # The `source` member ToggleEvent and CommandEvent share: an `Element?`
     # in the init dictionary, and a getter that retargets it against the
     # event's currentTarget, so a listener outside a shadow tree sees the
-    # host rather than the invoker inside it.
-    module EventSource
+    # host rather than the invoker inside it. (Not named after the member
+    # alone: Internal::EventSource would shadow Dommy::EventSource, the SSE
+    # interface, for every constant lookup inside Dommy::Internal.)
+    module SourceMember
       def source
         @source && Retargeting.retarget(@source, @current_target)
       end
@@ -1175,7 +1177,7 @@ module Dommy
   # opens/closes, exposing the transition via `oldState` / `newState`
   # ("open"/"closed"). A plain Event subclass.
   class ToggleEvent < Event
-    include Internal::EventSource
+    include Internal::SourceMember
 
     attr_reader :old_state, :new_state
 
@@ -1200,7 +1202,7 @@ module Dommy
   # when the button is activated: `command` is the button's command
   # (`"show-modal"`, `"--custom"`), `source` the button.
   class CommandEvent < Event
-    include Internal::EventSource
+    include Internal::SourceMember
 
     attr_reader :command
 
