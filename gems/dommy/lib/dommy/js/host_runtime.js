@@ -7,8 +7,9 @@
 globalThis.__rbHost = (function () {
   // The platform's own enumerations — what interfaces, members and constants
   // the specs declare — live in webidl_tables.js (and the generated
-  // webidl_*.js), evaluated just before this file. They are bound here as plain consts so the code below
-  // reads (and costs) the same as when they were written inline.
+  // webidl_*.js), evaluated just before this file. They are bound here as
+  // plain consts so the code below reads (and costs) the same as when they
+  // were written inline.
   const {
     ARRAY_LIKE_COLLECTIONS, INDEXED_SETTER_INTERFACES, ENTRIES_ITERABLES, PAIR_ITERABLE_COLLECTIONS,
     FORM_VALUE_FIELDS, READONLY_ATTRS,
@@ -506,7 +507,8 @@ globalThis.__rbHost = (function () {
     // Mirror the proxy set trap for a reflected attribute: the WebIDL
     // conversion of the value, then the shared host write (the set trap
     // delegates instance writes to this prototype setter, so it must
-    // invalidate the same caches). Called with the element as `this`.
+    // invalidate the same caches). Called with the element as `this`. An
+    // event handler's value crosses as eventHandlerWire makes it.
     if (declaresEventHandler(iface, name)) {
       return function (v) {
         checkReceiver(this, iface, name);
@@ -518,6 +520,7 @@ globalThis.__rbHost = (function () {
       hostSet(this[HKEY], name, convertAttributeValue(receiverInterface(this, iface), name, v));
     };
   }
+
   // ===== Event handler IDL attributes =====
   //
   // Which `on…` names are event handlers on which objects is the IDL's call
@@ -2252,16 +2255,17 @@ globalThis.__rbHost = (function () {
     if (ENTRIES_ITERABLES.has(desc.name)) {
       for (const m of ["entries", "keys", "values", "forEach"]) methods.delete(m);
     }
+    const nodeChain = !!(desc.chain && desc.chain.indexOf("Node") !== -1);
     const shape = {
       name: desc.name,
       chain: desc.chain,
       methods,
       arrayLike: ARRAY_LIKE_COLLECTIONS.has(desc.name),
       named: namedPropertiesOf(desc.chain || [desc.name]),
-      nodeChain: !!(desc.chain && desc.chain.indexOf("Node") !== -1),
+      nodeChain,
       // The event handler IDL attributes its interfaces declare (null: not
       // covered by the IDL tables, see isEventHandlerName).
-      handlers: eventHandlersOf(desc.chain || [desc.name], !!(desc.chain && desc.chain.indexOf("Node") !== -1)),
+      handlers: eventHandlersOf(desc.chain || [desc.name], nodeChain),
       indexedSetter: INDEXED_SETTER_INTERFACES.has(desc.name),
       constIface: CONST_IFACE_PROPS.get(desc.name) || null,
       stableIface: STABLE_EPOCH_IFACE_PROPS.get(desc.name) || null,
