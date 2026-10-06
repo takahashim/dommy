@@ -57,16 +57,49 @@ class TestDocumentExtras < Minitest::Test
     assert_equal("P", list.first.tag_name)
   end
 
-  def test_write_appends_to_body
-    before = @doc.body.children.size
+  # With no parser running (the page has finished loading), write() runs the
+  # document open steps: the old tree goes, and what is written becomes a
+  # fresh parse of the document.
+  def test_write_after_load_replaces_the_document
     @doc.write("<div id='written'>w</div>")
-    assert_equal(before + 1, @doc.body.children.size)
-    assert_equal("written", @doc.body.children[-1].id)
+    assert_equal(%w[written], @doc.body.children.map(&:id))
+    assert_equal("loading", @doc.__js_get__("readyState"))
+    @doc.close
+    assert_equal("complete", @doc.__js_get__("readyState"))
+    assert_equal("BackCompat", @doc.compat_mode)
   end
 
-  def test_open_close_are_noop
-    assert_nil(@doc.open)
+  def test_open_returns_the_document_and_clears_it
+    assert_same(@doc, @doc.open)
+    assert_equal(0, @doc.child_nodes.length)
+    assert_equal("CSS1Compat", @doc.compat_mode)
+    @doc.write("<!doctype html><p>a")
+    @doc.writeln("<p>b")
+    assert_equal("<p>a</p><p>b\n</p>", @doc.body.inner_html)
+    @doc.close
+    assert_equal("CSS1Compat", @doc.compat_mode)
     assert_nil(@doc.close)
+  end
+
+  def test_open_then_close_builds_an_empty_page
+    @doc.open
+    @doc.close
+    assert_equal("<html><head></head><body></body></html>", @doc.document_element.outer_html)
+  end
+
+  def test_open_erases_event_listeners
+    seen = []
+    @doc.add_event_listener("x", proc { seen << :x })
+    @doc.open
+    @doc.dispatch_event(Dommy::Event.new("x"))
+    assert_empty(seen)
+  end
+
+  def test_dynamic_markup_insertion_throws_on_an_xml_document
+    xml = @doc.implementation.create_document(nil, "r", nil)
+    %i[open close write writeln].each do |m|
+      assert_raises(Dommy::DOMException::InvalidStateError) { xml.public_send(m) }
+    end
   end
 
   def test_node_type_constant

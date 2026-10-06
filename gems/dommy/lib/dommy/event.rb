@@ -95,6 +95,18 @@ module Dommy
       key.to_s.sub(/\Aon/, "").downcase
     end
 
+    # HTML "erase all event listeners and handlers" (document.open): every
+    # listener is flagged removed — so a dispatch in flight skips it — and
+    # dropped, and every event handler is deactivated.
+    #
+    # Spec: https://html.spec.whatwg.org/#erase-all-event-listeners-and-handlers
+    def __internal_erase_event_listeners_and_handlers__
+      @event_listeners&.each_value { |list| list.each { |entry| entry.removed = true } }
+      @event_listeners = nil
+      @on_handlers = nil
+      nil
+    end
+
     def on_handler(event_name)
       @on_handlers&.[](event_name)
     end
