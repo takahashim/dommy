@@ -390,9 +390,17 @@ module Dommy
     reflect_setter form_action: "formaction"
     def form_action = submission_url("formaction")
 
+    # HTML: the type attribute's missing and invalid value default is the
+    # Auto state, which makes a submit button unless the button carries
+    # `command` or `commandfor` or sits directly in a select; the getter then
+    # reads "submit", and an Auto button that is not one reads "button".
     def type
-      raw = __internal_attribute_value__("type").to_s.downcase
-      %w[submit reset button].include?(raw) ? raw : "submit"
+      raw = __internal_attribute_value__("type").to_s.downcase(:ascii)
+      return raw if %w[submit reset button].include?(raw)
+
+      auto_submit = !__internal_has_attribute__?("command") && !__internal_has_attribute__?("commandfor") &&
+                    !parent_node.is_a?(HTMLSelectElement)
+      auto_submit ? "submit" : "button"
     end
 
     def __internal_submit_button__? = type == "submit" && !disabled
