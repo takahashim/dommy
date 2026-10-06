@@ -505,26 +505,19 @@ module WebIdlAudit
   # A legacy platform object's named properties: whether it has a named getter
   # at all, whether those names enumerate, and whether they resolve before the
   # prototype chain ([LegacyOverrideBuiltIns]).
+  # Interfaces whose IDL gives them named properties (a named getter, own or
+  # inherited) but whose bridge class has no named-property support
+  # (`__js_named_props__`), so `obj[name]` cannot answer. The flags of the
+  # supported ones are generated from the IDL (script/build_webidl_members.rb),
+  # so they cannot drift.
   def named_property_gaps
-    declared = js_named_prop_collections
     gaps = {}
-    data["interfaces"].each do |interface, record|
-      next unless ruby_class_for(interface)
+    data["interfaces"].each_key do |interface|
+      klass = ruby_class_for(interface)
+      next unless klass && named_getter_source(interface)
+      next if klass.method_defined?(:__js_named_props__)
 
-      source = named_getter_source(interface)
-      entry = declared[interface]
-      if source.nil? != entry.nil?
-        gaps[interface] = source ? "has a named getter and is not declared" : "is declared with named properties the IDL does not give it"
-        next
-      end
-      next unless entry
-
-      enumerable = !inherited_flag?(interface, "unenumerable_named_properties")
-      override = inherited_flag?(interface, "override_builtins")
-      notes = []
-      notes << "enumerable should be #{enumerable}" if entry[:enumerable] != enumerable
-      notes << "overrideBuiltins should be #{override}" if entry[:override] != override
-      gaps[interface] = notes.join(", ") unless notes.empty?
+      gaps[interface] = "has a named getter and no named-property support"
     end
     gaps.sort.to_h
   end
@@ -556,13 +549,6 @@ module WebIdlAudit
       interface = record["inherits"]
     end
     false
-  end
-
-  def js_named_prop_collections
-    body = tables_source[/const NAMED_PROP_COLLECTIONS = new Map\(\[(.*?)\n  \]\);/m, 1].to_s
-    body.scan(/\["(\w+)",\s*\{([^}]*)\}\]/).to_h do |interface, flags|
-      [interface, {enumerable: flags.include?("enumerable: true"), override: flags.include?("overrideBuiltins: true")}]
-    end
   end
 
   # Every attribute an interface declares that Dommy answers.

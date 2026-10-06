@@ -41,29 +41,6 @@ globalThis.__rbIdl = (function () {
   // because being iterable is the exception, not the rule.
   const PAIR_ITERABLE_COLLECTIONS = new Set(["NodeList", "DOMTokenList"]);
 
-  // WebIDL legacy platform objects with a named property getter, and whether
-  // their named properties are enumerable (DOMStringMap) and writable/deletable
-  // (DOMStringMap has a named setter/deleter; HTMLCollection/NamedNodeMap are
-  // read-only — `coll[name] = x` / `delete coll[name]` reject in strict mode).
-  const NAMED_PROP_COLLECTIONS = new Map([
-    ["HTMLCollection", { enumerable: false, writable: false }],
-    ["HTMLFormControlsCollection", { enumerable: false, writable: false }],
-    // HTMLFormElement is [LegacyOverrideBuiltIns]: a named control shadows the
-    // form's own prototype members (`form.submit`, `form.action`, `form.length`
-    // return the matching control), so its named props resolve BEFORE the chain.
-    ["HTMLFormElement", { enumerable: false, writable: false, overrideBuiltins: true }],
-    ["HTMLOptionsCollection", { enumerable: false, writable: false }],
-    ["NamedNodeMap", { enumerable: false, writable: false }],
-    // [LegacyOverrideBuiltIns]: a data-* name resolves BEFORE anything on
-    // DOMStringMap.prototype, so `dataset.constructor` is the stored value when
-    // there is one.
-    ["DOMStringMap", { enumerable: true, writable: true, overrideBuiltins: true }],
-    // Storage (localStorage/sessionStorage): named getter/setter/deleter, keys
-    // enumerable; the named setter takes a DOMString value (ToString-coerced
-    // JS-side below, like DOMStringMap).
-    ["Storage", { enumerable: true, writable: true }],
-  ]);
-
   // Form-control value-like properties exposed as accessor descriptors on the
   // interface prototype (see protoForChain) — what React's value-tracker reads
   // and wraps to detect user input on controlled components.
@@ -625,7 +602,6 @@ globalThis.__rbIdl = (function () {
     INDEXED_SETTER_INTERFACES,
     ENTRIES_ITERABLES,
     PAIR_ITERABLE_COLLECTIONS,
-    NAMED_PROP_COLLECTIONS,
     FORM_VALUE_FIELDS,
     READONLY_ATTRS,
     UNFORGEABLE_ATTRS,

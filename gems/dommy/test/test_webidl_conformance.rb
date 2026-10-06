@@ -243,6 +243,15 @@ if JsSurface.available?
         "lib/dommy/js/webidl_signatures.js is stale; re-run ruby script/build_webidl_signatures.rb"
     end
 
+    # The prototype members are generated from the fixture AND the bridge
+    # classes, so adding a member to a class (or refreshing the fixture) needs
+    # a regenerated webidl_members.js.
+    def test_the_prototype_member_table_is_generated_from_this_fixture
+      require_relative "../script/build_webidl_members"
+      assert_equal WebIdlMembers.render, File.read(WebIdlMembers::OUTPUT),
+        "lib/dommy/js/webidl_members.js is stale; re-run ruby script/build_webidl_members.rb"
+    end
+
     def test_missing_members_match_the_recorded_inventory
       recorded = WebIdlAudit.recorded_gaps["missing_members"]
       current = WebIdlAudit.member_gaps

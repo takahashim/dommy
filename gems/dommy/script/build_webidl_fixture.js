@@ -181,6 +181,9 @@ function memberRecord(m) {
         null_to_empty_string: nullToEmptyString(m),
         same_object: hasExtAttr(m, "SameObject"),
         put_forwards: extAttrValue(m, "PutForwards"),
+        // [Replaceable]: readonly, but an assignment replaces the property
+        // with the assigned value instead of being ignored.
+        replaceable: hasExtAttr(m, "Replaceable"),
         // `stringifier attribute USVString href`: the attribute is also what
         // the interface's toString returns.
         stringifier: m.special === "stringifier"
@@ -283,12 +286,15 @@ for (const spec of SPECS) {
       rec.callback = def.type === "callback interface";
       rec.legacy_no_interface_object = !!ea.LegacyNoInterfaceObject;
       rec.global = !!ea.Global;
-      // How a legacy platform object's NAMED properties behave: whether they
-      // are enumerable, and whether they resolve before the prototype chain.
-      rec.override_builtins = !!ea.LegacyOverrideBuiltIns;
-      rec.unenumerable_named_properties = !!ea.LegacyUnenumerableNamedProperties;
       rec.declared = true;
     }
+    // How a legacy platform object's NAMED properties behave: whether they are
+    // enumerable, and whether they resolve before the prototype chain. Carried
+    // by whichever declaration has the named getter, which may be a partial
+    // (`[LegacyOverrideBuiltIns] partial interface Document`).
+    rec.override_builtins = !!rec.override_builtins || !!ea.LegacyOverrideBuiltIns;
+    rec.unenumerable_named_properties =
+      !!rec.unenumerable_named_properties || !!ea.LegacyUnenumerableNamedProperties;
     // A partial may narrow/extend exposure; the union is what a Window sees.
     if (ea.exposed) rec.exposed = [...new Set([...(rec.exposed || []), ...ea.exposed])];
     for (const m of def.members) {

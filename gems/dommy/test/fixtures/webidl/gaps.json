@@ -948,9 +948,7 @@
   "unforgeable_gaps": {},
   "unscopable_gaps": {},
   "named_property_gaps": {
-    "Document": "has a named getter and is not declared",
-    "Window": "has a named getter and is not declared",
-    "XMLDocument": "has a named getter and is not declared"
+    "Window": "has a named getter and no named-property support"
   },
   "same_object_gaps": {},
   "put_forwards_gaps": {},
