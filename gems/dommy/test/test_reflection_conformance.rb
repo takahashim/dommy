@@ -185,4 +185,68 @@ class TestReflectionConformance < Minitest::Test
     video.set_attribute("loading", "LAZY")
     assert_equal "lazy", video.loading
   end
+
+  def test_js_number_to_string
+    to_s = Dommy::Internal::JsNumber.method(:to_string)
+    assert_equal "5", to_s.(5.0)
+    assert_equal "0", to_s.(-0.0)
+    assert_equal "1e+21", to_s.(1e21)
+    assert_equal "100000000000000000000", to_s.(1e20)
+    assert_equal "1e+25", to_s.(1e25)
+    assert_equal "1e-7", to_s.(1e-7)
+    assert_equal "0.000001", to_s.(1e-6)
+    assert_equal "1.5e-10", to_s.(1.5e-10)
+    assert_equal "-123.456", to_s.(-123.456)
+    assert_equal "0.30000000000000004", to_s.(0.1 + 0.2)
+    assert_equal "5e-324", to_s.(5e-324)
+    assert_equal "NaN", to_s.(Float::NAN)
+    assert_equal "-Infinity", to_s.(-Float::INFINITY)
+  end
+
+  def test_parse_floating_point_number
+    parse = Dommy::Internal::ReflectedAttributes.method(:parse_floating_point_number)
+    assert_equal 1.5, parse.(" 1.5px")
+    assert_equal 0.5, parse.("+.5")
+    assert_equal 100.0, parse.("1.e2")
+    assert_equal 2.0, parse.("2e")
+    assert_equal 1000.0, parse.("1e3x")
+    assert_equal 0.0, parse.("0x1A")
+    assert_equal 1.0, parse.("1_0")
+    assert_equal 0.0, parse.("-0")
+    refute parse.("-0").to_s.start_with?("-")
+    [nil, "", "-", ".", ".e1", "e1", "\v7", "1e999"].each { |input| assert_nil parse.(input), input.inspect }
+  end
+
+  def test_double_reflection_writes_ecmascript_strings
+    meter = el("meter")
+    meter.value = 1e25
+    assert_equal "1e+25", meter.get_attribute("value")
+    meter.max = 1e-10
+    assert_equal "1e-10", meter.get_attribute("max")
+    meter.min = 5.0
+    assert_equal "5", meter.get_attribute("min")
+  end
+
+  def test_meter_and_progress_parse_with_the_html_rules
+    meter = el("meter")
+    meter.set_attribute("value", "0.5px")
+    assert_equal 0.5, meter.value
+    meter.set_attribute("max", "0x10")
+    assert_equal 0.0, meter.max # "0x10" is 0 (the rules stop at "x")
+    assert_equal 0.0, meter.value # clamped to the maximum
+    progress = el("progress")
+    assert_equal(-1.0, progress.position)
+    progress.set_attribute("max", "\v7")
+    assert_equal 1.0, progress.max
+    progress.set_attribute("max", " 4e0x")
+    assert_equal 4.0, progress.max
+    progress.set_attribute("value", "")
+    assert_equal 0.0, progress.position # present, so determinate
+    progress.set_attribute("value", "2")
+    assert_equal 0.5, progress.position
+    progress.max = -1
+    assert_equal " 4e0x", progress.get_attribute("max")
+    progress.max = 8
+    assert_equal "8", progress.get_attribute("max")
+  end
 end

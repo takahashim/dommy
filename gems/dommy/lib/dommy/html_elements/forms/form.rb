@@ -1004,9 +1004,10 @@ module Dommy
 
     private
 
+    # The content attribute by the rules for parsing floating-point number
+    # values, or `default` when it is missing or does not parse.
     def numeric_attr(name, default)
-      raw = __internal_attribute_value__(name).to_s
-      raw.empty? ? default : Float(raw) rescue default
+      parse_html_float(__internal_attribute_value__(name)) || default
     end
 
     def clamp(v, lo, hi)
@@ -1021,46 +1022,29 @@ module Dommy
   # `<progress>` — `value` and `max` (default max=1). `position`
   # returns `value / max` for a "determinate" progress bar, or -1
   # when no value is set ("indeterminate").
-
-  # `<progress>` — `value` and `max` (default max=1). `position`
-  # returns `value / max` for a "determinate" progress bar, or -1
-  # when no value is set ("indeterminate").
-
-  # `<progress>` — `value` and `max` (default max=1). `position`
-  # returns `value / max` for a "determinate" progress bar, or -1
-  # when no value is set ("indeterminate").
   class HTMLProgressElement < HTMLElement
     reflect_double_setter :value
+    # [ReflectPositive, ReflectDefault=1.0]: the attribute parsed, when it is
+    # a number greater than zero, else 1; the setter ignores a value that is
+    # not greater than zero. This is also the bar's maximum value.
+    reflect_double max: { positive: true, default: 1.0 }
 
-    # A progress bar is "determinate" iff it has a parseable `value` content
-    # attribute; otherwise it is "indeterminate" (position -1). The `value` IDL
-    # getter always returns a number: 0 when indeterminate/invalid, else the
-    # value clamped to [0, max].
+    # A progress bar is determinate iff it HAS a `value` content attribute —
+    # whatever it says: `value=""` and `value="x"` are determinate with a
+    # value of zero. Its value is the attribute parsed when that is a number
+    # greater than zero, else 0, and its current value that clamped to the
+    # maximum. The `value` getter returns the current value, or 0 when the
+    # bar is indeterminate.
     def value
-      raw = __internal_attribute_value__("value").to_s
-      return 0.0 if raw.empty?
+      return 0.0 unless determinate?
 
-      v = Float(raw) rescue 0.0
-      v = 0.0 if v < 0
-      [v, max].min
+      parsed = parse_html_float(__internal_attribute_value__("value"))
+      parsed = 0.0 unless parsed&.positive?
+      [parsed, max].min
     end
 
-    def max
-      raw = __internal_attribute_value__("max").to_s
-      m = raw.empty? ? 1.0 : (Float(raw) rescue 1.0)
-      # A `max` not greater than zero is invalid; the default (1) applies.
-      m > 0 ? m : 1.0
-    end
-
-    # The `max` IDL attribute is limited to numbers greater than zero: a setter
-    # value that isn't is ignored (the content attribute is left unchanged).
-    def max=(v)
-      f = Float(v) rescue nil
-      set_reflected_string("max", v.to_s) if f && f > 0
-    end
-
-    # `position` = value/max for a determinate bar; -1 for an indeterminate one
-    # (no parseable value content attribute).
+    # `position` = current value / maximum for a determinate bar; -1 for an
+    # indeterminate one.
     def position
       return -1.0 unless determinate?
 
@@ -1071,18 +1055,13 @@ module Dommy
       labels_node_list
     end
 
-    js_accessor :value, :max
+    js_accessor :value
     js_readable :position, :labels
-
 
     private
 
-    # Determinate iff the `value` content attribute is present and parseable.
     def determinate?
-      raw = __internal_attribute_value__("value").to_s
-      return false if raw.empty?
-
-      !!(Float(raw) rescue nil)
+      !__internal_attribute_value__("value").nil?
     end
   end
 
