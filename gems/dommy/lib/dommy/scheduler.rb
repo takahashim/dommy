@@ -247,6 +247,30 @@ module Dommy
       advance_time(advance)
     end
 
+    # Run the tasks due at the current instant, one at a time and in the order
+    # they were queued (each followed by a microtask checkpoint), until the
+    # block answers true or no task is due — without advancing the clock and
+    # without running a rendering update. Script boot uses it to run the tasks
+    # queued ahead of a document's `load` event (its own, and whatever the page
+    # queued before it), so a host that boots a page sees it loaded. Returns
+    # the block's last answer.
+    def run_tasks_until
+      deliver_external
+      loop do
+        return true if yield
+
+        timer = @timers.values
+          .select { |t| t.active && t.due_at <= @now_ms && TASK_KINDS.include?(t.kind) }
+          .min_by(&:seq)
+        return false unless timer
+
+        run_task_timer(timer)
+        deliver_external
+      end
+    end
+
+    TASK_KINDS = %i[timeout interval idle].freeze
+
     # Public accessor for eval-time auto-drain: keep advancing the
     # clock until no timers remain (or a safety budget runs out).
     def next_due_timer_at
@@ -331,19 +355,8 @@ module Dommy
           # Opt-in (test harness): settle this callback's microtask chain before
           # the next same-frame rAF callback runs (see @raf_checkpoint_each).
           perform_microtask_checkpoint if @raf_checkpoint_each
-        when :interval
-          invoke_timer(timer, *timer.args)
-          if timer.active
-            # Each interval iteration nests one deeper, so a setInterval(0) is
-            # clamped to 4ms once past the nesting threshold (HTML timer steps).
-            timer.nesting += 1
-            timer.due_at = @now_ms + clamp_nested_delay(timer.interval_ms, timer.nesting)
-          end
-          perform_microtask_checkpoint
-        when :idle
-          remove_timer(timer)
-          invoke_timer(timer, IdleDeadline.new(IDLE_TIME_REMAINING_MS, false))
-          perform_microtask_checkpoint
+        when :interval, :idle
+          run_task_timer(timer)
         when :render_before
           remove_timer(timer)
           invoke_timer(timer)
@@ -356,12 +369,32 @@ module Dommy
           invoke_timer(timer)
           perform_microtask_checkpoint
         else
-          remove_timer(timer)
-          invoke_timer(timer, *timer.args)
-          perform_microtask_checkpoint
+          run_task_timer(timer)
         end
       end
       perform_microtask_checkpoint if raf_ran
+    end
+
+    # Run one timer task (a timeout, an interval iteration, an idle callback),
+    # then a microtask checkpoint.
+    def run_task_timer(timer)
+      case timer.kind
+      when :interval
+        invoke_timer(timer, *timer.args)
+        if timer.active
+          # Each interval iteration nests one deeper, so a setInterval(0) is
+          # clamped to 4ms once past the nesting threshold (HTML timer steps).
+          timer.nesting += 1
+          timer.due_at = @now_ms + clamp_nested_delay(timer.interval_ms, timer.nesting)
+        end
+      when :idle
+        remove_timer(timer)
+        invoke_timer(timer, IdleDeadline.new(IDLE_TIME_REMAINING_MS, false))
+      else
+        remove_timer(timer)
+        invoke_timer(timer, *timer.args)
+      end
+      perform_microtask_checkpoint
     end
 
 

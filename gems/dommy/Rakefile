@@ -30,6 +30,7 @@ namespace :webidl do
     Rake::Task["webidl:reflection"].invoke
     Rake::Task["webidl:event_handlers"].invoke
     Rake::Task["webidl:members"].invoke
+    Rake::Task["webidl:ce_reactions"].invoke
     Rake::Task["webidl:record"].invoke
   end
 
@@ -51,6 +52,11 @@ namespace :webidl do
   desc "Regenerate lib/dommy/js/webidl_members.js (the prototype members) from the fixture and the bridge classes"
   task :members do
     sh RbConfig.ruby, "script/build_webidl_members.rb"
+  end
+
+  desc "Regenerate lib/dommy/internal/ce_reactions_table.rb (the [CEReactions] members) from the WebIDL fixture"
+  task :ce_reactions do
+    sh RbConfig.ruby, "script/build_ce_reactions_table.rb"
   end
 
   desc "Re-record only the gap inventory (after implementing an interface or member)"

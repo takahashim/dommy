@@ -42,6 +42,30 @@ module Dommy
         def event_handler_idl_attributes = EventHandlers.idl_attribute_names(self)
       end
 
+      # Included by an EventTarget that is neither a node nor a window (an
+      # XMLHttpRequest, a MessagePort, a WebSocket, …): its bridge answers the
+      # event handler IDL attributes its interfaces declare — and only those —
+      # through EventTarget's handler map, so `xhr.onload = f` is a handler
+      # with its place in the listener list, `upload.onprogress` and
+      # `port.onmessageerror` exist, and `xhr.onfoo` is an ordinary expando.
+      module IdlAttributeBridge
+        def self.included(base)
+          base.extend(AnswersIdlAttributes)
+        end
+
+        private
+
+        def event_handler_idl_attribute?(key) = EventHandlers.idl_attribute?(self, key)
+
+        # The handler's current value, null when unset.
+        def event_handler_idl_get(key) = on_handler(EventHandlers.event_type(key))
+
+        def event_handler_idl_set(key, value)
+          set_on_handler(EventHandlers.event_type(key), value)
+          nil
+        end
+      end
+
       module_function
 
       @idl_names_by_class = {}

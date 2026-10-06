@@ -231,10 +231,17 @@ module Capybara
         Node.new(self, document.active_element)
       end
 
-      # Session-level send_keys. Without JavaScript only focus navigation is
-      # meaningful, so :tab (the key Capybara's focused: specs use) moves
-      # focus through the tab order; other keys are ignored.
+      # Session-level send_keys: the keys go to the focused element (the body
+      # when nothing is focused). Under JavaScript they are dispatched as
+      # real keyboard events with their default actions — :tab moves the
+      # focus through the sequential navigation order. Without JavaScript
+      # only focus navigation is meaningful, so :tab moves the focus and
+      # other keys are ignored.
       def send_keys(*keys)
+        if javascript?
+          target = document.__internal_focused_element__ || document.body
+          return rack_session.send_keys_to(target, *keys) if target
+        end
         keys.each { |key| focus_next_tabbable if key == :tab }
       end
 
@@ -362,7 +369,11 @@ module Capybara
         srcdoc = iframe_element.get_attribute("srcdoc")
         return nil if srcdoc.nil?
 
-        return iframe_element.content_document if iframe_element.respond_to?(:content_document) && iframe_element.content_document
+        # The frame's own srcdoc document once its (asynchronous) navigation
+        # has happened; until then, the one that navigation will show.
+        current = iframe_element.content_document if iframe_element.respond_to?(:content_document)
+        return current if current && current.url == "about:srcdoc"
+        return iframe_element.__internal_build_blank_content_document__ if iframe_element.respond_to?(:__internal_build_blank_content_document__)
 
         Dommy.parse(srcdoc).document
       end
@@ -376,31 +387,11 @@ module Capybara
         ""
       end
 
-      # Sequential focus navigation: elements with a positive tabindex first
-      # (ascending, document order within a value), then the remaining
-      # focusables in document order. The page's tab cycle starts over when
-      # the current active element is not in the order (e.g. body).
-      FOCUSABLE_SELECTOR = "a[href], button, input, select, textarea, [tabindex]"
-
+      # Sequential focus navigation (HTML §6.6.5, Dommy's model): positive
+      # tabindex values first, then tree order, through shadow trees, slots
+      # and popovers, skipping what is disabled, inert or not rendered.
       def focus_next_tabbable
-        ordered = tab_order
-        return if ordered.empty?
-
-        current = document.active_element
-        index = ordered.index { |el| el == current }
-        target = ordered[index ? index + 1 : 0]
-        target&.focus
-      end
-
-      def tab_order
-        candidates = document.query_selector_all(FOCUSABLE_SELECTOR).to_a.reject do |el|
-          el.get_attribute("tabindex").to_s.start_with?("-") ||
-            el.has_attribute?("disabled") ||
-            el.get_attribute("type").to_s.downcase == "hidden" ||
-            !visible?(el)
-        end
-        positive, natural = candidates.each_with_index.partition { |el, _i| el.get_attribute("tabindex").to_i.positive? }
-        positive.sort_by { |el, i| [el.get_attribute("tabindex").to_i, i] }.map(&:first) + natural.map(&:first)
+        ::Dommy::Internal::SequentialFocusNavigation.navigate(document, :forward)
       end
 
       # Capybara's app_host (set per-example) wins over default_host; falls

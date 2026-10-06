@@ -43,6 +43,12 @@ module Dommy
       File.new([@data], name, {"type" => @type}, @window)
     end
 
+    # Blob's serialization + deserialization steps (structured clone): a new
+    # Blob over the same bytes and type.
+    def __internal_structured_clone__(_for_storage = false)
+      Blob.new([@data], {"type" => @type}, @window)
+    end
+
     # Return a new Blob over a byte range of this one.
     # Negative indices are treated as offsets from the end (per spec).
     def slice(start = 0, last = @size, content_type = "")
@@ -181,6 +187,12 @@ module Dommy
       @last_modified = (raw_lm || (Time.now.to_f * 1000)).to_i
     end
 
+    # File's serialization + deserialization steps: bytes, type, name and
+    # lastModified.
+    def __internal_structured_clone__(_for_storage = false)
+      File.new([@data], @name, {"type" => @type, "lastModified" => @last_modified}, @window)
+    end
+
     def __js_get__(key)
       case key
       when "name"
@@ -209,6 +221,11 @@ module Dommy
     end
 
     alias size length
+
+    # FileList's serialization + deserialization steps: each File cloned.
+    def __internal_structured_clone__(for_storage = false)
+      FileList.new(@files.map { |file| file.__internal_structured_clone__(for_storage) })
+    end
 
     def item(index)
       @files[index.to_i]

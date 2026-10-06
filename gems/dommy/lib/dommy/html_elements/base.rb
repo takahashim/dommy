@@ -141,11 +141,44 @@ module Dommy
       end
     end
 
-    js_methods %w[click]
+    # `attachInternals()` (HTML §4.13.7.1): the ElementInternals of an
+    # autonomous custom element being constructed or already constructed,
+    # once; NotSupportedError for anything else, for a definition that
+    # disables internals, and on a second call.
+    def attach_internals
+      unless __internal_is_value__.nil?
+        raise DOMException::NotSupportedError, "a customized built-in element has no ElementInternals"
+      end
+
+      definition = CustomElementRegistry.lookup(__internal_ce_registry__, namespace_uri, local_name)
+      raise DOMException::NotSupportedError, "<#{local_name}> is not a defined custom element" unless definition
+      raise DOMException::NotSupportedError, "the definition disables internals" if definition.disable_internals?
+      raise DOMException::NotSupportedError, "attachInternals() was already called" if @__internals
+
+      unless %w[precustomized custom].include?(__internal_custom_element_state__)
+        raise DOMException::NotSupportedError, "the element is not a custom element yet"
+      end
+
+      @__internals = ElementInternals.new(self)
+    end
+
+    def __internal_element_internals__ = @__internals
+
+    # A form-associated custom element: an autonomous custom element whose
+    # definition is form-associated.
+    def __internal_form_associated_custom__?
+      return false unless __internal_ce_custom__?
+
+      __internal_ce_data__.definition&.form_associated? || false
+    end
+
+    js_methods %w[click attachInternals]
     def __js_call__(method, args)
       case method
       when "click"
         click
+      when "attachInternals"
+        attach_internals
       else
         super
       end
@@ -389,7 +422,7 @@ module Dommy
     # WHATWG "actually disabled": one of the disable-able form controls carrying
     # `disabled`, or a control disabled by an ancestor <fieldset disabled>.
     def __internal_actually_disabled__
-      return false unless DISABLEABLE_LOCAL_NAMES.include?(local_name.to_s)
+      return false unless DISABLEABLE_LOCAL_NAMES.include?(local_name.to_s) || __internal_form_associated_custom__?
 
       __internal_has_attribute__?("disabled") || disabled_by_ancestor_fieldset?
     end
@@ -464,10 +497,30 @@ module Dommy
       win = @document&.default_view
       return if target.to_s.empty? || win.nil? || win.location.nil?
 
+      # The link's target names the navigable it navigates: an iframe's child
+      # navigable (or this window's parent, top, ...) by its target name.
+      win = hyperlink_target_window(win) || win
       # A cross-document link hands off to the delegate without pre-mutating the
       # location; a same-document fragment still updates the hash + :target.
       win.location.__internal_navigate_to__(target, source: :link, sync_cross_doc: false)
     end
+
+    # The existing navigable's window the link's target (its `target`
+    # attribute, else the document's `<base target>`) chooses, or nil for
+    # this one (and for a target that would open a new one, which Dommy does
+    # not create).
+    def hyperlink_target_window(win)
+      name = __internal_attribute_value__("target").to_s
+      if name.empty?
+        base = @document.query_selector("base[target]")
+        name = base&.__internal_attribute_value__("target").to_s
+      end
+      return nil if name.empty? || !win.respond_to?(:choose_navigable)
+
+      chosen = win.choose_navigable(name)
+      chosen.equal?(win) ? nil : chosen
+    end
+    private :hyperlink_target_window
   end
 
   # The activation behavior of a submit button: run the owning form's

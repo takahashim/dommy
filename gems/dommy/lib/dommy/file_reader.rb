@@ -9,12 +9,11 @@ module Dommy
   # Spec: https://w3c.github.io/FileAPI/#APIASynch
   class FileReader
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     EMPTY = 0
     LOADING = 1
     DONE = 2
-
-    INLINE_HANDLERS = %w[loadstart progress load loadend abort error].freeze
 
     attr_reader :ready_state, :result, :error
 
@@ -23,7 +22,6 @@ module Dommy
       @ready_state = EMPTY
       @result = nil
       @error = nil
-      @inline_handlers = {}
       @aborted = false
       @generation = 0
     end
@@ -84,16 +82,14 @@ module Dommy
       when "DONE"
         DONE
       else
-        @inline_handlers[inline_event_for(key)]
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
     def __js_set__(key, value)
-      event = inline_event_for(key)
-      return Bridge::UNHANDLED unless event
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
-      set_inline_handler(event, value)
-      nil
+      event_handler_idl_set(key, value)
     end
 
     include Bridge::Methods
@@ -160,25 +156,5 @@ module Dommy
       end
     end
 
-    INLINE_EVENT_MAP = INLINE_HANDLERS
-      .each_with_object({}) do |name, h|
-        h["on#{name}"] = name
-      end
-      .freeze
-
-    def inline_event_for(key)
-      INLINE_EVENT_MAP[key.to_s]
-    end
-
-    def set_inline_handler(event, handler)
-      previous = @inline_handlers[event]
-      remove_event_listener(event, previous) if previous
-      if handler.nil?
-        @inline_handlers.delete(event)
-      else
-        add_event_listener(event, handler)
-        @inline_handlers[event] = handler
-      end
-    end
   end
 end

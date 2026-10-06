@@ -140,6 +140,7 @@ module Dommy
         "CSSStyleSheet" => Bridge::Constructor.new { |_args| CSSStyleSheet.new },
         "FileReader" => Bridge::Constructor.new { |_args| FileReader.new(win) },
         "MessageChannel" => Bridge::Constructor.new { |_args| MessageChannel.new(win) },
+        "CloseWatcher" => Bridge::Constructor.new { |args| CloseWatcher.new(win, args[0]) },
         "BroadcastChannel" => Bridge::Constructor.new { |args| BroadcastChannel.new(win, args[0]) },
         "WebSocket" => Bridge::Constructor.new { |args| WebSocket.new(win, args[0], args[1]) },
         "EventSource" => Bridge::Constructor.new { |args| EventSource.new(win, args[0], args[1]) },

@@ -19,13 +19,13 @@ module Dommy
   # Spec (real): https://html.spec.whatwg.org/multipage/workers.html
   class Worker
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     attr_reader :url
 
     def initialize(window, url, _options = nil)
       @window = window
       @url = url.to_s
-      @inline_handlers = {}
       @worker_side_handlers = []
       @terminated = false
     end
@@ -83,16 +83,14 @@ module Dommy
       when "url"
         @url
       else
-        @inline_handlers[inline_event_for(key)]
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
     def __js_set__(key, value)
-      event = inline_event_for(key)
-      return Bridge::UNHANDLED unless event
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
-      set_inline_handler(event, value)
-      nil
+      event_handler_idl_set(key, value)
     end
 
     include Bridge::Methods
@@ -117,28 +115,6 @@ module Dommy
     end
 
     private
-
-    INLINE_HANDLERS = %w[message error messageerror].freeze
-    INLINE_EVENT_MAP = INLINE_HANDLERS
-      .each_with_object({}) do |name, h|
-        h["on#{name}"] = name
-      end
-      .freeze
-
-    def inline_event_for(key)
-      INLINE_EVENT_MAP[key.to_s]
-    end
-
-    def set_inline_handler(event, handler)
-      previous = @inline_handlers[event]
-      remove_event_listener(event, previous) if previous
-      if handler.nil?
-        @inline_handlers.delete(event)
-      else
-        add_event_listener(event, handler)
-        @inline_handlers[event] = handler
-      end
-    end
 
     def invoke(callback, args)
       CallableInvoker.invoke(callback, *args)

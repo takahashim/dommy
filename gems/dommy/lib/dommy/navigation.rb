@@ -55,6 +55,15 @@ module Dommy
   #     was blocked (the default: none is created).
   #   close_window
   #     A script-closable top-level window asked to close (`window.close()`).
+  #   load_frame(frame, url:, method:, body:, params:, enctype:, headers:) -> Window | nil
+  #     An `<iframe>`'s child navigable is navigating to a network URL (its
+  #     `src`, a link or form targeting it, a navigation from inside it).
+  #     Called from a task; answer the Window of the document the response
+  #     makes (Dommy::Internal::ChildNavigable.window_for_response builds one;
+  #     .error_window is the page a network error shows), or nil to leave the
+  #     frame's document as it is. The frame installs it and fires its `load`.
+  #     about:blank, about:srcdoc, data: and blob: documents never reach a
+  #     delegate. Without this method frames keep their initial about:blank.
   module Navigation
     # The default delegate: it performs no navigation, only *records* each
     # attempt so tests can assert "a navigation to X was triggered" and the
@@ -100,8 +109,12 @@ module Dommy
       # blocked (returns no response, so the browser stays put) — a test policy
       # mirroring dommy-rack, so a page can't wander off to an external site the
       # resources adapter happens to serve.
-      def initialize(resources, max_redirects: 20, same_origin: false)
+      # `cookie_jar` (a Dommy::CookieJar) gives every request — each hop of a
+      # redirect chain — its `Cookie` header and stores each response's
+      # `Set-Cookie`.
+      def initialize(resources, max_redirects: 20, same_origin: false, cookie_jar: nil)
         @resources = resources
+        @cookie_jar = cookie_jar
         @max_redirects = max_redirects
         @same_origin = same_origin
         @origin = nil
@@ -147,8 +160,10 @@ module Dommy
       private
 
       def run(verb, target, body, headers, count)
-        response = @resources.request(method: verb, url: target, headers: headers, body: body)
+        response = @resources.request(method: verb, url: target, headers: with_cookies(headers, target), body: body)
         return [nil, target] unless response
+
+        @cookie_jar&.store_response_headers(response.headers || {}, target)
 
         status = response.status.to_i
         location = header(response, "location")
@@ -156,6 +171,9 @@ module Dommy
           raise TooManyRedirectsError, "exceeded #{@max_redirects} redirects" if count >= @max_redirects
 
           nxt = resolve(location, target)
+          # Fetch "HTTP-redirect fetch": a Location that is not an HTTP(S) URL
+          # is a network error.
+          return [nil, nxt] unless nxt.to_s.match?(%r{\Ahttps?:}i)
           # A redirect that crosses the scoped origin is blocked (a browser would
           # follow it, but the test policy keeps navigation on the app).
           return [nil, nxt] if cross_origin?(nxt)
@@ -165,7 +183,14 @@ module Dommy
           return run(nverb, nxt, nbody, headers, count + 1)
         end
 
-        [response, response.url || target]
+        # The response's URL is the request's, unless the adapter itself
+        # followed a redirect (then it says so, and where it ended up).
+        [response, (response.redirected && response.url) || target]
+      end
+
+      def with_cookies(headers, url)
+        cookies = @cookie_jar&.cookie_string(url).to_s
+        cookies.empty? ? headers : headers.merge("Cookie" => cookies)
       end
 
       def cross_origin?(url)

@@ -281,12 +281,20 @@ module Dommy
 
     js_methods %w[item namedItem add remove showPicker]
 
-    # HTML `showPicker()`: a disabled select is an InvalidStateError, and
-    # without transient activation (which Dommy never has) a NotAllowedError.
+    # HTML `showPicker()`: a disabled select is an InvalidStateError, one in
+    # a cross-origin frame a SecurityError, without transient activation a
+    # NotAllowedError, and one not being rendered a NotSupportedError;
+    # otherwise the picker is shown, consuming the activation.
     def show_picker
       raise DOMException::InvalidStateError, "The select is not mutable." if __internal_actually_disabled__
+      if Internal::UserActivation.cross_origin_frame?(@document)
+        raise DOMException::SecurityError, "showPicker() called from a cross-origin iframe."
+      end
 
-      raise DOMException::NotAllowedError, "showPicker() requires a user gesture."
+      Internal::UserActivation.show_picker_if_applicable(self, mutable: true) do
+        raise DOMException::NotSupportedError, "The select is not being rendered." unless Internal::Focusability.being_rendered?(self)
+      end
+      nil
     end
     def __js_call__(method, args)
       case method

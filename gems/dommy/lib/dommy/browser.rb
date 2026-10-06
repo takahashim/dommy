@@ -71,18 +71,23 @@ module Dommy
       @console = []
       @disposed = false
       @pending_navigations = []
+      @popups = []
       @runtime = nil
       # One browsing session: every window it shows (and their frames) shares
       # localStorage per origin and sessionStorage per origin.
       @storage_provider = StorageProvider.new
+      # One cookie store for the session: document.cookie, cookieStore, and
+      # the Cookie / Set-Cookie of every request it sends through resources.
+      @cookie_jar = CookieJar.new
       @before_unload_handler = nil
 
       @window = Dommy.parse(html)
       @window.location.__internal_set_url__(url) if url
       @window.storage_provider = @storage_provider
+      @window.cookie_jar = @cookie_jar
 
       if navigable
-        @fetcher = Navigation::Fetcher.new(@resources, same_origin: @same_origin)
+        @fetcher = navigation_fetcher
         @history = Navigation::JointHistory.new
         @window.navigation_delegate = self
         @history.push(current_url, window: @window, windex: @window.history.__internal_index__)
@@ -95,6 +100,10 @@ module Dommy
     # The provider of this browser's Web Storage areas (shared by every window
     # it shows); see Dommy::StorageProvider.
     attr_reader :storage_provider
+
+    # This browser's cookies (a Dommy::CookieJar): the one store its pages'
+    # document.cookie and cookieStore use and its requests send and fill.
+    attr_reader :cookie_jar
 
     # Install a handler for a page that asks to confirm leaving it (a canceled
     # `beforeunload`, or one whose returnValue is set): called with the window
@@ -158,7 +167,7 @@ module Dommy
         navigate_frame(frame,
           {method: method, url: url, params: params, body: body, enctype: enctype, headers: headers},
           resolve_against_current(url.to_s))
-        @window.scheduler.queue_microtask(proc { frame.dispatch_event(Dommy::Event.new("load")) })
+        @window.scheduler.queue_microtask(proc { frame.__internal_run_iframe_load_event_steps__ })
         return nil
       end
 
@@ -186,6 +195,106 @@ module Dommy
       def traverse(_delta) = nil
 
       def history_length = @browser.history_length
+
+      # The frames of the document loaded into this frame load the same way.
+      def load_frame(frame, **nav) = @browser.load_frame(frame, **nav)
+
+      # A popup opened from inside the frame is the browser's too.
+      def open_window(**opts) = @browser.open_window(**opts)
+    end
+
+    # The navigation delegate of an auxiliary window this browser opened
+    # (window.open): its navigations load into it, keeping the Window the
+    # opener holds (Dommy has no WindowProxy, so the document is swapped
+    # under it), and its close() closes it.
+    class PopupDelegate
+      def initialize(browser, popup)
+        @browser = browser
+        @popup = popup
+      end
+
+      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
+        @browser.__internal_load_popup__(@popup, {url: url, method: method, body: body, params: params,
+                                                  enctype: enctype, headers: headers})
+      end
+
+      def traverse(_delta) = nil
+
+      def close_window = @browser.__internal_close_popup__(@popup)
+
+      def find_window(name) = @browser.find_window(name)
+
+      def load_frame(frame, **nav) = @browser.load_frame(frame, **nav)
+
+      def open_window(**opts) = @browser.open_window(**opts)
+    end
+
+    # The auxiliary windows the page opened with window.open and has not
+    # closed, oldest first.
+    def popups = @popups.dup
+
+    # NavigationDelegate `open_window`: window.open asked for a new top-level
+    # browsing context. It is created at once with the initial about:blank
+    # (whose origin is the opener's) and navigated to `url` from a task; it
+    # shares this browser's storage and cookies. Window#window_open sets its
+    # opener and name.
+    def open_window(url:, target:, features: "")
+      return nil if @disposed
+
+      popup = Dommy.parse(Internal::ChildNavigable::BLANK_HTML)
+      popup.location.__internal_set_url__("about:blank")
+      popup.__internal_initial_about_blank__ = true
+      popup.storage_provider = @storage_provider
+      popup.cookie_jar = @cookie_jar
+      popup.navigation_delegate = PopupDelegate.new(self, popup)
+      @popups << popup
+      unless Internal::ChildNavigable.matches_about_blank?(url)
+        @window.scheduler.set_timeout(proc { __internal_load_popup__(popup, {url: url, method: "GET"}) }, 0)
+      end
+      popup
+    end
+
+    # Load a navigation into a popup: fetch it, give the popup's Window the
+    # document, and fire its load. Nothing happens when nothing serves it.
+    def __internal_load_popup__(popup, nav)
+      return nil if @disposed || @resources.nil? || !@popups.include?(popup)
+
+      url = nav[:url].to_s
+      @fetcher ||= navigation_fetcher
+      response, final_url = begin
+        @fetcher.request(method: nav[:method] || "GET", url: url, params: nav[:params],
+                         body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {})
+      rescue StandardError
+        [nil, url]
+      end
+      return nil unless response && document_response?(response)
+
+      loaded = Internal::ChildNavigable.window_for_response(response.body, response_header(response, "content-type"), final_url)
+      popup.__internal_adopt_document_of__(loaded)
+      popup.navigation_delegate = PopupDelegate.new(self, popup)
+      document = popup.document
+      document.__internal_update_readiness__("loading")
+      document.__internal_finish_loading__
+      nil
+    end
+
+    # NavigationDelegate `find_window`: the top-level window (this browser's
+    # page or a popup) or a frame in one, whose target name is `name`.
+    def find_window(name)
+      ([@window] + @popups).each do |top|
+        return top if top.name == name
+
+        found = top.__internal_find_descendant_window__(name)
+        return found if found
+      end
+      nil
+    end
+
+    # A popup's close(): it leaves the browser, closed.
+    def __internal_close_popup__(popup)
+      @popups.delete(popup)
+      popup.__internal_discard__
+      nil
     end
 
     def frame_navigation_delegate(frame) = FrameNavigationDelegate.new(self, frame)
@@ -201,8 +310,19 @@ module Dommy
         nav[:url].to_s
       end
       navigate_frame(frame, nav, resolved)
-      frame.dispatch_event(Dommy::Event.new("load"))
+      frame.__internal_run_iframe_load_event_steps__
       nil
+    end
+
+    # NavigationDelegate `load_frame`: an iframe's child navigable is navigating
+    # to `url` (its `src`, or a navigation from inside it) — fetch it through
+    # this browser's resources and answer the document's Window, or nil when
+    # nothing serves it (the frame then keeps its document). The frame installs
+    # it and fires its own `load`.
+    def load_frame(frame, url:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, **)
+      return nil if @disposed || @resources.nil?
+
+      frame_window_for(frame, {url: url, method: method, body: body, params: params, enctype: enctype, headers: headers}, url.to_s)
     end
 
     # A history traversal by `delta` that the PAGE asked for (`history.go(n)`
@@ -255,6 +375,7 @@ module Dommy
     # `setTimeout(300)` — use `advance_time(300)` for debounce/throttle.
     def settle
       @runtime.settle
+      drive_popups(0)
       flush_navigation!
       check_js_errors!
       self
@@ -263,6 +384,7 @@ module Dommy
     # Advance virtual time by `ms`, running timers that come due, then settle.
     def advance_time(ms)
       @window.scheduler.advance_time(ms)
+      drive_popups(ms)
       @runtime.drain_microtasks
       flush_navigation!
       check_js_errors!
@@ -274,6 +396,7 @@ module Dommy
     # land before the next line, then enforce strict mode.
     def after_interaction
       @runtime.drain_microtasks
+      drive_popups(0)
       flush_navigation!
       check_js_errors!
     end
@@ -353,7 +476,10 @@ module Dommy
       # Opt-in WPT scaffolding (common/sab.js derives SharedArrayBuffer through
       # WebAssembly.Memory); off by default so real pages don't see the shim.
       runtime.install_wasm_memory_shim if @wasm_memory_shim && runtime.respond_to?(:install_wasm_memory_shim)
-      window.globals["__fetch_handler__"] = Resources::FetchHandler.new(@resources) if @resources
+      if @resources
+        window.globals["__fetch_handler__"] =
+          Resources::FetchHandler.new(@resources, cookie_jar: @cookie_jar, origin: -> { window.origin })
+      end
       @runtime = runtime
       doc = window.document
       # An `on*` attribute that arrived after boot (a cloned template, an
@@ -380,6 +506,16 @@ module Dommy
       # Leave the page in a ready state: run on-load promises, due-now timers,
       # and rAF (not future timers). `settle: false` observes it mid-flight.
       runtime.settle if @settle_after_boot
+    end
+
+    # A popup has no realm of its own; the tasks queued on its window (a
+    # close(), its timers) run as the browser's time moves.
+    def drive_popups(ms)
+      @popups.dup.each { |popup| popup.scheduler.advance_time(ms) }
+    end
+
+    def navigation_fetcher
+      Navigation::Fetcher.new(@resources, same_origin: @same_origin, cookie_jar: @cookie_jar)
     end
 
     # Route an unhandled promise rejection through the page's own
@@ -427,6 +563,7 @@ module Dommy
       new_window.document.__internal_referrer__ = referrer if referrer
       new_window.navigation_delegate = self
       new_window.storage_provider = @storage_provider
+      new_window.cookie_jar = @cookie_jar
       old_window.__internal_discard__
       @window = new_window
 
@@ -531,33 +668,43 @@ module Dommy
     # it, install the response document as the frame's content, and fire the
     # frame's `load`. The top-level window and joint history are left alone.
     def navigate_frame(frame, nav, resolved_url)
-      response, final_url = @fetcher.request(
-        method: nav[:method] || "GET", url: resolved_url, params: nav[:params],
-        body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
-      )
-      return unless response&.success?
+      # The frame makes about:, data: and blob: documents itself and asks
+      # this browser (#load_frame) for the rest.
+      sub_window = frame.__internal_child_document_for__(resolved_url, nil, nav.except(:url))
+      return nil unless sub_window
 
-      sub_window = frame_document_for(response)
-      sub_window.location.__internal_set_url__(final_url)
-      sub_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
       # A navigation from inside the loaded frame also stays in that frame.
-      sub_window.navigation_delegate = frame_navigation_delegate(frame)
-      # A nested realm needs the seeded constructors to run the response's
-      # scripts; a runtime that cannot expose them simply runs without them.
-      @runtime.expose_constructors_on(sub_window) if @runtime.respond_to?(:expose_constructors_on)
+      sub_window.navigation_delegate = frame_navigation_delegate(frame) if sub_window.navigation_delegate.is_a?(Navigation::NullDelegate)
       frame.__internal_set_content_document__(sub_window.document)
       nil
     end
 
-    # The document a frame shows for a response: HTML/XML is parsed as-is; a
-    # non-document response (e.g. text/plain from an echo endpoint) is displayed
-    # as text, so the frame gets a document whose body holds it.
-    def frame_document_for(response)
-      return Dommy.parse(response.body) if document_response?(response)
+    # Fetch a frame navigation and build the Window of the document it
+    # answers. nil when nothing (successful) serves the URL.
+    def frame_window_for(frame, nav, resolved_url)
+      @fetcher ||= navigation_fetcher
+      response, final_url = begin
+        @fetcher.request(
+          method: nav[:method] || "GET", url: resolved_url, params: nav[:params],
+          body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
+        )
+      rescue StandardError
+        # A resources adapter that cannot serve the request at all fails the
+        # navigation like a network error.
+        [nil, resolved_url]
+      end
+      # Nothing answered: a network error, which shows an error page (and
+      # still fires the frame's load). A response of any status is a document.
+      return Internal::ChildNavigable.error_window(final_url || resolved_url) unless response
 
-      win = Dommy.parse("<!doctype html><html><head></head><body></body></html>")
-      win.document.body.text_content = response.body.to_s.dup.force_encoding(Encoding::UTF_8)
-      win
+      sub_window = Internal::ChildNavigable.window_for_response(
+        response.body, response_header(response, "content-type"), final_url
+      )
+      sub_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
+      # A nested realm needs the seeded constructors to run the response's
+      # scripts; a runtime that cannot expose them simply runs without them.
+      @runtime.expose_constructors_on(sub_window) if @runtime.respond_to?(:expose_constructors_on)
+      sub_window
     end
 
     # If the freshly loaded document asks for an immediate `<meta http-equiv=

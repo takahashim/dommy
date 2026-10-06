@@ -275,7 +275,8 @@ module Dommy
         when "checked" then Internal.checked_state?(element)
         when "enabled" then ElementState.enableable_element?(element) && !ElementState.disabled_element?(element)
         when "disabled" then ElementState.enableable_element?(element) && ElementState.disabled_element?(element)
-        when "focus", "focus-visible" then ElementState.has_focus?(element)
+        when "focus" then ElementState.has_focus?(element)
+        when "focus-visible" then ElementState.focus_visible?(element)
         when "focus-within" then ElementState.focus_within?(element)
         when "hover"
           hovered = element.owner_document&.__internal_hovered_element__
@@ -297,6 +298,7 @@ module Dommy
         when "modal" then ElementState.modal_element?(element)
         when "fullscreen" then ElementState.fullscreen_element?(element)
         when "defined" then ElementState.defined_element?(element)
+        when "state" then ElementState.custom_state?(element, pseudo.argument)
         else
           false
         end

@@ -12,9 +12,7 @@
     "CSSStyleProperties",
     "CanvasPattern",
     "CaretPosition",
-    "CloseWatcher",
     "CustomStateSet",
-    "ElementInternals",
     "FetchLaterResult",
     "HTMLAllCollection",
     "HTMLSelectedContentElement",
@@ -47,7 +45,6 @@
     "TimeRanges",
     "TrackEvent",
     "TransitionEvent",
-    "UserActivation",
     "VideoTrack",
     "VideoTrackList",
     "VisibilityStateEntry",
@@ -65,9 +62,6 @@
     "Blob": [
       "stream",
       "textStream"
-    ],
-    "BroadcastChannel": [
-      "onmessageerror"
     ],
     "CSSGroupingRule": [
       "deleteRule",
@@ -131,8 +125,12 @@
       "initCompositionEvent"
     ],
     "CustomElementRegistry": [
+      "define",
+      "get",
       "getName",
-      "initialize"
+      "initialize",
+      "upgrade",
+      "whenDefined"
     ],
     "DataTransfer": [
       "setDragImage"
@@ -152,7 +150,6 @@
       "convertRectFromNode",
       "createExpression",
       "createNSResolver",
-      "customElementRegistry",
       "elementsFromPoint",
       "evaluate",
       "execCommand",
@@ -171,7 +168,6 @@
       "convertQuadFromNode",
       "convertRectFromNode",
       "currentCSSZoom",
-      "customElementRegistry",
       "getBoxQuads",
       "hasPointerCapture",
       "releasePointerCapture",
@@ -179,18 +175,8 @@
       "setHTMLUnsafe",
       "setPointerCapture"
     ],
-    "EventSource": [
-      "onerror",
-      "onmessage",
-      "onopen"
-    ],
-    "FileReader": [
-      "onabort",
-      "onerror",
-      "onload",
-      "onloadend",
-      "onloadstart",
-      "onprogress"
+    "ElementInternals": [
+      "states"
     ],
     "HTMLAnchorElement": [
       "text"
@@ -202,7 +188,6 @@
       "options"
     ],
     "HTMLElement": [
-      "attachInternals",
       "scrollParent"
     ],
     "HTMLEmbedElement": [
@@ -247,10 +232,6 @@
     "ImageData": [
       "pixelFormat"
     ],
-    "MessagePort": [
-      "onclose",
-      "onmessageerror"
-    ],
     "MouseEvent": [
       "getModifierState",
       "layerX",
@@ -264,8 +245,20 @@
     ],
     "Navigator": [
       "registerProtocolHandler",
-      "unregisterProtocolHandler",
-      "userActivation"
+      "unregisterProtocolHandler"
+    ],
+    "Notification": [
+      "actions",
+      "badge",
+      "dir",
+      "image",
+      "lang",
+      "navigate",
+      "renotify",
+      "requireInteraction",
+      "silent",
+      "timestamp",
+      "vibrate"
     ],
     "PageTransitionEvent": [
       "persisted"
@@ -312,7 +305,6 @@
     "ShadowRoot": [
       "adoptedStyleSheets",
       "clonable",
-      "customElementRegistry",
       "fullscreenElement",
       "getHTML",
       "serializable",
@@ -349,24 +341,20 @@
       "fetchLater",
       "navigation",
       "visualViewport"
-    ],
-    "Worker": [
-      "onerror",
-      "onmessage",
-      "onmessageerror"
-    ],
-    "XMLHttpRequest": [
-      "onreadystatechange"
     ]
   },
   "reflect_gaps": {},
   "invented_reflect_gaps": {},
   "void_gaps": {
+    "CloseWatcher.close": "returns undefined, which the bridge does not guarantee",
+    "CloseWatcher.destroy": "returns undefined, which the bridge does not guarantee",
     "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined",
     "External.AddSearchProvider": "returns undefined, which the bridge does not guarantee",
     "External.IsSearchProviderInstalled": "returns undefined, which the bridge does not guarantee",
     "MouseEvent.initMouseEvent": "returns undefined, which the bridge does not guarantee",
+    "Notification.close": "returns undefined, which the bridge does not guarantee",
     "PluginArray.refresh": "returns undefined, which the bridge does not guarantee",
+    "WebSocket.close": "returns undefined, which the bridge does not guarantee",
     "Window.captureEvents": "returns undefined, which the bridge does not guarantee",
     "Window.close": "returns undefined, which the bridge does not guarantee",
     "Window.moveBy": "returns undefined, which the bridge does not guarantee",
@@ -377,10 +365,13 @@
   },
   "arity_gaps": {},
   "constructor_arity_gaps": {
+    "CloseEvent": "length 0 (IDL requires 1)",
     "MouseEvent": "length 0 (IDL requires 1)",
+    "Notification": "length 0 (IDL requires 1)",
     "PointerEvent": "length 0 (IDL requires 1)",
     "Touch": "length 0 (IDL requires 1)",
     "TouchEvent": "length 0 (IDL requires 1)",
+    "WebSocket": "length 0 (IDL requires 1)",
     "WheelEvent": "length 0 (IDL requires 1)"
   },
   "iteration_gaps": {},

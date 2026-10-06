@@ -18,13 +18,12 @@ module Dommy
   # Spec: https://websockets.spec.whatwg.org/
   class WebSocket
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     CONNECTING = 0
     OPEN = 1
     CLOSING = 2
     CLOSED = 3
-
-    INLINE_HANDLERS = %w[open message close error].freeze
 
     attr_reader :url, :protocol, :ready_state, :buffered_amount, :extensions
     attr_reader :binary_type
@@ -41,7 +40,6 @@ module Dommy
       @requested_protocols = Array(protocols).flatten.map(&:to_s)
       @protocol = ""
       @sent_messages = []
-      @inline_handlers = {}
 
       # A host-installed connector (Dommy::Rack wires real in-process
       # connections through it) owns the connection when it returns a
@@ -191,7 +189,7 @@ module Dommy
       when "CLOSED"
         CLOSED
       else
-        @inline_handlers[inline_event_for(key)]
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
@@ -200,8 +198,9 @@ module Dommy
       when "binaryType"
         self.binary_type = value
       else
-        event = inline_event_for(key)
-        set_inline_handler(event, value) if event
+        return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
+
+        event_handler_idl_set(key, value)
       end
 
       nil
@@ -231,28 +230,6 @@ module Dommy
     class Error < StandardError
     end
 
-    private
-
-    INLINE_EVENT_MAP = INLINE_HANDLERS
-      .each_with_object({}) do |name, h|
-        h["on#{name}"] = name
-      end
-      .freeze
-
-    def inline_event_for(key)
-      INLINE_EVENT_MAP[key.to_s]
-    end
-
-    def set_inline_handler(event, handler)
-      previous = @inline_handlers[event]
-      remove_event_listener(event, previous) if previous
-      if handler.nil?
-        @inline_handlers.delete(event)
-      else
-        add_event_listener(event, handler)
-        @inline_handlers[event] = handler
-      end
-    end
   end
 
   # `CloseEvent` — payload for the `close` event on WebSocket.

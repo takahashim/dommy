@@ -187,6 +187,14 @@ module Dommy
       @data = Array.new(@width * @height * 4, 0)
     end
 
+    # ImageData's serialization + deserialization steps: same size, a copy of
+    # the pixels.
+    def __internal_structured_clone__(_for_storage = false)
+      copy = ImageData.new(@width, @height)
+      copy.instance_variable_set(:@data, @data.dup)
+      copy
+    end
+
     def __js_get__(key)
       case key
       when "width" then @width

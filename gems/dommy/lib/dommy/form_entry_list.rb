@@ -76,6 +76,10 @@ module Dommy
           emit_image_coordinates(el, data)
           next
         end
+        if Internal::FormAssociatedCustomElements.face?(el)
+          Internal::FormAssociatedCustomElements.append_entries(el, attr(el, "name"), data)
+          next
+        end
 
         name = attr(el, "name")
         next if blank?(name)
@@ -166,8 +170,12 @@ module Dommy
     # with `form=`.
     def controls
       scope = @form.get_root_node || @form
-      candidates = scope.query_selector_all(SUBMITTABLE_SELECTOR).to_a
-      candidates.select { |el| @form.__internal_owns_control__(el) }
+      candidates = scope.query_selector_all(Internal::FormAssociatedCustomElements.selector(SUBMITTABLE_SELECTOR)).to_a
+      candidates.select do |el|
+        next false if CustomElementRegistry.valid_name?(el.local_name) && !Internal::FormAssociatedCustomElements.face?(el)
+
+        @form.__internal_owns_control__(el)
+      end
     end
 
     # A control is unsuccessful if it or an ancestor <fieldset> is disabled

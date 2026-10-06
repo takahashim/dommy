@@ -100,6 +100,14 @@ module Dommy
       @state != :pending
     end
 
+    # Call `on_fulfilled` / `on_rejected` with the outcome once settled (from a
+    # microtask), without a chained promise: how a JS realm Promise standing
+    # for this one learns its outcome.
+    def __internal_subscribe__(on_fulfilled, on_rejected)
+      attach_then(on_fulfilled, on_rejected)
+      nil
+    end
+
     private
 
     # Drive the event loop over the work that is ready NOW until this promise

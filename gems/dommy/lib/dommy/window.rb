@@ -2,6 +2,8 @@
 
 require_relative "internal/window_constructors"
 require_relative "internal/origin"
+require_relative "internal/user_activation"
+require_relative "internal/close_watcher_manager"
 
 require "uri"
 
@@ -27,6 +29,8 @@ module Dommy
     include Internal::WindowConstructors
 
     include EventTarget
+    include Internal::UserActivation
+    include Internal::CloseWatcherHost
     extend Internal::EventHandlers::AnswersIdlAttributes
 
     # Window attributes declared [Replaceable]: an assignment from script
@@ -239,8 +243,9 @@ module Dommy
       when "name"
         name
       when "opener"
-        # No auxiliary browsing contexts are created, so there is never an opener.
-        nil
+        # The window that opened this auxiliary one (null without one, or
+        # once disowned).
+        @__internal_opener__
       when "closed"
         closed?
       when "status"
@@ -341,9 +346,14 @@ module Dommy
         @status = value.to_s
         return nil
       when "opener"
-        # [Replaceable]-like: null clears the (always absent) opener; anything
-        # else replaces the attribute with a data property.
-        value.nil? ? @globals.delete("opener") : @globals["opener"] = value
+        # Setting null disowns the opener; anything else replaces the
+        # attribute with a data property ([Replaceable]).
+        if value.nil?
+          @globals.delete("opener")
+          @__internal_opener__ = nil
+        else
+          @globals["opener"] = value
+        end
         return nil
       end
       # `window.onload = fn` (and the other window event handlers) registers a
@@ -454,7 +464,7 @@ module Dommy
       when "getSelection"
         document&.get_selection
       when "postMessage"
-        post_message(args[0])
+        post_message(args[0], args.length > 1 ? args[1] : "*", source: args[2])
       else
         # Additional window-level methods (fetch, location, history,
         # Promise, MutationObserver, etc.) arrive in later sessions.
@@ -527,11 +537,9 @@ module Dommy
     # nil when the page handled it. That token is what a later `rejectionhandled`
     # hands back so the host can take the report away again.
     #
-    # WHEN this runs is the engine's call, not ours: the spec decides at the end
-    # of a microtask checkpoint, over the promises still unhandled then, so a
-    # `.catch` attached later in the same checkpoint keeps the page silent. An
-    # engine that instead notifies the moment a promise rejects reports handled
-    # code too.
+    # Called from the "notify about rejected promises" task (see
+    # __internal_handle_promise_rejection__), for a promise still unhandled
+    # when that task runs.
     def __internal_report_rejection__(reason_value, host_error: nil, promise: nil)
       return nil unless __internal_fire_event__("unhandledrejection",
         {"promise" => promise, "reason" => reason_value, "cancelable" => true}, event_class: PromiseRejectionEvent)
@@ -540,25 +548,72 @@ module Dommy
     end
 
     # The engine's promise-rejection hook, carrying the REAL promise and reason
-    # (see the JS side's onPromiseRejection). Both halves of HTML's promise
-    # rejection tracking arrive here.
+    # (see the JS side's onPromiseRejection), at the end of a microtask
+    # checkpoint: HTML's HostPromiseRejectionTracker, as far as the engine
+    # tells it.
+    #
+    # "unhandledrejection" is the about-to-be-notified list "notify about
+    # rejected promises" empties: a global task (DOM manipulation task source)
+    # fires the event — for each promise that is still unhandled when the task
+    # runs, so a handler attached before then (even a task later) keeps the page
+    # silent. "rejectionhandled" is the "handle" operation: a promise still
+    # waiting for that task just leaves the list; one whose event fired (the
+    # outstanding rejected promises set) gets `rejectionhandled` from a queued
+    # task. Anything else is ignored.
     #
     # A reported promise is remembered against what the host made of the report,
     # so `rejectionhandled` can hand that token back and have the report
-    # retracted. The map is keyed by the value's bridge ref, which is stable per
-    # JS object, and lives on the window because both the realm and the reports
-    # belong to this document.
+    # retracted. Keyed by the value's bridge ref, which is stable per JS object.
     def __internal_handle_promise_rejection__(type, reason_value, promise: nil)
       @rejection_records ||= {}
+      @about_to_be_notified ||= {}
+      @outstanding_rejections ||= {}
       key = promise.respond_to?(:ref) ? promise.ref : promise
       if type == "rejectionhandled"
-        __internal_report_rejection_handled__(reason_value, promise: promise, record: @rejection_records.delete(key))
+        return nil unless @about_to_be_notified.delete(key).nil?
+        # Handled by a listener of its own unhandledrejection event: it never
+        # becomes outstanding.
+        return @notifying_rejections[key] = :handled if @notifying_rejections&.key?(key)
+        return nil unless @outstanding_rejections.delete(key)
+
+        record = @rejection_records.delete(key)
+        __internal_queue_rejection_task__ do
+          __internal_report_rejection_handled__(reason_value, promise: promise, record: record)
+        end
       else
-        record = __internal_report_rejection__(reason_value, promise: promise,
-          host_error: Internal::ExceptionReport.thrown_host_error(reason_value))
-        @rejection_records[key] = record unless record.nil?
+        @about_to_be_notified[key] = true
+        __internal_queue_rejection_task__ { __internal_notify_rejected_promise__(key, reason_value, promise) }
       end
       nil
+    end
+
+    # One step of "notify about rejected promises": skip a promise handled
+    # since, else fire `unhandledrejection`, and keep the promise as outstanding
+    # unless a listener handled it meanwhile.
+    def __internal_notify_rejected_promise__(key, reason_value, promise)
+      return if @about_to_be_notified.delete(key).nil?
+
+      (@notifying_rejections ||= {})[key] = :notifying
+      begin
+        record = __internal_report_rejection__(reason_value, promise: promise,
+          host_error: Internal::ExceptionReport.thrown_host_error(reason_value))
+      ensure
+        handled = @notifying_rejections.delete(key) == :handled
+      end
+      return if handled
+
+      @outstanding_rejections[key] = true
+      @rejection_records[key] = record unless record.nil?
+    end
+
+    # A global task on the DOM manipulation task source; run at once when the
+    # window has no event loop.
+    def __internal_queue_rejection_task__(&block)
+      if @scheduler
+        @scheduler.set_timeout(block, 0)
+      else
+        block.call
+      end
     end
 
     # WHATWG: a promise that was reported as unhandled has since been handled, so
@@ -646,6 +701,26 @@ module Dommy
       frame.nil? || frame.is_connected?
     end
 
+    # Whether this window's document has an opaque origin whatever its URL
+    # says (an error page a failed navigation shows).
+    attr_accessor :__internal_opaque_origin__
+
+    # HTML "create and initialize a Document object": a navigation away from
+    # the initial about:blank to a same-origin document reuses its Window. The
+    # document `other` (built with a Window of its own) becomes this window's,
+    # with its URL; this window's listeners, name and properties stay.
+    def __internal_adopt_document_of__(other)
+      document = other.document
+      @document = document
+      document.default_view = self
+      @location.__internal_set_url__(other.location.href)
+      @history = History.new(self, @location)
+      @__internal_initial_about_blank__ = false
+      delegate = other.navigation_delegate
+      @navigation_delegate = delegate unless delegate.is_a?(Navigation::NullDelegate)
+      nil
+    end
+
     # The embedder replaced this window's document with another (a
     # cross-document navigation): the window keeps existing for scripts that
     # hold it, but its document is no longer fully active.
@@ -723,8 +798,8 @@ module Dommy
     end
 
     # `window.close()`: only a top-level, script-closable navigable closes — one
-    # whose session history holds a single entry (Dommy creates no auxiliary
-    # browsing contexts) — and only from a task. The request is recorded
+    # a script opened, or whose session history holds a single entry — and
+    # only from a task. The request is recorded
     # (`__test_close_calls__`) and the embedder's navigation delegate, when it
     # answers `close_window`, is asked to close it.
     def close
@@ -739,9 +814,15 @@ module Dommy
       nil
     end
 
+    # HTML "script-closable": a top-level traversable that a script created
+    # (window.open) or whose session history holds a single entry.
     def script_closable?
-      @history.length == 1
+      @__internal_created_by_web_content__ == true || @history.length == 1
     end
+
+    # The window whose `window.open` created this auxiliary one (its opener
+    # unless `noopener` — kept for the origin its initial about:blank takes).
+    attr_accessor :__internal_opener__, :__internal_creator__, :__internal_created_by_web_content__
 
     # Each close() call that reached the closing steps, with whether the window
     # was script-closable (and so began closing).
@@ -815,7 +896,8 @@ module Dommy
         resolved = __internal_parse_url__(url)
         raise DOMException::SyntaxError, "Unable to open a window with invalid URL #{url.inspect}" if resolved.nil?
       end
-      noopener = features.split(/[\s,]+/).any? { |f| %w[noopener noreferrer].include?(f.downcase.split("=").first) }
+      tokenized = tokenize_window_features(features)
+      noopener = boolean_window_feature(tokenized, "noopener") || boolean_window_feature(tokenized, "noreferrer")
 
       existing = choose_navigable(target)
       if existing
@@ -823,15 +905,73 @@ module Dommy
         return noopener ? nil : existing
       end
 
+      # A new top-level traversable is requested. Dommy has no popup blocker,
+      # so the user agent creates one, consuming the user activation.
+      __internal_consume_user_activation__
       (@open_calls ||= []) << {url: resolved || "about:blank", target: target, features: features}
       opened = nil
       if @navigation_delegate.respond_to?(:open_window)
         opened = @navigation_delegate.open_window(url: resolved || "about:blank", target: target, features: features)
       end
+      if opened.is_a?(Window)
+        opened.__internal_creator__ ||= self
+        opened.__internal_created_by_web_content__ = true
+        opened.__internal_opener__ = self unless noopener
+        opened.__internal_seed_name__(target) unless target.casecmp?("_blank")
+      end
       noopener ? nil : opened
     end
 
     def __test_open_calls__ = (@open_calls || []).dup
+
+    FEATURE_SEPARATORS = [" ", "\t", "\n", "\f", "\r", "=", ","].freeze
+    FEATURE_NAME_ALIASES = {"screenx" => "left", "screeny" => "top", "innerwidth" => "width", "innerheight" => "height"}.freeze
+
+    # HTML "tokenize the features argument": an ordered name -> value map.
+    def tokenize_window_features(features)
+      tokens = {}
+      chars = features.to_s.chars
+      pos = 0
+      separator = ->(c) { FEATURE_SEPARATORS.include?(c) }
+      while pos < chars.length
+        pos += 1 while pos < chars.length && separator.call(chars[pos])
+        start = pos
+        pos += 1 while pos < chars.length && !separator.call(chars[pos])
+        name = chars[start...pos].join.downcase
+        name = FEATURE_NAME_ALIASES.fetch(name, name)
+        value = ""
+        while pos < chars.length && chars[pos] != "="
+          break if chars[pos] == "," || !separator.call(chars[pos])
+
+          pos += 1
+        end
+        if pos < chars.length && separator.call(chars[pos])
+          while pos < chars.length && separator.call(chars[pos])
+            break if chars[pos] == ","
+
+            pos += 1
+          end
+          start = pos
+          pos += 1 while pos < chars.length && !separator.call(chars[pos])
+          value = chars[start...pos].join.downcase
+        end
+        tokens[name] = value unless name.empty?
+      end
+      tokens
+    end
+    private :tokenize_window_features
+
+    # HTML "parse a boolean feature".
+    def boolean_window_feature(tokens, name)
+      return false unless tokens.key?(name)
+
+      value = tokens[name]
+      return true if value.empty? || value == "yes" || value == "true"
+
+      parsed = value.sub(/\A[ \t\n\f\r]+/, "")[/\A[-+]?\d+/]
+      parsed.to_i != 0
+    end
+    private :boolean_window_feature
 
     # The rules for choosing a navigable, for the targets that name an existing
     # one: nil means a new one would be created.
@@ -860,7 +1000,11 @@ module Dommy
 
         window = window.frame_element ? window.parent_window : nil
       end
-      nil
+      # Another top-level traversable of the session (a popup it opened),
+      # when the embedder keeps any.
+      top = top_window || self
+      delegate = top.navigation_delegate
+      delegate.respond_to?(:find_window) ? delegate.find_window(name) : nil
     end
 
     def __internal_find_descendant_window__(name)
@@ -872,6 +1016,22 @@ module Dommy
         return found if found
       end
       nil
+    end
+
+    # --- Cookies ---
+
+    # The cookie jar this window's document reads and writes (`document.cookie`,
+    # `cookieStore`). An embedder installs one jar per browsing session — the
+    # same one its requests use — so a page sees the cookies its server set.
+    # A nested window without its own uses its container's; a lone window
+    # gets a private one.
+    attr_writer :cookie_jar
+
+    def cookie_jar
+      return @cookie_jar if @cookie_jar
+
+      container = @frame_element&.owner_document&.default_view
+      container && !container.equal?(self) ? container.cookie_jar : (@cookie_jar = CookieJar.new)
     end
 
     # --- Web Storage ---
@@ -1088,13 +1248,49 @@ module Dommy
       PromiseValue.resolve(self, nil)
     end
 
-    # `window.postMessage`: deliver a structured-cloned `message` to this window's
-    # own message handlers from a TASK (the "post message" task source, not a
-    # microtask) — so it lands in a later event-loop turn, as the spec requires.
-    def post_message(message)
-      data = Dommy.structured_clone(message)
-      @scheduler.set_timeout(proc { dispatch_event(MessageEvent.new("message", "data" => data)) }, 0)
+    # `window.postMessage` — the window post message steps: `message` is
+    # serialized now (a JS caller's arrives already serialized by the realm,
+    # transfer list and all), then a task on the posted message task source
+    # (not a microtask: a later event-loop turn) delivers it, provided this
+    # window's origin is `target_origin`. `target_origin` is "*" (anyone), "/"
+    # (the source's own origin) or a serialized origin; `source` is the window
+    # that posted, whose origin the event reports. A record this window cannot
+    # deserialize fires `messageerror` instead.
+    def post_message(message, target_origin = "*", source: nil)
+      serialized = Dommy.structured_serialize(message)
+      source ||= self
+      source_origin = source.respond_to?(:origin) ? source.origin.to_s : origin.to_s
+      target_origin = target_origin.to_s
+      @scheduler.set_timeout(proc { deliver_posted_message(serialized, target_origin, source, source_origin) }, 0)
       nil
+    end
+
+    def deliver_posted_message(serialized, target_origin, source, source_origin)
+      return unless target_origin == "*" || posted_origin_matches?(target_origin, source, source_origin)
+
+      init = {"origin" => source_origin, "source" => source}
+      begin
+        data, ports = serialized.deserialize_with_transfer
+      rescue DOMException::DataCloneError
+        dispatch_event(MessageEvent.new("messageerror", init).__internal_mark_trusted__)
+        return
+      ensure
+        serialized.release if serialized.respond_to?(:release)
+      end
+      dispatch_event(MessageEvent.new("message", init.merge("data" => data, "ports" => ports)).__internal_mark_trusted__)
+    end
+
+    # "targetWindow's associated Document is same origin with targetOrigin":
+    # "/" stands for the source's own origin. An opaque origin is only ever
+    # same origin with itself — the window posting to itself.
+    def posted_origin_matches?(target_origin, source, source_origin)
+      if target_origin == "/"
+        return true if source.equal?(self)
+
+        target_origin = source_origin
+      end
+      own = origin.to_s
+      own != "null" && !own.empty? && own == target_origin
     end
 
     # Accept either positional `(x, y)` or a `{ left:, top: }` options dict.

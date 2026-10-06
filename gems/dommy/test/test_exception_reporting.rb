@@ -208,7 +208,9 @@ class TestExceptionReporting < Minitest::Test
     promise = Dommy::Bridge::JSValue.new(7, "the promise")
 
     @win.__internal_handle_promise_rejection__("unhandledrejection", "reason", promise: promise)
+    @win.scheduler.advance_time(0)
     @win.__internal_handle_promise_rejection__("rejectionhandled", "reason", promise: promise)
+    @win.scheduler.advance_time(0)
 
     assert_equal [1], records
     assert_equal [1], retracted, "the report the page recovered from is taken back"
@@ -232,7 +234,9 @@ class TestExceptionReporting < Minitest::Test
     promise = Dommy::Bridge::JSValue.new(3)
 
     @win.__internal_handle_promise_rejection__("unhandledrejection", "reason", promise: promise)
+    @win.scheduler.advance_time(0)
     @win.__internal_handle_promise_rejection__("rejectionhandled", "reason", promise: promise)
+    @win.scheduler.advance_time(0)
 
     assert_empty records
     assert_empty retracted, "nothing was reported, so there is nothing to take back"
@@ -243,12 +247,54 @@ class TestExceptionReporting < Minitest::Test
     @win.add_event_listener("rejectionhandled", proc { |e| seen = e })
     promise = Dommy::Bridge::JSValue.new(5)
     @win.__internal_handle_promise_rejection__("unhandledrejection", "why", promise: promise)
+    @win.scheduler.advance_time(0)
     @win.__internal_handle_promise_rejection__("rejectionhandled", "why", promise: promise)
+    assert_nil seen, "rejectionhandled is fired from a queued task"
+    @win.scheduler.advance_time(0)
 
     refute_nil seen
     assert_same promise, seen.__js_get__("promise")
     assert_equal "why", seen.__js_get__("reason")
     refute seen.__js_get__("cancelable"), "the page is being informed, not consulted"
+  end
+
+  # "Notify about rejected promises" queues a task, and a promise handled
+  # before it runs is skipped: neither event fires and nothing is reported.
+  def test_a_rejection_handled_before_the_notification_task_is_never_reported
+    records = []
+    events = []
+    @win.__internal_on_unhandled_error__ { |_err| records << :recorded }
+    %w[unhandledrejection rejectionhandled].each do |type|
+      @win.add_event_listener(type, proc { |e| events << e.type })
+    end
+    promise = Dommy::Bridge::JSValue.new(11)
+
+    @win.__internal_handle_promise_rejection__("unhandledrejection", "reason", promise: promise)
+    assert_empty events, "the event waits for the queued task"
+    @win.__internal_handle_promise_rejection__("rejectionhandled", "reason", promise: promise)
+    @win.scheduler.advance_time(0)
+
+    assert_empty events
+    assert_empty records
+  end
+
+  # A listener of the unhandledrejection event that handles the promise keeps
+  # it out of the outstanding set: no rejectionhandled follows.
+  def test_a_rejection_handled_by_its_own_event_listener_is_not_outstanding
+    events = []
+    promise = Dommy::Bridge::JSValue.new(13)
+    @win.add_event_listener("unhandledrejection", proc { |e|
+      events << e.type
+      @win.__internal_handle_promise_rejection__("rejectionhandled", "reason", promise: promise)
+    })
+    @win.add_event_listener("rejectionhandled", proc { |e| events << e.type })
+
+    @win.__internal_handle_promise_rejection__("unhandledrejection", "reason", promise: promise)
+    @win.scheduler.advance_time(0)
+    @win.__internal_handle_promise_rejection__("rejectionhandled", "reason", promise: promise)
+    @win.scheduler.advance_time(0)
+
+    assert_equal %w[unhandledrejection], events
   end
 
   # --- Re-entrancy ---

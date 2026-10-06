@@ -33,6 +33,7 @@ module Dommy
           input[type="hidden"] { display: none }
           dialog:not([open]) { display: none }
           details:not([open]) > *:not(summary) { display: none }
+          slot { display: contents }
 
           html, body, address, article, aside, blockquote, details, dialog,
           dd, div, dl, dt, fieldset, figcaption, figure, footer, form,

@@ -507,13 +507,19 @@ module Dommy
     def __internal_user_raw_value__ = @__user_raw_value
     def __internal_last_changed_by_user_edit__ = @__last_changed_by_user_edit && @__value_dirty ? true : false
 
-    # HTML `showPicker()`: an immutable control is an InvalidStateError, and
-    # without transient activation — which Dommy, having no user, never has —
-    # a NotAllowedError.
+    # HTML `showPicker()`: an immutable control is an InvalidStateError, a
+    # cross-origin frame's (other than a file or color input's) a
+    # SecurityError, and without transient activation a NotAllowedError;
+    # otherwise the picker is shown — which consumes the activation (Dommy
+    # draws no picker).
     def show_picker
       raise DOMException::InvalidStateError, "The input is not mutable." unless validity.host_mutable?
+      if !%w[file color].include?(type) && Internal::UserActivation.cross_origin_frame?(@document)
+        raise DOMException::SecurityError, "showPicker() called from a cross-origin iframe."
+      end
 
-      raise DOMException::NotAllowedError, "showPicker() requires a user gesture."
+      Internal::UserActivation.show_picker_if_applicable(self, mutable: true)
+      nil
     end
 
     # setRangeText's edit of the relevant value: it sets the dirty value flag.

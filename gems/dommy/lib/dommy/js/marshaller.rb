@@ -120,9 +120,6 @@ module Dommy
         if (name = interface_name(value))
           ref[Bridge::WireTags::INTERFACE] = name
         end
-        if value.respond_to?(:__js_custom_element_name__) && (ce = value.__js_custom_element_name__)
-          ref[Bridge::WireTags::CUSTOM_ELEMENT] = ce
-        end
         ref
       end
 
@@ -167,7 +164,8 @@ module Dommy
         Bridge::WireTags::JS_REF => :unwrap_js_ref,
         Bridge::WireTags::UNDEFINED => :unwrap_undefined,
         Bridge::WireTags::ABSENT => :unwrap_absent,
-        Bridge::WireTags::BYTES => :unwrap_bytes
+        Bridge::WireTags::BYTES => :unwrap_bytes,
+        Bridge::WireTags::SERIALIZED => :unwrap_serialized
       }.freeze
 
       # JS -> Ruby: rebuild tagged handles / callbacks into Ruby objects.
@@ -238,6 +236,9 @@ module Dommy
 
       # Symmetry with #wrap; an absent marker crossing back is the sentinel.
       def unwrap_absent(_value) = Dommy::Bridge::ABSENT
+
+      # A message the JS realm serialized arrives as an opaque record.
+      def unwrap_serialized(value) = SerializedRecord.new(@bridge, value[Bridge::WireTags::SERIALIZED])
 
       # A JS ArrayBuffer / TypedArray argument arrives as a byte buffer.
       def unwrap_bytes(value) = Dommy::Bridge::Bytes.new(value[Bridge::WireTags::BYTES])

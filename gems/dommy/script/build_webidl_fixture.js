@@ -36,7 +36,8 @@ const WebIDL2 = require(path.join(wpt, "resources/webidl2/lib/webidl2.js"));
 const SPECS = [
   "dom", "cssom", "html", "uievents", "url", "FileAPI", "encoding",
   "xhr", "wai-aria", "fetch", "streams", "cssom-view", "selection-api",
-  "pointerevents", "touch-events", "css-animations", "css-transitions", "fullscreen"
+  "pointerevents", "touch-events", "css-animations", "css-transitions", "fullscreen",
+  "websockets", "notifications"
 ];
 
 const interfaces = new Map(); // name -> record
@@ -199,7 +200,10 @@ function memberRecord(m) {
         replaceable: hasExtAttr(m, "Replaceable"),
         // `stringifier attribute USVString href`: the attribute is also what
         // the interface's toString returns.
-        stringifier: m.special === "stringifier"
+        stringifier: m.special === "stringifier",
+        // [CEReactions] (HTML §4.13.6): the setter runs inside a custom
+        // element reactions scope.
+        ce_reactions: hasExtAttr(m, "CEReactions")
       };
     case "operation":
       // A getter / setter / deleter / stringifier with no name is not a member
@@ -208,7 +212,8 @@ function memberRecord(m) {
       // whether they can be written. Recorded as its own kind.
       if (!m.name) {
         return m.special
-          ? { kind: "special", special: m.special, indexed: indexedSpecial(m) }
+          ? { kind: "special", special: m.special, indexed: indexedSpecial(m),
+              ce_reactions: hasExtAttr(m, "CEReactions") }
           : null;
       }
       return {
@@ -221,6 +226,7 @@ function memberRecord(m) {
         special: m.special && m.special !== "static" ? m.special : null,
         unforgeable: hasExtAttr(m, "LegacyUnforgeable"),
         unscopable: hasExtAttr(m, "Unscopable"),
+        ce_reactions: hasExtAttr(m, "CEReactions"),
         indexed: m.special && m.special !== "static" ? indexedSpecial(m) : null,
         // The WebIDL return type, which is what says whether an operation
         // answers with a value at all: an `undefined` one must reach a script as

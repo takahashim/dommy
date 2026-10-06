@@ -21,30 +21,99 @@ module Dommy
         @submit_button_predicate = submit_button_predicate
       end
 
-      def dispatch(element, key)
+      # Modifier keys a chord (`[:shift, :tab]`) may hold down, with their
+      # KeyboardEvent key / code and the modifier flag they set.
+      MODIFIERS = {
+        shift: ["Shift", "ShiftLeft", "shiftKey"],
+        control: ["Control", "ControlLeft", "ctrlKey"],
+        ctrl: ["Control", "ControlLeft", "ctrlKey"],
+        alt: ["Alt", "AltLeft", "altKey"],
+        meta: ["Meta", "MetaLeft", "metaKey"],
+        command: ["Meta", "MetaLeft", "metaKey"],
+      }.freeze
+
+      def dispatch(element, key, modifiers = {})
         case key
         when Symbol
           named = EventSynthesis::NAMED_KEYS[key] ||
                   raise(ArgumentError, "unknown key #{key.inspect} (known: #{EventSynthesis::NAMED_KEYS.keys.join(", ")})")
-          send_named_key(element, key, named[0], named[1])
+          send_named_key(element, key, named[0], named[1], modifiers)
         when String
-          key.each_char { |char| send_character(element, char) }
+          key.each_char { |char| send_character(element, char, modifiers) }
+        when Array
+          send_chord(element, key, modifiers)
         else
-          raise ArgumentError, "send_keys takes Symbols (named keys) or Strings (typed text), got #{key.inspect}"
+          raise ArgumentError, "send_keys takes Symbols (named keys), Strings (typed text) or chords " \
+                               "([:shift, :tab]), got #{key.inspect}"
         end
       end
 
       private
 
-      def send_named_key(element, name, key, code)
-        unless EventSynthesis.keydown(element, key, code)
+      # A chord: its leading modifiers are pressed (keydown), held for the
+      # remaining keys, then released (keyup) in reverse order.
+      def send_chord(element, keys, modifiers)
+        held = keys.take_while { |k| k.is_a?(Symbol) && MODIFIERS.key?(k) }
+        rest = keys.drop(held.size)
+        held.each do |name|
+          mod_key, mod_code, flag = MODIFIERS[name]
+          modifiers = modifiers.merge(flag => true)
+          EventSynthesis.keydown(target_of(element), mod_key, mod_code, modifiers)
+        end
+        rest.each { |k| dispatch(element, k, modifiers) }
+        held.reverse_each do |name|
+          mod_key, mod_code, flag = MODIFIERS[name]
+          modifiers = modifiers.reject { |f, _| f == flag }
+          EventSynthesis.keyup(target_of(element), mod_key, mod_code, modifiers.empty? ? nil : modifiers)
+        end
+      end
+
+      def send_named_key(element, name, key, code, modifiers = {})
+        target = target_of(element)
+        extra = modifiers.empty? ? nil : modifiers
+        unless EventSynthesis.keydown(target, key, code, extra)
           case name
-          when :enter then enter_default_action(element)
-          when :space then space_default_action(element)
-          when :backspace then @field_interactor.backspace(element)
+          when :enter
+            # Enter produces a character ("\r"), so a keypress precedes its
+            # default action — which a prevented keypress suppresses.
+            enter_default_action(target) unless EventSynthesis.keypress(target, key, code, extra)
+          when :space then space_default_action(target)
+          when :backspace then @field_interactor.backspace(target)
+          when :tab then tab_default_action(target, modifiers["shiftKey"] ? :backward : :forward)
+          when :escape then close_request(target)
           end
         end
-        EventSynthesis.keyup(element, key, code)
+        EventSynthesis.keyup(target_of(element), key, code, extra)
+      end
+
+      # Keys go to the focused element: the one send_keys targeted, unless a
+      # previous key moved the focus (Tab, or a handler's focus()) — then to
+      # the newly focused element, or the body when the viewport has it.
+      def target_of(element)
+        document = element.respond_to?(:owner_document) ? element.owner_document : nil
+        return element if document.nil?
+
+        focused = document.__internal_focused_element__
+        @initial_focus ||= [focused]
+        return element if @initial_focus.first.equal?(focused)
+
+        focused || document.body || element
+      end
+
+      # Tab's default action: sequential focus navigation, forward (Shift
+      # held: backward) from the focused area (HTML §6.6.5).
+      def tab_default_action(element, direction)
+        document = element.owner_document
+        Internal::SequentialFocusNavigation.navigate(document, direction)
+      end
+
+      # Esc is the close request on a keyboard (HTML §6.9): its keydown was
+      # not canceled, so the close watchers of the document's window are
+      # processed — the topmost modal dialog, auto popover or CloseWatcher
+      # closes.
+      def close_request(element)
+        window = element.owner_document.default_view
+        window.__internal_close_request__ if window.respond_to?(:__internal_close_request__)
       end
 
       # Space's default action: activate a focused button-like control — a
@@ -55,9 +124,20 @@ module Dommy
       SPACE_ACTIVATED_INPUT_TYPES = %w[button submit reset checkbox radio image].freeze
       def space_default_action(element)
         if space_activates?(element)
-          element.click
+          EventSynthesis.keyboard_click(element)
         else
           typed_character_default_action(element, " ", "Space")
+        end
+      end
+
+      def enter_activates?(element)
+        return false unless element.respond_to?(:local_name) && element.namespace_uri == Internal::Namespaces::HTML
+
+        case element.local_name
+        when "button" then true
+        when "a", "area" then element.__internal_has_attribute__?("href")
+        when "input" then %w[button submit reset image].include?(element.type.to_s.downcase)
+        else false
         end
       end
 
@@ -69,16 +149,18 @@ module Dommy
         SPACE_ACTIVATED_INPUT_TYPES.include?(element.type.to_s.downcase)
       end
 
-      def send_character(element, char)
+      def send_character(element, char, modifiers = {})
+        target = target_of(element)
         code = EventSynthesis.char_code(char)
-        typed_character_default_action(element, char, code) unless EventSynthesis.keydown(element, char, code)
-        EventSynthesis.keyup(element, char, code)
+        extra = modifiers.empty? ? nil : modifiers
+        typed_character_default_action(target, char, code, extra) unless EventSynthesis.keydown(target, char, code, extra)
+        EventSynthesis.keyup(target_of(element), char, code, extra)
       end
 
       # An un-prevented printable keydown fires keypress; an un-prevented
       # keypress inserts the character (beforeinput -> value -> input).
-      def typed_character_default_action(element, char, code)
-        return if EventSynthesis.keypress(element, char, code)
+      def typed_character_default_action(element, char, code, extra = nil)
+        return if EventSynthesis.keypress(element, char, code, extra)
 
         @field_interactor.insert_text(element, char)
       end
@@ -89,6 +171,9 @@ module Dommy
       # directly when the form has no submit button (HTML implicit submission).
       def enter_default_action(element)
         return @field_interactor.insert_text(element, "\n") if element.local_name == "textarea"
+        # On a focused button or link, Enter activates it, like a click.
+        return EventSynthesis.keyboard_click(element) if enter_activates?(element)
+
         return unless element.respond_to?(:form) && (form = element.form)
 
         submitter = default_submit_button(form)
