@@ -22296,7 +22296,10 @@
      "static": false,
      "readonly": false,
      "type": "long",
-     "reflect": null,
+     "reflect": {
+      "shape": "plain",
+      "non_negative": true
+     },
      "unforgeable": false,
      "unscopable": false,
      "null_to_empty_string": false,
@@ -22328,7 +22331,10 @@
      "static": false,
      "readonly": false,
      "type": "long",
-     "reflect": null,
+     "reflect": {
+      "shape": "plain",
+      "non_negative": true
+     },
      "unforgeable": false,
      "unscopable": false,
      "null_to_empty_string": false,
@@ -26004,7 +26010,11 @@
      "static": false,
      "readonly": false,
      "type": "double",
-     "reflect": null,
+     "reflect": {
+      "shape": "plain",
+      "default": 1,
+      "positive": true
+     },
      "unforgeable": false,
      "unscopable": false,
      "null_to_empty_string": false,
@@ -28584,7 +28594,11 @@
      "static": false,
      "readonly": false,
      "type": "unsigned long",
-     "reflect": null,
+     "reflect": {
+      "shape": "plain",
+      "default": 20,
+      "positive_with_fallback": true
+     },
      "unforgeable": false,
      "unscopable": false,
      "null_to_empty_string": false,
@@ -28678,7 +28692,10 @@
      "static": false,
      "readonly": false,
      "type": "long",
-     "reflect": null,
+     "reflect": {
+      "shape": "plain",
+      "non_negative": true
+     },
      "unforgeable": false,
      "unscopable": false,
      "null_to_empty_string": false,
@@ -28693,7 +28710,10 @@
      "static": false,
      "readonly": false,
      "type": "long",
-     "reflect": null,
+     "reflect": {
+      "shape": "plain",
+      "non_negative": true
+     },
      "unforgeable": false,
      "unscopable": false,
      "null_to_empty_string": false,
@@ -28776,7 +28796,11 @@
      "static": false,
      "readonly": false,
      "type": "unsigned long",
-     "reflect": null,
+     "reflect": {
+      "shape": "plain",
+      "default": 2,
+      "positive_with_fallback": true
+     },
      "unforgeable": false,
      "unscopable": false,
      "null_to_empty_string": false,

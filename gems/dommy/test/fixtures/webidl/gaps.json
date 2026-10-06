@@ -814,12 +814,18 @@
       "onreadystatechange"
     ]
   },
-  "reflect_gaps": {},
+  "reflect_gaps": {
+    "HTMLInputElement.maxLength": "declared setter_only (expected long)",
+    "HTMLInputElement.minLength": "declared setter_only (expected long)",
+    "HTMLTextAreaElement.cols": "declared setter_only (expected ulong)",
+    "HTMLTextAreaElement.maxLength": "declared setter_only (expected long)",
+    "HTMLTextAreaElement.minLength": "declared setter_only (expected long)",
+    "HTMLTextAreaElement.rows": "declared setter_only (expected ulong)"
+  },
   "invented_reflect_gaps": {
     "HTMLCanvasElement.height": "declared ulong though the IDL has no [Reflect]",
     "HTMLCanvasElement.width": "declared ulong though the IDL has no [Reflect]",
-    "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]",
-    "HTMLProgressElement.max": "declared double though the IDL has no [Reflect]"
+    "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]"
   },
   "void_gaps": {
     "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined",
