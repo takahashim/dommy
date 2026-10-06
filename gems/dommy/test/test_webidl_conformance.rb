@@ -43,6 +43,18 @@ class TestWebIdlInheritance < Minitest::Test
     assert_equal "EventTarget", WebIdlAudit.data["interfaces"]["Node"]["inherits"]
   end
 
+  # The event handler tables (which `on…` names are event handlers on which
+  # interfaces, and which are content attributes) are generated from this
+  # fixture into a JS and a Ruby file: a refreshed interfaces.json needs both
+  # regenerated.
+  def test_the_event_handler_tables_are_generated_from_this_fixture
+    require_relative "../script/build_event_handlers"
+    EventHandlerTables.outputs.each do |path, content|
+      assert_equal content, File.read(path, encoding: "UTF-8"),
+        "#{path} is stale; re-run ruby script/build_event_handlers.rb"
+    end
+  end
+
   # HTML's [LegacyFactoryFunction]s and the JS builtins the window hands out
   # under their own names are constructors without an interface of their own.
   NOT_INTERFACES = %w[Image Audio Option Error Promise].freeze

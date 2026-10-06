@@ -205,13 +205,7 @@ module Dommy
         # rule is a CSSStyleRule, and so on.
         return css_rule_chain(obj) if defined?(Dommy::CSSRule) && obj.instance_of?(Dommy::CSSRule)
 
-        names = []
-        klass = obj.class
-        while klass && klass.name&.start_with?("Dommy::")
-          name = name_for(klass)
-          names << name if name && !names.include?(name)
-          klass = klass.superclass
-        end
+        names = class_chain(obj.class).dup
         # An HTML document reports as an HTMLDocument — the legacy alias browsers
         # expose — so `document.constructor === HTMLDocument` and
         # `document.__proto__ === HTMLDocument.prototype` hold.
@@ -222,13 +216,28 @@ module Dommy
             names.unshift("XMLDocument")
           end
         end
+        names
+      end
+
+      # The interface chain every instance of `klass` shares: the Dommy class
+      # superclass walk, the IDL bases Dommy has no class for, and Node /
+      # EventTarget, which Dommy models as mixins. (#chain_for adds what depends
+      # on the instance.)
+      def class_chain(klass)
+        names = []
+        k = klass
+        while k && k.name&.start_with?("Dommy::")
+          name = name_for(k)
+          names << name if name && !names.include?(name)
+          k = k.superclass
+        end
         # WebIDL bases Dommy has no Ruby class for, so the superclass walk above
         # cannot find them.
         IMPLICIT_BASES[names.first]&.each { |base| names << base unless names.include?(base) }
-        if defined?(Dommy::Node) && obj.is_a?(Dommy::Node)
+        if defined?(Dommy::Node) && klass <= Dommy::Node
           names << "Node" unless names.include?("Node")
           names << "EventTarget" unless names.include?("EventTarget")
-        elsif defined?(Dommy::EventTarget) && obj.is_a?(Dommy::EventTarget)
+        elsif defined?(Dommy::EventTarget) && klass <= Dommy::EventTarget
           # Every non-node EventTarget (FileReader, XMLHttpRequest, Worker, …)
           # inherits EventTarget in its IDL too, but Dommy models EventTarget as
           # a mixin rather than a superclass, so append it here.

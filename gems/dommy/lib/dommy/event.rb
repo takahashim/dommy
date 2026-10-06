@@ -144,7 +144,7 @@ module Dommy
     # changes again, so `el.onclick = a; el.addEventListener(…); el.onclick = b`
     # still runs b first. Setting it to null deactivates it (the listener goes).
     def event_name_from_on(key)
-      key.to_s.sub(/\Aon/, "").downcase
+      Internal::EventHandlers.event_type(key.to_s)
     end
 
     # HTML "erase all event listeners and handlers" (document.open): every

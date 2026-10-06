@@ -27,25 +27,7 @@ module Dommy
     include Internal::WindowConstructors
 
     include EventTarget
-
-    # Event handler IDL attributes the Window exposes (GlobalEventHandlers +
-    # WindowEventHandlers). Setting one (`window.onload = fn`) registers a
-    # listener; only these known names are intercepted so an arbitrary
-    # on-prefixed global (`window.onboarding = {...}`) still stays a plain
-    # expando rather than being mistaken for an event handler.
-    WINDOW_EVENT_HANDLER_NAMES = %w[
-      onabort onauxclick onbeforeinput onbeforematch onbeforetoggle onblur oncancel oncanplay
-      oncanplaythrough onchange onclick onclose oncontextlost oncontextmenu oncontextrestored oncopy
-      oncuechange oncut ondblclick ondrag ondragend ondragenter ondragleave ondragover ondragstart
-      ondrop ondurationchange onemptied onended onerror onfocus onformdata oninput oninvalid onkeydown
-      onkeypress onkeyup onload onloadeddata onloadedmetadata onloadstart onmousedown onmouseenter
-      onmouseleave onmousemove onmouseout onmouseover onmouseup onpaste onpause onplay onplaying
-      onprogress onratechange onreset onresize onscroll onscrollend onsecuritypolicyviolation onseeked
-      onseeking onselect onslotchange onstalled onsubmit onsuspend ontimeupdate ontoggle onvolumechange
-      onwaiting onwheel onafterprint onbeforeprint onbeforeunload onhashchange onlanguagechange onmessage
-      onmessageerror onoffline ononline onpagehide onpageshow onpopstate onrejectionhandled onstorage
-      onunhandledrejection onunload
-    ].to_set.freeze
+    extend Internal::EventHandlers::AnswersIdlAttributes
 
     # Window attributes declared [Replaceable]: an assignment from script
     # replaces the accessor with a plain data property, which later reads see.
@@ -280,9 +262,11 @@ module Dommy
         # window (the i-th `<iframe>`'s contentWindow), or ABSENT past the end.
         frame = frame_windows[key.to_i]
         frame.nil? ? Bridge::ABSENT : frame
-      when ->(k) { k.is_a?(String) && WINDOW_EVENT_HANDLER_NAMES.include?(k) }
-        # An event handler IDL attribute: the registered handler, or null (not
-        # undefined) when unset — matching the spec and Element's on* getter.
+      when ->(k) { Internal::EventHandlers.idl_attribute?(self, k) }
+        # An event handler IDL attribute (GlobalEventHandlers +
+        # WindowEventHandlers): the registered handler, or null (not undefined)
+        # when unset — matching the spec and Element's on* getter. Only the
+        # names the IDL declares: `window.onboarding = {...}` stays a global.
         on_handler(event_name_from_on(key))
       else
         # A stashed global wins (even if its value is nil/null); a key never set
@@ -315,7 +299,7 @@ module Dommy
       end
       # `window.onload = fn` (and the other window event handlers) registers a
       # listener rather than stashing an expando, so the handler actually fires.
-      if key.is_a?(String) && WINDOW_EVENT_HANDLER_NAMES.include?(key)
+      if Internal::EventHandlers.idl_attribute?(self, key)
         set_on_handler(event_name_from_on(key), value)
         return nil
       end

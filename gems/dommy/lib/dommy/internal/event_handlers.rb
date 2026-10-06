@@ -6,37 +6,22 @@ module Dommy
     # made of, and the attribute change steps that keep an element's event
     # handler content attributes and its handlers in sync.
     module EventHandlers
+      # The tables come from the specs' IDL (event_handler_tables.rb, generated
+      # by script/build_event_handlers.rb).
+      #
       # GlobalEventHandlers: an event handler content attribute on every HTML,
-      # SVG and MathML element. The same names as host_runtime's
-      # ELEMENT_HANDLER_ATTRIBUTES (webidl_tables.js), which a test holds the
-      # two to.
-      GLOBAL = %w[
-        onabort onauxclick onbeforeinput onbeforetoggle onblur oncancel oncanplay
-        oncanplaythrough onchange onclick onclose oncommand oncontextlost oncontextmenu
-        oncontextrestored oncopy oncuechange oncut ondblclick ondrag ondragend ondragenter
-        ondragleave ondragover ondragstart ondrop ondurationchange onemptied onended onerror
-        onfocus onfocusin onfocusout onformdata oninput oninvalid onkeydown onkeypress onkeyup
-        onload onloadeddata onloadedmetadata onloadstart onmousedown onmouseenter onmouseleave
-        onmousemove onmouseout onmouseover onmouseup onpaste onpause onplay onplaying onprogress
-        onratechange onreset onresize onscroll onscrollend onsecuritypolicyviolation onseeked
-        onseeking onselect onselectstart onslotchange onstalled onsubmit onsuspend ontimeupdate
-        ontoggle onvolumechange onwaiting onwheel onanimationstart onanimationend
-        onanimationiteration ongotpointercapture onlostpointercapture onpointercancel
-        onpointerdown onpointerenter onpointerleave onpointermove onpointerout onpointerover
-        onpointerrawupdate onpointerup ontouchcancel ontouchend ontouchmove ontouchstart
-      ].to_set.freeze
+      # SVG and MathML element.
+      GLOBAL = EventHandlerTables::GLOBAL_EVENT_HANDLERS
 
-      # WindowEventHandlers: content attributes of body and frameset only
-      # (webidl_tables.js's WINDOW_REFLECTED_HANDLERS).
-      WINDOW = %w[
-        onafterprint onbeforeprint onbeforeunload onhashchange onlanguagechange onmessage
-        onmessageerror onoffline ononline onpagehide onpageshow onpopstate onrejectionhandled
-        onstorage onunhandledrejection onunload
-      ].to_set.freeze
+      # WindowEventHandlers: content attributes of body and frameset only.
+      WINDOW = EventHandlerTables::WINDOW_EVENT_HANDLERS
 
       # The Window-reflecting body element event handler set, plus the
       # WindowEventHandlers: on body/frameset these are the Window's handlers.
-      BODY_REFLECTED = (WINDOW | %w[onblur onerror onfocus onload onresize onscroll]).freeze
+      BODY_REFLECTED = (WINDOW | EventHandlerTables::WINDOW_REFLECTING_BODY_ELEMENT_SET).freeze
+
+      # Every event handler content attribute name, whichever element has it.
+      CONTENT_ATTRIBUTES = (GLOBAL | WINDOW).freeze
 
       # An event handler's value while its content attribute has not been
       # compiled yet: the script body, and the element whose attribute it is
@@ -49,14 +34,48 @@ module Dommy
       # value does not move it in the event listener list.
       Listener = Struct.new(:name)
 
+      # Extended by the classes whose bridge answers every event handler IDL
+      # attribute their interface chain declares (through idl_attribute?), so
+      # what they answer can be read off the class: the WebIDL audit and
+      # script/build_webidl_members.rb put those attributes on the prototypes.
+      module AnswersIdlAttributes
+        def event_handler_idl_attributes = EventHandlers.idl_attribute_names(self)
+      end
+
       module_function
 
-      # Whether `name` is an event handler content attribute on `element`.
-      def content_attribute?(element, name)
-        return false unless name.start_with?("on")
-        return true if GLOBAL.include?(name)
+      @idl_names_by_class = {}
 
-        WINDOW.include?(name) && body_or_frameset?(element)
+      # The event handler IDL attributes instances of `klass` have: those the
+      # interfaces of its chain declare (Element's onfullscreenchange,
+      # HTMLElement's GlobalEventHandlers, HTMLBodyElement's
+      # WindowEventHandlers, …). A name outside them is not an event handler on
+      # such an object (`div.onbogus`, `div.onClick`), just an expando.
+      def idl_attribute_names(klass)
+        @idl_names_by_class[klass] ||= Dommy::Js::DomInterfaces.class_chain(klass).each_with_object(Set.new) do |interface, names|
+          names.merge(EventHandlerTables::BY_INTERFACE.fetch(interface, []))
+        end.freeze
+      end
+
+      # Whether `key` names an event handler IDL attribute of `target`.
+      def idl_attribute?(target, key)
+        key.is_a?(String) && key.start_with?("on") && idl_attribute_names(target.class).include?(key)
+      end
+
+      # The event handler event type of the handler called `name` (HTML
+      # §8.1.8.2): the name without "on", except for the four WebKit-prefixed
+      # legacy handlers.
+      def event_type(name)
+        EventHandlerTables::EVENT_TYPE_OVERRIDES.fetch(name) { name.delete_prefix("on") }
+      end
+
+      # Whether `name` is an event handler content attribute on `element`: an
+      # event handler of the element's interface (HTML, SVG and MathML elements
+      # have GlobalEventHandlers; body and frameset WindowEventHandlers too)
+      # that HTML makes a content attribute — Element's onfullscreenchange is
+      # an IDL attribute only, and an element in no such namespace has none.
+      def content_attribute?(element, name)
+        CONTENT_ATTRIBUTES.include?(name) && idl_attribute_names(element.class).include?(name)
       end
 
       def body_or_frameset?(element)
@@ -82,7 +101,7 @@ module Dommy
         return unless target.respond_to?(:__internal_set_raw_event_handler__)
 
         element.__internal_note_handler_attribute__(name)
-        event_name = name.delete_prefix("on")
+        event_name = event_type(name)
         if value.nil?
           target.__internal_deactivate_event_handler__(event_name)
         else

@@ -96,35 +96,28 @@ class TestJsWireSync < Minitest::Test
   end
 end
 
-# The event handler CONTENT attributes are enumerated once, in webidl_tables.js —
-# host_runtime.js gates the runtime `setAttribute("on*")` path on them, and the
-# boot-time inline-handler wiring reads the same sets rather than carrying a
-# second copy.
+# Which `on*` names are event handlers is generated from the specs' IDL
+# (script/build_event_handlers.rb) into one JS and one Ruby table: the bridge's
+# chain lookup and the host's attribute change steps read the same data.
 # An `on*` attribute outside them names no event handler and must stay inert.
 # WPT: html/webappapis/scripting/events/event-handler-non-content-document-idl-attributes.html
 class TestEventHandlerContentAttributes < Minitest::Test
-  # The sets are spec surface (webidl_tables.js); the wiring that reads them is
-  # bridge machinery (host_runtime.js).
-  TABLES_JS = Dommy::Js::HostBridge::WEBIDL_TABLES_JS
   RUNTIME_JS = Dommy::Js::HostBridge::HOST_RUNTIME_JS
+  HANDLERS_JS = Dommy::Js::HostBridge::WEBIDL_EVENT_HANDLERS_JS
+  Tables = Dommy::Internal::EventHandlerTables
 
-  def names_in(constant)
-    body = TABLES_JS[/const #{constant} = new Set\(\[(.*?)\]\);/m, 1]
-    refute_nil(body, "#{constant} is missing from webidl_tables.js")
-    body.scan(/"([^"]+)"/).flatten
-  end
+  def element_handlers = Dommy::Internal::EventHandlers::GLOBAL
+  def reflected_handlers = Dommy::Internal::EventHandlers::WINDOW
 
-  def element_handlers = names_in("ELEMENT_HANDLER_ATTRIBUTES")
-  def reflected_handlers = names_in("WINDOW_REFLECTED_HANDLERS")
-
-  # These are event handler IDL attributes of Document (and Element for the
-  # pointer-lock pair); none of them is a content attribute on any element.
-  DOCUMENT_ONLY = %w[onreadystatechange onvisibilitychange onpointerlockchange onpointerlockerror].freeze
+  # IDL attributes of Document (and Element for the fullscreen pair); none of
+  # them is a content attribute on any element.
+  DOCUMENT_ONLY = %w[onreadystatechange onvisibilitychange onfullscreenchange onfullscreenerror].freeze
 
   def test_the_document_only_handlers_are_in_neither_set
     DOCUMENT_ONLY.each do |name|
       refute_includes(element_handlers, name)
       refute_includes(reflected_handlers, name)
+      assert_includes(Tables::BY_INTERFACE["Document"], name)
     end
   end
 
@@ -132,8 +125,10 @@ class TestEventHandlerContentAttributes < Minitest::Test
     %w[
       onclick oninput onsubmit ontoggle onwheel onscrollend onslotchange onsecuritypolicyviolation
       onpointerdown onpointerrawupdate ongotpointercapture ontouchstart onanimationstart
-      onfocusin onfocusout onselectstart oncommand oncontextlost
+      ontransitionend onselectstart onselectionchange oncommand oncontextlost onbeforematch
     ].each { |name| assert_includes(element_handlers, name) }
+    # Not in any spec's GlobalEventHandlers.
+    %w[onfocusin onfocusout onpointerlockchange].each { |name| refute_includes(element_handlers, name) }
   end
 
   # The Window handlers are content attributes on body and frameset only, so
@@ -143,14 +138,15 @@ class TestEventHandlerContentAttributes < Minitest::Test
       assert_includes(reflected_handlers, name)
       refute_includes(element_handlers, name)
     end
+    assert_equal(reflected_handlers | %w[onblur onerror onfocus onload onresize onscroll],
+                 Dommy::Internal::EventHandlers::BODY_REFLECTED)
   end
 
-  # The event handler content attribute steps run host-side
-  # (Internal::EventHandlers), which keeps its own copy of the two sets: it
-  # must name exactly the handlers the JS tables do.
-  def test_the_host_attribute_steps_read_the_same_sets
-    assert_equal(element_handlers.sort, Dommy::Internal::EventHandlers::GLOBAL.to_a.sort)
-    assert_equal(reflected_handlers.sort, Dommy::Internal::EventHandlers::WINDOW.to_a.sort)
+  # The JS table is the Ruby one, interface for interface.
+  def test_the_bridge_reads_the_same_table_as_the_host
+    js = HANDLERS_JS.scan(/^  "(\w+)": \[(.*)\]/).to_h { |name, list| [name, list.scan(/"([^"]+)"/).flatten] }
+    assert_equal(Tables::BY_INTERFACE.transform_values(&:to_a), js)
+    refute_match(%r{/\^on\[a-z\]/\.test\(prop\)\) return true}, RUNTIME_JS, "the has trap must look names up, not match them")
   end
 
   # Compilation is the engine's: host_runtime builds the function, Ruby only
