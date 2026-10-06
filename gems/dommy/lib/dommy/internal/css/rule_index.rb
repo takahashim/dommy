@@ -264,6 +264,9 @@ module Dommy
             next unless host
 
             shadow = Shadow.new(root, host)
+            # The UA style sheet applies in every tree, shadow trees included
+            # (`slot { display: contents }`, `dialog:not([open])`, …).
+            add_rules(UAStylesheet.rules, :ua, shadow: shadow)
             shadow_style_rules(root).each { |rules| add_rules(rules, :author, shadow: shadow) }
           end
         end
