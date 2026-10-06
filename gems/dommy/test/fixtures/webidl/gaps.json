@@ -305,7 +305,6 @@
     "ShadowRoot": [
       "adoptedStyleSheets",
       "fullscreenElement",
-      "getHTML",
       "setHTML",
       "setHTMLUnsafe"
     ],

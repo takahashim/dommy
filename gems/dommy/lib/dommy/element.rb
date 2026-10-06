@@ -72,10 +72,11 @@ module Dommy
     def inner_html
       if !@document.html_document?
         Internal::XmlSerialization.serialize_children_of(self)
-      elsif is_a?(HTMLTemplateElement)
-        @document.template_content_inner_html(self)
-      else
+      elsif !@document.__internal_any_is_values__? && !is_a?(HTMLTemplateElement)
+        # Nothing the backend's serializer does not know about can be here.
         @__node__.inner_html
+      else
+        Internal::HtmlSerialization.children(@document, self)
       end
     end
 
@@ -261,7 +262,9 @@ module Dommy
     def outer_html
       return Internal::XmlSerialization.serialize(self) unless @document.html_document?
 
-      @__node__.to_html
+      return @__node__.to_html unless @document.__internal_any_is_values__?
+
+      Internal::HtmlSerialization.node(@document, self)
     end
 
     # Per WHATWG DOM Parsing:
@@ -757,8 +760,12 @@ module Dommy
       inner_html
     end
 
-    def get_html(_options = nil)
-      inner_html
+    # `getHTML(options)`: the HTML fragment serialization algorithm with the
+    # options' serializableShadowRoots and shadowRoots — the HTML one even in
+    # an XML document.
+    def get_html(options = nil)
+      serializable, roots = Internal::HtmlSerialization.get_html_options(options)
+      Internal::HtmlSerialization.children(@document, self, serializable_shadow_roots: serializable, shadow_roots: roots)
     end
 
     # WHATWG "actually disabled". Only the disable-able form controls can be,
@@ -814,6 +821,7 @@ module Dommy
     # Give a just-created element its custom element data: the is value it
     # was created with, and the state that goes with it.
     def __internal_init_ce_data__(is_value)
+      @document.__internal_note_is_value__ unless is_value.nil?
       @__ce_data = Internal::CEReactions::ElementData.new(self, __internal_initial_ce_state__(is_value), is_value)
     end
 
@@ -1317,8 +1325,10 @@ module Dommy
         child_node_before(args)
       when "after"
         child_node_after(args)
-      when "getInnerHTML", "getHTML"
+      when "getInnerHTML"
         inner_html
+      when "getHTML"
+        get_html(args[0])
       when "remove"
         remove
         Bridge::UNDEFINED # ChildNode#remove is void -> JS undefined, not null

@@ -2652,6 +2652,20 @@ module Dommy
       @shadow_registry.find_for_host(host_node)
     end
 
+    # Whether any shadow root was ever attached in this document — the HTML
+    # serializer's fast path asks before looking for shadow hosts.
+    def __internal_any_shadow_roots__? = !@shadow_registry.all.empty?
+
+    # Whether an element of this document was ever given an is value it may
+    # not carry as an `is` attribute (createElement's `{is}`, a customized
+    # built-in's constructor, a clone of either) — the serializer's other
+    # reason to leave its fast path.
+    def __internal_any_is_values__? = @any_is_values ? true : false
+
+    def __internal_note_is_value__
+      @any_is_values = true
+    end
+
     # Every element among `root`'s shadow-including inclusive descendants, as
     # backend nodes, in shadow-including tree order: an element, then the shadow
     # tree it hosts, then its children. The whole list, shadow trees included, is
