@@ -1818,8 +1818,8 @@ module Dommy
       nil
     end
 
-    def create_element_ns(namespace_uri, qualified_name)
-      @node_factory.create_element_ns(namespace_uri, qualified_name)
+    def create_element_ns(namespace_uri, qualified_name, options = nil)
+      @node_factory.create_element_ns(namespace_uri, qualified_name, options)
     end
 
     def get_elements_by_tag_name(name)
@@ -2240,9 +2240,9 @@ module Dommy
 
         ViewTransition.new(@default_view)
       when "createElement"
-        create_element(args[0])
+        create_element(args[0], args[1])
       when "createElementNS"
-        create_element_ns(args[0], args[1])
+        create_element_ns(args[0], args[1], args[2])
       when "createTextNode"
         create_text_node(args[0])
       when "createComment"
@@ -2569,7 +2569,8 @@ module Dommy
     # HTML "try to upgrade an element": enqueue an upgrade reaction when the
     # registry `element` looks definitions up in has one for it.
     def __internal_try_to_upgrade__(element)
-      definition = CustomElementRegistry.lookup(element.owner_document, element.namespace_uri, element.local_name)
+      definition = CustomElementRegistry.lookup(element.owner_document, element.namespace_uri, element.local_name,
+                                                element.__internal_is_value__)
       Internal::CEReactions.enqueue_upgrade(element, definition) if definition
     end
 
@@ -2586,10 +2587,14 @@ module Dommy
         Internal::NodeTraversal.subtree_nodes(root).each do |node|
           next unless node.element? && Backend.namespace_uri(node) == Element::HTML_NAMESPACE
 
-          definition = registry.definition_for_local_name(node.name)
+          # The is value a wrapper was made with (a clone's), else the one
+          # the parser gives it: its `is` attribute.
+          known = __internal_peek_wrapper__(node)
+          is_value = known ? known.__internal_is_value__ : Backend.get_attribute_ns(node, nil, "is")
+          definition = registry.lookup_definition(node.name, is_value)
           next unless definition
 
-          element = wrap_node(node)
+          element = known || wrap_node(node)
           Internal::CEReactions.enqueue_upgrade(element, definition) if element
         end
       end
@@ -3011,8 +3016,8 @@ module Dommy
 
     # Delegate factory methods to NodeWrapperCache
 
-    def create_element(name)
-      @node_factory.create_element(name)
+    def create_element(name, options = nil)
+      @node_factory.create_element(name, options)
     end
 
     def create_text_node(text)

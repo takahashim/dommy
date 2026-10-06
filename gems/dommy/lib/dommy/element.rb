@@ -798,7 +798,23 @@ module Dommy
     # gives an element no definition applied to — "undefined" for an HTML
     # element with a valid custom element name, "uncustomized" for any other.
     def __internal_ce_data__
-      @__ce_data ||= Internal::CEReactions::ElementData.new(self, __internal_initial_ce_state__)
+      @__ce_data ||= begin
+        is_value = __internal_parsed_is_value__
+        Internal::CEReactions::ElementData.new(self, __internal_initial_ce_state__(is_value), is_value)
+      end
+    end
+
+    # DOM "is value": what the element was created with — createElement's
+    # `{ is }`, the definition `new` constructed it for, or (as the parser
+    # creates elements) the `is` attribute it was parsed with.
+    def __internal_is_value__
+      @__ce_data ? @__ce_data.is_value : __internal_parsed_is_value__
+    end
+
+    # Give a just-created element its custom element data: the is value it
+    # was created with, and the state that goes with it.
+    def __internal_init_ce_data__(is_value)
+      @__ce_data = Internal::CEReactions::ElementData.new(self, __internal_initial_ce_state__(is_value), is_value)
     end
 
     # An upgrade to a Ruby-class definition re-wraps the node: the new
@@ -815,7 +831,7 @@ module Dommy
     end
 
     def __internal_custom_element_state__
-      @__ce_data ? @__ce_data.state : __internal_initial_ce_state__
+      @__ce_data ? @__ce_data.state : __internal_initial_ce_state__(__internal_parsed_is_value__)
     end
 
     def __internal_set_custom_element_state__(state)
@@ -828,12 +844,18 @@ module Dommy
       @__ce_data ? @__ce_data.custom? : false
     end
 
-    def __internal_initial_ce_state__
-      if namespace_uri == HTML_NAMESPACE && CustomElementRegistry.valid_name?(local_name)
+    def __internal_initial_ce_state__(is_value)
+      if namespace_uri == HTML_NAMESPACE && (!is_value.nil? || CustomElementRegistry.valid_name?(local_name))
         "undefined"
       else
         "uncustomized"
       end
+    end
+
+    def __internal_parsed_is_value__
+      return nil unless namespace_uri == HTML_NAMESPACE
+
+      Backend.get_attribute_ns(@__node__, nil, "is")
     end
 
     # The attribute list as [local name, value, namespace], in order.
@@ -1583,8 +1605,10 @@ module Dommy
       # HTML cloning steps: propagate form-control dirty state (an input's value /
       # checkedness, …) that lives on the wrapper, not the backend node.
       @document.__internal_apply_cloning_steps__(@__node__, copy, deep_arg)
-      # "Clone a node" creates each element without the synchronous custom
-      # elements flag: a defined one is upgraded by a reaction.
+      # "Clone a node" creates the copy with the node's is value, and each
+      # element without the synchronous custom elements flag: a defined one is
+      # upgraded by a reaction.
+      clone.__internal_init_ce_data__(__internal_is_value__) if clone.respond_to?(:__internal_init_ce_data__)
       @document.__internal_enqueue_created_upgrades__(copy)
       clone
     end

@@ -3358,15 +3358,13 @@ globalThis.__rbHost = (function () {
     "annotation-xml", "color-profile", "font-face", "font-face-src",
     "font-face-uri", "font-face-format", "font-face-name", "missing-glyph"
   ]);
-  // https://html.spec.whatwg.org/#valid-custom-element-name — an ASCII-lower
-  // start, a PCENChar run, and at least one "-".
-  const CE_PCEN =
-    "-._0-9a-z\\u00B7\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u037D\\u037F-\\u1FFF" +
-    "\\u200C-\\u200D\\u203F-\\u2040\\u2070-\\u218F\\u2C00-\\u2FEF\\u3001-\\uD7FF" +
-    "\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}";
-  const CE_NAME_RE = new RegExp("^[a-z][" + CE_PCEN + "]*-[" + CE_PCEN + "]*$", "u");
+  // https://html.spec.whatwg.org/#valid-custom-element-name — a valid element
+  // local name (DOM) starting with an ASCII lower alpha (which leaves only
+  // ASCII whitespace, NULL, "/" and ">" out of the rest), with no ASCII upper
+  // alpha and at least one "-".
+  const CE_NAME_RE = /^[a-z][^\t\n\f\r \0\/>A-Z]*$/;
   function isValidCustomElementName(name) {
-    return typeof name === "string" && CE_NAME_RE.test(name) && !CE_RESERVED.has(name);
+    return typeof name === "string" && CE_NAME_RE.test(name) && name.includes("-") && !CE_RESERVED.has(name);
   }
 
   // WebIDL `sequence<DOMString>` conversion: the value must be iterable (a

@@ -145,14 +145,11 @@ module Dommy
   # Names must be valid custom element names (lower-case, with a hyphen, e.g.
   # `my-button`).
   class CustomElementRegistry
-    # https://html.spec.whatwg.org/#valid-custom-element-name
-    # PCENChar — the characters allowed after the first (ASCII-lower) char: a
-    # superset of [-._0-9a-z] plus wide Unicode ranges. A valid name is
-    # `[a-z] PCENChar* - PCENChar*` (i.e. lower-alpha start + at least one "-").
-    PCEN = "\\-._0-9a-z\\u00B7\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u037D" \
-           "\\u037F-\\u1FFF\\u200C-\\u200D\\u203F-\\u2040\\u2070-\\u218F" \
-           "\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}"
-    NAME_RE = Regexp.new("\\A[a-z][#{PCEN}]*-[#{PCEN}]*\\z")
+    # https://html.spec.whatwg.org/#valid-custom-element-name — a valid element
+    # local name (DOM) whose first code point is an ASCII lower alpha (so the
+    # rest may be anything but ASCII whitespace, NULL, "/" and ">"), with no
+    # ASCII upper alpha and at least one "-".
+    NAME_RE = %r{\A[a-z][^\t\n\f\r \0/>A-Z]*\z}
 
     # Hyphenated names that the HTML spec reserves (SVG / MathML elements), so
     # they are NOT valid custom element names even though they match NAME_RE.
@@ -177,7 +174,7 @@ module Dommy
     # element (HTMLUnknownElement).
     def self.valid_name?(name)
       key = name.to_s
-      key.match?(NAME_RE) && !RESERVED_NAMES.include?(key)
+      key.match?(NAME_RE) && key.include?("-") && !RESERVED_NAMES.include?(key)
     end
 
     # The registry `document` looks definitions up in: its window's, when it
@@ -190,10 +187,10 @@ module Dommy
 
     # HTML "look up a custom element definition" for an element of the given
     # namespace and local name created in (or inserted into) `document`.
-    def self.lookup(document, namespace, local_name)
+    def self.lookup(document, namespace, local_name, is_value = nil)
       return nil unless namespace == Element::HTML_NAMESPACE
 
-      for_document(document)&.definition_for_local_name(local_name)
+      for_document(document)&.lookup_definition(local_name, is_value)
     end
 
     # Register a Ruby class extending HTMLElement as the definition for
@@ -202,11 +199,8 @@ module Dommy
       raise Bridge::TypeError, "the custom element constructor must be a class" unless klass.is_a?(Class)
 
       key = name.to_s
-      unless key.match?(NAME_RE)
+      unless CustomElementRegistry.valid_name?(key)
         raise DOMException::SyntaxError, "#{name.inspect} is not a valid custom element name"
-      end
-      if RESERVED_NAMES.include?(key)
-        raise DOMException::SyntaxError, "#{name.inspect} is a reserved element name"
       end
 
       raise DOMException::NotSupportedError, "#{key} already defined" if @definitions.key?(key)
@@ -244,11 +238,16 @@ module Dommy
       @definitions[name.to_s]
     end
 
-    # The autonomous definition whose local name is `local_name` (customized
-    # built-ins are not modelled, so it is the one named so).
-    def definition_for_local_name(local_name)
+    # HTML "look up a custom element definition" in this registry for an
+    # HTML element: the autonomous definition named `local_name`, or else the
+    # customized built-in one named `is_value` that extends `local_name`.
+    def lookup_definition(local_name, is_value = nil)
       definition = @definitions[local_name.to_s]
-      definition if definition&.autonomous?
+      return definition if definition&.autonomous?
+      return nil if is_value.nil?
+
+      definition = @definitions[is_value.to_s]
+      definition if definition && !definition.autonomous? && definition.local_name == local_name.to_s
     end
 
     # Returns a Dommy::PromiseValue that resolves with the registered
@@ -312,7 +311,10 @@ module Dommy
         next unless node.name == definition.local_name && Backend.namespace_uri(node) == Element::HTML_NAMESPACE
 
         element = document.wrap_node(node)
-        Internal::CEReactions.enqueue_upgrade(element, definition) if element
+        next unless element
+        next unless definition.autonomous? || element.__internal_is_value__ == definition.name
+
+        Internal::CEReactions.enqueue_upgrade(element, definition)
       end
     end
   end

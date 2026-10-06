@@ -32,12 +32,13 @@ module Dommy
       # definition re-wraps the node), so an element's queue survives the
       # upgrade that its own reactions are being processed for.
       class ElementData
-        attr_accessor :state, :definition, :wrapper
+        attr_accessor :state, :definition, :wrapper, :is_value
         attr_reader :reactions
 
-        def initialize(wrapper, state)
+        def initialize(wrapper, state, is_value = nil)
           @wrapper = wrapper
           @state = state
+          @is_value = is_value
           @definition = nil
           @reactions = []
         end
@@ -70,13 +71,18 @@ module Dommy
         # Make `methods` of `klass` [CEReactions] for Ruby callers too: a
         # composite operation — markup parsed and inserted, a subtree cloned —
         # enqueues reactions at several of its steps, which must run when it
-        # returns rather than one by one as they are enqueued. (A script's
-        # call is already a scope, see Js::HostBridge; this one nests in it.)
+        # returns rather than one by one as they are enqueued. Only the
+        # outermost call is a scope: one made from inside another operation
+        # (the adopt an insertion does) or from a script's [CEReactions] call
+        # (see Js::HostBridge) is a step of that one, whose reactions run
+        # when it returns.
         def scoped(klass, *methods)
           reactions = self
           klass.prepend(Module.new do
             methods.each do |name|
               define_method(name) do |*args, &block|
+                return super(*args, &block) if reactions.active?
+
                 result = reactions.scope { super(*args, &block) }
                 # An upgrade to a Ruby-class definition re-wraps the element
                 # (a clone, say): hand back the wrapper it has now.
@@ -85,6 +91,12 @@ module Dommy
               ruby2_keywords(name)
             end
           end)
+        end
+
+        # Whether an element queue is on the stack, or reactions are being
+        # invoked.
+        def active?
+          !@stack.empty? || @invoking.positive?
         end
 
         # Whether a script's use of `name` on `object` is a [CEReactions]

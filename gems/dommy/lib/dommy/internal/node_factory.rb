@@ -14,7 +14,7 @@ module Dommy
         @wrappers = wrappers
       end
 
-      def create_element(name)
+      def create_element(name, options = nil)
         str = domstring(name)
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
         raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless Namespaces.valid_element_local_name?(str)
@@ -32,12 +32,9 @@ module Dommy
           namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
         end
 
-        definition = CustomElementRegistry.lookup(@document, namespace, local)
-        return create_custom_element_synchronously(definition, local) if definition
-
-        node = Backend.create_element(local, namespace, @document.backend_doc)
-
-        @wrappers.wrap(node)
+        create_an_element(local, namespace, is_option(options)) do
+          Backend.create_element(local, namespace, @document.backend_doc)
+        end
       end
 
       # The HTML element constructor run for `new MyElement()` (its
@@ -46,7 +43,7 @@ module Dommy
       def create_custom_element(definition)
         node = Backend.create_element(definition.local_name, Element::HTML_NAMESPACE, @document.backend_doc)
         element = @wrappers.wrap(node)
-        data = element.__internal_ce_data__
+        data = element.__internal_init_ce_data__(definition.autonomous? ? nil : definition.name)
         data.definition = definition
         data.state = "custom"
         element
@@ -98,7 +95,7 @@ module Dommy
         Attr.new(qualified_name, namespace_uri: ns, prefix: prefix, local_name: local, document: @document)
       end
 
-      def create_element_ns(namespace_uri, qualified_name)
+      def create_element_ns(namespace_uri, qualified_name, options = nil)
         # WHATWG "validate and extract": QName-validate the qualifiedName
         # (InvalidCharacterError) and apply the prefix/namespace rules
         # (NamespaceError), then build the element with its prefix bound.
@@ -109,17 +106,47 @@ module Dommy
         ns, = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
         local = qualified_name.include?(":") ? qualified_name.split(":", 2).last : qualified_name
-        definition = CustomElementRegistry.lookup(@document, ns, local)
-        return create_custom_element_synchronously(definition, local) if definition
-
-        el = Backend.create_element_ns(ns, qualified_name, @document.backend_doc)
-
-        @wrappers.build_element_wrapper(el)
+        create_an_element(local, ns, is_option(options)) do
+          Backend.create_element_ns(ns, qualified_name, @document.backend_doc)
+        end
       end
 
       # Query methods
 
       private
+
+      # DOM "create an element" with the synchronous custom elements flag set
+      # (createElement / createElementNS). `make_node` mints the backend node
+      # when no autonomous definition constructs the element.
+      def create_an_element(local, namespace, is_value)
+        definition = CustomElementRegistry.lookup(@document, namespace, local, is_value)
+        return create_custom_element_synchronously(definition, local) if definition&.autonomous?
+
+        element = @wrappers.build_element_wrapper(yield)
+        return element unless namespace == Element::HTML_NAMESPACE
+
+        data = element.__internal_init_ce_data__(definition ? definition.name : is_value)
+        upgrade_synchronously(definition, data) if definition
+        element
+      end
+
+      # Step 5 (a customized built-in): upgrade the new element now; what that
+      # throws is reported, and the element's state is "failed".
+      def upgrade_synchronously(definition, data)
+        definition.upgrade(data)
+      rescue StandardError => e
+        definition.report(e)
+        data.state = "failed"
+      end
+
+      # ElementCreationOptions' `is`, from a dictionary argument (a string
+      # argument is the legacy form, which carries none).
+      def is_option(options)
+        return nil unless options.is_a?(Hash)
+
+        value = options.key?("is") ? options["is"] : options[:is]
+        value.nil? || value.equal?(Bridge::UNDEFINED) ? nil : value.to_s
+      end
 
       # DOM "create an element" step 6.2, the synchronous custom elements flag
       # set (createElement / createElementNS): run the definition's
