@@ -376,10 +376,6 @@
     "HTMLDetailsElement": [
       "open"
     ],
-    "HTMLDialogElement": [
-      "closedBy",
-      "requestClose"
-    ],
     "HTMLDirectoryElement": [
       "compact"
     ],

@@ -7,21 +7,30 @@ module Dommy
   #
   # One of the HTML element groups; html_elements.rb lists them all.
   # `<dialog>` — `open` reflected boolean, `show()` / `showModal()` /
-  # `close(returnValue?)`. Dommy has no top layer, inert, or focus-fixup
-  # model, so showModal has no backdrop and does not block the rest of the
-  # page; it is otherwise spec-shaped, including the `is modal` flag that
-  # distinguishes an open-non-modal dialog (show() no-ops on it, showModal()
-  # throws) from an open-modal one (show() throws, showModal() no-ops).
-  # Showing one either way closes the auto and hint popovers it is not nested
-  # in (Internal::PopoverStack).
+  # `close(returnValue?)` / `requestClose(returnValue?)`, `closedBy`. Dommy
+  # has no rendering of the top layer, but it keeps what scripts can
+  # observe of it: a dialog shown with showModal() is modal (`:modal`), and
+  # while it is the topmost one the rest of the document is inert, so the
+  # focus cannot leave it. Showing a dialog moves the focus into it (the
+  # dialog focusing steps) and closing it gives the focus back. Showing one
+  # either way closes the auto and hint popovers it is not nested in
+  # (Internal::PopoverStack).
   #
   # Opening and closing fire `beforetoggle` synchronously (before the `open`
   # attribute changes; an opening can be canceled) and `toggle` asynchronously,
   # with rapid changes coalescing into one event (Internal::ToggleEvents).
+  #
+  # The dialog's close watcher is modelled only as far as requestClose()
+  # needs it: an open, connected dialog has one, and requesting to close it
+  # fires a cancelable `cancel` and then closes the dialog. (No close
+  # request — Esc, light dismiss — reaches it.)
   class HTMLDialogElement < HTMLElement
     include Internal::ToggleEvents
     reflect_boolean :open
-    # Own __js_call__ methods, on top of Element's.
+    reflect_setter closed_by: { attr: "closedby", js: "closedBy" }
+
+    CLOSED_BY_STATES = %w[any closerequest none].freeze
+    COMMANDS = %w[close request-close show-modal].freeze
 
     def return_value
       @return_value ||= ""
@@ -33,6 +42,16 @@ module Dommy
 
     # The dialog's "is modal" flag, for the popover validity check.
     def __internal_modal__? = @__dialog_is_modal__ ? true : false
+
+    # `closedBy`: the keyword of the computed closed-by state — the
+    # closedby attribute's any / closerequest / none, or for its Auto state
+    # (missing or invalid) closerequest while modal and none otherwise.
+    def closed_by
+      state = __internal_attribute_value__("closedby")&.downcase(:ascii)
+      return state if CLOSED_BY_STATES.include?(state)
+
+      __internal_modal__? ? "closerequest" : "none"
+    end
 
     # WHATWG "show()" steps. Unlike showModal(), show() never checks
     # connectedness or the popover-showing state — only whether the dialog is
@@ -49,20 +68,93 @@ module Dommy
       # within its own handler); re-check before committing to our own open.
       return nil if __internal_has_attribute__?("open")
 
-      self.open = true
       queue_toggle_event(dialog_toggle_tracker, false, true)
+      self.open = true
+      @__previously_focused_element__ = @document.__internal_focused_element__
       hide_popovers_outside
+      __internal_dialog_focusing_steps__
       nil
     end
 
-    # WHATWG "show a modal dialog" steps (showModal() calls this with no
-    # source). Requires the dialog to be connected, not already showing as a
+    # `showModal()`: HTML's "show a modal dialog" with no source.
+    def show_modal = show_a_modal_dialog(nil)
+
+    # `close(returnValue?)`: HTML's "close the dialog" with no source.
+    def close(value = nil)
+      close_the_dialog(value, nil)
+    end
+
+    # `requestClose(returnValue?)`: HTML's "request to close the dialog"
+    # with no source.
+    def request_close(value = nil)
+      request_to_close(value.nil? || value.equal?(Bridge::UNDEFINED) ? nil : value.to_s, nil)
+    end
+
+    js_accessor :return_value
+
+    js_methods %w[show showModal close requestClose]
+    def __js_call__(method, args)
+      case method
+      when "show"
+        show
+      when "showModal"
+        show_modal
+      when "close"
+        close(args[0])
+      when "requestClose"
+        request_close(args[0])
+      else
+        super
+      end
+    end
+
+    # HTML's "is valid command steps" for dialog elements.
+    def __internal_valid_command__?(command) = COMMANDS.include?(command)
+
+    # HTML's "command steps" for dialog elements: `source` is the invoking
+    # button, whose optional value becomes the return value.
+    def __internal_run_command__(source, command)
+      return if __internal_popover_showing__?
+
+      open = __internal_has_attribute__?("open")
+      value = source.__internal_attribute_value__("value")
+      case command
+      when "close" then close_the_dialog(value, source) if open
+      when "request-close" then request_to_close(value, source) if open
+      when "show-modal" then show_a_modal_dialog(source) unless open
+      end
+      nil
+    end
+
+    # HTML's dialog removing steps: a removed dialog leaves the top layer
+    # and is no longer modal. (Its close watcher goes with the open
+    # attribute's cleanup; Dommy derives it from the dialog's state.)
+    def __internal_dialog_removed__
+      @document.__internal_remove_modal_dialog__(self)
+      set_modal(false)
+      nil
+    end
+
+    # HTML's "dialog focusing steps": the dialog itself when it has
+    # autofocus, else its focus delegate (its first sequentially focusable
+    # descendant, or its autofocus one), else the dialog, takes the focus;
+    # then the page's autofocus is settled.
+    def __internal_dialog_focusing_steps__
+      control = __internal_has_attribute__?("autofocus") ? self : nil
+      control ||= Internal::Focusability.focus_delegate(self, "other")
+      control ||= self
+      Internal::Focusability.run_focusing_steps(control)
+      @document.__internal_autofocus_done__
+      nil
+    end
+
+    private
+
+    # HTML's "show a modal dialog" given a source (the invoking button, or
+    # nil). Requires the dialog to be connected, not already showing as a
     # popover, and not already open-and-non-modal; otherwise it throws
-    # InvalidStateError. An already open-and-modal dialog no-ops. Dommy has no
-    # top layer, so the modal itself does not block the rest of the page or
-    # move focus — it is otherwise the same as show(), plus the `is modal`
-    # flag.
-    def show_modal
+    # InvalidStateError. An already open-and-modal dialog no-ops.
+    def show_a_modal_dialog(source)
       if __internal_has_attribute__?("open")
         return nil if @__dialog_is_modal__
 
@@ -75,56 +167,82 @@ module Dommy
         raise DOMException::InvalidStateError, "showModal() called on a dialog that is showing as a popover"
       end
 
-      return nil unless fire_beforetoggle(false, true)
+      return nil unless fire_beforetoggle(false, true, source)
       # A beforetoggle listener may have opened, disconnected, or
       # popover-shown the dialog itself; re-check before committing to modal.
       return nil if __internal_has_attribute__?("open") || !is_connected? || popover_showing?
 
+      queue_toggle_event(dialog_toggle_tracker, false, true, source)
       self.open = true
       set_modal(true)
-      queue_toggle_event(dialog_toggle_tracker, false, true)
+      # The document is blocked by this dialog: everything outside it is
+      # inert (Internal::Focusability.inert?).
+      @document.__internal_add_modal_dialog__(self)
+      @__previously_focused_element__ = @document.__internal_focused_element__
       hide_popovers_outside
+      __internal_dialog_focusing_steps__
       nil
     end
 
-    # `close(returnValue?)`: abort if the dialog isn't open; otherwise fire a
-    # non-cancelable beforetoggle, clear the open attribute (and the `is
-    # modal` flag), optionally set returnValue, and QUEUE (async) a trusted,
-    # non-bubbling `close` event.
-    def close(value = nil)
+    # HTML's "close the dialog" with a result (nil or a string) and a
+    # source: fire a non-cancelable beforetoggle, clear the open attribute
+    # and the is-modal flag, set the return value, give the focus back to
+    # the element focused before the dialog showed (when the focus is inside
+    # it, or it was modal), and queue a trusted, non-bubbling `close`.
+    def close_the_dialog(value, source)
       return nil unless __internal_has_attribute__?("open")
-      fire_beforetoggle(true, false)
+
+      fire_beforetoggle(true, false, source)
       # beforetoggle isn't cancelable here, but a listener can still close
       # the dialog itself from inside its own handler; re-check before
       # queuing our own toggle/close.
       return nil unless __internal_has_attribute__?("open")
 
+      queue_toggle_event(dialog_toggle_tracker, true, false, source)
       self.open = false
+      was_modal = __internal_modal__?
+      @document.__internal_remove_modal_dialog__(self) if was_modal
       set_modal(false)
       @return_value = value.to_s unless value.nil?
-      queue_toggle_event(dialog_toggle_tracker, true, false)
+      @__request_close_return_value__ = nil
+      @__request_close_source__ = nil
+      restore_previous_focus(was_modal)
       queue_element_task { dispatch_event(Event.new("close", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__) }
       nil
     end
 
-    js_accessor :return_value
+    def restore_previous_focus(was_modal)
+      element = @__previously_focused_element__
+      return if element.nil?
 
-
-    js_methods %w[show showModal close]
-    def __js_call__(method, args)
-      case method
-      when "show"
-        show
-      when "showModal"
-        show_modal
-      when "close"
-        close(args[0])
-      else
-        super
-      end
+      @__previously_focused_element__ = nil
+      focused = @document.__internal_focused_element__
+      inside = focused && Internal::Retargeting.shadow_including_inclusive_ancestor?(self, focused)
+      Internal::Focusability.run_focusing_steps(element) if inside || was_modal
     end
 
-    private
+    # HTML's "request to close the dialog": request to close its close
+    # watcher (which an open, connected dialog has) without requiring
+    # history-action activation, so the `cancel` event can always be
+    # canceled; when it is not, the dialog closes with `value` and `source`.
+    def request_to_close(value, source)
+      return nil unless __internal_has_attribute__?("open")
+      return nil unless is_connected?
+      # A close watcher running its cancel action ignores a nested request.
+      return nil if @__running_cancel_action__
+
+      @__request_close_return_value__ = value
+      @__request_close_source__ = source
+      @__running_cancel_action__ = true
+      begin
+        should_continue = dispatch_event(Event.new("cancel", "bubbles" => false, "cancelable" => true).__internal_mark_trusted__)
+      ensure
+        @__running_cancel_action__ = false
+      end
+      return nil unless should_continue
+
+      close_the_dialog(@__request_close_return_value__, @__request_close_source__)
+    end
 
     # Set "is modal", which :modal reads.
     def set_modal(value)
