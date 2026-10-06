@@ -116,6 +116,19 @@ class TestDocumentExtras < Minitest::Test
     assert_equal(expected, @doc.last_modified)
   end
 
+  # In an XML document whose root is not an SVG <svg>, the title element is
+  # the first HTML-namespace `title` anywhere in the tree.
+  def test_title_in_an_xml_document_finds_the_html_title
+    doc = @doc.implementation.create_document("http://www.w3.org/2000/svg", "SVG", nil)
+    root = doc.document_element
+    svg_title = root.append_child(doc.create_element_ns("http://www.w3.org/2000/svg", "title"))
+    svg_title.text_content = "foo"
+    assert_equal("", doc.title)
+    div = root.append_child(doc.create_element_ns("http://www.w3.org/1999/xhtml", "div"))
+    div.append_child(doc.create_element_ns("http://www.w3.org/1999/xhtml", "title")).text_content = "bar"
+    assert_equal("bar", doc.title)
+  end
+
   def test_node_type_constant
     assert_equal(9, @doc.__js_get__("nodeType"))
   end

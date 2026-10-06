@@ -3038,8 +3038,13 @@ module Dommy
     end
 
     # The title element: the first HTML `title` in the document, in tree order.
+    # Matched by namespace and local name: an XML document's `css("title")`
+    # does not find an HTML-namespace title, so there the tree is walked.
     def html_title_element
-      @backend_doc.css("title").find { |node| Backend.namespace_uri(node) == Internal::Namespaces::HTML }
+      candidates = html_document? ? @backend_doc.css("title") : Internal::NodeTraversal.subtree_nodes(@backend_doc)
+      candidates.find do |node|
+        node.element? && node.local_name == "title" && Backend.namespace_uri(node) == Internal::Namespaces::HTML
+      end
     end
 
     def svg_root?(root)
