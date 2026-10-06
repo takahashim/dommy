@@ -219,6 +219,38 @@ module Dommy
         %w[a area].include?(element.local_name.to_s.downcase) && element.__internal_has_attribute__?("href")
       end
 
+      # `:focus` (HTML's "has the focus"): the focused element, unless it is
+      # a navigable container, and every shadow host whose shadow tree holds
+      # an element that has the focus. (`:focus-visible` answers the same.)
+      def has_focus?(element)
+        focused = element.owner_document&.__internal_focused_element__
+        return false if focused.nil?
+        return false if html_element?(element) && %w[iframe frame].include?(element.local_name)
+
+        current = focused
+        loop do
+          return true if current.equal?(element)
+
+          root = current.get_root_node
+          return false unless root.is_a?(ShadowRoot) && root.host
+
+          current = root.host
+        end
+      end
+
+      # `:focus-within`: the element has the focus, or a flat-tree
+      # descendant does.
+      def focus_within?(element)
+        focused = element.owner_document&.__internal_focused_element__
+        current = focused
+        while current
+          return true if current.equal?(element)
+
+          current = Focusability.flat_tree_parent(current) || current.parent_node.then { |p| p.is_a?(Element) ? p : nil }
+        end
+        false
+      end
+
       # `:popover-open` — an HTML element whose popover attribute is not in
       # the No Popover state and whose popover visibility state is showing.
       def popover_open?(element)

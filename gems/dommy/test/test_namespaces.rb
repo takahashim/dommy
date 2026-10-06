@@ -42,11 +42,19 @@ class TestNamespacesAndFocus < Minitest::Test
   end
 
   def test_focus_updates_active_element
+    @el.set_attribute("tabindex", "-1")
     @el.focus
     assert_same(@el, @doc.active_element)
   end
 
+  # A div with no tabindex is no focusable area: focus() leaves it alone.
+  def test_focus_on_a_non_focusable_element_does_nothing
+    @el.focus
+    assert_same(@doc.body, @doc.active_element)
+  end
+
   def test_blur_resets_active_element_to_body
+    @el.set_attribute("tabindex", "-1")
     @el.focus
     @el.blur
     assert_same(@doc.body, @doc.active_element)

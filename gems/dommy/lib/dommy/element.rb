@@ -1562,21 +1562,6 @@ module Dommy
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
     end
 
-    # blur (at the element) then focusout (bubbling), per UI Events order.
-    def fire_focus_out(element, new_target)
-      element.dispatch_event(Dommy::FocusEvent.new("blur", "composed" => true, "relatedTarget" => new_target))
-      element.dispatch_event(Dommy::FocusEvent.new("focusout",
-        "bubbles" => true, "composed" => true, "relatedTarget" => new_target))
-      nil
-    end
-
-    # A disabled form control cannot be focused (HTML focusability). Other
-    # elements are all treated as focusable — no layout means no visibility /
-    # tabindex modelling.
-    def disabled_form_control?
-      %w[input button select textarea].include?(local_name) && __internal_has_attribute__?("disabled")
-    end
-
     def attribute_signature
       Backend.attribute_nodes(@__node__).map { |a| [a.name, a.value] }.sort
     end

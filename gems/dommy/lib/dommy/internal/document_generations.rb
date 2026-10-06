@@ -40,11 +40,15 @@ module Dommy
 
       def __internal_bump_style_generation__
         @style_generation = (@style_generation || 0) + 1
+        # Whatever changed may have made the focused element unfocusable:
+        # the next rendering update's focus fixup checks.
+        __internal_schedule_rendering_update__ if @active_element
         nil
       end
 
       def __internal_bump_dom_generation__
         @dom_generation = (@dom_generation || 0) + 1
+        __internal_schedule_rendering_update__ if @active_element
         nil
       end
 

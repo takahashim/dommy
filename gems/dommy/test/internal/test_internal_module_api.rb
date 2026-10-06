@@ -35,7 +35,13 @@ class TestInternalModuleApi < Minitest::Test
       html_element? html_document? enableable_element? disabled_element?
       constraint_invalid? constraint_valid? form_control_required?
       form_control_optional? read_only_element? read_write_element?
-      dir_match? lang_match? link_element? popover_open? open_element? modal_element? fullscreen_element?
+      dir_match? lang_match? link_element? has_focus? focus_within? popover_open? open_element? modal_element? fullscreen_element?
+    ],
+    Dommy::Internal::Focusability => %w[
+      focusable_area? sequentially_focusable? click_focusable? tabindex_value editing_host?
+      delegates_focus? actually_disabled? being_rendered? inert? focusable_area_for
+      focus_delegate autofocus_delegate run_focusing_steps run_unfocusing_steps
+      flat_tree_parent shadow_including_inclusive_ancestor?
     ],
     Dommy::Internal::Infra => %w[ascii_whitespace? split_on_ascii_whitespace],
     Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],
@@ -94,6 +100,10 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::DocumentInteractionState => %w[
       active_element __internal_set_active_element__ __internal_focused_element__
       __internal_hovered_element__ __internal_set_hovered_element__
+      __internal_focus_update__ __internal_focused_subtree_removed__
+      __internal_add_modal_dialog__ __internal_remove_modal_dialog__ __internal_blocking_modal_dialog__
+      __internal_autofocus_inserted__ __internal_add_autofocus_candidate__ __internal_autofocus_processed__
+      __internal_autofocus_done__ __internal_top_document__ __internal_schedule_rendering_update__
     ],
   }.freeze
 

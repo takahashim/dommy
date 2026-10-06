@@ -140,6 +140,18 @@ module Dommy
       cancel_timer(id)
     end
 
+    # The parts of HTML's "update the rendering" that are not animation
+    # frame callbacks, at the next frame boundary: `phase` :before runs ahead
+    # of that frame's rAF callbacks (flushing autofocus candidates), :after
+    # behind them (the focus fixup). A document asks for one only when it
+    # has such work, so an idle page schedules nothing.
+    def request_rendering_update(callback, phase: :after)
+      frames = ((@now_ms / FRAME_MS) + 1) * FRAME_MS
+      id = next_id
+      @timers[id] = Timer.new(id, phase == :before ? :render_before : :render, callback, frames, nil, true, 0)
+      id
+    end
+
     # WHATWG requestIdleCallback — modeled as a deferred timer that hands the
     # callback an IdleDeadline-shaped Hash. No real idle period in dommy.
     def request_idle_callback(callback, timeout = 0)
@@ -251,7 +263,10 @@ module Dommy
 
     def run_due_timers
       due = @timers.values.select { |timer| timer.active && timer.due_at <= @now_ms }
-      due.sort_by!(&:id)
+      # A frame's rendering-update steps come before or after its rAF
+      # callbacks.
+      phase_order = { render_before: 0, render: 2 }
+      due.sort_by! { |timer| [phase_order.fetch(timer.kind, 1), timer.id] }
       # Each ordinary timer task is followed by a microtask checkpoint (WHATWG
       # §8.1.7.3). The animation-frame callbacks of one rendering update are an
       # exception: they run consecutively and share a single checkpoint after the
@@ -281,6 +296,17 @@ module Dommy
         when :idle
           @timers.delete(timer.id)
           invoke_timer(timer, IDLE_DEADLINE.dup)
+          perform_microtask_checkpoint
+        when :render_before
+          @timers.delete(timer.id)
+          invoke_timer(timer)
+          perform_microtask_checkpoint
+        when :render
+          # The rAF batch's shared checkpoint comes first.
+          perform_microtask_checkpoint if raf_ran
+          raf_ran = false
+          @timers.delete(timer.id)
+          invoke_timer(timer)
           perform_microtask_checkpoint
         else
           @timers.delete(timer.id)
