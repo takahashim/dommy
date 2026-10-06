@@ -64,21 +64,6 @@ globalThis.__rbIdl = (function () {
     ["Storage", { enumerable: true, writable: true }],
   ]);
 
-  // [LegacyNullToEmptyString] DOMString setters: null becomes "", any other
-  // value is ToString-coerced JS-side before crossing into Ruby.
-  const NULL_TO_EMPTY_STRING_SETTERS = new Set([
-    "innerHTML", "outerHTML", "border", "color", "mediaText", "innerText", "outerText"
-  ]);
-  // The same, for the names that are [LegacyNullToEmptyString] on one interface
-  // and a plain DOMString on another: `data` is on CharacterData but not on an
-  // ObjectElement or a MessageEvent, and `value` is on the two text controls
-  // but on none of the ten other interfaces that have one.
-  const INTERFACE_NULL_TO_EMPTY_STRING_SETTERS = {
-    CharacterData: ["data"],
-    HTMLInputElement: ["value"],
-    HTMLTextAreaElement: ["value"]
-  };
-
   // Form-control value-like properties exposed as accessor descriptors on the
   // interface prototype (see protoForChain) — what React's value-tracker reads
   // and wraps to detect user input on controlled components.
@@ -105,6 +90,11 @@ globalThis.__rbIdl = (function () {
     // The legend's form back-ref is readonly (HTML's form-associated interfaces
     // all expose one this way); assert_readonly walks the prototype for it.
     HTMLLegendElement: ["form"],
+    // DOMException's attributes are all readonly. On the prototype, a record
+    // conversion of DOMException.prototype finds them enumerable and reads
+    // them, and the getter's brand check throws, as WebIDL has it
+    // (url/urlsearchparams-constructor.any.js).
+    DOMException: ["name", "message", "code"],
   };
 
   // [LegacyUnforgeable] attributes are own accessor properties on EACH instance
@@ -370,6 +360,18 @@ globalThis.__rbIdl = (function () {
       m: ["click", "focus", "blur"],
       p: ["title", "lang", "dir", "hidden", "innerText"]
     },
+    // The URL Standard's interfaces. URL's two readonly attributes are in
+    // READONLY_ATTRS; URLSearchParams' iterable<> methods (entries, keys,
+    // values, forEach, @@iterator) are installed with the other pair
+    // iterables (ENTRIES_ITERABLES).
+    URL: {
+      m: ["toJSON", "toString"],
+      p: ["href", "protocol", "username", "password", "host", "hostname", "port", "pathname", "search", "hash"]
+    },
+    URLSearchParams: {
+      m: ["append", "delete", "get", "getAll", "has", "set", "sort", "toString"],
+      g: ["size"]
+    },
     // Event interfaces: seed the readonly attributes so they exist on the
     // prototype (WebIDL) — `("view" in ev)` / hasOwnProperty / getOwnPropertyDescriptor
     // resolve, and `Object.getPrototypeOf` walks the right chain. The get trap
@@ -433,16 +435,6 @@ globalThis.__rbIdl = (function () {
   const NODE_OR_STRING_METHODS = new Set([
     "before", "after", "replaceWith", "prepend", "append", "replaceChildren"
   ]);
-  // Operations taking a plain DOMString, by the indices of those arguments. A
-  // JS object becomes a string through its own toString — which may throw, and
-  // must throw before the operation does anything — and that can only happen
-  // here: across the bridge it would be a Ruby Hash or an opaque ref. Each
-  // name means the same operation on every interface that has it.
-  const DOMSTRING_ARGUMENTS = {
-    getItem: [0], setItem: [0, 1], removeItem: [0],
-    querySelector: [0], querySelectorAll: [0], closest: [0], matches: [0],
-    webkitMatchesSelector: [0],
-  };
 
   // The event handler CONTENT attributes HTML (with Pointer/Touch/Animation
   // Events) defines on elements. An `on*` attribute outside this set is not a
@@ -634,8 +626,6 @@ globalThis.__rbIdl = (function () {
     ENTRIES_ITERABLES,
     PAIR_ITERABLE_COLLECTIONS,
     NAMED_PROP_COLLECTIONS,
-    NULL_TO_EMPTY_STRING_SETTERS,
-    INTERFACE_NULL_TO_EMPTY_STRING_SETTERS,
     FORM_VALUE_FIELDS,
     READONLY_ATTRS,
     UNFORGEABLE_ATTRS,
@@ -648,7 +638,6 @@ globalThis.__rbIdl = (function () {
     INTERFACE_UNSCOPABLES,
     PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS,
-    DOMSTRING_ARGUMENTS,
     ELEMENT_HANDLER_ATTRIBUTES,
     WINDOW_REFLECTED_HANDLERS,
     BODY_REFLECTED_HANDLERS,

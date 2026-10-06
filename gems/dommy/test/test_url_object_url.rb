@@ -17,6 +17,16 @@ class TestURLObjectURL < Minitest::Test
     assert_match(/\Ablob:/, url)
   end
 
+  # File API: "blob:" + the creator's serialized origin + "/" + a UUID, so the
+  # URL's origin is the creator's.
+  def test_create_object_url_carries_the_origin_and_a_uuid
+    blob = Dommy::Blob.new(["x"])
+    url = Dommy::URL.create_object_url(blob, origin: "https://example.test")
+    assert_match(%r{\Ablob:https://example\.test/\h{8}-\h{4}-4\h{3}-[89ab]\h{3}-\h{12}\z}, url)
+    assert_equal("https://example.test", Dommy::URL.new(url).origin)
+    assert_match(%r{\Ablob:null/}, Dommy::URL.create_object_url(blob))
+  end
+
   def test_create_object_url_returns_unique_url_per_call
     blob = Dommy::Blob.new(["x"])
     u1 = Dommy::URL.create_object_url(blob)

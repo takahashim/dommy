@@ -51,6 +51,15 @@ class TestURLBasics < Minitest::Test
     assert_equal("https://example.test/a/b", u.href)
   end
 
+  # An empty-string base is a given base that fails to parse, not an absent
+  # one: WPT url/failure.html, `new URL("about:blank", "")`.
+  def test_empty_string_base_is_a_failure
+    assert_raises(Dommy::Bridge::TypeError) { Dommy::URL.new("about:blank", "") }
+    assert_nil(Dommy::URL.parse("https://example.test/", ""))
+    refute(Dommy::URL.can_parse("https://example.test/", ""))
+    assert_equal("about:blank", Dommy::URL.new("about:blank", nil).href)
+  end
+
   def test_default_port_makes_host_no_port
     u = Dommy::URL.new("https://example.test:443/a")
     assert_equal("example.test", u.host)
@@ -139,6 +148,14 @@ class TestURLIDN < Minitest::Test
   def test_idn_host_with_userinfo
     u = Dommy::URL.new("http://u:p@日本.test/")
     assert_equal("http://u:p@xn--wgv71a.test/", u.href)
+  end
+
+  # An ASCII domain is only lowercased: its "xn--" labels are not validated
+  # as Punycode (WPT url/toascii.json "Invalid Punycode").
+  def test_ascii_a_labels_are_only_lowercased
+    assert_equal("xn--zca.com", Dommy::URL.new("http://XN--ZCA.com/").host)
+    assert_equal("xn--a.com", Dommy::URL.new("http://xn--a.com/").host)
+    assert_equal("xn--", Dommy::URL.new("https://xn--/").host)
   end
 
   def test_idn_host_via_base

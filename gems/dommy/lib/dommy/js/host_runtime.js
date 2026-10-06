@@ -11,11 +11,10 @@ globalThis.__rbHost = (function () {
   // reads (and costs) the same as when they were written inline.
   const {
     ARRAY_LIKE_COLLECTIONS, INDEXED_SETTER_INTERFACES, ENTRIES_ITERABLES, PAIR_ITERABLE_COLLECTIONS,
-    NAMED_PROP_COLLECTIONS, NULL_TO_EMPTY_STRING_SETTERS,
-    INTERFACE_NULL_TO_EMPTY_STRING_SETTERS, FORM_VALUE_FIELDS, READONLY_ATTRS,
+    NAMED_PROP_COLLECTIONS, FORM_VALUE_FIELDS, READONLY_ATTRS,
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS, INTERFACE_MEMBERS, FROZEN_ARRAY_ATTRIBUTES, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
-    NODE_OR_STRING_METHODS, DOMSTRING_ARGUMENTS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
+    NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
     BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, CONSTRUCTOR_ARITY,
     VOID_METHODS, INTERFACE_VOID_METHODS, JS_GLOBALS,
   } = globalThis.__rbIdl;
@@ -75,14 +74,17 @@ globalThis.__rbHost = (function () {
     return fn;
   }
 
+  // One function per (interface, attribute), shared by every instance, like
+  // the getter.
   const unforgeableSetters = new Map();
-  function unforgeableSetter(name) {
-    let fn = unforgeableSetters.get(name);
+  function unforgeableSetter(iface, name) {
+    const key = iface + "." + name;
+    let fn = unforgeableSetters.get(key);
     if (!fn) {
       // A location setter navigates, which is a DOM mutation like any other —
       // hostSet brackets it with the epoch bumps that says so.
-      fn = function (value) { hostSet(this[HKEY], name, value); };
-      unforgeableSetters.set(name, fn);
+      fn = function (value) { hostSet(this[HKEY], name, convertAttributeValue(iface, name, value)); };
+      unforgeableSetters.set(key, fn);
     }
     return fn;
   }
@@ -104,9 +106,11 @@ globalThis.__rbHost = (function () {
         if (!isProxy(this) || !interfaceChainOf(this).includes(iface)) {
           throw new TypeError("Illegal invocation: " + iface + "." + name + " called on a different object");
         }
+        const call = declaredConversion(iface, "operations", name);
+        const wire = dehydrateArgs(call ? convertArguments(call, args) : args);
         bumpDomEpoch();
         try {
-          return hostCallResult(name, __rb_host_call(this[HKEY], name, dehydrateArgs(args)), iface);
+          return hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface);
         } finally {
           bumpDomEpoch();
         }
@@ -144,7 +148,7 @@ globalThis.__rbHost = (function () {
     for (const [name, writable] of Object.entries(UNFORGEABLE_ATTRS[iface] || {})) {
       Object.defineProperty(target, name, {
         get: unforgeableGetter(name),
-        set: writable ? unforgeableSetter(name) : undefined,
+        set: writable ? unforgeableSetter(iface, name) : undefined,
         enumerable: true, configurable: false,
       });
     }
@@ -231,19 +235,187 @@ globalThis.__rbHost = (function () {
     }
   }
 
-  // The WebIDL DOMString conversion of the arguments DOMSTRING_ARGUMENTS names
-  // for `name` (ES ToString: a Symbol is a TypeError, an object runs its own
-  // toString). Arguments past the ones passed are left for the host's
-  // missing-argument handling.
-  function toDOMStringArguments(name, args) {
-    const indices = Object.prototype.hasOwnProperty.call(DOMSTRING_ARGUMENTS, name)
-      ? DOMSTRING_ARGUMENTS[name] : undefined;
-    if (indices === undefined) return args;
-    const out = args.slice();
-    for (const i of indices) {
-      if (i < out.length) out[i] = `${out[i]}`;
+  // ===== WebIDL string conversions =====
+  //
+  // A value a script hands an operation, a constructor or an attribute setter
+  // is converted to the string type the spec declares for it BEFORE it crosses
+  // into Ruby. Only here can a JS object's own toString run (and throw before
+  // the operation does anything), a Symbol throw, and null still be told from
+  // undefined; across the bridge an object is a Ruby Hash or an opaque ref.
+  // Which arguments and attributes are strings, and of which type, is
+  // webidl_signatures.js, generated from the specs' own IDL; this section is the
+  // conversions themselves, and every entry point below goes through it.
+  const SIGNATURES = globalThis.__rbIdlSignatures || {};
+
+  // https://webidl.spec.whatwg.org/#es-DOMString — ToString, which a template
+  // literal performs and String() does not: String(Symbol()) is "Symbol()",
+  // where ToString throws a TypeError.
+  function toDOMString(v) {
+    return typeof v === "string" ? v : `${v}`;
+  }
+
+  // https://webidl.spec.whatwg.org/#es-USVString — a DOMString whose lone
+  // surrogates become U+FFFD.
+  function toUSVString(v) {
+    const s = toDOMString(v);
+    return /[\ud800-\udfff]/.test(s) ? scrubLoneSurrogates(s) : s;
+  }
+
+  // https://webidl.spec.whatwg.org/#es-ByteString — a DOMString none of whose
+  // code units is above U+00FF; one that is is a TypeError, not a truncation.
+  function toByteString(v) {
+    const s = toDOMString(v);
+    if (/[^\u0000-\u00ff]/.test(s)) {
+      throw new TypeError("Failed to convert value to 'ByteString': it contains a code unit above U+00FF.");
+    }
+    return s;
+  }
+
+  const STRING_CONVERSIONS = { DOMString: toDOMString, USVString: toUSVString, ByteString: toByteString };
+
+  // One signature entry ("USVString", "optional DOMString", "DOMString?",
+  // "[LegacyNullToEmptyString] DOMString", "DOMString...") as the conversion it
+  // names, parsed once per distinct entry.
+  const parsedConversions = new Map();
+  function conversionFor(entry) {
+    if (entry === null || entry === undefined) return null;
+    let conversion = parsedConversions.get(entry);
+    if (conversion) return conversion;
+    let type = entry;
+    const optional = type.startsWith("optional ");
+    if (optional) type = type.slice("optional ".length);
+    const nullToEmpty = type.startsWith("[LegacyNullToEmptyString] ");
+    if (nullToEmpty) type = type.slice("[LegacyNullToEmptyString] ".length);
+    const variadic = type.endsWith("...");
+    if (variadic) type = type.slice(0, -3);
+    const nullable = type.endsWith("?");
+    if (nullable) type = type.slice(0, -1);
+    const toString = STRING_CONVERSIONS[type];
+    if (!toString) throw new Error("webidl_signatures.js: unknown string type in " + JSON.stringify(entry));
+    conversion = {
+      optional,
+      variadic,
+      convert(v) {
+        // A nullable type takes undefined as null too; [LegacyNullToEmptyString]
+        // only null.
+        if (nullable && (v === null || v === undefined)) return null;
+        if (nullToEmpty && v === null) return "";
+        return toString(v);
+      },
+    };
+    parsedConversions.set(entry, conversion);
+    return conversion;
+  }
+
+  // The interfaces to search for a member of an object of interface `iface`,
+  // nearest first: the chain its proxy was described with when there is one,
+  // which is the one Ruby answers for, else the IDL's own `inherits`.
+  function signatureChain(iface) {
+    const desc = descByInterface.get(iface);
+    if (desc && desc.chain) return desc.chain;
+    const chain = [];
+    for (let name = iface; name && chain.indexOf(name) === -1; name = hasOwn(SIGNATURES, name) ? SIGNATURES[name].inherits : undefined) {
+      chain.push(name);
+    }
+    return chain;
+  }
+
+  // The nearest declaration of member `name` in `kind` ("operations",
+  // "static_operations", "attributes") for an object of interface `iface`, or
+  // null when nothing in its chain converts it. A declaration recorded as null
+  // still ends the search: that interface's member is not a string. Static
+  // members belong to the interface itself, not its chain, and so does its
+  // constructor (kind "constructor", no name).
+  const hasOwn = (object, key) => !!object && Object.prototype.hasOwnProperty.call(object, key);
+  const declarations = new Map();
+  function declaredConversion(iface, kind, name) {
+    if (iface === undefined || iface === null) return null;
+    const key = iface + "\u0000" + kind + "\u0000" + (name || "");
+    if (declarations.has(key)) return declarations.get(key);
+    let found = null;
+    let declarer = iface;
+    if (kind === "constructor") {
+      if (hasOwn(SIGNATURES, iface) && hasOwn(SIGNATURES[iface], "constructor")) found = SIGNATURES[iface].constructor;
+    } else {
+      const chain = kind === "static_operations" ? [iface] : signatureChain(iface);
+      for (const owner of chain) {
+        const table = hasOwn(SIGNATURES, owner) ? SIGNATURES[owner][kind] : undefined;
+        if (hasOwn(table, name)) {
+          found = table[name];
+          declarer = owner;
+          break;
+        }
+      }
+    }
+    if (typeof found === "string") {
+      found = conversionFor(found);
+    } else if (found) {
+      // A call: what WebIDL's overload resolution checks, and how the
+      // arguments convert. The label names it in the TypeError a short call
+      // throws, in the shape engines use.
+      found = {
+        required: found.required || 0,
+        conversions: (found.arguments || []).map(conversionFor),
+        label: kind === "constructor"
+          ? "Failed to construct '" + iface + "'"
+          : "Failed to execute '" + name + "' on '" + declarer + "'",
+      };
+    }
+    declarations.set(key, found);
+    return found;
+  }
+
+  // The arguments a script passed to `call` (a declaredConversion of a call),
+  // checked and converted. Fewer than the required count is a TypeError, as
+  // WebIDL's overload resolution finds no overload for them; then each string
+  // argument is converted in order. An optional argument passed as undefined
+  // stays undefined (the operation's default applies).
+  function convertArguments(call, args) {
+    if (args.length < call.required) {
+      throw new TypeError(call.label + ": " + call.required + " argument" + (call.required === 1 ? "" : "s") +
+        " required, but only " + args.length + " present.");
+    }
+    const conversions = call.conversions;
+    let out = args;
+    for (let i = 0; i < args.length; i++) {
+      const conversion = i < conversions.length
+        ? conversions[i]
+        : (conversions.length && conversions[conversions.length - 1] && conversions[conversions.length - 1].variadic
+          ? conversions[conversions.length - 1] : null);
+      if (!conversion) continue;
+      if (conversion.optional && args[i] === undefined) continue;
+      const value = conversion.convert(args[i]);
+      if (value === args[i]) continue;
+      if (out === args) out = args.slice();
+      out[i] = value;
     }
     return out;
+  }
+
+  // `fn` with its arguments checked and converted as `iface`'s `kind` member
+  // `name` declares them, keeping `this` (a stub may read it); `fn` itself
+  // when there is nothing to check.
+  function withConvertedArguments(fn, iface, kind, name) {
+    const call = declaredConversion(iface, kind, name);
+    if (!call) return fn;
+    return function (...args) {
+      return fn.apply(this, convertArguments(call, args));
+    };
+  }
+
+  // A static operation's function, named and with the `length` WebIDL gives
+  // it: the shortest overload's required argument count.
+  function withStaticArity(fn, name, call) {
+    Object.defineProperty(fn, "name", { value: name, configurable: true });
+    Object.defineProperty(fn, "length", { value: call ? call.required : 0, configurable: true });
+    return fn;
+  }
+
+  // The value an attribute setter receives, converted as `iface`'s attribute
+  // `name` declares it, or as it is when the attribute is not a string.
+  function convertAttributeValue(iface, name, value) {
+    const conversion = declaredConversion(iface, "attributes", name);
+    return conversion ? conversion.convert(value) : value;
   }
 
   function withArity(fn, name, iface) {
@@ -289,7 +461,10 @@ globalThis.__rbHost = (function () {
         const fn = this[name];
         if (typeof fn === "function" && fn !== stub) return fn.apply(this, args);
       }
-      const wire = dehydrateArgs(coerce ? args.map(coerceNodeOrString) : toDOMStringArguments(name, args));
+      checkReceiver(this, iface, name);
+      const call = declaredConversion(receiverInterface(this, iface), "operations", name);
+      const converted = call ? convertArguments(call, args) : args;
+      const wire = dehydrateArgs(coerce ? converted.map(coerceNodeOrString) : converted);
       return readOnly
         ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface)
         : callMutating(this[HKEY], name, wire, iface);
@@ -326,27 +501,38 @@ globalThis.__rbHost = (function () {
     return handled;
   }
 
-  function memberGetStub(name) {
-    return function () { return rehydrate(__rb_host_get(this[HKEY], name)); };
+  // An operation or attribute on an interface prototype is one function
+  // shared by every instance, so it takes its object from `this`, which WebIDL
+  // requires to implement the interface: anything else — the prototype itself,
+  // a plain object, an instance of another interface — is a TypeError rather
+  // than a host call on no object.
+  function checkReceiver(receiver, iface, name) {
+    if (!isProxy(receiver) || !interfaceChainOf(receiver).includes(iface)) {
+      throw new TypeError("Illegal invocation: " + iface + "." + name + " called on a different object");
+    }
   }
-  // [LegacyNullToEmptyString]: null becomes "" rather than "null". Declared per
-  // attribute in the IDL, so a name that is null-to-empty on one interface and a
-  // plain DOMString on another (`value`, on the text controls and on nothing
-  // else) is answered by the interface's own list.
-  function nullToEmptyString(iface, name) {
-    if (NULL_TO_EMPTY_STRING_SETTERS.has(name)) return true;
-    const own = iface === undefined ? undefined : INTERFACE_NULL_TO_EMPTY_STRING_SETTERS[iface];
-    return !!own && own.indexOf(name) !== -1;
+
+  function memberGetStub(name, iface) {
+    return function () {
+      checkReceiver(this, iface, name);
+      return rehydrate(__rb_host_get(this[HKEY], name));
+    };
+  }
+  // The interface a prototype member converts its values as: the receiver's
+  // own when it is one of our proxies (a derived interface may declare the
+  // member again), else the interface whose prototype holds the member.
+  function receiverInterface(receiver, iface) {
+    return (isProxy(receiver) && proxyInterfaces.get(receiver)) || iface;
   }
 
   function memberSetStub(name, iface) {
-    // Mirror the proxy set trap for a reflected attribute: [LegacyNullToEmptyString]
-    // coercion, then the shared host write (the set trap delegates instance
-    // writes to this prototype setter, so it must invalidate the same caches).
-    // Called with the element as `this`.
+    // Mirror the proxy set trap for a reflected attribute: the WebIDL
+    // conversion of the value, then the shared host write (the set trap
+    // delegates instance writes to this prototype setter, so it must
+    // invalidate the same caches). Called with the element as `this`.
     return function (v) {
-      if (nullToEmptyString(iface, name)) v = v === null ? "" : String(v);
-      hostSet(this[HKEY], name, v);
+      checkReceiver(this, iface, name);
+      hostSet(this[HKEY], name, convertAttributeValue(receiverInterface(this, iface), name, v));
     };
   }
   // Seed interface `name`'s WebIDL members onto its prototype (idempotent — skips
@@ -362,9 +548,9 @@ globalThis.__rbHost = (function () {
     (members.m || []).forEach((mname) =>
       def(mname, { value: memberMethodStub(mname, name), writable: true, enumerable: true, configurable: true }));
     (members.g || []).forEach((gname) =>
-      def(gname, { get: memberGetStub(gname), enumerable: true, configurable: true }));
+      def(gname, { get: memberGetStub(gname, name), enumerable: true, configurable: true }));
     (members.p || []).forEach((pname) =>
-      def(pname, { get: memberGetStub(pname), set: memberSetStub(pname, name), enumerable: true, configurable: true }));
+      def(pname, { get: memberGetStub(pname, name), set: memberSetStub(pname, name), enumerable: true, configurable: true }));
   }
 
   // 1d: custom elements. ceRegistry maps a tag name to its JS constructor;
@@ -1156,16 +1342,71 @@ globalThis.__rbHost = (function () {
       return [norm, { type: options.type }];
     }
     if (name === "URLSearchParams") {
-      // Per spec a non-string iterable init (another URLSearchParams, a Map, an
-      // object with a custom @@iterator) is a *sequence* of pairs — materialize
-      // it through its live iterator HERE so the iterator runs JS-side; Ruby only
-      // ever sees plain pair arrays. Plain records (no @@iterator) and strings
-      // fall through unchanged to the record / string paths.
+      // The init argument is `optional (sequence<sequence<USVString>> or
+      // record<USVString, USVString> or USVString) init = ""`, converted here
+      // per WebIDL so iterators and getters run JS-side and Ruby only ever sees
+      // a string or an array of pairs of strings (a record's keys never travel
+      // as Ruby hash keys, which would cut a key at a NUL).
+      // https://webidl.spec.whatwg.org/#es-union
+      const fail = (what) => new TypeError(
+        "Failed to construct 'URLSearchParams': The provided value cannot be converted to " + what + ".");
+      // "Create a sequence from an iterable", given the @@iterator method
+      // already read: GetIteratorFromMethod, then IteratorStepValue to the end.
+      const fromIterable = (iterable, method, convert, what) => {
+        const iterator = method.call(iterable);
+        if (iterator === null || (typeof iterator !== "object" && typeof iterator !== "function")) throw fail(what);
+        const next = iterator.next;
+        const items = [];
+        for (;;) {
+          const step = next.call(iterator);
+          if (step === null || (typeof step !== "object" && typeof step !== "function")) throw fail(what);
+          if (step.done) return items;
+          items.push(convert(step.value));
+        }
+      };
+      // GetMethod(V, @@iterator): undefined/null mean none; anything else must
+      // be callable.
+      const iteratorMethod = (v, what) => {
+        const method = v[Symbol.iterator];
+        if (method === undefined || method === null) return undefined;
+        if (typeof method !== "function") throw fail(what);
+        return method;
+      };
+      const isObject = (v) => v !== null && (typeof v === "object" || typeof v === "function");
+
+      // An omitted or undefined argument takes the default "". Any other
+      // non-object, null included, is the USVString member.
+      if (args.length === 0 || args[0] === undefined) return [""];
       const init = args[0];
-      if (init !== null && typeof init === "object" && typeof init[Symbol.iterator] === "function") {
-        return [Array.from(init, (pair) => Array.from(pair))];
+      if (!isObject(init)) return [toUSVString(init)];
+
+      // An object with an @@iterator method is the sequence member: each
+      // element is itself a sequence<USVString>, so it must be an object with
+      // an @@iterator method too. (The URLSearchParams constructor, in Ruby,
+      // then requires each pair to have exactly two items.)
+      const method = iteratorMethod(init, "a sequence");
+      if (method !== undefined) {
+        return [fromIterable(init, method, (pair) => {
+          if (!isObject(pair)) throw fail("a sequence");
+          const pairMethod = iteratorMethod(pair, "a sequence");
+          if (pairMethod === undefined) throw fail("a sequence");
+          return fromIterable(pair, pairMethod, toUSVString, "a sequence");
+        }, "a sequence")];
       }
-      return args;
+
+      // Any other object, a function included (`new URLSearchParams(DOMException)`),
+      // is the record member: its own enumerable keys in [[OwnPropertyKeys]]
+      // order, each key and value a USVString, a later key equal to an earlier
+      // one after conversion overwriting its value in place.
+      // https://webidl.spec.whatwg.org/#es-record
+      const record = new Map();
+      for (const key of Reflect.ownKeys(init)) {
+        const desc = Reflect.getOwnPropertyDescriptor(init, key);
+        if (desc === undefined || !desc.enumerable) continue;
+        const typedKey = toUSVString(key);
+        record.set(typedKey, toUSVString(init[key]));
+      }
+      return [Array.from(record)];
     }
     const members = CONSTRUCTOR_DICTS[name];
     if (!members) return args;
@@ -1323,7 +1564,9 @@ globalThis.__rbHost = (function () {
     return ev;
   }
 
-  function constructInterface(name, args) {
+  function constructInterface(name, rawArgs) {
+    const call = declaredConversion(name, "constructor");
+    const args = call ? convertArguments(call, rawArgs) : rawArgs;
     if (name === "Event" || name === "CustomEvent") {
       const coerced = coerceConstructorArgs(name, args);
       return makeJsEvent(name, coerced[0], coerced[1]);
@@ -1331,6 +1574,72 @@ globalThis.__rbHost = (function () {
     const r = rehydrate(__rb_construct(name, dehydrateArgs(coerceConstructorArgs(name, args))));
     if (r == null) throw new TypeError("Illegal constructor");
     return r;
+  }
+
+  // ===== iterable<K, V> (WebIDL §3.7.9) =====
+  //
+  // A pair iterable's prototype gets entries, keys, values and forEach, and an
+  // @@iterator that is the entries function itself. Each of the three returns
+  // a default iterator object: it inherits from the interface's iterator
+  // prototype (whose own [[Prototype]] is %IteratorPrototype%, so iterator
+  // helpers reach it), and its `next` re-reads the object's value pairs every
+  // step, so a change made while iterating is seen — `for (const [k] of params)
+  // params.delete(...)` observes the deletion. The pairs are read straight
+  // from the host's `entries`.
+  const ITERATOR_PROTOTYPE = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+  const pairIteratorState = new WeakMap(); // iterator -> { target, kind, index, iface }
+
+  function hostValuePairs(target) {
+    const pairs = rehydrate(__rb_host_call(target[HKEY], "entries", dehydrateArgs([])));
+    return Array.isArray(pairs) ? pairs : [];
+  }
+
+  function installPairIterable(proto, iface) {
+    const iteratorProto = Object.create(ITERATOR_PROTOTYPE);
+    const next = {
+      next() {
+        const state = pairIteratorState.get(this);
+        if (!state || state.iface !== iface) {
+          throw new TypeError("Illegal invocation: next called on an object that is not a " + iface + " Iterator");
+        }
+        const pairs = hostValuePairs(state.target);
+        if (state.index >= pairs.length) return { value: undefined, done: true };
+        const pair = pairs[state.index++];
+        const value = state.kind === "key" ? pair[0] : state.kind === "value" ? pair[1] : [pair[0], pair[1]];
+        return { value, done: false };
+      },
+    }.next;
+    Object.defineProperty(iteratorProto, "next", { value: next, writable: true, enumerable: true, configurable: true });
+    Object.defineProperty(iteratorProto, Symbol.toStringTag, { value: iface + " Iterator", configurable: true });
+
+    const operation = (opName, length, fn) => {
+      Object.defineProperty(fn, "name", { value: opName, configurable: true });
+      Object.defineProperty(fn, "length", { value: length, configurable: true });
+      Object.defineProperty(proto, opName, { value: fn, writable: true, enumerable: true, configurable: true });
+      return fn;
+    };
+    const iteratorOf = (opName, kind) => operation(opName, 0, function () {
+      checkReceiver(this, iface, opName);
+      const iterator = Object.create(iteratorProto);
+      pairIteratorState.set(iterator, { target: this, kind, index: 0, iface });
+      return iterator;
+    });
+    const entries = iteratorOf("entries", "key+value");
+    iteratorOf("keys", "key");
+    iteratorOf("values", "value");
+    operation("forEach", 1, function (callback, thisArg) {
+      checkReceiver(this, iface, "forEach");
+      if (typeof callback !== "function") {
+        throw new TypeError("Failed to execute 'forEach' on '" + iface + "': The callback provided as parameter 1 is not a function.");
+      }
+      // The pairs are re-read after every call: the callback may change them.
+      let pairs = hostValuePairs(this);
+      for (let i = 0; i < pairs.length; i++) {
+        callback.call(thisArg, pairs[i][1], pairs[i][0], this);
+        pairs = hostValuePairs(this);
+      }
+    });
+    Object.defineProperty(proto, Symbol.iterator, { value: entries, writable: true, enumerable: false, configurable: true });
   }
 
   // 1b: lazily build a JS prototype chain + constructor per DOM interface,
@@ -1459,38 +1768,7 @@ globalThis.__rbHost = (function () {
         define("forEach", A.forEach);
       }
     } else if (ENTRIES_ITERABLES.has(name)) {
-      // A LIVE iterator: re-read entries() at each step (indexed by a running
-      // cursor) so a mutation mid-loop is observed — e.g. URLSearchParams
-      // `for (const e of params) { params.delete(...) }` must see the new state.
-      // entries()/keys()/values()/@@iterator each return such an iterator (the
-      // WebIDL maplike contract) — a `for…of` and a direct `.entries().next()`
-      // both work — rather than a plain Array. keys/values project the pair.
-      // Read the raw [name, value] pairs straight from the host — NOT via
-      // `self.entries()`, which is now this same iterator-returning override.
-      const rawEntries = (self) => {
-        const r = rehydrate(__rb_host_call(self[HKEY], "entries", dehydrateArgs([])));
-        return Array.isArray(r) ? r : [];
-      };
-      const liveIterator = (self, project) => {
-        let i = 0;
-        const it = {
-          next() {
-            const entries = rawEntries(self);
-            if (i >= entries.length) return { value: undefined, done: true };
-            return { value: project(entries[i++]), done: false };
-          },
-        };
-        it[Symbol.iterator] = function () { return this; };
-        return it;
-      };
-      const defineIter = (key, project) => Object.defineProperty(proto, key, {
-        value: function () { return liveIterator(this, project); },
-        configurable: true, writable: true,
-      });
-      defineIter(Symbol.iterator, (e) => e);
-      defineIter("entries", (e) => e);
-      defineIter("keys", (e) => e[0]);
-      defineIter("values", (e) => e[1]);
+      installPairIterable(proto, name);
     }
     if (name === "TextEncoder") {
       // encodeInto mutates the destination Uint8Array in place, so it must run
@@ -1579,13 +1857,19 @@ globalThis.__rbHost = (function () {
         });
       }
     }
+    // The getter is the attribute's own, so like any WebIDL attribute getter
+    // it checks its receiver: one that does not implement the interface — the
+    // prototype itself, say — is a TypeError, not a host read of nothing.
     const readonlyAttrs = READONLY_ATTRS[name];
     if (readonlyAttrs) {
       for (const field of readonlyAttrs) {
         Object.defineProperty(proto, field, {
           configurable: true,
           enumerable: true,
-          get() { return rehydrate(__rb_host_get(this[HKEY], field)); },
+          get() {
+            checkReceiver(this, name, field);
+            return rehydrate(__rb_host_get(this[HKEY], field));
+          },
         });
       }
     }
@@ -1636,7 +1920,9 @@ globalThis.__rbHost = (function () {
       if (typeof ctor !== "function") continue;
       for (const m of __rb_static_names(name)) {
         if (m in ctor) continue;
-        ctor[m] = (...args) => rehydrate(__rb_static_call(name, m, dehydrateArgs(args)));
+        const call = declaredConversion(name, "static_operations", m);
+        ctor[m] = withStaticArity((...args) =>
+          rehydrate(__rb_static_call(name, m, dehydrateArgs(call ? convertArguments(call, args) : args))), m, call);
       }
     }
   }
@@ -1902,12 +2188,12 @@ globalThis.__rbHost = (function () {
     if (cached) return cached;
 
     const methods = new Set(desc.methods);
-    // The maplike iterator methods are served as live iterators from the
-    // prototype (see ENTRIES_ITERABLES), so drop the Ruby array-returning
-    // versions from the method set — otherwise `entries()` would return an
-    // Array (no `.next()`) instead of an iterator.
+    // The iterable<> methods are served from the prototype (see
+    // installPairIterable), so drop the Ruby versions from the method set —
+    // otherwise `entries()` would return an Array (no `.next()`) instead of an
+    // iterator, and forEach would skip WebIDL's callback and thisArg handling.
     if (ENTRIES_ITERABLES.has(desc.name)) {
-      for (const m of ["entries", "keys", "values"]) methods.delete(m);
+      for (const m of ["entries", "keys", "values", "forEach"]) methods.delete(m);
     }
     const shape = {
       name: desc.name,
@@ -2168,10 +2454,7 @@ globalThis.__rbHost = (function () {
       else if (NODE_OR_STRING_METHODS.has(prop)) fn = nodeOrStringStub(prop, ctx);
       else fn = mutatingStub(prop, ctx);
     }
-    if (Object.prototype.hasOwnProperty.call(DOMSTRING_ARGUMENTS, prop)) {
-      const convert = fn;
-      fn = (...args) => convert(...toDOMStringArguments(prop, args));
-    }
+    fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
     withArity(fn, prop, ctx.ifaceName);
     return fn;
   }
@@ -2375,14 +2658,14 @@ globalThis.__rbHost = (function () {
         Object.hasOwn(t, "defaultPrevented")) {
       delete t.defaultPrevented;
     }
-    // WebIDL [LegacyNullToEmptyString] DOMString setters coerce JS-side (null →
-    // "", else ToString — so `innerHTML = 42` / `{toString…}` work and a toString
-    // that throws propagates) before the value crosses into Ruby.
-    if (nullToEmptyString(shape.name, prop)) value = value === null ? "" : String(value);
+    // A string attribute's value is converted JS-side before it crosses into
+    // Ruby (see "WebIDL string conversions"): `innerHTML = null` is "",
+    // `id = 42` is "42", a `{toString}` object's toString runs, and one that
+    // throws — or a Symbol — throws here, before the write.
+    value = convertAttributeValue(shape.name, prop, value);
     // A writable named property (Storage/DOMStringMap) has a DOMString named
-    // setter: ToString-coerce too, so `storage.x = 42` stores "42", `= null`
-    // stores "null", and a `{toString}` object's throwing toString propagates.
-    if (shape.named && shape.named.writable) value = String(value);
+    // setter: `storage.x = 42` stores "42" and `= null` stores "null".
+    if (shape.named && shape.named.writable) value = toDOMString(value);
     if (hostSet(handle, prop, value)) return true;
 
     t[prop] = value;
@@ -2732,7 +3015,10 @@ globalThis.__rbHost = (function () {
         // or ABI method is present.
         if (Reflect.has(t, prop)) return true;
         if (typeof prop === "symbol") return false;
-        if (methods.has(prop) || prop === "length") return true;
+        // (`length` is not assumed: a collection, a select, a form, Storage
+        // and History answer it from the host below, and `"length" in div`
+        // or in a URLSearchParams is false, as it is in a browser.)
+        if (methods.has(prop)) return true;
         // The global window also reports its JS globals (`"Stimulus" in window`);
         // inherited names already answered true via Reflect.has(t) above.
         if (isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return true;

@@ -14,8 +14,8 @@ module Dommy
       # scheme => default port (file has none).
       SPECIAL = {"ftp" => 21, "file" => nil, "http" => 80, "https" => 443, "ws" => 80, "wss" => 443}.freeze
 
-      # Raised on a parse failure; `URL.new` maps it to DOMException::SyntaxError,
-      # `URL.parse` rescues it and returns nil.
+      # Raised on a parse failure; `URL.new` maps it to a TypeError (as the URL
+      # Standard's constructor throws), `URL.parse` rescues it and returns nil.
       class Failure < StandardError; end
 
       # The spec URL record. `path` is an Array of segments for a hierarchical
@@ -33,9 +33,13 @@ module Dommy
       # which is what the URL API and every other caller uses. It only changes
       # the query, and only for a special URL that is not ws/wss (see
       # BasicParser#query_encoding).
+      #
+      # Only nil means "no base": a given base, the empty string included, is
+      # parsed first, and its failure is the parse's (`new URL("a:b", "")`
+      # throws).
       def parse(input, base_input = nil, encoding: nil)
         base = nil
-        if base_input && base_input != ""
+        unless base_input.nil?
           base = base_input.is_a?(Record) ? base_input : run(base_input.to_s, nil)
         end
         run(input.to_s, base, encoding: encoding)
@@ -164,7 +168,10 @@ module Dommy
           domain = percent_decode(input).force_encoding("UTF-8").scrub("\uFFFD")
           # The domain parser (beStrict false): an ASCII domain is only
           # lowercased, whatever UTS #46 would make of it, for web
-          # compatibility; a non-ASCII one goes through ToASCII.
+          # compatibility — an "xn--" label is not checked as Punycode, so
+          # `http://xn--a/` and `https://xn--/` parse (WPT url/toascii.json
+          # "Invalid Punycode", urltestdata.json); a non-ASCII one goes
+          # through ToASCII.
           ascii =
             if domain.ascii_only?
               domain.downcase

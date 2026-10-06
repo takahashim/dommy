@@ -217,7 +217,6 @@ if JsSurface.available?
       "arity_gaps" => "the WebIDL length of an operation",
       "constructor_arity_gaps" => "the WebIDL length of a constructor",
       "iteration_gaps" => "which collections are iterable<>",
-      "null_to_empty_gaps" => "which setters turn null into the empty string",
       "unforgeable_gaps" => "which members are pinned to the instance",
       "unscopable_gaps" => "which members `with` must not bind",
       "named_property_gaps" => "how named properties behave",
@@ -233,6 +232,15 @@ if JsSurface.available?
             "#{member}: #{subject} changed; re-record with RECORD_WEBIDL_GAPS=1"
         end
       end
+    end
+
+    # The string conversions the bridge makes are generated from this fixture,
+    # so the two must not drift: a refreshed interfaces.json needs a
+    # regenerated webidl_signatures.js.
+    def test_the_string_conversion_table_is_generated_from_this_fixture
+      require_relative "../script/build_webidl_signatures"
+      assert_equal WebIdlSignatures.render, File.read(WebIdlSignatures::OUTPUT),
+        "lib/dommy/js/webidl_signatures.js is stale; re-run ruby script/build_webidl_signatures.rb"
     end
 
     def test_missing_members_match_the_recorded_inventory

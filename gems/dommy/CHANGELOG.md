@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Every string a script hands an operation, a constructor, a static operation or an attribute setter is converted as WebIDL declares it — DOMString, USVString or ByteString, nullable, `[LegacyNullToEmptyString]`, optional, variadic — in one place, before it reaches Ruby. The conversions are generated from the specs' own IDL into `lib/dommy/js/webidl_signatures.js` (`rake webidl:signatures`), replacing the hand-kept lists of null-to-empty setters and DOMString arguments. So `el.title = {toString() { return "t" }}` is `"t"` instead of a Ruby inspect string, `new URL("y", location)` resolves against the location, `params.set(obj, obj)` and `headers.set(obj, obj)` call `toString`, `el.id = Symbol()` and `params.append(Symbol(), "v")` throw `TypeError`, `el.id = null` is `"null"`, `new Headers().append("x", "\u0100")` throws `TypeError`, and a toString that throws stops the operation before it does anything.
+
+- A call with fewer arguments than the IDL requires throws `TypeError` (`URL.parse()`, `params.append("x")`, `el.setAttribute("a")`, `document.createElement()`), checked by the same generated table, and `URL.parse.length` and the other static operations' `length` are the IDL's.
+- An operation or attribute on an interface prototype checks its receiver: `URL.prototype.href` or `URL.prototype.toJSON.call({})` throws `TypeError` instead of calling the host with no object.
+
+### Fixed
+
+- `URL.prototype` has `href`, `toJSON` and the URL's other members, and `URLSearchParams.prototype` has `append`, `get`, `size` and the rest, so `"append" in URLSearchParams.prototype` is true and `URLSearchParams.prototype.append.call(params, …)` works.
+- URLSearchParams, FormData and Headers are WebIDL pair iterables: `@@iterator` is the `entries` function itself, their iterators inherit from `%IteratorPrototype%` (so iterator helpers work) and are `[object URLSearchParams Iterator]`, and `forEach` passes its `thisArg` and throws `TypeError` for a non-callable callback.
+- `URL.createObjectURL` returns `blob:<origin>/<uuid>`, so `new URL(URL.createObjectURL(blob)).origin` is the page's origin rather than `"null"`, and throws `TypeError` for something that is not a Blob.
+- A URLSearchParams has no `length`, and `"length" in el` is false for an object that has none; `window.length` is the number of child frames.
+- An empty-string base is a base that fails to parse, not a missing one: `new URL("about:blank", "")` throws, and `URL.parse(url, "")` is null.
+- `new URLSearchParams(init)` converts its argument as WebIDL's union of a sequence of sequences, a record and a string. An object whose `@@iterator` is undefined or null is a record — a function too, so `new URLSearchParams(DOMException)` reads its constants instead of stringifying the object — and a record key keeps a NUL (`{"a\0b": 1}` is the name `"a\0b"`, not `"a"`). A symbol record key, a non-callable `@@iterator` and a sequence element that is not an iterable object throw `TypeError`, and `null` or a number is the string it converts to (`new URLSearchParams(null)` is `"null="`).
+- `DOMException.prototype` has `name`, `message` and `code` getters, and like every other prototype getter for a readonly attribute (`URL.prototype.origin`, `HTMLTemplateElement.prototype.content`, …) they throw `TypeError` on a receiver that does not implement the interface, instead of reading nothing from the host.
+
 ## 0.15.0 — 2026-10-04
 
 ### Added
