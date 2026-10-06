@@ -23,7 +23,7 @@ class TestHTMLAnchorElement < Minitest::Test
     assert_equal("/path", @a.pathname)
     assert_equal("https:", @a.protocol)
     assert_equal("?q=1", @a.search)
-    assert_equal("#section", @a.hash)
+    assert_equal("#section", @a.url_hash)
     assert_equal("8080", @a.port)
     assert_equal("https://example.com:8080", @a.origin)
   end

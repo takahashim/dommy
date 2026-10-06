@@ -101,11 +101,14 @@ module Dommy
       change_url { |url| url.search = value }
     end
 
-    def hash
+    # The IDL `hash` (the URL's fragment, with its "#"). Named url_hash in
+    # Ruby because `hash` is Object#hash, which Hash keys, Set, `uniq` and
+    # `eql?`-based lookups rely on returning an Integer; JS still sees `hash`.
+    def url_hash
       hyperlink_url&.hash.to_s
     end
 
-    def hash=(value)
+    def url_hash=(value)
       change_url { |url| url.hash = value }
     end
 
@@ -121,7 +124,7 @@ module Dommy
       when "port" then port
       when "pathname" then pathname
       when "search" then search
-      when "hash" then self.hash
+      when "hash" then url_hash
       else super
       end
     end
@@ -137,7 +140,7 @@ module Dommy
       when "port" then self.port = value
       when "pathname" then self.pathname = value
       when "search" then self.search = value
-      when "hash" then self.hash = value
+      when "hash" then self.url_hash = value
       else super
       end
     end

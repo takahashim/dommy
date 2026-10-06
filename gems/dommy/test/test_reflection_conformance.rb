@@ -49,4 +49,22 @@ class TestReflectionConformance < Minitest::Test
       assert_same element.blocking, element.blocking
     end
   end
+
+  # HyperlinkElementUtils' `hash` is url_hash in Ruby, leaving Object#hash
+  # alone so anchors work as Hash keys and with uniq.
+  def test_hyperlink_hash_does_not_shadow_object_hash
+    a = el("a")
+    a.href = "https://example.test/p#frag"
+    b = el("a")
+    b.href = "https://example.test/p#frag"
+    assert_equal "#frag", a.url_hash
+    assert_kind_of Integer, a.hash
+    assert_equal 2, [a, b, a].uniq.size
+    assert_equal 1, { a => 1 }[a]
+    a.url_hash = "other"
+    assert_equal "https://example.test/p#other", a.get_attribute("href")
+    assert_equal "#other", a.__js_get__("hash")
+    a.__js_set__("hash", "x")
+    assert_equal "#x", el("area").tap { |e| e.href = a.href }.url_hash
+  end
 end
