@@ -110,6 +110,8 @@ module Dommy
         "CompositionEvent" => Bridge::Constructor.new { |args| CompositionEvent.new(args[0], args[1]) },
         "WheelEvent" => Bridge::Constructor.new { |args| WheelEvent.new(args[0], args[1]) },
         "FocusEvent" => Bridge::Constructor.new { |args| FocusEvent.new(args[0], args[1]) },
+        "ToggleEvent" => Bridge::Constructor.new { |args| ToggleEvent.new(args[0], args[1]) },
+        "CommandEvent" => Bridge::Constructor.new { |args| CommandEvent.new(args[0], args[1]) },
         "BeforeUnloadEvent" => Bridge::Constructor.new { |args| BeforeUnloadEvent.new(args[0] || "beforeunload", args[1]) },
         "StorageEvent" => Bridge::Constructor.new { |args| StorageEvent.new(args[0], args[1]) },
         "TextEvent" => Bridge::Constructor.new { |args| TextEvent.new(args[0], args[1]) },

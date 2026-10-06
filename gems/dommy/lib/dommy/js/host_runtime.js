@@ -1248,12 +1248,22 @@ globalThis.__rbHost = (function () {
   // constructor by interface name; null means "not constructable" so we throw.
   // WebIDL dictionary members for the constructors that take an init dictionary,
   // in the order the spec reads them (inherited members first, then own, each
-  // group lexicographic). "boolean" members are coerced with JS ToBoolean; "any"
-  // is passed through. Only interfaces with a COMPLETE member list belong here —
+  // group lexicographic). "boolean" members are coerced with JS ToBoolean,
+  // "DOMString" ones with ToString (a throwing toString propagates); "any" is
+  // passed through. Only interfaces with a COMPLETE member list belong here —
   // a partial list would silently drop members.
   const CONSTRUCTOR_DICTS = {
     Event: { bubbles: "boolean", cancelable: "boolean", composed: "boolean" },
     CustomEvent: { bubbles: "boolean", cancelable: "boolean", composed: "boolean", detail: "any" },
+    // `source` is an `Element?`, which Ruby checks.
+    ToggleEvent: {
+      bubbles: "boolean", cancelable: "boolean", composed: "boolean",
+      newState: "DOMString", oldState: "DOMString", source: "any",
+    },
+    CommandEvent: {
+      bubbles: "boolean", cancelable: "boolean", composed: "boolean",
+      command: "DOMString", source: "any",
+    },
   };
 
   // WebIDL argument coercion for a constructor that takes `(DOMString type,
@@ -1420,7 +1430,8 @@ globalThis.__rbHost = (function () {
       for (const member in members) {
         const value = init[member];
         if (value === undefined) continue;
-        dict[member] = members[member] === "boolean" ? !!value : value;
+        const kind = members[member];
+        dict[member] = kind === "boolean" ? !!value : kind === "DOMString" ? String(value) : value;
       }
     }
     return [type, dict];

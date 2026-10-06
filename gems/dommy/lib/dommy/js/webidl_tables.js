@@ -537,7 +537,7 @@ globalThis.__rbIdl = (function () {
   // default 0 and is absent here (Blob, FormData, Document, CustomElementRegistry,
   // the HTML element interfaces, …).
   const CONSTRUCTOR_ARITY = {
-    BroadcastChannel: 1, ByteLengthQueuingStrategy: 1, CompositionEvent: 1,
+    BroadcastChannel: 1, ByteLengthQueuingStrategy: 1, CommandEvent: 1, CompositionEvent: 1,
     CountQueuingStrategy: 1, CustomEvent: 1, DeviceMotionEvent: 1,
     DeviceOrientationEvent: 1, DragEvent: 1, ErrorEvent: 1, Event: 1,
     EventSource: 1, File: 2, FocusEvent: 1, FormDataEvent: 2, HashChangeEvent: 1, InputEvent: 1,

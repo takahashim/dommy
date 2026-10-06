@@ -13,7 +13,6 @@
     "CanvasPattern",
     "CaretPosition",
     "CloseWatcher",
-    "CommandEvent",
     "CustomStateSet",
     "DOMStringList",
     "ElementInternals",
@@ -787,9 +786,6 @@
       "convertRectFromNode",
       "getBoxQuads",
       "wholeText"
-    ],
-    "ToggleEvent": [
-      "source"
     ],
     "UIEvent": [
       "which"
