@@ -25,7 +25,6 @@
     "ImageBitmapRenderingContext",
     "MediaError",
     "MimeType",
-    "MimeTypeArray",
     "NavigateEvent",
     "Navigation",
     "NavigationActivation",
@@ -42,7 +41,6 @@
     "PageSwapEvent",
     "Path2D",
     "Plugin",
-    "PluginArray",
     "Sanitizer",
     "SharedWorker",
     "TextTrack",
@@ -716,21 +714,9 @@
       "onmessageerror"
     ],
     "Navigator": [
-      "appCodeName",
-      "appName",
-      "appVersion",
-      "javaEnabled",
-      "mimeTypes",
-      "oscpu",
-      "pdfViewerEnabled",
-      "plugins",
-      "product",
-      "productSub",
       "registerProtocolHandler",
-      "taintEnabled",
       "unregisterProtocolHandler",
-      "userActivation",
-      "vendorSub"
+      "userActivation"
     ],
     "PageTransitionEvent": [
       "persisted"
@@ -913,6 +899,7 @@
     "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined",
     "External.AddSearchProvider": "returns undefined, which the bridge does not guarantee",
     "External.IsSearchProviderInstalled": "returns undefined, which the bridge does not guarantee",
+    "PluginArray.refresh": "returns undefined, which the bridge does not guarantee",
     "Window.captureEvents": "returns undefined, which the bridge does not guarantee",
     "Window.close": "returns undefined, which the bridge does not guarantee",
     "Window.moveBy": "returns undefined, which the bridge does not guarantee",
@@ -928,6 +915,8 @@
   "unscopable_gaps": {},
   "named_property_gaps": {
     "Document": "has a named getter and is not declared",
+    "MimeTypeArray": "has a named getter and is not declared",
+    "PluginArray": "has a named getter and is not declared",
     "Window": "has a named getter and is not declared",
     "XMLDocument": "has a named getter and is not declared"
   },
