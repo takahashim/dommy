@@ -1005,7 +1005,7 @@ module Dommy
     # Drop any explicit ARIA element reference (singular or plural) whose content
     # attribute was just set directly (so the IDL getter re-resolves the IDREF).
     def clear_aria_element_ref_for(content_attr)
-      @aria_element_refs&.delete_if { |key, _| aria_element_attr(key) == content_attr }
+      @aria_element_refs&.delete_if { |key, _| key == content_attr || aria_element_attr(key) == content_attr }
       @aria_elements_refs&.delete_if { |key, _| aria_elements_attr(key) == content_attr }
     end
 
@@ -1543,7 +1543,7 @@ module Dommy
     def attribute_change_steps(local_name, namespace)
       return unless namespace.nil?
 
-      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-")
+      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-") || @aria_element_refs&.key?(local_name)
       @cryptographic_nonce = nil if local_name == "nonce"
     end
 

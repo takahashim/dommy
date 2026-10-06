@@ -314,10 +314,15 @@ module Dommy
 
   # `<input>` — covers the most-used form control surface.
 
-  # `<button>` — type defaults to "submit" per spec.
+  # `<button>`: a submit button by default, a plain button when it has a
+  # `command` or `commandfor` (HTML's Auto state), and an invoker — of the
+  # element its `commandfor` names, through a CommandEvent and the built-in
+  # popover and dialog commands, or of its `popovertarget` popover.
   class HTMLButtonElement < HTMLElement
     include SubmitButtonActivation
-    reflect_setter :type
+    include Internal::PopoverInvokerElement
+    reflect_setter :type, :command
+    reflect_element command_for_element: "commandfor"
     reflect_string :name, :value, form_target: "formtarget"
     reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
                        form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
@@ -326,23 +331,73 @@ module Dommy
     reflect_setter form_action: "formaction"
     def form_action = submission_url("formaction")
 
+    # The `command` keywords other than a custom one ("--" and anything).
+    COMMAND_KEYWORDS = %w[toggle-popover show-popover hide-popover close request-close show-modal].freeze
+    POPOVER_COMMANDS = %w[toggle-popover show-popover hide-popover].freeze
+
+    # The type attribute's state: "submit", "reset", "button", or "auto"
+    # for a missing or invalid value.
+    def type_state
+      raw = __internal_attribute_value__("type")&.downcase(:ascii)
+      %w[submit reset button].include?(raw) ? raw : "auto"
+    end
+
+    # HTML "submit button": the Submit Button state, or the Auto state with
+    # neither command nor commandfor, outside a select.
+    def __internal_submit_button_state__?
+      state = type_state
+      return true if state == "submit"
+
+      state == "auto" && !__internal_has_attribute__?("command") && !__internal_has_attribute__?("commandfor") &&
+        !parent_node.is_a?(HTMLSelectElement)
+    end
+
+    # `type`: "submit" for a submit button, "button" for the Auto state that
+    # is not one, else the keyword.
     def type
-      raw = __internal_attribute_value__("type").to_s.downcase
-      %w[submit reset button].include?(raw) ? raw : "submit"
+      return "submit" if __internal_submit_button_state__?
+
+      state = type_state
+      state == "auto" ? "button" : state
     end
 
-    def __internal_submit_button__? = type == "submit" && !disabled
+    def __internal_submit_button__? = __internal_submit_button_state__? && !disabled
 
-    # A reset button has activation behavior of its own, on top of the
-    # submit-button behavior inherited from SubmitButtonActivation.
-    def activation_target?
-      super || (type == "reset" && !disabled)
+    def __internal_popover_invoker_button__? = true
+
+    # `command`: the command attribute's keyword (lowercased) or custom
+    # command ("--" and anything, as written); "" in the Unknown state.
+    def command
+      raw = __internal_attribute_value__("command")
+      return "" if raw.nil?
+      return raw if raw.start_with?("--")
+
+      keyword = raw.downcase(:ascii)
+      COMMAND_KEYWORDS.include?(keyword) ? keyword : ""
     end
 
+    # A button always has activation behavior.
+    def activation_target? = true
+
+    # HTML's button activation behavior: a disabled button does nothing; one
+    # with a form owner submits it (a submit button), resets it (a reset
+    # button) or, in the Auto state, does nothing more; otherwise the button
+    # invokes its commandfor target, or else its popovertarget popover.
     def activation_behavior(event)
-      return super if __internal_submit_button__?
+      return if __internal_actually_disabled__
 
-      form&.reset if type == "reset" && !disabled
+      if form
+        return super if __internal_submit_button__?
+        return form.reset if type_state == "reset"
+        return if type_state == "auto"
+      end
+
+      target = command_for_element
+      if target
+        run_command(target)
+      else
+        run_popover_target_activation(event.__js_get__("target"))
+      end
     end
 
     # The form owner: a `form=` attribute pointing at a form (form-associated
@@ -428,6 +483,47 @@ module Dommy
         set_custom_validity(args[0])
       else
         super
+      end
+    end
+
+    private
+
+    # The command and commandfor half of the activation behavior: fire a
+    # cancelable CommandEvent at the target, then run the built-in command —
+    # the popover commands on any HTML element, the dialog ones through the
+    # dialog's command steps. A custom command only fires the event.
+    def run_command(target)
+      command = self.command
+      return unless command_valid_for?(command, target)
+
+      event = CommandEvent.new("command", "command" => command, "source" => self, "cancelable" => true)
+      return unless target.dispatch_event(event.__internal_mark_trusted__)
+      return unless target.is_connected?
+      return if command.start_with?("--")
+
+      if POPOVER_COMMANDS.include?(command)
+        run_popover_command(target, command)
+      elsif target.respond_to?(:__internal_run_command__)
+        target.__internal_run_command__(self, command)
+      end
+    end
+
+    # HTML "determine if a command is valid for a target".
+    def command_valid_for?(command, target)
+      return false if command.empty?
+      return true if command.start_with?("--")
+      return false unless target.is_a?(HTMLElement)
+      return true if POPOVER_COMMANDS.include?(command)
+
+      target.respond_to?(:__internal_valid_command__?) && target.__internal_valid_command__?(command)
+    end
+
+    def run_popover_command(target, command)
+      showing = target.__internal_popover_valid__?(true)
+      if command == "hide-popover" || (command == "toggle-popover" && !target.__internal_popover_valid__?(false))
+        target.__internal_hide_popover__(true, true, false, source: self) if showing
+      elsif target.__internal_popover_valid__?(false)
+        target.__internal_show_popover__(false, self)
       end
     end
   end

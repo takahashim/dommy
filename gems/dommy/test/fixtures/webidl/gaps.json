@@ -364,12 +364,6 @@
       "text",
       "vLink"
     ],
-    "HTMLButtonElement": [
-      "command",
-      "commandForElement",
-      "popoverTargetAction",
-      "popoverTargetElement"
-    ],
     "HTMLCanvasElement": [
       "transferControlToOffscreen"
     ],
@@ -561,8 +555,6 @@
       "colorSpace",
       "dirName",
       "height",
-      "popoverTargetAction",
-      "popoverTargetElement",
       "showPicker",
       "size",
       "src",

@@ -39,6 +39,14 @@ module Dommy
 
     def __internal_submit_button__? = %w[submit image].include?(type) && !disabled
 
+    include Internal::PopoverInvokerElement
+
+    # An input in the Submit Button, Image Button, Reset Button or Button
+    # state is a "button", which can invoke a popover.
+    def __internal_popover_invoker_button__? = %w[submit image reset button].include?(type)
+
+    def __internal_submit_button_state__? = %w[submit image].include?(type)
+
     # Value-mode controls keep a sanitized current value and a separate dirty
     # flag. Attribute writes update pristine controls; IDL writes make them
     # dirty. Default/default-on controls reflect the content attribute instead.
@@ -254,13 +262,26 @@ module Dommy
     # only when connected, so clicking a detached checkbox toggles it silently.
     # Both events are UA-generated, so trusted.
     def activation_behavior(event)
-      return super if __internal_submit_button__?
+      input_activation_behavior
+      # Then the popover target attribute activation behavior, unless a form
+      # owns this control and it is not a plain button.
+      return if form && type != "button"
+      return if __internal_actually_disabled__
+
+      run_popover_target_activation(event.__js_get__("target"))
+    end
+
+    # HTML's "input activation behavior" for the button-like and checkable
+    # states.
+    def input_activation_behavior
+      return form&.__internal_run_form_submission__(self) if __internal_submit_button__?
       return form&.reset if type == "reset" && !disabled
       return unless CHECKABLE_TYPES.include?(type) && is_connected?
 
       dispatch_event(Event.new("input", "bubbles" => true).__internal_mark_trusted__)
       dispatch_event(Event.new("change", "bubbles" => true).__internal_mark_trusted__)
     end
+    private :input_activation_behavior
 
     # HTML reset algorithm: drop the dirty value and dirty checkedness flags, so
     # `value` / `checked` fall back to the `value` / `checked` content attributes.
