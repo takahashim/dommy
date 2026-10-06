@@ -362,7 +362,11 @@ module Capybara
         srcdoc = iframe_element.get_attribute("srcdoc")
         return nil if srcdoc.nil?
 
-        return iframe_element.content_document if iframe_element.respond_to?(:content_document) && iframe_element.content_document
+        # The frame's own srcdoc document once its (asynchronous) navigation
+        # has happened; until then, the one that navigation will show.
+        current = iframe_element.content_document if iframe_element.respond_to?(:content_document)
+        return current if current && current.url == "about:srcdoc"
+        return iframe_element.__internal_build_blank_content_document__ if iframe_element.respond_to?(:__internal_build_blank_content_document__)
 
         Dommy.parse(srcdoc).document
       end

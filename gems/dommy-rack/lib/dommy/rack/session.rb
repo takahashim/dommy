@@ -32,6 +32,15 @@ module Dommy
 
       # `window.stop()`: drop the page's navigation not yet performed.
       def stop = @session.__internal_stop_page_navigation__(@window)
+
+      # An iframe's child navigable navigating to `url` (its `src`, or a
+      # navigation from inside it): with `load_frames: true` the session
+      # fetches it from the app and answers the document's Window; otherwise
+      # nil, and the frame keeps its document (#within_frame fetches on
+      # demand instead).
+      def load_frame(frame, url:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, **)
+        @session.__internal_load_frame__(url: url, method: method, body: body, params: params, enctype: enctype, headers: headers)
+      end
     end
 
     # A single browser-like session over a Rack application. Owns the current
@@ -90,8 +99,14 @@ module Dommy
                      trace: false,
                      trace_level: :verbose,
                      trace_dom: false,
-                     trace_snapshots: false)
+                     trace_snapshots: false,
+                     load_frames: false)
         @app = app
+        # Navigate iframes from their `src` the way a browser does (a request
+        # to the app per frame, from a task before the page's load event).
+        # Off by default: a page's frames are left at their initial
+        # about:blank, and #within_frame fetches a frame when asked.
+        @load_frames = load_frames
         # Fail on anything the page's JavaScript left unhandled, at the next
         # checkpoint. Off by default so an embedding browser (which only reads
         # `js_errors`) is unaffected; a test front end turns it on.
@@ -574,6 +589,28 @@ module Dommy
 
       def fetch(url, method: "GET", headers: {}, body: nil, params: nil, redirect: :follow)
         @navigation.fetch(url, method: method, params: params, body: body, headers: headers, redirect: redirect)
+      end
+
+      # Whether the session loads iframes from their `src` (see `load_frames:`).
+      def load_frames? = @load_frames == true
+
+      # Internal: fetch a frame navigation (`load_frames: true`) and build the
+      # Window of its document — an empty, opaque-origin error page when the
+      # request failed. nil when the session does not load frames.
+      def __internal_load_frame__(url:, method: "GET", body: nil, params: nil, enctype: nil, headers: {})
+        return nil unless load_frames?
+
+        response = begin
+          @navigation.fetch(url, method: method, params: params, body: body, enctype: enctype,
+                                 headers: headers.merge(referer_headers))
+        rescue Error
+          nil
+        end
+        return Dommy::Internal::ChildNavigable.error_window(url) unless response
+
+        window = Dommy::Internal::ChildNavigable.window_for_response(response.body, response.headers.find { |k, _| k.to_s.casecmp?("content-type") }&.last, response.url || url)
+        window.approximate_layout = true if @approximate_layout
+        window
       end
 
       # --- Current page state ---
