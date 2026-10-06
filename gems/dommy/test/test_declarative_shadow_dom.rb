@@ -160,6 +160,19 @@ class TestShadowRootSerialization < Minitest::Test
     assert_equal '<button is="other"></button>', attributed.outer_html
   end
 
+  # getHTML is the HTML serialization even in an XML document.
+  def test_get_html_in_an_xml_document
+    xml = @doc.implementation.create_document("http://www.w3.org/1999/xhtml", "html", nil)
+    div = xml.create_element_ns("http://www.w3.org/1999/xhtml", "div")
+    xml.document_element.append_child(div)
+    div.attach_shadow({"mode" => "open", "serializable" => true}).append_child(xml.create_element_ns("http://www.w3.org/1999/xhtml", "br"))
+    div.append_child(xml.create_text_node("a<b"))
+    div.append_child(xml.create_comment("c"))
+    assert_equal '<div><template shadowrootmode="open" shadowrootserializable=""><br></template>a&lt;b<!--c--></div>',
+                 xml.document_element.get_html({"serializableShadowRoots" => true})
+    assert_equal '<br xmlns="http://www.w3.org/1999/xhtml" />', div.__internal_shadow_root__.inner_html
+  end
+
   def test_void_element_get_html_is_empty
     br = @doc.create_element("br")
     assert_equal "", br.get_html({"serializableShadowRoots" => true})

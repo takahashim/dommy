@@ -67,9 +67,17 @@ module Dommy
         @shadows = (@serializable_shadow_roots || !shadow_roots.empty?) && document.__internal_any_shadow_roots__?
         @is_values = document.__internal_any_is_values__?
         @special = nil
+        # An XML-backed document's nodes the backend cannot HTML-serialize:
+        # getHTML() there writes every node by hand.
+        @by_hand = !Backend.html_backed?(document.backend_doc)
       end
 
       def children_of(node)
+        if @by_hand
+          out = +""
+          write_children(backend(node), out)
+          return out
+        end
         return fast_children(node) unless @shadows || @is_values
 
         node_bn = backend(node)
@@ -132,7 +140,7 @@ module Dommy
         node_bn.children.to_a
       end
 
-      def special?(node_bn) = @special.key?(Backend.identity_key(node_bn))
+      def special?(node_bn) = @by_hand || @special.key?(Backend.identity_key(node_bn))
 
       # Mark `node_bn` and every node in its subtree (template contents and
       # serialized shadow trees included) that is, or holds, a node the
@@ -184,7 +192,7 @@ module Dommy
           write_shadow_root(shadow, out)
         end
         child_nodes(node_bn).each do |child|
-          if child.element? && special?(child)
+          if special?(child)
             write_node(child, out)
           else
             out << child.to_html
@@ -193,7 +201,8 @@ module Dommy
       end
 
       def write_node(node_bn, out)
-        return out << node_bn.to_html unless node_bn.element? && special?(node_bn)
+        return write_leaf(node_bn, out) unless node_bn.element?
+        return out << node_bn.to_html unless special?(node_bn)
 
         tag = tag_name(node_bn)
         out << "<" << tag
@@ -209,6 +218,27 @@ module Dommy
 
         write_children(node_bn, out)
         out << "</" << tag << ">"
+      end
+
+      # Raw text parents: their Text children are written as they are.
+      RAW_TEXT = %w[style script xmp iframe noembed noframes plaintext].to_h { |name| [name, true] }.freeze
+
+      # A node other than an element: the backend's serialization, or — by
+      # hand — the algorithm's own for Text, Comment, ProcessingInstruction
+      # and DocumentType.
+      def write_leaf(node_bn, out)
+        return out << node_bn.to_html unless @by_hand
+
+        case node_bn
+        when Backend.text_class
+          parent = node_bn.parent
+          raw = parent&.element? && RAW_TEXT.key?(parent.local_name) && Backend.namespace_uri(parent) == Namespaces::HTML
+          out << (raw ? node_bn.content : escape(node_bn.content))
+        when Backend.comment_class then out << "<!--" << node_bn.content << "-->"
+        when Backend.processing_instruction_class then out << "<?" << node_bn.name << " " << node_bn.content << "?>"
+        when Backend.document_type_class then out << "<!DOCTYPE " << node_bn.name << ">"
+        end
+        out
       end
 
       def write_shadow_root(shadow, out)
