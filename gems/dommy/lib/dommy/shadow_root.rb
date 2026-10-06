@@ -20,6 +20,27 @@ module Dommy
 
     attr_reader :host, :mode, :delegates_focus, :slot_assignment, :document
 
+    # DOM "clonable" and "serializable": whether cloning the host clones this
+    # shadow root, and whether getHTML({serializableShadowRoots: true})
+    # serializes it.
+    attr_reader :clonable, :serializable
+    alias clonable? clonable
+    alias serializable? serializable
+
+    # DOM "declarative": made by the HTML parser from a
+    # `<template shadowrootmode>`; attachShadow() on the host empties such a
+    # root (of the same mode) and turns it imperative instead of throwing.
+    attr_writer :__internal_declarative__
+
+    def __internal_declarative__? = @__internal_declarative__ ? true : false
+
+    # DOM "keep custom element registry null": a declarative shadow root
+    # parsed with `shadowrootcustomelementregistry` keeps its null registry
+    # when its host is adopted into another document.
+    attr_writer :__internal_keep_registry_null__
+
+    def __internal_keep_registry_null__? = @__internal_keep_registry_null__ ? true : false
+
     # HTML "available to element internals": attached to a custom element
     # that was being, or had been, constructed.
     attr_writer :__internal_available_to_internals__
@@ -40,16 +61,25 @@ module Dommy
     # DOM adopt step 3.2.1: a null or global registry becomes the new
     # document's effective global one (what an unset one stands for).
     def __internal_adopt_registry__
+      return if @__registry_set && @__registry.nil? && __internal_keep_registry_null__?
+
       @__registry_set = false unless @__registry&.scoped?
     end
 
+    # Whether the shadow root's registry was set to something other than its
+    # document's (an explicit, possibly null, one).
+    def __internal_registry_set__? = @__registry_set ? true : false
+
     def __dommy_backend_node__ = @__node__
 
-    def initialize(host, mode:, delegates_focus: false, slot_assignment: "named")
+    def initialize(host, mode:, delegates_focus: false, slot_assignment: "named", clonable: false, serializable: false)
       @host = host
       @mode = mode.to_s
       @delegates_focus = !!delegates_focus
       @slot_assignment = slot_assignment.to_s
+      @clonable = clonable ? true : false
+      @serializable = serializable ? true : false
+      @__internal_declarative__ = false
       @document = host.document
       @__node__ = Parser.fragment("", owner_doc: @document.backend_doc)
       @document.__internal_register_shadow_fragment__(@__node__, self)
@@ -259,6 +289,10 @@ module Dommy
         @delegates_focus
       when "slotAssignment"
         @slot_assignment
+      when "clonable"
+        @clonable
+      when "serializable"
+        @serializable
       when "customElementRegistry"
         __internal_custom_element_registry__
       when "activeElement"

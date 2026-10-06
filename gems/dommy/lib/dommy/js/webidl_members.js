@@ -151,7 +151,7 @@ globalThis.__rbIdlMembers = {
   "Response": {"m": ["arrayBuffer","blob","clone","formData","text"], "g": ["body","bodyUsed","headers","ok","redirected","status","statusText","type","url"]},
   "Screen": {"g": ["availHeight","availWidth","colorDepth","height","pixelDepth","width"]},
   "Selection": {"m": ["addRange","collapse","collapseToEnd","collapseToStart","containsNode","deleteFromDocument","empty","extend","getComposedRanges","getRangeAt","removeAllRanges","removeRange","selectAllChildren","setBaseAndExtent","setPosition","toString"], "g": ["anchorNode","anchorOffset","direction","focusNode","focusOffset","isCollapsed","rangeCount","type"]},
-  "ShadowRoot": {"g": ["activeElement","customElementRegistry","delegatesFocus","host","mode","slotAssignment","styleSheets"], "p": ["innerHTML","onslotchange"]},
+  "ShadowRoot": {"g": ["activeElement","clonable","customElementRegistry","delegatesFocus","host","mode","serializable","slotAssignment","styleSheets"], "p": ["innerHTML","onslotchange"]},
   "Storage": {"m": ["clear","getItem","key","removeItem","setItem"], "g": ["length"]},
   "StorageEvent": {"m": ["initStorageEvent"], "g": ["key","newValue","oldValue","storageArea","url"]},
   "StyleSheet": {"g": ["href","ownerNode","parentStyleSheet","title","type"], "p": ["disabled","media"]},

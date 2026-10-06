@@ -74,7 +74,7 @@ class TestInternalModuleApi < Minitest::Test
       get_bounding_client_rect get_client_rects __test_scroll_log__
       __internal_approx_box approximate_layout?
     ],
-    Dommy::Internal::ElementShadow => %w[slot slot= assigned_slot attach_shadow shadow_root __internal_shadow_root__],
+    Dommy::Internal::ElementShadow => %w[slot slot= assigned_slot attach_shadow shadow_root __internal_shadow_root__ __internal_attach_shadow_root__],
     Dommy::Internal::ElementNonce => %w[nonce nonce= __internal_cloning_state__ __internal_apply_cloning_state__],
     Dommy::Internal::ElementCSSInlineStyle => %w[style style=],
     Dommy::Internal::SVGURIReference => %w[href href=],

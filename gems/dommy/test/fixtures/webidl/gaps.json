@@ -304,10 +304,8 @@
     ],
     "ShadowRoot": [
       "adoptedStyleSheets",
-      "clonable",
       "fullscreenElement",
       "getHTML",
-      "serializable",
       "setHTML",
       "setHTMLUnsafe"
     ],
