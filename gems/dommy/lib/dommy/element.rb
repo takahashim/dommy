@@ -1101,7 +1101,7 @@ module Dommy
       getAttributeNS setAttributeNS hasAttributeNS removeAttributeNS getAttributeNodeNS setAttributeNodeNS
       querySelector querySelectorAll getElementsByClassName getElementsByTagName getElementsByTagNameNS
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches webkitMatchesSelector
-      toString getAttributeNode setAttributeNode removeAttributeNode attachShadow
+      getAttributeNode setAttributeNode removeAttributeNode attachShadow
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
       replaceChild cloneNode append prepend replaceChildren moveBefore before after getInnerHTML getHTML
       remove replaceWith getBoundingClientRect getClientRects scrollIntoView scroll
@@ -1190,8 +1190,6 @@ module Dommy
         is_default_namespace(args[0])
       when "contains"
         contains?(args[0])
-      when "toString"
-        to_s
       when "getAttributeNode"
         get_attribute_node(args[0])
       when "setAttributeNode"

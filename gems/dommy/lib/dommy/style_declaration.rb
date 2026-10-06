@@ -80,6 +80,13 @@ module Dommy
       property_accessor?(name) || super
     end
 
+    # The names every JS object inherits from Object.prototype, which a
+    # declaration must not answer as (empty) CSS properties.
+    OBJECT_PROTOTYPE_NAMES = %w[
+      constructor toString toLocaleString valueOf hasOwnProperty isPrototypeOf propertyIsEnumerable
+      __proto__ __defineGetter__ __defineSetter__ __lookupGetter__ __lookupSetter__
+    ].freeze
+
     def __js_get__(key)
       case key
       when "cssText"
@@ -89,6 +96,10 @@ module Dommy
       else
         if key.is_a?(Integer) || key.to_s.match?(/\A-?\d+\z/)
           self[key.to_i]
+        elsif OBJECT_PROTOTYPE_NAMES.include?(key)
+          # Not a CSS property: the object's own toString/valueOf/… are
+          # Object.prototype's (the declaration has no stringifier).
+          Bridge::ABSENT
         else
           # An unset CSS property reads as "" (per CSSStyleDeclaration), not nil —
           # `el.style.display` is "" until assigned, which `v-show` and other

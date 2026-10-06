@@ -2350,7 +2350,11 @@ globalThis.__rbHost = (function () {
     const name = chain[i];
     const cached = protos.get(name);
     if (cached) return cached;
-    const parent = (i + 1 < chain.length) ? protoForChain(chain, i + 1) : Object.prototype;
+    // WebIDL §3.14.1: the DOMException prototype object's [[Prototype]] is
+    // %Error.prototype% (so `e instanceof Error`, and String(e) is Error's
+    // "name: message"); every other root interface's is %Object.prototype%.
+    const root = name === "DOMException" ? Error.prototype : Object.prototype;
+    const parent = (i + 1 < chain.length) ? protoForChain(chain, i + 1) : root;
     const proto = Object.create(parent);
     Object.defineProperty(proto, Symbol.toStringTag, { value: name, configurable: true });
     // Only node/element constructors adopt an element being upgraded. Otherwise
