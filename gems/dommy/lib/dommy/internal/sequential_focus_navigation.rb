@@ -124,9 +124,12 @@ module Dommy
             slot = child.respond_to?(:assigned_slot) ? child.assigned_slot : nil
             collect(child, slot, scopes) if slot
           end
-        elsif slot?(element) && in_shadow_tree?(element) && !element.assigned_nodes.to_a.empty?
-          # Fallback content is not rendered while the slot has assigned nodes.
-          nil
+        elsif slot?(element) && in_shadow_tree?(element)
+          # Fallback content is not rendered while the slot has assigned
+          # nodes; otherwise it is the slot's scope. (HTML's owner algorithm
+          # would file it under the slot's own owner; browsers and WPT's
+          # shadow-dom/focus-navigation tests navigate it as the slot's.)
+          element.children.to_a.each { |child| collect(child, element, scopes) } if element.assigned_nodes.to_a.empty?
         else
           element.children.to_a.each { |child| collect(child, owner, scopes) }
         end

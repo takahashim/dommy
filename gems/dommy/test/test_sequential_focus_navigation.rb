@@ -124,4 +124,33 @@ class TestSequentialFocusNavigation < Minitest::Test
     el("b").focus
     assert el("b").matches?(":focus-visible"), "script focus after a key press is"
   end
+
+  def test_slot_fallback_is_the_slots_scope_and_a_slot_is_never_focused
+    setup_page('<button id="before">b</button><div id="host"></div><button id="after">a</button>')
+    root = el("host").attach_shadow("mode" => "open")
+    root.inner_html = '<button id="j2" tabindex="2">j2</button>' \
+                      '<slot tabindex="0"><button id="k1" tabindex="1">k1</button><button id="k0">k0</button></slot>'
+    ids = 5.times.map do
+      tab
+      @doc.__internal_focused_element__.id
+    end
+    assert_equal %w[before j2 k1 k0 after], ids
+  end
+
+  def test_the_ua_style_sheet_applies_in_shadow_trees
+    setup_page('<div id="host"></div>')
+    root = el("host").attach_shadow("mode" => "open")
+    root.inner_html = "<slot></slot><dialog></dialog><p>x</p>"
+    display = ->(tag) { Dommy::Internal::CSS::Cascade.computed_style(root.query_selector(tag))["display"] }
+    assert_equal %w[contents none block], %w[slot dialog p].map(&display)
+  end
+
+  def test_enter_activates_a_focused_button
+    setup_page('<button id="b">b</button>')
+    clicks = []
+    el("b").add_event_listener("click", ->(e) { clicks << e.__js_get__("isTrusted") })
+    el("b").focus
+    sender.dispatch(el("b"), :enter)
+    assert_equal [true], clicks
+  end
 end
