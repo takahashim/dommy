@@ -128,9 +128,6 @@
       "getName",
       "initialize"
     ],
-    "DOMTokenList": [
-      "supports"
-    ],
     "DataTransfer": [
       "setDragImage"
     ],
@@ -325,7 +322,6 @@
       "charset",
       "coords",
       "name",
-      "referrerPolicy",
       "rev",
       "shape",
       "text"
@@ -333,7 +329,6 @@
     "HTMLAreaElement": [
       "hreflang",
       "noHref",
-      "referrerPolicy",
       "type"
     ],
     "HTMLBRElement": [
@@ -485,8 +480,7 @@
       "validationMessage"
     ],
     "HTMLFormElement": [
-      "encoding",
-      "rel"
+      "encoding"
     ],
     "HTMLFrameElement": [
       "contentDocument",
@@ -546,13 +540,9 @@
     ],
     "HTMLImageElement": [
       "controls",
-      "decode",
-      "fetchPriority",
       "hspace",
       "lowsrc",
-      "vspace",
-      "x",
-      "y"
+      "vspace"
     ],
     "HTMLInputElement": [
       "accept",
@@ -570,17 +560,12 @@
       "useMap",
       "width"
     ],
-    "HTMLLIElement": [
-      "type"
-    ],
     "HTMLLegendElement": [
       "align",
       "form"
     ],
     "HTMLLinkElement": [
-      "blocking",
       "charset",
-      "fetchPriority",
       "imageSizes",
       "imageSrcset",
       "rev",
@@ -593,7 +578,6 @@
       "error",
       "fastSeek",
       "getStartDate",
-      "loading",
       "played",
       "preservesPitch",
       "seekable",
@@ -628,17 +612,11 @@
       "width"
     ],
     "HTMLScriptElement": [
-      "blocking",
       "charset",
-      "crossOrigin",
-      "event",
-      "fetchPriority"
+      "event"
     ],
     "HTMLSelectElement": [
       "showPicker"
-    ],
-    "HTMLStyleElement": [
-      "blocking"
     ],
     "HTMLTableCaptionElement": [
       "align"
@@ -658,7 +636,6 @@
       "align",
       "ch",
       "chOff",
-      "span",
       "vAlign",
       "width"
     ],
@@ -687,14 +664,6 @@
       "rows",
       "vAlign"
     ],
-    "HTMLTemplateElement": [
-      "shadowRootClonable",
-      "shadowRootCustomElementRegistry",
-      "shadowRootDelegatesFocus",
-      "shadowRootMode",
-      "shadowRootSerializable",
-      "shadowRootSlotAssignment"
-    ],
     "HTMLTextAreaElement": [
       "dirName"
     ],
@@ -705,8 +674,7 @@
       "track"
     ],
     "HTMLUListElement": [
-      "compact",
-      "type"
+      "compact"
     ],
     "ImageData": [
       "pixelFormat"
@@ -937,7 +905,10 @@
   },
   "reflect_gaps": {},
   "invented_reflect_gaps": {
-    "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]"
+    "HTMLCanvasElement.height": "declared ulong though the IDL has no [Reflect]",
+    "HTMLCanvasElement.width": "declared ulong though the IDL has no [Reflect]",
+    "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]",
+    "HTMLProgressElement.max": "declared double though the IDL has no [Reflect]"
   },
   "void_gaps": {
     "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined"

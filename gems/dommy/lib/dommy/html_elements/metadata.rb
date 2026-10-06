@@ -8,8 +8,11 @@ module Dommy
   class HTMLScriptElement < HTMLElement
     reflect_url :src
     reflect_string :type, :integrity, html_for: { attr: "for", js: "htmlFor" }
-    reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
+    reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy"),
+                       crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin"),
+                       fetch_priority: Internal::EnumeratedKeywordSets::FETCH_PRIORITY
     reflect_boolean :defer, no_module: "nomodule"
+    reflect_token_list blocking: { supported: Internal::SupportedTokens::BLOCKING }
     # `text` is an alias for textContent on <script>.
     def text
       text_content
@@ -169,27 +172,30 @@ module Dommy
   class HTMLLinkElement < HTMLElement
     reflect_boolean :disabled
     reflect_url :href
-    reflect_token_list :sizes, rel_list: { attr: "rel", js: "relList" }
+    reflect_token_list :sizes, rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::LINK_REL },
+                              blocking: { supported: Internal::SupportedTokens::BLOCKING }
     reflect_string :rel, :type, :media, :hreflang, :integrity
-    # The `as` attribute is a plain enumerated attribute (links.html /
-    # semantics.html: "The as IDL attribute must reflect the as content
-    # attribute, limited to only known values") whose keywords are the union of
-    # a preload destination (fetch, font, image, script, style, track) and a
-    # module preload destination (json, style, text, or a Fetch "script-like"
-    # destination: audioworklet, paintworklet, script, serviceworker,
-    # sharedworker, worker). It has no missing or invalid value default at all.
+    # The `as` attribute is an enumerated attribute whose keywords are "each of
+    # the union of preload destinations and module preload destinations"
+    # (semantics.html, the link element), and the IDL attribute reflects it
+    # limited to only known values, with no missing or invalid value default.
+    # A preload destination is fetch, font, image, script, style or track
+    # (links.html, rel=preload); a module preload destination is json, style,
+    # text or a Fetch script-like destination: audioworklet, paintworklet,
+    # script, serviceworker, sharedworker, worker (rel=modulepreload).
     #
-    # Note that this is deliberately NOT the full Fetch request-destination list:
-    # audio, video, document, embed, object, frame, iframe, manifest, report and
-    # xslt are request destinations but are not preload/module-preload
-    # destinations, so `as` maps them to no state (link.as reports "").
+    # This is deliberately NOT Fetch's list of potential destinations, which
+    # the spec used before and WPT's html/dom/elements-metadata.js still
+    # expects: audio, document, embed, manifest, object, report, video and
+    # xslt name no state now, so `link.as` reads "" for them.
     AS_KEYWORDS = %w[
       fetch font image script style track json text audioworklet paintworklet
       serviceworker sharedworker worker
     ].freeze
     reflect_enumerated as_attr: { attr: "as", js: "as", keywords: AS_KEYWORDS, missing: nil, invalid: nil },
                        crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin"),
-                       referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
+                       referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy"),
+                       fetch_priority: Internal::EnumeratedKeywordSets::FETCH_PRIORITY
     # `link.sheet` — non-nil only when this link is a stylesheet
     # (`rel` contains "stylesheet"). Dommy fetches nothing itself, so the
     # sheet starts empty; a host environment supplies the CSS via
@@ -258,6 +264,7 @@ module Dommy
 
   class HTMLStyleElement < HTMLElement
     reflect_string :type, :media
+    reflect_token_list blocking: { supported: Internal::SupportedTokens::BLOCKING }
     def disabled
       @__disabled == true
     end
@@ -345,6 +352,32 @@ module Dommy
     # The IDL reflects no `charset`: the attribute is read by the encoding
     # sniffing, not exposed.
     reflect_string :name, :content, :media, :scheme, http_equiv: "http-equiv"
+
+    # HTML's pragma directives run "when a meta element is inserted into the
+    # document" (and only then: a later change to its attributes, or removing
+    # it, does nothing). The one dommy acts on is the Content language state,
+    # which sets the document's pragma-set default language — the fallback
+    # language of a node no `lang` attribute covers.
+    def __internal_run_pragma__
+      return unless http_equiv.casecmp?("content-language")
+      return unless get_root_node.equal?(@document)
+
+      language = content_language_pragma_value
+      @document.__internal_pragma_default_language__ = language if language
+    end
+
+    private
+
+    # The Content language state's steps: no content attribute, or one with a
+    # comma, sets nothing; else the first run of non-whitespace after leading
+    # ASCII whitespace, unless that is empty.
+    def content_language_pragma_value
+      input = __internal_attribute_value__("content")
+      return nil if input.nil? || input.include?(",")
+
+      candidate = input.sub(/\A[ \t\n\f\r]+/, "")[/\A[^ \t\n\f\r]*/]
+      candidate unless candidate.empty?
+    end
   end
 
   class HTMLHtmlElement < HTMLElement

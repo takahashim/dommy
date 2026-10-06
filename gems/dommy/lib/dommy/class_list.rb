@@ -12,9 +12,13 @@ module Dommy
 
     # `attribute` is the content attribute this token list reflects ("class" for
     # `classList`, "rel" for `relList`, "sandbox", "sizes", "for", …).
-    def initialize(element, attribute = "class")
+    # `supported_tokens` is what DOM calls the element and attribute name's
+    # supported tokens (lowercase), or nil when they define none — see
+    # Internal::SupportedTokens.
+    def initialize(element, attribute = "class", supported_tokens = nil)
       @element = element
       @attribute = attribute
+      @supported_tokens = supported_tokens
     end
 
     def length
@@ -49,6 +53,16 @@ module Dommy
     # querySelector-heavy SPA.
     def include?(token)
       class_tokens.include?(token.to_s)
+    end
+
+    # DOMTokenList's supports(token), which runs the validation steps: a
+    # TypeError when the element and attribute define no supported tokens
+    # (`classList.supports("x")`), else whether the token, ASCII-lowercased,
+    # is one of them (`a.relList.supports("NoOpener")` is true).
+    def supports?(token)
+      raise Bridge::TypeError, "DOMTokenList has no supported tokens" if @supported_tokens.nil?
+
+      @supported_tokens.include?(stringify_token(token).downcase(:ascii))
     end
 
     def add(*tokens)
@@ -132,10 +146,7 @@ module Dommy
     end
 
     include Bridge::Methods
-    # NOTE: `supports` is intentionally absent — for the class attribute's token
-    # list it must throw a TypeError, which `list.supports(...)` (not a function)
-    # already does.
-    js_methods %w[add remove contains toggle replace item toString]
+    js_methods %w[add remove contains toggle replace item supports toString]
     def __js_call__(method, args)
       case method
       when "add"
@@ -153,6 +164,8 @@ module Dommy
         replace(args[0], args[1])
       when "item"
         item(args[0])
+      when "supports"
+        supports?(args[0])
       when "toString"
         value
       else

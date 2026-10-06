@@ -28,6 +28,7 @@ module Dommy
       def connected(element)
         run_connected_script(element)
         fire_blank_iframe_load(element)
+        element.__internal_run_pragma__ if element.respond_to?(:__internal_run_pragma__)
       end
 
       # A `<details>` among the inserted nodes: exactly one member of a group

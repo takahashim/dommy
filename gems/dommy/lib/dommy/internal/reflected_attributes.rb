@@ -63,6 +63,7 @@ module Dommy
         url: %i[reflected_url set_reflected_string],
         long: %i[reflected_long set_reflected_long],
         ulong: %i[reflected_ulong set_reflected_ulong],
+        double: %i[reflected_double set_reflected_double],
         token_list: %i[reflected_token_list set_reflected_token_list],
         boolean: %i[reflected_boolean set_reflected_boolean],
         enumerated: %i[reflected_enumerated set_reflected_enumerated],
@@ -119,6 +120,8 @@ module Dommy
 
         # A [SameObject] DOMTokenList over a space-separated attribute
         # (`a.relList`, `iframe.sandbox`). Read-only: the list mutates itself.
+        # `supported:` is the attribute's supported tokens (an
+        # Internal::SupportedTokens list); without it `supports()` throws.
         def reflect_token_list(*names, **mapped)
           _reflect(:token_list, names, mapped)
         end
@@ -142,6 +145,14 @@ module Dommy
         #                             range: 1..1000 }
         def reflect_ulong(*names, **mapped)
           _reflect(:ulong, names, mapped)
+        end
+
+        # A `double` attribute. `positive:` is [ReflectPositive] and `default:`
+        # [ReflectDefault]:
+        #
+        #   reflect_double max: { positive: true, default: 1.0 }  # progress.max
+        def reflect_double(*names, **mapped)
+          _reflect(:double, names, mapped)
         end
 
         # The same, for a setter that takes a number: `[ReflectSetter]` says only
@@ -381,6 +392,70 @@ module Dommy
         parsed if parsed && !parsed.negative?
       end
 
+      # HTML's "rules for parsing floating-point number values" (§2.3.4.3):
+      # leading ASCII whitespace, an optional sign, digits with an optional
+      # fraction and exponent — and, like the integer rules, it stops at the
+      # first character that does not fit rather than failing on it ("1.5px"
+      # is 1.5, "2e" is 2, "1e3x" is 1000). Only a missing number is an error
+      # (nil): "", "-", ".", ".e1", "e1", "\v7" (U+000B is not ASCII
+      # whitespace). The result is rounded to the nearest double, -0 becomes 0,
+      # and a value that rounds past the largest double is an error too.
+      # Ruby's own Float() is NOT this: it takes "1_0", "0x1A" and "\v7", and
+      # rejects trailing junk.
+      def parse_html_float(value)
+        ReflectedAttributes.parse_floating_point_number(value)
+      end
+
+      # The same, callable without an element (forms, meter, progress). The
+      # steps collect the number's sign, digits, fraction and exponent; the
+      # decimal they spell is then rounded once, by Float(), as the
+      # "conversion" step asks.
+      def self.parse_floating_point_number(value)
+        return nil if value.nil?
+
+        input = value.to_s
+        position = input.index(/[^ \t\n\f\r]/) or return nil
+        negative = false
+        case input[position]
+        when "-"
+          negative = true
+          position += 1
+        when "+"
+          position += 1
+        end
+
+        integer = input[position..][/\A\d+/]
+        if integer
+          position += integer.length
+        elsif input[position] == "." && input[position + 1]&.match?(/\d/)
+          integer = "0"
+        else
+          return nil
+        end
+
+        fraction = "0"
+        if input[position] == "."
+          digits = input[(position + 1)..][/\A\d+/]
+          if digits
+            fraction = digits
+            position += 1 + digits.length
+          elsif input[position + 1]&.match?(/[eE]/)
+            position += 1
+          end
+        end
+
+        exponent = "0"
+        if input[position]&.match?(/[eE]/)
+          exponent_match = input[(position + 1)..][/\A[-+]?\d+/]
+          exponent = exponent_match if exponent_match
+        end
+
+        number = Float("#{negative ? "-" : ""}#{integer}.#{fraction}e#{exponent}")
+        return nil if number.infinite?
+
+        number.zero? ? 0.0 : number
+      end
+
       # A `long` attribute's getter (HTML §2.6.1): the parsed value when it is
       # one and fits a long, else the declared default, else -1 when the
       # attribute is limited to non-negative numbers, else 0.
@@ -449,6 +524,16 @@ module Dommy
         __internal_set_attribute_value__(name, new_value.to_s)
       end
 
+      # A `double` attribute's getter (HTML §2.6.1): the content attribute by
+      # the floating-point rules — when it parses, and is greater than zero for
+      # a [ReflectPositive] one — else the default, else 0.
+      def reflected_double(name, options = EMPTY_OPTIONS)
+        parsed = parse_html_float(__internal_attribute_value__(name))
+        return parsed if parsed && (parsed.positive? || !options[:positive])
+
+        options.fetch(:default, 0.0).to_f
+      end
+
       # A `double` attribute's setter: the value converted to the best
       # representation of the number as a floating-point number — which is the
       # SHORTEST one, so 5.0 writes "5" and not "5.0".
@@ -470,8 +555,10 @@ module Dommy
         number
       end
 
+      # HTML's "best representation of the number as a floating-point number"
+      # is ECMAScript's ToString: 5.0 writes "5", 1e25 "1e+25", 1e-7 "1e-7".
       def format_webidl_double(number)
-        number == number.to_i ? number.to_i.to_s : number.to_s
+        JsNumber.to_string(number)
       end
 
       # WebIDL's integer conversions, which run before any of the above sees the
@@ -492,16 +579,16 @@ module Dommy
       # A [SameObject] DOMTokenList over `name`, memoized so `el.relList` is the
       # same object every time — which is what lets a page keep a reference to it
       # and watch the attribute through it.
-      def reflected_token_list(name, _options = nil)
-        (@reflected_token_lists ||= {})[name] ||= ClassList.new(self, name)
+      def reflected_token_list(name, options = EMPTY_OPTIONS)
+        (@reflected_token_lists ||= {})[name] ||= ClassList.new(self, name, options[:supported])
       end
 
       # WebIDL [PutForwards=value]: a token-list attribute is readonly, but
       # assigning to it assigns to the list's `value`, which rewrites the whole
       # content attribute — so `iframe.sandbox = "allow-scripts"` works, and
       # `iframe.sandbox` is still the same DOMTokenList afterwards.
-      def set_reflected_token_list(name, value, _options = nil)
-        reflected_token_list(name).value = value
+      def set_reflected_token_list(name, value, options = EMPTY_OPTIONS)
+        reflected_token_list(name, options).value = value
       end
 
       def reflected_boolean(name, _options = nil)

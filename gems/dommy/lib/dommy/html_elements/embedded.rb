@@ -6,7 +6,7 @@ module Dommy
   # One of the HTML element groups; html_elements.rb lists them all.
   class HTMLIFrameElement < HTMLElement
     reflect_url :src
-    reflect_token_list :sandbox
+    reflect_token_list sandbox: { supported: Internal::SupportedTokens::IFRAME_SANDBOX }
     reflect_string :srcdoc, :name, :allow
     reflect_enumerated loading: Internal::EnumeratedKeywordSets::LAZY_LOADING,
                        referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")

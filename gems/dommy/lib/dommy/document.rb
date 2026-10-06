@@ -2168,8 +2168,13 @@ module Dommy
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
       @backend_doc.css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
       @backend_doc.css("script").each { |node| __internal_html_element_wrapper__(node)&.__internal_mark_parser_inserted__ }
+      @backend_doc.css("meta[http-equiv]").each { |node| __internal_html_element_wrapper__(node)&.__internal_run_pragma__ }
       nil
     end
+
+    # HTML's pragma-set default language (`<meta http-equiv=content-language
+    # content=…>`): nil until such a pragma has been processed.
+    attr_accessor :__internal_pragma_default_language__
 
     # DOMParser parses with scripting disabled (HTML) or XML scripting support
     # disabled, so every script it makes is "already started": moved or cloned

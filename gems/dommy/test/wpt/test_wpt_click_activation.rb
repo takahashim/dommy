@@ -460,7 +460,7 @@ class TestWPTAreaActivation < Minitest::Test
     assert_equal("8080", el.port)
     assert_equal("/p", el.pathname)
     assert_equal("?q=1", el.search)
-    assert_equal("#f", el.hash)
+    assert_equal("#f", el.url_hash)
   end
 
   def test_clicking_an_area_navigates

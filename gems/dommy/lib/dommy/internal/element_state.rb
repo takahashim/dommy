@@ -171,7 +171,12 @@ module Dommy
       # HTML "the language of a node": the nearest element's `xml:lang` (in
       # the XML namespace), or else its `lang` in no namespace when it is an
       # HTML, SVG or MathML element; "" when that value is empty (the
-      # language is unknown, and no ancestor is asked), nil when none says.
+      # language is unknown, and no ancestor is asked). The walk goes up
+      # through parent elements, and from a shadow root's child to the
+      # shadow root's host (so a shadow tree takes its host's language); past
+      # the root it is the document's pragma-set default language (`<meta
+      # http-equiv=content-language>`), and nil when there is none — dommy
+      # keeps no HTTP Content-Language to fall back to.
       def language_of(element)
         node = element
         while node
@@ -179,9 +184,11 @@ module Dommy
           value = node.__internal_attribute_value__("lang") if value.nil? && LANG_NAMESPACES.include?(node.namespace_uri)
           return value unless value.nil?
 
-          node = node.parent_element
+          parent = node.parent_node
+          node = parent.is_a?(ShadowRoot) ? parent.host : node.parent_element
         end
-        nil
+        document = element.owner_document
+        document.respond_to?(:__internal_pragma_default_language__) ? document.__internal_pragma_default_language__ : nil
       end
 
       def lang_range_match?(actual, range)
