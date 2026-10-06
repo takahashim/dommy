@@ -26,7 +26,10 @@ module Dommy
           nodes = fragment(element.document, value.to_s)
           nodes = [element.document.create_text_node("")] if nodes.empty?
           element.replace_with(*nodes)
-          merge_next_text_node(following)
+          # `next`'s previous sibling is now the fragment's last node; when it
+          # is a Text node it absorbs the Text node after it (which is `next`
+          # itself when `next` is a Text node).
+          merge_next_text_node(following.previous_sibling) if following
           merge_next_text_node(preceding) if preceding.is_a?(TextNode)
           nil
         end
@@ -43,7 +46,8 @@ module Dommy
           following = node.next_sibling
           return unless following.is_a?(TextNode)
 
-          node.data = node.data + following.data
+          # "Replace data" with node, its length, 0, and next's data.
+          node.append_data(following.data)
           following.remove
         end
 

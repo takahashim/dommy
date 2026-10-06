@@ -120,4 +120,21 @@ class TestLocationWithoutBrowsingContext < Minitest::Test
     assert_equal(["http://localhost"], loc.__js_get__("ancestorOrigins").to_a)
     assert_same(loc.__js_get__("ancestorOrigins"), loc.__js_get__("ancestorOrigins"))
   end
+
+  # ancestorOrigins is a DOMStringList: length, item (null out of range),
+  # contains, and an indexed getter.
+  def test_ancestor_origins_is_a_dom_string_list
+    doc = make_window("<body></body>").document
+    frame = doc.create_element("iframe")
+    doc.body.append_child(frame)
+    list = frame.content_document.default_view.location.__js_get__("ancestorOrigins")
+
+    assert_kind_of(Dommy::DOMStringList, list)
+    assert_equal("http://localhost", list.__js_call__("item", [0]))
+    assert_nil(list.__js_call__("item", [1]))
+    assert_nil(list.__js_call__("item", [-1]))
+    assert_equal("http://localhost", list.__js_get__("0"))
+    assert(list.__js_call__("contains", ["http://localhost"]))
+    refute(list.__js_call__("contains", ["http://example.com"]))
+  end
 end

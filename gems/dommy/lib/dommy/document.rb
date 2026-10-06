@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "uri"
+require "time"
 
 require_relative "internal/node_wrapper_cache"
 require_relative "internal/directionality"
@@ -331,6 +332,8 @@ module Dommy
       # The result is an XMLDocument (DOM's createDocument), unlike a DOMParser
       # result of the same content type — so the interface is pinned here.
       doc.__internal_xml_document__ = true
+      # Its origin is the associated document's (DOM createDocument step 7).
+      doc.__internal_set_creator__(@document)
       # createDocument's content type is keyed off the namespace. None is
       # "text/html", so tagName keeps its case; xhtml+xml still routes
       # createElement to the HTML namespace (so an XHTML document isEqualNode
@@ -356,6 +359,8 @@ module Dommy
     # the title setter's string-replace-all would leave empty.
     def create_html_document(title = nil)
       doc = Document.new(nil, backend_doc: Backend.parse("<!DOCTYPE html><html><head></head><body></body></html>"))
+      # Its origin is the associated document's (DOM createHTMLDocument step 8).
+      doc.__internal_set_creator__(@document)
       unless title.nil? || title.equal?(Bridge::UNDEFINED)
         element = doc.head.append_child(doc.create_element("title"))
         element.append_child(doc.create_text_node(title.to_s))
@@ -781,7 +786,18 @@ module Dommy
     # "about:blank", not the empty string.
     def url
       view = @default_view
-      view&.location ? view.location.href : "about:blank"
+      return view.location.href if view&.location
+
+      @creator_url || "about:blank"
+    end
+
+    # A document made by a parsing or creation API (DOMParser,
+    # DOMImplementation) takes its origin from `document` — the relevant
+    # global object's associated Document — and, for DOMParser, its URL too.
+    def __internal_set_creator__(document, url: nil)
+      @origin_document = document
+      @creator_url = url
+      nil
     end
 
     alias document_uri url
@@ -818,7 +834,7 @@ module Dommy
     # restrict cross-origin reads of this; we just return the bare host.
     def domain
       view = @default_view
-      return "" unless view&.location
+      return @origin_document&.domain.to_s unless view&.location
 
       view.location.__js_get__("hostname").to_s
     end
@@ -827,9 +843,36 @@ module Dommy
     # `window.location.origin`. Empty when there is no associated window.
     def origin
       view = @default_view
-      return "" unless view&.location
+      return @origin_document&.origin.to_s unless view&.location
 
       view.origin
+    end
+
+    # `document.lastModified` — the source's last modification (the response's
+    # Last-Modified header, when the embedder passed one on), else the current
+    # time, in local time as "MM/DD/YYYY hh:mm:ss".
+    #
+    # Spec: https://html.spec.whatwg.org/#dom-document-lastmodified
+    def last_modified
+      (@last_modified_time || Time.now).getlocal.strftime("%m/%d/%Y %H:%M:%S")
+    end
+
+    # Record the document's source last-modified time: a Time, or an HTTP date
+    # string (a Last-Modified header value). One that does not parse leaves it
+    # unknown.
+    def __internal_set_last_modified__(value)
+      @last_modified_time =
+        case value
+        when Time then value
+        when nil then nil
+        else
+          begin
+            Time.httpdate(value.to_s.strip)
+          rescue ArgumentError
+            nil
+          end
+        end
+      nil
     end
 
     # `document.referrer` — Dommy never has a referring page, so this
@@ -1092,8 +1135,22 @@ module Dommy
     # don't apply to a layout-less DOM. They exist so callers don't
     # hit NoMethodError; semantics are documented as no-op.
 
+    # `document.hasFocus()` — HTML's "has focus steps", with the top-level
+    # page always holding system focus: a document with no browsing context
+    # has no focus, a top-level one has it, and a nested one has it when its
+    # frame is the focused element of a parent document that has it.
+    #
+    # Spec: https://html.spec.whatwg.org/#has-focus-steps
     def has_focus?
-      true
+      view = @default_view
+      return false unless view
+
+      frame = view.frame_element
+      return true unless frame
+      return false unless frame.is_connected?
+
+      parent = frame.owner_document
+      parent.has_focus? && parent.__internal_focused_element__.equal?(frame)
     end
 
     alias has_focus has_focus?
@@ -1697,27 +1754,67 @@ module Dommy
       HTMLCollection.elements_by_tag_name_ns(@backend_doc, self, namespace, local_name)
     end
 
-    # `document.write(html)` — legacy API. Appends parsed nodes to the
-    # body. Real browsers only re-stream the DOM during initial parse;
-    # this stub is enough for tests that fire write() during teardown.
+    # ----- Dynamic markup insertion (document.open / write / close) -----
+    #
+    # Dommy has no incremental parser, so this models the spec's input stream
+    # without one:
+    #
+    # - While the page's own scripts boot (readyState "loading" and a script
+    #   running) the parser counts as active with a script nesting level above
+    #   0: `open()` is a no-op that returns the document, and `write()` inserts
+    #   the parsed markup right after the running script (where the insertion
+    #   point would be), or at the end of the body when that script is not in
+    #   the body.
+    # - Otherwise `write()` with no script-created parser runs the document open
+    #   steps first (the page is gone), and every write re-parses the whole
+    #   input written since `open()` as a fresh document, whose children replace
+    #   the document's. Earlier writes' nodes are therefore not the same objects
+    #   after a later write, and scripts in written markup do not run.
+    #
+    # Spec: https://html.spec.whatwg.org/#dynamic-markup-insertion
+
+    # `document.write(...text)` — the document write steps with lineFeed false.
     def write(*args)
-      html = args.join
-      fragment = Parser.fragment(html, owner_doc: @backend_doc)
-      removed = []
-      added = fragment.children.to_a
-      body_node = body.__dommy_backend_node__
-      added.each { |node| body_node.add_child(node) }
-      notify_child_list_mutation(target_node: body_node, added_nodes: added, removed_nodes: removed)
-      nil
+      document_write(args, line_feed: false)
     end
 
-    # No-ops — real browsers reset the DOM on `open()` and flush
-    # pending writes on `close()`. We don't model the parse pipeline.
-    def open
-      nil
+    # `document.writeln(...text)` — the document write steps with lineFeed true.
+    def writeln(*args)
+      document_write(args, line_feed: true)
     end
 
+    # `document.open()` — the document open steps; returns the document. With
+    # three arguments it is `window.open(url, name, features)` instead.
+    #
+    # Spec: https://html.spec.whatwg.org/#dom-document-open
+    def open(*args)
+      return open_window(args) if args.length >= 3
+
+      document_open_steps
+    end
+
+    # `document.close()` — closes the input stream a script-created parser
+    # reads: the parser reaches EOF and "stops parsing", so the document goes
+    # "interactive" (DOMContentLoaded) then "complete" (load at the window,
+    # when there is one). Dispatched synchronously rather than as queued tasks.
+    #
+    # Spec: https://html.spec.whatwg.org/#dom-document-close
     def close
+      raise DOMException::InvalidStateError, "close() is not supported on an XML document" unless html_document?
+      return nil if @script_created_input.nil?
+
+      # The parser reaches EOF. With nothing written it has seen no doctype
+      # (quirks mode) and, into an empty document, builds html/head/body.
+      if @script_created_input.empty?
+        if @backend_doc.children.to_a.empty?
+          reparse_script_created_input
+        else
+          @quirks_mode = true
+        end
+      end
+      @script_created_input = nil
+      __internal_set_ready_state__("interactive")
+      __internal_set_ready_state__("complete")
       nil
     end
 
@@ -1819,7 +1916,7 @@ module Dommy
       when "designMode"
         @design_mode || "off"
       when "lastModified"
-        @last_modified || "01/01/1970 00:00:00"
+        last_modified
       when "readyState"
         # "complete" by default (the document is fully parsed before scripts
         # run); an embedder can replay "loading" → "interactive" → "complete"
@@ -2023,7 +2120,8 @@ module Dommy
       when "normalize"
         normalize
       when "writeln"
-        write(*(args + ["\n"]))
+        writeln(*args)
+        Bridge::UNDEFINED
       when "exitFullscreen"
         exit_fullscreen
       when "startViewTransition"
@@ -2094,10 +2192,12 @@ module Dommy
         dispatch_event(args[0])
       when "write"
         write(*args)
+        Bridge::UNDEFINED
       when "open"
-        open
+        open(*args)
       when "close"
         close
+        Bridge::UNDEFINED
       else
         nil
       end
@@ -2419,6 +2519,133 @@ module Dommy
       end
     end
 
+    # The document write steps (without Trusted Types).
+    #
+    # Spec: https://html.spec.whatwg.org/#document-write-steps
+    def document_write(args, line_feed:)
+      string = args.map { |a| a.nil? ? "null" : a.to_s }.join
+      string += "\n" if line_feed
+      raise DOMException::InvalidStateError, "write() is not supported on an XML document" unless html_document?
+
+      return boot_script_write(string) if @script_created_input.nil? && boot_script_running?
+
+      document_open_steps if @script_created_input.nil?
+      # The open steps return early (no script-created parser) only when the
+      # parser is active, which the branch above already took.
+      return nil if @script_created_input.nil?
+
+      @script_created_input << string
+      reparse_script_created_input
+      nil
+    end
+
+    # Whether a page script is running while the page boots: the closest Dommy
+    # has to "an active parser whose script nesting level is greater than 0".
+    def boot_script_running?
+      @ready_state == "loading" && !@__current_script__.nil?
+    end
+
+    # The document open steps, minus what Dommy does not model (the origin
+    # check against the entry document, unload counters, stopping a
+    # navigation, and the URL and history update steps).
+    #
+    # Spec: https://html.spec.whatwg.org/#document-open-steps
+    def document_open_steps
+      raise DOMException::InvalidStateError, "open() is not supported on an XML document" unless html_document?
+      return self if boot_script_running?
+      # A second open() while a script-created parser is open keeps it (the
+      # spec's steps re-run, but the written input so far is already gone with
+      # the children they replace).
+      erase_all_event_listeners_and_handlers
+      document_replace_children([])
+      @quirks_mode = false
+      @script_created_input = +""
+      unless @ready_state == "loading"
+        @ready_state = "loading"
+        dispatch_event(Event.new("readystatechange"))
+      end
+      self
+    end
+
+    # Insert what a boot-time script wrote at the insertion point: right after
+    # the running script when it sits in the body, else at the end of the body
+    # (or of the document element when there is no body).
+    def boot_script_write(string)
+      script_bn = @__current_script__&.__dommy_backend_node__
+      parent_bn = script_bn&.parent
+      in_body = parent_bn && body && parent_bn != @backend_doc &&
+                Internal::NodeTraversal.subtree_nodes(body.__dommy_backend_node__).include?(parent_bn)
+      target_bn = in_body ? parent_bn : (body || document_element)&.__dommy_backend_node__
+      return nil unless target_bn
+
+      context = target_bn.element? ? target_bn : nil
+      added = Parser.fragment(string, owner_doc: @backend_doc, context: context).children.to_a
+      return nil if added.empty?
+
+      if in_body
+        reference = script_bn
+        added.each do |node|
+          reference.add_next_sibling(node)
+          reference = node
+        end
+      else
+        added.each { |node| target_bn.add_child(node) }
+      end
+      notify_child_list_mutation(target_node: target_bn, added_nodes: added, removed_nodes: [])
+      nil
+    end
+
+    # Re-parse everything written since open() as a whole document and make
+    # its children the document's (see "Dynamic markup insertion" above).
+    def reparse_script_created_input
+      parsed = Document.new(nil, backend_doc: Backend.parse(@script_created_input))
+      @quirks_mode = parsed.quirks_mode?
+      parsed.__internal_mark_scripts_already_started__
+      # What the parser builds, not what a script inserts: a doctype and an
+      # element go in together, which replaceChildren's checks would refuse.
+      removed = @backend_doc.children.to_a
+      removed.each { |child| detach_node(child) }
+      added = document_insertion_nodes(parsed.child_nodes.to_a)
+      added.each { |n| @backend_doc.add_child(n) }
+      notify_document_child_list(added: added, removed: removed)
+    end
+
+    # "Erase all event listeners and handlers" for the document's
+    # shadow-including inclusive descendants and, for a window's document, the
+    # window. Only nodes that have a wrapper can hold listeners.
+    def erase_all_event_listeners_and_handlers
+      targets = [self]
+      collect_listener_targets(@backend_doc, targets)
+      targets << @default_view if @default_view
+      targets.each { |t| t.__internal_erase_event_listeners_and_handlers__ if t.respond_to?(:__internal_erase_event_listeners_and_handlers__) }
+    end
+
+    def collect_listener_targets(root_bn, targets)
+      Internal::NodeTraversal.subtree_nodes(root_bn).each do |bn|
+        wrapper = @node_wrapper_cache.peek(bn)
+        next unless wrapper
+
+        targets << wrapper unless wrapper.equal?(self)
+        shadow = wrapper.respond_to?(:__internal_shadow_root__) ? wrapper.__internal_shadow_root__ : nil
+        next unless shadow
+
+        targets << shadow
+        collect_listener_targets(shadow.__dommy_backend_node__, targets) if shadow.__dommy_backend_node__
+      end
+    end
+
+    # document.open(url, name, features) is window.open; it needs a fully
+    # active document (one with a window, here).
+    def open_window(args)
+      raise DOMException::InvalidAccessError, "the document is not fully active" unless @default_view
+
+      @default_view.__js_call__("open", args)
+    end
+
+    private :document_write, :boot_script_running?, :document_open_steps, :boot_script_write,
+            :reparse_script_created_input, :erase_all_event_listeners_and_handlers,
+            :collect_listener_targets, :open_window
+
     # Unlink a backend node from its parent and queue a childList removal record
     # capturing the node's position (previous/next sibling) BEFORE the unlink, so
     # the record's previousSibling/nextSibling are correct (the coordinator can't
@@ -2711,7 +2938,7 @@ module Dommy
       # A <template>'s contents live in a separate content fragment, not its
       # child list, so the pass over `children` misses them. It still runs: an
       # XML document's <template> keeps its children in the child list.
-      clone_template_content(source, copy, source_document) if source.element? && source.name == "template"
+      clone_template_content(source, copy, source_document) if @template_content_registry.template_node?(source)
       source.children.each do |child|
         copy.add_child(clone_into_doc(child, true, source_document))
       end
@@ -2830,8 +3057,13 @@ module Dommy
     end
 
     # The title element: the first HTML `title` in the document, in tree order.
+    # Matched by namespace and local name: an XML document's `css("title")`
+    # does not find an HTML-namespace title, so there the tree is walked.
     def html_title_element
-      @backend_doc.css("title").find { |node| Backend.namespace_uri(node) == Internal::Namespaces::HTML }
+      candidates = html_document? ? @backend_doc.css("title") : Internal::NodeTraversal.subtree_nodes(@backend_doc)
+      candidates.find do |node|
+        node.element? && node.local_name == "title" && Backend.namespace_uri(node) == Internal::Namespaces::HTML
+      end
     end
 
     def svg_root?(root)

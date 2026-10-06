@@ -62,4 +62,21 @@ class TestFragmentParsingContext < Minitest::Test
     doc.document_element.insert_adjacent_html("beforeend", "<c/>")
     assert_equal([["urn:x", "c"]], kinds(doc.document_element.children.to_a))
   end
+
+  # innerHTML on an HTML <template> parses with the template as the context
+  # element ("in template" mode), so table parts survive; an SVG <template>
+  # is an ordinary element with no template contents.
+  def test_template_inner_html_parses_in_template_context
+    doc = make_window("<template id=t></template><svg><template id=s></template></svg>").document
+    t = doc.get_element_by_id("t")
+    t.inner_html = "<td>a</td><td>b</td>"
+    assert_equal("<td>a</td><td>b</td>", t.inner_html)
+    assert_equal(%w[TD TD], t.content.child_nodes.map(&:tag_name))
+    assert_equal(0, t.child_nodes.length)
+
+    s = doc.get_element_by_id("s")
+    s.inner_html = "<rect/>"
+    assert_equal(1, s.child_nodes.length)
+    assert_equal("<rect></rect>", s.inner_html)
+  end
 end

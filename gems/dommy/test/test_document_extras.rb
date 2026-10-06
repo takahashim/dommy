@@ -57,16 +57,76 @@ class TestDocumentExtras < Minitest::Test
     assert_equal("P", list.first.tag_name)
   end
 
-  def test_write_appends_to_body
-    before = @doc.body.children.size
+  # With no parser running (the page has finished loading), write() runs the
+  # document open steps: the old tree goes, and what is written becomes a
+  # fresh parse of the document.
+  def test_write_after_load_replaces_the_document
     @doc.write("<div id='written'>w</div>")
-    assert_equal(before + 1, @doc.body.children.size)
-    assert_equal("written", @doc.body.children[-1].id)
+    assert_equal(%w[written], @doc.body.children.map(&:id))
+    assert_equal("loading", @doc.__js_get__("readyState"))
+    @doc.close
+    assert_equal("complete", @doc.__js_get__("readyState"))
+    assert_equal("BackCompat", @doc.compat_mode)
   end
 
-  def test_open_close_are_noop
-    assert_nil(@doc.open)
+  def test_open_returns_the_document_and_clears_it
+    assert_same(@doc, @doc.open)
+    assert_equal(0, @doc.child_nodes.length)
+    assert_equal("CSS1Compat", @doc.compat_mode)
+    @doc.write("<!doctype html><p>a")
+    @doc.writeln("<p>b")
+    assert_equal("<p>a</p><p>b\n</p>", @doc.body.inner_html)
+    @doc.close
+    assert_equal("CSS1Compat", @doc.compat_mode)
     assert_nil(@doc.close)
+  end
+
+  def test_open_then_close_builds_an_empty_page
+    @doc.open
+    @doc.close
+    assert_equal("<html><head></head><body></body></html>", @doc.document_element.outer_html)
+  end
+
+  def test_open_erases_event_listeners
+    seen = []
+    @doc.add_event_listener("x", proc { seen << :x })
+    @doc.open
+    @doc.dispatch_event(Dommy::Event.new("x"))
+    assert_empty(seen)
+  end
+
+  def test_dynamic_markup_insertion_throws_on_an_xml_document
+    xml = @doc.implementation.create_document(nil, "r", nil)
+    %i[open close write writeln].each do |m|
+      assert_raises(Dommy::DOMException::InvalidStateError) { xml.public_send(m) }
+    end
+  end
+
+  # Unknown modification time: the current local time, "MM/DD/YYYY hh:mm:ss".
+  def test_last_modified_defaults_to_now
+    value = @doc.__js_get__("lastModified")
+    assert_match(%r{\A\d{2}/\d{2}/\d{4} \d{2}:\d{2}:\d{2}\z}, value)
+    parsed = Time.strptime(value, "%m/%d/%Y %H:%M:%S")
+    assert_in_delta(Time.now.to_f, parsed.to_f, 5)
+  end
+
+  def test_last_modified_from_a_last_modified_header
+    @doc.__internal_set_last_modified__("Thu, 01 Jan 1970 01:23:45 GMT")
+    expected = Time.at(5025).getlocal.strftime("%m/%d/%Y %H:%M:%S")
+    assert_equal(expected, @doc.last_modified)
+  end
+
+  # In an XML document whose root is not an SVG <svg>, the title element is
+  # the first HTML-namespace `title` anywhere in the tree.
+  def test_title_in_an_xml_document_finds_the_html_title
+    doc = @doc.implementation.create_document("http://www.w3.org/2000/svg", "SVG", nil)
+    root = doc.document_element
+    svg_title = root.append_child(doc.create_element_ns("http://www.w3.org/2000/svg", "title"))
+    svg_title.text_content = "foo"
+    assert_equal("", doc.title)
+    div = root.append_child(doc.create_element_ns("http://www.w3.org/1999/xhtml", "div"))
+    div.append_child(doc.create_element_ns("http://www.w3.org/1999/xhtml", "title")).text_content = "bar"
+    assert_equal("bar", doc.title)
   end
 
   def test_node_type_constant

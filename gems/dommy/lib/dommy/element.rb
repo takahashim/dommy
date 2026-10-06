@@ -71,7 +71,7 @@ module Dommy
     def inner_html
       if !@document.html_document?
         Internal::XmlSerialization.serialize_children_of(self)
-      elsif @__node__.name == "template"
+      elsif is_a?(HTMLTemplateElement)
         @document.template_content_inner_html(self)
       else
         @__node__.inner_html
@@ -87,7 +87,8 @@ module Dommy
         return
       end
 
-      if @__node__.name == "template"
+      if is_a?(HTMLTemplateElement)
+        # Only an HTML `<template>` (not SVG's) has template contents.
         # `<template>` content is invisible to outer selectors in real DOM (it
         # lives in a separate DocumentFragment exposed via `[:content]`). HTML's
         # innerHTML setter retargets to that fragment and replaces all of ITS
@@ -1649,7 +1650,7 @@ module Dommy
     end
 
     def template_content
-      return nil unless @__node__.name == "template"
+      return nil unless is_a?(HTMLTemplateElement)
 
       @document.template_content_fragment(self)
     end

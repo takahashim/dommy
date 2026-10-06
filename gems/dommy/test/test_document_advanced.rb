@@ -127,6 +127,18 @@ class TestDocumentAdvanced < Minitest::Test
     assert_equal(true, @doc.has_focus?)
   end
 
+  # No browsing context, no focus; a nested document has it only while its
+  # frame is focused in the parent.
+  def test_has_focus_needs_a_browsing_context
+    refute(@doc.implementation.create_html_document("").has_focus?)
+    frame = @doc.create_element("iframe")
+    @doc.body.append_child(frame)
+    inner = frame.content_document
+    refute(inner.has_focus?)
+    frame.focus
+    assert(inner.has_focus?)
+  end
+
   def test_get_selection_returns_selection
     sel = @doc.get_selection
     assert_kind_of(Dommy::Selection, sel)

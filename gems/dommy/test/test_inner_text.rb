@@ -152,4 +152,14 @@ class TestOuterText < Minitest::Test
     @doc.get_element_by_id("x").outer_text = "X\nY"
     assert_equal "<p>AX<br>YC</p>", @doc.body.inner_html
   end
+
+  # The fragment's last Text node merges with the Text node that followed
+  # the element (spec: merge with the next text node given next's previous
+  # sibling), and the Text node before it with the fragment's first.
+  def test_outer_text_setter_merges_adjacent_text_nodes
+    @doc.body.inner_html = "<p>A<span id='x'>B</span>C</p>"
+    p = @doc.query_selector("p")
+    @doc.get_element_by_id("x").outer_text = "X\nY"
+    assert_equal %w[AX BR YC], p.child_nodes.map { |n| n.is_a?(Dommy::TextNode) ? n.data : n.tag_name }
+  end
 end

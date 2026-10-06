@@ -15,7 +15,6 @@
     "CloseWatcher",
     "CommandEvent",
     "CustomStateSet",
-    "DOMStringList",
     "ElementInternals",
     "External",
     "FetchLaterResult",
