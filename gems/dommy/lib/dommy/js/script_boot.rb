@@ -48,7 +48,7 @@ module Dommy
       # The module loader the document's boot installed, so a module script
       # inserted later resolves its imports through the same import map and
       # module map.
-      MODULE_LOADERS = ObjectSpace::WeakKeyMap.new
+      MODULE_LOADERS = ObjectSpace::WeakMap.new
 
       def register_module_loader(document, loader)
         MODULE_LOADERS[document] = loader
