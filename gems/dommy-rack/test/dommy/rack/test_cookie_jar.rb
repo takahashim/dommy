@@ -112,3 +112,27 @@ class Dommy::Rack::TestCookieJarExport < Minitest::Test
     assert_equal "v", @jar.get("k")
   end
 end
+
+# The session's jar is the one its pages' document.cookie reads and writes.
+class Dommy::Rack::TestDocumentCookie < Minitest::Test
+  include RackTestHelper
+
+  def app
+    app_for(
+      "GET /set" => [200, {"Content-Type" => "text/html", "Set-Cookie" => "sid=42; path=/\ntoken=secret; path=/; HttpOnly"}, ["<p>set</p>"]],
+      "GET /show" => ->(req) { html_response("<p id='c'>#{req.cookies.sort.map { |k, v| "#{k}=#{v}" }.join(',')}</p>") }
+    )
+  end
+
+  def test_document_cookie_shares_the_session_jar
+    session = Dommy::Rack::Session.new(app)
+    session.visit("/set")
+    assert_equal "sid=42", session.document.cookie, "HttpOnly cookies are hidden from document.cookie"
+
+    session.document.cookie = "theme=dark; path=/"
+    session.document.cookie = "token=forged; path=/"
+    session.visit("/show")
+
+    assert_equal "sid=42,theme=dark,token=secret", session.document.query_selector("#c").text_content
+  end
+end

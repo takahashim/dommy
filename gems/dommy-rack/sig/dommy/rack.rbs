@@ -72,7 +72,7 @@ module Dommy
       class CookieEntry < Struct[untyped]
       end
 
-      def initialize: () -> void
+      def initialize: (?clock: untyped) -> void
       def store_from_header: (String set_cookie_string, String request_url) -> void
       def set!: (untyped name, untyped value, ?domain: String?, ?path: String?, ?expires: untyped, ?secure: bool, ?http_only: bool) -> untyped
       def get: (untyped name) -> String?

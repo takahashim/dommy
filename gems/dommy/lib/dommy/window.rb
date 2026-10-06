@@ -894,6 +894,22 @@ module Dommy
       nil
     end
 
+    # --- Cookies ---
+
+    # The cookie jar this window's document reads and writes (`document.cookie`,
+    # `cookieStore`). An embedder installs one jar per browsing session — the
+    # same one its requests use — so a page sees the cookies its server set.
+    # A nested window without its own uses its container's; a lone window
+    # gets a private one.
+    attr_writer :cookie_jar
+
+    def cookie_jar
+      return @cookie_jar if @cookie_jar
+
+      container = @frame_element&.owner_document&.default_view
+      container && !container.equal?(self) ? container.cookie_jar : (@cookie_jar = CookieJar.new)
+    end
+
     # --- Web Storage ---
 
     # Where this window's storage areas come from (see Dommy::StorageProvider).

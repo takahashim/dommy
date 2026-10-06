@@ -916,6 +916,9 @@ module Dommy
           previous_window = @current_window
           @current_window = response.window
           @current_window.storage_provider = @storage_provider
+          # document.cookie / cookieStore read and write the jar the session's
+          # requests use.
+          @current_window.cookie_jar = @cookie_jar
           referrer = @last_request && @last_request["HTTP_REFERER"]
           @current_window.document.__internal_referrer__ = referrer.to_s if referrer
           # The page navigated away from is no longer fully active.

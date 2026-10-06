@@ -75,14 +75,18 @@ module Dommy
       # One browsing session: every window it shows (and their frames) shares
       # localStorage per origin and sessionStorage per origin.
       @storage_provider = StorageProvider.new
+      # One cookie store for the session: document.cookie, cookieStore, and
+      # the Cookie / Set-Cookie of every request it sends through resources.
+      @cookie_jar = CookieJar.new
       @before_unload_handler = nil
 
       @window = Dommy.parse(html)
       @window.location.__internal_set_url__(url) if url
       @window.storage_provider = @storage_provider
+      @window.cookie_jar = @cookie_jar
 
       if navigable
-        @fetcher = Navigation::Fetcher.new(@resources, same_origin: @same_origin)
+        @fetcher = navigation_fetcher
         @history = Navigation::JointHistory.new
         @window.navigation_delegate = self
         @history.push(current_url, window: @window, windex: @window.history.__internal_index__)
@@ -95,6 +99,10 @@ module Dommy
     # The provider of this browser's Web Storage areas (shared by every window
     # it shows); see Dommy::StorageProvider.
     attr_reader :storage_provider
+
+    # This browser's cookies (a Dommy::CookieJar): the one store its pages'
+    # document.cookie and cookieStore use and its requests send and fill.
+    attr_reader :cookie_jar
 
     # Install a handler for a page that asks to confirm leaving it (a canceled
     # `beforeunload`, or one whose returnValue is set): called with the window
@@ -367,7 +375,10 @@ module Dommy
       # Opt-in WPT scaffolding (common/sab.js derives SharedArrayBuffer through
       # WebAssembly.Memory); off by default so real pages don't see the shim.
       runtime.install_wasm_memory_shim if @wasm_memory_shim && runtime.respond_to?(:install_wasm_memory_shim)
-      window.globals["__fetch_handler__"] = Resources::FetchHandler.new(@resources) if @resources
+      if @resources
+        window.globals["__fetch_handler__"] =
+          Resources::FetchHandler.new(@resources, cookie_jar: @cookie_jar, origin: -> { window.origin })
+      end
       @runtime = runtime
       doc = window.document
       # An `on*` attribute that arrived after boot (a cloned template, an
@@ -394,6 +405,10 @@ module Dommy
       # Leave the page in a ready state: run on-load promises, due-now timers,
       # and rAF (not future timers). `settle: false` observes it mid-flight.
       runtime.settle if @settle_after_boot
+    end
+
+    def navigation_fetcher
+      Navigation::Fetcher.new(@resources, same_origin: @same_origin, cookie_jar: @cookie_jar)
     end
 
     # Route an unhandled promise rejection through the page's own
@@ -441,6 +456,7 @@ module Dommy
       new_window.document.__internal_referrer__ = referrer if referrer
       new_window.navigation_delegate = self
       new_window.storage_provider = @storage_provider
+      new_window.cookie_jar = @cookie_jar
       old_window.__internal_discard__
       @window = new_window
 
@@ -559,7 +575,7 @@ module Dommy
     # Fetch a frame navigation and build the Window of the document it
     # answers. nil when nothing (successful) serves the URL.
     def frame_window_for(frame, nav, resolved_url)
-      @fetcher ||= Navigation::Fetcher.new(@resources, same_origin: @same_origin)
+      @fetcher ||= navigation_fetcher
       response, final_url = begin
         @fetcher.request(
           method: nav[:method] || "GET", url: resolved_url, params: nav[:params],

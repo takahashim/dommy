@@ -382,7 +382,8 @@ module Dommy
       if handler.respond_to?(:call)
         entry = handler.call(
           @url,
-          {"method" => @method, "headers" => @request_headers, "body" => @request_body_bytes}
+          {"method" => @method, "headers" => @request_headers, "body" => @request_body_bytes,
+           "withCredentials" => @with_credentials ? true : false}
         )
         return entry if entry
       end

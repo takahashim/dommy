@@ -8,7 +8,7 @@ require_relative "internal/directionality"
 require_relative "internal/node_factory"
 require_relative "internal/mutation_coordinator"
 require_relative "internal/shadow_root_registry"
-require_relative "internal/cookie_jar"
+require_relative "cookie_jar"
 require_relative "internal/node_traversal"
 require_relative "internal/node_adopter"
 require_relative "internal/observer_manager"
@@ -619,7 +619,6 @@ module Dommy
       @node_factory = Internal::NodeFactory.new(self, @node_wrapper_cache)
       @observer_manager = Internal::ObserverManager.new
       @shadow_registry = Internal::ShadowRootRegistry.new
-      @cookie_jar = Internal::CookieJar.new
       @template_content_registry = Internal::TemplateContentRegistry.new(self)
       @mutation_coordinator = Internal::MutationCoordinator.new(self, @observer_manager)
       # Weak, like @live_ranges: a NodeIterator is consulted by every removal for
@@ -1806,16 +1805,39 @@ module Dommy
       bn
     end
 
-    # Delegate to CookieJar
-
+    # `document.cookie` (HTML §3.1.5): the cookie-string of the window's
+    # cookie jar for this document's URL, as a "non-HTTP" API sees it (no
+    # HttpOnly cookies). A cookie-averse document — no browsing context, or a
+    # URL that is not http(s) — reads "" and ignores writes; one with an
+    # opaque origin throws SecurityError.
     def cookie
-      @cookie_jar.to_cookie_string
+      return "" if __internal_cookie_averse__?
+
+      raise_if_opaque_for_cookies!
+      @default_view.cookie_jar.cookie_string(url, http: false)
     end
 
     def cookie=(value)
-      @cookie_jar.set_cookie(value)
+      return nil if __internal_cookie_averse__?
+
+      raise_if_opaque_for_cookies!
+      @default_view.cookie_jar.store(value.to_s, url, http: false)
       nil
     end
+
+    # HTML "cookie-averse Document object".
+    def __internal_cookie_averse__?
+      return true unless @default_view.respond_to?(:cookie_jar)
+
+      !url.to_s.match?(/\Ahttps?:/i)
+    end
+
+    def raise_if_opaque_for_cookies!
+      return unless @default_view.origin == "null"
+
+      raise DOMException::SecurityError, "the document's origin is opaque"
+    end
+    private :raise_if_opaque_for_cookies!
 
     def create_element_ns(namespace_uri, qualified_name)
       @node_factory.create_element_ns(namespace_uri, qualified_name)
