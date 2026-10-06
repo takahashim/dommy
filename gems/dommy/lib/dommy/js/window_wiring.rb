@@ -17,8 +17,9 @@ module Dommy
     # HostBridge#window= used to spell all of it out, which left a setter
     # carrying eight side effects and no name for the thing they add up to.
     class WindowWiring
-      def initialize(backend, constructor_resolver:, custom_elements:, microtask_scheduler:)
+      def initialize(backend, script_runner:, constructor_resolver:, custom_elements:, microtask_scheduler:)
         @backend = backend
+        @script_runner = script_runner
         @constructor_resolver = constructor_resolver
         @custom_elements = custom_elements
         @microtask_scheduler = microtask_scheduler
@@ -61,8 +62,7 @@ module Dommy
       def wire_script_runner!(window)
         return unless window.respond_to?(:document) && window.document.respond_to?(:script_runner=)
 
-        backend = @backend
-        window.document.script_runner = ->(source) { backend.call_js("__rbHost.runScript", source.to_s) }
+        window.document.script_runner = @script_runner
       end
     end
   end

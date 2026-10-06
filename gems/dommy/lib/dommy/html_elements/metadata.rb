@@ -1,11 +1,14 @@
 # frozen_string_literal: true
 
+require_relative "../internal/element_tasks"
+
 module Dommy
   # The document's own metadata and the resources it pulls in.
   #
   # One of the HTML element groups; html_elements.rb lists them all.
   # `<script>` — `src` / `type` / `async` / `defer` / `text`.
   class HTMLScriptElement < HTMLElement
+    include Internal::ElementTasks
     reflect_url :src
     reflect_string :type, :integrity, html_for: { attr: "for", js: "htmlFor" }
     reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
@@ -51,6 +54,16 @@ module Dommy
       nil
     end
 
+    # The parser document a document's own parse gives the scripts it
+    # inserted: the post-connection steps leave such a script to the parser
+    # (script boot). Only the document parse sets it — a script the parser put
+    # in a template's contents runs when the contents are moved into the
+    # document, as Chromium does.
+    def __internal_mark_parser_document__
+      @__parser_inserted = true
+      nil
+    end
+
     # HTML's attribute change steps for `async`: ADDING the content attribute
     # clears force async, independent of (and in addition to) the IDL setter.
     def __internal_attribute_changed__(name, old_value, _new_value, namespace)
@@ -78,16 +91,61 @@ module Dommy
       end
     end
 
-    # The classic-script source to execute now that this element is connected,
-    # or nil if it must not run: a `src` script (no network here), a non-classic
-    # type (module/JSON/etc.), an empty body, or one that already ran. The
-    # "already started" flag (set on first call) makes execution happen at most
-    # once, even if the node is re-inserted. The host eval is wired by the JS
-    # bridge via Document#script_runner.
-    # Module scripts are excluded — they need module scope / import resolution
-    # the classic eval path can't provide (left to a future module loader).
-    CLASSIC_SCRIPT_TYPES = ["", "text/javascript", "application/javascript",
-                            "application/ecmascript", "text/ecmascript"].freeze
+    # MIME Sniffing's JavaScript MIME type essences: a script block's type
+    # string that is an ASCII case-insensitive match for one of these makes the
+    # script classic.
+    JAVASCRIPT_MIME_TYPE_ESSENCES = %w[
+      application/ecmascript application/javascript application/x-ecmascript
+      application/x-javascript text/ecmascript text/javascript text/javascript1.0
+      text/javascript1.1 text/javascript1.2 text/javascript1.3 text/javascript1.4
+      text/javascript1.5 text/jscript text/livescript text/x-ecmascript text/x-javascript
+    ].freeze
+
+    ASCII_WHITESPACE_EDGES = /\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/
+
+    # What "prepare the script element" decided to run: the script's type
+    # (:classic, :module, :importmap, :speculationrules), whether it comes from
+    # an external file, and either its source text (inline) or the URL to
+    # fetch (external).
+    PreparedScript = Struct.new(:type, :external, :source, :url, keyword_init: true)
+
+    # The script types `HTMLScriptElement.supports(type)` answers true for —
+    # matched exactly, not ASCII case-insensitively and not as MIME types.
+    SUPPORTED_SCRIPT_TYPES = %w[classic module importmap speculationrules].freeze
+
+    def self.supports(type) = SUPPORTED_SCRIPT_TYPES.include?(type.to_s)
+
+    def self.javascript_mime_type_essence_match?(string)
+      JAVASCRIPT_MIME_TYPE_ESSENCES.include?(string.to_s.downcase(:ascii))
+    end
+
+    # The type "prepare the script element" gives this script (its steps on
+    # the `type` and `language` attributes): :classic for every JavaScript MIME
+    # type essence match, :module, :importmap or :speculationrules for those
+    # keywords, and nil for anything else — a JSON block, a template type —
+    # which never runs.
+    def __internal_script_type__
+      type_attr = __internal_attribute_value__("type")
+      language = __internal_attribute_value__("language")
+      type_string =
+        if type_attr == "" || (type_attr.nil? && language.to_s.empty?)
+          "text/javascript"
+        elsif type_attr
+          type_attr
+        else
+          "text/#{language}"
+        end
+      if self.class.javascript_mime_type_essence_match?(type_string) ||
+         (type_attr && self.class.javascript_mime_type_essence_match?(type_attr.gsub(ASCII_WHITESPACE_EDGES, "")))
+        return :classic
+      end
+
+      case type_string.downcase(:ascii)
+      when "module" then :module
+      when "importmap" then :importmap
+      when "speculationrules" then :speculationrules
+      end
+    end
 
     # Set the HTML "already started" flag without running anything. The fragment
     # parsing algorithm (innerHTML / insertAdjacentHTML / outerHTML / DOMParser)
@@ -96,6 +154,12 @@ module Dommy
       @__script_started = true
       nil
     end
+
+    def __internal_script_already_started__ = @__script_started == true
+
+    # Whether the element is parser-inserted (has a parser document): the
+    # script post-connection steps leave such a script to the parser.
+    def __internal_parser_inserted__ = @__parser_inserted == true
 
     # HTML's cloning steps for a script: the copy's "already started" is the
     # original's, so cloning a parsed-but-inert script (DOMParser, innerHTML)
@@ -109,58 +173,113 @@ module Dommy
       @__script_started = true if state[:already_started]
     end
 
-    def __internal_take_pending_script__
-      return nil if @__script_started
-      return nil unless src.to_s.empty?
-      return nil unless CLASSIC_SCRIPT_TYPES.include?(type.to_s.strip.downcase)
-
-      body = text_content.to_s
-      return nil if body.strip.empty?
-
-      @__script_started = true
-      body
-    end
-
-    # The classic-script `src` to fetch and execute now, or nil if it must not
-    # run: an inline script (no src), a non-classic type (module/JSON/etc.), or
-    # one that already ran. The external counterpart of
-    # #__internal_take_pending_script__ — it sets the same "already started"
-    # flag so the host fetches/executes the external body at most once, even if
-    # the node is re-inserted. The fetch itself is the host's job (Dommy has no
-    # network); this only decides eligibility and returns the URL.
-    def __internal_take_pending_src__
+    # HTML "prepare the script element", up to where the work splits by type:
+    # returns a PreparedScript to fetch / run, or nil when nothing runs. The
+    # caller (script boot for a parser-inserted script, the post-connection
+    # steps for any other) does the fetching and the executing, which needs a
+    # JS engine.
+    #
+    # Order matters, as the spec writes it: a script with no `src` and an
+    # EMPTY body (whitespace is not empty) returns BEFORE "already started" is
+    # set, so a later child or `src` change can still run it; an unknown type
+    # returns before it too. Everything after — `nomodule`, the `event`/`for`
+    # legacy, a bad `src` — has already started the script.
+    def __internal_prepare_script__
       return nil if @__script_started
 
-      s = src.to_s
-      return nil if s.empty?
-      return nil unless CLASSIC_SCRIPT_TYPES.include?(type.to_s.strip.downcase)
+      parser_inserted = @__parser_inserted
+      @__parser_inserted = false
+      @__force_async = true if parser_inserted && __internal_attribute_value__("async").nil?
+      source = Backend.child_text_content(@__node__).to_s
+      src = __internal_attribute_value__("src")
+      return nil if src.nil? && source.empty?
+      return nil unless is_connected?
 
-      @__script_started = true
-      s
-    end
+      type = __internal_script_type__
+      return nil unless type
 
-    # A `type="module"` script to evaluate now, or nil if it must not run (a
-    # non-module type, an empty inline body, or one that already ran). Returns
-    # `[:inline, body]` or `[:external, src]`; the host evaluates it as an ES
-    # module (resolving its imports). Sets the same "already started" flag so a
-    # module runs at most once.
-    def __internal_take_pending_module__
-      return nil if @__script_started
-      return nil unless type.to_s.strip.downcase == "module"
-
-      # Whether the script is external is whether it HAS a src attribute; what to
-      # fetch is the IDL `src`, which resolves it against the document.
-      if __internal_attribute_value__("src").nil?
-        body = text_content.to_s
-        return nil if body.strip.empty?
-
-        @__script_started = true
-        [:inline, body]
-      else
-        @__script_started = true
-        [:external, src]
+      if parser_inserted
+        @__parser_inserted = true
+        @__force_async = false
       end
+      @__script_started = true
+      return nil if type == :classic && !__internal_attribute_value__("nomodule").nil?
+      return nil if type == :classic && !window_onload_event_for?
+
+      return @__internal_prepared_script__ = PreparedScript.new(type: type, external: false, source: source) if src.nil?
+
+      prepare_external(type, src)
     end
+
+    # The PreparedScript of the last preparation that produced one: lets a
+    # host that is handed only the element (an external-script runner) tell a
+    # module from a classic script.
+    attr_reader :__internal_prepared_script__
+
+    private
+
+    # "If el has a src content attribute": external import maps and
+    # speculation rules are not supported, and an empty or unparsable src
+    # fails; each failure is an `error` event queued at the element.
+    def prepare_external(type, src)
+      return queue_script_error_event if %i[importmap speculationrules].include?(type) || src.empty?
+
+      base = @document.base_uri.to_s
+      url = Internal::UrlParser.serialize(
+        Internal::UrlParser.parse(src, base.empty? ? nil : base, encoding: @document.character_encoding)
+      )
+      @__internal_prepared_script__ = PreparedScript.new(type: type, external: true, url: url)
+    rescue Internal::UrlParser::Failure
+      queue_script_error_event
+    end
+
+    def queue_script_error_event
+      queue_element_task { dispatch_event(Event.new("error").__internal_mark_trusted__) }
+      nil
+    end
+
+    # The legacy `<script event="onload" for="window">` form: a classic script
+    # with both attributes runs only when they name the window's load event.
+    def window_onload_event_for?
+      event = __internal_attribute_value__("event")
+      for_attr = __internal_attribute_value__("for")
+      return true if event.nil? || for_attr.nil?
+
+      for_attr.gsub(ASCII_WHITESPACE_EDGES, "").casecmp?("window") &&
+        %w[onload onload()].any? { |name| event.gsub(ASCII_WHITESPACE_EDGES, "").casecmp?(name) }
+    end
+
+    public
+
+    # Compatibility shims over #__internal_prepare_script__ for the three
+    # kinds of runnable script: each prepares the script only when it is of
+    # its kind, so asking for the wrong kind leaves it unstarted.
+    def __internal_take_pending_script__
+      prepared = prepare_if { |type, external| type == :classic && !external }
+      prepared&.source
+    end
+
+    def __internal_take_pending_src__
+      prepared = prepare_if { |type, external| type == :classic && external }
+      prepared&.url
+    end
+
+    def __internal_take_pending_module__
+      prepared = prepare_if { |type, _external| type == :module }
+      return nil unless prepared
+
+      prepared.external ? [:external, prepared.url] : [:inline, prepared.source]
+    end
+
+    private
+
+    def prepare_if
+      return nil unless yield(__internal_script_type__, !__internal_attribute_value__("src").nil?)
+
+      __internal_prepare_script__
+    end
+
+    public
   end
 
   # `<link>` — primarily for stylesheets, icons, preload, manifests.

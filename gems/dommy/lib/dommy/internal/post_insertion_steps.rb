@@ -65,50 +65,123 @@ module Dommy
         end
       end
 
+      # The script children changed steps: a connected script whose children
+      # changed gets its post-connection steps again — an empty script given
+      # text runs then.
+      def script_children_changed(element)
+        return unless element.respond_to?(:__internal_prepare_script__)
+        return unless element.is_connected?
+
+        script_post_connection(element)
+      end
+
+      # The script attribute change steps: setting `src` on a connected script
+      # runs its post-connection steps (removing it does not).
+      def script_attribute_changed(element, name, value, namespace)
+        return unless element.respond_to?(:__internal_prepare_script__)
+        return unless namespace.nil? && name == "src" && !value.nil? && element.is_connected?
+
+        script_post_connection(element)
+      end
+
       private
 
-      # A classic <script> that's now genuinely connected to this document runs:
-      # an inline body through the document's script_runner (wired by the JS
-      # bridge), an external `src` through external_script_runner (wired by the
-      # integration layer, which fetches + runs it — webpack/Vite load on-demand
-      # chunks by injecting `<script src>` this way). Gated on is_connected?
-      # because this walk also fires for additions to a still-detached subtree.
+      # The script HTML element post-connection steps, for a `<script>` that is
+      # now genuinely connected (this walk also fires for additions to a
+      # still-detached subtree).
       def run_connected_script(element)
-        return unless element.respond_to?(:__internal_take_pending_script__) # a <script>
+        return unless element.respond_to?(:__internal_prepare_script__) # a <script>
         return unless element.respond_to?(:is_connected?) && element.is_connected?
 
-        if (runner = @document.script_runner) && (source = element.__internal_take_pending_script__)
-          # A script-inserted INLINE classic script runs synchronously on insertion.
-          begin
-            runner.call(source)
-          rescue StandardError => e
-            @report.call(e)
-          end
-        elsif @document.external_script_runner &&
-              element.respond_to?(:__internal_take_pending_src__) &&
-              (src = element.__internal_take_pending_src__)
-          run_external_connected_script(element, src)
+        script_post_connection(element)
+      end
+
+      # HTML "prepare the script element" for a script that is not
+      # parser-inserted, then the part of the processing model that applies to
+      # it: an inline classic script executes right away, an external one when
+      # its fetch completes (through external_script_runner, wired by the
+      # integration layer, which owns the network — webpack/Vite load
+      # on-demand chunks by injecting `<script src>` this way), and a module
+      # script — inline or external — in a task of its own, never during the
+      # insertion. Scripting is enabled only while a JS engine is attached
+      # (script_runner); without one nothing is prepared, so a script inserted
+      # before the engine arrives still runs at boot.
+      def script_post_connection(element)
+        return if element.__internal_parser_inserted__
+        return unless @document.script_runner
+
+        prepared = element.__internal_prepare_script__
+        return unless prepared
+
+        case prepared.type
+        when :classic
+          prepared.external ? run_external_connected_script(element, prepared.url) : run_inline_classic(element, prepared.source)
+        when :module
+          run_module_script(element, prepared)
         end
       end
 
-      # A script-inserted EXTERNAL `<script src>` loads and runs ASYNCHRONOUSLY
-      # (per HTML spec), unlike an inline one. Running it synchronously inside the
-      # insertion steps would (a) execute it mid-render and, worse, (b) make the
-      # engine drain its microtask queue while JS is still on the stack — running
-      # an unrelated queued microtask (e.g. Vue's `nextTick` scheduler flush)
-      # re-entrantly and patching a half-built component tree (note.com's
-      # RecommendTemplate crashed Vue's `isPatchable` this way). Defer to a
-      # microtask so it runs at a proper checkpoint, after the current task
-      # unwinds. Re-check connectedness then (the node may have been removed).
-      def run_external_connected_script(element, src)
-        defer do
-          next unless element.respond_to?(:is_connected?) && element.is_connected?
+      # A script-inserted INLINE classic script runs synchronously on
+      # insertion, as "execute the script element": currentScript is the
+      # element for the run (and for the report of its exception), then goes
+      # back to whatever it was.
+      def run_inline_classic(element, source)
+        @document.__internal_with_current_script__(element) do
+          @document.script_runner.call(source)
+        rescue StandardError => e
+          @report.call(e)
+        end
+      end
 
-          begin
-            @document.external_script_runner.call(element, src)
-          rescue StandardError => e
-            @report.call(e)
-          end
+      # A module script is always "as soon as possible" here (not
+      # parser-inserted): it runs in a task once its graph is ready, so even an
+      # inline module with no imports never runs inside the insertion. The
+      # integration layer's runner knows the element is a module from its
+      # prepared state.
+      def run_module_script(element, prepared)
+        runner = @document.external_script_runner
+        return unless runner
+
+        queue_task do
+          next unless element.owner_document.equal?(@document)
+
+          runner.call(element, prepared.url)
+        rescue StandardError => e
+          @report.call(e)
+        end
+      end
+
+      def queue_task(&block)
+        scheduler = @document.__internal_scheduler__ if @document.respond_to?(:__internal_scheduler__)
+        scheduler ? scheduler.set_timeout(block, 0) : block.call
+      end
+
+      # A script-inserted EXTERNAL `<script src>` loads and runs ASYNCHRONOUSLY
+      # (per HTML spec), unlike an inline one: in a task of its own once its
+      # fetch completes, never inside the insertion steps — which would execute
+      # it mid-render and make the engine drain its microtask queue while JS is
+      # still on the stack (re-entering an unrelated microtask such as Vue's
+      # `nextTick` flush on a half-built component tree, as note.com's
+      # RecommendTemplate once did). Not a microtask either: microtasks the
+      # inserting script queued run while it is still `document.currentScript`,
+      # and this script must not. "Execute the script element" checks only
+      # that the element is still in the document it was prepared in, so a
+      # script removed after insertion still runs.
+      #
+      # One written by document.write is the parser's pending parsing-blocking
+      # script instead: it runs once the writing script returns, before the
+      # parser moves on — the next microtask checkpoint, here.
+      def run_external_connected_script(element, src)
+        runner = @document.external_script_runner
+        return unless runner
+
+        schedule = @document.__internal_document_writing__ ? method(:defer) : method(:queue_task)
+        schedule.call do
+          next unless element.owner_document.equal?(@document)
+
+          runner.call(element, src)
+        rescue StandardError => e
+          @report.call(e)
         end
       end
 

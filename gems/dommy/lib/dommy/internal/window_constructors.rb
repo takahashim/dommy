@@ -45,7 +45,13 @@ module Dommy
       abort_signal.define_class_method("any") { |args| AbortSignal.any(args[0]) }
       abort_signal.define_class_method("timeout") { |args| AbortSignal.timeout(args[0], scheduler: win.scheduler) }
 
+      # HTMLScriptElement is not constructible (nil -> Illegal constructor);
+      # it is here for its static `supports()`.
+      script_element = Bridge::Constructor.new { |_args| nil }
+      script_element.define_class_method("supports") { |args| HTMLScriptElement.supports(args[0]) }
+
       {
+        "HTMLScriptElement" => script_element,
         # `new Document()` — a fresh empty document (content type application/xml
         # per the DOM Standard, so it behaves as a non-HTML document).
         "Document" => Bridge::Constructor.new do

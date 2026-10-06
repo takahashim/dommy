@@ -1707,9 +1707,19 @@ module Dommy
       added = fragment.children.to_a
       body_node = body.__dommy_backend_node__
       added.each { |node| body_node.add_child(node) }
-      notify_child_list_mutation(target_node: body_node, added_nodes: added, removed_nodes: removed)
+      @__document_writing = true
+      begin
+        notify_child_list_mutation(target_node: body_node, added_nodes: added, removed_nodes: removed)
+      ensure
+        @__document_writing = false
+      end
       nil
     end
+
+    # Whether the insertion under way comes from document.write: an external
+    # script it writes is the parser's pending parsing-blocking script, which
+    # runs as soon as the writing script returns — before the parser goes on.
+    def __internal_document_writing__ = @__document_writing == true
 
     # No-ops — real browsers reset the DOM on `open()` and flush
     # pending writes on `close()`. We don't model the parse pipeline.
@@ -2137,6 +2147,21 @@ module Dommy
       nil
     end
 
+    # HTML "execute the script element", for a classic script: currentScript
+    # is the element while its script runs (null when the element's root is a
+    # shadow root — not "in a document tree", since a script removed before it
+    # runs still points at itself), then goes back to whatever it was before,
+    # so a script inserted and run from inside another script leaves the outer
+    # one current again. A caller reports the script's exception from inside
+    # the block: the report is part of the run, while currentScript is set.
+    def __internal_with_current_script__(element)
+      old = @__current_script__
+      @__current_script__ = element.root_node.is_a?(ShadowRoot) ? nil : element
+      yield
+    ensure
+      @__current_script__ = old
+    end
+
     # Delegate node wrapping to NodeWrapperCache
     def wrap_node(node)
       @node_wrapper_cache.wrap(node)
@@ -2167,7 +2192,13 @@ module Dommy
       elements = @backend_doc.css("details").filter_map { |node| __internal_html_element_wrapper__(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
       @backend_doc.css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
-      @backend_doc.css("script").each { |node| __internal_html_element_wrapper__(node)&.__internal_mark_parser_inserted__ }
+      @backend_doc.css("script").each do |node|
+        script = __internal_html_element_wrapper__(node)
+        next unless script
+
+        script.__internal_mark_parser_inserted__
+        script.__internal_mark_parser_document__
+      end
       nil
     end
 

@@ -1173,15 +1173,22 @@ globalThis.__rbHost = (function () {
   // `with` is skipped for a "use strict" body (where it is illegal). The
   // completion value is voided so a trailing expression never trips the
   // unawaited-Promise guard.
+  // A throw (a compile error included) comes back tagged, as a callback's
+  // does, so the Ruby side reports the very value the script threw.
   function runScript(src) {
     bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const body = String(src);
     const strict = /^\s*(["'])use strict\1/.test(body);
-    if (!strict && typeof globalThis.window !== "undefined" && globalThis.window !== globalThis) {
-      indirectEval("with (globalThis.window) {\n" + body + "\n}\n;void 0;");
-    } else {
-      indirectEval(body + "\n;void 0;");
+    try {
+      if (!strict && typeof globalThis.window !== "undefined" && globalThis.window !== globalThis) {
+        indirectEval("with (globalThis.window) {\n" + body + "\n}\n;void 0;");
+      } else {
+        indirectEval(body + "\n;void 0;");
+      }
+    } catch (e) {
+      return tagThrow(e);
     }
+    return undefined;
   }
 
   function wasmGet(ref, prop) { return wasmTag(wasmDeref(ref)[prop]); }
