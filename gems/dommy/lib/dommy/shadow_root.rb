@@ -105,6 +105,13 @@ module Dommy
       Internal::HtmlSerialization.children(@document, self)
     end
 
+    # `setHTMLUnsafe(html, options)`: as Element's, parsed with the host as
+    # the context element.
+    def set_html_unsafe(html, options = nil)
+      run_scripts = Internal::UnsafeHtml.run_scripts?(options)
+      Internal::UnsafeHtml.set(@document, self, @host, html, run_scripts: run_scripts)
+    end
+
     # `getHTML(options)`, as Element's.
     def get_html(options = nil)
       serializable, roots = Internal::HtmlSerialization.get_html_options(options)
@@ -371,7 +378,7 @@ module Dommy
       querySelector querySelectorAll getElementById append prepend replaceChildren moveBefore appendChild
       insertBefore removeChild replaceChild
       getRootNode contains addEventListener removeEventListener dispatchEvent
-      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition getHTML
+      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition getHTML setHTMLUnsafe
     ]
     def __js_call__(method, args)
       case method
@@ -383,6 +390,9 @@ module Dommy
         get_element_by_id(args[0])
       when "getHTML"
         get_html(args[0])
+      when "setHTMLUnsafe"
+        set_html_unsafe(args[0], args[1])
+        Bridge::UNDEFINED
       when "isEqualNode"
         is_equal_node(args[0])
       when "isSameNode"

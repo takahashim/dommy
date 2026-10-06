@@ -349,3 +349,80 @@ class TestDeclarativeShadowRootsFromThePageParser < Minitest::Test
     assert_nil doc.get_element_by_id("q").__internal_shadow_root__
   end
 end
+
+# setHTMLUnsafe() on Element, ShadowRoot and template, and
+# Document.parseHTMLUnsafe().
+class TestSetHTMLUnsafe < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window("<div id='w'></div>")
+    @doc = @win.document
+    @wrapper = @doc.get_element_by_id("w")
+  end
+
+  def test_element_set_html_unsafe_attaches_declarative_shadow_roots
+    @wrapper.set_html_unsafe("<div id=h><template shadowrootmode=open shadowrootclonable><slot></slot></template><p>x</p></div>")
+    host = @doc.get_element_by_id("h")
+    assert_equal "<slot></slot>", host.shadow_root.inner_html
+    assert host.shadow_root.clonable
+    assert host.shadow_root.__internal_declarative__?
+    assert_nil host.query_selector("template")
+  end
+
+  # A template at the top of the markup is left as it is (its adjusted
+  # current node is the context element: browsers leave it).
+  def test_top_level_template_stays
+    @wrapper.set_html_unsafe("<template shadowrootmode=open>x</template>")
+    assert_nil @wrapper.__internal_shadow_root__
+    assert_equal "open", @wrapper.first_element_child.get_attribute("shadowrootmode")
+  end
+
+  def test_shadow_root_and_template_targets
+    root = @wrapper.attach_shadow({"mode" => "open"})
+    root.set_html_unsafe("<span id=s><template shadowrootmode=closed>c</template></span>")
+    assert_equal "closed", root.get_element_by_id("s").__internal_shadow_root__.mode
+
+    template = @doc.create_element("template")
+    template.set_html_unsafe("<td>cell</td>")
+    assert_equal 0, template.child_nodes.length
+    assert_equal "<td>cell</td>", template.content.first_child.outer_html
+  end
+
+  def test_scripts_are_inert_unless_run_scripts
+    @wrapper.set_html_unsafe("<script>1</script><div><template shadowrootmode=open><script>2</script></template></div>")
+    first = @wrapper.first_element_child
+    inner = @wrapper.last_element_child.shadow_root.first_element_child
+    assert first.__internal_script_already_started__
+    assert inner.__internal_script_already_started__
+
+    @wrapper.set_html_unsafe("<script>3</script>", {"runScripts" => true})
+    refute @wrapper.first_element_child.__internal_script_already_started__
+  end
+
+  def test_replace_all_is_one_record_and_removed_children_keep_theirs
+    @wrapper.inner_html = "<b><i>t</i></b>"
+    old = @wrapper.first_element_child
+    observer = Dommy::MutationObserver.new(@win, proc {})
+    observer.__js_call__("observe", [@wrapper, {"childList" => true}])
+    @wrapper.set_html_unsafe("<p>new</p>")
+    assert_equal 1, observer.__js_call__("takeRecords", []).size
+    assert_equal "<i>t</i>", old.inner_html
+  end
+
+  def test_xml_document_still_parses_html
+    xml = @doc.implementation.create_document(nil, "root", nil)
+    xml.document_element.set_html_unsafe("<p><foo><b><i>test</b></i>")
+    assert_equal '<p xmlns="http://www.w3.org/1999/xhtml"><foo><b><i>test</i></b></foo></p>', xml.document_element.inner_html
+  end
+
+  def test_parse_html_unsafe
+    doc = Dommy::Internal::UnsafeHtml.parse_document("<div id=h><template shadowrootmode=open>s</template></div><script>x</script>", @win)
+    assert_equal "text/html", doc.content_type
+    assert_equal "about:blank", doc.url
+    assert doc.__internal_allow_declarative_shadow_roots__?
+    assert_equal "s", doc.get_element_by_id("h").shadow_root.inner_html
+    assert doc.query_selector("script").__internal_script_already_started__
+    assert_nil doc.default_view
+  end
+end

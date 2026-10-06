@@ -768,6 +768,16 @@ module Dommy
       Internal::HtmlSerialization.children(@document, self, serializable_shadow_roots: serializable, shadow_roots: roots)
     end
 
+    # `setHTMLUnsafe(html, options)`: the markup parsed as a fragment with
+    # declarative shadow roots allowed (scripts inert unless `runScripts`),
+    # replacing this element's children — a template's contents for a
+    # template.
+    def set_html_unsafe(html, options = nil)
+      run_scripts = Internal::UnsafeHtml.run_scripts?(options)
+      target = is_a?(HTMLTemplateElement) ? content : self
+      Internal::UnsafeHtml.set(@document, target, self, html, run_scripts: run_scripts)
+    end
+
     # WHATWG "actually disabled". Only the disable-able form controls can be,
     # so the generic element never is; HTMLElement narrows it by local name.
     def __internal_actually_disabled__
@@ -1196,7 +1206,7 @@ module Dommy
       getAttributeNS setAttributeNS hasAttributeNS removeAttributeNS getAttributeNodeNS setAttributeNodeNS
       querySelector querySelectorAll getElementsByClassName getElementsByTagName getElementsByTagNameNS
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches webkitMatchesSelector
-      getAttributeNode setAttributeNode removeAttributeNode attachShadow
+      getAttributeNode setAttributeNode removeAttributeNode attachShadow setHTMLUnsafe
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
       replaceChild cloneNode append prepend replaceChildren moveBefore before after getInnerHTML getHTML
       remove replaceWith getBoundingClientRect getClientRects scrollIntoView scroll
@@ -1329,6 +1339,9 @@ module Dommy
         inner_html
       when "getHTML"
         get_html(args[0])
+      when "setHTMLUnsafe"
+        set_html_unsafe(args[0], args[1])
+        Bridge::UNDEFINED
       when "remove"
         remove
         Bridge::UNDEFINED # ChildNode#remove is void -> JS undefined, not null
