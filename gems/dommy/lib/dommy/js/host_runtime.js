@@ -3190,6 +3190,13 @@ globalThis.__rbHost = (function () {
     fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
     if (prop === "toString" && ctx.ifaceName) fn = brandCheckedStringifier(fn, ctx);
     withArity(fn, prop, ctx.ifaceName);
+    // A special stub whose name no arity table lists takes the length its IDL
+    // declares (the shortest overload's required count): `postMessage.length`
+    // and `structuredClone.length` are 1.
+    if (special && fn.length === 0) {
+      const call = declaredConversion(ctx.ifaceName, "operations", prop);
+      if (call && call.required) Object.defineProperty(fn, "length", { value: call.required, configurable: true });
+    }
     return fn;
   }
 
