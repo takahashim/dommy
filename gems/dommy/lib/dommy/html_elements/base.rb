@@ -497,10 +497,30 @@ module Dommy
       win = @document&.default_view
       return if target.to_s.empty? || win.nil? || win.location.nil?
 
+      # The link's target names the navigable it navigates: an iframe's child
+      # navigable (or this window's parent, top, ...) by its target name.
+      win = hyperlink_target_window(win) || win
       # A cross-document link hands off to the delegate without pre-mutating the
       # location; a same-document fragment still updates the hash + :target.
       win.location.__internal_navigate_to__(target, source: :link, sync_cross_doc: false)
     end
+
+    # The existing navigable's window the link's target (its `target`
+    # attribute, else the document's `<base target>`) chooses, or nil for
+    # this one (and for a target that would open a new one, which Dommy does
+    # not create).
+    def hyperlink_target_window(win)
+      name = __internal_attribute_value__("target").to_s
+      if name.empty?
+        base = @document.query_selector("base[target]")
+        name = base&.__internal_attribute_value__("target").to_s
+      end
+      return nil if name.empty? || !win.respond_to?(:choose_navigable)
+
+      chosen = win.choose_navigable(name)
+      chosen.equal?(win) ? nil : chosen
+    end
+    private :hyperlink_target_window
   end
 
   # The activation behavior of a submit button: run the owning form's

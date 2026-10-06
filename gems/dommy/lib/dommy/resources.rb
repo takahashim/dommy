@@ -47,10 +47,19 @@ module Dommy
       # adapter supports `request_job`, fetch / XHR run the request on a worker
       # and resolve through a DeferredResponse. Without them everything stays
       # synchronous (the deterministic default the tests rely on).
-      def initialize(resources, executor: nil, scheduler: nil)
+      #
+      # `cookie_jar` (a Dommy::CookieJar) and `origin` (a callable answering the
+      # requesting page's serialized origin) make requests credentialed the
+      # Fetch way: a request whose credentials mode is "include", or
+      # "same-origin" (the default; XHR without withCredentials) to the page's
+      # own origin, carries the jar's `Cookie` header and has its response's
+      # `Set-Cookie` stored.
+      def initialize(resources, executor: nil, scheduler: nil, cookie_jar: nil, origin: nil)
         @resources = resources
         @executor = executor
         @scheduler = scheduler
+        @cookie_jar = cookie_jar
+        @origin = origin
       end
 
       def call(url, init = nil)
@@ -58,10 +67,16 @@ module Dommy
         method = (init["method"] || "GET").to_s.upcase
         headers = init["headers"].is_a?(Hash) ? init["headers"] : {}
         body = init["body"]&.to_s
+        credentialed = credentialed?(url, init)
+        if credentialed
+          cookies = @cookie_jar.cookie_string(url.to_s)
+          headers = headers.merge("Cookie" => cookies) unless cookies.empty?
+        end
 
         return call_async(method, url, headers, body) if async?
 
         response = @resources.request(method: method, url: url.to_s, headers: headers, body: body)
+        @cookie_jar.store_response_headers(response.headers || {}, url.to_s) if response && credentialed
         response && to_entry(response, url)
       end
 
@@ -69,6 +84,16 @@ module Dommy
 
       def async?
         !@executor.nil? && @resources.respond_to?(:request_job)
+      end
+
+      def credentialed?(url, init)
+        return false unless @cookie_jar
+
+        mode = (init["credentials"] || (init["withCredentials"] ? "include" : "same-origin")).to_s
+        return true if mode == "include"
+        return false unless mode == "same-origin" && @origin
+
+        Internal::Origin.of_url(url.to_s) == @origin.call
       end
 
       # The page-thread serve/decline decision still runs synchronously (so an

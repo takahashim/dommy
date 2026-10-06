@@ -76,10 +76,11 @@ class TestUserActivation < Minitest::Test
   end
 
   def test_activation_and_its_consumption_reach_same_origin_frames
-    frame_win = Dommy::Window.new
+    # An inserted iframe gets a child navigable whose initial about:blank
+    # shares the container document's origin.
     iframe = @doc.create_element("iframe")
     @doc.body.append_child(iframe)
-    iframe.__internal_set_content_document__(frame_win.document)
+    frame_win = iframe.content_window
     synth.click(el("b"))
     assert frame_win.__internal_transient_activation__?
     @win.__internal_consume_user_activation__

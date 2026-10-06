@@ -8,7 +8,7 @@ require_relative "internal/directionality"
 require_relative "internal/node_factory"
 require_relative "internal/mutation_coordinator"
 require_relative "internal/shadow_root_registry"
-require_relative "internal/cookie_jar"
+require_relative "cookie_jar"
 require_relative "internal/node_traversal"
 require_relative "internal/node_adopter"
 require_relative "internal/observer_manager"
@@ -619,7 +619,6 @@ module Dommy
       @node_factory = Internal::NodeFactory.new(self, @node_wrapper_cache)
       @observer_manager = Internal::ObserverManager.new
       @shadow_registry = Internal::ShadowRootRegistry.new
-      @cookie_jar = Internal::CookieJar.new
       @template_content_registry = Internal::TemplateContentRegistry.new(self)
       @mutation_coordinator = Internal::MutationCoordinator.new(self, @observer_manager)
       # Weak, like @live_ranges: a NodeIterator is consulted by every removal for
@@ -1833,16 +1832,39 @@ module Dommy
       bn
     end
 
-    # Delegate to CookieJar
-
+    # `document.cookie` (HTML §3.1.5): the cookie-string of the window's
+    # cookie jar for this document's URL, as a "non-HTTP" API sees it (no
+    # HttpOnly cookies). A cookie-averse document — no browsing context, or a
+    # URL that is not http(s) — reads "" and ignores writes; one with an
+    # opaque origin throws SecurityError.
     def cookie
-      @cookie_jar.to_cookie_string
+      return "" if __internal_cookie_averse__?
+
+      raise_if_opaque_for_cookies!
+      @default_view.cookie_jar.cookie_string(url, http: false)
     end
 
     def cookie=(value)
-      @cookie_jar.set_cookie(value)
+      return nil if __internal_cookie_averse__?
+
+      raise_if_opaque_for_cookies!
+      @default_view.cookie_jar.store(value.to_s, url, http: false)
       nil
     end
+
+    # HTML "cookie-averse Document object".
+    def __internal_cookie_averse__?
+      return true unless @default_view.respond_to?(:cookie_jar)
+
+      !url.to_s.match?(/\Ahttps?:/i)
+    end
+
+    def raise_if_opaque_for_cookies!
+      return unless @default_view.origin == "null"
+
+      raise DOMException::SecurityError, "the document's origin is opaque"
+    end
+    private :raise_if_opaque_for_cookies!
 
     def create_element_ns(namespace_uri, qualified_name, options = nil)
       @node_factory.create_element_ns(namespace_uri, qualified_name, options)
@@ -2365,6 +2387,50 @@ module Dommy
       nil
     end
 
+    # The document's current readiness ("loading" / "interactive" /
+    # "complete").
+    def __internal_ready_state__ = @ready_state
+
+    # HTML "update the current document readiness" alone: readyState becomes
+    # `state` and `readystatechange` fires — without the milestone event
+    # __internal_set_ready_state__ adds. The parser's "the end" fires
+    # DOMContentLoaded and load from tasks of their own (see ScriptBoot).
+    def __internal_update_readiness__(state)
+      state = state.to_s
+      return nil if @ready_state == state
+
+      @ready_state = state
+      @loading_lifecycle = true if state == "loading"
+      __internal_fire_event__("readystatechange")
+      nil
+    end
+
+    # "The end", its DOMContentLoaded task: fire a trusted, bubbling
+    # `DOMContentLoaded` at the document.
+    def __internal_fire_dom_content_loaded__
+      __internal_fire_event__("DOMContentLoaded", {"bubbles" => true})
+      nil
+    end
+
+    # "The end", its load task: readiness becomes "complete", then `load` at
+    # the window and `pageshow`, and the document is completely loaded.
+    def __internal_finish_loading__
+      return nil unless @loading_lifecycle
+
+      __internal_update_readiness__("complete")
+      fire_load_and_pageshow
+      nil
+    end
+
+    # Whether something delays this document's load event: a child navigable
+    # still navigating (HTML "potentially delays the load event", iframe).
+    def __internal_load_delayed__?
+      @backend_doc.css("iframe").any? do |node|
+        frame = wrap_node(node)
+        frame.is_a?(HTMLIFrameElement) && frame.__internal_navigation_pending__?
+      end
+    end
+
     # The end of loading, from "update the current document readiness to
     # complete": fire a trusted `load` at the window with the legacy target
     # override (so `event.target` is this document), then `pageshow` (persisted
@@ -2380,7 +2446,32 @@ module Dommy
       end
       @loading_lifecycle = false
       view.__internal_ready_for_post_load_tasks__ if view.respond_to?(:__internal_ready_for_post_load_tasks__)
+      run_after_load_tasks
     end
+
+    # Queue `block` as a task once this document has completely loaded (at
+    # once when it already has).
+    def __internal_after_load__(&block)
+      if __internal_completely_loaded__?
+        queue_after_load_task(block)
+      else
+        (@after_load_tasks ||= []) << block
+      end
+      nil
+    end
+
+    def run_after_load_tasks
+      tasks = @after_load_tasks || []
+      @after_load_tasks = nil
+      tasks.each { |task| queue_after_load_task(task) }
+    end
+    private :run_after_load_tasks
+
+    def queue_after_load_task(block)
+      scheduler = __internal_scheduler__
+      scheduler ? scheduler.set_timeout(block, 0) : block.call
+    end
+    private :queue_after_load_task
     private :fire_load_and_pageshow
 
     # A trusted page transition event (`pageshow` / `pagehide`) for this
@@ -2464,6 +2555,20 @@ module Dommy
       @backend_doc.css("[autofocus]").each do |node|
         element = wrap_node(node)
         __internal_autofocus_inserted__(element) if element.respond_to?(:autofocus) && element.is_connected?
+      end
+      nil
+    end
+
+    # Script boot replays the parser's insertion of each `<iframe>` (in tree
+    # order): its post-connection steps create its child navigable and process
+    # its attributes, so a srcless one fires `load` and one with a `src` starts
+    # navigating. Only a document with a browsing context has child navigables.
+    def __internal_process_parsed_iframes__
+      return nil unless @default_view
+
+      @backend_doc.css("iframe").each do |node|
+        frame = __internal_html_element_wrapper__(node)
+        frame.__internal_parser_inserted__ if frame.is_a?(HTMLIFrameElement)
       end
       nil
     end
