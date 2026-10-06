@@ -10,6 +10,7 @@ module Dommy
     reflect_string :type, :integrity, html_for: { attr: "for", js: "htmlFor" }
     reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
     reflect_boolean :defer, no_module: "nomodule"
+    reflect_token_list blocking: { supported: Internal::SupportedTokens::BLOCKING }
     # `text` is an alias for textContent on <script>.
     def text
       text_content
@@ -169,7 +170,8 @@ module Dommy
   class HTMLLinkElement < HTMLElement
     reflect_boolean :disabled
     reflect_url :href
-    reflect_token_list :sizes, rel_list: { attr: "rel", js: "relList" }
+    reflect_token_list :sizes, rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::LINK_REL },
+                              blocking: { supported: Internal::SupportedTokens::BLOCKING }
     reflect_string :rel, :type, :media, :hreflang, :integrity
     # The `as` attribute is a plain enumerated attribute (links.html /
     # semantics.html: "The as IDL attribute must reflect the as content
@@ -258,6 +260,7 @@ module Dommy
 
   class HTMLStyleElement < HTMLElement
     reflect_string :type, :media
+    reflect_token_list blocking: { supported: Internal::SupportedTokens::BLOCKING }
     def disabled
       @__disabled == true
     end

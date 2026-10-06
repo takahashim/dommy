@@ -118,7 +118,7 @@ if defined?(RubyVM::AbstractSyntaxTree) && RUBY_ENGINE == "ruby"
 
     # Sanity-check the AST walker against a known class.
     def test_walker_self_check
-      assert_equal %w[add remove contains toggle replace item toString],
+      assert_equal %w[add remove contains toggle replace item supports toString],
                    own_when_strings(Dommy::ClassList)
     end
 

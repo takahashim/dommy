@@ -573,7 +573,7 @@ module Dommy
   class HTMLAnchorElement < HTMLElement
     include HyperlinkActivation
     include HyperlinkUtils
-    reflect_token_list rel_list: { attr: "rel", js: "relList" }
+    reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
     reflect_setter :href
     reflect_string :target, :download, :ping, :rel, :hreflang, :type
 
@@ -601,7 +601,7 @@ module Dommy
   class HTMLAreaElement < HTMLElement
     include HyperlinkActivation
     include HyperlinkUtils
-    reflect_token_list rel_list: { attr: "rel", js: "relList" }
+    reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
     reflect_setter :href
     reflect_string :alt, :coords, :shape, :target, :download, :ping, :rel
   end

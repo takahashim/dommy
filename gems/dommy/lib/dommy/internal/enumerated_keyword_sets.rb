@@ -49,5 +49,38 @@ module Dommy
         invalid: "application/x-www-form-urlencoded"
       }.freeze
     end
+
+    # DOM's "supported tokens" for the DOMTokenLists HTML defines them for —
+    # what `list.supports(token)` answers against (after ASCII-lowercasing the
+    # token). A token list with no entry here (`classList`, `link.sizes`,
+    # `output.htmlFor`, SVG `relList`) has none, and `supports()` throws a
+    # TypeError. HTML lists the POSSIBLE supported tokens and lets a user agent
+    # keep the ones whose processing model it implements; dommy keeps the
+    # spec's whole list, since what it models of each is what a page can
+    # observe of a headless document.
+    module SupportedTokens
+      # links.html, `link` rel: the keywords allowed on link that impact the
+      # processing model.
+      LINK_REL = %w[
+        alternate dns-prefetch expect icon manifest modulepreload next pingback
+        preconnect prefetch preload search stylesheet
+      ].freeze
+
+      # links.html, `a`/`area` rel, and forms.html, `form` rel.
+      HYPERLINK_REL = %w[noreferrer noopener opener].freeze
+
+      # iframe.html, the sandbox attribute's allowed values.
+      IFRAME_SANDBOX = %w[
+        allow-downloads allow-forms allow-modals allow-orientation-lock
+        allow-pointer-lock allow-popups allow-popups-to-escape-sandbox
+        allow-presentation allow-same-origin allow-scripts allow-top-navigation
+        allow-top-navigation-by-user-activation
+        allow-top-navigation-to-custom-protocols
+      ].freeze
+
+      # HTML "blocking attributes", the possible blocking tokens (link/script/style
+      # `blocking`).
+      BLOCKING = %w[render].freeze
+    end
   end
 end

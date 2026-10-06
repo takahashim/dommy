@@ -119,6 +119,8 @@ module Dommy
 
         # A [SameObject] DOMTokenList over a space-separated attribute
         # (`a.relList`, `iframe.sandbox`). Read-only: the list mutates itself.
+        # `supported:` is the attribute's supported tokens (an
+        # Internal::SupportedTokens list); without it `supports()` throws.
         def reflect_token_list(*names, **mapped)
           _reflect(:token_list, names, mapped)
         end
@@ -492,16 +494,16 @@ module Dommy
       # A [SameObject] DOMTokenList over `name`, memoized so `el.relList` is the
       # same object every time — which is what lets a page keep a reference to it
       # and watch the attribute through it.
-      def reflected_token_list(name, _options = nil)
-        (@reflected_token_lists ||= {})[name] ||= ClassList.new(self, name)
+      def reflected_token_list(name, options = EMPTY_OPTIONS)
+        (@reflected_token_lists ||= {})[name] ||= ClassList.new(self, name, options[:supported])
       end
 
       # WebIDL [PutForwards=value]: a token-list attribute is readonly, but
       # assigning to it assigns to the list's `value`, which rewrites the whole
       # content attribute — so `iframe.sandbox = "allow-scripts"` works, and
       # `iframe.sandbox` is still the same DOMTokenList afterwards.
-      def set_reflected_token_list(name, value, _options = nil)
-        reflected_token_list(name).value = value
+      def set_reflected_token_list(name, value, options = EMPTY_OPTIONS)
+        reflected_token_list(name, options).value = value
       end
 
       def reflected_boolean(name, _options = nil)

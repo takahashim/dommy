@@ -12,7 +12,8 @@ module Dommy
   # validation surface.
   class HTMLFormElement < HTMLElement
     include SubmissionUrlAttribute
-    reflect_token_list rel_list: { attr: "rel", js: "relList" }
+    reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
+    reflect_string :rel
     reflect_setter :action
     def action = submission_url("action")
     reflect_string :name, :target, accept_charset: "accept-charset"

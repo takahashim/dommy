@@ -1,0 +1,52 @@
+# frozen_string_literal: true
+
+require_relative "test_helper"
+
+# Reflected IDL attributes and the DOMTokenLists HTML gives elements, held to
+# the HTML Standard's own wording (§2.6.1 reflection, the per-element IDL
+# prose) where an earlier implementation followed a browser or a guess.
+class TestReflectionConformance < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @doc = make_window.document
+  end
+
+  def el(name) = @doc.create_element(name)
+
+  # DOM's supports(token): a TypeError without supported tokens, else an
+  # ASCII-case-insensitive membership test in them.
+  def test_token_list_supports
+    assert_raises(Dommy::Bridge::TypeError) { el("div").class_list.supports?("a") }
+    assert_raises(Dommy::Bridge::TypeError) { el("link").sizes.supports?("any") }
+
+    assert el("link").rel_list.supports?("STYLESHEET")
+    refute el("link").rel_list.supports?("canonical")
+    assert el("a").rel_list.supports?("NoOpener")
+    refute el("a").rel_list.supports?("stylesheet")
+    assert el("area").rel_list.supports?("noreferrer")
+    assert el("form").rel_list.supports?("opener")
+    assert el("iframe").sandbox.supports?("allow-Scripts")
+    refute el("iframe").sandbox.supports?("allow-everything")
+  end
+
+  # Assigning a token list first (PutForwards=value) still yields the list
+  # with its supported tokens.
+  def test_token_list_supports_after_put_forwards
+    iframe = el("iframe")
+    iframe.sandbox = "allow-forms"
+    assert iframe.sandbox.supports?("allow-forms")
+    assert_equal "allow-forms", iframe.get_attribute("sandbox")
+  end
+
+  def test_blocking_token_lists
+    %w[link script style].each do |name|
+      element = el(name)
+      assert element.blocking.supports?("render"), name
+      refute element.blocking.supports?("asdf"), name
+      element.blocking = "asdf"
+      assert_equal "asdf", element.get_attribute("blocking")
+      assert_same element.blocking, element.blocking
+    end
+  end
+end

@@ -128,9 +128,6 @@
       "getName",
       "initialize"
     ],
-    "DOMTokenList": [
-      "supports"
-    ],
     "DataTransfer": [
       "setDragImage"
     ],
@@ -485,8 +482,7 @@
       "validationMessage"
     ],
     "HTMLFormElement": [
-      "encoding",
-      "rel"
+      "encoding"
     ],
     "HTMLFrameElement": [
       "contentDocument",
@@ -578,7 +574,6 @@
       "form"
     ],
     "HTMLLinkElement": [
-      "blocking",
       "charset",
       "fetchPriority",
       "imageSizes",
@@ -628,7 +623,6 @@
       "width"
     ],
     "HTMLScriptElement": [
-      "blocking",
       "charset",
       "crossOrigin",
       "event",
@@ -636,9 +630,6 @@
     ],
     "HTMLSelectElement": [
       "showPicker"
-    ],
-    "HTMLStyleElement": [
-      "blocking"
     ],
     "HTMLTableCaptionElement": [
       "align"
