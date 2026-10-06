@@ -37,7 +37,9 @@ class TestOracleFollowups < Minitest::Test
     input.set_attribute("step", "0.3")
     input.value = "1.1"
     input.step_up
-    assert_equal("1.4", input.value)
+    # The step base is the value content attribute (0.1) when there is no
+    # min, so 1.1 is off the grid and snaps up to 0.1 + 4 * 0.3.
+    assert_equal("1.3", input.value)
     input.set_attribute("min", "0")
     input.set_attribute("max", "1")
     input.value = "0.9"

@@ -176,7 +176,12 @@ module Dommy
       self.value = time_value.nan? ? "" : input_type.from_date_value(time_value)
     end
 
-    def validation_step_base = min_as_number || input_type.step_base
+    # HTML's step base: the min content attribute as a number, else the value
+    # content attribute as a number, else the type's default step base (a
+    # week's), else zero.
+    def validation_step_base
+      step_boundary("min") || step_boundary("value") || input_type.step_base
+    end
 
     def numeric_value_type? = input_type.numeric?
 
@@ -512,49 +517,60 @@ module Dommy
       s && s > 0 ? s : default_step
     end
 
-    # stepUp/stepDown throw when the type has no allowed value step: a type with
-    # no number representation, or step="any". Otherwise the value moves by
-    # `count` steps (in valueAsNumber units), clamped/aligned to the min & max.
-    def apply_step(count)
+    # HTML's stepUp(n) / stepDown(n). They throw when the type has no
+    # allowed value step (no number representation, or step="any"). A value
+    # that is not a number starts from 0; one off the step grid first snaps to
+    # the nearest aligned value in the direction of the call (n is not used
+    # then); otherwise it moves n steps. The result is pulled inside min/max
+    # onto the grid, and a call that would move the value against its own
+    # direction does nothing.
+    def apply_step(count, direction)
       unless numeric_value_type?
         raise DOMException::InvalidStateError, "stepUp/stepDown is not applicable to input type '#{type}'"
       end
 
-      step = step_base_value
+      step = allowed_value_step
       if step.nil?
         raise DOMException::InvalidStateError, "stepUp/stepDown is not allowed when step is 'any'"
       end
-      return if count.zero?
 
-      allowed = step * step_scale_factor
-      mn = step_boundary("min")
-      mx = step_boundary("max")
-      # A min above the max means no in-range value exists — do nothing.
-      return if mn && mx && mn > mx
-
-      before = value_as_number
       # The arithmetic runs on the decimal values the attributes spell, not on
       # their nearest doubles: 0.1 + 0.1 + 0.1 is 0.3, not 0.30000000000000004.
-      allowed = decimal(allowed)
+      step = decimal(step)
+      base = decimal(validation_step_base)
+      mn = step_minimum
+      mx = step_maximum
       mn = decimal(mn) if mn
       mx = decimal(mx) if mx
-      base = before.nan? ? (mn || 0r) : decimal(before)
-      result = base + count * allowed
+      return if mn && mx && mn > mx
+      return if mn && mx && aligned_at_or_above(mn, base, step) > mx
 
-      step_base = mn || 0r
-      result = mx - (mx - step_base) % allowed if mx && result > mx
-      result = mn + (step_base - mn) % allowed if mn && result < mn
-
-      # Clamping must never move the value against the step direction (e.g. a
-      # stepDown on a value already below min must not jump UP to min).
-      unless before.nan?
-        return if count.positive? && result < before
-        return if count.negative? && result > before
+      current = value_as_number
+      value = current.nan? ? 0r : decimal(current)
+      before = value
+      offset = (value - base) / step
+      if offset.denominator != 1
+        value = base + (direction.positive? ? offset.ceil : offset.floor) * step
+      else
+        value += step * count * direction
       end
+      value = aligned_at_or_above(mn, base, step) if mn && value < mn
+      value = base + ((mx - base) / step).floor * step if mx && value > mx
+      return if direction.negative? ? value > before : value < before
 
-      self.value_as_number = result.to_f
+      self.value = input_type.from_number(value.to_f)
       nil
     end
+
+    # The smallest value on the step grid at or above `limit`.
+    def aligned_at_or_above(limit, base, step)
+      base + ((limit - base) / step).ceil * step
+    end
+
+    # The minimum / maximum stepping respects: the attribute, or a range's
+    # default minimum 0 and maximum 100.
+    def step_minimum = min_as_number || (type == "range" ? 0.0 : nil)
+    def step_maximum = max_as_number || (type == "range" ? 100.0 : nil)
 
     # The decimal number a double stands for: 0.1 is 1/10, not the binary
     # fraction nearest to it.
@@ -610,14 +626,18 @@ module Dommy
     end
 
 
-    # `stepUp(n)` / `stepDown(n)` add/subtract n steps to the current number. The
-    # WebIDL default for n is 1 (a missing/undefined arg crosses as nil).
+    # `stepUp(optional long n = 1)` / `stepDown(…)`: a missing or undefined n
+    # is 1, anything else converts as WebIDL's long.
     def step_up(n = 1)
-      apply_step((n || 1).to_i)
+      apply_step(step_count(n), 1)
     end
 
     def step_down(n = 1)
-      apply_step(-(n || 1).to_i)
+      apply_step(step_count(n), -1)
+    end
+
+    def step_count(n)
+      n.equal?(Bridge::UNDEFINED) ? 1 : Internal::WebIDL.long(n)
     end
 
     # Barred from constraint validation, besides the shared reasons: the
@@ -676,9 +696,9 @@ module Dommy
       when "setRangeText"
         __internal_js_set_range_text__(args)
       when "stepUp"
-        step_up(args[0])
+        args.empty? ? step_up : step_up(args[0])
       when "stepDown"
-        step_down(args[0])
+        args.empty? ? step_down : step_down(args[0])
       when "showPicker"
         show_picker
       else

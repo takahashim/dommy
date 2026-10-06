@@ -133,3 +133,39 @@ class TestRadioGroupChanges < Minitest::Test
     assert_equal "2", list.value
   end
 end
+
+# HTML's stepUp(n) / stepDown(n).
+class TestInputStepping < Minitest::Test
+  include DommyTestHelper
+
+  def input(attrs)
+    win = make_window("<input id=i type=number #{attrs}>")
+    win.document.get_element_by_id("i")
+  end
+
+  def test_unaligned_value_snaps_in_the_step_direction
+    i = input("step=2 min=1 value=4")
+    i.step_up(5)
+    assert_equal "5", i.value
+    i.value = "4"
+    i.step_down(5)
+    assert_equal "3", i.value
+  end
+
+  def test_unparseable_value_starts_from_zero_and_n_is_a_long
+    i = input("step=1")
+    i.step_up(3)
+    assert_equal "3", i.value
+    # WebIDL long: 4294967295 is -1, and stepping down by -1 would move the
+    # value up — against the call's direction, so nothing happens.
+    i.step_down(4_294_967_295)
+    assert_equal "3", i.value
+  end
+
+  def test_value_attribute_is_the_step_base_without_min
+    i = input("step=2 value=1")
+    refute i.validity.step_mismatch
+    i.step_up
+    assert_equal "3", i.value
+  end
+end
