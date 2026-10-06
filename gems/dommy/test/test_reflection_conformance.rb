@@ -249,4 +249,30 @@ class TestReflectionConformance < Minitest::Test
     progress.max = 8
     assert_equal "8", progress.get_attribute("max")
   end
+
+  # HTML "the language of a node" from a shadow tree goes to its host, and
+  # past the root to the pragma-set default language.
+  def test_language_crosses_shadow_roots_and_uses_the_content_language_pragma
+    win = Dommy.parse("<!DOCTYPE html><head><meta http-equiv=Content-Language content=' fr-CA de'>" \
+                      "</head><body><p id=p></p><div id=h lang=en-AU></div><p id=e lang=''></p>")
+    doc = win.document
+    host = doc.get_element_by_id("h")
+    shadow = host.attach_shadow(mode: "open")
+    shadow.inner_html = "<slot></slot><b></b>"
+    assert shadow.query_selector("b").matches?(":lang(en-AU)")
+    assert doc.get_element_by_id("p").matches?(":lang(fr-CA)")
+    refute doc.get_element_by_id("e").matches?(":lang(fr)")
+
+    # Processed on insertion only: removing the meta keeps the language, a
+    # content with a comma sets nothing, a later one replaces it.
+    doc.query_selector("meta").remove
+    assert doc.get_element_by_id("p").matches?(":lang(fr)")
+    ["ja,en", "ja"].each do |content|
+      meta = doc.create_element("meta")
+      meta.set_attribute("http-equiv", "content-language")
+      meta.set_attribute("content", content)
+      doc.head.append_child(meta)
+    end
+    assert doc.get_element_by_id("p").matches?(":lang(ja)")
+  end
 end

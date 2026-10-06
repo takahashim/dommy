@@ -352,6 +352,32 @@ module Dommy
     # The IDL reflects no `charset`: the attribute is read by the encoding
     # sniffing, not exposed.
     reflect_string :name, :content, :media, :scheme, http_equiv: "http-equiv"
+
+    # HTML's pragma directives run "when a meta element is inserted into the
+    # document" (and only then: a later change to its attributes, or removing
+    # it, does nothing). The one dommy acts on is the Content language state,
+    # which sets the document's pragma-set default language — the fallback
+    # language of a node no `lang` attribute covers.
+    def __internal_run_pragma__
+      return unless http_equiv.casecmp?("content-language")
+      return unless get_root_node.equal?(@document)
+
+      language = content_language_pragma_value
+      @document.__internal_pragma_default_language__ = language if language
+    end
+
+    private
+
+    # The Content language state's steps: no content attribute, or one with a
+    # comma, sets nothing; else the first run of non-whitespace after leading
+    # ASCII whitespace, unless that is empty.
+    def content_language_pragma_value
+      input = __internal_attribute_value__("content")
+      return nil if input.nil? || input.include?(",")
+
+      candidate = input.sub(/\A[ \t\n\f\r]+/, "")[/\A[^ \t\n\f\r]*/]
+      candidate unless candidate.empty?
+    end
   end
 
   class HTMLHtmlElement < HTMLElement
