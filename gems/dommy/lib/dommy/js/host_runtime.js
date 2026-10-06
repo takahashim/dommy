@@ -2455,8 +2455,25 @@ globalThis.__rbHost = (function () {
       else fn = mutatingStub(prop, ctx);
     }
     fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
+    if (prop === "toString" && ctx.ifaceName) fn = brandCheckedStringifier(fn, ctx);
     withArity(fn, prop, ctx.ifaceName);
     return fn;
+  }
+
+  // A per-proxy stub closes over its own handle and ignores `this`, which is
+  // harmless for a call through the object but not for the stringifier, the
+  // one operation pages routinely detach: WebIDL's stringifier steps throw a
+  // TypeError when `this` does not implement the interface
+  // (`a.toString.call({})`), and run on `this`, not on the object the function
+  // was read from (`a.toString.call(otherA)` is the other one's href).
+  function brandCheckedStringifier(fn, ctx) {
+    return function (...args) {
+      if (!isProxy(this) || !interfaceChainOf(this).includes(ctx.ifaceName)) {
+        throw new TypeError("Illegal invocation: " + ctx.ifaceName + ".toString called on a different object");
+      }
+      if (this[HKEY] !== ctx.handle) return this.toString(...args);
+      return fn.apply(this, args);
+    };
   }
 
   // ===== Named properties (WebIDL legacy platform objects) =====
