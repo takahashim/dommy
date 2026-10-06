@@ -480,10 +480,6 @@
       "getSVGDocument",
       "name"
     ],
-    "HTMLFieldSetElement": [
-      "setCustomValidity",
-      "validationMessage"
-    ],
     "HTMLFormElement": [
       "encoding",
       "rel"

@@ -302,14 +302,16 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
     assert_equal "Shift_JIS", param(result, "_charset_")
   end
 
-  def test_hidden_charset_field_with_explicit_value_is_not_special
+  # HTML's entry list replaces a hidden `_charset_` field's value with the
+  # encoding whether or not it has a `value` (Chromium agrees).
+  def test_hidden_charset_field_with_explicit_value_reports_the_encoding
     result = submit(<<~HTML)
       <form action="/x" method="post">
         <input type="hidden" name="_charset_">
         <input type="hidden" name="_CHARSET_" value="x">
       </form>
     HTML
-    assert_equal "x", param(result, "_CHARSET_")
+    assert_equal "UTF-8", param(result, "_CHARSET_")
   end
 
   def test_dirname_adds_the_element_direction

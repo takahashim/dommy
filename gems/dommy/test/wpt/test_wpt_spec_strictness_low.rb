@@ -230,10 +230,18 @@ class TestWPTInputBadInput < Minitest::Test
   # WPT: html/semantics/forms/input/input-validation.html
   # (badInput flag of ValidityState)
 
+  # Bad input is what a USER typed and the user agent could not convert; a
+  # script-assigned value is sanitized and never is.
   def test_number_non_numeric_sets_badInput
     i = input("number")
-    i.value = "abc"
+    i.__internal_user_edit_value__("abc")
     assert(i.validity.bad_input)
+  end
+
+  def test_script_assigned_non_numeric_is_not_badInput
+    i = input("number")
+    i.value = "abc"
+    refute(i.validity.bad_input)
   end
 
   def test_number_numeric_clears_badInput
@@ -267,7 +275,7 @@ class TestWPTInputBadInput < Minitest::Test
 
   def test_badInput_visible_via_validity
     i = input("number")
-    i.value = "xyz"
+    i.__internal_user_edit_value__("xyz")
     assert(i.validity.__js_get__("badInput"))
     refute(i.validity.__js_get__("valid"))
   end

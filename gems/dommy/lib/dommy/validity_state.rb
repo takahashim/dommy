@@ -6,8 +6,8 @@ module Dommy
   # host control; reads dynamically on every access so attribute
   # changes between calls are reflected.
   #
-  # Flags follow the HTML spec; `badInput` is always false (we'd need
-  # the browser's number parser to detect "12abc" in a type=number).
+  # Flags follow the HTML spec, each constraint only where its attribute
+  # applies. A host-less ValidityState (an element barred outright) has none.
   class ValidityState
     FLAGS = %w[
       valueMissing
@@ -25,7 +25,14 @@ module Dommy
 
     # The exact WHATWG "valid email address" production.
     EMAIL_RE = %r{\A[a-zA-Z0-9.!\#$%&'*+/=?^_`{|}~-]+@[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?(?:\.[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?)*\z}
-    URL_SCHEMES = %w[http:// https:// ftp://].freeze
+
+    # The input types each attribute applies to (HTML's "do not apply" table).
+    TEXTUAL_TYPES = %w[text search url tel email password].freeze
+    REQUIRED_TYPES = (TEXTUAL_TYPES + %w[date month week time datetime-local number checkbox radio file]).freeze
+    READONLY_TYPES = (TEXTUAL_TYPES + %w[date month week time datetime-local number]).freeze
+    # The types whose value sanitization drops what it cannot parse, so that a
+    # user's unparseable input is "bad input".
+    PARSED_TYPES = %w[number date month week time datetime-local].freeze
 
     def initialize(host = nil)
       @host = host
@@ -33,70 +40,79 @@ module Dommy
 
     # ---- Computed flags ----
 
-    # Whether the host is IMMUTABLE — disabled or readonly. A text-like control
-    # "suffers from being missing" only while it is mutable, which is why this
-    # gates value_missing (and only value_missing: the checkbox / radio / select
-    # definitions carry no mutability condition, so they report the flag even
-    # when barred).
-    #
-    # "Disabled" here is WHATWG's "actually disabled", so a control inside a
-    # `<fieldset disabled>` counts even though it carries no attribute of its
-    # own — the same state willValidate already reports on.
-    def host_immutable?
-      return false unless @host
+    # Whether the host is mutable: not (actually) disabled, and without a
+    # `readonly` attribute where readonly applies. A text-like control only
+    # "suffers from being missing" while it is mutable; the checkbox, radio,
+    # file and select definitions carry no such condition.
+    def host_mutable?
+      return false if @host.__internal_actually_disabled__
+      return true unless host_attr_present?("readonly")
 
-      disabled =
-        if @host.respond_to?(:__internal_actually_disabled__)
-          @host.__internal_actually_disabled__
-        else
-          host_attr_present?("disabled")
-        end
-      readonly = @host.respond_to?(:read_only) ? @host.read_only : host_attr_present?("readonly")
-      disabled || readonly
-    end
-
-    def value_missing
-      return false unless @host && host_attr_present?("required")
-
-      case host_type
-      when "checkbox"
-        # The checkbox/radio "being missing" flag reflects checkedness even when
-        # the control is barred (only willValidate gates participation).
-        !host_checked?
-      when "radio"
-        # An unnamed radio is not part of a group and is never missing.
-        return false if @host.respond_to?(:__internal_attribute_value__) && @host.__internal_attribute_value__("name").to_s.empty?
-
-        # A required radio is missing only when NO member of its group (same
-        # name/form owner/tree) is checked — using runtime checkedness.
-        if @host.respond_to?(:radio_group_members)
-          @host.radio_group_members.none? { |r| r.respond_to?(:checked) ? r.checked : false }
-        else
-          !host_checked?
-        end
-      when "file"
-        files = @host.respond_to?(:files) ? @host.files : nil
-        files.nil? || files.length.zero?
-      when "select-one", "select-multiple"
-        # A required select is missing when its selected option has an empty
-        # value (the placeholder label option); the flag isn't barred by disabled.
-        @host.respond_to?(:value) && @host.value.to_s.empty?
-      else
-        # Text-like controls only "suffer from being missing" when mutable.
-        return false if host_immutable?
-
-        # A date/number type with an unparseable value has no value (its
-        # sanitized value is empty), so it counts as missing.
-        if @host.respond_to?(:numeric_value_type?) && @host.send(:numeric_value_type?)
-          @host.value_as_number.nan?
-        else
-          host_value.to_s.empty?
-        end
+      case @host
+      when HTMLInputElement then !READONLY_TYPES.include?(host_type)
+      when HTMLTextAreaElement then false
+      else true
       end
     end
 
+    def value_missing
+      case @host
+      when HTMLInputElement then input_value_missing
+      when HTMLTextAreaElement then host_attr_present?("required") && host_mutable? && host_value.empty?
+      when HTMLSelectElement then select_value_missing
+      else false
+      end
+    end
+
+    def input_value_missing
+      type = host_type
+      return false unless REQUIRED_TYPES.include?(type)
+      # HTML: a radio suffers from being missing when ANY member of its group
+      # is required and none is checked — the member asked need not be the
+      # required one. A radio with no name is in no group, so never is.
+      if type == "radio"
+        return false if @host.__internal_attribute_value__("name").to_s.empty?
+
+        group = @host.radio_group_members
+        return group.any? { |radio| radio.__internal_has_attribute__?("required") } && group.none?(&:checked)
+      end
+      return false unless host_attr_present?("required")
+
+      case type
+      when "checkbox" then !@host.checked
+      when "file" then @host.files.nil? || @host.files.length.zero?
+      else host_mutable? && host_value.empty?
+      end
+    end
+
+    # A required select is missing when nothing in its list of options is
+    # selected, or the one selected option is its placeholder label option.
+    def select_value_missing
+      return false unless host_attr_present?("required")
+
+      options = @host.__internal_list_of_options__
+      selected = options.select(&:selected)
+      return true if selected.empty?
+
+      placeholder = placeholder_label_option(options)
+      selected.length == 1 && !placeholder.nil? && selected.first.equal?(placeholder)
+    end
+
+    # HTML's "placeholder label option": for a required, single, display-size
+    # 1 select, the first option in its list of options when its value is
+    # empty and it is the select's own child (not in an optgroup).
+    def placeholder_label_option(options)
+      return nil if @host.multiple || @host.display_size != 1
+
+      first = options.first
+      return nil if first.nil? || !first.value.to_s.empty?
+
+      parent = first.parent_node
+      parent.equal?(@host) ? first : nil
+    end
+
     def type_mismatch
-      return false unless @host
+      return false unless @host.is_a?(HTMLInputElement)
 
       v = host_value.to_s
       return false if v.empty?
@@ -110,14 +126,17 @@ module Dommy
           !v.match?(EMAIL_RE)
         end
       when "url"
-        URL_SCHEMES.none? { |s| v.start_with?(s) }
+        # "A valid absolute URL": one the URL parser accepts without a base.
+        Internal::UrlParser.parse(v).nil?
       else
         false
       end
+    rescue StandardError
+      true
     end
 
     def pattern_mismatch
-      return false unless @host
+      return false unless @host.is_a?(HTMLInputElement) && TEXTUAL_TYPES.include?(host_type)
 
       pat = host_attr_value("pattern").to_s
       return false if pat.empty?
@@ -176,15 +195,30 @@ module Dommy
     end
 
     # tooLong / tooShort apply ONLY when the value was last changed by a USER
-    # EDIT (not a script assignment), per the WHATWG "suffering from being too
-    # long/short" definitions. Dommy has no interactive text entry, so a value is
-    # never user-edited and these constraints never fire.
+    # EDIT (not a script assignment) and the dirty value flag is set, per the
+    # WHATWG "suffering from being too long/short" definitions — so only a
+    # driver's typing (Dommy::Interaction) can trip them. Lengths are the API
+    # value's UTF-16 code units.
     def too_long
-      false
+      limit = length_limit(:max_length)
+      !limit.nil? && Internal::Utf16.length(host_value) > limit
     end
 
     def too_short
-      false
+      limit = length_limit(:min_length)
+      return false if limit.nil?
+
+      length = Internal::Utf16.length(host_value)
+      length.positive? && length < limit
+    end
+
+    def length_limit(attribute)
+      applies = @host.is_a?(HTMLTextAreaElement) ||
+                (@host.is_a?(HTMLInputElement) && TEXTUAL_TYPES.include?(host_type))
+      return nil unless applies && @host.__internal_last_changed_by_user_edit__
+
+      limit = @host.public_send(attribute)
+      limit.negative? ? nil : limit
     end
 
     def range_underflow
@@ -244,33 +278,14 @@ module Dommy
       false
     end
 
-    # `badInput` flags input that the user agent couldn't convert to
-    # the host control's expected type. For Dommy this is meaningful
-    # for type=number/range (raw string not a finite float) and
-    # type=color (not a #rrggbb literal).
+    # `badInput`: the user typed something the user agent could not convert —
+    # a driver's `fill_in "abc"` on a number field, whose sanitization then
+    # left the value empty. A script-assigned value is sanitized, never bad.
     def bad_input
-      return false unless @host
+      return false unless @host.is_a?(HTMLInputElement) && PARSED_TYPES.include?(host_type)
 
-      raw = @host.respond_to?(:raw_value) ? @host.raw_value : host_value
-      raw = raw.to_s
-      return false if raw.empty?
-
-      case host_type
-      when "number", "range"
-        !valid_float?(raw)
-      else
-        # Every other type either has no conversion to fail or (color, date and
-        # friends) sanitizes an unparseable value to a valid one on the way in,
-        # leaving nothing for the user agent to have failed to convert.
-        false
-      end
-    end
-
-    def valid_float?(s)
-      Float(s)
-      true
-    rescue ArgumentError, TypeError
-      false
+      raw = @host.__internal_user_raw_value__
+      !raw.nil? && !raw.empty? && host_value.empty?
     end
 
     def custom_error
@@ -324,9 +339,9 @@ module Dommy
     private
 
     def host_value
-      return "" unless @host
+      return "" unless @host.respond_to?(:value)
 
-      @host.respond_to?(:value) ? @host.value : @host.__js_get__("value")
+      @host.value.to_s
     end
 
     def host_attr_value(name)
@@ -354,9 +369,9 @@ module Dommy
     end
 
     def custom_message
-      return "" unless @host
+      return "" unless @host.respond_to?(:__internal_custom_validity_message__)
 
-      (@host.instance_variable_get(:@custom_validity_message) || "").to_s
+      @host.__internal_custom_validity_message__
     end
 
     def numeric_host?
@@ -364,19 +379,6 @@ module Dommy
         @host.send(:numeric_value_type?)
     end
 
-    def numeric_value
-      v = host_value.to_s
-      return nil if v.empty?
-
-      Float(v)
-    rescue ArgumentError
-      nil
-    end
-
-    def truthy?(value)
-      v = value.to_s
-      !v.empty? && v != "false" && v != "0"
-    end
   end
 
   # `<option>` — value, label, selected, disabled, text, index, form.

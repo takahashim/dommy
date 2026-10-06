@@ -101,6 +101,7 @@ module Dommy
   end
 
   class HTMLObjectElement < HTMLElement
+    include Internal::ConstraintValidation
     reflect_url :data
     reflect_string :type, :name, use_map: "usemap"
     reflect_string :width, :height
@@ -118,32 +119,8 @@ module Dommy
     end
 
     # An `<object>` is a form-associated element, so it carries the whole
-    # constraint validation API — and is barred from constraint validation, so
-    # every member of it reports the never-invalid answer.
-    def validity
-      ValidityState.new
-    end
-
-    def will_validate
-      false
-    end
-
-    def validation_message
-      ""
-    end
-
-    def check_validity
-      true
-    end
-
-    def report_validity
-      true
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
-    end
+    # constraint validation API — and is barred from constraint validation.
+    def __internal_barred_from_constraint_validation__? = true
 
     def __js_get__(key)
       case key
@@ -157,12 +134,6 @@ module Dommy
         content_window
       when "form"
         form
-      when "validity"
-        validity
-      when "willValidate"
-        will_validate
-      when "validationMessage"
-        validation_message
       else
         super
       end
@@ -179,19 +150,6 @@ module Dommy
       end
     end
 
-    js_methods %w[checkValidity reportValidity setCustomValidity]
-    def __js_call__(method, args)
-      case method
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
-      else
-        super
-      end
-    end
   end
 
   class HTMLEmbedElement < HTMLElement

@@ -8,6 +8,7 @@ module Dommy
   # `<input>` — covers the most-used form control surface.
   class HTMLInputElement < HTMLElement
     include Internal::TextSelection
+    include Internal::ConstraintValidation
     include SubmitButtonActivation
     include SubmissionUrlAttribute
     reflect_setter form_action: "formaction"
@@ -67,6 +68,8 @@ module Dommy
         @__files = FileList.new
       else
         old_value = current_value
+        @__user_raw_value = nil
+        @__last_changed_by_user_edit = false
         @__raw_value = raw
         @__value = sanitize_value(raw)
         @__value_dirty = true
@@ -275,6 +278,8 @@ module Dommy
       @__value = nil
       @__value_dirty = false
       @__raw_value = nil
+      @__user_raw_value = nil
+      @__last_changed_by_user_edit = false
       @__files = FileList.new
       @__checked = nil
       @__indeterminate = nil
@@ -405,8 +410,7 @@ module Dommy
       selection_start: "selectionStart", selection_end: "selectionEnd",
       selection_direction: "selectionDirection",
       max_length: "maxLength", min_length: "minLength"
-    js_readable :labels, :form, :validity, :files, :list,
-      will_validate: "willValidate", validation_message: "validationMessage"
+    js_readable :labels, :form, :files, :list
 
     SELECTION_TYPES = %w[text search url tel password].freeze
 
@@ -434,6 +438,19 @@ module Dommy
       end
       nil
     end
+
+    # A user's edit (a driver typing into the field): the value is set as a
+    # script would set it, but HTML then knows the value was last changed by
+    # a user edit (tooLong / tooShort apply) and what the user typed before
+    # sanitization (an unparseable number is bad input).
+    def __internal_user_edit_value__(raw)
+      self.value = raw
+      @__user_raw_value = raw.to_s
+      @__last_changed_by_user_edit = true
+    end
+
+    def __internal_user_raw_value__ = @__user_raw_value
+    def __internal_last_changed_by_user_edit__ = @__last_changed_by_user_edit && @__value_dirty ? true : false
 
     # setRangeText's edit of the relevant value: it sets the dirty value flag.
     def __internal_set_relevant_value__(string)
@@ -570,53 +587,15 @@ module Dommy
       apply_step(-(n || 1).to_i)
     end
 
-    def validity
-      @__validity ||= ValidityState.new(self)
+    # Barred from constraint validation, besides the shared reasons: the
+    # Hidden, Reset Button and Button states, and a `readonly` attribute —
+    # HTML's readonly section bars "an input element" it is specified on,
+    # whatever the type (a readonly color or file input too). A submit or
+    # image button is a submittable element like any other, and validates
+    # (with no constraint of its own beyond a custom error).
+    def __internal_barred_from_constraint_validation__?
+      super || %w[hidden button reset].include?(type) || __internal_has_attribute__?("readonly")
     end
-
-    # Whether this control participates in constraint validation. Only the
-    # Hidden, Reset Button and Button states are barred outright — a submit or
-    # image button is a submittable element like any other, and validates (it
-    # just has no constraints of its own beyond a custom validity message).
-    def will_validate
-      return false if reflected_boolean("disabled")
-      return false if disabled_by_ancestor_fieldset?
-      return false if reflected_boolean("readonly")
-      return false if %w[hidden button reset].include?(type)
-      # A control with a datalist ancestor is barred from constraint validation.
-      return false unless closest("datalist").nil?
-
-      true
-    end
-
-    def validation_message
-      return "" unless will_validate
-
-      msg = (@custom_validity_message || "").to_s
-      return msg unless msg.empty?
-      return "Please fill out this field." if validity.value_missing
-      return "Please match the requested format." if validity.pattern_mismatch
-      return "Please enter a valid email address." if validity.type_mismatch && type == "email"
-      return "Please enter a URL." if validity.type_mismatch && type == "url"
-
-      ""
-    end
-
-    def check_validity
-      ok = !will_validate || validity.valid
-      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
-      ok
-    end
-
-    def report_validity
-      check_validity
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
-    end
-
 
     # HTML "cloning steps" for input: the dirty value flag + value and the dirty
     # checkedness flag + checkedness (plus indeterminate) — the user-modified
@@ -654,10 +633,7 @@ module Dommy
     end
 
 
-    js_methods %w[
-      select setSelectionRange setRangeText stepUp stepDown checkValidity reportValidity
-      setCustomValidity
-    ]
+    js_methods %w[select setSelectionRange setRangeText stepUp stepDown]
     def __js_call__(method, args)
       case method
       when "select"
@@ -670,12 +646,6 @@ module Dommy
         step_up(args[0])
       when "stepDown"
         step_down(args[0])
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
       else
         super
       end

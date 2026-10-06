@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "element_tasks"
+
 module Dommy
   module Internal
     # The text-selection API a form control exposes: `selectionStart`,

@@ -8,6 +8,7 @@ module Dommy
   # `selectedIndex`, and dispatches change events. Minimal compared to
   # happy-dom's full HTMLSelectElement, but covers common test cases.
   class HTMLSelectElement < HTMLElement
+    include Internal::ConstraintValidation
     reflect_string :name
     reflect_boolean :multiple, :disabled, :required
     reflect_ulong size: { default: 0 }
@@ -259,43 +260,9 @@ module Dommy
       multiple ? "select-multiple" : "select-one"
     end
 
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
-
-    def will_validate
-      !reflected_boolean("disabled") && !disabled_by_ancestor_fieldset? && closest("datalist").nil?
-    end
-
-    def validation_message
-      return "" unless will_validate
-
-      msg = (@custom_validity_message || "").to_s
-      return msg unless msg.empty?
-      return "Please select an item in the list." if validity.value_missing
-
-      ""
-    end
-
-    def check_validity
-      ok = !will_validate || validity.valid
-      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
-      ok
-    end
-
-    def report_validity
-      check_validity
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
-    end
-
     js_accessor :value, selected_index: "selectedIndex", length: "length"
-    js_readable :options, :size, :form, :labels, :type, :validity,
-      selected_options: "selectedOptions",
-      will_validate: "willValidate", validation_message: "validationMessage"
+    js_readable :options, :size, :form, :labels, :type,
+      selected_options: "selectedOptions"
 
     # Indexed getter: `select[i]` is the option at index i (WebIDL).
     def __js_get__(key)
@@ -315,7 +282,7 @@ module Dommy
       super
     end
 
-    js_methods %w[item namedItem add remove checkValidity reportValidity setCustomValidity]
+    js_methods %w[item namedItem add remove]
     def __js_call__(method, args)
       case method
       when "item"
@@ -328,12 +295,6 @@ module Dommy
         # HTMLSelectElement.remove(index) removes an option; with no argument it
         # is ChildNode.remove() (removes the <select> itself).
         args.empty? ? super : remove_option(args[0])
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
       else
         super
       end

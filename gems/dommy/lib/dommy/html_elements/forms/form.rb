@@ -240,30 +240,30 @@ module Dommy
     end
     private :submit_dialog
 
-    # Walk all listed elements; the form is "valid" iff every
-    # candidate control passes its own checkValidity. Dispatches a
-    # non-bubbling `invalid` event on each failing control.
+    # HTML "statically validate the constraints": every submittable element
+    # this form owns (image buttons included) that is a candidate for
+    # constraint validation and fails its constraints gets a trusted,
+    # cancelable `invalid` event; the form is valid when there is none.
     def check_validity
-      ok = true
-      elements.each do |el|
-        next unless el.respond_to?(:will_validate)
-        next unless el.will_validate
-        next if el.validity.valid && (el.instance_variable_get(:@custom_validity_message) || "").empty?
-
-        # Fire invalid event on this control (matches spec).
-        el.dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true))
-        ok = false
+      invalid = __internal_submittable_controls__.select do |control|
+        control.will_validate && !control.__internal_satisfies_constraints__?
       end
-
-      ok
+      invalid.each(&:__internal_fire_invalid__)
+      invalid.empty?
     end
 
+    # "Interactively validate the constraints": the same, with no user to
+    # report the problems to.
     def report_validity
       check_validity
     end
 
-    # WebIDL indexed getter: `form[i]` is `form.elements[i]`; indices come
-    # before the named properties.
+    # The submittable elements whose form owner is this form, in tree order.
+    def __internal_submittable_controls__
+      scope = get_root_node || self
+      scope.query_selector_all(FormEntryList::SUBMITTABLE_SELECTOR).to_a.select { |c| __internal_owns_control__(c) }
+    end
+
     def __js_get__(key)
       if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A(?:0|[1-9]\d*)\z/))
         return elements.to_a[key.to_i] || Bridge::ABSENT
@@ -378,6 +378,7 @@ module Dommy
   # `<button>` — type defaults to "submit" per spec.
   class HTMLButtonElement < HTMLElement
     include SubmitButtonActivation
+    include Internal::ConstraintValidation
     reflect_setter :type
     reflect_string :name, :value, form_target: "formtarget"
     reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
@@ -417,37 +418,10 @@ module Dommy
       labels_node_list
     end
 
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
-
     # Only a submit button is a candidate for constraint validation; reset /
-    # button types are barred, as are disabled controls and datalist descendants.
-    def will_validate
-      type == "submit" && !disabled && !disabled_by_ancestor_fieldset? && closest("datalist").nil?
-    end
-
-    # A button has no constraints of its own, so the only thing it can report is
-    # a message set through setCustomValidity — and only while it validates.
-    def validation_message
-      return "" unless will_validate
-
-      (@custom_validity_message || "").to_s
-    end
-
-    def check_validity
-      ok = !will_validate || validity.valid
-      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
-      ok
-    end
-
-    def report_validity
-      check_validity
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
+    # button types are barred, besides the shared reasons.
+    def __internal_barred_from_constraint_validation__?
+      super || type != "submit"
     end
 
     def __js_get__(key)
@@ -458,12 +432,6 @@ module Dommy
         form
       when "labels"
         labels
-      when "validity"
-        validity
-      when "willValidate"
-        will_validate
-      when "validationMessage"
-        validation_message
       else
         super
       end
@@ -473,20 +441,6 @@ module Dommy
       case key
       when "type"
         set_reflected_string("type", value)
-      else
-        super
-      end
-    end
-
-    js_methods %w[checkValidity reportValidity setCustomValidity]
-    def __js_call__(method, args)
-      case method
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
       else
         super
       end
@@ -502,6 +456,7 @@ module Dommy
   # `<textarea>` — multi-line text input.
   class HTMLTextAreaElement < HTMLElement
     include Internal::TextSelection
+    include Internal::ConstraintValidation
 
 
     reflect_boolean :disabled, :required, read_only: "readonly"
@@ -535,9 +490,18 @@ module Dommy
       old_value = value
       @__value = v.to_s
       @__value_dirty = true
+      @__last_changed_by_user_edit = false
       __internal_move_cursor_to_end__ if value != old_value
       @document&.__internal_note_value_change__
     end
+
+    # A user's edit (a driver typing): tooLong / tooShort apply to it.
+    def __internal_user_edit_value__(raw)
+      self.value = raw
+      @__last_changed_by_user_edit = true
+    end
+
+    def __internal_last_changed_by_user_edit__ = @__last_changed_by_user_edit && @__value_dirty ? true : false
 
     # HTML's children changed steps: a pristine raw value is the child text
     # content again, so a selection past its new end is pulled back to it.
@@ -577,6 +541,7 @@ module Dommy
     def __internal_reset__
       @__value = nil
       @__value_dirty = false
+      @__last_changed_by_user_edit = false
       @document&.__internal_note_value_change__
       nil
     end
@@ -658,47 +623,15 @@ module Dommy
 
 
 
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
-
-    def will_validate
-      !reflected_boolean("disabled") && !disabled_by_ancestor_fieldset? &&
-        !reflected_boolean("readonly") && closest("datalist").nil?
-    end
-
-    def validation_message
-      return "" unless will_validate
-
-      msg = (@custom_validity_message || "").to_s
-      return msg unless msg.empty?
-      return "Please fill out this field." if validity.value_missing
-
-      ""
-    end
-
-    def check_validity
-      ok = !will_validate || validity.valid
-      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
-      ok
-    end
-
-    def report_validity
-      check_validity
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
+    # A readonly textarea is barred from constraint validation.
+    def __internal_barred_from_constraint_validation__?
+      super || __internal_has_attribute__?("readonly")
     end
 
     js_accessor :value, :default_value, :max_length, :min_length, :selection_start, :selection_end, :selection_direction
-    js_readable :text_length, :type, :form, :labels, :validity, :will_validate, :validation_message
+    js_readable :text_length, :type, :form, :labels
 
-
-    js_methods %w[
-      select setSelectionRange setRangeText checkValidity reportValidity setCustomValidity
-    ]
+    js_methods %w[select setSelectionRange setRangeText]
     def __js_call__(method, args)
       case method
       when "select"
@@ -707,12 +640,6 @@ module Dommy
         set_selection_range(args[0], args[1], args[2])
       when "setRangeText"
         __internal_js_set_range_text__(args)
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
       else
         super
       end
@@ -810,6 +737,7 @@ module Dommy
   # `<fieldset>` — disabled-state-propagating wrapper; exposes
   # `elements` collection like form.
   class HTMLFieldSetElement < HTMLElement
+    include Internal::ConstraintValidation
     reflect_string :name
     reflect_boolean :disabled
     def type
@@ -820,52 +748,21 @@ module Dommy
       __internal_form_owner__
     end
 
+    # The listed elements among the fieldset's descendants, in tree order.
     def elements
       el = self
       @elements ||= HTMLCollection.new do
-        el
-          .__dommy_backend_node__
-          .css("input, select, textarea, button, output, fieldset")
-          .map do |n|
-            el.document.wrap_node(n)
-          end
-          .compact
+        el.query_selector_all(HTMLFormElement::LISTED_CONTROL_SELECTOR).to_a
       end
     end
 
-    # [SameObject]: a fieldset's custom validity lives on one ValidityState.
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
+    # A fieldset is not submittable, so it is barred from constraint
+    # validation: willValidate is false, validationMessage is empty and
+    # checkValidity/reportValidity succeed — though setCustomValidity still
+    # sets validity.customError.
+    def __internal_barred_from_constraint_validation__? = true
 
-    # A fieldset is "barred from constraint validation": it never participates,
-    # so willValidate is always false and checkValidity/reportValidity are no-ops
-    # that report success.
-    def will_validate
-      false
-    end
-
-    def check_validity
-      true
-    end
-
-    def report_validity
-      true
-    end
-
-    js_readable :type, :form, :elements, :validity, :will_validate
-
-    js_methods %w[checkValidity reportValidity]
-    def __js_call__(method, args)
-      case method
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      else
-        super
-      end
-    end
+    js_readable :type, :form, :elements
   end
 
   # `<output>` — calculation result element.
@@ -899,6 +796,7 @@ module Dommy
 
   # `<output>` — calculation result element.
   class HTMLOutputElement < HTMLElement
+    include Internal::ConstraintValidation
     reflect_string :name
     js_accessor :value
     reflect_token_list html_for: { attr: "for", js: "htmlFor" }
@@ -950,30 +848,16 @@ module Dommy
     end
 
     # An output has a validity state (customError is settable) but is barred
-    # from constraint validation: willValidate is false, validationMessage is
-    # always empty, and check/reportValidity always succeed.
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
+    # from constraint validation.
+    def __internal_barred_from_constraint_validation__? = true
 
-    def will_validate
-      false
-    end
-
-    def validation_message
-      ""
-    end
-
-    def check_validity
-      true
-    end
-
-    def report_validity
-      true
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
+    # HTML's reset algorithm for output: the value mode flag goes back to
+    # "default" and the text content becomes the default value.
+    def __internal_reset__
+      default = default_value
+      @__value_mode = :default
+      @__default_override = nil
+      self.text_content = default
       nil
     end
 
@@ -989,12 +873,6 @@ module Dommy
         form
       when "labels"
         labels
-      when "validity"
-        validity
-      when "willValidate"
-        will_validate
-      when "validationMessage"
-        validation_message
       else
         super
       end
@@ -1008,20 +886,6 @@ module Dommy
         self.default_value = v
       when "htmlFor"
         set_reflected_string("for", v)
-      else
-        super
-      end
-    end
-
-    js_methods %w[checkValidity reportValidity setCustomValidity]
-    def __js_call__(method, args)
-      case method
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
       else
         super
       end
