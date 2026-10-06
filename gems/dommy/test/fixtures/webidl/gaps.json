@@ -4,7 +4,6 @@
   "missing_interfaces": [
     "AudioTrack",
     "AudioTrackList",
-    "BarProp",
     "CDATASection",
     "CSSMarginRule",
     "CSSNamespaceRule",
@@ -15,7 +14,6 @@
     "CloseWatcher",
     "CustomStateSet",
     "ElementInternals",
-    "External",
     "FetchLaterResult",
     "HTMLAllCollection",
     "HTMLMarqueeElement",
@@ -25,7 +23,6 @@
     "ImageBitmapRenderingContext",
     "MediaError",
     "MimeType",
-    "MimeTypeArray",
     "NavigateEvent",
     "Navigation",
     "NavigationActivation",
@@ -40,10 +37,8 @@
     "OffscreenCanvasRenderingContext2D",
     "PageRevealEvent",
     "PageSwapEvent",
-    "PageTransitionEvent",
     "Path2D",
     "Plugin",
-    "PluginArray",
     "Sanitizer",
     "SharedWorker",
     "TextTrack",
@@ -64,6 +59,9 @@
     "XSLTProcessor"
   ],
   "missing_members": {
+    "BarProp": [
+      "visible"
+    ],
     "Blob": [
       "stream",
       "textStream"
@@ -670,25 +668,12 @@
       "onmessageerror"
     ],
     "Navigator": [
-      "appCodeName",
-      "appName",
-      "appVersion",
-      "javaEnabled",
-      "mimeTypes",
-      "oscpu",
-      "pdfViewerEnabled",
-      "plugins",
-      "product",
-      "productSub",
       "registerProtocolHandler",
-      "taintEnabled",
       "unregisterProtocolHandler",
-      "userActivation",
-      "vendorSub"
+      "userActivation"
     ],
-    "PopStateEvent": [
-      "hasUAVisualTransition",
-      "state"
+    "PageTransitionEvent": [
+      "persisted"
     ],
     "ProcessingInstruction": [
       "getAttribute",
@@ -746,23 +731,9 @@
       "which"
     ],
     "Window": [
-      "blur",
-      "captureEvents",
       "clientInformation",
-      "close",
-      "closed",
       "createImageBitmap",
-      "crossOriginIsolated",
-      "external",
       "fetchLater",
-      "focus",
-      "frameElement",
-      "isSecureContext",
-      "locationbar",
-      "menubar",
-      "moveBy",
-      "moveTo",
-      "name",
       "navigation",
       "onabort",
       "onafterprint",
@@ -860,21 +831,6 @@
       "onwebkitanimationstart",
       "onwebkittransitionend",
       "onwheel",
-      "opener",
-      "originAgentCluster",
-      "personalbar",
-      "print",
-      "releaseEvents",
-      "resizeBy",
-      "screenLeft",
-      "screenTop",
-      "screenX",
-      "screenY",
-      "scrollbars",
-      "status",
-      "statusbar",
-      "stop",
-      "toolbar",
       "visualViewport"
     ],
     "Worker": [
@@ -894,7 +850,17 @@
     "HTMLProgressElement.max": "declared double though the IDL has no [Reflect]"
   },
   "void_gaps": {
-    "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined"
+    "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined",
+    "External.AddSearchProvider": "returns undefined, which the bridge does not guarantee",
+    "External.IsSearchProviderInstalled": "returns undefined, which the bridge does not guarantee",
+    "PluginArray.refresh": "returns undefined, which the bridge does not guarantee",
+    "Window.captureEvents": "returns undefined, which the bridge does not guarantee",
+    "Window.close": "returns undefined, which the bridge does not guarantee",
+    "Window.moveBy": "returns undefined, which the bridge does not guarantee",
+    "Window.print": "returns undefined, which the bridge does not guarantee",
+    "Window.releaseEvents": "returns undefined, which the bridge does not guarantee",
+    "Window.resizeBy": "returns undefined, which the bridge does not guarantee",
+    "Window.stop": "returns undefined, which the bridge does not guarantee"
   },
   "arity_gaps": {},
   "constructor_arity_gaps": {},
@@ -903,6 +869,8 @@
   "unscopable_gaps": {},
   "named_property_gaps": {
     "Document": "has a named getter and is not declared",
+    "MimeTypeArray": "has a named getter and is not declared",
+    "PluginArray": "has a named getter and is not declared",
     "Window": "has a named getter and is not declared",
     "XMLDocument": "has a named getter and is not declared"
   },

@@ -60,6 +60,7 @@ module Dommy
         "CustomEvent" => Bridge::Constructor.new { |args| CustomEvent.new(args[0], args[1]) },
         "MessageEvent" => Bridge::Constructor.new { |args| MessageEvent.new(args[0], args[1]) },
         "PopStateEvent" => Bridge::Constructor.new { |args| PopStateEvent.new(args[0], args[1]) },
+        "PageTransitionEvent" => Bridge::Constructor.new { |args| PageTransitionEvent.new(args[0], args[1]) },
         "HashChangeEvent" => Bridge::Constructor.new { |args| HashChangeEvent.new(args[0], args[1]) },
         "SubmitEvent" => Bridge::Constructor.new { |args| SubmitEvent.new(args[0], args[1]) },
         "FormDataEvent" => Bridge::Constructor.new { |args| FormDataEvent.new(args[0], args[1]) },

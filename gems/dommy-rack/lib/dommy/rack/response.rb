@@ -129,9 +129,10 @@ module Dommy
         return unless html?
 
         @window = Dommy.parse(@body)
-        # Location#href= updates origin too (Dommy resolves absolute URLs),
-        # so a single assignment configures the full document URL.
-        @window.location.__js_set__("href", @url) if @url
+        # Establish the document's URL (not a navigation: nothing is asked of
+        # the navigation delegate, and the first session history entry is this
+        # URL).
+        @window.location.__internal_set_url__(@url) if @url
         @window.document.content_type = content_type if content_type
       end
 

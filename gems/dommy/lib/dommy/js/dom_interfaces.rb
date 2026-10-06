@@ -91,6 +91,7 @@ module Dommy
         %w[CustomEvent Event],
         %w[MessageEvent Event],
         %w[PopStateEvent Event],
+        %w[PageTransitionEvent Event],
         %w[HashChangeEvent Event],
         %w[SubmitEvent Event],
         %w[FormDataEvent Event],

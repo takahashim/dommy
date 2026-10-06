@@ -541,7 +541,7 @@ globalThis.__rbIdl = (function () {
     CountQueuingStrategy: 1, CustomEvent: 1, DeviceMotionEvent: 1,
     DeviceOrientationEvent: 1, DragEvent: 1, ErrorEvent: 1, Event: 1,
     EventSource: 1, File: 2, FocusEvent: 1, FormDataEvent: 2, HashChangeEvent: 1, InputEvent: 1,
-    KeyboardEvent: 1, MessageEvent: 1, MutationObserver: 1, PopStateEvent: 1,
+    KeyboardEvent: 1, MessageEvent: 1, MutationObserver: 1, PageTransitionEvent: 1, PopStateEvent: 1,
     ProcessingInstruction: 1, ProgressEvent: 1, PromiseRejectionEvent: 2,
     Request: 1, StaticRange: 1, StorageEvent: 1, SubmitEvent: 1,
     ToggleEvent: 1, UIEvent: 1, URL: 1, Worker: 1

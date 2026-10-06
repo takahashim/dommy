@@ -8,8 +8,53 @@ module Dommy
   class Navigator
     DEFAULT_USER_AGENT = "Mozilla/5.0 (Dommy) Ruby"
 
-    attr_accessor :user_agent, :language, :languages, :platform, :vendor, :on_line, :cookie_enabled,
-      :hardware_concurrency, :max_touch_points
+    attr_accessor :user_agent, :language, :platform, :on_line, :cookie_enabled,
+      :hardware_concurrency, :max_touch_points, :webdriver
+
+    # HTML's navigator compatibility mode (:gecko, :chrome or :webkit), which
+    # fixes the legacy NavigatorID values (vendor, productSub, appVersion) and
+    # whether taintEnabled() / oscpu exist. Gecko by default: its vendor is the
+    # empty string, which claims no particular browser.
+    attr_reader :compatibility_mode
+
+    COMPATIBILITY_MODES = %i[gecko chrome webkit].freeze
+
+    def compatibility_mode=(mode)
+      mode = mode.to_sym
+      raise ArgumentError, "unknown navigator compatibility mode #{mode.inspect}" unless COMPATIBILITY_MODES.include?(mode)
+
+      @compatibility_mode = mode
+    end
+
+    # `navigator.languages` (a FrozenArray: the same object while it holds the
+    # same tags).
+    def languages = @languages
+
+    def languages=(list)
+      @languages = Array(list).map(&:to_s).freeze
+    end
+
+    # `navigator.vendor` for the compatibility mode.
+    def vendor
+      {gecko: "", chrome: "Google Inc.", webkit: "Apple Computer, Inc."}.fetch(@compatibility_mode)
+    end
+
+    def product_sub = @compatibility_mode == :gecko ? "20100101" : "20030107"
+
+    # `navigator.appVersion`: the User-Agent after "Mozilla/" (Chrome / WebKit),
+    # or its first parenthesized part (Gecko: "5.0 (X11)"); empty for a
+    # User-Agent that does not start "Mozilla/5.0 (".
+    def app_version
+      ua = @user_agent.to_s
+      return "" unless ua.start_with?("Mozilla/5.0 (")
+
+      trail = ua.delete_prefix("Mozilla/")
+      return trail unless @compatibility_mode == :gecko
+      return "5.0 (Windows)" if trail.start_with?("5.0 (Windows")
+
+      cut = trail.index(";") || trail.index(")")
+      "#{trail[0...cut]})"
+    end
 
     def initialize(window)
       @window = window
@@ -17,7 +62,11 @@ module Dommy
       @language = "en"
       @languages = ["en"].freeze
       @platform = "Dommy"
-      @vendor = "Dommy"
+      @compatibility_mode = :gecko
+      # Dommy is a user agent under automation (WebDriver's webdriver-active flag).
+      @webdriver = true
+      @plugins = PluginArray.new
+      @mime_types = MimeTypeArray.new
       @on_line = true
       @cookie_enabled = true
       @hardware_concurrency = 8 # logical CPU count reported to JS
@@ -100,7 +149,31 @@ module Dommy
       when "platform"
         @platform
       when "vendor"
-        @vendor
+        vendor
+      when "appCodeName"
+        "Mozilla"
+      when "appName"
+        "Netscape"
+      when "appVersion"
+        app_version
+      when "product"
+        "Gecko"
+      when "productSub"
+        product_sub
+      when "vendorSub"
+        ""
+      when "oscpu"
+        # Gecko compatibility mode only; the platform string stands in.
+        @compatibility_mode == :gecko ? @platform.to_s : Bridge::ABSENT
+      when "plugins"
+        @plugins
+      when "mimeTypes"
+        @mime_types
+      when "pdfViewerEnabled"
+        # No built-in PDF viewer, so the plugin lists stay empty too.
+        false
+      when "webdriver"
+        @webdriver ? true : false
       when "onLine"
         @on_line
       when "cookieEnabled"
@@ -131,9 +204,14 @@ module Dommy
     end
 
     include Bridge::Methods
-    js_methods %w[share canShare vibrate getBattery sendBeacon]
+    js_methods %w[share canShare vibrate getBattery sendBeacon javaEnabled taintEnabled]
     def __js_call__(method, args)
       case method
+      when "javaEnabled"
+        false
+      when "taintEnabled"
+        # Gecko compatibility mode's constant-false method.
+        false
       when "share"
         share(args[0])
       when "canShare"
@@ -149,6 +227,51 @@ module Dommy
 
     def __js_set__(_key, _value)
       Bridge::UNHANDLED
+    end
+  end
+
+  # `navigator.plugins` — empty: Dommy has no PDF viewer, and that is the only
+  # plugin list HTML still allows.
+  class PluginArray
+    def length = 0
+
+    def __js_get__(key)
+      case key
+      when "length" then 0
+      else Bridge::ABSENT
+      end
+    end
+
+    include Bridge::Methods
+    js_methods %w[refresh item namedItem]
+    def __js_call__(method, _args)
+      case method
+      when "refresh"
+        nil
+      when "item", "namedItem"
+        nil
+      end
+    end
+  end
+
+  # `navigator.mimeTypes` — empty, like `navigator.plugins`.
+  class MimeTypeArray
+    def length = 0
+
+    def __js_get__(key)
+      case key
+      when "length" then 0
+      else Bridge::ABSENT
+      end
+    end
+
+    include Bridge::Methods
+    js_methods %w[item namedItem]
+    def __js_call__(method, _args)
+      case method
+      when "item", "namedItem"
+        nil
+      end
     end
   end
 

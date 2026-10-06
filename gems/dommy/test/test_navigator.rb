@@ -25,7 +25,34 @@ class TestNavigatorBasics < Minitest::Test
 
   def test_default_platform_vendor
     assert_equal("Dommy", @nav.platform)
-    assert_equal("Dommy", @nav.vendor)
+    # HTML allows only the three compatibility-mode vendors; Gecko's is "".
+    assert_equal("", @nav.vendor)
+  end
+
+  # The legacy NavigatorID members answer HTML's constants for the navigator
+  # compatibility mode (Gecko by default).
+  def test_legacy_navigator_id_members
+    assert_equal("Mozilla", @nav.__js_get__("appCodeName"))
+    assert_equal("Netscape", @nav.__js_get__("appName"))
+    assert_equal("Gecko", @nav.__js_get__("product"))
+    assert_equal("20100101", @nav.__js_get__("productSub"))
+    assert_equal("", @nav.__js_get__("vendorSub"))
+    assert_equal("5.0 (Dommy)", @nav.__js_get__("appVersion"))
+    assert_equal(false, @nav.__js_call__("taintEnabled", []))
+    assert_equal(false, @nav.__js_call__("javaEnabled", []))
+    assert_equal(false, @nav.__js_get__("pdfViewerEnabled"))
+    assert_equal(0, @nav.__js_get__("plugins").__js_get__("length"))
+    assert_equal(0, @nav.__js_get__("mimeTypes").__js_get__("length"))
+  end
+
+  def test_compatibility_mode_fixes_vendor_and_app_version
+    @nav.compatibility_mode = :chrome
+    assert_equal("Google Inc.", @nav.vendor)
+    assert_equal("20030107", @nav.__js_get__("productSub"))
+    assert_equal("5.0 (Dommy) Ruby", @nav.__js_get__("appVersion"))
+    assert_equal(Dommy::Bridge::ABSENT, @nav.__js_get__("oscpu"))
+    @nav.compatibility_mode = :webkit
+    assert_equal("Apple Computer, Inc.", @nav.vendor)
   end
 
   def test_default_on_line

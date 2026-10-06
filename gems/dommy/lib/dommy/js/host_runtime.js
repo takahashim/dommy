@@ -2732,6 +2732,23 @@ globalThis.__rbHost = (function () {
     return fresh;
   }
 
+  // FrozenArray attributes of non-Node interfaces, by interface: the same
+  // frozen array comes back while it holds the same items (HTML: "the same
+  // object must be returned until the user agent needs to return different
+  // values").
+  const IFACE_FROZEN_ARRAY_ATTRIBUTES = new Map([
+    ["Navigator", new Set(["languages"])],
+  ]);
+
+  // Attributes whose value is one JS object until the host replaces it, by
+  // interface: attribute -> the host key that reports the value's version. The
+  // value is rehydrated (a fresh JS object) only when the version moves, so
+  // `history.state === history.state` and a page's edits to the object it got
+  // stay visible on the next read, as with a real deserialized state.
+  const VERSIONED_ATTRIBUTES = new Map([
+    ["History", { state: "__dommyStateVersion" }],
+  ]);
+
   // The proxy handler for one host object: `handle` is the object, `shape` is
   // everything its interface decides (see interfaceShape) and `methodCache`
   // memoizes its method stubs. The per-interface traits used to arrive as eight
@@ -2750,6 +2767,11 @@ globalThis.__rbHost = (function () {
     // The frozen array last returned per FrozenArray attribute (see
     // frozenArrayRead); only Node proxies have such attributes.
     const frozenArrays = nodeChain ? new Map() : null;
+    // Per-interface frozen-array / versioned attributes (see the tables above)
+    // and this proxy's cache of their last answers.
+    const ifaceFrozenArrays = IFACE_FROZEN_ARRAY_ATTRIBUTES.get(shape.name) || null;
+    const versionedAttrs = VERSIONED_ATTRIBUTES.get(shape.name) || null;
+    const ifaceAttrCache = (ifaceFrozenArrays !== null || versionedAttrs !== null) ? new Map() : null;
     // Per-epoch cache of stable node props (STABLE_EPOCH_NODE_PROPS). Rebuilt
     // whenever the epoch moves; only used for Node proxies.
     let epochProps = null;
@@ -2855,6 +2877,17 @@ globalThis.__rbHost = (function () {
           return Reflect.get(t, prop, receiver);
         }
         if (constCache !== null && constCache.has(prop)) return constCache.get(prop);
+        if (ifaceFrozenArrays !== null && ifaceFrozenArrays.has(prop)) {
+          return frozenArrayRead(ifaceAttrCache, prop, rehydrate(__rb_host_get(handle, prop)));
+        }
+        if (versionedAttrs !== null && typeof prop === "string" && Object.hasOwn(versionedAttrs, prop)) {
+          const version = rehydrate(__rb_host_get(handle, versionedAttrs[prop]));
+          const hit = ifaceAttrCache.get(prop);
+          if (hit !== undefined && hit.version === version) return hit.value;
+          const value = rehydrate(__rb_host_get(handle, prop));
+          ifaceAttrCache.set(prop, { version, value });
+          return value;
+        }
         // Reflected string attribute (id/className/slot): answer from the
         // element's attribute snapshot, no crossing. Only when a snapshot is
         // available (HTML elements) — non-elements / foreign-namespace get null

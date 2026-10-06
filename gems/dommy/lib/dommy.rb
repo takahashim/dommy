@@ -215,6 +215,10 @@ module Dommy
     when Proc, Method, UnboundMethod, IO, Class, Module
       raise DOMException::DataCloneError, "#{value.class} cannot be cloned"
     else
+      # A JS function crosses as a callable handle; functions are not
+      # serializable (StructuredSerialize throws DataCloneError for them).
+      raise DOMException::DataCloneError, "function could not be cloned" if CallableInvoker.js_callable?(value)
+
       if value.respond_to?(:clone_node)
         value.clone_node(true)
       else
