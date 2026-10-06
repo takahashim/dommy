@@ -176,6 +176,8 @@ module Dommy
         NodeList.new
       when "firstChild", "lastChild"
         nil
+      when "customElementRegistry"
+        __internal_custom_element_registry__
       when "isConnected"
         is_connected?
       end
@@ -1093,13 +1095,39 @@ module Dommy
       return import_attribute(node) if node.is_a?(Attr)
       return nil unless node.is_a?(Node) && node.__dommy_backend_node__
 
-      # WebIDL `optional boolean deep = false`: a missing / undefined argument
-      # is the default (false / shallow), not a truthy sentinel.
-      deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
+      # `(boolean or ImportNodeOptions) options = false`: a boolean is `deep`
+      # (missing / undefined is false); a dictionary's `selfOnly` negates
+      # it, and its `customElementRegistry` (a scoped one, or this
+      # document's) is the registry the copies fall back to.
+      registry = nil
+      if deep.is_a?(Hash)
+        options = deep
+        deep = !Internal::WebIDL.boolean(options["selfOnly"])
+        given = options.fetch("customElementRegistry", Bridge::UNDEFINED)
+        unless given.equal?(Bridge::UNDEFINED)
+          raise Bridge::TypeError, "customElementRegistry is not a CustomElementRegistry" unless given.is_a?(CustomElementRegistry)
+          if !given.scoped? && !given.equal?(__internal_custom_element_registry__)
+            raise DOMException::NotSupportedError, "a global registry other than the document's"
+          end
+
+          registry = given
+        end
+      else
+        deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
+        deep = Internal::WebIDL.boolean(deep)
+      end
+      # "Clone a single node": the node's own registry — a global one standing
+      # for this document's — and the fallback only for a node without one.
+      fallback = registry || __internal_custom_element_registry__
+      source = node.is_a?(Element) ? node.__internal_ce_registry__ : fallback
+      registry = if source.nil? then fallback
+                 elsif source.scoped? then source
+                 else __internal_custom_element_registry__
+                 end
       source_document = node.respond_to?(:document) ? node.document : self
       copy = clone_into_doc(node.__dommy_backend_node__, deep, source_document)
       apply_imported_cloning_steps(node.__dommy_backend_node__, copy, deep, source_document)
-      __internal_enqueue_created_upgrades__(copy) if copy.respond_to?(:element?)
+      __internal_enqueue_created_upgrades__(copy, registry) if copy.respond_to?(:element?)
       wrap_node(copy)
     end
 
@@ -2562,6 +2590,14 @@ module Dommy
       @mutation_coordinator.notify_disconnected_subtree(nk)
     end
 
+    # DOM "custom element registry" of the document: the one initialize()
+    # set, else its window's (none without a browsing context).
+    attr_writer :__internal_custom_element_registry__
+
+    def __internal_custom_element_registry__
+      @__internal_custom_element_registry__ || (@default_view.custom_elements if @default_view.respond_to?(:custom_elements))
+    end
+
     # The element the HTML element constructor makes for `new MyElement()`.
     def __internal_create_custom_element__(definition)
       @node_factory.create_custom_element(definition)
@@ -2570,27 +2606,37 @@ module Dommy
     # HTML "try to upgrade an element": enqueue an upgrade reaction when the
     # registry `element` looks definitions up in has one for it.
     def __internal_try_to_upgrade__(element)
-      definition = CustomElementRegistry.lookup(element.owner_document, element.namespace_uri, element.local_name,
-                                                element.__internal_is_value__)
+      definition = CustomElementRegistry.lookup(element.__internal_ce_registry__, element.namespace_uri,
+                                                element.local_name, element.__internal_is_value__)
       Internal::CEReactions.enqueue_upgrade(element, definition) if definition
     end
 
     # The elements a parser or a clone just created in this document without
-    # the synchronous custom elements flag (DOM "create an element" step 6.3):
-    # each one a definition applies to gets an upgrade reaction. `nodes` are
-    # backend nodes, each walked in tree order (a template's contents are not
-    # its children, and belong to a document with no registry).
-    def __internal_enqueue_created_upgrades__(nodes)
-      registry = CustomElementRegistry.for_document(self)
-      return if registry.nil? || !registry.any_definitions?
+    # the synchronous custom elements flag (DOM "create an element" step 6.3),
+    # with `registry` (the parser's intended parent's, the original's): each
+    # one gets the registry when it is a scoped one, and each one a definition
+    # applies to an upgrade reaction. `nodes` are backend nodes, each walked
+    # in tree order (a template's contents are not its children, and belong
+    # to a document with no registry).
+    def __internal_enqueue_created_upgrades__(nodes, registry = CustomElementRegistry.for_document(self))
+      return if registry.nil?
+
+      scoped = registry.scoped?
+      return unless scoped || registry.any_definitions?
 
       (nodes.is_a?(Array) ? nodes : [nodes]).each do |root|
         Internal::NodeTraversal.subtree_nodes(root).each do |node|
-          next unless node.element? && Backend.namespace_uri(node) == Element::HTML_NAMESPACE
+          next unless node.element?
+
+          known = __internal_peek_wrapper__(node)
+          if scoped
+            known ||= wrap_node(node)
+            known.__internal_ce_data__.registry = registry
+          end
+          next unless Backend.namespace_uri(node) == Element::HTML_NAMESPACE
 
           # The is value a wrapper was made with (a clone's), else the one
           # the parser gives it: its `is` attribute.
-          known = __internal_peek_wrapper__(node)
           is_value = known ? known.__internal_is_value__ : Backend.get_attribute_ns(node, nil, "is")
           definition = registry.lookup_definition(node.name, is_value)
           next unless definition

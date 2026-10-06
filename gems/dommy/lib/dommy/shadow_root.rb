@@ -26,6 +26,14 @@ module Dommy
 
     def __internal_available_to_internals__? = @__internal_available_to_internals__ ? true : false
 
+    # DOM "custom element registry" of the shadow root: the scoped registry
+    # attachShadow() or initialize() gave it, else its document's.
+    attr_writer :__internal_custom_element_registry__
+
+    def __internal_custom_element_registry__
+      @__internal_custom_element_registry__ || CustomElementRegistry.for_document(@document)
+    end
+
     def __dommy_backend_node__ = @__node__
 
     def initialize(host, mode:, delegates_focus: false, slot_assignment: "named")
@@ -52,7 +60,7 @@ module Dommy
 
     def inner_html=(html)
       fragment = Parser.fragment(html.to_s, owner_doc: @document.backend_doc)
-      @document.__internal_enqueue_created_upgrades__(fragment.children.to_a)
+      @document.__internal_enqueue_created_upgrades__(fragment.children.to_a, __internal_custom_element_registry__)
       __internal_replace_all__(fragment.children.to_a)
       nil
     end
@@ -242,6 +250,8 @@ module Dommy
         @delegates_focus
       when "slotAssignment"
         @slot_assignment
+      when "customElementRegistry"
+        __internal_custom_element_registry__
       when "activeElement"
         active_element
       when "styleSheets"

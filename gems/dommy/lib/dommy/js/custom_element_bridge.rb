@@ -67,6 +67,11 @@ module Dommy
         registry.__internal_add_definition__(definition)
       end
 
+      # `new CustomElementRegistry()`.
+      def new_scoped_registry
+        CustomElementRegistry.new(@window, scoped: true)
+      end
+
       # The HTML element constructor with an empty construction stack: a new
       # element in the definition's window's document, custom from the start.
       def create(id)

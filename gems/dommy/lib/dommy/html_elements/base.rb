@@ -150,7 +150,7 @@ module Dommy
         raise DOMException::NotSupportedError, "a customized built-in element has no ElementInternals"
       end
 
-      definition = CustomElementRegistry.lookup(owner_document, namespace_uri, local_name)
+      definition = CustomElementRegistry.lookup(__internal_ce_registry__, namespace_uri, local_name)
       raise DOMException::NotSupportedError, "<#{local_name}> is not a defined custom element" unless definition
       raise DOMException::NotSupportedError, "the definition disables internals" if definition.disable_internals?
       raise DOMException::NotSupportedError, "attachInternals() was already called" if @__internals

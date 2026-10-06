@@ -174,7 +174,6 @@
       "convertQuadFromNode",
       "convertRectFromNode",
       "currentCSSZoom",
-      "customElementRegistry",
       "getBoxQuads",
       "hasPointerCapture",
       "releasePointerCapture",
@@ -317,7 +316,6 @@
     "ShadowRoot": [
       "adoptedStyleSheets",
       "clonable",
-      "customElementRegistry",
       "fullscreenElement",
       "getHTML",
       "serializable",

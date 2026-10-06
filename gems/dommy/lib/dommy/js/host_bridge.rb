@@ -470,6 +470,18 @@ module Dommy
           @profile.count(:__rb_create_custom_element, nil, id)
           dom_guard { wrap(@custom_element_bridge.create(id)) }
         end
+        # `new CustomElementRegistry()`: a scoped registry of the window.
+        @backend.define_host_function("__rb_new_custom_element_registry") do
+          @profile.count(:__rb_new_custom_element_registry)
+          dom_guard { wrap(@custom_element_bridge.new_scoped_registry) }
+        end
+        @backend.define_host_function("__rb_initialize_custom_element_registry") do |registry, root|
+          @profile.count(:__rb_initialize_custom_element_registry)
+          dom_guard do
+            host(registry).initialize_registry(host(root))
+            nil
+          end
+        end
         # The interface `localName` names in the HTML namespace (define()'s
         # `extends` check).
         @backend.define_host_function("__rb_html_interface_for") do |local_name|

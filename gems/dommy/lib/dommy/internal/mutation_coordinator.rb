@@ -35,6 +35,9 @@ module Dommy
       def notify_connected(element)
         return unless element.respond_to?(:__internal_ce_custom__?)
 
+        registry = element.__internal_ce_registry__
+        registry.__internal_note_scoped_document__(element.owner_document) if registry&.scoped?
+
         if element.__internal_ce_custom__?
           CEReactions.enqueue_callback(element, "connectedCallback", [])
         else

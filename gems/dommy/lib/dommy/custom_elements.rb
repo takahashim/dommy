@@ -195,12 +195,25 @@ module Dommy
 
     attr_reader :window
 
-    def initialize(window)
+    # `scoped`: made by `new CustomElementRegistry()` (HTML "is scoped"),
+    # rather than a window's own (a global custom element registry).
+    def initialize(window, scoped: false)
       @window = window
+      @scoped = scoped
+      # The documents with elements of this scoped registry connected to
+      # them, which define() searches for upgrade candidates.
+      @scoped_documents = {}.compare_by_identity
       # name → definition
       @definitions = {}
       # name → Array<PromiseValue>
       @pending_promises = {}
+    end
+
+    def scoped? = @scoped
+
+    # Add `document` to the scoped document set (DOM insert step 7.7.1).
+    def __internal_note_scoped_document__(document)
+      @scoped_documents[document] = true if @scoped && document
     end
 
     # Whether `name` is a valid custom element name. Also consulted by
@@ -212,20 +225,33 @@ module Dommy
       key.match?(NAME_RE) && key.include?("-") && !RESERVED_NAMES.include?(key)
     end
 
-    # The registry `document` looks definitions up in: its window's, when it
-    # has a browsing context, else none (a template's contents, a document
-    # made by createHTMLDocument or DOMParser).
+    # A document's custom element registry: the one initialize() gave it,
+    # else its window's when it has a browsing context, else none (a
+    # template's contents, a document made by createHTMLDocument or
+    # DOMParser).
     def self.for_document(document)
+      return document.__internal_custom_element_registry__ if document.respond_to?(:__internal_custom_element_registry__)
+
       window = document.default_view if document.respond_to?(:default_view)
       window.custom_elements if window.respond_to?(:custom_elements)
     end
 
-    # HTML "look up a custom element definition" for an element of the given
-    # namespace and local name created in (or inserted into) `document`.
-    def self.lookup(document, namespace, local_name, is_value = nil)
-      return nil unless namespace == Element::HTML_NAMESPACE
+    # HTML "look up a custom element registry" given a node: an element's or
+    # a shadow root's own, a document's.
+    def self.for_node(node)
+      case node
+      when Element then node.__internal_ce_registry__
+      when ShadowRoot then node.__internal_custom_element_registry__
+      when Document then for_document(node)
+      end
+    end
 
-      for_document(document)&.lookup_definition(local_name, is_value)
+    # HTML "look up a custom element definition" in `registry`, for an
+    # element of the given namespace, local name and is value.
+    def self.lookup(registry, namespace, local_name, is_value = nil)
+      return nil unless registry && namespace == Element::HTML_NAMESPACE
+
+      registry.lookup_definition(local_name, is_value)
     end
 
     # Register a Ruby class extending HTMLElement as the definition for
@@ -309,12 +335,51 @@ module Dommy
       return nil unless root_node
 
       document = root.is_a?(Document) ? root : root.owner_document
-      return nil unless document && CustomElementRegistry.for_document(document).equal?(self)
+      return nil unless document
 
       Internal::CEReactions.scope do
         document.__internal_each_shadow_including_element__(root_node) do |node|
           element = document.wrap_node(node)
-          document.__internal_try_to_upgrade__(element) if element
+          next unless element && element.__internal_ce_registry__.equal?(self)
+
+          document.__internal_try_to_upgrade__(element)
+        end
+      end
+      nil
+    end
+
+    # `initialize(root)` (HTML §4.13.4): give `root` (a document or a shadow
+    # root without one) and the elements of its subtree without one this
+    # registry, and try to upgrade those it is now the registry of.
+    def initialize_registry(root)
+      unless root.is_a?(Node) && root.__dommy_backend_node__
+        raise Bridge::TypeError, "CustomElementRegistry.initialize: parameter 1 is not of type 'Node'"
+      end
+
+      document = root.is_a?(Document) ? root : root.owner_document
+      if !@scoped && (root.is_a?(Document) || !CustomElementRegistry.for_document(document).equal?(self))
+        raise DOMException::NotSupportedError, "a global registry initializes only its own document's nodes"
+      end
+
+      Internal::CEReactions.scope do
+        if root.is_a?(Document) && CustomElementRegistry.for_document(root).nil?
+          root.__internal_custom_element_registry__ = self
+        elsif root.is_a?(ShadowRoot) && root.__internal_custom_element_registry__.nil?
+          root.__internal_custom_element_registry__ = self
+        end
+        Internal::NodeTraversal.subtree_nodes(root.__dommy_backend_node__).each do |node|
+          next unless node.element?
+
+          element = document.wrap_node(node)
+          next unless element
+
+          if element.__internal_ce_registry__.nil?
+            element.__internal_ce_data__.registry = self
+            __internal_note_scoped_document__(element.owner_document)
+          end
+          next unless element.__internal_ce_registry__.equal?(self)
+
+          document.__internal_try_to_upgrade__(element)
         end
       end
       nil
@@ -340,17 +405,17 @@ module Dommy
     # spec-valid custom element name may contain "." or other CSS selector
     # metacharacters, so this matches local names rather than querying.)
     def upgrade_particular_elements(definition)
-      document = @window.document if @window.respond_to?(:document)
-      return unless document
+      documents = @scoped ? @scoped_documents.keys : [(@window.document if @window.respond_to?(:document))].compact
+      documents.each do |document|
+        document.__internal_each_shadow_including_element__(document.backend_doc) do |node|
+          next unless node.name == definition.local_name && Backend.namespace_uri(node) == Element::HTML_NAMESPACE
 
-      document.__internal_each_shadow_including_element__(document.backend_doc) do |node|
-        next unless node.name == definition.local_name && Backend.namespace_uri(node) == Element::HTML_NAMESPACE
+          element = document.wrap_node(node)
+          next unless element && element.__internal_ce_registry__.equal?(self)
+          next unless definition.autonomous? || element.__internal_is_value__ == definition.name
 
-        element = document.wrap_node(node)
-        next unless element
-        next unless definition.autonomous? || element.__internal_is_value__ == definition.name
-
-        Internal::CEReactions.enqueue_upgrade(element, definition)
+          Internal::CEReactions.enqueue_upgrade(element, definition)
+        end
       end
     end
   end

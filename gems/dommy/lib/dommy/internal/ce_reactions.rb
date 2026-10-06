@@ -32,7 +32,11 @@ module Dommy
       # definition re-wraps the node), so an element's queue survives the
       # upgrade that its own reactions are being processed for.
       class ElementData
-        attr_accessor :state, :definition, :wrapper, :is_value, :form_owner, :disabled
+        # `registry` is the element's custom element registry when it is a
+        # scoped one; nil stands for its node document's (a global registry
+        # is the effective global registry of whatever document the element
+        # is in, so it follows the element when it is adopted).
+        attr_accessor :state, :definition, :wrapper, :is_value, :form_owner, :disabled, :registry
         attr_reader :reactions
 
         def initialize(wrapper, state, is_value = nil)

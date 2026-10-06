@@ -32,7 +32,8 @@ module Dommy
           namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
         end
 
-        create_an_element(local, namespace, is_option(options)) do
+        registry, is_value = flatten_options(options)
+        create_an_element(local, namespace, is_value, registry) do
           Backend.create_element(local, namespace, @document.backend_doc)
         end
       end
@@ -43,7 +44,9 @@ module Dommy
       def create_custom_element(definition)
         node = Backend.create_element(definition.local_name, Element::HTML_NAMESPACE, @document.backend_doc)
         element = @wrappers.wrap(node)
-        definition.mark_custom(element.__internal_init_ce_data__(definition.autonomous? ? nil : definition.name))
+        data = element.__internal_init_ce_data__(definition.autonomous? ? nil : definition.name)
+        data.registry = definition.registry if definition.registry&.scoped?
+        definition.mark_custom(data)
         element
       end
 
@@ -104,7 +107,8 @@ module Dommy
         ns, = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
         local = qualified_name.include?(":") ? qualified_name.split(":", 2).last : qualified_name
-        create_an_element(local, ns, is_option(options)) do
+        registry, is_value = flatten_options(options)
+        create_an_element(local, ns, is_value, registry) do
           Backend.create_element_ns(ns, qualified_name, @document.backend_doc)
         end
       end
@@ -116,14 +120,17 @@ module Dommy
       # DOM "create an element" with the synchronous custom elements flag set
       # (createElement / createElementNS). `make_node` mints the backend node
       # when no autonomous definition constructs the element.
-      def create_an_element(local, namespace, is_value)
-        definition = CustomElementRegistry.lookup(@document, namespace, local, is_value)
-        return create_custom_element_synchronously(definition, local) if definition&.autonomous?
+      def create_an_element(local, namespace, is_value, registry)
+        definition = CustomElementRegistry.lookup(registry, namespace, local, is_value)
+        if definition&.autonomous?
+          element = create_custom_element_synchronously(definition, local)
+          element.__internal_ce_data__.registry = registry if registry&.scoped?
+          return element
+        end
 
         element = @wrappers.build_element_wrapper(yield)
-        return element unless namespace == Element::HTML_NAMESPACE
-
         data = element.__internal_init_ce_data__(definition ? definition.name : is_value)
+        data.registry = registry if registry&.scoped?
         upgrade_synchronously(definition, data) if definition
         element
       end
@@ -137,13 +144,32 @@ module Dommy
         data.state = "failed"
       end
 
-      # ElementCreationOptions' `is`, from a dictionary argument (a string
-      # argument is the legacy form, which carries none).
-      def is_option(options)
-        return nil unless options.is_a?(Hash)
+      # DOM "flatten element creation options": the registry (the document's,
+      # or a dictionary's `customElementRegistry`) and the is value (a
+      # dictionary's `is`; a string argument is the legacy form, which carries
+      # none). Both at once, or a global registry other than the document's,
+      # is a NotSupportedError.
+      def flatten_options(options)
+        registry = CustomElementRegistry.for_document(@document)
+        is_value = nil
+        if options.is_a?(Hash)
+          value = options.key?("is") ? options["is"] : options[:is]
+          is_value = value.to_s unless value.nil? || value.equal?(Bridge::UNDEFINED)
+          given = options.key?("customElementRegistry") ? options["customElementRegistry"] : Bridge::UNDEFINED
+          unless given.equal?(Bridge::UNDEFINED)
+            raise DOMException::NotSupportedError, "is and customElementRegistry are exclusive" unless is_value.nil?
+            unless given.nil? || given.is_a?(CustomElementRegistry)
+              raise Bridge::TypeError, "customElementRegistry is not a CustomElementRegistry"
+            end
 
-        value = options.key?("is") ? options["is"] : options[:is]
-        value.nil? || value.equal?(Bridge::UNDEFINED) ? nil : value.to_s
+            registry = given
+          end
+        end
+        if registry && !registry.scoped? && !registry.equal?(CustomElementRegistry.for_document(@document))
+          raise DOMException::NotSupportedError, "a global registry other than the document's"
+        end
+
+        [registry, is_value]
       end
 
       # DOM "create an element" step 6.2, the synchronous custom elements flag

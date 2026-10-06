@@ -590,7 +590,16 @@ globalThis.__rbHost = (function () {
   // the HTMLElement constructor adopts it when `super()` runs.
   const ceStates = new WeakMap();
   const ceDefsById = new Map();
+  // A global registry's definitions by constructor — the fallback for a
+  // `new MyElement()` whose class the window's own registry does not define
+  // (an iframe's registry: Dommy has one realm for every window).
   const ceDefsByCtor = new Map();
+  // HTML "active custom element constructor map": the registry a
+  // constructor being run by create-an-element or an upgrade belongs to.
+  const ceActiveRegistries = new Map();
+  // The window's own registry (its document's), whatever the page does to
+  // the `customElements` global.
+  let ceWindowRegistry;
   let ceNextId = 0;
   // HTML "already constructed marker".
   const CE_ALREADY_CONSTRUCTED = Symbol("already constructed");
@@ -1966,6 +1975,7 @@ globalThis.__rbHost = (function () {
     // `window.customElements` ([Replaceable]: an assignment replaces it).
     if (!target) {
       const registry = w.customElements;
+      ceWindowRegistry = registry;
       Object.defineProperty(globalThis, "customElements", {
         get() { return registry; },
         set(v) { Object.defineProperty(globalThis, "customElements", { value: v, writable: true, enumerable: true, configurable: true }); },
@@ -3295,7 +3305,10 @@ globalThis.__rbHost = (function () {
   // Undefined when NewTarget is no defined constructor (the caller then
   // throws "Illegal constructor", as for any interface without one).
   function constructCustomElement(activeName, nt) {
-    const def = ceDefsByCtor.get(nt);
+    let registry = ceActiveRegistries.get(nt);
+    if (registry === undefined) registry = ceWindowRegistry;
+    let def = isProxy(registry) ? ceStateOf(registry).byCtor.get(nt) : undefined;
+    if (!def && !ceActiveRegistries.has(nt)) def = ceDefsByCtor.get(nt);
     if (!def) return undefined;
     if (def.localName === def.name) {
       if (activeName !== "HTMLElement") {
@@ -3329,11 +3342,22 @@ globalThis.__rbHost = (function () {
   // (DOM "create an element" with the synchronous custom elements flag). The
   // result crosses back as is — Ruby checks it is a fitting element — or
   // what it threw, tagged.
+  function withActiveRegistry(def, registry, fn) {
+    const had = ceActiveRegistries.has(def.ctor);
+    const previous = ceActiveRegistries.get(def.ctor);
+    ceActiveRegistries.set(def.ctor, registry);
+    try {
+      return fn();
+    } finally {
+      if (had) ceActiveRegistries.set(def.ctor, previous); else ceActiveRegistries.delete(def.ctor);
+    }
+  }
+
   function ceConstruct(id) {
     bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const def = ceDefsById.get(id);
     try {
-      return dehydrateReturn(Reflect.construct(def.ctor, []));
+      return dehydrateReturn(withActiveRegistry(def, def.registry, () => Reflect.construct(def.ctor, [])));
     } catch (e) {
       return tagThrow(e);
     }
@@ -3348,7 +3372,7 @@ globalThis.__rbHost = (function () {
     const el = makeProxy(handle);
     def.constructionStack.push(el);
     try {
-      const result = Reflect.construct(def.ctor, []);
+      const result = withActiveRegistry(def, def.registry, () => Reflect.construct(def.ctor, []));
       if (result !== el) {
         throw new TypeError("Failed to upgrade <" + def.name + ">: the constructor did not return the element being upgraded");
       }
@@ -3426,7 +3450,7 @@ globalThis.__rbHost = (function () {
     }
     let state = ceStates.get(registry);
     if (!state) {
-      state = { defs: new Map(), pending: new Map(), running: false };
+      state = { defs: new Map(), byCtor: new Map(), pending: new Map(), running: false, scoped: false };
       ceStates.set(registry, state);
     }
     return state;
@@ -3466,6 +3490,9 @@ globalThis.__rbHost = (function () {
     const ext = (options === undefined || options === null) ? undefined : options.extends;
     if (ext !== undefined) {
       const extName = String(ext);
+      if (state.scoped) {
+        throw new DOMException("A scoped registry cannot define a customized built-in element", "NotSupportedError");
+      }
       if (isValidCustomElementName(extName)) {
         throw new DOMException("'" + extName + "' is a valid custom element name, so it cannot be extended", "NotSupportedError");
       }
@@ -3516,11 +3543,12 @@ globalThis.__rbHost = (function () {
 
     const def = {
       id: ++ceNextId, name, localName, ctor, callbacks, baseInterface,
-      observed, formAssociated, constructionStack: []
+      observed, formAssociated, constructionStack: [], registry
     };
     state.defs.set(name, def);
+    state.byCtor.set(ctor, def);
     ceDefsById.set(def.id, def);
-    ceDefsByCtor.set(ctor, def);
+    if (!state.scoped) ceDefsByCtor.set(ctor, def);
     // Ruby appends the definition, upgrades the document's elements it
     // applies to (their constructors have run when this returns) — then the
     // when-defined promise resolves.
@@ -3535,7 +3563,14 @@ globalThis.__rbHost = (function () {
   // on the prototype; every registry (a window's `customElements`, an
   // iframe's) is a host object of this interface, and the operations find the
   // registry's definitions from `this`.
-  function CustomElementRegistry() { throw new TypeError("Illegal constructor"); }
+  // `new CustomElementRegistry()`: a scoped registry (HTML "is scoped").
+  function CustomElementRegistry() {
+    if (new.target === undefined) throw new TypeError("Constructor CustomElementRegistry requires 'new'");
+    const registry = rehydrate(__rb_new_custom_element_registry());
+    ceStateOf(registry).scoped = true;
+    if (new.target !== CustomElementRegistry) Object.setPrototypeOf(registry, new.target.prototype);
+    return registry;
+  }
   const cerProto = CustomElementRegistry.prototype;
   Object.defineProperty(cerProto, Symbol.toStringTag, { value: "CustomElementRegistry", configurable: true });
   protos.set("CustomElementRegistry", cerProto);
@@ -3578,6 +3613,14 @@ globalThis.__rbHost = (function () {
       state.pending.set(name, entry);
     }
     return entry.promise;
+  }, 1);
+  cerMethod("initialize", function initialize(root) {
+    ceStateOf(this);
+    if (!isProxy(root) || !interfaceChainOf(root).includes("Node")) {
+      throw new TypeError("Failed to execute 'initialize' on 'CustomElementRegistry': parameter 1 is not of type 'Node'.");
+    }
+    const raised = __rb_initialize_custom_element_registry(this[HKEY], root[HKEY]);
+    if (raised && typeof raised === "object" && raised.__rb_exception__) throw makeHostError(raised.__rb_exception__);
   }, 1);
   cerMethod("upgrade", function upgrade(root) {
     ceStateOf(this);

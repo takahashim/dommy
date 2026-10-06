@@ -83,7 +83,7 @@ module Dommy
       unless @document.html_document?
         nodes = xml_fragment_nodes(value.to_s, self)
         mark_fragment_scripts_started(nodes)
-        @document.__internal_enqueue_created_upgrades__(nodes) unless is_a?(HTMLTemplateElement)
+        @document.__internal_enqueue_created_upgrades__(nodes, __internal_ce_registry__) unless is_a?(HTMLTemplateElement)
         # A <template> is still the context, but the nodes replace its contents.
         (is_a?(HTMLTemplateElement) ? content : self).__internal_replace_all__(nodes)
         return
@@ -106,7 +106,7 @@ module Dommy
       mark_fragment_scripts_started(@__node__.children.to_a)
       # The fragment parser creates a defined element without running its
       # constructor: it is upgraded by a reaction (see fragment_nodes).
-      @document.__internal_enqueue_created_upgrades__(@__node__.children.to_a)
+      @document.__internal_enqueue_created_upgrades__(@__node__.children.to_a, __internal_ce_registry__)
       notify_child_list(added: @__node__.children.to_a, removed: removed)
     end
 
@@ -824,6 +824,12 @@ module Dommy
       data.wrapper = self
     end
 
+    # DOM "custom element registry" of the element: a scoped registry it was
+    # created with or initialized to, else its node document's.
+    def __internal_ce_registry__
+      @__ce_data&.registry || CustomElementRegistry.for_document(owner_document)
+    end
+
     # The wrapper the element's node has now (an upgrade to a Ruby-class
     # definition replaces this one).
     def __internal_current_wrapper__
@@ -929,6 +935,8 @@ module Dommy
       case key
       when "nodeType"
         1
+      when "customElementRegistry"
+        __internal_ce_registry__
       when "isConnected"
         is_connected?
       when "scrollTop", "scrollLeft", "clientTop", "clientLeft"
@@ -1609,7 +1617,7 @@ module Dommy
       # element without the synchronous custom elements flag: a defined one is
       # upgraded by a reaction.
       clone.__internal_init_ce_data__(__internal_is_value__) if clone.respond_to?(:__internal_init_ce_data__)
-      @document.__internal_enqueue_created_upgrades__(copy)
+      @document.__internal_enqueue_created_upgrades__(copy, __internal_ce_registry__)
       clone
     end
 
@@ -1729,8 +1737,15 @@ module Dommy
       # The fragment parser creates its elements without the synchronous
       # custom elements flag, looking definitions up in the context's
       # registry: a defined one is upgraded by a reaction.
-      @document.__internal_enqueue_created_upgrades__(nodes)
+      @document.__internal_enqueue_created_upgrades__(nodes, fragment_registry(context))
       nodes
+    end
+
+    # The registry the fragment parser creates elements with: its target's
+    # (this element, or the shadow root / element `context` stands in).
+    def fragment_registry(context)
+      target = context && @document.wrap_node(context)
+      CustomElementRegistry.for_node(target.is_a?(Element) ? target : self)
     end
 
     def template_content
