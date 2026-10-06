@@ -88,3 +88,48 @@ class TestConstraintValidationSpec < Minitest::Test
     refute el("t").will_validate
   end
 end
+
+# HTML's radio button group rule beyond checking one: becoming connected, a
+# form owner change and a name change uncheck the rest of the group.
+class TestRadioGroupChanges < Minitest::Test
+  include DommyTestHelper
+
+  def radio(doc, checked: true, name: "g")
+    r = doc.create_element("input")
+    r.type = "radio"
+    r.name = name
+    r.checked = checked
+    r
+  end
+
+  def test_connecting_or_changing_owner_unchecks_the_group
+    win = make_window("<form id=f><input type=radio name=g id=a checked></form>")
+    doc = win.document
+    a = doc.get_element_by_id("a")
+    b = radio(doc)
+    doc.get_element_by_id("f").append_child(b)
+    refute a.checked
+    assert b.checked
+
+    div = doc.create_element("div")
+    c = radio(doc)
+    d = radio(doc)
+    div.append_child(c)
+    div.append_child(d)
+    assert c.checked, "a detached tree with no owner change keeps both"
+
+    renamed = radio(doc, name: "other")
+    doc.get_element_by_id("f").append_child(renamed)
+    renamed.set_attribute("name", "g")
+    refute b.checked
+  end
+
+  def test_radio_node_list_value_setter_without_a_match_changes_nothing
+    win = make_window("<form id=f><input type=radio name=r value=1 checked><input type=radio name=r value=2></form>")
+    list = win.document.get_element_by_id("f").__js_get__("r")
+    list.value = "nope"
+    assert_equal "1", list.value
+    list.value = "2"
+    assert_equal "2", list.value
+  end
+end

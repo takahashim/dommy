@@ -65,6 +65,23 @@ module Dommy
         end
       end
 
+      # HTML's radio button group rule: a checked radio that becomes connected,
+      # or whose form owner changes — an insertion or removal of it or an
+      # ancestor can do either — unchecks the other members of its (new)
+      # group. The nodes are taken last first, as if inserted one at a time:
+      # of several checked radios arriving together the last one stays checked.
+      def radios_moved(nodes, connected:)
+        collect_elements(nodes, "input").reverse_each do |node|
+          radio = wrap_html(node)
+          next unless radio.is_a?(HTMLInputElement)
+
+          owner_changed = radio.__internal_note_form_owner__
+          next unless radio.type == "radio" && radio.checked && (connected || owner_changed)
+
+          radio.uncheck_radio_group
+        end
+      end
+
       private
 
       # A classic <script> that's now genuinely connected to this document runs:

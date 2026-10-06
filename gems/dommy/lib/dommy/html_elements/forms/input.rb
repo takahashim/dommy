@@ -355,6 +355,15 @@ module Dommy
       a.__dommy_backend_node__.equal?(b.__dommy_backend_node__)
     end
 
+    # Remember the current form owner; true when it differs from the one last
+    # remembered (HTML's "form owner changes", which unchecks a radio's group).
+    def __internal_note_form_owner__
+      owner = form_owner
+      changed = !same_form_owner?(owner, @__noted_form_owner)
+      @__noted_form_owner = owner
+      changed
+    end
+
     # The radio button group: radios in the SAME tree (root node — so an orphan
     # subtree groups too) that share this element's non-empty name and form
     # owner (two radios with no form owner still group, as long as they share a
@@ -435,6 +444,11 @@ module Dommy
         end
       when "min", "max", "step", "multiple"
         @__value = sanitize_value(current_value) if value_mode(type) == :value
+      when "name", "form"
+        # A checked radio whose name or form owner changes unchecks the rest
+        # of its new radio button group.
+        __internal_note_form_owner__
+        uncheck_radio_group if type == "radio" && checked
       end
       nil
     end
