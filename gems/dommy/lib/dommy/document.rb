@@ -331,6 +331,8 @@ module Dommy
       # The result is an XMLDocument (DOM's createDocument), unlike a DOMParser
       # result of the same content type — so the interface is pinned here.
       doc.__internal_xml_document__ = true
+      # Its origin is the associated document's (DOM createDocument step 7).
+      doc.__internal_set_creator__(@document)
       # createDocument's content type is keyed off the namespace. None is
       # "text/html", so tagName keeps its case; xhtml+xml still routes
       # createElement to the HTML namespace (so an XHTML document isEqualNode
@@ -356,6 +358,8 @@ module Dommy
     # the title setter's string-replace-all would leave empty.
     def create_html_document(title = nil)
       doc = Document.new(nil, backend_doc: Backend.parse("<!DOCTYPE html><html><head></head><body></body></html>"))
+      # Its origin is the associated document's (DOM createHTMLDocument step 8).
+      doc.__internal_set_creator__(@document)
       unless title.nil? || title.equal?(Bridge::UNDEFINED)
         element = doc.head.append_child(doc.create_element("title"))
         element.append_child(doc.create_text_node(title.to_s))
@@ -781,7 +785,18 @@ module Dommy
     # "about:blank", not the empty string.
     def url
       view = @default_view
-      view&.location ? view.location.href : "about:blank"
+      return view.location.href if view&.location
+
+      @creator_url || "about:blank"
+    end
+
+    # A document made by a parsing or creation API (DOMParser,
+    # DOMImplementation) takes its origin from `document` — the relevant
+    # global object's associated Document — and, for DOMParser, its URL too.
+    def __internal_set_creator__(document, url: nil)
+      @origin_document = document
+      @creator_url = url
+      nil
     end
 
     alias document_uri url
@@ -818,7 +833,7 @@ module Dommy
     # restrict cross-origin reads of this; we just return the bare host.
     def domain
       view = @default_view
-      return "" unless view&.location
+      return @origin_document&.domain.to_s unless view&.location
 
       view.location.__js_get__("hostname").to_s
     end
@@ -827,7 +842,7 @@ module Dommy
     # `window.location.origin`. Empty when there is no associated window.
     def origin
       view = @default_view
-      return "" unless view&.location
+      return @origin_document&.origin.to_s unless view&.location
 
       view.origin
     end
