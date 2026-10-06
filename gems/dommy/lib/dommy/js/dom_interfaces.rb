@@ -226,6 +226,12 @@ module Dommy
       def class_chain(klass)
         names = []
         k = klass
+        # A custom element's class is the page's own — an anonymous subclass
+        # for a JS-defined element (BridgedCustomElement's per-name subclass),
+        # or a Ruby app's class — and is no interface: the element reports the
+        # interface it derives from (HTMLElement), as `Object.prototype
+        # .toString` and the prototype members' receiver checks expect.
+        k = k.superclass while k && !interface_class?(k)
         while k && k.name&.start_with?("Dommy::")
           name = name_for(k)
           names << name if name && !names.include?(name)
@@ -281,6 +287,11 @@ module Dommy
 
       def css_rule_chain(rule)
         CSS_RULE_CHAINS.fetch(rule.type) { %w[CSSRule] }
+      end
+
+      def interface_class?(klass)
+        name = klass.name
+        name&.start_with?("Dommy::") && name != "Dommy::Js::BridgedCustomElement"
       end
 
       def name_for(klass)

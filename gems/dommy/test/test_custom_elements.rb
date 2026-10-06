@@ -273,3 +273,17 @@ class TestCustomElementUpgrade < Minitest::Test
     assert_equal "hello world", el.text_content
   end
 end
+
+# A custom element's own class is no interface: it reports the interface it
+# derives from, so `Object.prototype.toString` says HTMLElement and the
+# prototype members' receiver checks accept it.
+class TestCustomElementInterfaceChain < Minitest::Test
+  include DommyTestHelper
+
+  def test_anonymous_custom_element_class_reports_html_element
+    win = make_window
+    win.custom_elements.define("my-chain", Class.new(Dommy::HTMLElement))
+    el = win.document.create_element("my-chain")
+    assert_equal %w[HTMLElement Element Node EventTarget], Dommy::Js::DomInterfaces.chain_for(el)
+  end
+end
