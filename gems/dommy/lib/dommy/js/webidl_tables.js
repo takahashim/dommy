@@ -563,7 +563,7 @@ globalThis.__rbIdl = (function () {
     "preventDefault", "stopPropagation", "stopImmediatePropagation", "initEvent", "initCustomEvent",
     "initStorageEvent", "initTextEvent", "initDeviceMotionEvent", "initDeviceOrientationEvent",
     "focus", "blur", "click", "select", "setCustomValidity", "stepUp", "stepDown", "setSelectionRange",
-    "setRangeText", "setPointerCapture",
+    "setRangeText", "showPicker", "setPointerCapture",
     "releasePointerCapture", "observe", "unobserve", "disconnect", "setStart", "setEnd", "setStartBefore",
     "setStartAfter", "setEndBefore", "setEndAfter", "selectNode", "selectNodeContents", "deleteContents",
     "insertNode", "surroundContents", "detach", "removeAllRanges", "addRange", "removeRange", "collapse",

@@ -480,10 +480,6 @@
       "getSVGDocument",
       "name"
     ],
-    "HTMLFormElement": [
-      "encoding",
-      "rel"
-    ],
     "HTMLFrameElement": [
       "contentDocument",
       "contentWindow",
@@ -551,26 +547,13 @@
       "y"
     ],
     "HTMLInputElement": [
-      "accept",
-      "align",
-      "alpha",
-      "alt",
-      "colorSpace",
-      "dirName",
-      "height",
       "popoverTargetAction",
-      "popoverTargetElement",
-      "showPicker",
-      "size",
-      "src",
-      "useMap",
-      "width"
+      "popoverTargetElement"
     ],
     "HTMLLIElement": [
       "type"
     ],
     "HTMLLegendElement": [
-      "align",
       "form"
     ],
     "HTMLLinkElement": [
@@ -630,9 +613,6 @@
       "event",
       "fetchPriority"
     ],
-    "HTMLSelectElement": [
-      "showPicker"
-    ],
     "HTMLStyleElement": [
       "blocking"
     ],
@@ -690,9 +670,6 @@
       "shadowRootMode",
       "shadowRootSerializable",
       "shadowRootSlotAssignment"
-    ],
-    "HTMLTextAreaElement": [
-      "dirName"
     ],
     "HTMLTitleElement": [
       "text"

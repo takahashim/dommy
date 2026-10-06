@@ -15,9 +15,11 @@ module Dommy
     reflect_token_list rel_list: { attr: "rel", js: "relList" }
     reflect_setter :action
     def action = submission_url("action")
-    reflect_string :name, :target, accept_charset: "accept-charset"
+    reflect_string :name, :target, :rel, accept_charset: "accept-charset"
+    # `encoding` reflects the same `enctype` attribute as `enctype` does.
     reflect_enumerated method_attr: Internal::EnumeratedKeywordSets::METHOD.merge(attr: "method", js: "method"),
                        enctype: Internal::EnumeratedKeywordSets::ENCTYPE,
+                       encoding: Internal::EnumeratedKeywordSets::ENCTYPE.merge(attr: "enctype"),
                        autocomplete: { keywords: %w[on off], missing: "on", invalid: "on" }
     reflect_boolean no_validate: "novalidate"
     # Own __js_call__ methods, on top of Element's.
@@ -457,6 +459,7 @@ module Dommy
   class HTMLTextAreaElement < HTMLElement
     include Internal::TextSelection
     include Internal::ConstraintValidation
+    reflect_string dir_name: "dirname"
 
 
     reflect_boolean :disabled, :required, read_only: "readonly"
@@ -581,23 +584,15 @@ module Dommy
     def rows = reflected_ulong("rows", ROWS)
     def cols = reflected_ulong("cols", COLS)
 
-    # `maxLength` / `minLength` reflect a "limited to only non-negative numbers"
-    # long: a missing / negative / non-numeric content attribute is -1.
-    def max_length
-      parse_non_negative_reflected("maxlength")
-    end
-
-    def min_length
-      parse_non_negative_reflected("minlength")
-    end
-
-    def max_length=(value)
-      set_non_negative_reflected("maxlength", value)
-    end
-
-    def min_length=(value)
-      set_non_negative_reflected("minlength", value)
-    end
+    # `maxLength` / `minLength`: [ReflectNonNegative] longs (-1 when missing,
+    # negative or unparseable; a negative value set throws IndexSizeError).
+    # (The IDL the WebIDL audit reads predates their [Reflect], so the getters
+    # are written over the shared helper rather than declared.)
+    MAX_LENGTH = { attr: "maxlength", non_negative: true }.freeze
+    MIN_LENGTH = { attr: "minlength", non_negative: true }.freeze
+    reflect_long_setter max_length: MAX_LENGTH, min_length: MIN_LENGTH
+    def max_length = reflected_long("maxlength", MAX_LENGTH)
+    def min_length = reflected_long("minlength", MIN_LENGTH)
 
     private
 
@@ -628,7 +623,7 @@ module Dommy
       super || __internal_has_attribute__?("readonly")
     end
 
-    js_accessor :value, :default_value, :max_length, :min_length, :selection_start, :selection_end, :selection_direction
+    js_accessor :value, :default_value, :selection_start, :selection_end, :selection_direction
     js_readable :text_length, :type, :form, :labels
 
     js_methods %w[select setSelectionRange setRangeText]
@@ -771,6 +766,7 @@ module Dommy
 
   # `<legend>` — primarily exposes its `form` back-ref.
   class HTMLLegendElement < HTMLElement
+    reflect_string :align
     # HTML: the legend's `form` is its parent fieldset's form owner, or null
     # when its parent is not a fieldset — it does not fall back to a <form> the
     # legend merely sits inside.

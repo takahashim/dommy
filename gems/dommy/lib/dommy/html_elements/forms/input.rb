@@ -27,6 +27,19 @@ module Dommy
                        form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
     reflect_boolean :autofocus, :disabled, :required, :multiple, read_only: "readonly", default_checked: "checked",
                     form_no_validate: "formnovalidate"
+    reflect_string :accept, :alt, :align, dir_name: "dirname", use_map: "usemap"
+    reflect_boolean :alpha, :switch
+    reflect_url :src
+    reflect_enumerated color_space: { attr: "colorspace", keywords: %w[limited-srgb display-p3],
+                                      missing: "limited-srgb", invalid: "limited-srgb" }
+    # `size` is limited to only positive numbers, default 20.
+    reflect_ulong size: { default: 20, positive: true }
+    # `width` / `height` [ReflectSetter]: the getter is the dimensions of an
+    # Image Button (its dimension attributes, as nothing is rendered), and 0
+    # for every other type.
+    reflect_ulong_setter :width, :height
+    def width = type == "image" ? reflected_ulong("width") : 0
+    def height = type == "image" ? reflected_ulong("height") : 0
     # Every state the "type" attribute has (forms.spec §4.10.5.1): missing and
     # invalid value default are both the Text state.
     TYPE_KEYWORDS = %w[
@@ -109,18 +122,16 @@ module Dommy
       super
     end
 
-    # maxLength / minLength reflect a "limited to only non-negative numbers"
-    # long: a missing / negative / non-numeric content attribute reads as -1.
-    def max_length = parse_non_negative_reflected("maxlength")
-    def min_length = parse_non_negative_reflected("minlength")
-
-    def max_length=(value)
-      set_non_negative_reflected("maxlength", value)
-    end
-
-    def min_length=(value)
-      set_non_negative_reflected("minlength", value)
-    end
+    # maxLength / minLength: [ReflectNonNegative] longs — a missing, negative
+    # or unparseable content attribute reads as -1; setting a negative value
+    # throws IndexSizeError.
+    # (The IDL the WebIDL audit reads predates their [Reflect], so the getters
+    # are written over the shared helper rather than declared.)
+    MAX_LENGTH = { attr: "maxlength", non_negative: true }.freeze
+    MIN_LENGTH = { attr: "minlength", non_negative: true }.freeze
+    reflect_long_setter max_length: MAX_LENGTH, min_length: MIN_LENGTH
+    def max_length = reflected_long("maxlength", MAX_LENGTH)
+    def min_length = reflected_long("minlength", MIN_LENGTH)
 
     # The strategy for this control's `type`: what a number means here, and what
     # a step is worth. The sixteen `case type` branches that used to answer
@@ -417,8 +428,7 @@ module Dommy
     js_accessor :value, :checked, :indeterminate,
       value_as_number: "valueAsNumber", value_as_date: "valueAsDate",
       selection_start: "selectionStart", selection_end: "selectionEnd",
-      selection_direction: "selectionDirection",
-      max_length: "maxLength", min_length: "minLength"
+      selection_direction: "selectionDirection"
     js_readable :labels, :form, :files, :list
 
     SELECTION_TYPES = %w[text search url tel password].freeze
@@ -465,6 +475,15 @@ module Dommy
 
     def __internal_user_raw_value__ = @__user_raw_value
     def __internal_last_changed_by_user_edit__ = @__last_changed_by_user_edit && @__value_dirty ? true : false
+
+    # HTML `showPicker()`: an immutable control is an InvalidStateError, and
+    # without transient activation — which Dommy, having no user, never has —
+    # a NotAllowedError.
+    def show_picker
+      raise DOMException::InvalidStateError, "The input is not mutable." unless validity.host_mutable?
+
+      raise DOMException::NotAllowedError, "showPicker() requires a user gesture."
+    end
 
     # setRangeText's edit of the relevant value: it sets the dirty value flag.
     def __internal_set_relevant_value__(string)
@@ -647,7 +666,7 @@ module Dommy
     end
 
 
-    js_methods %w[select setSelectionRange setRangeText stepUp stepDown]
+    js_methods %w[select setSelectionRange setRangeText stepUp stepDown showPicker]
     def __js_call__(method, args)
       case method
       when "select"
@@ -660,6 +679,8 @@ module Dommy
         step_up(args[0])
       when "stepDown"
         step_down(args[0])
+      when "showPicker"
+        show_picker
       else
         super
       end

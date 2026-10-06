@@ -392,25 +392,6 @@ module Dommy
       __internal_has_attribute__?("disabled") || disabled_by_ancestor_fieldset?
     end
 
-    # Shared "limited to only non-negative numbers" long reflection (maxLength /
-    # minLength on input and textarea): a missing / negative / non-numeric
-    # content attribute reads as -1; assigning a negative value throws.
-    def parse_non_negative_reflected(attr)
-      raw = __internal_attribute_value__(attr)
-      return -1 if raw.nil?
-      # HTML "rules for parsing non-negative integers": leading ASCII whitespace,
-      # then digits; anything else (a sign, letters) is an error → -1.
-      m = raw.to_s.match(/\A[\t\n\f\r ]*(\d+)/)
-      m ? m[1].to_i : -1
-    end
-
-    def set_non_negative_reflected(attr, value)
-      n = value.to_i
-      raise DOMException::IndexSizeError, "#{attr} must be non-negative" if n.negative?
-
-      set_reflected_string(attr, n.to_s)
-    end
-
     # HTML attribute names are case-insensitive only in an HTML document — the
     # browser DOM lowercases everything there. In a non-HTML (XML) document even an
     # HTML-namespaced element preserves case. Shortcuts Element's namespace check

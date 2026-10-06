@@ -282,7 +282,15 @@ module Dommy
       super
     end
 
-    js_methods %w[item namedItem add remove]
+    js_methods %w[item namedItem add remove showPicker]
+
+    # HTML `showPicker()`: a disabled select is an InvalidStateError, and
+    # without transient activation (which Dommy never has) a NotAllowedError.
+    def show_picker
+      raise DOMException::InvalidStateError, "The select is not mutable." if __internal_actually_disabled__
+
+      raise DOMException::NotAllowedError, "showPicker() requires a user gesture."
+    end
     def __js_call__(method, args)
       case method
       when "item"
@@ -295,6 +303,8 @@ module Dommy
         # HTMLSelectElement.remove(index) removes an option; with no argument it
         # is ChildNode.remove() (removes the <select> itself).
         args.empty? ? super : remove_option(args[0])
+      when "showPicker"
+        show_picker
       else
         super
       end
