@@ -1135,8 +1135,22 @@ module Dommy
     # don't apply to a layout-less DOM. They exist so callers don't
     # hit NoMethodError; semantics are documented as no-op.
 
+    # `document.hasFocus()` — HTML's "has focus steps", with the top-level
+    # page always holding system focus: a document with no browsing context
+    # has no focus, a top-level one has it, and a nested one has it when its
+    # frame is the focused element of a parent document that has it.
+    #
+    # Spec: https://html.spec.whatwg.org/#has-focus-steps
     def has_focus?
-      true
+      view = @default_view
+      return false unless view
+
+      frame = view.frame_element
+      return true unless frame
+      return false unless frame.is_connected?
+
+      parent = frame.owner_document
+      parent.has_focus? && parent.__internal_focused_element__.equal?(frame)
     end
 
     alias has_focus has_focus?
