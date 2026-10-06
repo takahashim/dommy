@@ -116,7 +116,7 @@ module Dommy
         %w[XMLHttpRequest XMLHttpRequestEventTarget EventTarget],
         %w[XMLHttpRequestEventTarget EventTarget], %w[XMLHttpRequestUpload XMLHttpRequestEventTarget EventTarget],
         %w[TextEncoder], %w[TextDecoder], %w[DOMParser], %w[XMLSerializer],
-        %w[MessageChannel], %w[BroadcastChannel EventTarget], %w[WebSocket EventTarget],
+        %w[MessageChannel], %w[BroadcastChannel EventTarget], %w[CloseWatcher EventTarget], %w[UserActivation], %w[WebSocket EventTarget],
         %w[EventSource EventTarget],
         %w[Notification EventTarget], %w[Worker EventTarget], %w[DataTransfer],
         %w[ReadableStream], %w[WritableStream], %w[TransformStream],

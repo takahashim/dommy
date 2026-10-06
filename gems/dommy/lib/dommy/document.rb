@@ -2424,6 +2424,11 @@ module Dommy
         script.__internal_mark_parser_document__
       end
       @backend_doc.css("meta[http-equiv]").each { |node| __internal_html_element_wrapper__(node)&.__internal_run_pragma__ }
+      # An open dialog the parser inserted runs its dialog setup steps.
+      @backend_doc.css("dialog[open]").each do |node|
+        dialog = __internal_html_element_wrapper__(node)
+        dialog.__internal_dialog_inserted__ if dialog.respond_to?(:__internal_dialog_inserted__)
+      end
       # Each element the parser inserted with an autofocus attribute is an
       # autofocus candidate (only in a document with a browsing context).
       @backend_doc.css("[autofocus]").each do |node|

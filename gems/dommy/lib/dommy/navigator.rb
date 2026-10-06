@@ -194,6 +194,9 @@ module Dommy
         @locks
       when "storage"
         @storage
+      when "userActivation"
+        # [SameObject]: the window's associated UserActivation.
+        @window.__internal_user_activation__
       else
         # An unknown navigator property is genuinely absent: JS `undefined` value
         # AND `"x" in navigator` false — so feature detection like

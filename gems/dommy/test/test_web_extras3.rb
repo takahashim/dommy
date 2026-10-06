@@ -159,6 +159,20 @@ class TestFullscreenAPI < Minitest::Test
   def setup
     @win = make_window("<div id='v'>video</div>")
     @el = @win.document.query_selector("#v")
+    # requestFullscreen() needs transient activation, as a user's click gives.
+    @win.__internal_notify_activation__
+  end
+
+  def test_request_without_transient_activation_is_refused
+    @win.__internal_consume_user_activation__
+    @el.__js_call__("requestFullscreen", [])
+    assert_nil(@win.document.__js_get__("fullscreenElement"))
+  end
+
+  def test_request_consumes_the_activation
+    @el.__js_call__("requestFullscreen", [])
+    refute @win.__internal_transient_activation__?
+    assert @win.__internal_sticky_activation__?
   end
 
   def test_request_sets_fullscreen_element

@@ -243,9 +243,19 @@ module Dommy
         %w[a area].include?(element.local_name.to_s.downcase) && element.__internal_has_attribute__?("href")
       end
 
+      # `:focus-visible`: an element that has the focus while the user agent
+      # indicates the focus (Document's focus-visible flag, set by the
+      # heuristics in Internal::DocumentInteractionState).
+      def focus_visible?(element)
+        document = element.owner_document
+        return false unless document.respond_to?(:__internal_focus_visible__?) && document.__internal_focus_visible__?
+
+        has_focus?(element)
+      end
+
       # `:focus` (HTML's "has the focus"): the focused element, unless it is
       # a navigable container, and every shadow host whose shadow tree holds
-      # an element that has the focus. (`:focus-visible` answers the same.)
+      # an element that has the focus.
       def has_focus?(element)
         focused = element.owner_document&.__internal_focused_element__
         return false if focused.nil?

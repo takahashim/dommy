@@ -75,6 +75,7 @@ module Dommy
             # Only the first popover of a stack gives the focus back.
             should_restore_focus = stack.topmost_auto_or_hint.nil?
             @__popover_opened_mode__ = mode
+            establish_popover_close_watcher
           end
           @__previously_focused_element__ = nil
           originally_focused = document.__internal_focused_element__
@@ -163,7 +164,12 @@ module Dommy
             end
           end
         ensure
+          # The cleanup steps, however the algorithm ends.
           @__popover_hiding__ = false unless nested_hide
+          if @__popover_close_watcher
+            @__popover_close_watcher.destroy
+            @__popover_close_watcher = nil
+          end
           stack.hiding_nesting_count -= 1
         end
         nil
@@ -222,6 +228,20 @@ module Dommy
         raise Bridge::TypeError, "source is not of type 'HTMLElement'" unless value.is_a?(HTMLElement)
 
         value
+      end
+
+      # The "popover close watcher" an auto or hint popover establishes as it
+      # shows: a close request hides it (focusing the previous element, with
+      # events), and nothing can cancel that.
+      def establish_popover_close_watcher
+        window = @document.default_view
+        return unless window.respond_to?(:__internal_close_watcher_manager__)
+
+        popover = self
+        @__popover_close_watcher = window.__internal_close_watcher_manager__.establish(
+          cancel_action: ->(_can_prevent_close) { true },
+          close_action: -> { popover.__internal_hide_popover__(true, true, false) }
+        )
       end
 
       # HTML's "popover focusing steps": a dialog runs its own; otherwise the

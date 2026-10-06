@@ -2,6 +2,8 @@
 
 require_relative "internal/window_constructors"
 require_relative "internal/origin"
+require_relative "internal/user_activation"
+require_relative "internal/close_watcher_manager"
 
 require "uri"
 
@@ -27,6 +29,8 @@ module Dommy
     include Internal::WindowConstructors
 
     include EventTarget
+    include Internal::UserActivation
+    include Internal::CloseWatcherHost
     extend Internal::EventHandlers::AnswersIdlAttributes
 
     # Window attributes declared [Replaceable]: an assignment from script
@@ -823,6 +827,9 @@ module Dommy
         return noopener ? nil : existing
       end
 
+      # A new top-level traversable is requested. Dommy has no popup blocker,
+      # so the user agent creates one, consuming the user activation.
+      __internal_consume_user_activation__
       (@open_calls ||= []) << {url: resolved || "about:blank", target: target, features: features}
       opened = nil
       if @navigation_delegate.respond_to?(:open_window)

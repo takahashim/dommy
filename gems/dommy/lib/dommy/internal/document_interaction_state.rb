@@ -45,17 +45,71 @@ module Dommy
       # (nil, the viewport): blur and focusout at the element losing focus,
       # then focus and focusin at the one gaining it, each a trusted
       # FocusEvent whose relatedTarget is the other element.
+      #
+      # Whether the new focus is indicated (`:focus-visible`) is decided
+      # first, from how it moved (#__internal_with_focus_type__).
       def __internal_focus_update__(new_element)
         old = @active_element
+        type = @pending_focus_type || :script
+        explicit = @pending_focus_visible
+        # Focus moved by the handlers of the events below is script focus.
+        @pending_focus_type = nil
+        @pending_focus_visible = nil
         return nil if old.equal?(new_element)
 
         fire_focus_event(old, "blur", new_element) if old
         fire_focus_event(old, "focusout", new_element) if old
+        if new_element
+          @focus_visible = focus_indicated?(new_element, type, explicit)
+          @last_focus_type = type unless type == :script
+          # Sequential navigation goes on from the newly focused element.
+          @__internal_sequential_focus_navigation_starting_point__ = new_element
+        else
+          @focus_visible = false
+        end
         __internal_set_active_element__(new_element)
         return nil unless new_element
 
         fire_focus_event(new_element, "focus", old)
         fire_focus_event(new_element, "focusin", old)
+        nil
+      end
+
+      # Run the block — focusing steps — as focus moved by `type`: :keyboard
+      # (sequential focus navigation), :mouse (a click) or :script, and with
+      # FocusOptions' `focusVisible` when the caller passed one.
+      def __internal_with_focus_type__(type, focus_visible: nil)
+        saved = [@pending_focus_type, @pending_focus_visible]
+        @pending_focus_type = type
+        @pending_focus_visible = focus_visible
+        yield
+      ensure
+        @pending_focus_type, @pending_focus_visible = saved
+      end
+
+      # Whether the user agent indicates the focus of the focused element:
+      # what `:focus-visible` matches on.
+      def __internal_focus_visible__? = @focus_visible && @active_element ? true : false
+
+      # `focus({focusVisible: true})` on the element already focused still
+      # indicates its focus.
+      def __internal_indicate_focus__
+        return nil if @focus_visible || @active_element.nil?
+
+        @focus_visible = true
+        __internal_note_selector_state_change__
+        nil
+      end
+
+      # The input modality the focus heuristics remember: a key press makes
+      # later script focus visible, a pointer press undoes that.
+      def __internal_note_keyboard_input__
+        @had_keyboard_event = true
+        nil
+      end
+
+      def __internal_note_pointer_input__
+        @had_keyboard_event = false
         nil
       end
 
@@ -90,6 +144,28 @@ module Dommy
 
       # HTML "blocked by a modal dialog": the topmost dialog in the top layer.
       def __internal_blocking_modal_dialog__ = @modal_dialogs&.last
+
+      # HTML's "open dialogs list": the open, connected dialogs, in the order
+      # their dialog setup steps ran (a copy).
+      def __internal_open_dialogs__ = (@open_dialogs ||= []).dup
+
+      def __internal_add_open_dialog__(dialog)
+        (@open_dialogs ||= []) << dialog unless @open_dialogs&.any? { |d| d.equal?(dialog) }
+        nil
+      end
+
+      def __internal_remove_open_dialog__(dialog)
+        @open_dialogs&.reject! { |d| d.equal?(dialog) }
+        nil
+      end
+
+      # HTML's "sequential focus navigation starting point": a node, or nil
+      # when unset (Internal::SequentialFocusNavigation).
+      attr_accessor :__internal_sequential_focus_navigation_starting_point__
+
+      # HTML's "popover pointerdown target" and "dialog pointerdown target",
+      # which light dismiss records on a press (Internal::LightDismiss).
+      attr_accessor :__internal_popover_pointerdown_target__, :__internal_dialog_pointerdown_target__
 
       # HTML's steps for an element with an autofocus attribute inserted into
       # a document: unless the top-level document has already processed its
@@ -169,6 +245,37 @@ module Dommy
       end
 
       private
+
+      # Input types whose controls take keyboard input (they would bring up
+      # a virtual keyboard).
+      KEYBOARD_INPUT_TYPES = %w[text search url tel email password number date month week time
+                                datetime-local].freeze
+
+      # Selectors' suggested heuristics for when to indicate focus: an
+      # explicit `focusVisible` wins; keyboard focus is indicated; a click
+      # indicates it only on an element that takes keyboard input; script
+      # focus is indicated unless the last focus came from a pointer with no
+      # key pressed since — or the element takes keyboard input.
+      def focus_indicated?(element, type, explicit)
+        return explicit unless explicit.nil?
+
+        case type
+        when :keyboard then true
+        when :mouse then keyboard_input?(element)
+        else @last_focus_type != :mouse || @had_keyboard_event || keyboard_input?(element)
+        end
+      end
+
+      def keyboard_input?(element)
+        return true if Focusability.editing_host?(element)
+        return false unless element.namespace_uri == Namespaces::HTML
+
+        case element.local_name
+        when "textarea" then true
+        when "input" then KEYBOARD_INPUT_TYPES.include?(element.type.to_s)
+        else false
+        end
+      end
 
       # HTML's focus fixup (in "update the rendering"): a focused element
       # that stopped being a focusable area (disabled, hidden, made inert)

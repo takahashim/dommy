@@ -20,10 +20,12 @@ module Dommy
   # attribute changes; an opening can be canceled) and `toggle` asynchronously,
   # with rapid changes coalescing into one event (Internal::ToggleEvents).
   #
-  # The dialog's close watcher is modelled only as far as requestClose()
-  # needs it: an open, connected dialog has one, and requesting to close it
-  # fires a cancelable `cancel` and then closes the dialog. (No close
-  # request — Esc, light dismiss — reaches it.)
+  # An open, connected dialog has a close watcher in its window's close
+  # watcher manager (Internal::CloseWatcherManager), enabled unless its
+  # computed closed-by state is None: a close request (Esc, from the
+  # driver) fires a `cancel` at the topmost such dialog and closes it, and
+  # requestClose() goes through it too. A `closedby=any` dialog also closes
+  # on light dismiss (Internal::LightDismiss).
   class HTMLDialogElement < HTMLElement
     include Internal::ToggleEvents
     reflect_setter closed_by: { attr: "closedby", js: "closedBy" }
@@ -127,13 +129,47 @@ module Dommy
       nil
     end
 
-    # HTML's dialog removing steps: a removed dialog leaves the top layer
-    # and is no longer modal. (Its close watcher goes with the open
-    # attribute's cleanup; Dommy derives it from the dialog's state.)
+    # HTML's dialog removing steps: an open dialog runs its cleanup steps,
+    # and a removed dialog leaves the top layer and is no longer modal.
     def __internal_dialog_removed__
+      dialog_cleanup_steps if __internal_has_attribute__?("open")
       @document.__internal_remove_modal_dialog__(self)
       set_modal(false)
       nil
+    end
+
+    # HTML's dialog insertion steps: an open dialog that became connected
+    # in a fully active document runs its setup steps.
+    def __internal_dialog_inserted__
+      return nil unless @document.default_view.respond_to?(:__internal_fully_active__?) &&
+        @document.default_view.__internal_fully_active__?
+
+      dialog_setup_steps if __internal_has_attribute__?("open") && is_connected?
+      nil
+    end
+
+    # HTML's attribute change steps for dialog elements: losing the open
+    # attribute runs the cleanup steps, gaining it (connected, in a fully
+    # active document) the setup steps.
+    def __internal_attribute_changed__(name, old_value, new_value, namespace)
+      super
+      return nil unless namespace.nil? && name == "open"
+
+      dialog_cleanup_steps if new_value.nil? && !old_value.nil?
+      view = @document.default_view
+      return nil unless view.respond_to?(:__internal_fully_active__?) && view.__internal_fully_active__?
+      return nil unless is_connected?
+
+      dialog_setup_steps if !new_value.nil? && old_value.nil?
+      nil
+    end
+
+    # Request to close the dialog's close watcher (when it has one), for
+    # light dismiss. Answers the request's result.
+    def __internal_request_close_watcher__(require_history_action_activation)
+      return true if @__close_watcher.nil?
+
+      @__close_watcher.request_close(require_history_action_activation)
     end
 
     # HTML's "dialog focusing steps": the dialog itself when it has
@@ -223,27 +259,77 @@ module Dommy
     end
 
     # HTML's "request to close the dialog": request to close its close
-    # watcher (which an open, connected dialog has) without requiring
-    # history-action activation, so the `cancel` event can always be
-    # canceled; when it is not, the dialog closes with `value` and `source`.
+    # watcher — force-enabled meanwhile, so a closedby=none dialog takes
+    # part — without requiring history-action activation, so the `cancel`
+    # event can always be canceled; when it is not, the close action
+    # closes the dialog with `value` and `source`.
     def request_to_close(value, source)
       return nil unless __internal_has_attribute__?("open")
       return nil unless is_connected?
-      # A close watcher running its cancel action ignores a nested request.
-      return nil if @__running_cancel_action__
+      return nil unless @document.default_view.respond_to?(:__internal_fully_active__?) &&
+        @document.default_view.__internal_fully_active__?
+      return nil if @__close_watcher.nil?
 
+      @__enable_close_watcher_for_request_close = true
       @__request_close_return_value__ = value
       @__request_close_source__ = source
-      @__running_cancel_action__ = true
       begin
-        should_continue = dispatch_event(Event.new("cancel", "bubbles" => false, "cancelable" => true).__internal_mark_trusted__)
+        @__close_watcher.request_close(false)
       ensure
-        @__running_cancel_action__ = false
+        @__enable_close_watcher_for_request_close = false
       end
-      return nil unless should_continue
-
-      close_the_dialog(@__request_close_return_value__, @__request_close_source__)
+      nil
     end
+
+    # HTML's "dialog setup steps": the dialog joins its document's open
+    # dialogs list and sets its close watcher.
+    def dialog_setup_steps
+      return if @document.__internal_open_dialogs__.any? { |d| d.equal?(self) }
+
+      @document.__internal_add_open_dialog__(self)
+      set_dialog_close_watcher
+    end
+
+    # HTML's "dialog cleanup steps": out of the open dialogs list, and its
+    # close watcher destroyed.
+    def dialog_cleanup_steps
+      @document.__internal_remove_open_dialog__(self)
+      return if @__close_watcher.nil?
+
+      @__close_watcher.destroy
+      @__close_watcher = nil
+    end
+
+    # HTML "set the dialog close watcher": `cancel` (cancelable as the
+    # request allows) is its cancel action, closing the dialog with the
+    # request close return value and source its close action, and it is
+    # enabled while a requestClose() forces it or the computed closed-by
+    # state is not None.
+    def set_dialog_close_watcher
+      window = @document.default_view
+      return unless window.respond_to?(:__internal_close_watcher_manager__)
+
+      dialog = self
+      @__close_watcher = window.__internal_close_watcher_manager__.establish(
+        cancel_action: lambda do |can_prevent_close|
+          event = Event.new("cancel", "bubbles" => false, "cancelable" => can_prevent_close)
+          dialog.dispatch_event(event.__internal_mark_trusted__)
+        end,
+        close_action: -> { dialog.__send__(:close_the_dialog, dialog.__internal_request_close_return_value__, dialog.__internal_request_close_source__) },
+        enabled_state: -> { dialog.__internal_close_watcher_enabled__? }
+      )
+    end
+
+    public
+
+    def __internal_request_close_return_value__ = @__request_close_return_value__
+    def __internal_request_close_source__ = @__request_close_source__
+
+    def __internal_close_watcher_enabled__?
+      @__enable_close_watcher_for_request_close || closed_by != "none"
+    end
+
+    private
 
     # Set "is modal", which :modal reads.
     def set_modal(value)

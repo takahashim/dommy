@@ -78,6 +78,8 @@ class TestOpenStatePseudoClasses < Minitest::Test
   end
 
   def test_modal_matches_the_fullscreen_element
+    # requestFullscreen() needs transient activation, which a user's click gives.
+    @win.__internal_notify_activation__
     el("p").request_fullscreen
     assert el("p").matches?(":modal")
     assert el("p").matches?(":fullscreen")
