@@ -67,4 +67,20 @@ class TestReflectionConformance < Minitest::Test
     a.__js_set__("hash", "x")
     assert_equal "#x", el("area").tap { |e| e.href = a.href }.url_hash
   end
+
+  # canvas width/height reflect as unsigned longs with the attributes' own
+  # defaults.
+  def test_canvas_dimensions
+    canvas = el("canvas")
+    assert_equal [300, 150], [canvas.width, canvas.height]
+    canvas.set_attribute("width", "-1")
+    canvas.set_attribute("height", "abc")
+    assert_equal [300, 150], [canvas.width, canvas.height]
+    canvas.set_attribute("width", " 12px")
+    assert_equal 12, canvas.width
+    canvas.height = 3_000_000_000
+    assert_equal "150", canvas.get_attribute("height")
+    canvas.width = 7.9
+    assert_equal "7", canvas.get_attribute("width")
+  end
 end
