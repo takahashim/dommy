@@ -83,18 +83,18 @@ module Dommy
     # The iframe attribute change steps: with a child navigable, setting,
     # changing or removing `srcdoc` — or `src` while there is no `srcdoc` —
     # processes the iframe attributes again.
-    def __internal_attribute_changed__(name, _old_value, new_value, namespace)
+    def __internal_attribute_changed__(name, old_value, new_value, namespace)
+      super
       return unless namespace.nil? && @content_document
 
-      # The `loading` attribute leaving the Lazy state runs the pending lazy
-      # load resumption steps.
       if name == "loading"
+        # The `loading` attribute leaving the Lazy state runs the pending lazy
+        # load resumption steps.
         __internal_resume_lazy_load__ unless new_value.to_s.casecmp?("lazy")
-        return
+      elsif name == "srcdoc" || (name == "src" && __internal_attribute_value__("srcdoc").nil?)
+        __internal_process_iframe_attributes__
       end
-      return unless name == "srcdoc" || (name == "src" && __internal_attribute_value__("srcdoc").nil?)
-
-      __internal_process_iframe_attributes__
+      nil
     end
 
     # "Process the iframe attributes".
