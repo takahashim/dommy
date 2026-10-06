@@ -229,6 +229,10 @@ globalThis.__rbIdlSignatures = {
       "data": "[LegacyNullToEmptyString] DOMString"
     }
   },
+  "CloseEvent": {
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "Event"
+  },
   "CloseWatcher": {
     "inherits": "EventTarget"
   },
@@ -1516,6 +1520,14 @@ globalThis.__rbIdlSignatures = {
       "item": {"required":1}
     }
   },
+  "Notification": {
+    "constructor": {"required":1,"arguments":["DOMString"]},
+    "inherits": "EventTarget"
+  },
+  "NotificationEvent": {
+    "constructor": {"required":2,"arguments":["DOMString"]},
+    "inherits": "ExtendableEvent"
+  },
   "OffscreenCanvas": {
     "constructor": {"required":2},
     "inherits": "EventTarget",
@@ -1910,6 +1922,14 @@ globalThis.__rbIdlSignatures = {
   },
   "VisualViewport": {
     "inherits": "EventTarget"
+  },
+  "WebSocket": {
+    "constructor": {"required":1,"arguments":["USVString"]},
+    "inherits": "EventTarget",
+    "operations": {
+      "close": {"required":0,"arguments":[null,"optional USVString"]},
+      "send": {"required":1}
+    }
   },
   "WheelEvent": {
     "constructor": {"required":1,"arguments":["DOMString"]},

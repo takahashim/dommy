@@ -529,7 +529,7 @@ globalThis.__rbHost = (function () {
   // Document or Window, `onreadystatechange` on Document and XMLHttpRequest —
   // and on nothing else, so `div.onbogus = f` is an ordinary expando and
   // `"onClick" in div` is false. An EventTarget whose interfaces the IDL
-  // fixture does not cover (WebSocket, Notification, …) keeps the old reading:
+  // fixture does not cover (Animation, Performance, …) keeps the old reading:
   // any `on` + lowercase name is one.
   const EVENT_HANDLERS = new Map(
     Object.entries(globalThis.__rbIdlEventHandlers || {}).map(([iface, names]) => [iface, new Set(names)]));
@@ -537,15 +537,20 @@ globalThis.__rbHost = (function () {
     const own = EVENT_HANDLERS.get(iface);
     return own !== undefined && own.has(name);
   }
-  // The handler names along `chain`, or null when no interface in it has any
-  // (and the object is not a node, whose interfaces are always covered).
+  // The handler names along `chain`, or null when the IDL fixture does not
+  // know the object's interface at all (an EventTarget Dommy has without its
+  // spec's IDL — Animation, Performance, …), which keeps the `on` + lowercase
+  // reading. A node, and any interface the fixture covers (its
+  // webidl_signatures.js entry says so) has exactly the handlers its chain
+  // declares — none for a bare `new EventTarget()`.
   function eventHandlersOf(chain, isNode) {
     let names = null;
     for (const iface of chain || []) {
       const own = EVENT_HANDLERS.get(iface);
       if (own) for (const n of own) (names ||= new Set()).add(n);
     }
-    return names || (isNode ? new Set() : null);
+    const covered = isNode || (chain && chain.length > 0 && hasOwn(SIGNATURES, chain[0]));
+    return names || (covered ? new Set() : null);
   }
   // Whether `prop` is an event handler IDL attribute of an object of `shape`.
   function isEventHandlerName(shape, prop) {

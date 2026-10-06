@@ -40,11 +40,11 @@ module Dommy
   # receiver gets (see #__internal_transfer__).
   class MessagePort
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     def initialize(window)
       @window = window
       @entangled = nil
-      @onmessage = nil
       @started = false
       @pending = []
       @detached = false
@@ -150,32 +150,19 @@ module Dommy
       @entangled = nil if @entangled.equal?(port)
     end
 
-    def __internal_started?
-      @started || !@inline_message_handler.nil?
-    end
+    def __internal_started? = @started
 
     def __js_get__(key)
-      case key
-      when "onmessage"
-        @onmessage
-      else
-        Bridge::ABSENT
-      end
+      event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
     end
 
+    # onmessage / onmessageerror / onclose. Setting onmessage enables the port
+    # message queue, as start() does.
     def __js_set__(key, value)
-      case key
-      when "onmessage"
-        # Setting onmessage implicitly starts the port per spec.
-        remove_event_listener("message", @onmessage) if @onmessage
-        @onmessage = value
-        @inline_message_handler = value
-        add_event_listener("message", value) if value
-        start if value
-      else
-        return Bridge::UNHANDLED
-      end
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
+      event_handler_idl_set(key, value)
+      start if key == "onmessage" && !on_handler("message").nil?
       nil
     end
 
@@ -278,6 +265,7 @@ module Dommy
   # name within the same Window.
   class BroadcastChannel
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     @@registries = Hash.new { |h, w| h[w] = Hash.new { |c, n| c[n] = [] } }
 
@@ -287,7 +275,6 @@ module Dommy
       @window = window
       @name = name.to_s
       @closed = false
-      @onmessage = nil
       @@registries[window][@name] << self
     end
 
@@ -345,24 +332,16 @@ module Dommy
       case key
       when "name"
         @name
-      when "onmessage"
-        @onmessage
       else
-        Bridge::ABSENT
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
+    # onmessage / onmessageerror.
     def __js_set__(key, value)
-      case key
-      when "onmessage"
-        remove_event_listener("message", @onmessage) if @onmessage
-        @onmessage = value
-        add_event_listener("message", value) if value
-      else
-        return Bridge::UNHANDLED
-      end
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
-      nil
+      event_handler_idl_set(key, value)
     end
 
     include Bridge::Methods

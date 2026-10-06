@@ -8,6 +8,7 @@ module Dommy
   # Spec: https://notifications.spec.whatwg.org/
   class Notification
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     @permission = "default"
 
@@ -63,8 +64,15 @@ module Dommy
       when "data"
         @data
       else
-        Bridge::ABSENT
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
+    end
+
+    # onclick / onshow / onerror / onclose.
+    def __js_set__(key, value)
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
+
+      event_handler_idl_set(key, value)
     end
 
     include Bridge::Methods

@@ -2177,6 +2177,7 @@ module Dommy
   # `abort()` is called; otherwise it stays inert.
   class AbortSignal
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     # Spec: `AbortSignal.abort(reason?)` returns a fresh, pre-aborted
     # signal. Convenient for APIs that need an already-cancelled token.
@@ -2291,24 +2292,17 @@ module Dommy
         # A non-aborted signal's reason is `undefined` (not null); once aborted
         # it is the abort reason (an explicit value or the default AbortError).
         @aborted ? @reason : Bridge::UNDEFINED
-      when "onabort"
-        @onabort_handler
       else
-        Bridge::ABSENT
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
-    # `signal.onabort = fn` is an event-handler IDL attribute: it registers a
-    # single "abort" listener (replacing any previous one); null/undefined clears
-    # it. (Setting it after the signal is already aborted never fires.)
+    # `signal.onabort = fn` is an event handler IDL attribute. (Setting it
+    # after the signal is already aborted never fires.)
     def __js_set__(key, value)
-      return Bridge::UNHANDLED unless key == "onabort"
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
-      remove_event_listener("abort", @onabort_handler) if @onabort_handler
-      cleared = value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
-      @onabort_handler = cleared ? nil : value
-      add_event_listener("abort", @onabort_handler) if @onabort_handler
-      nil
+      event_handler_idl_set(key, value)
     end
 
     include Bridge::Methods
