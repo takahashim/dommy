@@ -135,7 +135,8 @@ module Dommy
 
         # An `unsigned long` attribute. `range:` is [ReflectRange], which clamps
         # an out-of-range value to the nearest end instead of falling back;
-        # `default:` is [ReflectDefault] and `positive:` is [ReflectPositive].
+        # `default:` is [ReflectDefault] and `positive:` is [ReflectPositive]
+        # (with `fallback: true`, [ReflectPositiveWithFallback]).
         #
         #   reflect_ulong :width, :height                              # default 0
         #   reflect_ulong col_span: { attr: "colspan", default: 1,
@@ -441,7 +442,11 @@ module Dommy
       # negative value round, which is why `colSpan = -1` also stores "1".
       def set_reflected_ulong(name, value, options = EMPTY_OPTIONS)
         given = to_webidl_ulong(value)
-        raise DOMException::IndexSizeError, "#{name} must be positive" if options[:positive] && given.zero?
+        # [ReflectPositive] throws on 0; [ReflectPositiveWithFallback]
+        # (`fallback: true`) writes the default instead.
+        if options[:positive] && !options[:fallback] && given.zero?
+          raise DOMException::IndexSizeError, "#{name} must be positive"
+        end
 
         minimum = options[:positive] ? 1 : 0
         new_value = options.fetch(:default, minimum)

@@ -66,9 +66,12 @@ module Dommy
         end
         @__files = FileList.new
       else
+        old_value = current_value
         @__raw_value = raw
         @__value = sanitize_value(raw)
         @__value_dirty = true
+        # HTML: a value that changed moves the text entry cursor to the end.
+        __internal_move_cursor_to_end__ if supports_selection? && @__value != old_value
       end
       # The IDL value is selector-observable (:invalid / :in-range /
       # :placeholder-shown) with no attribute mutation behind it.
@@ -432,15 +435,12 @@ module Dommy
       nil
     end
 
-    # `select()` selects the whole control on a text control; on any other type
-    # it is a silent no-op (it does NOT throw).
-    def select
-      return nil unless supports_selection?
-
-      @__selection_start = 0
-      @__selection_end = value.to_s.length
-      @__selection_direction = "none"
-      nil
+    # setRangeText's edit of the relevant value: it sets the dirty value flag.
+    def __internal_set_relevant_value__(string)
+      @__raw_value = string
+      @__value = sanitize_value(string)
+      @__value_dirty = true
+      @document&.__internal_note_value_change__
     end
 
 
@@ -665,7 +665,7 @@ module Dommy
       when "setSelectionRange"
         set_selection_range(args[0], args[1], args[2])
       when "setRangeText"
-        set_range_text(args[0])
+        __internal_js_set_range_text__(args)
       when "stepUp"
         step_up(args[0])
       when "stepDown"
@@ -732,18 +732,10 @@ module Dommy
       reset_selection_on_type_change(previous)
     end
 
+    # HTML: a type change that makes the selection APIs apply puts the text
+    # entry cursor at the beginning, with direction "none".
     def reset_selection_on_type_change(previous)
-      if supports_selection?
-        return if SELECTION_TYPES.include?(previous)
-
-        @__selection_start = 0
-        @__selection_end = 0
-        @__selection_direction = "none"
-      else
-        @__selection_start = nil
-        @__selection_end = nil
-        @__selection_direction = nil
-      end
+      __internal_reset_selection__ if supports_selection? && !SELECTION_TYPES.include?(previous)
     end
   end
 

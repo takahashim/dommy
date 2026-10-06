@@ -497,8 +497,7 @@ module Dommy
   class HTMLTextAreaElement < HTMLElement
     include Internal::TextSelection
 
-    # The value a form submission carries (wrapping transformation applied).
-    def __internal_submission_value__ = value
+
     reflect_boolean :disabled, :required, read_only: "readonly"
     reflect_string :name, :placeholder, :wrap
     # `autocomplete` — the setter reflects, but the getter is HTML's autofill
@@ -510,17 +509,61 @@ module Dommy
     end
     # Own __js_call__ methods, on top of Element's.
 
-    # The API value is the "raw value" — the dirty value once set (a wrapper-level
-    # flag, NOT a content attribute, so `setAttribute("value", …)` can't touch it),
-    # otherwise the default value (the element's child text content).
-    def value
+    # The raw value is the dirty value once set (a wrapper-level flag, NOT a
+    # content attribute, so `setAttribute("value", …)` can't touch it),
+    # otherwise the child text content — HTML's children changed steps keep a
+    # pristine raw value in step with it.
+    def raw_value
       @__value_dirty ? @__value.to_s : default_value
     end
 
+    # The API value (`value`, `textLength`, maxlength, the selection APIs): the
+    # raw value with newlines normalized — CRLF and CR become LF.
+    def value
+      raw_value.gsub(/\r\n?/, "\n")
+    end
+
+    # HTML: the raw value becomes the new value and the dirty value flag is
+    # set; an API value that changed moves the text entry cursor to the end.
     def value=(v)
+      old_value = value
       @__value = v.to_s
       @__value_dirty = true
+      __internal_move_cursor_to_end__ if value != old_value
       @document&.__internal_note_value_change__
+    end
+
+    # HTML's children changed steps: a pristine raw value is the child text
+    # content again, so a selection past its new end is pulled back to it.
+    # A replacement (textContent=, defaultValue=) removes the old children
+    # before inserting the new ones, and the steps run in between too.
+    def __internal_children_changed__(added_nodes, removed_nodes)
+      return if @__value_dirty
+
+      unless removed_nodes.empty? || added_nodes.empty?
+        remaining = @__node__.children.reject { |child| added_nodes.any? { |node| node.equal?(child) } }
+        text = remaining.select { |child| child.text? || child.cdata? }.map(&:content).join
+        clamp_selection_to(Internal::Utf16.length(text.gsub(/\r\n?/, "\n")))
+      end
+      sync_selection
+    end
+
+    # setRangeText's edit of the relevant value: it sets the dirty value flag.
+    def __internal_set_relevant_value__(string)
+      @__value = string
+      @__value_dirty = true
+      @document&.__internal_note_value_change__
+    end
+
+    # The element's value, as form submission sees it: the API value with the
+    # textarea wrapping transformation applied — in the Hard wrap state, line
+    # feeds are inserted so that no line is longer than `cols` characters.
+    def __internal_submission_value__
+      text = value
+      return text unless __internal_attribute_value__("wrap").to_s.casecmp?("hard")
+
+      width = cols
+      text.split("\n", -1).map { |line| line.scan(/.{1,#{width}}/m).then { |parts| parts.empty? ? [""] : parts }.join("\n") }.join("\n")
     end
 
     # HTML reset algorithm: clear the dirty value flag so `value` reverts to the
@@ -532,10 +575,11 @@ module Dommy
       nil
     end
 
-    # defaultValue is the child text content; setting it (or `text`) leaves the
-    # dirty value flag alone.
+    # defaultValue is the child text content (the element's own Text
+    # children, not deeper descendants'); setting it leaves the dirty value
+    # flag alone.
     def default_value
-      text_content
+      Backend.child_text_content(@__node__)
     end
 
     def default_value=(v)
@@ -556,21 +600,15 @@ module Dommy
       @__value_dirty = true
     end
 
-    def rows
-      (__internal_attribute_value__("rows") || "2").to_i
-    end
-
-    def rows=(v)
-      set_reflected_string("rows", v.to_s)
-    end
-
-    def cols
-      (__internal_attribute_value__("cols") || "20").to_i
-    end
-
-    def cols=(v)
-      set_reflected_string("cols", v.to_s)
-    end
+    # `rows` / `cols`: unsigned longs limited to only positive numbers with
+    # fallback (HTML's [ReflectPositiveWithFallback]), defaults 2 and 20. The
+    # IDL the audit reads predates their [Reflect], so the getters are written
+    # here over the shared reflection helpers.
+    ROWS = { default: 2, positive: true, fallback: true }.freeze
+    COLS = { default: 20, positive: true, fallback: true }.freeze
+    reflect_ulong_setter rows: ROWS, cols: COLS
+    def rows = reflected_ulong("rows", ROWS)
+    def cols = reflected_ulong("cols", COLS)
 
     # `maxLength` / `minLength` reflect a "limited to only non-negative numbers"
     # long: a missing / negative / non-numeric content attribute is -1.
@@ -594,8 +632,9 @@ module Dommy
 
     public
 
+    # The length of the API value, in UTF-16 code units.
     def text_length
-      value.length
+      Internal::Utf16.length(value)
     end
 
     def type
@@ -647,7 +686,7 @@ module Dommy
       nil
     end
 
-    js_accessor :value, :default_value, :rows, :cols, :max_length, :min_length, :selection_start, :selection_end, :selection_direction
+    js_accessor :value, :default_value, :max_length, :min_length, :selection_start, :selection_end, :selection_direction
     js_readable :text_length, :type, :form, :labels, :validity, :will_validate, :validation_message
 
 
@@ -661,7 +700,7 @@ module Dommy
       when "setSelectionRange"
         set_selection_range(args[0], args[1], args[2])
       when "setRangeText"
-        set_range_text(args[0])
+        __internal_js_set_range_text__(args)
       when "checkValidity"
         check_validity
       when "reportValidity"
