@@ -172,7 +172,6 @@
       "hasPointerCapture",
       "releasePointerCapture",
       "setHTML",
-      "setHTMLUnsafe",
       "setPointerCapture"
     ],
     "ElementInternals": [
@@ -304,12 +303,8 @@
     ],
     "ShadowRoot": [
       "adoptedStyleSheets",
-      "clonable",
       "fullscreenElement",
-      "getHTML",
-      "serializable",
-      "setHTML",
-      "setHTMLUnsafe"
+      "setHTML"
     ],
     "SubmitEvent": [
       "submitter"

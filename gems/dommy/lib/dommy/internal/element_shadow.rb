@@ -61,54 +61,66 @@ module Dommy
         end
       end
 
-      # `el.attachShadow({ mode: "open" | "closed" })` — creates and
-      # attaches a ShadowRoot. The shadow tree lives in its own
-      # Nokogiri fragment and is invisible to the outer querySelector /
-      # children chain. Per spec:
-      #   - the `mode` field is REQUIRED in the init dict
-      #   - only an HTML element with a valid shadow host name may host one:
-      #     a name in SHADOW_HOST_TAGS or a valid custom element name, matched
-      #     case-sensitively (DOM attachShadow steps 1-2)
-      #   - re-attaching to an element that already has a shadow throws
+      # `el.attachShadow(init)` (DOM): the ShadowRootInit dictionary is
+      # converted first — `mode` is required and, like `slotAssignment`, an
+      # enum, so a missing or unknown value is a TypeError before any of the
+      # algorithm's DOMExceptions — then the registry check, then "attach a
+      # shadow root". Returns the element's shadow root: a new one, or the
+      # declarative one the parser gave it, emptied.
       def attach_shadow(options = nil)
+        init = shadow_root_init(options)
+        registry = shadow_root_registry(init)
+        # The document's own registry is what an unset one stands for.
+        registry = :document if registry.equal?(CustomElementRegistry.effective_global_for(owner_document))
+        __internal_attach_shadow_root__(
+          mode: init[:mode], delegates_focus: init[:delegates_focus], serializable: init[:serializable],
+          slot_assignment: init[:slot_assignment], clonable: init[:clonable], registry: registry
+        )
+        __internal_shadow_root__
+      end
+
+      # DOM "attach a shadow root". `registry` is the shadow root's custom
+      # element registry (nil: null; :document for the document's own, the
+      # default). Raises NotSupportedError where the algorithm throws, and
+      # returns the new ShadowRoot — or nil when it emptied an existing
+      # declarative one instead.
+      def __internal_attach_shadow_root__(mode:, delegates_focus: false, serializable: false,
+        slot_assignment: "named", clonable: false, registry: :document)
         name = local_name
+        # Steps 1-2: an HTML element with a valid shadow host name — a name in
+        # SHADOW_HOST_TAGS or a valid custom element name, case-sensitively.
         unless namespace_uri == Namespaces::HTML &&
             (SHADOW_HOST_TAGS.include?(name) || CustomElementRegistry.valid_name?(name))
           raise DOMException::NotSupportedError, "<#{name}> cannot host a shadow root"
         end
 
-        raise DOMException::NotSupportedError, "Shadow root already attached" if __internal_shadow_root__
-
-        registry = shadow_root_registry(options)
-        # A defined custom element's definition may disable shadow.
+        # Step 3: a defined custom element's definition may disable shadow.
         if CustomElementRegistry.valid_name?(name) || !__internal_is_value__.nil?
           definition = CustomElementRegistry.lookup(__internal_ce_registry__, namespace_uri, name, __internal_is_value__)
           raise DOMException::NotSupportedError, "the custom element definition disables shadow" if definition&.disable_shadow?
         end
-        # A custom element being constructed or constructed: the shadow root
-        # is available to its ElementInternals.
+
+        # Step 4: a host may only "re-attach" over the declarative shadow root
+        # the parser gave it, of the same mode — which is emptied, in tree
+        # order, and stops being declarative.
+        if (current = __internal_shadow_root__)
+          unless current.__internal_declarative__? && current.mode == mode
+            raise DOMException::NotSupportedError, "Shadow root already attached"
+          end
+
+          current.child_nodes.to_a.each { |child| current.remove_child(child) }
+          current.__internal_declarative__ = false
+          return nil
+        end
+
+        # Step 9: a custom element being constructed or constructed: the
+        # shadow root is available to its ElementInternals.
         constructed = %w[precustomized custom].include?(__internal_custom_element_state__)
-
-        opts = options.is_a?(Hash) ? options : {}
-        mode_raw = opts.key?("mode") ? opts["mode"] : opts[:mode]
-        # `mode` is a required WebIDL dictionary member — omitting it, like an
-        # invalid enum value below, is a (JS) TypeError, not a DOMException.
-        raise Bridge::TypeError, "attachShadow init dictionary requires 'mode'" if mode_raw.nil?
-
-        # `mode` is a WebIDL enum (ShadowRootMode); a value that isn't "open"/
-        # "closed" fails enum conversion → TypeError, not a DOMException.
-        mode = mode_raw.to_s
-        raise Bridge::TypeError, "mode must be 'open' or 'closed'" unless %w[open closed].include?(mode)
-
-        @__shadow_root = ShadowRoot.new(
-          self,
-          mode: mode,
-          delegates_focus: opts["delegatesFocus"] || opts[:delegatesFocus] || false,
-          slot_assignment: opts["slotAssignment"] || opts[:slotAssignment] || "named"
-        )
-        @__shadow_root.__internal_available_to_internals__ = true if constructed
-        @__shadow_root.__internal_custom_element_registry__ = registry unless registry.equal?(CustomElementRegistry.effective_global_for(owner_document))
-        @__shadow_root
+        shadow = ShadowRoot.new(self, mode: mode, delegates_focus: delegates_focus, slot_assignment: slot_assignment,
+                                      clonable: clonable, serializable: serializable)
+        shadow.__internal_available_to_internals__ = true if constructed
+        shadow.__internal_custom_element_registry__ = registry unless registry == :document
+        @__shadow_root = shadow
       end
 
       # `el.shadowRoot` — returns the attached ShadowRoot only when
@@ -130,17 +142,44 @@ module Dommy
 
       private
 
-      # attachShadow()'s registry: the init's `customElementRegistry`, else
-      # the document's; a global one other than the document's is a
-      # NotSupportedError.
-      def shadow_root_registry(options)
-        registry = CustomElementRegistry.for_document(owner_document)
-        if options.is_a?(Hash) && options.key?("customElementRegistry") && !options["customElementRegistry"].equal?(Bridge::UNDEFINED)
-          given = options["customElementRegistry"]
+      # The ShadowRootInit dictionary, converted as WebIDL does it: members in
+      # lexicographic order, `mode` required.
+      def shadow_root_init(options)
+        opts = options.is_a?(Hash) ? options : {}
+        member = lambda do |key|
+          value = opts.key?(key) ? opts[key] : opts[key.to_sym]
+          value.equal?(Bridge::UNDEFINED) ? nil : value
+        end
+        init = {
+          clonable: WebIDL.boolean(member.call("clonable")),
+          delegates_focus: WebIDL.boolean(member.call("delegatesFocus"))
+        }
+        registry_given = opts.key?("customElementRegistry") && !opts["customElementRegistry"].equal?(Bridge::UNDEFINED)
+        if registry_given
+          given = opts["customElementRegistry"]
           raise Bridge::TypeError, "customElementRegistry is not a CustomElementRegistry" unless given.nil? || given.is_a?(CustomElementRegistry)
 
-          registry = given
+          init[:registry] = given
         end
+        mode_raw = member.call("mode")
+        raise Bridge::TypeError, "attachShadow init dictionary requires 'mode'" if mode_raw.nil?
+
+        init[:mode] = mode_raw.to_s
+        raise Bridge::TypeError, "mode must be 'open' or 'closed'" unless %w[open closed].include?(init[:mode])
+
+        init[:serializable] = WebIDL.boolean(member.call("serializable"))
+        slot = member.call("slotAssignment")
+        init[:slot_assignment] = slot.nil? ? "named" : slot.to_s
+        raise Bridge::TypeError, "slotAssignment must be 'named' or 'manual'" unless %w[named manual].include?(init[:slot_assignment])
+
+        init
+      end
+
+      # attachShadow() steps 1-3: the init's `customElementRegistry`, else the
+      # document's; a global one other than the document's is a
+      # NotSupportedError.
+      def shadow_root_registry(init)
+        registry = init.key?(:registry) ? init[:registry] : CustomElementRegistry.for_document(owner_document)
         if registry && !registry.scoped? && !registry.equal?(CustomElementRegistry.for_document(owner_document))
           raise DOMException::NotSupportedError, "a global registry other than the document's"
         end

@@ -20,6 +20,33 @@ module Dommy
 
     attr_reader :host, :mode, :delegates_focus, :slot_assignment, :document
 
+    # DOM "clonable" and "serializable": whether cloning the host clones this
+    # shadow root, and whether getHTML({serializableShadowRoots: true})
+    # serializes it.
+    attr_reader :clonable, :serializable
+    alias clonable? clonable
+    alias serializable? serializable
+
+    # DOM "declarative": made by the HTML parser from a
+    # `<template shadowrootmode>`; attachShadow() on the host empties such a
+    # root (of the same mode) and turns it imperative instead of throwing.
+    attr_writer :__internal_declarative__
+
+    def __internal_declarative__? = @__internal_declarative__ ? true : false
+
+    # DOM "keep custom element registry null": a declarative shadow root
+    # parsed with `shadowrootcustomelementregistry` keeps its null registry
+    # when its host is adopted into another document.
+    attr_writer :__internal_keep_registry_null__
+
+    def __internal_keep_registry_null__? = @__internal_keep_registry_null__ ? true : false
+
+    # For a shadow root the document's parser made from a template: the
+    # backend node that followed the template among the host's children
+    # (nil: it was the last), which is where the parser met the shadow
+    # tree's contents — the order its scripts run in.
+    attr_accessor :__internal_parsed_before__
+
     # HTML "available to element internals": attached to a custom element
     # that was being, or had been, constructed.
     attr_writer :__internal_available_to_internals__
@@ -40,16 +67,25 @@ module Dommy
     # DOM adopt step 3.2.1: a null or global registry becomes the new
     # document's effective global one (what an unset one stands for).
     def __internal_adopt_registry__
+      return if @__registry_set && @__registry.nil? && __internal_keep_registry_null__?
+
       @__registry_set = false unless @__registry&.scoped?
     end
 
+    # Whether the shadow root's registry was set to something other than its
+    # document's (an explicit, possibly null, one).
+    def __internal_registry_set__? = @__registry_set ? true : false
+
     def __dommy_backend_node__ = @__node__
 
-    def initialize(host, mode:, delegates_focus: false, slot_assignment: "named")
+    def initialize(host, mode:, delegates_focus: false, slot_assignment: "named", clonable: false, serializable: false)
       @host = host
       @mode = mode.to_s
       @delegates_focus = !!delegates_focus
       @slot_assignment = slot_assignment.to_s
+      @clonable = clonable ? true : false
+      @serializable = serializable ? true : false
+      @__internal_declarative__ = false
       @document = host.document
       @__node__ = Parser.fragment("", owner_doc: @document.backend_doc)
       @document.__internal_register_shadow_fragment__(@__node__, self)
@@ -64,7 +100,22 @@ module Dommy
     end
 
     def inner_html
-      @__node__.children.map(&:to_html).join
+      return Internal::XmlSerialization.serialize_children_of(self) unless @document.html_document?
+
+      Internal::HtmlSerialization.children(@document, self)
+    end
+
+    # `setHTMLUnsafe(html, options)`: as Element's, parsed with the host as
+    # the context element.
+    def set_html_unsafe(html, options = nil)
+      run_scripts = Internal::UnsafeHtml.run_scripts?(options)
+      Internal::UnsafeHtml.set(@document, self, @host, html, run_scripts: run_scripts)
+    end
+
+    # `getHTML(options)`, as Element's.
+    def get_html(options = nil)
+      serializable, roots = Internal::HtmlSerialization.get_html_options(options)
+      Internal::HtmlSerialization.children(@document, self, serializable_shadow_roots: serializable, shadow_roots: roots)
     end
 
     def inner_html=(html)
@@ -259,6 +310,10 @@ module Dommy
         @delegates_focus
       when "slotAssignment"
         @slot_assignment
+      when "clonable"
+        @clonable
+      when "serializable"
+        @serializable
       when "customElementRegistry"
         __internal_custom_element_registry__
       when "activeElement"
@@ -323,7 +378,7 @@ module Dommy
       querySelector querySelectorAll getElementById append prepend replaceChildren moveBefore appendChild
       insertBefore removeChild replaceChild
       getRootNode contains addEventListener removeEventListener dispatchEvent
-      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition
+      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition getHTML setHTMLUnsafe
     ]
     def __js_call__(method, args)
       case method
@@ -333,6 +388,11 @@ module Dommy
         query_selector_all(Internal.css_query_arg!(args))
       when "getElementById"
         get_element_by_id(args[0])
+      when "getHTML"
+        get_html(args[0])
+      when "setHTMLUnsafe"
+        set_html_unsafe(args[0], args[1])
+        Bridge::UNDEFINED
       when "isEqualNode"
         is_equal_node(args[0])
       when "isSameNode"

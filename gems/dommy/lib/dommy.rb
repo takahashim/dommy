@@ -54,6 +54,9 @@ require_relative "dommy/resize_observer"
 require_relative "dommy/performance_observer"
 require_relative "dommy/internal/range_text_serializer"
 require_relative "dommy/internal/xml_serialization"
+require_relative "dommy/internal/html_serialization"
+require_relative "dommy/internal/declarative_shadow_roots"
+require_relative "dommy/internal/unsafe_html"
 require_relative "dommy/range"
 require_relative "dommy/static_range"
 require_relative "dommy/selection"
@@ -177,7 +180,14 @@ module Dommy
       Window.new(nil, backend_doc: Backend.parse(s))
     else
       window = Window.new
-      window.document.body.inner_html = s
+      body = window.document.body
+      body.inner_html = s
+      # The markup stands for a page's body, which the document's parser
+      # would have read: its declarative shadow roots are attached. Its
+      # scripts are inert like the rest of the fragment's.
+      window.document.__internal_attach_declarative_shadow_roots__(body.__dommy_backend_node__).each do |root|
+        body.mark_fragment_scripts_started(root.__dommy_backend_node__.children.to_a)
+      end
       window
     end
   end

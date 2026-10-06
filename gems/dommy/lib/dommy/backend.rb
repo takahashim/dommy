@@ -84,6 +84,9 @@ module Dommy
       # An empty backing document matching `doc`'s kind (HTML stays HTML, XML
       # stays XML) — for a shallow document clone, whose result keeps the
       # source flavor.
+      # Whether `doc` is an HTML-backed document (the HTML parser built it).
+      def html_backed?(doc) = !doc.is_a?(::Makiri::XML::Document)
+
       def empty_document_like(doc)
         doc.is_a?(::Makiri::XML::Document) ? empty_xml_document : empty_document
       end

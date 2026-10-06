@@ -72,10 +72,11 @@ module Dommy
     def inner_html
       if !@document.html_document?
         Internal::XmlSerialization.serialize_children_of(self)
-      elsif is_a?(HTMLTemplateElement)
-        @document.template_content_inner_html(self)
-      else
+      elsif !@document.__internal_any_is_values__? && !is_a?(HTMLTemplateElement)
+        # Nothing the backend's serializer does not know about can be here.
         @__node__.inner_html
+      else
+        Internal::HtmlSerialization.children(@document, self)
       end
     end
 
@@ -261,7 +262,9 @@ module Dommy
     def outer_html
       return Internal::XmlSerialization.serialize(self) unless @document.html_document?
 
-      @__node__.to_html
+      return @__node__.to_html unless @document.__internal_any_is_values__?
+
+      Internal::HtmlSerialization.node(@document, self)
     end
 
     # Per WHATWG DOM Parsing:
@@ -757,8 +760,22 @@ module Dommy
       inner_html
     end
 
-    def get_html(_options = nil)
-      inner_html
+    # `getHTML(options)`: the HTML fragment serialization algorithm with the
+    # options' serializableShadowRoots and shadowRoots — the HTML one even in
+    # an XML document.
+    def get_html(options = nil)
+      serializable, roots = Internal::HtmlSerialization.get_html_options(options)
+      Internal::HtmlSerialization.children(@document, self, serializable_shadow_roots: serializable, shadow_roots: roots)
+    end
+
+    # `setHTMLUnsafe(html, options)`: the markup parsed as a fragment with
+    # declarative shadow roots allowed (scripts inert unless `runScripts`),
+    # replacing this element's children — a template's contents for a
+    # template.
+    def set_html_unsafe(html, options = nil)
+      run_scripts = Internal::UnsafeHtml.run_scripts?(options)
+      target = is_a?(HTMLTemplateElement) ? content : self
+      Internal::UnsafeHtml.set(@document, target, self, html, run_scripts: run_scripts)
     end
 
     # WHATWG "actually disabled". Only the disable-able form controls can be,
@@ -814,6 +831,7 @@ module Dommy
     # Give a just-created element its custom element data: the is value it
     # was created with, and the state that goes with it.
     def __internal_init_ce_data__(is_value)
+      @document.__internal_note_is_value__(self) unless is_value.nil?
       @__ce_data = Internal::CEReactions::ElementData.new(self, __internal_initial_ce_state__(is_value), is_value)
     end
 
@@ -1188,7 +1206,7 @@ module Dommy
       getAttributeNS setAttributeNS hasAttributeNS removeAttributeNS getAttributeNodeNS setAttributeNodeNS
       querySelector querySelectorAll getElementsByClassName getElementsByTagName getElementsByTagNameNS
       insertAdjacentElement insertAdjacentHTML insertAdjacentText toggleAttribute matches webkitMatchesSelector
-      getAttributeNode setAttributeNode removeAttributeNode attachShadow
+      getAttributeNode setAttributeNode removeAttributeNode attachShadow setHTMLUnsafe
       addEventListener removeEventListener dispatchEvent appendChild insertBefore removeChild
       replaceChild cloneNode append prepend replaceChildren moveBefore before after getInnerHTML getHTML
       remove replaceWith getBoundingClientRect getClientRects scrollIntoView scroll
@@ -1317,8 +1335,13 @@ module Dommy
         child_node_before(args)
       when "after"
         child_node_after(args)
-      when "getInnerHTML", "getHTML"
+      when "getInnerHTML"
         inner_html
+      when "getHTML"
+        get_html(args[0])
+      when "setHTMLUnsafe"
+        set_html_unsafe(args[0], args[1])
+        Bridge::UNDEFINED
       when "remove"
         remove
         Bridge::UNDEFINED # ChildNode#remove is void -> JS undefined, not null
@@ -1626,6 +1649,7 @@ module Dommy
       # upgraded by a reaction.
       clone.__internal_init_ce_data__(__internal_is_value__) if clone.respond_to?(:__internal_init_ce_data__)
       @document.__internal_enqueue_created_upgrades__(copy, __internal_ce_registry__)
+      @document.__internal_clone_shadow_roots__(@__node__, copy, deep_arg)
       clone
     end
 

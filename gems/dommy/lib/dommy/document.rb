@@ -605,7 +605,7 @@ module Dommy
     # just been set. Run at boot, before any script, and safe to repeat.
     def __internal_activate_parsed_event_handlers__
       selector = (Internal::EventHandlers::GLOBAL | Internal::EventHandlers::WINDOW).map { |name| "[#{name}]" }.join(",")
-      @backend_doc.css(selector).each do |node|
+      parsed_css(selector).each do |node|
         element = wrap_node(node)
         element.__internal_wire_inline_handler__(nil) if element.respond_to?(:__internal_wire_inline_handler__)
       end
@@ -1125,6 +1125,7 @@ module Dommy
       copy = clone_into_doc(node.__dommy_backend_node__, deep, source_document)
       apply_imported_cloning_steps(node.__dommy_backend_node__, copy, deep, source_document)
       __internal_enqueue_created_upgrades__(copy, registry) if copy.respond_to?(:element?)
+      __internal_clone_shadow_roots__(node.__dommy_backend_node__, copy, deep, source_document) if copy.respond_to?(:element?)
       wrap_node(copy)
     end
 
@@ -1192,6 +1193,60 @@ module Dommy
         @node_wrapper_cache.wrap(copy).__internal_apply_cloning_state__(state)
       end
     end
+
+    # DOM "clone a node" step 6, for `copy_root` — a clone made in this
+    # document of `src_root` (of `source_document`), with or without its
+    # subtree — and, when `deep`, every element of the copy: the clone of a
+    # shadow host whose shadow root is clonable gets a shadow root of its own
+    # with the same mode, delegates focus, serializable, slot assignment,
+    # declarative and keep-custom-element-registry-null, clonable, holding
+    # clones of the shadow root's children. A shallow clone still does this
+    # for the host itself. The backend copied the subtree (and template
+    # contents) in one go, so the two trees are walked in lockstep.
+    def __internal_clone_shadow_roots__(src_root, copy_root, deep, source_document = self)
+      return unless source_document.__internal_any_shadow_roots__?
+
+      clone_shadow_roots_walk(src_root, copy_root, deep, source_document)
+    end
+
+    def clone_shadow_roots_walk(src, copy, deep, source_document)
+      return unless src.element? || src.is_a?(Backend.document_fragment_class)
+
+      if src.element?
+        shadow = source_document.__internal_shadow_root_for_host__(src)
+        clone_shadow_root(shadow, copy, source_document) if shadow&.clonable
+      end
+      return unless deep
+
+      src_children = src.children.to_a
+      copy_children = copy.children.to_a
+      return unless src_children.length == copy_children.length
+
+      src_children.zip(copy_children).each { |s, c| clone_shadow_roots_walk(s, c, true, source_document) }
+      return unless src.element? && @template_content_registry.template_node?(src)
+
+      src_contents = source_document.__internal_template_registry__.existing_contents(src)
+      copy_contents = @template_content_registry.existing_contents(copy)
+      clone_shadow_roots_walk(src_contents, copy_contents, true, source_document) if src_contents && copy_contents
+    end
+
+    def clone_shadow_root(shadow, copy, source_document)
+      host = wrap_node(copy)
+      # The shadow root's registry; a global one stands for this document's.
+      registry = shadow.__internal_registry_set__? ? shadow.__internal_custom_element_registry__ : :document
+      registry = :document if registry && registry != :document && !registry.scoped?
+      root = host.__internal_attach_shadow_root__(
+        mode: shadow.mode, delegates_focus: shadow.delegates_focus, serializable: shadow.serializable,
+        slot_assignment: shadow.slot_assignment, clonable: true, registry: registry
+      )
+      root.__internal_declarative__ = shadow.__internal_declarative__?
+      root.__internal_keep_registry_null__ = shadow.__internal_keep_registry_null__?
+      shadow.child_nodes.to_a.each do |child|
+        child_copy = source_document.equal?(self) ? child.clone_node(true) : import_node(child, true)
+        root.append_child(child_copy)
+      end
+    end
+    private :clone_shadow_roots_walk, :clone_shadow_root
 
     # Legacy `document.createEvent("EventName")` factory. The DOM Standard
     # matches the type ASCII case-insensitively against a fixed alias table, and
@@ -1772,6 +1827,7 @@ module Dommy
       copy.content_type = @content_type
       copy.__internal_xml_document__ = @xml_document
       copy.__internal_quirks_mode__ = quirks_mode?
+      copy.__internal_allow_declarative_shadow_roots__ = __internal_allow_declarative_shadow_roots__?
       return copy unless deep
 
       child_nodes.each { |child| copy.append_child(copy.import_node(child, true)) }
@@ -2534,25 +2590,25 @@ module Dommy
       # HTML-namespace only: a `css` query matches on local name, so a
       # `<details>` the parser put inside `<svg>` answers it too, as an
       # SVGElement that has none of these steps.
-      elements = @backend_doc.css("details").filter_map { |node| __internal_html_element_wrapper__(node) }
+      elements = parsed_css("details").filter_map { |node| __internal_html_element_wrapper__(node) }
       HTMLDetailsElement.run_insertion_steps(elements) unless elements.empty?
-      @backend_doc.css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
-      @backend_doc.css("script").each do |node|
+      parsed_css("select").each { |node| __internal_html_element_wrapper__(node)&.__internal_settle_selectedness_once__ }
+      parsed_css("script").each do |node|
         script = __internal_html_element_wrapper__(node)
         next unless script
 
         script.__internal_mark_parser_inserted__
         script.__internal_mark_parser_document__
       end
-      @backend_doc.css("meta[http-equiv]").each { |node| __internal_html_element_wrapper__(node)&.__internal_run_pragma__ }
+      parsed_css("meta[http-equiv]").each { |node| __internal_html_element_wrapper__(node)&.__internal_run_pragma__ }
       # An open dialog the parser inserted runs its dialog setup steps.
-      @backend_doc.css("dialog[open]").each do |node|
+      parsed_css("dialog[open]").each do |node|
         dialog = __internal_html_element_wrapper__(node)
         dialog.__internal_dialog_inserted__ if dialog.respond_to?(:__internal_dialog_inserted__)
       end
       # Each element the parser inserted with an autofocus attribute is an
       # autofocus candidate (only in a document with a browsing context).
-      @backend_doc.css("[autofocus]").each do |node|
+      parsed_css("[autofocus]").each do |node|
         element = wrap_node(node)
         __internal_autofocus_inserted__(element) if element.respond_to?(:autofocus) && element.is_connected?
       end
@@ -2566,7 +2622,7 @@ module Dommy
     def __internal_process_parsed_iframes__
       return nil unless @default_view
 
-      @backend_doc.css("iframe").each do |node|
+      parsed_css("iframe").each do |node|
         frame = __internal_html_element_wrapper__(node)
         frame.__internal_parser_inserted__ if frame.is_a?(HTMLIFrameElement)
       end
@@ -2581,8 +2637,8 @@ module Dommy
     # disabled, so every script it makes is "already started": moved or cloned
     # into a document that runs scripts, it still does not run. Found by local
     # name, so an XML document's prefixed `h:script` counts too.
-    def __internal_mark_scripts_already_started__
-      Internal::NodeTraversal.subtree_nodes(@backend_doc).each do |node|
+    def __internal_mark_scripts_already_started__(root = @backend_doc)
+      Internal::NodeTraversal.subtree_nodes(root).each do |node|
         next unless node.element?
         next unless node.local_name == "script"
 
@@ -2650,6 +2706,69 @@ module Dommy
 
     def __internal_shadow_root_for_host__(host_node)
       @shadow_registry.find_for_host(host_node)
+    end
+
+    # DOM "allow declarative shadow roots": whether the document's own parser
+    # (the page parse, document.write) attaches declarative shadow roots. On
+    # for a browsing context's documents and parseHTMLUnsafe()'s; off for
+    # createHTMLDocument(), DOMParser and `new Document()`; a clone keeps it.
+    attr_writer :__internal_allow_declarative_shadow_roots__
+
+    def __internal_allow_declarative_shadow_roots__? = @__internal_allow_declarative_shadow_roots__ ? true : false
+
+    # The document's parser has built `root_bn`'s subtree: attach its
+    # declarative shadow roots, when the document allows them. The shadow
+    # roots are the document's parsed roots from then on (their scripts run
+    # at boot, their elements get the parser's insertion steps). Returns them.
+    def __internal_attach_declarative_shadow_roots__(root_bn, top_host: nil)
+      return [] unless __internal_allow_declarative_shadow_roots__? && Backend.html_backed?(@backend_doc)
+
+      roots = Internal::DeclarativeShadowRoots.attach(self, root_bn, top_host: top_host)
+      (@parser_shadow_roots ||= []).concat(roots)
+      roots
+    end
+
+    # The roots of what the document's parser built: the document, and the
+    # declarative shadow roots it attached.
+    def __internal_parsed_roots__
+      return [@backend_doc] unless @parser_shadow_roots
+
+      [@backend_doc, *@parser_shadow_roots.map(&:__dommy_backend_node__)]
+    end
+
+    # The document's parser-inserted scripts, in the order the parser met
+    # them: tree order, where a declarative shadow tree's contents come at
+    # the place its template was. With no declarative shadow roots, that is
+    # `document.scripts`.
+    def __internal_parser_scripts__
+      return scripts.to_a unless @parser_shadow_roots
+
+      parsed_shadows = @parser_shadow_roots.to_h { |root| [Backend.identity_key(root.host.__dommy_backend_node__), root] }
+      list = []
+      collect_parser_scripts(@backend_doc, parsed_shadows, list)
+      list
+    end
+
+    # Whether any shadow root was ever attached in this document — the HTML
+    # serializer's fast path asks before looking for shadow hosts.
+    def __internal_any_shadow_roots__? = !@shadow_registry.all.empty?
+
+    # Whether an element of this document has an is value it does not carry
+    # as an `is` attribute (createElement's `{is}`, a customized built-in's
+    # constructor, a clone of either) — the serializer's other reason to
+    # leave its fast path. The elements given an is value are held weakly.
+    def __internal_any_is_values__?
+      return false unless @is_value_elements
+
+      @is_value_elements.keys.any? do |element|
+        node = element.__dommy_backend_node__
+        current = @node_wrapper_cache.peek(node) || element
+        current.__internal_is_value__ && !Backend.has_attribute_ns?(node, nil, "is")
+      end
+    end
+
+    def __internal_note_is_value__(element)
+      (@is_value_elements ||= ObjectSpace::WeakMap.new)[element] = true
     end
 
     # Every element among `root`'s shadow-including inclusive descendants, as
@@ -2941,7 +3060,11 @@ module Dommy
       return nil unless target_bn
 
       context = target_bn.element? ? target_bn : nil
-      added = Parser.fragment(string, owner_doc: @backend_doc, context: context).children.to_a
+      fragment = Parser.fragment(string, owner_doc: @backend_doc, context: context)
+      # The document's parser reads the markup: a top-level declarative
+      # template's adjusted current node is the element it is written into.
+      __internal_attach_declarative_shadow_roots__(fragment, top_host: target_bn)
+      added = fragment.children.to_a
       return nil if added.empty?
 
       # The document's parser creates a defined element by running its
@@ -3008,6 +3131,12 @@ module Dommy
       removed.each { |child| detach_node(child) }
       added = document_insertion_nodes(parsed.child_nodes.to_a)
       added.each { |n| @backend_doc.add_child(n) }
+      # The written markup is this document's parser's: its declarative
+      # shadow roots, when the document allows them, replace the last parse's.
+      @parser_shadow_roots = nil
+      __internal_attach_declarative_shadow_roots__(@backend_doc).each do |root|
+        __internal_mark_scripts_already_started__(root.__dommy_backend_node__)
+      end
       notify_document_child_list(added: added, removed: removed)
     end
 
@@ -3309,6 +3438,33 @@ module Dommy
 
     def node_adopter
       @node_adopter ||= Internal::NodeAdopter.new(self)
+    end
+
+    def collect_parser_scripts(node, parsed_shadows, list)
+      shadow = node.element? ? parsed_shadows[Backend.identity_key(node)] : nil
+      shadow = nil unless shadow&.host&.__dommy_backend_node__ == node
+      pending = shadow
+      node.children.each do |child|
+        if pending && (before = pending.__internal_parsed_before__) && Backend.identity_key(child) == Backend.identity_key(before)
+          collect_parser_scripts(pending.__dommy_backend_node__, parsed_shadows, list)
+          pending = nil
+        end
+        next unless child.element?
+
+        if child.local_name == "script" && (script = __internal_html_element_wrapper__(child))
+          list << script
+        end
+        collect_parser_scripts(child, parsed_shadows, list)
+      end
+      collect_parser_scripts(pending.__dommy_backend_node__, parsed_shadows, list) if pending
+    end
+
+    # A `css` query over every root the parser built.
+    def parsed_css(selector)
+      roots = __internal_parsed_roots__
+      return @backend_doc.css(selector) if roots.size == 1
+
+      roots.flat_map { |root| root.css(selector).to_a }
     end
 
     def shadow_including_elements(root, list = [])

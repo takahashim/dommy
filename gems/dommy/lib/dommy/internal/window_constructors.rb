@@ -50,13 +50,17 @@ module Dommy
       script_element = Bridge::Constructor.new { |_args| nil }
       script_element.define_class_method("supports") { |args| HTMLScriptElement.supports(args[0]) }
 
+      # `new Document()` — a fresh empty document (content type application/xml
+      # per the DOM Standard, so it behaves as a non-HTML document) — and the
+      # static `Document.parseHTMLUnsafe(html)`.
+      document = Bridge::Constructor.new do
+        Document.new(nil, backend_doc: Backend.empty_xml_document).tap { |d| d.content_type = "application/xml" }
+      end
+      document.define_class_method("parseHTMLUnsafe") { |args| UnsafeHtml.parse_document(args[0], win) }
+
       {
         "HTMLScriptElement" => script_element,
-        # `new Document()` — a fresh empty document (content type application/xml
-        # per the DOM Standard, so it behaves as a non-HTML document).
-        "Document" => Bridge::Constructor.new do
-          Document.new(nil, backend_doc: Backend.empty_xml_document).tap { |d| d.content_type = "application/xml" }
-        end,
+        "Document" => document,
         # `new Text(data?)` / `new Comment(data?)` / `new DocumentFragment()` —
         # create the node in this window's associated document (DOM Standard).
         "Text" => Bridge::Constructor.new { |args| win.document.create_text_node(node_data_arg(args)) },

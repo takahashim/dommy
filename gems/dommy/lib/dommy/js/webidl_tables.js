@@ -527,7 +527,7 @@ globalThis.__rbIdl = (function () {
     "sort", "stroke", "strokeRect", "strokeText", "submit", "terminate", "throwIfAborted",
     "toBlob", "transform", "translate", "upgrade", "writeln", "add", "getAsString",
     "readAsArrayBuffer", "readAsBinaryString", "readAsDataURL", "readAsText", "back", "forward", "reload",
-    "start", "enqueue", "error", "releaseLock", "setFormValue", "setValidity",
+    "start", "enqueue", "error", "releaseLock", "setFormValue", "setValidity", "setHTMLUnsafe",
   ]);
 
   // Operations whose return type depends on the interface, so a table keyed by
