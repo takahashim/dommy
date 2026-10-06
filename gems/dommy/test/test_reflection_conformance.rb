@@ -83,4 +83,42 @@ class TestReflectionConformance < Minitest::Test
     canvas.width = 7.9
     assert_equal "7", canvas.get_attribute("width")
   end
+
+  # img width/height setters convert as unsigned long, from JS as from Ruby.
+  def test_img_dimension_setters
+    img = el("img")
+    img.__js_set__("width", 2_147_483_648)
+    assert_equal "0", img.get_attribute("width")
+    img.__js_set__("height", -0.0)
+    assert_equal "0", img.get_attribute("height")
+    img.__js_set__("height", 5.5)
+    assert_equal "5", img.get_attribute("height")
+  end
+
+  def test_img_position_and_fetch_priority
+    img = el("img")
+    assert_equal [0, 0], [img.__js_get__("x"), img.__js_get__("y")]
+    assert_equal "auto", img.fetch_priority
+    img.set_attribute("fetchpriority", "LOW")
+    assert_equal "low", img.fetch_priority
+    img.set_attribute("fetchpriority", "urgent")
+    assert_equal "auto", img.fetch_priority
+  end
+
+  def test_img_decode
+    win = Dommy.parse("<!DOCTYPE html><img id=a><img id=b src=x.png><img id=c src='http://[x'>" \
+                      "<img id=d srcset='a.png 1x'><img id=e src='' srcset=' , '>")
+    results = %w[a b c d e].to_h do |id|
+      [id, win.document.get_element_by_id(id).decode]
+    end
+    win.scheduler.advance_time(0)
+    states = results.transform_values do |promise|
+      promise.await
+      :fulfilled
+    rescue Dommy::DOMException::EncodingError
+      :encoding_error
+    end
+    assert_equal({ "a" => :encoding_error, "b" => :fulfilled, "c" => :encoding_error,
+                   "d" => :fulfilled, "e" => :encoding_error }, states)
+  end
 end

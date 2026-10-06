@@ -28,6 +28,13 @@ module Dommy
         missing: "", invalid: ""
       }.freeze
 
+      # HTML "fetch priority attributes" (img/link/script `fetchPriority`):
+      # high, low and auto, with auto both the missing and the invalid value
+      # default.
+      FETCH_PRIORITY = {
+        attr: "fetchpriority", keywords: %w[high low auto], missing: "auto", invalid: "auto"
+      }.freeze
+
       # HTML §2.5.7 "lazy loading attributes" (img/iframe `loading`).
       LAZY_LOADING = { keywords: %w[lazy eager], missing: "eager", invalid: "eager" }.freeze
 

@@ -542,13 +542,9 @@
     ],
     "HTMLImageElement": [
       "controls",
-      "decode",
-      "fetchPriority",
       "hspace",
       "lowsrc",
-      "vspace",
-      "x",
-      "y"
+      "vspace"
     ],
     "HTMLInputElement": [
       "accept",
