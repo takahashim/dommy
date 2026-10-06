@@ -25,10 +25,12 @@ module Dommy
       # click, so no activation behavior runs. Returns whether contextmenu was
       # prevented.
       def right_click(element)
+        return false if inert?(element)
+
         secondary = mouse_init.merge("button" => 2)
         dispatch(element, Dommy::PointerEvent.new("pointerdown", secondary))
         dispatch(element, Dommy::MouseEvent.new("mousedown", secondary))
-        focus(element)
+        click_focus(element)
         dispatch(element, Dommy::PointerEvent.new("pointerup", secondary))
         dispatch(element, Dommy::MouseEvent.new("mouseup", secondary))
         event = Dommy::MouseEvent.new("contextmenu", secondary)
@@ -41,6 +43,8 @@ module Dommy
       # a browser where two native clicks fire two click events. Returns whether
       # dblclick was prevented.
       def double_click(element)
+        return false if inert?(element)
+
         click_sequence(element, detail: 1)
         click_sequence(element, detail: 2)
         dbl = Dommy::MouseEvent.new("dblclick", mouse_init.merge("detail" => 2))
@@ -54,10 +58,15 @@ module Dommy
       # click's activation behavior itself (hyperlink navigation, form
       # submission, the checkbox toggle plus input/change), so a synthetic click
       # takes exactly the same path as `element.click()`.
+      #
+      # An inert element is not hit by the pointer (HTML "inert": hit-testing
+      # acts as if pointer-events were none), so clicking one fires nothing.
       def click_sequence(element, detail:)
+        return false if inert?(element)
+
         dispatch(element, Dommy::PointerEvent.new("pointerdown", mouse_init))
         dispatch(element, Dommy::MouseEvent.new("mousedown", mouse_init))
-        focus(element)
+        click_focus(element)
         dispatch(element, Dommy::PointerEvent.new("pointerup", mouse_init))
         dispatch(element, Dommy::MouseEvent.new("mouseup", mouse_init))
         event = Dommy::MouseEvent.new("click", mouse_init.merge("detail" => detail))
@@ -78,6 +87,30 @@ module Dommy
         element.blur if element.respond_to?(:blur)
         nil
       end
+
+      # What a pointer press does to the focus (HTML: the user activating a
+      # click focusable area runs its focusing steps with the "click"
+      # trigger): the nearest flat-tree inclusive ancestor that is a
+      # focusable area — or a shadow host that delegates focus — takes it;
+      # with none, the focus goes back to the viewport.
+      def click_focus(element)
+        return nil unless element.is_a?(Dommy::Element)
+
+        focusability = Internal::Focusability
+        node = element
+        while node.is_a?(Dommy::Element)
+          if focusability.focusable_area?(node) || focusability.delegates_focus?(node)
+            focusability.run_focusing_steps(node, trigger: "click")
+            return nil
+          end
+          node = focusability.flat_tree_parent(node) || (node.parent_node if node.parent_node.is_a?(Dommy::Element))
+        end
+        focused = element.owner_document.__internal_focused_element__
+        focusability.run_unfocusing_steps(focused) if focused
+        nil
+      end
+
+      def inert?(element) = element.is_a?(Dommy::Element) && Internal::Focusability.inert?(element)
 
       def input(element, data = nil, input_type = "insertText")
         dispatch(element, Dommy::InputEvent.new("input", BUBBLES.merge("data" => data, "inputType" => input_type)))

@@ -16,16 +16,11 @@ module Dommy
     include Internal::HTMLOrSVGOrMathMLElement
     include Internal::ElementCSSInlineStyle
     include Internal::ElementPopover
-    # `lang` reflects its own content attribute ("" when absent) — not the
-    # inherited language the element computes for matching.
-    reflect_string :lang
-    # `title` is the advisory information, a plain reflection of its own
-    # content attribute — an ancestor's title is not inherited here.
-    reflect_string :title
-    reflect_string access_key: { attr: "accesskey", js: "accessKey" }
-    reflect_boolean :inert, heading_reset: { attr: "headingreset", js: "headingReset" }
-    # How many levels a heading inside this element is offset by, 0 to 8.
-    reflect_ulong heading_offset: { attr: "headingoffset", js: "headingOffset", range: 0..8 }
+    # The plain reflections — `lang` and `title` (this element's own content
+    # attribute, "" when absent: not the language it inherits for matching or
+    # an ancestor's advisory title), `accessKey`, `inert`, `headingOffset`
+    # (0 to 8) — and every subclass's are declared from the IDL
+    # (Internal::IdlReflection, run once all element classes are defined).
     # The virtual keyboard's enter key and layout, limited to only known
     # values (HTML §6.8.5).
     reflect_enumerated enter_key_hint: { attr: "enterkeyhint", js: "enterKeyHint",
@@ -131,7 +126,14 @@ module Dommy
         # toggle, running or undoing the activation behavior) is dispatch's job,
         # so a synthesized `dispatchEvent(new MouseEvent("click"))` behaves
         # identically to click().
-        dispatch_event(MouseEvent.new("click", "bubbles" => true, "cancelable" => true, "button" => 0))
+        #
+        # HTML "fire a synthetic pointer event" named click, not trusted: a
+        # PointerEvent that bubbles, is cancelable and composed, with the
+        # window as its view — and, per Pointer Events, pointerId -1 and an
+        # empty pointerType, as a click no pointer made.
+        view = @document.default_view
+        dispatch_event(PointerEvent.new("click", "bubbles" => true, "cancelable" => true, "composed" => true,
+          "button" => 0, "pointerId" => -1, "pointerType" => "", "view" => view.is_a?(Window) ? view : nil))
       ensure
         # Not a method-level `ensure`: the early return above must not clear the
         # flag the click it returned from is still holding.
@@ -392,23 +394,15 @@ module Dommy
       __internal_has_attribute__?("disabled") || disabled_by_ancestor_fieldset?
     end
 
-    # Shared "limited to only non-negative numbers" long reflection (maxLength /
-    # minLength on input and textarea): a missing / negative / non-numeric
-    # content attribute reads as -1; assigning a negative value throws.
-    def parse_non_negative_reflected(attr)
-      raw = __internal_attribute_value__(attr)
-      return -1 if raw.nil?
-      # HTML "rules for parsing non-negative integers": leading ASCII whitespace,
-      # then digits; anything else (a sign, letters) is an error → -1.
-      m = raw.to_s.match(/\A[\t\n\f\r ]*(\d+)/)
-      m ? m[1].to_i : -1
-    end
+    # The first element in tree order, in this element's own tree (a
+    # document, a shadow root, or a detached subtree), whose ID is `id`.
+    def __internal_tree_element_by_id__(id)
+      root = get_root_node
+      return root.get_element_by_id(id) if root.respond_to?(:get_element_by_id)
+      return nil unless root.is_a?(Element)
+      return root if root.id == id
 
-    def set_non_negative_reflected(attr, value)
-      n = value.to_i
-      raise DOMException::IndexSizeError, "#{attr} must be non-negative" if n.negative?
-
-      set_reflected_string(attr, n.to_s)
+      root.query_selector_all("[id]").to_a.find { |el| el.id == id }
     end
 
     # HTML attribute names are case-insensitive only in an HTML document — the
@@ -526,37 +520,26 @@ module Dommy
     end
   end
 
-  # The "Window-reflecting body element event handler set": setting one of these
-  # event handler IDL attributes on <body>/<frameset> (`body.onload = fn`)
-  # actually targets the WINDOW, per HTML — so `window.onload` fires. A
-  # non-reflected handler (`body.onclick`) stays on the element.
-
-  # The "Window-reflecting body element event handler set": setting one of these
-  # event handler IDL attributes on <body>/<frameset> (`body.onload = fn`)
-  # actually targets the WINDOW, per HTML — so `window.onload` fires. A
-  # non-reflected handler (`body.onclick`) stays on the element.
+  # HTML "determine the target of an event handler": on <body>/<frameset> the
+  # WindowEventHandlers and the Window-reflecting body element event handler
+  # set (Internal::EventHandlers::BODY_REFLECTED) are the WINDOW's handlers —
+  # `body.onload = fn` is `window.onload = fn`, so it fires. With no Window
+  # (a document from createHTMLDocument) there is no target: the getter
+  # answers null and the setter does nothing. Any other handler
+  # (`body.onclick`) stays on the element.
   module WindowReflectingHandlers
-    REFLECTED_HANDLERS = %w[
-      onblur onerror onfocus onload onresize onscroll onafterprint onbeforeprint
-      onbeforeunload onhashchange onlanguagechange onmessage onmessageerror onoffline
-      ononline onpagehide onpageshow onpopstate onrejectionhandled onstorage
-      onunhandledrejection onunload
-    ].to_set.freeze
-
     def __js_set__(key, value)
-      if key.is_a?(String) && REFLECTED_HANDLERS.include?(key) && (win = @document&.default_view)
-        return win.__js_set__(key, value)
-      end
+      return super unless key.is_a?(String) && Internal::EventHandlers::BODY_REFLECTED.include?(key)
 
-      super
+      win = @document&.default_view
+      win ? win.__js_set__(key, value) : nil
     end
 
     def __js_get__(key)
-      if key.is_a?(String) && REFLECTED_HANDLERS.include?(key) && (win = @document&.default_view)
-        return win.__js_get__(key)
-      end
+      return super unless key.is_a?(String) && Internal::EventHandlers::BODY_REFLECTED.include?(key)
 
-      super
+      win = @document&.default_view
+      win&.__js_get__(key)
     end
   end
 
@@ -573,9 +556,9 @@ module Dommy
   class HTMLAnchorElement < HTMLElement
     include HyperlinkActivation
     include HyperlinkUtils
-    reflect_token_list rel_list: { attr: "rel", js: "relList" }
+    reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
     reflect_setter :href
-    reflect_string :target, :download, :ping, :rel, :hreflang, :type
+    reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
 
     # `a.text` is an alias for the element's descendant text content.
     def text
@@ -601,8 +584,8 @@ module Dommy
   class HTMLAreaElement < HTMLElement
     include HyperlinkActivation
     include HyperlinkUtils
-    reflect_token_list rel_list: { attr: "rel", js: "relList" }
+    reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
     reflect_setter :href
-    reflect_string :alt, :coords, :shape, :target, :download, :ping, :rel
+    reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
   end
 end

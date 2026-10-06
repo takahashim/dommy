@@ -4,7 +4,18 @@ module Dommy
   # Deterministic host-side scheduler for timers, rAF, and microtasks.
   # Time advances only when the host explicitly calls `advance_time`.
   class Scheduler
-    Timer = Struct.new(:id, :kind, :callback, :due_at, :interval_ms, :active, :nesting)
+    # `id` is the handle the page sees, unique within its kind's id space
+    # (timers, animation frames and idle callbacks each number their own);
+    # `seq` is unique across all of them and orders same-instant tasks.
+    Timer = Struct.new(:id, :kind, :callback, :due_at, :interval_ms, :active, :nesting, :args, :this, :seq)
+
+    # HTML keeps three separate identifier spaces: setTimeout/setInterval share
+    # the map of active timers, requestAnimationFrame has its own animation
+    # frame callback identifier, and requestIdleCallback its own idle callback
+    # identifier — so `clearTimeout(rafId)` cancels nothing.
+    # The rendering-update steps (render_before / render) are internal, so
+    # their handles are a space of their own that no page call can name.
+    ID_SPACES = {timeout: :timer, interval: :timer, raf: :raf, idle: :idle, render_before: :render, render: :render}.freeze
 
     FRAME_MS = 16
 
@@ -18,12 +29,39 @@ module Dommy
 
     # requestIdleCallback has no real idle period here; the callback always
     # sees a fixed budget and didTimeout: false.
-    IDLE_DEADLINE = {"timeRemaining" => 50.0, "didTimeout" => false}.freeze
+    IDLE_TIME_REMAINING_MS = 50.0
+
+    # The IdleDeadline a requestIdleCallback callback is handed:
+    # `timeRemaining()` (a method, as the IDL has it) and `didTimeout`.
+    class IdleDeadline
+      include Bridge::Methods
+      js_methods %w[timeRemaining]
+
+      def initialize(time_remaining, did_timeout)
+        @time_remaining = time_remaining
+        @did_timeout = did_timeout
+      end
+
+      def time_remaining = @time_remaining
+      def did_timeout = @did_timeout
+
+      def __js_get__(key)
+        key == "didTimeout" ? @did_timeout : nil
+      end
+
+      def __js_call__(method, _args)
+        case method
+        when "timeRemaining" then @time_remaining
+        end
+      end
+    end
 
     def initialize
       @now_ms = 0
-      @next_id = 1
+      @next_seq = 1
+      @next_ids = Hash.new(1)
       @timers = {}
+      @handles = Hash.new { |h, k| h[k] = {} }
       @microtasks = []
       @native_microtask_scheduler = nil
       @external_inbox = Thread::Queue.new
@@ -110,44 +148,54 @@ module Dommy
     # animation frames (test harnesses driving async frameworks).
     attr_accessor :raf_checkpoint_each
 
-    def set_timeout(callback, delay_ms)
-      register_timer(:timeout, callback, delay_ms.to_i, nil)
+    # `args` are the arguments the callback is invoked with and `this` its
+    # callback this value (the window, for the page's own timers).
+    def set_timeout(callback, delay_ms, args = [], this: nil)
+      register_timer(:timeout, callback, delay_ms.to_i, nil, args, this)
     end
 
     def clear_timeout(id)
-      cancel_timer(id)
+      cancel_timer(:timer, id)
     end
 
-    def set_interval(callback, interval_ms)
+    def set_interval(callback, interval_ms, args = [], this: nil)
       ms = [interval_ms.to_i, 0].max
-      register_timer(:interval, callback, ms, ms)
+      register_timer(:interval, callback, ms, ms, args, this)
     end
 
     def clear_interval(id)
-      cancel_timer(id)
+      cancel_timer(:timer, id)
     end
 
     def request_animation_frame(callback)
       frames = ((@now_ms / FRAME_MS) + 1) * FRAME_MS
-      id = next_id
       # rAF is frame-aligned (never the same instant twice), so it needs no
       # nesting clamp; nesting 0.
-      @timers[id] = Timer.new(id, :raf, callback, frames, nil, true, 0)
-      id
+      add_timer(Timer.new(nil, :raf, callback, frames, nil, true, 0, [], nil))
     end
 
     def cancel_animation_frame(id)
-      cancel_timer(id)
+      cancel_timer(:raf, id)
+    end
+
+    # The parts of HTML's "update the rendering" that are not animation
+    # frame callbacks, at the next frame boundary: `phase` :before runs ahead
+    # of that frame's rAF callbacks (flushing autofocus candidates), :after
+    # behind them (the focus fixup). A document asks for one only when it
+    # has such work, so an idle page schedules nothing.
+    def request_rendering_update(callback, phase: :after)
+      frames = ((@now_ms / FRAME_MS) + 1) * FRAME_MS
+      add_timer(Timer.new(nil, phase == :before ? :render_before : :render, callback, frames, nil, true, 0, [], nil))
     end
 
     # WHATWG requestIdleCallback — modeled as a deferred timer that hands the
-    # callback an IdleDeadline-shaped Hash. No real idle period in dommy.
+    # callback an IdleDeadline. No real idle period in dommy.
     def request_idle_callback(callback, timeout = 0)
-      register_timer(:idle, callback, timeout.to_i, nil)
+      register_timer(:idle, callback, timeout.to_i, nil, [], nil)
     end
 
     def cancel_idle_callback(id)
-      cancel_timer(id)
+      cancel_timer(:idle, id)
     end
 
     def queue_microtask(callback)
@@ -215,19 +263,29 @@ module Dommy
 
     private
 
-    def next_id
-      id = @next_id
-      @next_id += 1
-      id
-    end
-
-    def register_timer(kind, callback, delay_ms, interval_ms)
-      id = next_id
+    def register_timer(kind, callback, delay_ms, interval_ms, args, this)
       nesting = @nesting_level + 1
       delay = clamp_nested_delay([delay_ms, 0].max, nesting)
       due_at = @now_ms + delay
-      @timers[id] = Timer.new(id, kind, callback, due_at, interval_ms, true, nesting)
-      id
+      add_timer(Timer.new(nil, kind, callback, due_at, interval_ms, true, nesting, Array(args), this))
+    end
+
+    # File the timer under a fresh handle in its kind's id space; returns the
+    # handle.
+    def add_timer(timer)
+      space = ID_SPACES.fetch(timer.kind)
+      timer.id = @next_ids[space]
+      @next_ids[space] += 1
+      timer.seq = @next_seq
+      @next_seq += 1
+      @timers[timer.seq] = timer
+      @handles[space][timer.id] = timer
+      timer.id
+    end
+
+    def remove_timer(timer)
+      @timers.delete(timer.seq)
+      @handles[ID_SPACES.fetch(timer.kind)].delete(timer.id)
     end
 
     # HTML timer initialization step: a timer nested deeper than 5 with a sub-4ms
@@ -236,22 +294,26 @@ module Dommy
       nesting > MAX_NESTING_BEFORE_CLAMP && delay < MIN_NESTED_DELAY_MS ? MIN_NESTED_DELAY_MS : delay
     end
 
-    def cancel_timer(id)
+    def cancel_timer(space, id)
       # WHATWG: clearTimeout/clearInterval with a missing or non-numeric handle
       # (e.g. `clearTimeout(undefined)`, which React's scheduler emits) is a
       # silent no-op rather than an error.
       return unless id.respond_to?(:to_i)
 
-      key = id.to_i
-      timer = @timers[key]
-      timer.active = false if timer
-      @timers.delete(key)
+      timer = @handles[space][id.to_i]
+      return unless timer
+
+      timer.active = false
+      remove_timer(timer)
       nil
     end
 
     def run_due_timers
       due = @timers.values.select { |timer| timer.active && timer.due_at <= @now_ms }
-      due.sort_by!(&:id)
+      # A frame's rendering-update steps come before or after its rAF
+      # callbacks.
+      phase_order = { render_before: 0, render: 2 }
+      due.sort_by! { |timer| [phase_order.fetch(timer.kind, 1), timer.seq] }
       # Each ordinary timer task is followed by a microtask checkpoint (WHATWG
       # §8.1.7.3). The animation-frame callbacks of one rendering update are an
       # exception: they run consecutively and share a single checkpoint after the
@@ -263,14 +325,14 @@ module Dommy
 
         case timer.kind
         when :raf
-          @timers.delete(timer.id)
+          remove_timer(timer)
           invoke_timer(timer, @now_ms.to_f)
           raf_ran = true
           # Opt-in (test harness): settle this callback's microtask chain before
           # the next same-frame rAF callback runs (see @raf_checkpoint_each).
           perform_microtask_checkpoint if @raf_checkpoint_each
         when :interval
-          invoke_timer(timer)
+          invoke_timer(timer, *timer.args)
           if timer.active
             # Each interval iteration nests one deeper, so a setInterval(0) is
             # clamped to 4ms once past the nesting threshold (HTML timer steps).
@@ -279,12 +341,23 @@ module Dommy
           end
           perform_microtask_checkpoint
         when :idle
-          @timers.delete(timer.id)
-          invoke_timer(timer, IDLE_DEADLINE.dup)
+          remove_timer(timer)
+          invoke_timer(timer, IdleDeadline.new(IDLE_TIME_REMAINING_MS, false))
+          perform_microtask_checkpoint
+        when :render_before
+          remove_timer(timer)
+          invoke_timer(timer)
+          perform_microtask_checkpoint
+        when :render
+          # The rAF batch's shared checkpoint comes first.
+          perform_microtask_checkpoint if raf_ran
+          raf_ran = false
+          remove_timer(timer)
+          invoke_timer(timer)
           perform_microtask_checkpoint
         else
-          @timers.delete(timer.id)
-          invoke_timer(timer)
+          remove_timer(timer)
+          invoke_timer(timer, *timer.args)
           perform_microtask_checkpoint
         end
       end
@@ -306,7 +379,7 @@ module Dommy
       # nests one deeper (driving the 4ms clamp). Restored even if it throws.
       prev_nesting = @nesting_level
       @nesting_level = timer.nesting || 0
-      CallableInvoker.invoke_raising(timer.callback, *args)
+      CallableInvoker.invoke_raising(timer.callback, *args, this: timer.this)
     rescue StandardError => e
       # A page exception is reported and the timer keeps its schedule, like a
       # browser: an interval whose callback throws goes on firing.
@@ -317,7 +390,7 @@ module Dommy
       raise unless @timer_error_handler&.call(e, timer)
 
       timer.active = false
-      @timers.delete(timer.id)
+      remove_timer(timer)
       nil
     ensure
       @nesting_level = prev_nesting

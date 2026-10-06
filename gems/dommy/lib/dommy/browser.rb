@@ -72,18 +72,38 @@ module Dommy
       @disposed = false
       @pending_navigations = []
       @runtime = nil
+      # One browsing session: every window it shows (and their frames) shares
+      # localStorage per origin and sessionStorage per origin.
+      @storage_provider = StorageProvider.new
+      @before_unload_handler = nil
 
       @window = Dommy.parse(html)
       @window.location.__internal_set_url__(url) if url
-      install_runtime(@window)
+      @window.storage_provider = @storage_provider
 
       if navigable
         @fetcher = Navigation::Fetcher.new(@resources, same_origin: @same_origin)
         @history = Navigation::JointHistory.new
         @window.navigation_delegate = self
         @history.push(current_url, window: @window, windex: @window.history.__internal_index__)
+        install_history_sync(@window)
       end
+      install_runtime(@window)
       check_js_errors!
+    end
+
+    # The provider of this browser's Web Storage areas (shared by every window
+    # it shows); see Dommy::StorageProvider.
+    attr_reader :storage_provider
+
+    # Install a handler for a page that asks to confirm leaving it (a canceled
+    # `beforeunload`, or one whose returnValue is set): called with the window
+    # and the BeforeUnloadEvent, its truthy answer lets the navigation proceed.
+    # Without one the navigation always proceeds — a headless page has no sticky
+    # user activation, so a browser would not prompt either.
+    def on_before_unload(&block)
+      @before_unload_handler = block
+      self
     end
 
     def document = @window.document
@@ -117,8 +137,8 @@ module Dommy
     # Move back / forward one entry in the joint history. A same-document target
     # (the entry's window is still live) traverses in place (popstate); a
     # document-boundary target is re-fetched (no bfcache — D2).
-    def back = traverse(-1)
-    def forward = traverse(1)
+    def back = traverse_now(-1)
+    def forward = traverse_now(1)
 
     # --- NavigationDelegate port (see Dommy::Navigation) ---
 
@@ -164,6 +184,8 @@ module Dommy
       end
 
       def traverse(_delta) = nil
+
+      def history_length = @browser.history_length
     end
 
     def frame_navigation_delegate(frame) = FrameNavigationDelegate.new(self, frame)
@@ -183,22 +205,34 @@ module Dommy
       nil
     end
 
-    # A cross-document history traversal. Ruby-initiated (back / forward), so it
-    # runs immediately: a same-document target (its window is still live)
-    # traverses in place (popstate); a document-boundary target is re-fetched.
+    # A history traversal by `delta` that the PAGE asked for (`history.go(n)`
+    # past its own document's entries): like a navigation it is a task, so it
+    # is recorded and performed at the next drain boundary.
     def traverse(delta)
+      @pending_navigations << {traverse: delta.to_i} if @navigable
+      nil
+    end
+
+    # `history.length`: the joint session history's size (nil when this
+    # browser keeps none).
+    def history_length = (@history.length if @navigable)
+
+    # `window.stop()`: drop the navigations the page asked for and that have not
+    # been performed yet.
+    def stop
+      @pending_navigations.clear
+      nil
+    end
+
+    # A Ruby-initiated traversal (back / forward) runs immediately: a
+    # same-document target (its window is still live) traverses in place
+    # (popstate); a document-boundary target is re-fetched.
+    def traverse_now(delta)
       return self unless @navigable
 
-      entry = delta.negative? ? @history.back : @history.forward
-      return self unless entry
-
-      if entry.window && entry.window.equal?(@window)
-        @window.history.__internal_go_to__(entry.windex)
-        @runtime.drain_microtasks
-        check_js_errors!
-      else
-        perform_navigation!({url: entry.url, method: "GET", source: :traverse}, rebind: true)
-      end
+      perform_traversal!(delta)
+      @runtime.drain_microtasks
+      check_js_errors!
       self
     end
 
@@ -327,7 +361,7 @@ module Dommy
       # Installed whenever a runtime is attached — an embedder that drives script
       # boot itself (`execute_scripts: false`) still needs inline handlers wired.
       doc.inline_handler_wirer = lambda do
-        Js::ScriptBoot.wire_inline_handlers(runtime, on_error: ->(e) { @error_log.record(e) })
+        Js::ScriptBoot.wire_inline_handlers(runtime, document: doc, on_error: ->(e) { @error_log.record(e) })
       end
       return unless @execute_scripts
 
@@ -371,22 +405,30 @@ module Dommy
       frame = resolve_target_frame(nav[:target])
       return navigate_frame(frame, nav, resolved) if frame
 
+      # The outgoing page may ask to confirm leaving (beforeunload).
+      return unless unloading_allowed?(@window)
+
       response, final_url = @fetcher.request(
         method: nav[:method] || "GET", url: resolved, params: nav[:params],
         body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
       )
       return unless response&.success? && document_response?(response)
 
+      old_window = @window
+      referrer = referrer_for(nav[:source], old_window.location.href, final_url)
       # Fire the outgoing document's unload sequence while its realm is still
       # alive, then surface any of its errors before the realm is torn down.
-      fire_unload(@window)
+      fire_unload(old_window)
       check_js_errors!
 
       new_window = Dommy.parse(response.body)
       new_window.location.__internal_set_url__(final_url)
+      new_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
+      new_window.document.__internal_referrer__ = referrer if referrer
       new_window.navigation_delegate = self
+      new_window.storage_provider = @storage_provider
+      old_window.__internal_discard__
       @window = new_window
-      install_runtime(new_window)
 
       windex = new_window.history.__internal_index__
       if rebind || nav[:replace]
@@ -394,8 +436,80 @@ module Dommy
       else
         @history.push(final_url, window: new_window, windex: windex)
       end
+      # The joint history knows the new page before its scripts boot, so a
+      # pushState / history.length during boot sees the right session.
+      install_history_sync(new_window)
+      install_runtime(new_window)
 
       follow_meta_refresh!(refresh_depth)
+    end
+
+    # Fire `beforeunload` at the outgoing window; a page that cancels it (or
+    # sets returnValue) is asked about through the on_before_unload handler, if
+    # one is installed.
+    def unloading_allowed?(window)
+      event = BeforeUnloadEvent.new("beforeunload", "cancelable" => true).__internal_mark_trusted__
+      not_canceled = window.dispatch_event(event)
+      return true if not_canceled && event.return_value.to_s.empty?
+      return true unless @before_unload_handler
+
+      @before_unload_handler.call(window, event) ? true : false
+    end
+
+    # The `document.referrer` a navigation hands the new document: the page
+    # that started it (links, forms, script), under the default
+    # strict-origin-when-cross-origin policy — the full URL (without fragment
+    # or credentials) within an origin, only the origin across origins, nothing
+    # on an https -> http downgrade. Ruby-initiated visits and traversals carry
+    # none.
+    def referrer_for(source, from_url, to_url)
+      return nil unless %i[link form location window_open].include?(source)
+
+      from = URL.new(from_url.to_s)
+      to = URL.new(to_url.to_s)
+      return nil unless %w[http: https:].include?(from.protocol)
+      return "" if from.protocol == "https:" && to.protocol == "http:"
+      return "#{from.origin}/" unless from.origin == to.origin
+
+      from.hash = ""
+      from.username = ""
+      from.password = ""
+      from.href
+    rescue StandardError
+      nil
+    end
+
+    # A traversal by `delta` of the joint history: within the live window's own
+    # entries it moves that window's history (popstate); across a document
+    # boundary the target entry's URL is re-fetched (no bfcache).
+    def perform_traversal!(delta)
+      entry = @history.go(delta)
+      return unless entry
+
+      if entry.window && entry.window.equal?(@window)
+        @window.history.__internal_go_to__(entry.windex)
+      else
+        perform_navigation!({url: entry.url, method: "GET", source: :traverse}, rebind: true)
+      end
+    end
+
+    # Mirror the page's same-document history changes (pushState, fragment
+    # navigations, its own back/forward within the document) into the joint
+    # history, so Browser#back and history.length see them. Guarded against a
+    # navigated-away window.
+    def install_history_sync(window)
+      window.history.__internal_on_change__ = lambda do |kind, url|
+        next unless window.equal?(@window)
+
+        case kind
+        when :push
+          @history.push(url, window: window, windex: window.history.__internal_index__)
+        when :replace
+          @history.rebind_current(url: url, window: window, windex: window.history.__internal_index__)
+        when :traverse
+          @history.sync_to(window, window.history.__internal_index__)
+        end
+      end
     end
 
     # The reserved browsing-context keywords; anything else names an iframe.
@@ -425,6 +539,7 @@ module Dommy
 
       sub_window = frame_document_for(response)
       sub_window.location.__internal_set_url__(final_url)
+      sub_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
       # A navigation from inside the loaded frame also stays in that frame.
       sub_window.navigation_delegate = frame_navigation_delegate(frame)
       # A nested realm needs the seeded constructors to run the response's
@@ -489,22 +604,34 @@ module Dommy
 
       navs = @pending_navigations
       @pending_navigations = []
-      navs.each { |nav| perform_navigation!(nav) }
+      navs.each do |nav|
+        nav.key?(:traverse) ? perform_traversal!(nav[:traverse]) : perform_navigation!(nav)
+      end
     end
 
+    # Unload the outgoing document: `pagehide` (a PageTransitionEvent, persisted
+    # false), then `unload` — both trusted and targeted at the document.
     def fire_unload(window)
-      window.dispatch_event(Dommy::Event.new("pagehide"))
-      window.dispatch_event(Dommy::Event.new("unload"))
+      document = window.document
+      window.dispatch_event(document.__internal_page_transition_event__("pagehide"))
+      unload = Dommy::Event.new("unload")
+      unload.__internal_set_target__(document)
+      window.dispatch_event(unload.__internal_mark_trusted__)
     end
 
     # Only HTML/XML responses replace the document; other content types (a JSON
     # API hit, an image) leave the current page. A response with no Content-Type
     # is treated as a document (fixtures commonly omit it).
     def document_response?(response)
-      headers = response.headers || {}
-      key = headers.keys.find { |k| k.to_s.casecmp?("content-type") }
-      content_type = key ? headers[key].to_s.downcase : ""
+      content_type = response_header(response, "content-type").to_s.downcase
       content_type.empty? || content_type.include?("html") || content_type.include?("xml")
+    end
+
+    # A response header's value by case-insensitive name, or nil.
+    def response_header(response, name)
+      headers = response.headers || {}
+      key = headers.keys.find { |k| k.to_s.casecmp?(name) }
+      key && headers[key]
     end
 
     def submit_button?(button)

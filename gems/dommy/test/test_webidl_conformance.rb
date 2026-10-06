@@ -43,6 +43,18 @@ class TestWebIdlInheritance < Minitest::Test
     assert_equal "EventTarget", WebIdlAudit.data["interfaces"]["Node"]["inherits"]
   end
 
+  # The event handler tables (which `on…` names are event handlers on which
+  # interfaces, and which are content attributes) are generated from this
+  # fixture into a JS and a Ruby file: a refreshed interfaces.json needs both
+  # regenerated.
+  def test_the_event_handler_tables_are_generated_from_this_fixture
+    require_relative "../script/build_event_handlers"
+    EventHandlerTables.outputs.each do |path, content|
+      assert_equal content, File.read(path, encoding: "UTF-8"),
+        "#{path} is stale; re-run ruby script/build_event_handlers.rb"
+    end
+  end
+
   # HTML's [LegacyFactoryFunction]s and the JS builtins the window hands out
   # under their own names are constructors without an interface of their own.
   NOT_INTERFACES = %w[Image Audio Option Error Promise].freeze
@@ -241,6 +253,24 @@ if JsSurface.available?
       require_relative "../script/build_webidl_signatures"
       assert_equal WebIdlSignatures.render, File.read(WebIdlSignatures::OUTPUT),
         "lib/dommy/js/webidl_signatures.js is stale; re-run ruby script/build_webidl_signatures.rb"
+    end
+
+    # The reflected attributes are declared from a table generated from this
+    # fixture (Internal::IdlReflection), so a refreshed interfaces.json needs a
+    # regenerated idl_reflection_table.rb.
+    def test_the_reflection_table_is_generated_from_this_fixture
+      require_relative "../script/build_idl_reflection_table"
+      assert_equal IdlReflectionTable.render, File.read(IdlReflectionTable::OUTPUT),
+        "lib/dommy/internal/idl_reflection_table.rb is stale; re-run ruby script/build_idl_reflection_table.rb"
+    end
+
+    # The prototype members are generated from the fixture AND the bridge
+    # classes, so adding a member to a class (or refreshing the fixture) needs
+    # a regenerated webidl_members.js.
+    def test_the_prototype_member_table_is_generated_from_this_fixture
+      require_relative "../script/build_webidl_members"
+      assert_equal WebIdlMembers.render, File.read(WebIdlMembers::OUTPUT),
+        "lib/dommy/js/webidl_members.js is stale; re-run ruby script/build_webidl_members.rb"
     end
 
     def test_missing_members_match_the_recorded_inventory

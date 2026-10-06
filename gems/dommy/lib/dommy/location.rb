@@ -63,18 +63,18 @@ module Dommy
         __internal_navigate_to__(value.to_s, replace: false, source: :location)
       when "hash"
         set_hash(value.to_s)
-      when "pathname"
-        self.pathname = value.to_s
       when "search"
         set_search(value.to_s)
+      when "pathname"
+        navigate_copy { |copy| copy.pathname = value.to_s }
       when "host"
-        self.host = value.to_s
+        navigate_copy { |copy| copy.host = value.to_s }
       when "hostname"
-        self.hostname = value.to_s
+        navigate_copy { |copy| copy.hostname = value.to_s }
       when "port"
-        self.port = value.to_s
+        navigate_copy { |copy| copy.port = value.to_s }
       when "protocol"
-        self.protocol = value.to_s
+        set_protocol(value.to_s)
       end
     end
 
@@ -99,23 +99,22 @@ module Dommy
       Internal::UrlParser.serialize(@record)
     end
 
-    # Internal — accepts an absolute or relative URL string and updates the
-    # record. Called by History pushState / replaceState (with `fire_hash:
-    # false`, since a pushState never fires hashchange) and by the
-    # same-document navigation path. `fire_hash` gates the hashchange event
-    # so callers that handle the fragment-change signal themselves can
-    # suppress it. A parse failure leaves the record unchanged — every real
-    # caller has already had `raw` validated by `resolve`.
-    def __internal_set_url__(raw, fire_hash: true)
-      apply_record(Internal::UrlParser.parse(raw, @record), fire_hash: fire_hash)
+    # Internal — establish the document's URL: accepts an absolute or relative
+    # URL string and updates the record, without navigating and without firing
+    # any event. Called by embedders when they know where the document lives,
+    # and by History for its own URL updates. A parse failure leaves the record
+    # unchanged. (`fire_hash` is accepted for compatibility and ignored: every
+    # hashchange now comes from a fragment navigation or a traversal.)
+    def __internal_set_url__(raw, fire_hash: false) # rubocop:disable Lint/UnusedMethodArgument
+      @record = Internal::UrlParser.parse(raw, @record)
+      nil
     rescue Internal::UrlParser::Failure
       nil
     end
 
     # `location.href = X` / `assign` / `replace`, and the shared entry point for
-    # a hyperlink's follow-the-hyperlink. A navigation that changes only the
-    # fragment is same-document (always updates the hash + fires hashchange); any
-    # other change is cross-document — the intent is handed to the delegate.
+    # a hyperlink's follow-the-hyperlink. `raw` is parsed against the document
+    # base URL; then it is navigated to (see #navigate_record).
     #
     # `sync_cross_doc` controls whether a cross-document target also mutates the
     # URL parts synchronously: true for `location.href=`/assign/replace (a
@@ -135,40 +134,67 @@ module Dommy
 
         return
       end
-      if same_document?(@record, target)
-        apply_record(target)
-      else
-        apply_record(target, fire_hash: false) if sync_cross_doc
-        @window.__internal_navigate__(url: Internal::UrlParser.serialize(target), method: "GET", replace: replace, source: source)
-      end
+      # Location-object navigate: while the document is still loading, a
+      # navigation made by script (without user activation) replaces the
+      # current entry instead of adding one.
+      replace ||= source == :location && !@window.__internal_completely_loaded__?
+      navigate_record(target, source: source, replace: replace, sync_cross_doc: sync_cross_doc)
     end
 
     private
 
-    # Resolve a possibly-relative URL against the current record with the
+    # The navigate algorithm's history handling and its same-document branch.
+    # A URL equal to the document's own is a "replace"; so is any navigation
+    # away from an initial about:blank document. A URL that differs from the
+    # active entry's only in its fragment — and HAS a fragment — is a fragment
+    # navigation, which stays in this document; anything else is
+    # cross-document and handed to the navigation delegate.
+    def navigate_record(target, source:, replace:, sync_cross_doc:)
+      url = Internal::UrlParser.serialize(target)
+      replace = true if url == href || @window.__internal_initial_about_blank__?
+      if !target.fragment.nil? && same_document?(@record, target)
+        @window.history.__internal_navigate_to_fragment__(url, replace: replace)
+      else
+        @record = target if sync_cross_doc
+        @window.__internal_navigate__(url: url, method: "GET", replace: replace, source: source)
+      end
+      nil
+    end
+
+    # Location-object navigate to an edited copy of this Location's URL — the
+    # shared tail of the host / hostname / port / pathname setters. The block
+    # edits the copy through the URL-component setters.
+    def navigate_copy
+      copy = RecordEditor.new(copy_record)
+      yield copy
+      location_object_navigate(copy.record)
+    end
+
+    def location_object_navigate(target)
+      replace = !@window.__internal_completely_loaded__?
+      navigate_record(target, source: :location, replace: replace, sync_cross_doc: true)
+    end
+
+    def copy_record
+      record = @record.dup
+      record.path = record.path.dup
+      record
+    end
+
+    # Resolve a possibly-relative URL against the document base URL with the
     # URL parser; nil when it fails. Returns a Record, not a string, so
-    # `__internal_navigate_to__` can both compare fields and (via
-    # `apply_record`) adopt it directly, without a second parse.
+    # `__internal_navigate_to__` can both compare fields and adopt it directly.
     def resolve(raw)
-      Internal::UrlParser.parse(raw, @record)
+      base = @window.document&.base_uri.to_s
+      Internal::UrlParser.parse(raw, base.empty? ? @record : Internal::UrlParser.parse(base))
     rescue Internal::UrlParser::Failure
       nil
     end
 
     # Two URLs address the same document when everything but the fragment matches.
     def same_document?(a, b)
-      a.scheme == b.scheme && a.host == b.host && a.port == b.port &&
-        a.path == b.path && a.query == b.query
-    end
-
-    # Replace the record wholesale (a full href/assign/replace/pushState
-    # navigation, as opposed to set_hash's in-place fragment edit), firing
-    # hashchange when the visible hash actually changed.
-    def apply_record(record, fire_hash: true)
-      previous_hash = current_hash
-      previous_href = href
-      @record = record
-      @window.fire_hashchange(previous_href, href) if fire_hash && previous_hash != current_hash
+      a.scheme == b.scheme && a.username == b.username && a.password == b.password &&
+        a.host == b.host && a.port == b.port && a.path == b.path && a.query == b.query
     end
 
     # Whether this Location still has a browsing context to navigate. A nested
@@ -176,8 +202,7 @@ module Dommy
     # Window survives (a script may still hold it), the navigable does not. A
     # top-level Window has no frame element and always has one.
     def browsing_context?
-      frame = @window.frame_element
-      frame.nil? || frame.is_connected?
+      @window.navigable?
     end
 
     # `location.ancestorOrigins` — the origins of this browsing context's
@@ -186,11 +211,9 @@ module Dommy
     #
     # [SameObject], so the list is built once and answers live: a page that
     # holds `location.ancestorOrigins` holds the same object the next read would
-    # give it, which is what the IDL promises. It is a live list rather than the
-    # DOMStringList the IDL names — indexing, `length` and `item` are there,
-    # `contains` is not, and it reports as a NodeList.
+    # give it, which is what the IDL promises: a live DOMStringList.
     def ancestor_origins
-      @ancestor_origins ||= LiveNodeList.new { current_ancestor_origins }
+      @ancestor_origins ||= DOMStringList.new { current_ancestor_origins }
     end
 
     def current_ancestor_origins
@@ -210,10 +233,10 @@ module Dommy
       # A Location with no browsing context has an opaque origin, which
       # serializes as "null".
       return "null" unless browsing_context?
-      return "" if @record.host.nil?
 
-      port_part = @record.port ? ":#{@record.port}" : ""
-      "#{@record.scheme}://#{@record.host}#{port_part}"
+      # The URL's origin: a tuple for http(s) and the other special schemes,
+      # opaque ("null") for about:blank, data:, file: and the like.
+      Internal::Origin.of_url(href)
     end
 
     def current_search
@@ -226,41 +249,70 @@ module Dommy
       f.nil? || f.empty? ? "" : "##{f}"
     end
 
+    # The hash setter: parse the value into a copy's (emptied) fragment; leave
+    # the URL alone when the fragment would not change (deployed content sets
+    # `location.hash` redundantly on scroll), otherwise navigate — which, the
+    # rest of the URL being equal, is a fragment navigation.
+    #
+    # This is where Location parts company with the URL API, deliberately:
+    # `url.hash = ""` sets the fragment to NULL and the "#" goes away, whereas
+    # here the copy's fragment is first set to the EMPTY STRING, so clearing a
+    # fragment that is there leaves the "#" behind ("?q=1#x" -> "?q=1#"). Both
+    # are pinned by WPT (location-hash-setter-empty-string.html and
+    # url/url-setters).
+    # https://html.spec.whatwg.org/multipage/nav-history-apis.html#dom-location-hash
     def set_hash(value)
-      previous_hash = current_hash
-      previous_href = href
-      v = value.delete_prefix("#")
-      if v.empty?
-        # HTML's hash setter works on a COPY of the URL whose fragment it first
-        # sets to the EMPTY STRING, then parses the input into — so clearing a
-        # fragment that is there leaves the "#" behind: from "?q=1#x",
-        # `hash = ""` ends at "?q=1#". A URL with no fragment has nothing to
-        # clear, and the setter's final step (return unless the fragment
-        # changed) leaves it alone rather than growing a "#".
-        #
-        # This is where Location parts company with the URL API, deliberately:
-        # `url.hash = ""` sets the fragment to NULL and the "#" goes away. Both
-        # are pinned by WPT (location-hash-setter-empty-string.html and
-        # url/url-setters), so neither setter can borrow the other's rule.
-        # https://html.spec.whatwg.org/multipage/nav-history-apis.html#dom-location-hash
-        return if @record.fragment.nil?
-
-        @record.fragment = +""
-      else
-        @record.fragment = +""
-        parse_into(v, :fragment)
+      this_fragment = @record.fragment || ""
+      copy = copy_record
+      copy.fragment = +""
+      begin
+        Internal::UrlParser.parse_with_override(value.delete_prefix("#"), copy, :fragment)
+      rescue Internal::UrlParser::Failure
+        nil
       end
-      # Setting the fragment is always same-document — fire hashchange with the
-      # full URLs before/after (no delegate navigation).
-      @window.fire_hashchange(previous_href, href) if current_hash != previous_hash
+      return if copy.fragment == this_fragment
+
+      location_object_navigate(copy)
     end
 
     def set_search(value)
+      copy = copy_record
       if value.empty?
-        @record.query = nil
+        copy.query = nil
       else
-        @record.query = +""
-        parse_into(value.delete_prefix("?"), :query)
+        copy.query = +""
+        begin
+          Internal::UrlParser.parse_with_override(value.delete_prefix("?"), copy, :query)
+        rescue Internal::UrlParser::Failure
+          nil
+        end
+      end
+      location_object_navigate(copy)
+    end
+
+    # The protocol setter: a value the URL parser rejects is a SyntaxError, and
+    # a resulting scheme other than http(s) navigates nowhere.
+    def set_protocol(value)
+      copy = copy_record
+      begin
+        Internal::UrlParser.parse_with_override("#{value}:", copy, :scheme_start)
+      rescue Internal::UrlParser::Failure
+        raise DOMException::SyntaxError, "'#{value}' is an invalid protocol"
+      end
+      return unless %w[http https].include?(copy.scheme)
+
+      location_object_navigate(copy)
+    end
+
+    # A URL record edited through the URLUtils component setters, for the
+    # Location setters that navigate to a modified copy of the current URL.
+    class RecordEditor
+      include Internal::UrlRecordAccessors
+
+      attr_reader :record
+
+      def initialize(record)
+        @record = record
       end
     end
   end

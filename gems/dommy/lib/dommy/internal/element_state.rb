@@ -171,7 +171,12 @@ module Dommy
       # HTML "the language of a node": the nearest element's `xml:lang` (in
       # the XML namespace), or else its `lang` in no namespace when it is an
       # HTML, SVG or MathML element; "" when that value is empty (the
-      # language is unknown, and no ancestor is asked), nil when none says.
+      # language is unknown, and no ancestor is asked). The walk goes up
+      # through parent elements, and from a shadow root's child to the
+      # shadow root's host (so a shadow tree takes its host's language); past
+      # the root it is the document's pragma-set default language (`<meta
+      # http-equiv=content-language>`), and nil when there is none — dommy
+      # keeps no HTTP Content-Language to fall back to.
       def language_of(element)
         node = element
         while node
@@ -179,9 +184,11 @@ module Dommy
           value = node.__internal_attribute_value__("lang") if value.nil? && LANG_NAMESPACES.include?(node.namespace_uri)
           return value unless value.nil?
 
-          node = node.parent_element
+          parent = node.parent_node
+          node = parent.is_a?(ShadowRoot) ? parent.host : node.parent_element
         end
-        nil
+        document = element.owner_document
+        document.respond_to?(:__internal_pragma_default_language__) ? document.__internal_pragma_default_language__ : nil
       end
 
       def lang_range_match?(actual, range)
@@ -212,11 +219,87 @@ module Dommy
         true
       end
 
+      # `:defined` — an element whose custom element state is "uncustomized"
+      # or "custom". Every element is uncustomized but an HTML element with a
+      # valid custom element name, which is "undefined" until its definition
+      # has constructed it (in Dommy, until it is wrapped as an instance of
+      # the definition its document's window registered for the name). A
+      # document without a browsing context has no registry, so its
+      # custom-named elements stay undefined.
+      def defined_element?(element)
+        return true unless element.namespace_uri == Namespaces::HTML
+        return true unless CustomElementRegistry.valid_name?(element.local_name)
+
+        window = element.owner_document&.default_view
+        registry = window.custom_elements if window.respond_to?(:custom_elements)
+        definition = registry&.get(element.local_name)
+        definition.is_a?(Module) && element.is_a?(definition) && element.__internal_custom_element_state__ != "failed"
+      end
+
       # `:link` / `:any-link` match an `a` or `area` with an href. A `<link href>`
       # is not a hyperlink for selector purposes, however much its name suggests
       # otherwise.
       def link_element?(element)
         %w[a area].include?(element.local_name.to_s.downcase) && element.__internal_has_attribute__?("href")
+      end
+
+      # `:focus` (HTML's "has the focus"): the focused element, unless it is
+      # a navigable container, and every shadow host whose shadow tree holds
+      # an element that has the focus. (`:focus-visible` answers the same.)
+      def has_focus?(element)
+        focused = element.owner_document&.__internal_focused_element__
+        return false if focused.nil?
+        return false if html_element?(element) && %w[iframe frame].include?(element.local_name)
+
+        current = focused
+        loop do
+          return true if current.equal?(element)
+
+          root = current.get_root_node
+          return false unless root.is_a?(ShadowRoot) && root.host
+
+          current = root.host
+        end
+      end
+
+      # `:focus-within`: the element has the focus, or a flat-tree
+      # descendant does.
+      def focus_within?(element)
+        focused = element.owner_document&.__internal_focused_element__
+        current = focused
+        while current
+          return true if current.equal?(element)
+
+          current = Focusability.flat_tree_parent(current) || current.parent_node.then { |p| p.is_a?(Element) ? p : nil }
+        end
+        false
+      end
+
+      # `:popover-open` — an HTML element whose popover attribute is not in
+      # the No Popover state and whose popover visibility state is showing.
+      def popover_open?(element)
+        element.respond_to?(:__internal_popover_showing__?) && !element.popover.nil? &&
+          element.__internal_popover_showing__?
+      end
+
+      # `:open` — a details or dialog element with an open attribute. (The
+      # select and input pickers it also covers are never open: nothing
+      # renders one.)
+      def open_element?(element)
+        html_element?(element) && %w[details dialog].include?(element.local_name) &&
+          element.__internal_has_attribute__?("open")
+      end
+
+      # `:modal` — a dialog whose "is modal" is true, or the element whose
+      # fullscreen flag is set.
+      def modal_element?(element)
+        (element.is_a?(HTMLDialogElement) && element.__internal_modal__?) || fullscreen_element?(element)
+      end
+
+      # `:fullscreen` — the document's fullscreen element.
+      def fullscreen_element?(element)
+        doc = element.owner_document
+        !doc.nil? && doc.respond_to?(:fullscreen_element) && doc.fullscreen_element.equal?(element)
       end
 
       # `:dir()` — the element's computed directionality, from the `dir`

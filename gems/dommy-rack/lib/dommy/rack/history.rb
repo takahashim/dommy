@@ -42,6 +42,18 @@ module Dommy
         current_entry
       end
 
+      # Move the cursor by `delta` entries and return that Entry, or nil (cursor
+      # unchanged) when the target is out of range.
+      def go(delta)
+        target = @index + delta.to_i
+        return nil if delta.to_i.zero? || target.negative? || target >= @stack.size
+
+        @index = target
+        current_entry
+      end
+
+      def length = @stack.size
+
       # replaceState: the current entry's URL changes in place.
       def replace_current_url(url)
         current_entry&.url = url

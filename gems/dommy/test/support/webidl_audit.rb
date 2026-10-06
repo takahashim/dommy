@@ -158,36 +158,21 @@ module WebIdlAudit
   # verbatim, an `unsigned long` read with String#to_i) shows up here rather than
   # waiting for a browser to disagree.
 
-  # The §2.6.1 type an IDL type reflects as, for the plain [Reflect] shapes.
-  REFLECT_TYPE_FOR_IDL = {
-    "DOMString" => :string,
-    "USVString" => :string,
-    "DOMString?" => :nullable_string,
-    "boolean" => :boolean,
-    "long" => :long,
-    "unsigned long" => :ulong,
-    "double" => :double,
-    "DOMTokenList" => :token_list,
-    "Element?" => :element_ref,
-    "FrozenArray<Element>?" => :element_refs
-  }.freeze
+  # The §2.6.1 type an IDL type reflects as, for the plain [Reflect] shapes —
+  # shared with the code that declares reflection from the same IDL.
+  REFLECT_TYPE_FOR_IDL = Dommy::Internal::IdlReflection::TYPE_FOR_IDL
 
-  # How the member should be declared: the shape when the spec names one
-  # ([ReflectURL] is a URL whatever its IDL type says; [ReflectSetter] means the
-  # getter is prose), otherwise the type it reflects as.
-  def expected_reflect_type(member)
-    case member["reflect"]["shape"]
-    when "url" then :url
-    when "setter" then :setter_only
-    else REFLECT_TYPE_FOR_IDL[member["type"]]
-    end
-  end
+  # How "Interface.member" should be declared — the IDL's [Reflect*] read
+  # through Internal::IdlReflection, with the overlay for what only the prose
+  # says ({ type:, attr:, options: }) — or nil when the spec does not reflect
+  # it. [ReflectURL] is a URL whatever its IDL type says; [ReflectSetter] means
+  # the getter is prose (and all three setter spellings are :setter_only here).
+  def expected_reflection(interface, member)
+    declaration = Dommy::Internal::IdlReflection.expected(interface, member["name"])
+    return nil unless declaration&.fetch(:type)
 
-  # The content attribute a reflecting member mirrors: [Reflect="x"] when the
-  # spec names one, else the IDL name lowercased (HTML's content attributes are
-  # ASCII-lowercase).
-  def expected_reflect_attr(member)
-    member["reflect"]["attr"] || member["name"].downcase
+    type = Dommy::Internal::ReflectedAttributes::DECLARED_AS.fetch(declaration[:type], declaration[:type])
+    declaration.merge(type: type)
   end
 
   # Reflections Dommy gets wrong or writes by hand, as
@@ -204,7 +189,7 @@ module WebIdlAudit
       record["members"].each do |member|
         next unless member["kind"] == "attribute" && member["reflect"]
 
-        expected = expected_reflect_type(member)
+        expected = expected_reflection(name, member)
         next unless expected
 
         gap = reflect_gap_for(klass, declared[member["name"]], member, expected)
@@ -214,15 +199,23 @@ module WebIdlAudit
     out.sort.to_h
   end
 
+  # The numeric parameters a declaration has to agree on with the IDL; the
+  # others (an enumerated attribute's keywords, a token list's supported
+  # tokens) are the overlay's or the class's own to give.
+  COMPARED_OPTIONS = %i[default range non_negative positive fallback].freeze
+
   def reflect_gap_for(klass, spec, member, expected)
     if spec.nil?
       return nil unless answers?(klass, member["name"])
 
-      "hand-written (expected #{expected})"
-    elsif spec[:type] != expected
-      "declared #{spec[:type]} (expected #{expected})"
-    elsif !spec[:attr].casecmp?(expected_reflect_attr(member))
-      "mirrors #{spec[:attr].inspect} (expected #{expected_reflect_attr(member).inspect})"
+      "hand-written (expected #{expected[:type]})"
+    elsif spec[:type] != expected[:type]
+      "declared #{spec[:type]} (expected #{expected[:type]})"
+    elsif !spec[:attr].casecmp?(expected[:attr])
+      "mirrors #{spec[:attr].inspect} (expected #{expected[:attr].inspect})"
+    elsif spec[:type] != :setter_only &&
+          (got = spec[:options].slice(*COMPARED_OPTIONS)) != (want = expected[:options].slice(*COMPARED_OPTIONS))
+      "declared with #{got.inspect} (expected #{want.inspect})"
     end
   end
 
@@ -262,6 +255,8 @@ module WebIdlAudit
 
         spec = declared[member["name"]]
         next unless spec && !exempt.include?(spec[:type])
+        # A reflection the spec states in prose, recorded in the overlay.
+        next if expected_reflection(name, member)&.fetch(:type) == spec[:type]
 
         out["#{name}.#{member['name']}"] = "declared #{spec[:type]} though the IDL has no [Reflect]"
       end
@@ -505,26 +500,19 @@ module WebIdlAudit
   # A legacy platform object's named properties: whether it has a named getter
   # at all, whether those names enumerate, and whether they resolve before the
   # prototype chain ([LegacyOverrideBuiltIns]).
+  # Interfaces whose IDL gives them named properties (a named getter, own or
+  # inherited) but whose bridge class has no named-property support
+  # (`__js_named_props__`), so `obj[name]` cannot answer. The flags of the
+  # supported ones are generated from the IDL (script/build_webidl_members.rb),
+  # so they cannot drift.
   def named_property_gaps
-    declared = js_named_prop_collections
     gaps = {}
-    data["interfaces"].each do |interface, record|
-      next unless ruby_class_for(interface)
+    data["interfaces"].each_key do |interface|
+      klass = ruby_class_for(interface)
+      next unless klass && named_getter_source(interface)
+      next if klass.method_defined?(:__js_named_props__)
 
-      source = named_getter_source(interface)
-      entry = declared[interface]
-      if source.nil? != entry.nil?
-        gaps[interface] = source ? "has a named getter and is not declared" : "is declared with named properties the IDL does not give it"
-        next
-      end
-      next unless entry
-
-      enumerable = !inherited_flag?(interface, "unenumerable_named_properties")
-      override = inherited_flag?(interface, "override_builtins")
-      notes = []
-      notes << "enumerable should be #{enumerable}" if entry[:enumerable] != enumerable
-      notes << "overrideBuiltins should be #{override}" if entry[:override] != override
-      gaps[interface] = notes.join(", ") unless notes.empty?
+      gaps[interface] = "has a named getter and no named-property support"
     end
     gaps.sort.to_h
   end
@@ -556,13 +544,6 @@ module WebIdlAudit
       interface = record["inherits"]
     end
     false
-  end
-
-  def js_named_prop_collections
-    body = tables_source[/const NAMED_PROP_COLLECTIONS = new Map\(\[(.*?)\n  \]\);/m, 1].to_s
-    body.scan(/\["(\w+)",\s*\{([^}]*)\}\]/).to_h do |interface, flags|
-      [interface, {enumerable: flags.include?("enumerable: true"), override: flags.include?("overrideBuiltins: true")}]
-    end
   end
 
   # Every attribute an interface declares that Dommy answers.

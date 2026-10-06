@@ -47,6 +47,7 @@ class TestHistoryFull < Minitest::Test
     @hist.__js_call__("pushState", [{"n" => 1}, "", "/a"])
     @hist.__js_call__("pushState", [{"n" => 2}, "", "/b"])
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0) # traversal runs from a task
     assert_equal({"n" => 1}, @hist.__js_get__("state"))
   end
 
@@ -54,7 +55,9 @@ class TestHistoryFull < Minitest::Test
     @hist.__js_call__("pushState", [{"n" => 1}, "", "/a"])
     @hist.__js_call__("pushState", [{"n" => 2}, "", "/b"])
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0) # traversal runs from a task
     @hist.__js_call__("forward", [])
+    @win.scheduler.advance_time(0) # traversal runs from a task
     assert_equal({"n" => 2}, @hist.__js_get__("state"))
   end
 
@@ -62,8 +65,11 @@ class TestHistoryFull < Minitest::Test
     @hist.__js_call__("pushState", [{"n" => 1}, "", "/a"])
     @hist.__js_call__("pushState", [{"n" => 2}, "", "/b"])
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0) # traversal runs from a task
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0) # traversal runs from a task
     @hist.__js_call__("go", [2])
+    @win.scheduler.advance_time(0) # traversal runs from a task
     assert_equal({"n" => 2}, @hist.__js_get__("state"))
   end
 
@@ -83,6 +89,7 @@ class TestHistoryFull < Minitest::Test
     @hist.__js_call__("pushState", [{"n" => 1}, "", "/a"])
     @hist.__js_call__("pushState", [{"n" => 2}, "", "/b"])
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0) # traversal runs from a task
     assert_equal({"n" => 1}, seen)
   end
 end

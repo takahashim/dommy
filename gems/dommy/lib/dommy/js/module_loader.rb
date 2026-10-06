@@ -68,11 +68,16 @@ module Dommy
         return {code: @seeded[url], as: url} if @seeded.key?(url)
         return {code: CSS_STUB, as: url} if css?(url)
 
-        response = @resources&.get(url)
-        return nil unless response&.success?
+        body = fetch(url)
+        body && {code: body, as: url}
+      end
 
-        @served[url] = response.body
-        {code: response.body, as: url}
+      # Fetch a module script's own source ahead of evaluating it, so a script
+      # element can tell a failed fetch (an `error` event, nothing runs) from a
+      # module that loaded and then threw. Whether `url` can be served.
+      def prefetch(url)
+        url = url.to_s
+        @preloaded.include?(url) || @seeded.key?(url) || css?(url) || !fetch(url).nil?
       end
 
       # Resolve a specifier to an absolute URL string (nil if unresolvable).
@@ -91,6 +96,17 @@ module Dommy
       end
 
       private
+
+      # A network fetch of `url`, remembered: the engine asking for a module
+      # that was prefetched gets the same response.
+      def fetch(url)
+        return @served[url] if @served.key?(url)
+
+        response = @resources&.get(url)
+        return nil unless response&.success?
+
+        @served[url] = response.body
+      end
 
       def relative?(spec) = spec.start_with?("./", "../")
       def absolute?(spec) = spec.match?(%r{\A[a-z][a-z0-9+.-]*://}i)

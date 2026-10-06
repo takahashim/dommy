@@ -1,6 +1,54 @@
 # frozen_string_literal: true
 
 module Dommy
+  module Internal
+    # DOM's "retarget A against B", which event dispatch applies to the
+    # target and relatedTarget, and which the `source` getters of
+    # ToggleEvent and CommandEvent apply against their currentTarget.
+    module Retargeting
+      module_function
+
+      # While `target` lives in a shadow tree that does not also contain
+      # `against`, hand it up to that tree's host. A listener outside a
+      # shadow boundary therefore sees the host, never the node inside it,
+      # which is what keeps a shadow tree encapsulated. A nil `against`
+      # contains nothing, so the result is outside every shadow tree.
+      def retarget(target, against)
+        current = target
+        loop do
+          root = current.respond_to?(:get_root_node) ? current.get_root_node : nil
+          return current unless root.is_a?(ShadowRoot)
+          return current if against && shadow_including_inclusive_ancestor?(root, against)
+
+          host = root.host
+          return current if host.nil?
+
+          current = host
+        end
+      end
+
+      # Whether `ancestor` is `node` or contains it in the *shadow-including*
+      # tree. Climbs out of each shadow root through its host, which
+      # `parentNode` alone does not do once a slot is involved.
+      def shadow_including_inclusive_ancestor?(ancestor, node)
+        return false unless ancestor
+
+        current = node
+        while current
+          return true if current.equal?(ancestor)
+
+          current =
+            if current.is_a?(ShadowRoot)
+              current.host
+            elsif current.respond_to?(:parent_node)
+              current.parent_node
+            end
+        end
+        false
+      end
+    end
+  end
+
   # Note: `Callback` and `Constructor` live in `Dommy::Bridge::*` —
   # they're bridge-adapter classes, not part of the public DOM
   # surface.
@@ -88,27 +136,74 @@ module Dommy
       nil
     end
 
-    # Event handler IDL attributes (`el.onclick = fn`, `window.onload = fn`): one
-    # named handler registered as a listener, where assignment replaces any
-    # previous handler and a nil value removes it. Shared by Element and Window.
+    # HTML event handlers (`el.onclick = fn`, `window.onload = fn`,
+    # `onclick="…"`). Each handler has a value — a callback, a non-callable
+    # object, or a raw uncompiled handler from a content attribute — and, while
+    # active, ONE listener in the event listener list: added the first time the
+    # handler is set to something non-null and kept in its place when the value
+    # changes again, so `el.onclick = a; el.addEventListener(…); el.onclick = b`
+    # still runs b first. Setting it to null deactivates it (the listener goes).
     def event_name_from_on(key)
-      key.to_s.sub(/\Aon/, "").downcase
+      Internal::EventHandlers.event_type(key.to_s)
     end
 
+    # HTML "erase all event listeners and handlers" (document.open): every
+    # listener is flagged removed — so a dispatch in flight skips it — and
+    # dropped, and every event handler is deactivated.
+    #
+    # Spec: https://html.spec.whatwg.org/#erase-all-event-listeners-and-handlers
+    def __internal_erase_event_listeners_and_handlers__
+      @event_listeners&.each_value { |list| list.each { |entry| entry.removed = true } }
+      @event_listeners = nil
+      @on_handlers = nil
+      @on_handler_listeners = nil
+      nil
+    end
+
+    # The event handler IDL attribute getter: "get the current value of the
+    # event handler", which compiles a raw uncompiled handler on first read.
     def on_handler(event_name)
-      @on_handlers&.[](event_name)
+      value = @on_handlers&.[](event_name)
+      return value unless value.is_a?(Internal::EventHandlers::RawHandler)
+
+      compile_raw_event_handler(event_name, value)
     end
 
+    # The event handler IDL attribute setter. EventHandler is
+    # [LegacyTreatNonObjectAsNull]: a value that is not an object (a string, a
+    # number, a boolean) is null.
     def set_on_handler(event_name, value)
-      @on_handlers ||= {}
-      previous = @on_handlers[event_name]
-      remove_event_listener(event_name, previous) if previous
-      if value
-        add_event_listener(event_name, value, event_handler: true)
-        @on_handlers[event_name] = value
-      else
-        @on_handlers.delete(event_name)
-      end
+      value = nil unless event_handler_object?(value)
+      return __internal_deactivate_event_handler__(event_name) if value.nil?
+
+      (@on_handlers ||= {})[event_name] = value
+      activate_event_handler(event_name)
+      nil
+    end
+
+    # An event handler content attribute was set: the handler's value is the
+    # attribute's body, uncompiled (`element` is the element whose scope it
+    # compiles in, nil for a Window's handler), and the handler is activated.
+    def __internal_set_raw_event_handler__(event_name, source, element)
+      (@on_handlers ||= {})[event_name] = Internal::EventHandlers::RawHandler.new(source.to_s, element)
+      activate_event_handler(event_name)
+      nil
+    end
+
+    # HTML "deactivate an event handler": its listener leaves the list and its
+    # value is null.
+    def __internal_deactivate_event_handler__(event_name)
+      @on_handlers&.delete(event_name)
+      listener = @on_handler_listeners&.delete(event_name)
+      remove_event_listener(event_name, listener) if listener
+      nil
+    end
+
+    # DOM/HTML "fire an event": an event the user agent creates — trusted —
+    # dispatched at this target. `event_class` and `init` build it, as
+    # `new EventClass(type, init)` would.
+    def __internal_fire_event__(type, init = nil, event_class: Event)
+      dispatch_event(event_class.new(type, init).__internal_mark_trusted__)
     end
 
     def dispatch_event(event)
@@ -398,19 +493,18 @@ module Dommy
           end
         end
 
-        # The special error event handler (`window.onerror`) is called with
-        # (message, filename, lineno, colno, error) rather than the event.
-        args = __internal_error_handler_args__(event) if entry.event_handler?
-        result =
-          if entry.passive?
-            event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self, args: args) }
-          else
-            invoke_listener_isolated(entry.listener, event, self, args: args)
-          end
-        # Event handler processing algorithm: a handler registered via onX has its
-        # return value processed — onerror on a global cancels on `true`, every
-        # other handler cancels on `false` (`onsubmit="return false"`).
-        __internal_process_event_handler_return__(event, result) if entry.event_handler?
+        if entry.event_handler?
+          # The event handler processing algorithm: the handler's CURRENT value
+          # runs, and its return value is processed — onerror on a global
+          # cancels on `true`, every other handler on `false`
+          # (`onsubmit="return false"`).
+          invoked, result = invoke_event_handler(entry, event)
+          __internal_process_event_handler_return__(event, result) if invoked
+        elsif entry.passive?
+          event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
+        else
+          invoke_listener_isolated(entry.listener, event, self)
+        end
 
         break if event.immediate_propagation_stopped?
       end
@@ -426,7 +520,13 @@ module Dommy
     def __internal_process_event_handler_return__(event, result)
       if special_error_event_handler?(event)
         event.__js_call__("preventDefault", []) if result == true
-      elsif event.type != "beforeunload" && result == false
+      elsif event.is_a?(BeforeUnloadEvent) && event.type == "beforeunload"
+        # OnBeforeUnloadEventHandler returns DOMString?: anything but
+        # null/undefined cancels, and becomes returnValue if that is unset.
+        return if result.nil? || result.equal?(Bridge::UNDEFINED)
+
+        event.__internal_cancel_for_handler__(result)
+      elsif result == false
         event.__js_call__("preventDefault", [])
       end
     end
@@ -440,8 +540,77 @@ module Dommy
       [event.message, event.filename, event.lineno, event.colno, event.error]
     end
 
+    # The special error event handler: `onerror` on a Window, for an
+    # ErrorEvent. A plain `error` Event at the window is an ordinary handler
+    # call (one argument, a `false` return cancels).
     def special_error_event_handler?(event)
-      event.type == "error" && defined?(Dommy::Window) && is_a?(Dommy::Window)
+      event.type == "error" && event.is_a?(ErrorEvent) && defined?(Dommy::Window) && is_a?(Dommy::Window)
+    end
+
+    # HTML "activate an event handler": the first time the handler gets a
+    # value, its listener is added; later values reuse it.
+    def activate_event_handler(event_name)
+      @on_handler_listeners ||= {}
+      return if @on_handler_listeners.key?(event_name)
+
+      listener = Internal::EventHandlers::Listener.new(event_name)
+      @on_handler_listeners[event_name] = listener
+      add_event_listener(event_name, listener, event_handler: true)
+    end
+
+    # A value that can be an EventHandler's: an object. A Ruby string, number,
+    # boolean or JS undefined is not one.
+    def event_handler_object?(value)
+      !(value.nil? || value.is_a?(String) || value.is_a?(Numeric) || value.is_a?(Symbol) ||
+        value == true || value == false || value.equal?(Bridge::UNDEFINED))
+    end
+
+    # Compile a raw uncompiled handler (through the JS engine's compiler, which
+    # the document is given when one is attached). A body that does not parse
+    # makes the handler's value null — without deactivating it, so its listener
+    # keeps its place — and its SyntaxError is reported at the window. Without
+    # a compiler there is nothing to run.
+    def compile_raw_event_handler(event_name, raw)
+      document = event_handler_document
+      compiler = document&.event_handler_compiler
+      return nil unless compiler
+
+      window_handler = defined?(Dommy::Window) && is_a?(Dommy::Window)
+      function = compiler.call(raw.element, "on#{event_name}", raw.source, window_handler)
+      @on_handlers[event_name] = function if @on_handlers&.[](event_name).equal?(raw)
+      function
+    rescue StandardError => e
+      @on_handlers[event_name] = nil if @on_handlers&.[](event_name).equal?(raw)
+      window = window_of(self)
+      Internal::ExceptionReport.report_at(window, e) if window.respond_to?(:__internal_report_exception__)
+      nil
+    end
+
+    # The document whose engine compiles this target's handlers: a node's
+    # node document, a window's document.
+    def event_handler_document
+      if respond_to?(:owner_document) && (doc = owner_document)
+        doc
+      elsif is_a?(Document)
+        self
+      elsif respond_to?(:document)
+        document
+      end
+    end
+
+    # Invoke an event handler's current value, as the event handler processing
+    # algorithm does: nothing for a null handler, `undefined` for a value that
+    # is not callable (an object's `handleEvent` is never looked up), the
+    # special error handler's five arguments for an ErrorEvent at a Window's
+    # onerror, and the event otherwise.
+    def invoke_event_handler(entry, event)
+      callback = on_handler(entry.listener.name)
+      return [false, nil] if callback.nil?
+      return [true, nil] unless CallableInvoker.js_callable?(callback) ||
+                                (callback.respond_to?(:call) && !callback.is_a?(Module))
+
+      args = __internal_error_handler_args__(event)
+      [true, invoke_listener_isolated(callback, event, self, args: args)]
     end
 
     # Run one listener, isolating a throw so it can't escape the dispatch.
@@ -558,42 +727,11 @@ module Dommy
       @event_listeners[type]
     end
 
-    # WHATWG "retargeting": while `target` lives in a shadow tree that does not
-    # also contain `against`, hand it up to that tree's host. A listener outside
-    # a shadow boundary therefore sees the host, never the node inside it, which
-    # is what keeps a shadow tree encapsulated.
-    def retarget_against(target, against)
-      current = target
-      loop do
-        root = root_of(current)
-        return current unless root.is_a?(ShadowRoot)
-        return current if against && shadow_including_inclusive_ancestor?(root, against)
+    # WHATWG "retargeting" (Internal::Retargeting).
+    def retarget_against(target, against) = Internal::Retargeting.retarget(target, against)
 
-        host = root.host
-        return current if host.nil?
-
-        current = host
-      end
-    end
-
-    # Whether `ancestor` is `node` or contains it in the *shadow-including* tree.
-    # Climbs out of each shadow root through its host, which `parentNode` alone
-    # does not do once a slot is involved.
     def shadow_including_inclusive_ancestor?(ancestor, node)
-      return false unless ancestor
-
-      current = node
-      while current
-        return true if current.equal?(ancestor)
-
-        current =
-          if current.is_a?(ShadowRoot)
-            current.host
-          elsif current.respond_to?(:parent_node)
-            current.parent_node
-          end
-      end
-      false
+      Internal::Retargeting.shadow_including_inclusive_ancestor?(ancestor, node)
     end
   end
 
@@ -1010,20 +1148,71 @@ module Dommy
     end
   end
 
+  module Internal
+    # The `source` member ToggleEvent and CommandEvent share: an `Element?`
+    # in the init dictionary, and a getter that retargets it against the
+    # event's currentTarget, so a listener outside a shadow tree sees the
+    # host rather than the invoker inside it.
+    module EventSource
+      def source
+        @source && Retargeting.retarget(@source, @current_target)
+      end
+
+      private
+
+      def read_source_init(init)
+        value = read_init(init, "source")
+        return nil if value.nil? || (defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED))
+        raise Bridge::TypeError, "source is not of type 'Element'" unless value.is_a?(Element)
+
+        value
+      end
+    end
+  end
+
   # ToggleEvent — fired at a `<details>` (and other poppable elements) when it
   # opens/closes, exposing the transition via `oldState` / `newState`
   # ("open"/"closed"). A plain Event subclass.
   class ToggleEvent < Event
+    include Internal::EventSource
+
+    attr_reader :old_state, :new_state
+
     def initialize(type, init = nil)
       super
       @old_state = read_init(init, "oldState").to_s
       @new_state = read_init(init, "newState").to_s
+      @source = read_source_init(init)
     end
 
     def __js_get__(key)
       case key
       when "oldState" then @old_state
       when "newState" then @new_state
+      when "source" then source
+      else super
+      end
+    end
+  end
+
+  # `CommandEvent` — fired at the element a `<button commandfor>` controls
+  # when the button is activated: `command` is the button's command
+  # (`"show-modal"`, `"--custom"`), `source` the button.
+  class CommandEvent < Event
+    include Internal::EventSource
+
+    attr_reader :command
+
+    def initialize(type, init = nil)
+      super
+      @source = read_source_init(init)
+      @command = read_init(init, "command").to_s
+    end
+
+    def __js_get__(key)
+      case key
+      when "command" then @command
+      when "source" then source
       else super
       end
     end
@@ -1040,12 +1229,33 @@ module Dommy
     def initialize(type, init = nil)
       super
       @state = read_init(init, "state")
+      @has_ua_visual_transition = read_init(init, "hasUAVisualTransition") ? true : false
     end
 
-    def __js_get__(key)
-      return @state if key == "state"
+    def has_ua_visual_transition = @has_ua_visual_transition
 
+    def __js_get__(key)
+      case key
+      when "state" then @state
+      when "hasUAVisualTransition" then @has_ua_visual_transition
+      else super
+      end
+    end
+  end
+
+  # PageTransitionEvent — `pageshow` / `pagehide`. `persisted` says whether the
+  # page comes from (or goes into) the back/forward cache; Dommy has none, so
+  # the events it fires carry false.
+  class PageTransitionEvent < Event
+    def initialize(type, init = nil)
       super
+      @persisted = read_init(init, "persisted") ? true : false
+    end
+
+    def persisted = @persisted
+
+    def __js_get__(key)
+      key == "persisted" ? @persisted : super
     end
   end
 
@@ -1742,6 +1952,15 @@ module Dommy
     end
 
     attr_accessor :return_value
+
+    # The event handler processing algorithm's beforeunload step: a handler
+    # that returned a value sets the canceled flag, and the value becomes
+    # returnValue unless one was already set.
+    def __internal_cancel_for_handler__(result)
+      @default_prevented = true
+      @return_value = result.to_s if @return_value.empty?
+      nil
+    end
 
     def __js_get__(key)
       case key

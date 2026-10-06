@@ -35,9 +35,11 @@ class TestWPTLocationProtocolNormalization < Minitest::Test
     @loc = @win.location
   end
 
-  def test_protocol_setter_appends_trailing_colon
+  # The setter navigates only to an http(s) URL; any other scheme leaves the
+  # location as it was.
+  def test_protocol_setter_ignores_a_non_http_scheme
     @loc.__js_set__("protocol", "ftp")
-    assert_equal("ftp:", @loc.__js_get__("protocol"))
+    assert_equal("http:", @loc.__js_get__("protocol"))
   end
 
   def test_protocol_setter_accepts_already_normalized_form

@@ -27,9 +27,16 @@ const WebIDL2 = require(path.join(wpt, "resources/webidl2/lib/webidl2.js"));
 // than failing the suite outright.
 // (Web Storage, DOMParser and XMLSerializer live in html.idl, not in a spec
 // file of their own.)
+//
+// pointerevents, touch-events, css-animations, css-transitions and fullscreen
+// are here for the event handler IDL attributes they add to
+// GlobalEventHandlers / Element / Document (onpointerdown, ontouchstart,
+// onanimationend, ontransitionend, onfullscreenchange), which
+// script/build_event_handlers.rb turns into the event handler tables.
 const SPECS = [
   "dom", "cssom", "html", "uievents", "url", "FileAPI", "encoding",
-  "xhr", "wai-aria", "fetch", "streams", "cssom-view", "selection-api"
+  "xhr", "wai-aria", "fetch", "streams", "cssom-view", "selection-api",
+  "pointerevents", "touch-events", "css-animations", "css-transitions", "fullscreen"
 ];
 
 const interfaces = new Map(); // name -> record
@@ -94,14 +101,20 @@ function idlTypeName(t) {
 function reflectRecord(m) {
   const ea = {};
   for (const a of m.extAttrs || []) ea[a.name] = a.rhs === undefined ? null : a.rhs;
-  const shape = "ReflectURL" in ea ? "url"
-    : "ReflectSetter" in ea ? "setter"
-    : "Reflect" in ea ? "plain"
-    : null;
-  if (!shape) return null;
+  // HTML §2.6.1 "Using reflect via IDL extended attributes": [Reflect],
+  // [ReflectSetter], [ReflectURL], [ReflectNonNegative], [ReflectPositive]
+  // and [ReflectPositiveWithFallback] ALL trigger reflection, one at a time,
+  // each optionally naming the content attribute — `textarea.cols` carries
+  // only [ReflectPositiveWithFallback, ReflectDefault=20].
+  const primary = ["ReflectURL", "ReflectSetter", "Reflect", "ReflectNonNegative",
+    "ReflectPositive", "ReflectPositiveWithFallback"].find((name) => name in ea);
+  if (!primary) return null;
+  const shape = primary === "ReflectURL" ? "url"
+    : primary === "ReflectSetter" ? "setter"
+    : "plain";
 
   const out = { shape };
-  const named = ea.Reflect;
+  const named = ea[primary];
   if (named && named.type === "string") out.attr = named.value.replace(/^"|"$/g, "");
   if ("ReflectDefault" in ea) out.default = literal(ea.ReflectDefault);
   if ("ReflectRange" in ea) out.range = (ea.ReflectRange.value || []).map(literal);
@@ -181,6 +194,9 @@ function memberRecord(m) {
         null_to_empty_string: nullToEmptyString(m),
         same_object: hasExtAttr(m, "SameObject"),
         put_forwards: extAttrValue(m, "PutForwards"),
+        // [Replaceable]: readonly, but an assignment replaces the property
+        // with the assigned value instead of being ignored.
+        replaceable: hasExtAttr(m, "Replaceable"),
         // `stringifier attribute USVString href`: the attribute is also what
         // the interface's toString returns.
         stringifier: m.special === "stringifier"
@@ -283,12 +299,15 @@ for (const spec of SPECS) {
       rec.callback = def.type === "callback interface";
       rec.legacy_no_interface_object = !!ea.LegacyNoInterfaceObject;
       rec.global = !!ea.Global;
-      // How a legacy platform object's NAMED properties behave: whether they
-      // are enumerable, and whether they resolve before the prototype chain.
-      rec.override_builtins = !!ea.LegacyOverrideBuiltIns;
-      rec.unenumerable_named_properties = !!ea.LegacyUnenumerableNamedProperties;
       rec.declared = true;
     }
+    // How a legacy platform object's NAMED properties behave: whether they are
+    // enumerable, and whether they resolve before the prototype chain. Carried
+    // by whichever declaration has the named getter, which may be a partial
+    // (`[LegacyOverrideBuiltIns] partial interface Document`).
+    rec.override_builtins = !!rec.override_builtins || !!ea.LegacyOverrideBuiltIns;
+    rec.unenumerable_named_properties =
+      !!rec.unenumerable_named_properties || !!ea.LegacyUnenumerableNamedProperties;
     // A partial may narrow/extend exposure; the union is what a Window sees.
     if (ea.exposed) rec.exposed = [...new Set([...(rec.exposed || []), ...ea.exposed])];
     for (const m of def.members) {

@@ -3,8 +3,9 @@
 // These are the enumerations the specs themselves make: which interfaces have a
 // value iterator or a named getter, what [Constant]s an interface object
 // carries, which members go on which interface prototype and with what `length`,
-// which attributes are [LegacyUnforgeable] or readonly, which operations return
-// undefined, and which `on*` attributes are event handlers. They describe the
+// which attributes are [LegacyUnforgeable] or readonly, and which operations
+// return undefined. (Which `on*` attributes are event handlers is generated
+// from the IDL, into webidl_event_handlers.js.) They describe the
 // platform, not Dommy's bridge — they change when a spec changes, whereas
 // host_runtime.js changes when the bridge's machinery does, which is why they
 // are a file of their own. test/support/webidl_audit.rb reads the [Constant]
@@ -25,7 +26,9 @@ globalThis.__rbIdl = (function () {
   const ARRAY_LIKE_COLLECTIONS = new Set([
     "HTMLCollection", "HTMLFormControlsCollection", "HTMLOptionsCollection", "NodeList",
     "RadioNodeList", "DOMTokenList", "NamedNodeMap", "DOMStringList", "FileList", "CSSRuleList",
-    "StyleSheetList", "DataTransferItemList", "MediaList", "HTMLSelectElement"
+    "StyleSheetList", "DataTransferItemList", "MediaList", "HTMLSelectElement",
+    // `getter Element (unsigned long index)` + `length`: form[i] is elements[i].
+    "HTMLFormElement"
   ]);
   // Legacy platform objects with a WebIDL indexed property SETTER: `obj[i] = v`
   // routes to the host (Ruby __js_set__ with the index) instead of being a
@@ -40,29 +43,6 @@ globalThis.__rbIdl = (function () {
   // nothing else, which is every other collection above — the list is short
   // because being iterable is the exception, not the rule.
   const PAIR_ITERABLE_COLLECTIONS = new Set(["NodeList", "DOMTokenList"]);
-
-  // WebIDL legacy platform objects with a named property getter, and whether
-  // their named properties are enumerable (DOMStringMap) and writable/deletable
-  // (DOMStringMap has a named setter/deleter; HTMLCollection/NamedNodeMap are
-  // read-only — `coll[name] = x` / `delete coll[name]` reject in strict mode).
-  const NAMED_PROP_COLLECTIONS = new Map([
-    ["HTMLCollection", { enumerable: false, writable: false }],
-    ["HTMLFormControlsCollection", { enumerable: false, writable: false }],
-    // HTMLFormElement is [LegacyOverrideBuiltIns]: a named control shadows the
-    // form's own prototype members (`form.submit`, `form.action`, `form.length`
-    // return the matching control), so its named props resolve BEFORE the chain.
-    ["HTMLFormElement", { enumerable: false, writable: false, overrideBuiltins: true }],
-    ["HTMLOptionsCollection", { enumerable: false, writable: false }],
-    ["NamedNodeMap", { enumerable: false, writable: false }],
-    // [LegacyOverrideBuiltIns]: a data-* name resolves BEFORE anything on
-    // DOMStringMap.prototype, so `dataset.constructor` is the stored value when
-    // there is one.
-    ["DOMStringMap", { enumerable: true, writable: true, overrideBuiltins: true }],
-    // Storage (localStorage/sessionStorage): named getter/setter/deleter, keys
-    // enumerable; the named setter takes a DOMString value (ToString-coerced
-    // JS-side below, like DOMStringMap).
-    ["Storage", { enumerable: true, writable: true }],
-  ]);
 
   // Form-control value-like properties exposed as accessor descriptors on the
   // interface prototype (see protoForChain) — what React's value-tracker reads
@@ -200,7 +180,7 @@ globalThis.__rbIdl = (function () {
   // (`rule.type === CSSRule.STYLE_RULE`).
   const CSSRULE_CONSTANTS = {
     STYLE_RULE: 1, CHARSET_RULE: 2, IMPORT_RULE: 3, MEDIA_RULE: 4, FONT_FACE_RULE: 5,
-    PAGE_RULE: 6, MARGIN_RULE: 9, NAMESPACE_RULE: 10
+    PAGE_RULE: 6, KEYFRAMES_RULE: 7, KEYFRAME_RULE: 8, MARGIN_RULE: 9, NAMESPACE_RULE: 10
   };
 
   // EventSource / FileReader ready-state [Constant]s.
@@ -212,6 +192,9 @@ globalThis.__rbIdl = (function () {
     DOM_KEY_LOCATION_STANDARD: 0x00, DOM_KEY_LOCATION_LEFT: 0x01,
     DOM_KEY_LOCATION_RIGHT: 0x02, DOM_KEY_LOCATION_NUMPAD: 0x03
   };
+
+  // WheelEvent.deltaMode [Constant]s.
+  const WHEELEVENT_CONSTANTS = { DOM_DELTA_PIXEL: 0x00, DOM_DELTA_LINE: 0x01, DOM_DELTA_PAGE: 0x02 };
 
   // HTMLMediaElement networkState / readyState, and HTMLTrackElement readyState.
   const HTMLMEDIAELEMENT_CONSTANTS = {
@@ -230,7 +213,7 @@ globalThis.__rbIdl = (function () {
     WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS, XMLHttpRequest: XHR_CONSTANTS,
     DOMException: DOMEXCEPTION_CONSTANTS, CSSRule: CSSRULE_CONSTANTS,
     EventSource: EVENTSOURCE_CONSTANTS, FileReader: FILEREADER_CONSTANTS,
-    KeyboardEvent: KEYBOARDEVENT_CONSTANTS,
+    KeyboardEvent: KEYBOARDEVENT_CONSTANTS, WheelEvent: WHEELEVENT_CONSTANTS,
     HTMLMediaElement: HTMLMEDIAELEMENT_CONSTANTS,
     HTMLTrackElement: HTMLTRACKELEMENT_CONSTANTS
   };
@@ -436,48 +419,6 @@ globalThis.__rbIdl = (function () {
     "before", "after", "replaceWith", "prepend", "append", "replaceChildren"
   ]);
 
-  // The event handler CONTENT attributes HTML (with Pointer/Touch/Animation
-  // Events) defines on elements. An `on*` attribute outside this set is not a
-  // handler and must stay inert: `onreadystatechange` and `onvisibilitychange`
-  // are IDL attributes of Document only, and `div.setAttribute("onfoobar", …)`
-  // names no event handler at all.
-  const ELEMENT_HANDLER_ATTRIBUTES = new Set([
-    "onabort", "onauxclick", "onbeforeinput", "onbeforetoggle", "onblur", "oncancel",
-    "oncanplay", "oncanplaythrough", "onchange", "onclick", "onclose", "oncommand",
-    "oncontextlost", "oncontextmenu", "oncontextrestored", "oncopy", "oncuechange",
-    "oncut", "ondblclick", "ondrag", "ondragend", "ondragenter", "ondragleave",
-    "ondragover", "ondragstart", "ondrop", "ondurationchange", "onemptied", "onended",
-    "onerror", "onfocus", "onfocusin", "onfocusout", "onformdata", "oninput",
-    "oninvalid", "onkeydown", "onkeypress", "onkeyup", "onload", "onloadeddata",
-    "onloadedmetadata", "onloadstart", "onmousedown", "onmouseenter", "onmouseleave",
-    "onmousemove", "onmouseout", "onmouseover", "onmouseup", "onpaste", "onpause",
-    "onplay", "onplaying", "onprogress", "onratechange", "onreset", "onresize",
-    "onscroll", "onscrollend", "onsecuritypolicyviolation", "onseeked", "onseeking",
-    "onselect", "onselectstart", "onslotchange", "onstalled", "onsubmit", "onsuspend",
-    "ontimeupdate", "ontoggle", "onvolumechange", "onwaiting", "onwheel",
-    "onanimationstart", "onanimationend", "onanimationiteration",
-    "ongotpointercapture", "onlostpointercapture", "onpointercancel", "onpointerdown",
-    "onpointerenter", "onpointerleave", "onpointermove", "onpointerout",
-    "onpointerover", "onpointerrawupdate", "onpointerup",
-    "ontouchcancel", "ontouchend", "ontouchmove", "ontouchstart",
-  ]);
-
-  // Window event handlers that `body` and `frameset` — and only those two —
-  // additionally carry as content attributes, reflecting onto the Window.
-  const WINDOW_REFLECTED_HANDLERS = new Set([
-    "onafterprint", "onbeforeprint", "onbeforeunload", "onhashchange",
-    "onlanguagechange", "onmessage", "onmessageerror", "onoffline", "ononline",
-    "onpagehide", "onpageshow", "onpopstate", "onrejectionhandled", "onstorage",
-    "onunhandledrejection", "onunload",
-  ]);
-
-  // On body/frameset, blur/error/focus/load/resize/scroll are the Window's
-  // handlers too, so they reflect there like the rest of WINDOW_REFLECTED.
-  const BODY_REFLECTED_HANDLERS = new Set([
-    ...WINDOW_REFLECTED_HANDLERS,
-    "onblur", "onerror", "onfocus", "onload", "onresize", "onscroll",
-  ]);
-
   // WebIDL operation `length` = the count of required arguments (it stops at the
   // first optional or variadic one). Our stubs use rest params, so they report 0;
   // stamp the spec length where a WPT test — or a `.length`-branching helper like
@@ -537,11 +478,11 @@ globalThis.__rbIdl = (function () {
   // default 0 and is absent here (Blob, FormData, Document, CustomElementRegistry,
   // the HTML element interfaces, …).
   const CONSTRUCTOR_ARITY = {
-    BroadcastChannel: 1, ByteLengthQueuingStrategy: 1, CompositionEvent: 1,
+    BroadcastChannel: 1, ByteLengthQueuingStrategy: 1, CommandEvent: 1, CompositionEvent: 1,
     CountQueuingStrategy: 1, CustomEvent: 1, DeviceMotionEvent: 1,
     DeviceOrientationEvent: 1, DragEvent: 1, ErrorEvent: 1, Event: 1,
     EventSource: 1, File: 2, FocusEvent: 1, FormDataEvent: 2, HashChangeEvent: 1, InputEvent: 1,
-    KeyboardEvent: 1, MessageEvent: 1, MutationObserver: 1, PopStateEvent: 1,
+    KeyboardEvent: 1, MessageEvent: 1, MutationObserver: 1, PageTransitionEvent: 1, PopStateEvent: 1,
     ProcessingInstruction: 1, ProgressEvent: 1, PromiseRejectionEvent: 2,
     Request: 1, StaticRange: 1, StorageEvent: 1, SubmitEvent: 1,
     ToggleEvent: 1, UIEvent: 1, URL: 1, Worker: 1
@@ -561,7 +502,7 @@ globalThis.__rbIdl = (function () {
     "preventDefault", "stopPropagation", "stopImmediatePropagation", "initEvent", "initCustomEvent",
     "initStorageEvent", "initTextEvent", "initDeviceMotionEvent", "initDeviceOrientationEvent",
     "focus", "blur", "click", "select", "setCustomValidity", "stepUp", "stepDown", "setSelectionRange",
-    "setRangeText", "setPointerCapture",
+    "setRangeText", "showPicker", "setPointerCapture",
     "releasePointerCapture", "observe", "unobserve", "disconnect", "setStart", "setEnd", "setStartBefore",
     "setStartAfter", "setEndBefore", "setEndAfter", "selectNode", "selectNodeContents", "deleteContents",
     "insertNode", "surroundContents", "detach", "removeAllRanges", "addRange", "removeRange", "collapse",
@@ -579,7 +520,8 @@ globalThis.__rbIdl = (function () {
     "deleteTHead", "drawFocusIfNeeded", "drawImage", "ellipse", "empty", "fill", "fillRect", "fillText",
     "go", "hidePopover", "initKeyboardEvent", "initMessageEvent", "initUIEvent", "insertData", "lineTo",
     "load", "moveTo", "pause", "postMessage", "putImageData", "quadraticCurveTo", "queueMicrotask",
-    "rect", "removeListener", "removeRule", "replaceData", "replaceSync", "reportError", "requestSubmit", "reset",
+    "rect", "removeListener", "removeRule", "replaceData", "replaceSync", "reportError", "requestClose",
+    "requestSubmit", "reset",
     "resetTransform", "resizeTo", "restore", "rotate", "roundRect", "save", "scale", "send",
     "set", "setData", "setLineDash", "setTransform", "show", "showModal", "showPopover",
     "sort", "stroke", "strokeRect", "strokeText", "submit", "terminate", "throwIfAborted",
@@ -603,6 +545,7 @@ globalThis.__rbIdl = (function () {
     Document: ["close", "write", "writeln"],
     EventSource: ["close"],
     HTMLDialogElement: ["close"],
+    HTMLMarqueeElement: ["stop"],
     MessagePort: ["close"],
     ReadableStreamDefaultController: ["close"],
     AbortController: ["abort"],
@@ -625,7 +568,6 @@ globalThis.__rbIdl = (function () {
     INDEXED_SETTER_INTERFACES,
     ENTRIES_ITERABLES,
     PAIR_ITERABLE_COLLECTIONS,
-    NAMED_PROP_COLLECTIONS,
     FORM_VALUE_FIELDS,
     READONLY_ATTRS,
     UNFORGEABLE_ATTRS,
@@ -638,9 +580,6 @@ globalThis.__rbIdl = (function () {
     INTERFACE_UNSCOPABLES,
     PROTO_RESOLVED_METHODS,
     NODE_OR_STRING_METHODS,
-    ELEMENT_HANDLER_ATTRIBUTES,
-    WINDOW_REFLECTED_HANDLERS,
-    BODY_REFLECTED_HANDLERS,
     METHOD_ARITY,
     INTERFACE_METHOD_ARITY,
     CONSTRUCTOR_ARITY,

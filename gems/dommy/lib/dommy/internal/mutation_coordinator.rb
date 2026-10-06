@@ -68,11 +68,15 @@ module Dommy
         each_shadow_including_element(nk) { |element| notify_moved(element) }
       end
 
-      # HTML's removing steps for a popover (it hides) and the disconnected
-      # callbacks, over the same shadow-including walk.
+      # HTML's removing steps — the focus fixup, a popover hiding, a dialog
+      # leaving the top layer — and the disconnected callbacks, over the same
+      # shadow-including walk.
       def notify_disconnected_subtree(nk)
+        root = @document.wrap_node(nk)
+        @document.__internal_focused_subtree_removed__(root) if root
         each_shadow_including_element(nk) do |element|
           element.__internal_popover_removed__ if element.respond_to?(:__internal_popover_removed__)
+          element.__internal_dialog_removed__ if element.respond_to?(:__internal_dialog_removed__)
           notify_disconnected(element)
         end
       end
@@ -126,6 +130,12 @@ module Dommy
         # walk for mutations within a still-detached tree — the common case
         # during bulk DOM construction, where nothing in the walk can fire.
         if !moving && (!target.respond_to?(:is_connected?) || target.is_connected?)
+          # A script's children changed steps run before the post-connection
+          # steps of what was inserted into it (DOM "insert" orders them so).
+          # Only for an insertion: DOM runs them for a removal too, but no
+          # browser prepares a script because a child left it, and WPT's
+          # script-does-not-run-on-child-removal holds them to that.
+          @post_insertion_steps.script_children_changed(target) unless added_nodes.empty?
           added_nodes.each { |nk| notify_connected_subtree(nk) }
           removed_nodes.each { |nk| notify_disconnected_subtree(nk) }
         end
@@ -135,6 +145,12 @@ module Dommy
         # already consistent by the time it is attached.
         @post_insertion_steps.details_inserted(added_nodes)
         @post_insertion_steps.select_mutated(target_node, added_nodes, removed_nodes)
+        connected = target.respond_to?(:is_connected?) && target.is_connected?
+        @post_insertion_steps.radios_moved(added_nodes, connected: connected && !moving)
+        @post_insertion_steps.radios_moved(removed_nodes, connected: false)
+        # HTML's "children changed steps" for the one element that has its own
+        # (a pristine textarea's raw value follows its child text content).
+        target.__internal_children_changed__(added_nodes, removed_nodes) if target.is_a?(HTMLTextAreaElement)
 
         # MutationRecords are only needed when something is observing; skip the
         # eager wrapping + record entirely when no observer is registered.
@@ -223,6 +239,10 @@ module Dommy
 
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
+        @post_insertion_steps.script_attribute_changed(target, attr, new_value, namespace)
+        # An event handler content attribute (`onclick="…"`) sets or removes
+        # its handler.
+        EventHandlers.attribute_changed(target, attr, new_value, namespace) if attr.start_with?("on") && target.is_a?(Element)
 
         nil
       end

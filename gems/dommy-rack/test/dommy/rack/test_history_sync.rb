@@ -72,7 +72,11 @@ class Dommy::Rack::TestHistorySync < Minitest::Test
 
     # The page itself goes back (history.back() from JS): the session cursor
     # follows, so a subsequent session.forward returns to the pushed entry.
-    session.document.default_view.history.__js_call__("back", [])
+    window = session.document.default_view
+    window.history.__js_call__("back", [])
+    # The traversal runs from a task, not inside back().
+    assert_equal "/posts/1", session.current_path
+    window.scheduler.advance_time(0)
     assert_equal "/", session.current_path
 
     requests.clear
@@ -87,9 +91,12 @@ class Dommy::Rack::TestHistorySync < Minitest::Test
     stale_window = session.document.default_view
     session.visit("/other")
 
-    # A retained handle to the navigated-away page pushes state: the session's
-    # URL and joint history must not follow a dead document.
-    stale_window.history.__js_call__("pushState", [nil, nil, "/ghost"])
+    # A retained handle to the navigated-away page pushes state: its document
+    # is no longer fully active, so History refuses (SecurityError), and the
+    # session's URL and joint history do not follow a dead document.
+    assert_raises(Dommy::DOMException::SecurityError) do
+      stale_window.history.__js_call__("pushState", [nil, nil, "/ghost"])
+    end
 
     assert_equal "/other", session.current_path
     assert_equal %w[http://example.org/ http://example.org/other], session.history.entries

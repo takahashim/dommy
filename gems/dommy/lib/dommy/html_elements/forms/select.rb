@@ -8,9 +8,7 @@ module Dommy
   # `selectedIndex`, and dispatches change events. Minimal compared to
   # happy-dom's full HTMLSelectElement, but covers common test cases.
   class HTMLSelectElement < HTMLElement
-    reflect_string :name
-    reflect_boolean :multiple, :disabled, :required
-    reflect_ulong size: { default: 0 }
+    include Internal::ConstraintValidation
     # `autocomplete` — the setter reflects, but the getter is HTML's autofill
     # processing model (Internal::Autofill). A select has no type state, so it
     # always wears the "autofill expectation mantle".
@@ -42,15 +40,44 @@ module Dommy
       nil
     end
 
-    # `options` — all <option> descendants (including those inside
-    # <optgroup>). Live HTMLOptionsCollection (HTMLCollection +
-    # add/remove/selectedIndex/length= helpers).
+    # `options` — the select's list of options, as a live
+    # HTMLOptionsCollection (HTMLCollection + add/remove/selectedIndex/length=).
     def options
       el = self
-      @options ||= HTMLOptionsCollection.new(self) do
-        el.__dommy_backend_node__.css("option").map { |n| el.document.wrap_node(n) }.compact
+      @options ||= HTMLOptionsCollection.new(self) { el.__internal_list_of_options__ }
+    end
+
+    # Elements whose subtree the list of options does not descend into.
+    OPTION_LIST_STOPS = %w[select hr option datalist].freeze
+
+    # HTML "get the list of options": the option children of the select, of
+    # its optgroups and of any other element in between — but not inside a
+    # nested select, an hr, an option, a datalist, or an optgroup nested in
+    # another optgroup. Every select algorithm (options, selectedness, value,
+    # the entry list) walks this one list.
+    def __internal_list_of_options__
+      found = []
+      collect_list_of_options(@__node__, false, found)
+      doc = document
+      found.map { |n| doc.wrap_node(n) }.compact
+    end
+
+    def collect_list_of_options(parent, in_optgroup, found)
+      parent.children.each do |node|
+        next unless node.element?
+
+        name = Backend.namespace_uri(node) == Internal::Namespaces::HTML ? node.name.downcase : nil
+        if name == "option"
+          found << node
+          next
+        end
+        next if OPTION_LIST_STOPS.include?(name)
+        next if name == "optgroup" && in_optgroup
+
+        collect_list_of_options(node, in_optgroup || name == "optgroup", found)
       end
     end
+    private :collect_list_of_options
 
     # `selectedOptions` — live collection of the options whose selectedness is
     # true (a settled single-select has at most one).
@@ -204,17 +231,10 @@ module Dommy
       options[i.to_i]
     end
 
-    # `select.add(option, before)` — appends or inserts before `before`.
+    # `select.add(element, before)` — HTML has it run the options collection's
+    # add() algorithm.
     def add(option, before = nil)
-      return nil unless option.is_a?(Node) && option.__dommy_backend_node__
-
-      if before.is_a?(Node) && before.__dommy_backend_node__
-        insert_before(option, before)
-      else
-        append_child(option)
-      end
-
-      nil
+      options.add(option, before)
     end
 
     # `select.remove(i)` — removes the option at index i. (Note: also
@@ -237,43 +257,9 @@ module Dommy
       multiple ? "select-multiple" : "select-one"
     end
 
-    def validity
-      @__validity ||= ValidityState.new(self)
-    end
-
-    def will_validate
-      !reflected_boolean("disabled") && !disabled_by_ancestor_fieldset? && closest("datalist").nil?
-    end
-
-    def validation_message
-      return "" unless will_validate
-
-      msg = (@custom_validity_message || "").to_s
-      return msg unless msg.empty?
-      return "Please select an item in the list." if validity.value_missing
-
-      ""
-    end
-
-    def check_validity
-      ok = !will_validate || validity.valid
-      dispatch_event(Event.new("invalid", "bubbles" => false, "cancelable" => true)) unless ok
-      ok
-    end
-
-    def report_validity
-      check_validity
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
-    end
-
     js_accessor :value, selected_index: "selectedIndex", length: "length"
-    js_readable :options, :size, :form, :labels, :type, :validity,
-      selected_options: "selectedOptions",
-      will_validate: "willValidate", validation_message: "validationMessage"
+    js_readable :options, :form, :labels, :type,
+      selected_options: "selectedOptions"
 
     # Indexed getter: `select[i]` is the option at index i (WebIDL).
     def __js_get__(key)
@@ -293,7 +279,15 @@ module Dommy
       super
     end
 
-    js_methods %w[item namedItem add remove checkValidity reportValidity setCustomValidity]
+    js_methods %w[item namedItem add remove showPicker]
+
+    # HTML `showPicker()`: a disabled select is an InvalidStateError, and
+    # without transient activation (which Dommy never has) a NotAllowedError.
+    def show_picker
+      raise DOMException::InvalidStateError, "The select is not mutable." if __internal_actually_disabled__
+
+      raise DOMException::NotAllowedError, "showPicker() requires a user gesture."
+    end
     def __js_call__(method, args)
       case method
       when "item"
@@ -306,12 +300,8 @@ module Dommy
         # HTMLSelectElement.remove(index) removes an option; with no argument it
         # is ChildNode.remove() (removes the <select> itself).
         args.empty? ? super : remove_option(args[0])
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
+      when "showPicker"
+        show_picker
       else
         super
       end
@@ -329,7 +319,6 @@ module Dommy
 
   # `<option>` — value, label, selected, disabled, text, index, form.
   class HTMLOptionElement < HTMLElement
-    reflect_boolean :disabled, default_selected: "selected"
     reflect_setter :value, :label
     def value
       # `value`/`label` reflect the NO-namespace content attribute (a same-named
@@ -393,11 +382,29 @@ module Dommy
       __internal_write_selectedness__(default_selected)
     end
 
-    # The select whose list of options this option is in — nil while detached.
-    # Matches HTMLSelectElement#options, which collects every descendant option.
+    # HTML "nearest ancestor select": walking up from the parent, a datalist,
+    # hr or option ancestor, or a second optgroup, means the option is in no
+    # select's list of options; the first select ancestor otherwise owns it.
+    # Mirrors HTMLSelectElement#__internal_list_of_options__.
     def __internal_owner_select__
-      owner = closest("select")
-      owner.is_a?(HTMLSelectElement) ? owner : nil
+      optgroup = false
+      node = @__node__.parent
+      while node && node.element?
+        if Backend.namespace_uri(node) == Internal::Namespaces::HTML
+          case node.name.downcase
+          when "datalist", "hr", "option" then return nil
+          when "optgroup"
+            return nil if optgroup
+
+            optgroup = true
+          when "select"
+            owner = @document.wrap_node(node)
+            return owner.is_a?(HTMLSelectElement) ? owner : nil
+          end
+        end
+        node = node.parent
+      end
+      nil
     end
 
     # HTML's attribute change steps for an option: while not dirty, selectedness
@@ -494,15 +501,15 @@ module Dommy
       __internal_owner_select__&.form
     end
 
-    # `index` — position within the containing select's options list.
+    # `index` — position within the owning select's list of options, else 0.
     def index
-      sel = closest("select")
+      sel = __internal_owner_select__
       return 0 unless sel
 
-      sel.options.find_index { |o| o.__dommy_backend_node__ == @__node__ } || 0
+      sel.options.find_index { |o| o.__dommy_backend_node__.equal?(@__node__) } || 0
     end
 
-    js_accessor :value, :label, :default_selected, :selected, :text
+    js_accessor :value, :label, :selected, :text
     js_readable :form, :index
 
   end
@@ -513,8 +520,6 @@ module Dommy
 
   # `<optgroup>` — label + disabled, container for options.
   class HTMLOptGroupElement < HTMLElement
-    reflect_string :label
-    reflect_boolean :disabled
   end
 
   # `<textarea>` — multi-line text input.

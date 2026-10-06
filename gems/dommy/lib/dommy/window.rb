@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "internal/window_constructors"
+require_relative "internal/origin"
 
 require "uri"
 
@@ -26,24 +27,14 @@ module Dommy
     include Internal::WindowConstructors
 
     include EventTarget
+    extend Internal::EventHandlers::AnswersIdlAttributes
 
-    # Event handler IDL attributes the Window exposes (GlobalEventHandlers +
-    # WindowEventHandlers). Setting one (`window.onload = fn`) registers a
-    # listener; only these known names are intercepted so an arbitrary
-    # on-prefixed global (`window.onboarding = {...}`) still stays a plain
-    # expando rather than being mistaken for an event handler.
-    WINDOW_EVENT_HANDLER_NAMES = %w[
-      onabort onauxclick onbeforeinput onbeforematch onbeforetoggle onblur oncancel oncanplay
-      oncanplaythrough onchange onclick onclose oncontextlost oncontextmenu oncontextrestored oncopy
-      oncuechange oncut ondblclick ondrag ondragend ondragenter ondragleave ondragover ondragstart
-      ondrop ondurationchange onemptied onended onerror onfocus onformdata oninput oninvalid onkeydown
-      onkeypress onkeyup onload onloadeddata onloadedmetadata onloadstart onmousedown onmouseenter
-      onmouseleave onmousemove onmouseout onmouseover onmouseup onpaste onpause onplay onplaying
-      onprogress onratechange onreset onresize onscroll onscrollend onsecuritypolicyviolation onseeked
-      onseeking onselect onslotchange onstalled onsubmit onsuspend ontimeupdate ontoggle onvolumechange
-      onwaiting onwheel onafterprint onbeforeprint onbeforeunload onhashchange onlanguagechange onmessage
-      onmessageerror onoffline ononline onpagehide onpageshow onpopstate onrejectionhandled onstorage
-      onunhandledrejection onunload
+    # Window attributes declared [Replaceable]: an assignment from script
+    # replaces the accessor with a plain data property, which later reads see.
+    REPLACEABLE_ATTRIBUTES = %w[
+      self frames parent opener external locationbar menubar personalbar scrollbars statusbar toolbar
+      screen screenX screenLeft screenY screenTop innerWidth innerHeight outerWidth outerHeight
+      scrollX pageXOffset scrollY pageYOffset devicePixelRatio origin visualViewport
     ].to_set.freeze
 
     attr_reader :document, :scheduler, :location, :globals, :custom_elements, :navigator, :history
@@ -64,7 +55,9 @@ module Dommy
     # the bridge ABI on purpose (see its own note), so a Ruby caller that wants
     # an origin asks the Window, not `location.__js_get__("origin")`.
     def origin
-      @location ? @location.__js_get__("origin").to_s : ""
+      return "" unless @location
+
+      Internal::Origin.of_window(self)
     end
 
     # The child browsing contexts' windows, in document order — one per `<iframe>`
@@ -74,6 +67,55 @@ module Dommy
       @document.query_selector_all("iframe").map do |frame|
         frame.respond_to?(:content_window) ? frame.content_window : nil
       end
+    end
+
+    # HTML §7.2.2.3 "Named access on the Window object". The Window supports
+    # named properties ([Global], [LegacyUnenumerableNamedProperties]): its
+    # child navigables' target names, the names of its document's embed / form /
+    # img / object elements, and the ids of its document's elements, in tree
+    # order. They sit behind every real member and JS global (no
+    # [LegacyOverrideBuiltIns]) — the bridge asks for them last.
+    WINDOW_NAMED_ELEMENTS = %w[embed form img object].freeze
+
+    def __js_named_props__
+      names = []
+      first_named = Set.new
+      window_named_candidates.each do |el|
+        if (target = child_navigable_name(el))
+          # The document-tree child navigable target name property set: the
+          # first navigable of each non-empty name, kept when its document is
+          # same origin with this window.
+          if !target.empty? && first_named.add?(target) && same_origin_child?(el)
+            names << target
+          end
+        end
+        name = window_named_element_name(el)
+        names << name if name
+        id = el.__internal_attribute_value__("id").to_s
+        names << id unless id.empty?
+      end
+      names.uniq
+    end
+
+    # The value of the named property `name`: the WindowProxy of the first
+    # container whose child navigable is named `name`, else the one element
+    # named or identified by it, else a live HTMLCollection of all of them.
+    def __js_named_get__(name)
+      name = name.to_s
+      return Bridge::ABSENT if name.empty?
+
+      candidates = window_named_candidates
+      container = candidates.find { |el| child_navigable_name(el) == name }
+      # (An iframe whose document the host has not supplied yet has no window
+      # here; its name then falls through to the elements.)
+      window = container&.content_window
+      return window if window
+
+      elements = window_named_elements(candidates, name)
+      return Bridge::ABSENT if elements.empty?
+      return elements.first if elements.size == 1
+
+      HTMLCollection.new { window_named_elements(window_named_candidates, name) }
     end
 
     # Optional WebSocket transport factory (a host seam, like the document's
@@ -122,8 +164,6 @@ module Dommy
       @crypto = Crypto.new(self)
       @css_namespace = CSSNamespace.new
       @cookie_store = CookieStore.new(self)
-      @local_storage = Storage.new
-      @session_storage = Storage.new
       @location = Location.new(self)
       @history = History.new(self, @location)
       # `JS.global[:__some_key__] = ...` from user code lands here. Test code
@@ -161,6 +201,10 @@ module Dommy
       ctor = @constructors[key]
       return ctor if ctor
 
+      # A [Replaceable] attribute the page assigned is a plain data property from
+      # then on.
+      return @globals[key] if REPLACEABLE_ATTRIBUTES.include?(key) && @globals.key?(key)
+
       case key
       when "event"
         # Legacy `window.event` (DOM "Legacy extensions to the Window
@@ -179,11 +223,42 @@ module Dommy
         # (the frames `window[i]` indexes). [Replaceable], like `event`: once a
         # page assigns it, its own value wins.
         @globals.key?("length") ? @globals["length"] : frame_windows.size
-      when "window", "self", "parent", "top", "frames"
-        # A top-level browsing context refers to itself for these. Returning the
-        # window (not nil) lets `window === window.parent` and frame-walking
-        # loops (e.g. testharness.js's `while (w != w.parent)`) terminate.
+      when "window", "self", "frames"
+        # Always this window's own WindowProxy, browsing context or not.
         self
+      when "parent"
+        # The container's window for a nested browsing context, this window for
+        # a top-level one — so `window === window.parent` and frame-walking loops
+        # (testharness.js's `while (w != w.parent)`) terminate — and null once
+        # the browsing context is gone.
+        parent_window
+      when "top"
+        top_window
+      when "frameElement"
+        frame_element_for_script
+      when "name"
+        name
+      when "opener"
+        # No auxiliary browsing contexts are created, so there is never an opener.
+        nil
+      when "closed"
+        closed?
+      when "status"
+        @status || ""
+      when "locationbar", "menubar", "personalbar", "scrollbars", "statusbar", "toolbar"
+        (@bar_props ||= {})[key] ||= BarProp.new(self)
+      when "external"
+        @external ||= External.new
+      when "isSecureContext"
+        secure_context?
+      when "crossOriginIsolated"
+        false
+      when "originAgentCluster"
+        # An agent cluster is origin-keyed only when the page asked for it with
+        # the Origin-Agent-Cluster header, which Dommy never sees.
+        false
+      when "screenX", "screenLeft", "screenY", "screenTop"
+        0
       when "crypto"
         @crypto
       when "cookieStore"
@@ -199,9 +274,9 @@ module Dommy
       when "performance"
         @performance ||= Performance.new(self)
       when "localStorage"
-        @local_storage
+        local_storage
       when "sessionStorage"
-        @session_storage
+        session_storage
       when "location"
         @location
       when "origin"
@@ -236,9 +311,11 @@ module Dommy
         # window (the i-th `<iframe>`'s contentWindow), or ABSENT past the end.
         frame = frame_windows[key.to_i]
         frame.nil? ? Bridge::ABSENT : frame
-      when ->(k) { k.is_a?(String) && WINDOW_EVENT_HANDLER_NAMES.include?(k) }
-        # An event handler IDL attribute: the registered handler, or null (not
-        # undefined) when unset — matching the spec and Element's on* getter.
+      when ->(k) { Internal::EventHandlers.idl_attribute?(self, k) }
+        # An event handler IDL attribute (GlobalEventHandlers +
+        # WindowEventHandlers): the registered handler, or null (not undefined)
+        # when unset — matching the spec and Element's on* getter. Only the
+        # names the IDL declares: `window.onboarding = {...}` stays a global.
         on_handler(event_name_from_on(key))
       else
         # A stashed global wins (even if its value is nil/null); a key never set
@@ -255,9 +332,23 @@ module Dommy
         @location.__js_set__("href", value.to_s)
         return nil
       end
+      case key
+      when "name"
+        # The navigable's target name; a window without one ignores the write.
+        @name = value.to_s if navigable?
+        return nil
+      when "status"
+        @status = value.to_s
+        return nil
+      when "opener"
+        # [Replaceable]-like: null clears the (always absent) opener; anything
+        # else replaces the attribute with a data property.
+        value.nil? ? @globals.delete("opener") : @globals["opener"] = value
+        return nil
+      end
       # `window.onload = fn` (and the other window event handlers) registers a
       # listener rather than stashing an expando, so the handler actually fires.
-      if key.is_a?(String) && WINDOW_EVENT_HANDLER_NAMES.include?(key)
+      if Internal::EventHandlers.idl_attribute?(self, key)
         set_on_handler(event_name_from_on(key), value)
         return nil
       end
@@ -278,8 +369,9 @@ module Dommy
       fetch encodeURIComponent decodeURIComponent btoa atob addEventListener removeEventListener
       dispatchEvent setTimeout clearTimeout setInterval clearInterval requestAnimationFrame
       cancelAnimationFrame queueMicrotask requestIdleCallback cancelIdleCallback structuredClone
-      matchMedia getComputedStyle scroll scrollTo scrollBy resizeTo
+      matchMedia getComputedStyle scroll scrollTo scrollBy resizeTo resizeBy moveTo moveBy
       alert confirm prompt open reportError getSelection postMessage
+      print close stop focus blur captureEvents releaseEvents
     ]
     def __js_call__(method, args)
       case method
@@ -300,11 +392,11 @@ module Dommy
       when "dispatchEvent"
         dispatch_event(args[0])
       when "setTimeout"
-        @scheduler.set_timeout(args[0], timer_delay(args[1]))
+        @scheduler.set_timeout(timer_handler(args[0]), timer_delay(args[1]), args.drop(2), this: self)
       when "clearTimeout"
         @scheduler.clear_timeout(args[0])
       when "setInterval"
-        @scheduler.set_interval(args[0], timer_delay(args[1]))
+        @scheduler.set_interval(timer_handler(args[0]), timer_delay(args[1]), args.drop(2), this: self)
       when "clearInterval"
         @scheduler.clear_interval(args[0])
       when "requestAnimationFrame"
@@ -325,6 +417,18 @@ module Dommy
         get_computed_style(args[0], args[1])
       when "resizeTo"
         resize_to(args[0], args[1])
+      when "resizeBy", "moveTo", "moveBy", "captureEvents", "releaseEvents", "blur"
+        # A headless window has no position or size the page may change, and
+        # captureEvents / releaseEvents / blur do nothing by definition.
+        nil
+      when "print"
+        print
+      when "close"
+        close
+      when "stop"
+        stop
+      when "focus"
+        focus
       when "scroll", "scrollTo"
         scroll_to(*args)
       when "scrollBy"
@@ -336,14 +440,7 @@ module Dommy
       when "prompt"
         handle_dialog(:prompt, args[0].to_s, args[1].nil? ? "" : args[1].to_s)
       when "open"
-        # A new browsing context cannot be opened headlessly, but the URL is
-        # still parsed: one the parser rejects is a SyntaxError.
-        url = args[0]
-        if !url.nil? && !url.equal?(Bridge::UNDEFINED) && !url.to_s.empty? && __internal_parse_url__(url).nil?
-          raise DOMException::SyntaxError, "Unable to open a window with invalid URL #{url.to_s.inspect}"
-        end
-
-        nil
+        window_open(args[0], args[1], args[2])
       when "reportError"
         # WHATWG `self.reportError(e)` IS "report an exception" exposed to
         # authors: it fires the same `error` event an uncaught throw would, so a
@@ -411,9 +508,9 @@ module Dommy
       @reporting_exception = true
       handled =
         begin
-          event = ErrorEvent.new("error", "message" => message, "error" => error_value,
-            "filename" => filename, "lineno" => lineno, "colno" => colno, "cancelable" => true)
-          !dispatch_event(event)
+          !__internal_fire_event__("error", {"message" => message, "error" => error_value, "filename" => filename,
+                                             "lineno" => lineno, "colno" => colno, "cancelable" => true},
+            event_class: ErrorEvent)
         ensure
           @reporting_exception = false
         end
@@ -436,10 +533,8 @@ module Dommy
     # engine that instead notifies the moment a promise rejects reports handled
     # code too.
     def __internal_report_rejection__(reason_value, host_error: nil, promise: nil)
-      event = PromiseRejectionEvent.new(
-        "unhandledrejection", "promise" => promise, "reason" => reason_value, "cancelable" => true
-      )
-      return nil unless dispatch_event(event)
+      return nil unless __internal_fire_event__("unhandledrejection",
+        {"promise" => promise, "reason" => reason_value, "cancelable" => true}, event_class: PromiseRejectionEvent)
 
       __internal_notify_unhandled_error__(Internal::ExceptionReport.host_form(reason_value, host_error))
     end
@@ -470,9 +565,8 @@ module Dommy
     # fire `rejectionhandled` and tell the host to take the report back. The
     # event is NOT cancelable — the page is being informed, not consulted.
     def __internal_report_rejection_handled__(reason_value, promise: nil, record: nil)
-      dispatch_event(PromiseRejectionEvent.new(
-        "rejectionhandled", "promise" => promise, "reason" => reason_value
-      ))
+      __internal_fire_event__("rejectionhandled", {"promise" => promise, "reason" => reason_value},
+        event_class: PromiseRejectionEvent)
       __internal_notify_rejection_handled__(record) unless record.nil?
       nil
     end
@@ -509,19 +603,314 @@ module Dommy
       nil
     end
 
-    # Called by History#go and Location.href= to fire popstate /
-    # hashchange events. Listeners registered on the Window via
-    # `addEventListener("popstate"|"hashchange", cb)` receive them.
-    def fire_popstate(state)
-      # PopStateEvent exposes the entry's state as `event.state` (the spec
-      # property). Routers (Turbo) branch on `event.state`.
-      event = PopStateEvent.new("popstate", "state" => state)
-      dispatch_event(event)
+    # Fire `popstate` at this window: a trusted PopStateEvent carrying the
+    # history state (`event.state`, which routers like Turbo branch on). History
+    # calls it when a traversal or a fragment navigation changes the active
+    # entry.
+    def __internal_fire_popstate__(state)
+      event = PopStateEvent.new("popstate", "state" => state, "hasUAVisualTransition" => false)
+      dispatch_event(event.__internal_mark_trusted__)
     end
 
-    def fire_hashchange(old_url, new_url)
+    # Fire `hashchange` at this window: a trusted HashChangeEvent with the full
+    # URLs before and after the fragment changed.
+    def __internal_fire_hashchange__(old_url, new_url)
       event = HashChangeEvent.new("hashchange", "oldURL" => old_url.to_s, "newURL" => new_url.to_s)
-      dispatch_event(event)
+      dispatch_event(event.__internal_mark_trusted__)
+    end
+
+    alias fire_popstate __internal_fire_popstate__
+    alias fire_hashchange __internal_fire_hashchange__
+
+    # Whether this window's document is completely loaded: the `load` event has
+    # been fired and handled. Until then a script-initiated Location navigation
+    # replaces the current history entry rather than adding one.
+    def __internal_completely_loaded__?
+      @document.respond_to?(:__internal_completely_loaded__?) ? @document.__internal_completely_loaded__? : true
+    end
+
+    # Whether this window's document is the initial about:blank of its browsing
+    # context (the blank document a new iframe starts with). Navigations away
+    # from it, and pushState on it, replace the entry.
+    attr_writer :__internal_initial_about_blank__
+
+    def __internal_initial_about_blank__? = @__internal_initial_about_blank__ == true
+
+    # Whether this window still has a navigable: a nested one loses it when the
+    # frame that held its document leaves the tree (the Window survives — a
+    # script may still hold it). A top-level Window always has one.
+    def navigable?
+      return false if @discarded
+
+      frame = @frame_element
+      frame.nil? || frame.is_connected?
+    end
+
+    # The embedder replaced this window's document with another (a
+    # cross-document navigation): the window keeps existing for scripts that
+    # hold it, but its document is no longer fully active.
+    def __internal_discard__
+      @discarded = true
+      nil
+    end
+
+    # Whether this window's document is fully active: it has a navigable, and so
+    # does every ancestor up to the top.
+    def __internal_fully_active__?
+      seen = []
+      window = self
+      while window && !seen.include?(window)
+        return false unless window.navigable?
+
+        seen << window
+        frame = window.frame_element
+        return true if frame.nil?
+
+        window = frame.owner_document&.default_view
+        return false if window.nil?
+      end
+      true
+    end
+
+    # `window.parent`: the parent navigable's window, or this window when it is
+    # top-level; null without a navigable.
+    def parent_window
+      return nil unless navigable?
+
+      @frame_element ? (@frame_element.owner_document&.default_view || self) : self
+    end
+
+    # `window.top`: the top-level traversable's window; null without a navigable
+    # anywhere up the chain.
+    def top_window
+      return nil unless __internal_fully_active__?
+
+      window = self
+      seen = []
+      while window.frame_element && !seen.include?(window)
+        seen << window
+        window = window.parent_window
+      end
+      window
+    end
+
+    # `window.frameElement`: the container element (`<iframe>`) of a nested
+    # browsing context; null for a top-level one and once detached.
+    def frame_element_for_script
+      return nil unless @frame_element && navigable?
+
+      @frame_element
+    end
+
+    # `window.name`: the navigable's target name. A nested one starts out as its
+    # container's `name` attribute; a write replaces it.
+    def name
+      return "" unless navigable?
+
+      @name || ""
+    end
+
+    # Name a nested navigable as its container's `name` attribute says when the
+    # navigable is created (a later attribute change does not rename it).
+    def __internal_seed_name__(value)
+      @name ||= value.to_s unless value.nil?
+      nil
+    end
+
+    # `window.closed`: no navigable, or close() has begun closing it.
+    def closed?
+      !navigable? || @closing == true
+    end
+
+    # `window.close()`: only a top-level, script-closable navigable closes — one
+    # whose session history holds a single entry (Dommy creates no auxiliary
+    # browsing contexts) — and only from a task. The request is recorded
+    # (`__test_close_calls__`) and the embedder's navigation delegate, when it
+    # answers `close_window`, is asked to close it.
+    def close
+      return nil unless navigable? && @frame_element.nil?
+      return nil if @closing
+
+      (@close_calls ||= []) << {closable: script_closable?}
+      return nil unless script_closable?
+
+      @closing = true
+      @scheduler.set_timeout(proc { @navigation_delegate.close_window if @navigation_delegate.respond_to?(:close_window) }, 0)
+      nil
+    end
+
+    def script_closable?
+      @history.length == 1
+    end
+
+    # Each close() call that reached the closing steps, with whether the window
+    # was script-closable (and so began closing).
+    def __test_close_calls__ = (@close_calls || []).dup
+
+    # `window.print()`: run the printing steps — fire `beforeprint` at this
+    # window (and its child frames' windows), record the request
+    # (`__test_print_calls__`), then fire `afterprint`. Called before the
+    # document is ready for post-load tasks it waits for the load to complete.
+    def print
+      return nil unless __internal_fully_active__?
+
+      if __internal_completely_loaded__?
+        run_printing_steps
+      else
+        @print_when_loaded = true
+      end
+      nil
+    end
+
+    def __test_print_calls__ = @print_calls || 0
+
+    # The end of loading: a print() made while the document loaded runs now.
+    def __internal_ready_for_post_load_tasks__
+      return unless @print_when_loaded
+
+      @print_when_loaded = false
+      run_printing_steps
+    end
+
+    # `window.stop()`: stop loading this window's navigable — the embedder's
+    # navigation delegate drops a navigation it has not performed yet.
+    def stop
+      return nil unless navigable?
+
+      @stop_calls = (@stop_calls || 0) + 1
+      @navigation_delegate.stop if @navigation_delegate.respond_to?(:stop)
+      nil
+    end
+
+    def __test_stop_calls__ = @stop_calls || 0
+
+    # `window.focus()`: a browsing context with no system focus to take; it only
+    # has to exist for the call to be allowed.
+    def focus
+      nil
+    end
+
+    # `isSecureContext`: whether the top-level creation URL is potentially
+    # trustworthy (https:, file:, localhost, about:blank, ...).
+    def secure_context?
+      top = top_window || self
+      Internal::Origin.potentially_trustworthy_url?(top.location.href)
+    end
+
+    # `window.open(url, target, features)`. The URL is parsed first (a failure
+    # is a SyntaxError). A target naming this window (`_self`, the empty-ish
+    # default aside), its parent (`_parent`), the top (`_top`) or an existing
+    # frame by name navigates that navigable and returns its window. A new
+    # browsing context (`_blank`, an unknown name) is not created headlessly: the
+    # attempt is recorded (`__test_open_calls__`) and handed to the navigation
+    # delegate's `open_window` when it has one, whose answer (a Window or nil —
+    # a blocked popup) is returned.
+    def window_open(url_arg, target_arg, features_arg)
+      url = blank_arg?(url_arg) ? "" : url_arg.to_s
+      target = blank_arg?(target_arg) ? "_blank" : target_arg.to_s
+      target = "_blank" if target.empty?
+      features = blank_arg?(features_arg) ? "" : features_arg.to_s
+      resolved = nil
+      unless url.empty?
+        resolved = __internal_parse_url__(url)
+        raise DOMException::SyntaxError, "Unable to open a window with invalid URL #{url.inspect}" if resolved.nil?
+      end
+      noopener = features.split(/[\s,]+/).any? { |f| %w[noopener noreferrer].include?(f.downcase.split("=").first) }
+
+      existing = choose_navigable(target)
+      if existing
+        existing.location.__internal_navigate_to__(resolved, source: :window_open, sync_cross_doc: false) if resolved
+        return noopener ? nil : existing
+      end
+
+      (@open_calls ||= []) << {url: resolved || "about:blank", target: target, features: features}
+      opened = nil
+      if @navigation_delegate.respond_to?(:open_window)
+        opened = @navigation_delegate.open_window(url: resolved || "about:blank", target: target, features: features)
+      end
+      noopener ? nil : opened
+    end
+
+    def __test_open_calls__ = (@open_calls || []).dup
+
+    # The rules for choosing a navigable, for the targets that name an existing
+    # one: nil means a new one would be created.
+    def choose_navigable(target)
+      case target.downcase
+      when "_self" then self
+      when "_parent" then parent_window || self
+      when "_top" then top_window || self
+      when "_blank" then nil
+      else find_named_window(target)
+      end
+    end
+
+    # A window whose target name is `name`: this one, a descendant frame's, or
+    # (walking up) an ancestor's or one of their descendants'.
+    def find_named_window(name)
+      return self if self.name == name
+
+      seen = []
+      window = self
+      while window && !seen.include?(window)
+        seen << window
+        found = window.__internal_find_descendant_window__(name)
+        return found if found
+        return window if window.name == name
+
+        window = window.frame_element ? window.parent_window : nil
+      end
+      nil
+    end
+
+    def __internal_find_descendant_window__(name)
+      frame_windows.each do |child|
+        next unless child
+        return child if child.name == name
+
+        found = child.__internal_find_descendant_window__(name)
+        return found if found
+      end
+      nil
+    end
+
+    # --- Web Storage ---
+
+    # Where this window's storage areas come from (see Dommy::StorageProvider).
+    # An embedder installs one provider for every window of a browsing session —
+    # pages it navigates between, and their frames — so localStorage is shared
+    # per origin and sessionStorage per top-level session and origin. A nested
+    # window without its own uses its container's; a lone window gets a private
+    # one (nothing shared with any other window).
+    def storage_provider=(provider)
+      @storage_provider = provider
+      provider&.register(self)
+    end
+
+    def storage_provider
+      return @storage_provider if @storage_provider
+
+      container = @frame_element&.owner_document&.default_view
+      provider = container && !container.equal?(self) ? container.storage_provider : StorageProvider.new
+      self.storage_provider = provider
+      provider
+    end
+
+    # `window.localStorage` / `sessionStorage` — the Storage object for this
+    # document's origin in the provider's area; an opaque origin has none.
+    def local_storage
+      @local_storage ||= Storage.new(self, storage_provider.local_area(storage_origin!), "localStorage")
+    end
+
+    def session_storage
+      @session_storage ||= Storage.new(self, storage_provider.session_area(storage_origin!), "sessionStorage")
+    end
+
+    def storage_origin!
+      origin = self.origin
+      raise DOMException::SecurityError, "Storage is disabled for an opaque origin" if origin == "null" || origin.empty?
+
+      origin
     end
 
     # Single firing point for cross-document navigation intents. Link
@@ -616,6 +1005,58 @@ module Dommy
 
     private
 
+    def window_named_candidates
+      @document.respond_to?(:__internal_window_named_candidates__) ? @document.__internal_window_named_candidates__ : []
+    end
+
+    # The target name of a document-tree child navigable's container (an
+    # iframe in the document tree), or nil for any other element.
+    def child_navigable_name(el)
+      el.is_a?(HTMLIFrameElement) ? el.__internal_navigable_target_name__ : nil
+    end
+
+    # Whether the container's child navigable's document is same origin with
+    # this window. One not created yet is the initial about:blank document,
+    # which is.
+    def same_origin_child?(container)
+      child = container.__internal_built_content_window__
+      return true unless child
+
+      own = origin
+      !own.empty? && own != "null" && child.origin == own
+    end
+
+    # The name an embed / form / img / object element contributes, or nil.
+    def window_named_element_name(el)
+      return nil unless el.is_a?(HTMLElement) && WINDOW_NAMED_ELEMENTS.include?(el.local_name)
+
+      name = el.__internal_attribute_value__("name").to_s
+      name.empty? ? nil : name
+    end
+
+    # The named objects of this window with the name `name` that are elements.
+    def window_named_elements(candidates, name)
+      candidates.select { |el| window_named_element_name(el) == name || el.__internal_attribute_value__("id").to_s == name }
+    end
+
+    # The printing steps: beforeprint at this window and its child frames'
+    # windows, the (recorded) print, afterprint likewise.
+    def run_printing_steps
+      fire_print_event("beforeprint")
+      @print_calls = (@print_calls || 0) + 1
+      fire_print_event("afterprint")
+    end
+
+    def fire_print_event(type)
+      ([self] + frame_windows.compact).each do |window|
+        window.dispatch_event(Event.new(type).__internal_mark_trusted__)
+      end
+    end
+
+    def blank_arg?(value)
+      value.nil? || value.equal?(Bridge::UNDEFINED)
+    end
+
     # The native-dialog seam behind alert / confirm / prompt: ask the installed
     # `dialog_handler`, and fall back to the headless defaults (alert -> nil,
     # confirm -> false as "Cancel", prompt -> nil as "no input") when there is
@@ -689,11 +1130,27 @@ module Dommy
 
     # The timer delay (WebIDL `long`, default 0). A missing/undefined argument
     # or any non-numeric value coerces to 0 rather than raising.
+    # The timeout argument, a WebIDL `long` (ToNumber, then ToInt32: NaN and
+    # the infinities are 0, everything else truncates and wraps modulo 2^32,
+    # so 2**32 + 1 is 1). The timer steps clamp a negative one to 0.
     def timer_delay(value)
-      return value if value.is_a?(Numeric)
-      return value.to_i if value.is_a?(String) && value =~ /\A\s*-?\d+/
+      value = 0 if value.nil? || value.equal?(Bridge::UNDEFINED)
+      Internal::WebIDL.long(value)
+    end
 
-      0
+    # A timer's handler: a function is invoked as it is; anything else is
+    # converted to a string and, when the timer fires, compiled and run as a
+    # classic script in the window's global scope.
+    def timer_handler(handler)
+      return handler if CallableInvoker.js_callable?(handler) || handler.respond_to?(:call)
+
+      source = handler.nil? || handler.equal?(Bridge::UNDEFINED) ? (handler.nil? ? "null" : "undefined") : handler.to_s
+      proc do
+        @document.script_runner&.call(source)
+      rescue StandardError => e
+        # The compiled script threw: reported like any script's exception.
+        Internal::ExceptionReport.report_at(self, e)
+      end
     end
 
     # WebIDL coercion for the `Text`/`Comment` constructor's `optional DOMString
@@ -729,5 +1186,34 @@ module Dommy
       "[object Object]"
     end
 
+  end
+
+  # `window.locationbar` and the other bar objects. Every one is visible: no
+  # browsing context Dommy models is a popup.
+  class BarProp
+    def initialize(window)
+      @window = window
+    end
+
+    def visible = true
+
+    def __js_get__(key)
+      key == "visible" ? true : Bridge::ABSENT
+    end
+  end
+
+  # `window.external`: the legacy search-provider hooks, which do nothing.
+  class External
+    include Bridge::Methods
+    js_methods %w[AddSearchProvider IsSearchProviderInstalled]
+
+    def __js_get__(_key) = Bridge::ABSENT
+
+    def __js_call__(method, _args)
+      case method
+      when "AddSearchProvider", "IsSearchProviderInstalled"
+        nil
+      end
+    end
   end
 end

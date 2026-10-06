@@ -13,24 +13,18 @@ module Dommy
   # broke the page's bookmark button. WebGL is reported as genuinely unsupported
   # (getContext returns null) so callers take their fallback path.
   class HTMLCanvasElement < HTMLElement
-    DEFAULT_WIDTH = 300
-    DEFAULT_HEIGHT = 150
-
     # A 1x1 transparent PNG — a constant so a canvas fingerprint reads a stable
     # value instead of crashing; we render nothing into it.
     BLANK_PNG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lE" \
                 "QVR42mNk+M8AAAMBAQDJ/pLvAAAAAElFTkSuQmCC"
 
-    def width = int_dimension("width", DEFAULT_WIDTH)
-    def height = int_dimension("height", DEFAULT_HEIGHT)
-
-    def width=(value)
-      set_reflected_string("width", value.to_s)
-    end
-
-    def height=(value)
-      set_reflected_string("height", value.to_s)
-    end
+    # canvas.html: "The width and height IDL attributes must reflect the
+    # respective content attributes of the same name, with the same defaults"
+    # — unsigned long reflection whose default is the content attribute's own
+    # (300 and 150), which also stands in for a negative, unparseable or
+    # too-large value (`width="-1"` reads 300), and which the setter writes in
+    # place of a value past 2147483647. The IDL says this only in prose, so the
+    # declaration lives in Internal::IdlReflection::OVERLAY.
 
     # Spec: getContext returns the SAME object across calls for one context id.
     # Only '2d' is backed; webgl/webgl2/bitmaprenderer return null so feature
@@ -50,21 +44,6 @@ module Dommy
       nil
     end
 
-    def __js_get__(key)
-      case key
-      when "width" then width
-      when "height" then height
-      else super
-      end
-    end
-
-    def __js_set__(key, value)
-      case key
-      when "width", "height" then set_reflected_string(key, value.to_s)
-      else super
-      end
-    end
-
     include Bridge::Methods
     js_methods %w[getContext toDataURL toBlob]
     def __js_call__(method, args)
@@ -74,13 +53,6 @@ module Dommy
       when "toBlob" then to_blob(*args)
       else super
       end
-    end
-
-    private
-
-    def int_dimension(attr, default)
-      raw = __internal_attribute_value__(attr)
-      raw.nil? || raw.to_s.empty? ? default : raw.to_s.to_i
     end
   end
 

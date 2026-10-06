@@ -45,7 +45,13 @@ module Dommy
       abort_signal.define_class_method("any") { |args| AbortSignal.any(args[0]) }
       abort_signal.define_class_method("timeout") { |args| AbortSignal.timeout(args[0], scheduler: win.scheduler) }
 
+      # HTMLScriptElement is not constructible (nil -> Illegal constructor);
+      # it is here for its static `supports()`.
+      script_element = Bridge::Constructor.new { |_args| nil }
+      script_element.define_class_method("supports") { |args| HTMLScriptElement.supports(args[0]) }
+
       {
+        "HTMLScriptElement" => script_element,
         # `new Document()` — a fresh empty document (content type application/xml
         # per the DOM Standard, so it behaves as a non-HTML document).
         "Document" => Bridge::Constructor.new do
@@ -60,6 +66,7 @@ module Dommy
         "CustomEvent" => Bridge::Constructor.new { |args| CustomEvent.new(args[0], args[1]) },
         "MessageEvent" => Bridge::Constructor.new { |args| MessageEvent.new(args[0], args[1]) },
         "PopStateEvent" => Bridge::Constructor.new { |args| PopStateEvent.new(args[0], args[1]) },
+        "PageTransitionEvent" => Bridge::Constructor.new { |args| PageTransitionEvent.new(args[0], args[1]) },
         "HashChangeEvent" => Bridge::Constructor.new { |args| HashChangeEvent.new(args[0], args[1]) },
         "SubmitEvent" => Bridge::Constructor.new { |args| SubmitEvent.new(args[0], args[1]) },
         "FormDataEvent" => Bridge::Constructor.new { |args| FormDataEvent.new(args[0], args[1]) },
@@ -110,6 +117,8 @@ module Dommy
         "CompositionEvent" => Bridge::Constructor.new { |args| CompositionEvent.new(args[0], args[1]) },
         "WheelEvent" => Bridge::Constructor.new { |args| WheelEvent.new(args[0], args[1]) },
         "FocusEvent" => Bridge::Constructor.new { |args| FocusEvent.new(args[0], args[1]) },
+        "ToggleEvent" => Bridge::Constructor.new { |args| ToggleEvent.new(args[0], args[1]) },
+        "CommandEvent" => Bridge::Constructor.new { |args| CommandEvent.new(args[0], args[1]) },
         "BeforeUnloadEvent" => Bridge::Constructor.new { |args| BeforeUnloadEvent.new(args[0] || "beforeunload", args[1]) },
         "StorageEvent" => Bridge::Constructor.new { |args| StorageEvent.new(args[0], args[1]) },
         "TextEvent" => Bridge::Constructor.new { |args| TextEvent.new(args[0], args[1]) },

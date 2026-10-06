@@ -14,6 +14,7 @@ module Dommy
   # `internal/css/rule_index.rb` and css-cascade.md.
   class ShadowRoot
     include EventTarget
+    extend Internal::EventHandlers::AnswersIdlAttributes
     include Node
     include Internal::ParentNode
 
@@ -101,14 +102,16 @@ module Dommy
       @host.respond_to?(:is_connected?) && @host.is_connected?
     end
 
-    # `shadowRoot.activeElement` — the focused element, retargeted to this shadow
-    # tree: the document's focused element when it is inside this (connected)
-    # shadow root, else null.
+    # `shadowRoot.activeElement` — the focused element retargeted against
+    # this shadow root: the element itself when it is in this tree, the host
+    # (in this tree) of the shadow tree it is in when that is nested inside
+    # this one, else null.
     def active_element
-      return nil unless connected?
-
       focused = @document.__internal_focused_element__
-      focused && contains?(focused) ? focused : nil
+      return nil unless focused
+
+      candidate = Internal::Retargeting.retarget(focused, self)
+      candidate.get_root_node.equal?(self) ? candidate : nil
     end
 
     # `shadowRoot.styleSheets` — the CSSStyleSheets of the `<style>` / `<link>`
@@ -261,6 +264,9 @@ module Dommy
         # inserted as a child of it: no parent, no siblings, and a null
         # nodeValue (null, not undefined).
         nil
+      when ->(k) { Internal::EventHandlers.idl_attribute?(self, k) }
+        # ShadowRoot's own event handler, onslotchange: its value or null.
+        on_handler(event_name_from_on(key))
       else
         # Any unknown key (incl. framework-private `_`/`$` expandos like
         # lit-html's `_$litPart$`, which it probes with `=== undefined`) is
@@ -275,6 +281,8 @@ module Dommy
         self.inner_html = value
       when "textContent"
         self.text_content = value
+      when ->(k) { Internal::EventHandlers.idl_attribute?(self, k) }
+        set_on_handler(event_name_from_on(key), value)
       else
         return Bridge::UNHANDLED
       end

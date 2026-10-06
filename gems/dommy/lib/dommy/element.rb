@@ -13,6 +13,7 @@ module Dommy
   # moved out; each one is now readable without the other three.
   class Element
     include EventTarget
+    extend Internal::EventHandlers::AnswersIdlAttributes
     include Node
     include Internal::ParentNode
     include Internal::ElementShadow
@@ -71,7 +72,7 @@ module Dommy
     def inner_html
       if !@document.html_document?
         Internal::XmlSerialization.serialize_children_of(self)
-      elsif @__node__.name == "template"
+      elsif is_a?(HTMLTemplateElement)
         @document.template_content_inner_html(self)
       else
         @__node__.inner_html
@@ -87,7 +88,8 @@ module Dommy
         return
       end
 
-      if @__node__.name == "template"
+      if is_a?(HTMLTemplateElement)
+        # Only an HTML `<template>` (not SVG's) has template contents.
         # `<template>` content is invisible to outer selectors in real DOM (it
         # lives in a separate DocumentFragment exposed via `[:content]`). HTML's
         # innerHTML setter retargets to that fragment and replaces all of ITS
@@ -761,23 +763,38 @@ module Dommy
       false
     end
 
-    # HTML compiles an event handler content attribute lazily — the handler only
-    # has to exist by the time an event of that type is dispatched at the
-    # element. Doing it here, rather than only in the boot-time scan, is what
-    # makes `onclick="…"` survive cloneNode / innerHTML: such an element never
-    # went through that scan, so its handler would otherwise never fire.
-    #
-    # Each (element, type) is attempted once — a handler that fails to compile
-    # is not retried on every dispatch.
-    def __internal_wire_inline_handler__(type)
-      return unless @document.inline_handler_wirer
-      return if @__inline_wired&.key?(type)
+    # The parser sets an element's attributes without running attribute
+    # change steps, so the event handler content attributes of an element
+    # built by a parser (the document's, innerHTML's, a clone's) are activated
+    # here instead: by the boot-time scan, or — for one that turned up later —
+    # the first time an event reaches the element. Each attribute once; one
+    # whose handler was since set through the IDL attribute is left alone.
+    def __internal_wire_inline_handler__(_type)
+      return unless @document.event_handler_compiler
+      return if @__parsed_handlers_activated
 
-      code = __internal_attribute_value__("on#{type}")
-      return if code.nil?
+      @__parsed_handlers_activated = true
+      Internal::EventHandlers.activate_parsed(self)
+    end
 
-      (@__inline_wired ||= {})[type] = true
-      @document.__internal_wire_inline_handlers__
+    # The event handler content attributes whose change steps already ran for
+    # this element (set by script, or activated after parsing).
+    def __internal_note_handler_attribute__(name)
+      (@__noted_handler_attributes ||= Set.new) << name
+      nil
+    end
+
+    def __internal_handler_attribute_noted__?(name) = @__noted_handler_attributes&.include?(name) || false
+
+    def __internal_attribute_names__ = get_attribute_names
+
+    # The custom element state an upgrade recorded ("failed" while the
+    # constructor runs, "custom" after), or nil when nothing recorded one —
+    # see ElementState.defined_element? for how the state is otherwise told.
+    attr_reader :__internal_custom_element_state__
+
+    def __internal_set_custom_element_state__(state)
+      @__internal_custom_element_state__ = state
     end
 
     # WHATWG "legacy-pre-activation behavior": run on the activation target
@@ -949,9 +966,11 @@ module Dommy
           # ARIA / role reflected IDL attribute (`ariaLabel` ↔ `aria-label`,
           # `role` ↔ `role`) — a nullable DOMString (null when absent).
           aria_get(content_attr)
-        elsif key.start_with?("on") && key.length > 2
-          # `el.onXxx` event handler property — the registered callback or nil.
-          @on_handlers&.[](event_name_from_on(key))
+        elsif Internal::EventHandlers.idl_attribute?(self, key)
+          # An event handler IDL attribute this element's interface declares
+          # (`el.onclick`) — its current value (a content attribute's handler
+          # compiled on first read) or nil.
+          on_handler(event_name_from_on(key))
         elsif key.start_with?("_") || key.include?("$")
           # A framework-private expando key (React stores per-node state under
           # keys like `__reactListeners$<id>` and feature-detects it with
@@ -1005,7 +1024,7 @@ module Dommy
     # Drop any explicit ARIA element reference (singular or plural) whose content
     # attribute was just set directly (so the IDL getter re-resolves the IDREF).
     def clear_aria_element_ref_for(content_attr)
-      @aria_element_refs&.delete_if { |key, _| aria_element_attr(key) == content_attr }
+      @aria_element_refs&.delete_if { |key, _| key == content_attr || aria_element_attr(key) == content_attr }
       @aria_elements_refs&.delete_if { |key, _| aria_elements_attr(key) == content_attr }
     end
 
@@ -1064,8 +1083,9 @@ module Dommy
         elsif (content_attr = aria_content_attr(key))
           # ARIA / role reflected nullable DOMString (null/undefined → remove).
           aria_set(content_attr, value)
-        elsif key.start_with?("on") && key.length > 2
-          # `el.onXxx = fn` registers fn as a single named handler; nil removes.
+        elsif Internal::EventHandlers.idl_attribute?(self, key)
+          # `el.onclick = fn` registers fn as a single named handler; nil
+          # removes. Any other `on…` key is an ordinary expando.
           set_on_handler(event_name_from_on(key), value)
         else
           # Not a known DOM property — tell the JS host to keep it as a
@@ -1543,7 +1563,7 @@ module Dommy
     def attribute_change_steps(local_name, namespace)
       return unless namespace.nil?
 
-      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-")
+      clear_aria_element_ref_for(local_name) if local_name.start_with?("aria-") || @aria_element_refs&.key?(local_name)
       @cryptographic_nonce = nil if local_name == "nonce"
     end
 
@@ -1560,21 +1580,6 @@ module Dommy
       Backend.remove_attribute_ns(@__node__, ns, local)
       attribute_change_steps(local, ns)
       @document.notify_attribute_mutation(target_node: @__node__, attribute_name: local, old_value: old, namespace: ns)
-    end
-
-    # blur (at the element) then focusout (bubbling), per UI Events order.
-    def fire_focus_out(element, new_target)
-      element.dispatch_event(Dommy::FocusEvent.new("blur", "composed" => true, "relatedTarget" => new_target))
-      element.dispatch_event(Dommy::FocusEvent.new("focusout",
-        "bubbles" => true, "composed" => true, "relatedTarget" => new_target))
-      nil
-    end
-
-    # A disabled form control cannot be focused (HTML focusability). Other
-    # elements are all treated as focusable — no layout means no visibility /
-    # tabindex modelling.
-    def disabled_form_control?
-      %w[input button select textarea].include?(local_name) && __internal_has_attribute__?("disabled")
     end
 
     def attribute_signature
@@ -1649,7 +1654,7 @@ module Dommy
     end
 
     def template_content
-      return nil unless @__node__.name == "template"
+      return nil unless is_a?(HTMLTemplateElement)
 
       @document.template_content_fragment(self)
     end

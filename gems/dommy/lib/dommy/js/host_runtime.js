@@ -5,17 +5,17 @@
 // Values crossing the boundary are tagged: a bridge-able Ruby object is
 // `{ __rb_handle: id }`, a JS function passed to Ruby is `{ __rb_callback: id }`.
 globalThis.__rbHost = (function () {
-  // The platform's own enumerations — what interfaces, members, constants and
-  // handler attributes the specs declare — live in webidl_tables.js, evaluated
-  // just before this file. They are bound here as plain consts so the code below
-  // reads (and costs) the same as when they were written inline.
+  // The platform's own enumerations — what interfaces, members and constants
+  // the specs declare — live in webidl_tables.js (and the generated
+  // webidl_*.js), evaluated just before this file. They are bound here as
+  // plain consts so the code below reads (and costs) the same as when they
+  // were written inline.
   const {
     ARRAY_LIKE_COLLECTIONS, INDEXED_SETTER_INTERFACES, ENTRIES_ITERABLES, PAIR_ITERABLE_COLLECTIONS,
-    NAMED_PROP_COLLECTIONS, FORM_VALUE_FIELDS, READONLY_ATTRS,
+    FORM_VALUE_FIELDS, READONLY_ATTRS,
     UNFORGEABLE_ATTRS, UNFORGEABLE_METHODS, UNFORGEABLE_DATA, FIXED_SHAPE_INTERFACES,
     INTERFACE_CONSTANTS, INTERFACE_MEMBERS, FROZEN_ARRAY_ATTRIBUTES, INTERFACE_UNSCOPABLES, PROTO_RESOLVED_METHODS,
-    NODE_OR_STRING_METHODS, ELEMENT_HANDLER_ATTRIBUTES, WINDOW_REFLECTED_HANDLERS,
-    BODY_REFLECTED_HANDLERS, METHOD_ARITY, INTERFACE_METHOD_ARITY, CONSTRUCTOR_ARITY,
+    NODE_OR_STRING_METHODS, METHOD_ARITY, INTERFACE_METHOD_ARITY, CONSTRUCTOR_ARITY,
     VOID_METHODS, INTERFACE_VOID_METHODS, JS_GLOBALS,
   } = globalThis.__rbIdl;
 
@@ -169,69 +169,42 @@ globalThis.__rbHost = (function () {
     return isProxy(arg) ? arg : String(arg);
   }
 
-  function isHandlerAttribute(el, name) {
-    if (ELEMENT_HANDLER_ATTRIBUTES.has(name)) return true;
-    if (!WINDOW_REFLECTED_HANDLERS.has(name)) return false;
-
+  // HTML "get the current value of the event handler", the compile step: an
+  // event handler content attribute's body becomes a function named after the
+  // handler (`function onclick(event) {\n…\n}`, so its source text reads as a
+  // browser's), whose scope is the element, its form owner and its document
+  // for an element's handler and the global alone for a Window's — where
+  // `onerror` takes (event, source, lineno, colno, error). Called from Ruby
+  // (Document#event_handler_compiler) when the handler is first read or run.
+  // A body that is not a FunctionBody throws its SyntaxError back, tagged, so
+  // the Ruby side reports it.
+  function compileEventHandler(wireEl, name, code, windowHandler) {
+    bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     try {
-      const tag = el.tagName;
-      return tag === "BODY" || tag === "FRAMESET";
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Setting an on* content attribute at runtime (`el.setAttribute("onclick",
-  // code)`) must compile+activate the handler synchronously, exactly like the
-  // boot-time inline-handler wiring (script_boot). Mirrors its scope chain —
-  // [element, form owner, document] — so `onclick="getElementById(…)"` or a
-  // form control's bare member resolve, and assigns via the on* IDL setter
-  // (el.onclick = fn), which the proxy routes to the Ruby handler registry.
-  // A null code (removeAttribute) clears the handler. Invalid source is ignored.
-  function wireInlineHandler(el, name, code) {
-    try {
-      if (!isHandlerAttribute(el, name)) return;
-      if (code == null) { el[name] = null; return; }
-      let src = "with(this){\n" + String(code) + "\n}";
-      try { if (el.form) src = "with(this.form){\n" + src + "\n}"; } catch (e) { /* no form owner */ }
-      src = "with(document){\n" + src + "\n}";
-      let fn;
-      try { fn = new Function("event", src); }
-      catch (e) { fn = new Function("event", String(code)); } // fall back to plain scope
-      el[name] = fn;
-    } catch (e) { /* syntactically invalid handler: skip, non-fatal */ }
-  }
-
-  // Compile every on* content attribute already in the document into a live
-  // handler. Run once at boot, after parsing and before scripts (matching the
-  // spec, where content attributes are set as the document is parsed), and
-  // replayed whenever an element carrying one turns up later (cloneNode,
-  // innerHTML, a template's fragment). Idempotent: an element whose handler is
-  // already compiled is left alone.
-  //
-  // The scan is selector-driven — only elements carrying a known handler
-  // attribute — rather than a walk of every element. A handler on body/frameset
-  // for a window-reflected event belongs on the WINDOW, so it is wired with
-  // addEventListener; the element's own load never fires, which is what makes
-  // `<body onload>` work. Everything else goes through wireInlineHandler, the
-  // same compilation the runtime `setAttribute("on*")` path uses.
-  function wireInlineHandlers() {
-    const selector = [...ELEMENT_HANDLER_ATTRIBUTES, ...WINDOW_REFLECTED_HANDLERS]
-      .map((name) => "[" + name + "]").join(",");
-    const body = document.body;
-    for (const el of document.querySelectorAll(selector)) {
-      const onBody = el === body || el.tagName === "FRAMESET";
-      for (const name of el.getAttributeNames()) {
-        if (!ELEMENT_HANDLER_ATTRIBUTES.has(name) &&
-            !(onBody && WINDOW_REFLECTED_HANDLERS.has(name))) continue;
-        if (onBody && BODY_REFLECTED_HANDLERS.has(name)) {
-          try {
-            window.addEventListener(name.slice(2), new Function("event", el.getAttribute(name)));
-          } catch (e) { /* syntactically invalid handler: skip, non-fatal */ }
-        } else if (typeof el[name] !== "function") {
-          wireInlineHandler(el, name, el.getAttribute(name));
-        }
+      const el = wireEl == null ? null : rehydrate(wireEl);
+      const params = windowHandler && name === "onerror"
+        ? ["event", "source", "lineno", "colno", "error"] : ["event"];
+      const body = String(code);
+      // Parse the body as a FunctionBody first: wrapping it below could let a
+      // stray `}` close the function early and still parse.
+      new Function(...params, body);
+      const scopes = [];
+      if (typeof globalThis.window !== "undefined" && globalThis.window !== globalThis) scopes.push(globalThis.window);
+      if (el) {
+        const doc = el.ownerDocument;
+        if (doc) scopes.push(doc);
+        let form = null;
+        try { form = el.form || null; } catch (e) { /* no form owner */ }
+        if (form && typeof form === "object") scopes.push(form);
+        scopes.push(el);
       }
+      const names = scopes.map((_, i) => "__s" + i);
+      const opens = names.map((n) => "with (" + n + ") ").join("");
+      const source = "function " + name + "(" + params.join(", ") + ") {\n" + body + "\n}";
+      const make = indirectEval("(function (" + names.join(", ") + ") { " + opens + "{ return " + source + "; } })");
+      return dehydrate(make(...scopes));
+    } catch (e) {
+      return tagThrow(e);
     }
   }
 
@@ -492,8 +465,13 @@ globalThis.__rbHost = (function () {
   // The return value is the host's answer to "did I claim this write?" — false
   // means the caller should keep the value JS-side as an expando.
   function hostSet(handle, name, value) {
+    return hostSetWire(handle, name, dehydrateTop(value));
+  }
+
+  // hostSet for a value already in its wire form.
+  function hostSetWire(handle, name, wire) {
     bumpDomEpoch();
-    const handled = __rb_host_set(handle, name, dehydrateTop(value));
+    const handled = __rb_host_set(handle, name, wire);
     bumpDomEpoch();
     if (handled && typeof handled === "object" && handled.__rb_exception__) {
       throw makeHostError(handled.__rb_exception__);
@@ -529,17 +507,68 @@ globalThis.__rbHost = (function () {
     // Mirror the proxy set trap for a reflected attribute: the WebIDL
     // conversion of the value, then the shared host write (the set trap
     // delegates instance writes to this prototype setter, so it must
-    // invalidate the same caches). Called with the element as `this`.
+    // invalidate the same caches). Called with the element as `this`. An
+    // event handler's value crosses as eventHandlerWire makes it.
+    if (declaresEventHandler(iface, name)) {
+      return function (v) {
+        checkReceiver(this, iface, name);
+        hostSetWire(this[HKEY], name, eventHandlerWire(v));
+      };
+    }
     return function (v) {
       checkReceiver(this, iface, name);
       hostSet(this[HKEY], name, convertAttributeValue(receiverInterface(this, iface), name, v));
     };
   }
+
+  // ===== Event handler IDL attributes =====
+  //
+  // Which `on…` names are event handlers on which objects is the IDL's call
+  // (webidl_event_handlers.js, generated from it): a name is one on an object
+  // when an interface in its chain declares it — `onclick` on an element,
+  // Document or Window, `onreadystatechange` on Document and XMLHttpRequest —
+  // and on nothing else, so `div.onbogus = f` is an ordinary expando and
+  // `"onClick" in div` is false. An EventTarget whose interfaces the IDL
+  // fixture does not cover (WebSocket, Notification, …) keeps the old reading:
+  // any `on` + lowercase name is one.
+  const EVENT_HANDLERS = new Map(
+    Object.entries(globalThis.__rbIdlEventHandlers || {}).map(([iface, names]) => [iface, new Set(names)]));
+  function declaresEventHandler(iface, name) {
+    const own = EVENT_HANDLERS.get(iface);
+    return own !== undefined && own.has(name);
+  }
+  // The handler names along `chain`, or null when no interface in it has any
+  // (and the object is not a node, whose interfaces are always covered).
+  function eventHandlersOf(chain, isNode) {
+    let names = null;
+    for (const iface of chain || []) {
+      const own = EVENT_HANDLERS.get(iface);
+      if (own) for (const n of own) (names ||= new Set()).add(n);
+    }
+    return names || (isNode ? new Set() : null);
+  }
+  // Whether `prop` is an event handler IDL attribute of an object of `shape`.
+  function isEventHandlerName(shape, prop) {
+    if (typeof prop !== "string") return false;
+    if (shape.handlers !== null) return shape.handlers.has(prop);
+    return shape.methods.has("addEventListener") && /^on[a-z]/.test(prop);
+  }
+
   // Seed interface `name`'s WebIDL members onto its prototype (idempotent — skips
   // names already present so a subclass never shadows an inherited member).
+  // The generated table (webidl_members.js: the IDL's members that the bridge
+  // classes answer) and the hand-kept INTERFACE_MEMBERS (members answered
+  // other than by name, e.g. JS-side) are seeded together.
+  const GENERATED_MEMBERS = globalThis.__rbIdlMembers || {};
   function seedInterfaceMembers(proto, name) {
-    const members = INTERFACE_MEMBERS[name];
-    if (!members) return;
+    const own = (table) => (Object.prototype.hasOwnProperty.call(table, name) ? table[name] : undefined);
+    const hand = own(INTERFACE_MEMBERS);
+    const generated = own(GENERATED_MEMBERS);
+    if (!hand && !generated) return;
+    const members = {};
+    for (const kind of ["m", "g", "p"]) {
+      members[kind] = [...((hand && hand[kind]) || []), ...((generated && generated[kind]) || [])];
+    }
     const def = (key, desc) => {
       if (!Object.prototype.hasOwnProperty.call(proto, key)) {
         Object.defineProperty(proto, key, desc);
@@ -1173,15 +1202,22 @@ globalThis.__rbHost = (function () {
   // `with` is skipped for a "use strict" body (where it is illegal). The
   // completion value is voided so a trailing expression never trips the
   // unawaited-Promise guard.
+  // A throw (a compile error included) comes back tagged, as a callback's
+  // does, so the Ruby side reports the very value the script threw.
   function runScript(src) {
     bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     const body = String(src);
     const strict = /^\s*(["'])use strict\1/.test(body);
-    if (!strict && typeof globalThis.window !== "undefined" && globalThis.window !== globalThis) {
-      indirectEval("with (globalThis.window) {\n" + body + "\n}\n;void 0;");
-    } else {
-      indirectEval(body + "\n;void 0;");
+    try {
+      if (!strict && typeof globalThis.window !== "undefined" && globalThis.window !== globalThis) {
+        indirectEval("with (globalThis.window) {\n" + body + "\n}\n;void 0;");
+      } else {
+        indirectEval(body + "\n;void 0;");
+      }
+    } catch (e) {
+      return tagThrow(e);
     }
+    return undefined;
   }
 
   function wasmGet(ref, prop) { return wasmTag(wasmDeref(ref)[prop]); }
@@ -1248,12 +1284,22 @@ globalThis.__rbHost = (function () {
   // constructor by interface name; null means "not constructable" so we throw.
   // WebIDL dictionary members for the constructors that take an init dictionary,
   // in the order the spec reads them (inherited members first, then own, each
-  // group lexicographic). "boolean" members are coerced with JS ToBoolean; "any"
-  // is passed through. Only interfaces with a COMPLETE member list belong here —
+  // group lexicographic). "boolean" members are coerced with JS ToBoolean,
+  // "DOMString" ones with ToString (a throwing toString propagates); "any" is
+  // passed through. Only interfaces with a COMPLETE member list belong here —
   // a partial list would silently drop members.
   const CONSTRUCTOR_DICTS = {
     Event: { bubbles: "boolean", cancelable: "boolean", composed: "boolean" },
     CustomEvent: { bubbles: "boolean", cancelable: "boolean", composed: "boolean", detail: "any" },
+    // `source` is an `Element?`, which Ruby checks.
+    ToggleEvent: {
+      bubbles: "boolean", cancelable: "boolean", composed: "boolean",
+      newState: "DOMString", oldState: "DOMString", source: "any",
+    },
+    CommandEvent: {
+      bubbles: "boolean", cancelable: "boolean", composed: "boolean",
+      command: "DOMString", source: "any",
+    },
   };
 
   // WebIDL argument coercion for a constructor that takes `(DOMString type,
@@ -1420,7 +1466,8 @@ globalThis.__rbHost = (function () {
       for (const member in members) {
         const value = init[member];
         if (value === undefined) continue;
-        dict[member] = members[member] === "boolean" ? !!value : value;
+        const kind = members[member];
+        dict[member] = kind === "boolean" ? !!value : kind === "DOMString" ? String(value) : value;
       }
     }
     return [type, dict];
@@ -2086,7 +2133,6 @@ globalThis.__rbHost = (function () {
     if (!set) { set = new Set(); declinedByInterface.set(ifaceName, set); }
     return set;
   }
-  const isEventHandlerName = (prop) => typeof prop === "string" && /^on[a-z]/.test(prop);
 
   // IDL reflected string attributes that return the content attribute value
   // verbatim ("" when absent): the property name -> its content attribute. These
@@ -2182,6 +2228,20 @@ globalThis.__rbHost = (function () {
   // prototype chain, its method-name set, and the traits the traps branch on.
   // Derived once per interface and memoized, where the handler used to be
   // handed them as positional arguments recomputed on every crossing.
+  // The legacy platform objects with named properties, generated from the IDL
+  // (webidl_members.js): { enumerable, writable, overrideBuiltins } per
+  // interface. An object takes the entry of the nearest interface in its chain
+  // that has one — a document's proxy is an HTMLDocument, whose named getter is
+  // Document's.
+  const NAMED_PROPERTIES = new Map(Object.entries(globalThis.__rbIdlNamedProperties || {}));
+  function namedPropertiesOf(chain) {
+    for (const name of chain) {
+      const flags = NAMED_PROPERTIES.get(name);
+      if (flags) return flags;
+    }
+    return null;
+  }
+
   const shapeByInterface = new Map();
   function interfaceShape(desc) {
     const cached = (desc.name != null) ? shapeByInterface.get(desc.name) : undefined;
@@ -2195,13 +2255,17 @@ globalThis.__rbHost = (function () {
     if (ENTRIES_ITERABLES.has(desc.name)) {
       for (const m of ["entries", "keys", "values", "forEach"]) methods.delete(m);
     }
+    const nodeChain = !!(desc.chain && desc.chain.indexOf("Node") !== -1);
     const shape = {
       name: desc.name,
       chain: desc.chain,
       methods,
       arrayLike: ARRAY_LIKE_COLLECTIONS.has(desc.name),
-      named: NAMED_PROP_COLLECTIONS.get(desc.name) || null,
-      nodeChain: !!(desc.chain && desc.chain.indexOf("Node") !== -1),
+      named: namedPropertiesOf(desc.chain || [desc.name]),
+      nodeChain,
+      // The event handler IDL attributes its interfaces declare (null: not
+      // covered by the IDL tables, see isEventHandlerName).
+      handlers: eventHandlersOf(desc.chain || [desc.name], nodeChain),
       indexedSetter: INDEXED_SETTER_INTERFACES.has(desc.name),
       constIface: CONST_IFACE_PROPS.get(desc.name) || null,
       stableIface: STABLE_EPOCH_IFACE_PROPS.get(desc.name) || null,
@@ -2296,9 +2360,8 @@ globalThis.__rbHost = (function () {
     return (name) => read(prop, name);
   }
 
-  // setAttribute / removeAttribute: a mutating attribute op, and additionally
-  // an on* attribute set or removed at runtime (re)compiles or clears the
-  // inline event handler.
+  // setAttribute / removeAttribute: a mutating attribute op. (An on*
+  // attribute's handler is the host's business: its attribute change steps.)
   function attrWriteStub(prop, ctx) {
     if (!ctx.nodeChain) return null;
 
@@ -2306,12 +2369,7 @@ globalThis.__rbHost = (function () {
     return function (...args) {
       bumpDomEpoch();
       try {
-        const r = hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ctx.ifaceName);
-        const attr = String(args[0] == null ? "" : args[0]);
-        if (/^on[a-z]/i.test(attr)) {
-          wireInlineHandler(this, attr.toLowerCase(), prop === "removeAttribute" ? null : args[1]);
-        }
-        return r;
+        return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ctx.ifaceName);
       } finally {
         bumpDomEpoch();
       }
@@ -2455,8 +2513,25 @@ globalThis.__rbHost = (function () {
       else fn = mutatingStub(prop, ctx);
     }
     fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
+    if (prop === "toString" && ctx.ifaceName) fn = brandCheckedStringifier(fn, ctx);
     withArity(fn, prop, ctx.ifaceName);
     return fn;
+  }
+
+  // A per-proxy stub closes over its own handle and ignores `this`, which is
+  // harmless for a call through the object but not for the stringifier, the
+  // one operation pages routinely detach: WebIDL's stringifier steps throw a
+  // TypeError when `this` does not implement the interface
+  // (`a.toString.call({})`), and run on `this`, not on the object the function
+  // was read from (`a.toString.call(otherA)` is the other one's href).
+  function brandCheckedStringifier(fn, ctx) {
+    return function (...args) {
+      if (!isProxy(this) || !interfaceChainOf(this).includes(ctx.ifaceName)) {
+        throw new TypeError("Illegal invocation: " + ctx.ifaceName + ".toString called on a different object");
+      }
+      if (this[HKEY] !== ctx.handle) return this.toString(...args);
+      return fn.apply(this, args);
+    };
   }
 
   // ===== Named properties (WebIDL legacy platform objects) =====
@@ -2589,7 +2664,9 @@ globalThis.__rbHost = (function () {
   // being written and a later rule handles it.
   function rejectNamedWrite(handle, shape, t, prop) {
     const named = shape.named;
-    if (!named || named.writable || Object.hasOwn(t, prop)) return undefined;
+    // A [Global]'s named properties are on its named properties object, so a
+    // write makes an own property that shadows them (`window.someId = 1`).
+    if (!named || named.writable || named.global || Object.hasOwn(t, prop)) return undefined;
     if (!isNamedKeyOf(handle, named, prop)) return undefined;
 
     return false;
@@ -2603,7 +2680,7 @@ globalThis.__rbHost = (function () {
   // on host state, not on the name alone), as do writable named collections.
   function setJsExpando(handle, shape, t, prop, value, receiver) {
     if ((shape.named && shape.named.writable) ||
-        isEventHandlerName(prop) || isGlobalWindow(handle)) return undefined;
+        isEventHandlerName(shape, prop) || isGlobalWindow(handle)) return undefined;
     const declined = shape.declinedProps;
     if (!Object.hasOwn(t, prop) && !(declined !== null && declined.has(prop))) return undefined;
 
@@ -2624,7 +2701,7 @@ globalThis.__rbHost = (function () {
     // it registers a listener that actually fires; they read back as null when
     // unset, so the null-means-unresolved test below would otherwise divert them
     // to a plain (never-firing) JS global.
-    if (isEventHandlerName(prop)) return undefined;
+    if (isEventHandlerName(shape, prop)) return undefined;
     const cur = __rb_host_get(handle, prop);
     const absent = cur !== null && typeof cur === "object" && cur.__rb_absent === true;
     if (!absent && rehydrate(cur) !== null) return undefined;
@@ -2666,12 +2743,27 @@ globalThis.__rbHost = (function () {
     // A writable named property (Storage/DOMStringMap) has a DOMString named
     // setter: `storage.x = 42` stores "42" and `= null` stores "null".
     if (shape.named && shape.named.writable) value = toDOMString(value);
-    if (hostSet(handle, prop, value)) return true;
+    if (isEventHandlerName(shape, prop)) {
+      if (hostSetWire(handle, prop, eventHandlerWire(value))) return true;
+    } else if (hostSet(handle, prop, value)) {
+      return true;
+    }
 
     t[prop] = value;
     pinIfProxy(handle, receiver);
     rememberDecline(handle, shape, prop);
     return true;
+  }
+
+  // An EventHandler value as it crosses: the type is
+  // [LegacyTreatNonObjectAsNull], so a value that is not an object is null,
+  // a function is a callback, and any other object crosses as itself — an
+  // opaque reference, never an EventListener, since a handler's handleEvent
+  // is not looked up — so `el.onclick = obj` reads back as `obj`.
+  function eventHandlerWire(v) {
+    if (typeof v === "function") return dehydrate(v);
+    if (v === null || typeof v !== "object") return null;
+    return dehydrateSettle(v);
   }
 
   // Remember a decline per (interface, prop): the host's set dispatch is a pure
@@ -2682,7 +2774,7 @@ globalThis.__rbHost = (function () {
   // clearing an overflowed one costs a single re-decline.
   function rememberDecline(handle, shape, prop) {
     const declined = shape.declinedProps;
-    if (declined === null || isEventHandlerName(prop) || isGlobalWindow(handle)) return;
+    if (declined === null || isEventHandlerName(shape, prop) || isGlobalWindow(handle)) return;
     if (declined.size >= DECLINED_PROPS_CAP) declined.clear();
     declined.add(prop);
   }
@@ -2704,6 +2796,23 @@ globalThis.__rbHost = (function () {
     return fresh;
   }
 
+  // FrozenArray attributes of non-Node interfaces, by interface: the same
+  // frozen array comes back while it holds the same items (HTML: "the same
+  // object must be returned until the user agent needs to return different
+  // values").
+  const IFACE_FROZEN_ARRAY_ATTRIBUTES = new Map([
+    ["Navigator", new Set(["languages"])],
+  ]);
+
+  // Attributes whose value is one JS object until the host replaces it, by
+  // interface: attribute -> the host key that reports the value's version. The
+  // value is rehydrated (a fresh JS object) only when the version moves, so
+  // `history.state === history.state` and a page's edits to the object it got
+  // stay visible on the next read, as with a real deserialized state.
+  const VERSIONED_ATTRIBUTES = new Map([
+    ["History", { state: "__dommyStateVersion" }],
+  ]);
+
   // The proxy handler for one host object: `handle` is the object, `shape` is
   // everything its interface decides (see interfaceShape) and `methodCache`
   // memoizes its method stubs. The per-interface traits used to arrive as eight
@@ -2722,6 +2831,11 @@ globalThis.__rbHost = (function () {
     // The frozen array last returned per FrozenArray attribute (see
     // frozenArrayRead); only Node proxies have such attributes.
     const frozenArrays = nodeChain ? new Map() : null;
+    // Per-interface frozen-array / versioned attributes (see the tables above)
+    // and this proxy's cache of their last answers.
+    const ifaceFrozenArrays = IFACE_FROZEN_ARRAY_ATTRIBUTES.get(shape.name) || null;
+    const versionedAttrs = VERSIONED_ATTRIBUTES.get(shape.name) || null;
+    const ifaceAttrCache = (ifaceFrozenArrays !== null || versionedAttrs !== null) ? new Map() : null;
     // Per-epoch cache of stable node props (STABLE_EPOCH_NODE_PROPS). Rebuilt
     // whenever the epoch moves; only used for Node proxies.
     let epochProps = null;
@@ -2781,7 +2895,24 @@ globalThis.__rbHost = (function () {
     // DOM mutations, and the visibility rule.
     const namedKeys = () => namedKeysOf(handle, named);
     const isIndexInRange = (prop) => arrayLike && isArrayIndex(prop) && Number(prop) < liveLength();
-    const isNamedKey = (prop) => isNamedKeyOf(handle, named, prop);
+    // An object whose named properties override its builtins
+    // ([LegacyOverrideBuiltIns]: a document, a form, a dataset) checks them on
+    // EVERY property read, so its supported names are fetched once per DOM
+    // epoch — they change only when the tree or an attribute does.
+    let namedKeyCache = null;
+    let namedKeyEpoch = -1;
+    // So does the Window ([Global]), whose names a `"x" in window` check asks
+    // for before anything else.
+    const isNamedKey = named && (named.overrideBuiltins || named.global)
+      ? (prop) => {
+        if (typeof prop !== "string") return false;
+        if (namedKeyEpoch !== domEpoch) {
+          namedKeyCache = new Set(namedKeysOf(handle, named));
+          namedKeyEpoch = domEpoch;
+        }
+        return namedKeyCache.has(prop);
+      }
+      : (prop) => isNamedKeyOf(handle, named, prop);
     const namedShadowedByProto = (t, prop) => namedShadowedByProtoOf(named, t, prop);
     // What a method stub can need beyond its own name (see makeMethodStub).
     const stubContext = {
@@ -2803,7 +2934,7 @@ globalThis.__rbHost = (function () {
         // prototype's methods AND accessors, so resolve it before either. An own
         // expando (checked above) still wins.
         if (named && named.overrideBuiltins && typeof prop === "string" && isNamedKey(prop)) {
-          return rehydrate(__rb_host_get(handle, prop));
+          return rehydrate(__rb_named_get(handle, prop));
         }
         if (methods.has(prop)) {
           // A read-only collection operation resolves to the interface
@@ -2827,6 +2958,17 @@ globalThis.__rbHost = (function () {
           return Reflect.get(t, prop, receiver);
         }
         if (constCache !== null && constCache.has(prop)) return constCache.get(prop);
+        if (ifaceFrozenArrays !== null && ifaceFrozenArrays.has(prop)) {
+          return frozenArrayRead(ifaceAttrCache, prop, rehydrate(__rb_host_get(handle, prop)));
+        }
+        if (versionedAttrs !== null && typeof prop === "string" && Object.hasOwn(versionedAttrs, prop)) {
+          const version = rehydrate(__rb_host_get(handle, versionedAttrs[prop]));
+          const hit = ifaceAttrCache.get(prop);
+          if (hit !== undefined && hit.version === version) return hit.value;
+          const value = rehydrate(__rb_host_get(handle, prop));
+          ifaceAttrCache.set(prop, { version, value });
+          return value;
+        }
         // Reflected string attribute (id/className/slot): answer from the
         // element's attribute snapshot, no crossing. Only when a snapshot is
         // available (HTML elements) — non-elements / foreign-namespace get null
@@ -2877,6 +3019,12 @@ globalThis.__rbHost = (function () {
         // resolved via `prop in t` above), so e.g. a UMD bundle's
         // `globalThis.Stimulus = …` is visible as `window.Stimulus`.
         if (hostHasNoValue && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return globalThis[prop];
+        // A Window's named properties (HTML "named access on the Window
+        // object") come after every member and global: they live on the named
+        // properties object at the bottom of its prototype chain.
+        if (hostHasNoValue && named && named.global && typeof prop === "string" && isNamedKey(prop)) {
+          return rehydrate(__rb_named_get(handle, prop));
+        }
         // A legacy platform collection returns `undefined` (not the host's null)
         // for a string property that resolves to no value. An out-of-range array
         // index is `undefined` and does NOT fall back to a named lookup (so
@@ -2884,7 +3032,7 @@ globalThis.__rbHost = (function () {
         // string); other unsupported strings (`coll[""]`, `coll["x"]`) too. A
         // node (a select, a form) answers an unknown name with ABSENT itself, so
         // its null is a real attribute value (`select.form`) and is kept.
-        if (hostHasNoValue && (arrayLike || named) && typeof prop === "string" && prop !== "length") {
+        if (hostHasNoValue && (arrayLike || (named && !named.global)) && typeof prop === "string" && prop !== "length") {
           if (arrayLike && isArrayIndex(prop)) return undefined;
           if (!nodeChain && !isNamedKey(prop)) return undefined;
         }
@@ -2924,7 +3072,7 @@ globalThis.__rbHost = (function () {
             writable: false, enumerable: true, configurable: true,
           };
         }
-        if (isNamedKey(prop) && !namedShadowedByProto(t, prop)) {
+        if (isNamedKey(prop) && !named.global && !namedShadowedByProto(t, prop)) {
           return {
             value: rehydrate(__rb_host_get(handle, prop)),
             writable: named.writable, enumerable: named.enumerable, configurable: true,
@@ -2936,7 +3084,7 @@ globalThis.__rbHost = (function () {
         if (typeof prop === "string" && deletedGlobals.has(prop)) deletedGlobals.delete(prop);
         // Cannot redefine a live indexed or read-only named property.
         if (arrayLike && isArrayIndex(prop)) return false;
-        if (named && !named.writable && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
+        if (named && !named.writable && !named.global && !Object.hasOwn(t, prop) && isNamedKey(prop)) return false;
         // A writable named collection (Storage/DOMStringMap) has a named setter:
         // `Object.defineProperty(storage, k, {value})` routes to it (ToString-
         // coerced) rather than planting a JS expando that the named getter can't
@@ -2969,7 +3117,10 @@ globalThis.__rbHost = (function () {
         if (typeof prop !== "symbol" && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) {
           const removed = delete globalThis[prop];
           if (removed) {
-            deletedGlobals.add(prop);
+            // A named property behind it (`<div id=x>` after `window.x = 1;
+            // delete window.x`) shows through again; the host does not resolve
+            // it, so it needs no tombstone.
+            if (!(named && named.global && isNamedKey(prop))) deletedGlobals.add(prop);
             Reflect.deleteProperty(t, prop);
           }
           return removed;
@@ -2982,7 +3133,7 @@ globalThis.__rbHost = (function () {
             // mutation, so invalidate attribute snapshots.
             bumpDomEpoch();
             if (rehydrate(__rb_host_delete(handle, prop))) return true;
-          } else if (isNamedKey(prop)) {
+          } else if (!named.global && isNamedKey(prop)) {
             return false; // read-only named property cannot be deleted
           }
         }
@@ -2990,7 +3141,8 @@ globalThis.__rbHost = (function () {
       },
       ownKeys(t) {
         const keys = Reflect.ownKeys(t);
-        if (!arrayLike && !named) return keys;
+        // (A [Global]'s named properties are not its own: see `named.global`.)
+        if (!arrayLike && (!named || named.global)) return keys;
         const n = arrayLike ? liveLength() : 0;
         const result = [];
         for (let i = 0; i < n; i++) result.push(String(i));
@@ -3022,12 +3174,13 @@ globalThis.__rbHost = (function () {
         // The global window also reports its JS globals (`"Stimulus" in window`);
         // inherited names already answered true via Reflect.has(t) above.
         if (isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return true;
-        // Event-handler IDL attributes (onclick, oninput, …) exist on event
-        // targets as null-default properties, so `("oninput" in document)` is
-        // true even when unset — React's isEventSupported feature-detect relies
-        // on this to use the native input event (else it falls back to a keydown
-        // polyfill and controlled-input onChange never fires).
-        if (typeof prop === "string" && /^on[a-z]/.test(prop)) return true;
+        // Event-handler IDL attributes (onclick, oninput, …) the object's
+        // interfaces declare exist as null-default properties, so
+        // `("oninput" in document)` is true even when unset — React's
+        // isEventSupported feature-detect relies on this to use the native
+        // input event (else it falls back to a keydown polyfill and
+        // controlled-input onChange never fires).
+        if (isEventHandlerName(shape, prop)) return true;
         // Otherwise reflect the ABI: a property whose host value is non-null is
         // present; a null/absent one reports missing. We can't distinguish
         // present-but-null from genuinely-absent across the ABI, and reporting
@@ -3416,7 +3569,7 @@ globalThis.__rbHost = (function () {
     seedInterfaces, invokeLifecycle, upgradeInPlace, attachStatics, exposeConstructorsOnWindow,
     // Realm wiring the Ruby bridge drives, kept here rather than as JS built in
     // Ruby strings (see defineGlobal / defineLegacyEventAccessor).
-    defineGlobal, exposeConstructorsOnSubWindow, defineLegacyEventAccessor, wireInlineHandlers,
+    defineGlobal, exposeConstructorsOnSubWindow, defineLegacyEventAccessor, compileEventHandler,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,
     wasmTypeof, wasmToString, wasmStrictEqual, wasmIsNull, wasmInstanceof,

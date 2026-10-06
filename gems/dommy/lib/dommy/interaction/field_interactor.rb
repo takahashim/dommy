@@ -14,10 +14,22 @@ module Dommy
         @document = document
       end
 
+      # Set a field's value as the user's edit it stands for: HTML then knows
+      # the value was last changed by a user edit (maxlength / minlength
+      # apply) and what was typed before sanitization (bad input).
+      def user_edit(field, value)
+        if field.respond_to?(:__internal_user_edit_value__)
+          field.__internal_user_edit_value__(value)
+        else
+          field.value = value
+        end
+      end
+      private :user_edit
+
       def fill_in(locator, with:)
         field = @finder.find_field(locator)
         EventSynthesis.focus(field)
-        field.value = with.to_s
+        user_edit(field, with.to_s)
         EventSynthesis.input(field, with.to_s)
         EventSynthesis.change(field)
         field
@@ -94,7 +106,7 @@ module Dommy
         return false unless text_entry_field?(element)
         return false if EventSynthesis.beforeinput(element, text, "insertText")
 
-        element.value = element.value.to_s + text
+        user_edit(element, element.value.to_s + text)
         EventSynthesis.input(element, text)
         true
       end
@@ -108,7 +120,7 @@ module Dommy
         return false if value.empty?
         return false if EventSynthesis.beforeinput(element, nil, "deleteContentBackward")
 
-        element.value = value[0...-1]
+        user_edit(element, value[0...-1])
         EventSynthesis.input(element, nil, "deleteContentBackward")
         true
       end
@@ -120,7 +132,7 @@ module Dommy
       def set_composition_text(element, base, update)
         return false unless text_entry_field?(element)
 
-        element.value = base + update
+        user_edit(element, base + update)
         EventSynthesis.composition_input(element, update)
         true
       end
@@ -130,7 +142,7 @@ module Dommy
       def cancel_composition_text(element, base)
         return false unless text_entry_field?(element)
 
-        element.value = base
+        user_edit(element, base)
         EventSynthesis.input(element, nil, "deleteCompositionText")
         true
       end

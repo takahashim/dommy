@@ -126,10 +126,12 @@ module Dommy
       radio ? radio.value.to_s : ""
     end
 
+    # HTML: the first radio in the list whose value is the given one becomes
+    # checked (its radio button group unchecks the rest); when there is none,
+    # nothing changes.
     def value=(new_value)
       __internal_refresh__
       target = find { |el| radio_button?(el) && el.value.to_s == new_value.to_s }
-      each { |el| el.checked = false if radio_button?(el) }
       target.checked = true if target
       new_value
     end

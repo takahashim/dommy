@@ -15,6 +15,8 @@ require_relative "dommy/callable_invoker"
 require_relative "dommy/bridge/methods"
 require_relative "dommy/node"
 require_relative "dommy/html_collection"
+require_relative "dommy/internal/event_handler_tables"
+require_relative "dommy/internal/event_handlers"
 require_relative "dommy/event"
 require_relative "dommy/scheduler"
 require_relative "dommy/internal/observer_options"
@@ -33,6 +35,8 @@ require_relative "dommy/internal/aria_state"
 require_relative "dommy/internal/accessibility_tree"
 require_relative "dommy/internal/aria_snapshot"
 require_relative "dommy/internal/selector_arguments"
+require_relative "dommy/internal/focusability"
+require_relative "dommy/internal/popover_invoker_element"
 require_relative "dommy/internal/css_rule_text"
 require_relative "dommy/internal/css_priority"
 require_relative "dommy/internal/selector_ast"
@@ -67,6 +71,7 @@ require_relative "dommy/url_pattern"
 require_relative "dommy/streams"
 require_relative "dommy/compression_streams"
 require_relative "dommy/worker"
+require_relative "dommy/dom_string_list"
 require_relative "dommy/location"
 require_relative "dommy/history"
 require_relative "dommy/navigation"
@@ -96,15 +101,21 @@ require_relative "dommy/fragment"
 require_relative "dommy/class_list"
 require_relative "dommy/style_declaration"
 require_relative "dommy/element"
+require_relative "dommy/internal/js_number"
 require_relative "dommy/internal/reflected_attributes"
 require_relative "dommy/internal/enumerated_keyword_sets"
 require_relative "dommy/internal/text_selection"
+require_relative "dommy/internal/constraint_validation"
 require_relative "dommy/internal/input_type"
 require_relative "dommy/internal/autofill"
 require_relative "dommy/hyperlink_utils"
 require_relative "dommy/html_elements"
 require_relative "dommy/svg_elements"
 require_relative "dommy/mathml_elements"
+# Every HTML element class is defined now: give each the reflected attributes
+# its interface's IDL declares and the class does not declare itself.
+require_relative "dommy/internal/idl_reflection"
+Dommy::Internal::IdlReflection.install_all!
 require_relative "dommy/shadow_root"
 require_relative "dommy/custom_elements"
 require_relative "dommy/tree_walker"
@@ -211,6 +222,10 @@ module Dommy
     when Proc, Method, UnboundMethod, IO, Class, Module
       raise DOMException::DataCloneError, "#{value.class} cannot be cloned"
     else
+      # A JS function crosses as a callable handle; functions are not
+      # serializable (StructuredSerialize throws DataCloneError for them).
+      raise DOMException::DataCloneError, "function could not be cloned" if CallableInvoker.js_callable?(value)
+
       if value.respond_to?(:clone_node)
         value.clone_node(true)
       else

@@ -42,12 +42,21 @@ module JsSurface
   # Every JS-readable property name of `klass`, unioned across its ancestry:
   # the `__js_get__` dispatch arms of each ancestor that defines one, plus the
   # reflected IDL attributes declared with `reflect_string` / `reflect_boolean`
-  # (which are answered by a shared registry lookup, not by a `when` arm).
+  # (which are answered by a shared registry lookup, not by a `when` arm),
+  # the names a module answers through a table lookup and lists in its own
+  # JS_PROPERTY_NAMES (Internal::ElementAria's aria* reflections), and the
+  # event handler IDL attributes of a class that answers them by table.
   def js_properties(klass)
     names = ancestor_classes(klass).flat_map { |k| own_when_strings(k, :__js_get__) }
+    names += ancestor_classes(klass).flat_map do |k|
+      k.const_defined?(:JS_PROPERTY_NAMES, false) ? k.const_get(:JS_PROPERTY_NAMES, false).map(&:to_s) : []
+    end
     if klass.respond_to?(:reflected_property_map)
       names += klass.reflected_property_map.keys.map(&:to_s)
     end
+    # Event handler IDL attributes are answered by one lookup in the generated
+    # event handler table rather than a `when` arm each.
+    names += klass.event_handler_idl_attributes.to_a if klass.respond_to?(:event_handler_idl_attributes)
     names.uniq
   end
 

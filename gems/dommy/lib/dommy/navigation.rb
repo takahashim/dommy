@@ -37,9 +37,24 @@ module Dommy
   #              for diagnostics / policy
   #
   #   traverse(delta)
-  #     A cross-document history traversal by `delta` entries. With no bfcache
-  #     (a Dommy design decision) this re-fetches the target entry's URL, so an
-  #     implementation may reduce it to a `navigate`.
+  #     A history traversal by `delta` entries that leaves the page's own
+  #     same-document entries (`history.go(n)` / back / forward from script). It
+  #     is called from a task; with no bfcache (a Dommy design decision) a
+  #     cross-document target re-fetches its URL, so an implementation may
+  #     reduce it to a `navigate`.
+  #
+  # and, optionally:
+  #
+  #   history_length -> Integer
+  #     The joint session history's size, which `history.length` reports in
+  #     place of the document's own entry count.
+  #   stop
+  #     `window.stop()`: drop a navigation not yet performed.
+  #   open_window(url:, target:, features:) -> Window | nil
+  #     `window.open` asking for a new browsing context; nil means the popup
+  #     was blocked (the default: none is created).
+  #   close_window
+  #     A script-closable top-level window asked to close (`window.close()`).
   module Navigation
     # The default delegate: it performs no navigation, only *records* each
     # attempt so tests can assert "a navigation to X was triggered" and the
@@ -284,6 +299,16 @@ module Dommy
         return nil if @index >= @stack.size - 1
 
         @index += 1
+        current_entry
+      end
+
+      # Move the cursor by `delta` entries and return that Entry, or nil (cursor
+      # unchanged) when the target is out of range.
+      def go(delta)
+        target = @index + delta.to_i
+        return nil if delta.to_i.zero? || target.negative? || target >= @stack.size
+
+        @index = target
         current_entry
       end
 

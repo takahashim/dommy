@@ -30,6 +30,8 @@ class TestLocationHistory < Minitest::Test
     # hashchange is a HashChangeEvent exposing full old/new document URLs.
     @win.add_event_listener("hashchange") { |e| fired << [e.__js_get__("oldURL"), e.__js_get__("newURL")] }
     @loc.__js_set__("hash", "section2")
+    assert_empty(fired) # hashchange is queued as a task
+    @win.scheduler.advance_time(0)
     assert_equal(1, fired.size)
     assert_match(%r{#section2\z}, fired.first[1])
     assert_equal("#section2", @loc.__js_get__("hash"))
@@ -48,6 +50,7 @@ class TestLocationHistory < Minitest::Test
     fired = []
     @win.add_event_listener("popstate") { |e| fired << e.__js_get__("state") }
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0) # traversal runs from a task
 
     assert_equal(1, fired.size)
     assert_equal({"n" => 1}, fired.first)

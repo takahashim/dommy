@@ -169,7 +169,7 @@ class TestWPTFormSubmit < Minitest::Test
   end
 
   def test_request_submit_rejects_non_submit_button
-    assert_raises(TypeError) do
+    assert_raises(Dommy::Bridge::TypeError) do
       @form.request_submit(@doc.get_element_by_id("no"))
     end
   end

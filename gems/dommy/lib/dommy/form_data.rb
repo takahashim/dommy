@@ -17,18 +17,52 @@ module Dommy
   class FormData
     include Enumerable
 
-    # `new FormData(form)` from JavaScript: an absent or undefined form means
-    # an empty FormData; null or anything but a form element is a TypeError,
-    # since the argument is a non-nullable HTMLFormElement.
+    # `new FormData(form, submitter)` from JavaScript: an absent or undefined
+    # form means an empty FormData; null or anything but a form element is a
+    # TypeError, since the argument is a non-nullable HTMLFormElement. The
+    # optional `submitter` (HTMLElement?) is checked as XHR says.
     def self.from_js(args)
       return new if args.empty? || args[0].equal?(Bridge::UNDEFINED)
       raise Bridge::TypeError, "FormData constructor: argument 1 is not an HTMLFormElement" unless args[0].is_a?(HTMLFormElement)
 
-      new(args[0])
+      submitter = args[1]
+      submitter = nil if submitter.equal?(Bridge::UNDEFINED)
+      if !submitter.nil? && !submitter.is_a?(HTMLElement)
+        raise Bridge::TypeError, "FormData constructor: argument 2 is not an HTMLElement"
+      end
+
+      new(args[0], submitter)
     end
 
-    def initialize(form = nil)
-      @pairs = form ? FormEntryList.new(form).form_data.entries : []
+    # XHR's FormData constructor steps, given a form: a non-null submitter must
+    # be a submit button (else TypeError) whose form owner is the form (else
+    # NotFoundError); the entries are the form's constructed entry list with
+    # that submitter, and a form already constructing its entry list (a
+    # `formdata` listener calling `new FormData(form)`) is an InvalidStateError.
+    def initialize(form = nil, submitter = nil)
+      @pairs = []
+      return if form.nil?
+
+      unless submitter.nil?
+        raise Bridge::TypeError, "The specified element is not a submit button." unless FormEntryList.submit_button?(submitter)
+
+        owner = submitter.__internal_form_owner__
+        unless owner && owner.__dommy_backend_node__.equal?(form.__dommy_backend_node__)
+          raise DOMException::NotFoundError, "The specified element is not owned by this form element."
+        end
+      end
+
+      list = FormEntryList.new(form, submitter: submitter).form_data
+      raise DOMException::InvalidStateError, "The form is constructing its entry list." if list.nil?
+
+      @pairs = list.entries
+    end
+
+    # A FormData holding the same entries (HTML "a clone of entry list").
+    def __internal_copy__
+      copy = FormData.new
+      copy.instance_variable_set(:@pairs, @pairs.dup)
+      copy
     end
 
     def append(name, value, filename = nil)

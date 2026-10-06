@@ -24,6 +24,7 @@ class TestWPTHistoryBoundaries < Minitest::Test
     # cursor there with no state change. The default state is nil.
     initial_length = @hist.__js_get__("length")
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0)
     assert_nil(@hist.__js_get__("state"))
     assert_equal(initial_length, @hist.__js_get__("length"))
   end
@@ -33,6 +34,7 @@ class TestWPTHistoryBoundaries < Minitest::Test
     # At the top of the stack; forward() should do nothing.
     state_before = @hist.__js_get__("state")
     @hist.__js_call__("forward", [])
+    @win.scheduler.advance_time(0)
     assert_equal(state_before, @hist.__js_get__("state"))
   end
 end
@@ -53,8 +55,10 @@ class TestWPTHistoryStackTruncation < Minitest::Test
   end
 
   def test_pushstate_after_back_truncates_forward_entries
-    @hist.__js_call__("back", []) # cursor at /b
-    @hist.__js_call__("back", []) # cursor at /a
+    @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0) # cursor at /b
+    @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0) # cursor at /a
     @hist.__js_call__("pushState", [{"n" => 4}, "", "/d"])
     # /b and /c are dropped; total length is initial(1) + /a + /d = 3.
     assert_equal(3, @hist.__js_get__("length"))
@@ -62,9 +66,12 @@ class TestWPTHistoryStackTruncation < Minitest::Test
 
   def test_forward_cannot_recover_truncated_entry
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0)
     @hist.__js_call__("back", [])
+    @win.scheduler.advance_time(0)
     @hist.__js_call__("pushState", [{"n" => 4}, "", "/d"])
     @hist.__js_call__("forward", [])
+    @win.scheduler.advance_time(0)
     # forward() finds nothing past /d; state should still be /d.
     assert_equal({"n" => 4}, @hist.__js_get__("state"))
   end

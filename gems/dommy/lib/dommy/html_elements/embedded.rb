@@ -5,13 +5,9 @@ module Dommy
   #
   # One of the HTML element groups; html_elements.rb lists them all.
   class HTMLIFrameElement < HTMLElement
-    reflect_url :src
-    reflect_token_list :sandbox
-    reflect_string :srcdoc, :name, :allow
+    reflect_token_list sandbox: { supported: Internal::SupportedTokens::IFRAME_SANDBOX }
     reflect_enumerated loading: Internal::EnumeratedKeywordSets::LAZY_LOADING,
                        referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
-    reflect_boolean allow_fullscreen: "allowfullscreen"
-    reflect_string :width, :height
 
     # The nested browsing context's document. An integration/test layer may
     # inject one via `__internal_set_content_document__` (e.g. the `src`
@@ -53,6 +49,9 @@ module Dommy
       html = srcdoc.to_s.empty? ? BLANK_DOCUMENT_HTML : srcdoc.to_s
       win = Window.new(nil, backend_doc: Backend.parse(html))
       win.location.__internal_set_url__(srcdoc.nil? ? "about:blank" : "about:srcdoc")
+      win.__internal_initial_about_blank__ = srcdoc.nil?
+      # The `name` attribute names the content navigable when it is created.
+      win.__internal_seed_name__(__internal_attribute_value__("name"))
       doc = win.document
       doc.__internal_set_creator_base_url__(owner_document&.base_uri)
       win.frame_element = self if win.respond_to?(:frame_element=)
@@ -65,6 +64,20 @@ module Dommy
       # detect content inside a non-rendered (display:none / disconnected) frame.
       view = doc.respond_to?(:default_view) ? doc.default_view : nil
       view.frame_element = self if view.respond_to?(:frame_element=)
+      view.__internal_seed_name__(__internal_attribute_value__("name")) if view.respond_to?(:__internal_seed_name__)
+    end
+
+    # The target name of this iframe's content navigable, without creating a
+    # blank one to ask: until it exists it is the `name` attribute it will be
+    # created with. (Window's named properties ask every iframe.)
+    def __internal_navigable_target_name__
+      view = @content_document&.default_view
+      view ? view.name : __internal_attribute_value__("name").to_s
+    end
+
+    # The content navigable's window, when it has been created.
+    def __internal_built_content_window__
+      @content_document&.default_view
     end
 
     def content_window
@@ -101,9 +114,7 @@ module Dommy
   end
 
   class HTMLObjectElement < HTMLElement
-    reflect_url :data
-    reflect_string :type, :name, use_map: "usemap"
-    reflect_string :width, :height
+    include Internal::ConstraintValidation
 
     def content_document
       nil
@@ -118,32 +129,8 @@ module Dommy
     end
 
     # An `<object>` is a form-associated element, so it carries the whole
-    # constraint validation API — and is barred from constraint validation, so
-    # every member of it reports the never-invalid answer.
-    def validity
-      ValidityState.new
-    end
-
-    def will_validate
-      false
-    end
-
-    def validation_message
-      ""
-    end
-
-    def check_validity
-      true
-    end
-
-    def report_validity
-      true
-    end
-
-    def set_custom_validity(msg)
-      @custom_validity_message = msg.to_s
-      nil
-    end
+    # constraint validation API — and is barred from constraint validation.
+    def __internal_barred_from_constraint_validation__? = true
 
     def __js_get__(key)
       case key
@@ -157,12 +144,6 @@ module Dommy
         content_window
       when "form"
         form
-      when "validity"
-        validity
-      when "willValidate"
-        will_validate
-      when "validationMessage"
-        validation_message
       else
         super
       end
@@ -179,36 +160,15 @@ module Dommy
       end
     end
 
-    js_methods %w[checkValidity reportValidity setCustomValidity]
-    def __js_call__(method, args)
-      case method
-      when "checkValidity"
-        check_validity
-      when "reportValidity"
-        report_validity
-      when "setCustomValidity"
-        set_custom_validity(args[0])
-      else
-        super
-      end
-    end
   end
 
   class HTMLEmbedElement < HTMLElement
-    reflect_url :src
-    reflect_string :type
-    reflect_string :width, :height
-
-    js_accessor :width, :height
-
   end
 
   class HTMLParamElement < HTMLElement
-    reflect_string :name, :value
   end
 
   class HTMLMapElement < HTMLElement
-    reflect_string :name
     def areas
       @areas ||= HTMLCollection.new do
         @__node__.css("area").map { |n| @document.wrap_node(n) }.compact

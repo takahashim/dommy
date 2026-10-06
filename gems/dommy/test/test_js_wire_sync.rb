@@ -96,35 +96,28 @@ class TestJsWireSync < Minitest::Test
   end
 end
 
-# The event handler CONTENT attributes are enumerated once, in webidl_tables.js —
-# host_runtime.js gates the runtime `setAttribute("on*")` path on them, and the
-# boot-time inline-handler wiring reads the same sets rather than carrying a
-# second copy.
+# Which `on*` names are event handlers is generated from the specs' IDL
+# (script/build_event_handlers.rb) into one JS and one Ruby table: the bridge's
+# chain lookup and the host's attribute change steps read the same data.
 # An `on*` attribute outside them names no event handler and must stay inert.
 # WPT: html/webappapis/scripting/events/event-handler-non-content-document-idl-attributes.html
 class TestEventHandlerContentAttributes < Minitest::Test
-  # The sets are spec surface (webidl_tables.js); the wiring that reads them is
-  # bridge machinery (host_runtime.js).
-  TABLES_JS = Dommy::Js::HostBridge::WEBIDL_TABLES_JS
   RUNTIME_JS = Dommy::Js::HostBridge::HOST_RUNTIME_JS
+  HANDLERS_JS = Dommy::Js::HostBridge::WEBIDL_EVENT_HANDLERS_JS
+  Tables = Dommy::Internal::EventHandlerTables
 
-  def names_in(constant)
-    body = TABLES_JS[/const #{constant} = new Set\(\[(.*?)\]\);/m, 1]
-    refute_nil(body, "#{constant} is missing from webidl_tables.js")
-    body.scan(/"([^"]+)"/).flatten
-  end
+  def element_handlers = Dommy::Internal::EventHandlers::GLOBAL
+  def reflected_handlers = Dommy::Internal::EventHandlers::WINDOW
 
-  def element_handlers = names_in("ELEMENT_HANDLER_ATTRIBUTES")
-  def reflected_handlers = names_in("WINDOW_REFLECTED_HANDLERS")
-
-  # These are event handler IDL attributes of Document (and Element for the
-  # pointer-lock pair); none of them is a content attribute on any element.
-  DOCUMENT_ONLY = %w[onreadystatechange onvisibilitychange onpointerlockchange onpointerlockerror].freeze
+  # IDL attributes of Document (and Element for the fullscreen pair); none of
+  # them is a content attribute on any element.
+  DOCUMENT_ONLY = %w[onreadystatechange onvisibilitychange onfullscreenchange onfullscreenerror].freeze
 
   def test_the_document_only_handlers_are_in_neither_set
     DOCUMENT_ONLY.each do |name|
       refute_includes(element_handlers, name)
       refute_includes(reflected_handlers, name)
+      assert_includes(Tables::BY_INTERFACE["Document"], name)
     end
   end
 
@@ -132,8 +125,10 @@ class TestEventHandlerContentAttributes < Minitest::Test
     %w[
       onclick oninput onsubmit ontoggle onwheel onscrollend onslotchange onsecuritypolicyviolation
       onpointerdown onpointerrawupdate ongotpointercapture ontouchstart onanimationstart
-      onfocusin onfocusout onselectstart oncommand oncontextlost
+      ontransitionend onselectstart onselectionchange oncommand oncontextlost onbeforematch
     ].each { |name| assert_includes(element_handlers, name) }
+    # Not in any spec's GlobalEventHandlers.
+    %w[onfocusin onfocusout onpointerlockchange].each { |name| refute_includes(element_handlers, name) }
   end
 
   # The Window handlers are content attributes on body and frameset only, so
@@ -143,24 +138,23 @@ class TestEventHandlerContentAttributes < Minitest::Test
       assert_includes(reflected_handlers, name)
       refute_includes(element_handlers, name)
     end
+    assert_equal(reflected_handlers | %w[onblur onerror onfocus onload onresize onscroll],
+                 Dommy::Internal::EventHandlers::BODY_REFLECTED)
   end
 
-  # The boot-time scan and the runtime setAttribute path must read one list and
-  # compile handlers one way. They do when the scan lives beside them, so what
-  # this pins is that Ruby carries no second copy of either.
-  def test_the_boot_wiring_lives_with_the_sets_rather_than_repeating_them
+  # The JS table is the Ruby one, interface for interface.
+  def test_the_bridge_reads_the_same_table_as_the_host
+    js = HANDLERS_JS.scan(/^  "(\w+)": \[(.*)\]/).to_h { |name, list| [name, list.scan(/"([^"]+)"/).flatten] }
+    assert_equal(Tables::BY_INTERFACE.transform_values(&:to_a), js)
+    refute_match(%r{/\^on\[a-z\]/\.test\(prop\)\) return true}, RUNTIME_JS, "the has trap must look names up, not match them")
+  end
+
+  # Compilation is the engine's: host_runtime builds the function, Ruby only
+  # stores the body until then.
+  def test_the_runtime_compiles_handlers
+    assert_includes(RUNTIME_JS, "function compileEventHandler(wireEl, name, code, windowHandler)")
     boot = Dommy::Js::ScriptBoot.method(:wire_inline_handlers).source_location
-    ruby = ::File.read(boot.first)
-    refute_match(/new Set\(\["on/, ruby, "the boot wiring must not carry its own copy of the list")
-    refute_match(/new Function\(/, ruby, "the boot wiring must not compile handlers of its own")
-    assert_includes(RUNTIME_JS, "function wireInlineHandlers()")
-    assert_match(/wireInlineHandler\(el, name, el\.getAttribute\(name\)\)/, RUNTIME_JS,
-      "the boot scan must reuse the per-attribute compilation")
-  end
-
-  def test_the_runtime_gates_the_set_attribute_path_on_them
-    assert_includes(RUNTIME_JS, "function isHandlerAttribute(el, name)")
-    assert_match(/if \(!isHandlerAttribute\(el, name\)\) return;/, RUNTIME_JS)
+    refute_match(/new Function\(/, ::File.read(boot.first), "the boot wiring must not compile handlers of its own")
   end
 end
 

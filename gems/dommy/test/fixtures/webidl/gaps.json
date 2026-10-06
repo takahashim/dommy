@@ -2,9 +2,9 @@
   "README": "Inventory of WebIDL members Dommy does not implement, and of the reflected attributes it implements with the wrong algorithm, recorded so test/test_webidl_conformance.rb can ratchet. Regenerate with RECORD_WEBIDL_GAPS=1 bundle exec rake test.",
   "wpt_commit": "863077959ca8c1a7ceecfbe2534b75d2527b9013",
   "missing_interfaces": [
+    "AnimationEvent",
     "AudioTrack",
     "AudioTrackList",
-    "BarProp",
     "CDATASection",
     "CSSMarginRule",
     "CSSNamespaceRule",
@@ -13,21 +13,15 @@
     "CanvasPattern",
     "CaretPosition",
     "CloseWatcher",
-    "CommandEvent",
     "CustomStateSet",
-    "DOMStringList",
     "ElementInternals",
-    "External",
     "FetchLaterResult",
     "HTMLAllCollection",
-    "HTMLMarqueeElement",
-    "HTMLMenuElement",
     "HTMLSelectedContentElement",
     "ImageBitmap",
     "ImageBitmapRenderingContext",
     "MediaError",
     "MimeType",
-    "MimeTypeArray",
     "NavigateEvent",
     "Navigation",
     "NavigationActivation",
@@ -42,10 +36,8 @@
     "OffscreenCanvasRenderingContext2D",
     "PageRevealEvent",
     "PageSwapEvent",
-    "PageTransitionEvent",
     "Path2D",
     "Plugin",
-    "PluginArray",
     "Sanitizer",
     "SharedWorker",
     "TextTrack",
@@ -54,6 +46,7 @@
     "TextTrackList",
     "TimeRanges",
     "TrackEvent",
+    "TransitionEvent",
     "UserActivation",
     "VideoTrack",
     "VideoTrackList",
@@ -66,6 +59,9 @@
     "XSLTProcessor"
   ],
   "missing_members": {
+    "BarProp": [
+      "visible"
+    ],
     "Blob": [
       "stream",
       "textStream"
@@ -82,6 +78,16 @@
       "layerName",
       "styleSheet",
       "supportsText"
+    ],
+    "CSSKeyframeRule": [
+      "keyText"
+    ],
+    "CSSKeyframesRule": [
+      "appendRule",
+      "deleteRule",
+      "findRule",
+      "length",
+      "name"
     ],
     "CSSStyleDeclaration": [
       "parentRule"
@@ -128,9 +134,6 @@
       "getName",
       "initialize"
     ],
-    "DOMTokenList": [
-      "supports"
-    ],
     "DataTransfer": [
       "setDragImage"
     ],
@@ -139,10 +142,8 @@
     ],
     "Document": [
       "adoptedStyleSheets",
-      "alinkColor",
       "all",
       "ariaNotify",
-      "bgColor",
       "captureEvents",
       "caretPositionFromPoint",
       "clear",
@@ -155,149 +156,16 @@
       "elementsFromPoint",
       "evaluate",
       "execCommand",
-      "fgColor",
+      "fullscreen",
       "getBoxQuads",
-      "linkColor",
-      "onabort",
-      "onauxclick",
-      "onbeforeinput",
-      "onbeforematch",
-      "onbeforetoggle",
-      "onblur",
-      "oncancel",
-      "oncanplay",
-      "oncanplaythrough",
-      "onchange",
-      "onclick",
-      "onclose",
-      "oncommand",
-      "oncontextlost",
-      "oncontextmenu",
-      "oncontextrestored",
-      "oncopy",
-      "oncuechange",
-      "oncut",
-      "ondblclick",
-      "ondrag",
-      "ondragend",
-      "ondragenter",
-      "ondragleave",
-      "ondragover",
-      "ondragstart",
-      "ondrop",
-      "ondurationchange",
-      "onemptied",
-      "onended",
-      "onerror",
-      "onfocus",
-      "onformdata",
-      "oninput",
-      "oninvalid",
-      "onkeydown",
-      "onkeypress",
-      "onkeyup",
-      "onload",
-      "onloadeddata",
-      "onloadedmetadata",
-      "onloadstart",
-      "onmousedown",
-      "onmouseenter",
-      "onmouseleave",
-      "onmousemove",
-      "onmouseout",
-      "onmouseover",
-      "onmouseup",
-      "onpaste",
-      "onpause",
-      "onplay",
-      "onplaying",
-      "onprogress",
-      "onratechange",
-      "onreadystatechange",
-      "onreset",
-      "onresize",
-      "onscroll",
-      "onscrollend",
-      "onsecuritypolicyviolation",
-      "onseeked",
-      "onseeking",
-      "onselect",
-      "onselectionchange",
-      "onselectstart",
-      "onslotchange",
-      "onstalled",
-      "onsubmit",
-      "onsuspend",
-      "ontimeupdate",
-      "ontoggle",
-      "onvisibilitychange",
-      "onvolumechange",
-      "onwaiting",
-      "onwebkitanimationend",
-      "onwebkitanimationiteration",
-      "onwebkitanimationstart",
-      "onwebkittransitionend",
-      "onwheel",
       "queryCommandEnabled",
       "queryCommandIndeterm",
       "queryCommandState",
       "queryCommandValue",
-      "releaseEvents",
-      "vlinkColor"
+      "releaseEvents"
     ],
     "Element": [
-      "ariaActiveDescendantElement",
-      "ariaAtomic",
-      "ariaAutoComplete",
-      "ariaBrailleLabel",
-      "ariaBrailleRoleDescription",
-      "ariaBusy",
-      "ariaChecked",
-      "ariaColCount",
-      "ariaColIndex",
-      "ariaColIndexText",
-      "ariaColSpan",
-      "ariaControlsElements",
-      "ariaCurrent",
-      "ariaDescribedByElements",
-      "ariaDescription",
-      "ariaDetailsElements",
-      "ariaDisabled",
-      "ariaErrorMessageElements",
-      "ariaExpanded",
-      "ariaFlowToElements",
-      "ariaHasPopup",
-      "ariaHidden",
-      "ariaInvalid",
-      "ariaKeyShortcuts",
-      "ariaLabel",
-      "ariaLabelledByElements",
-      "ariaLevel",
-      "ariaLive",
-      "ariaModal",
-      "ariaMultiLine",
-      "ariaMultiSelectable",
       "ariaNotify",
-      "ariaOrientation",
-      "ariaOwnsElements",
-      "ariaPlaceholder",
-      "ariaPosInSet",
-      "ariaPressed",
-      "ariaReadOnly",
-      "ariaRelevant",
-      "ariaRequired",
-      "ariaRoleDescription",
-      "ariaRowCount",
-      "ariaRowIndex",
-      "ariaRowIndexText",
-      "ariaRowSpan",
-      "ariaSelected",
-      "ariaSetSize",
-      "ariaSort",
-      "ariaValueMax",
-      "ariaValueMin",
-      "ariaValueNow",
-      "ariaValueText",
       "checkVisibility",
       "convertPointFromNode",
       "convertQuadFromNode",
@@ -305,8 +173,11 @@
       "currentCSSZoom",
       "customElementRegistry",
       "getBoxQuads",
+      "hasPointerCapture",
+      "releasePointerCapture",
       "setHTML",
-      "setHTMLUnsafe"
+      "setHTMLUnsafe",
+      "setPointerCapture"
     ],
     "EventSource": [
       "onerror",
@@ -322,269 +193,30 @@
       "onprogress"
     ],
     "HTMLAnchorElement": [
-      "charset",
-      "coords",
-      "name",
-      "referrerPolicy",
-      "rev",
-      "shape",
       "text"
-    ],
-    "HTMLAreaElement": [
-      "hreflang",
-      "noHref",
-      "referrerPolicy",
-      "type"
-    ],
-    "HTMLBRElement": [
-      "clear"
-    ],
-    "HTMLBodyElement": [
-      "aLink",
-      "background",
-      "bgColor",
-      "link",
-      "onafterprint",
-      "onbeforeprint",
-      "onbeforeunload",
-      "onhashchange",
-      "onlanguagechange",
-      "onmessage",
-      "onmessageerror",
-      "onoffline",
-      "ononline",
-      "onpagehide",
-      "onpagereveal",
-      "onpageshow",
-      "onpageswap",
-      "onpopstate",
-      "onrejectionhandled",
-      "onstorage",
-      "onunhandledrejection",
-      "onunload",
-      "text",
-      "vLink"
-    ],
-    "HTMLButtonElement": [
-      "command",
-      "commandForElement",
-      "popoverTargetAction",
-      "popoverTargetElement"
     ],
     "HTMLCanvasElement": [
       "transferControlToOffscreen"
     ],
-    "HTMLDListElement": [
-      "compact"
-    ],
     "HTMLDataListElement": [
       "options"
     ],
-    "HTMLDetailsElement": [
-      "open"
-    ],
-    "HTMLDialogElement": [
-      "closedBy",
-      "requestClose"
-    ],
-    "HTMLDirectoryElement": [
-      "compact"
-    ],
-    "HTMLDivElement": [
-      "align"
-    ],
     "HTMLElement": [
       "attachInternals",
-      "onabort",
-      "onauxclick",
-      "onbeforeinput",
-      "onbeforematch",
-      "onbeforetoggle",
-      "onblur",
-      "oncancel",
-      "oncanplay",
-      "oncanplaythrough",
-      "onchange",
-      "onclick",
-      "onclose",
-      "oncommand",
-      "oncontextlost",
-      "oncontextmenu",
-      "oncontextrestored",
-      "oncopy",
-      "oncuechange",
-      "oncut",
-      "ondblclick",
-      "ondrag",
-      "ondragend",
-      "ondragenter",
-      "ondragleave",
-      "ondragover",
-      "ondragstart",
-      "ondrop",
-      "ondurationchange",
-      "onemptied",
-      "onended",
-      "onerror",
-      "onfocus",
-      "onformdata",
-      "oninput",
-      "oninvalid",
-      "onkeydown",
-      "onkeypress",
-      "onkeyup",
-      "onload",
-      "onloadeddata",
-      "onloadedmetadata",
-      "onloadstart",
-      "onmousedown",
-      "onmouseenter",
-      "onmouseleave",
-      "onmousemove",
-      "onmouseout",
-      "onmouseover",
-      "onmouseup",
-      "onpaste",
-      "onpause",
-      "onplay",
-      "onplaying",
-      "onprogress",
-      "onratechange",
-      "onreset",
-      "onresize",
-      "onscroll",
-      "onscrollend",
-      "onsecuritypolicyviolation",
-      "onseeked",
-      "onseeking",
-      "onselect",
-      "onselectionchange",
-      "onselectstart",
-      "onslotchange",
-      "onstalled",
-      "onsubmit",
-      "onsuspend",
-      "ontimeupdate",
-      "ontoggle",
-      "onvolumechange",
-      "onwaiting",
-      "onwebkitanimationend",
-      "onwebkitanimationiteration",
-      "onwebkitanimationstart",
-      "onwebkittransitionend",
-      "onwheel",
       "scrollParent"
     ],
     "HTMLEmbedElement": [
-      "align",
-      "getSVGDocument",
-      "name"
-    ],
-    "HTMLFieldSetElement": [
-      "setCustomValidity",
-      "validationMessage"
-    ],
-    "HTMLFormElement": [
-      "encoding",
-      "rel"
+      "getSVGDocument"
     ],
     "HTMLFrameElement": [
       "contentDocument",
-      "contentWindow",
-      "frameBorder",
-      "longDesc",
-      "marginHeight",
-      "marginWidth",
-      "name",
-      "noResize",
-      "scrolling",
-      "src"
-    ],
-    "HTMLFrameSetElement": [
-      "cols",
-      "onafterprint",
-      "onbeforeprint",
-      "onbeforeunload",
-      "onhashchange",
-      "onlanguagechange",
-      "onmessage",
-      "onmessageerror",
-      "onoffline",
-      "ononline",
-      "onpagehide",
-      "onpagereveal",
-      "onpageshow",
-      "onpageswap",
-      "onpopstate",
-      "onrejectionhandled",
-      "onstorage",
-      "onunhandledrejection",
-      "onunload",
-      "rows"
-    ],
-    "HTMLHRElement": [
-      "align",
-      "color",
-      "noShade",
-      "size",
-      "width"
-    ],
-    "HTMLHeadingElement": [
-      "align"
-    ],
-    "HTMLHtmlElement": [
-      "version"
+      "contentWindow"
     ],
     "HTMLIFrameElement": [
-      "align",
-      "frameBorder",
-      "getSVGDocument",
-      "longDesc",
-      "marginHeight",
-      "marginWidth",
-      "scrolling"
-    ],
-    "HTMLImageElement": [
-      "controls",
-      "decode",
-      "fetchPriority",
-      "hspace",
-      "lowsrc",
-      "vspace",
-      "x",
-      "y"
-    ],
-    "HTMLInputElement": [
-      "accept",
-      "align",
-      "alpha",
-      "alt",
-      "colorSpace",
-      "dirName",
-      "height",
-      "popoverTargetAction",
-      "popoverTargetElement",
-      "showPicker",
-      "size",
-      "src",
-      "useMap",
-      "width"
-    ],
-    "HTMLLIElement": [
-      "type"
+      "getSVGDocument"
     ],
     "HTMLLegendElement": [
-      "align",
       "form"
-    ],
-    "HTMLLinkElement": [
-      "blocking",
-      "charset",
-      "fetchPriority",
-      "imageSizes",
-      "imageSrcset",
-      "rev",
-      "target"
     ],
     "HTMLMediaElement": [
       "addTextTrack",
@@ -593,7 +225,6 @@
       "error",
       "fastSeek",
       "getStartDate",
-      "loading",
       "played",
       "preservesPitch",
       "seekable",
@@ -601,112 +232,17 @@
       "textTracks",
       "videoTracks"
     ],
-    "HTMLOListElement": [
-      "compact"
-    ],
     "HTMLObjectElement": [
-      "align",
-      "archive",
-      "border",
-      "code",
-      "codeBase",
-      "codeType",
-      "declare",
-      "getSVGDocument",
-      "hspace",
-      "standby",
-      "vspace"
-    ],
-    "HTMLParagraphElement": [
-      "align"
-    ],
-    "HTMLParamElement": [
-      "type",
-      "valueType"
-    ],
-    "HTMLPreElement": [
-      "width"
-    ],
-    "HTMLScriptElement": [
-      "blocking",
-      "charset",
-      "crossOrigin",
-      "event",
-      "fetchPriority"
-    ],
-    "HTMLSelectElement": [
-      "showPicker"
-    ],
-    "HTMLStyleElement": [
-      "blocking"
-    ],
-    "HTMLTableCaptionElement": [
-      "align"
-    ],
-    "HTMLTableCellElement": [
-      "align",
-      "axis",
-      "bgColor",
-      "ch",
-      "chOff",
-      "height",
-      "noWrap",
-      "vAlign",
-      "width"
-    ],
-    "HTMLTableColElement": [
-      "align",
-      "ch",
-      "chOff",
-      "span",
-      "vAlign",
-      "width"
-    ],
-    "HTMLTableElement": [
-      "align",
-      "bgColor",
-      "border",
-      "cellPadding",
-      "cellSpacing",
-      "frame",
-      "rules",
-      "summary",
-      "width"
-    ],
-    "HTMLTableRowElement": [
-      "align",
-      "bgColor",
-      "ch",
-      "chOff",
-      "vAlign"
+      "getSVGDocument"
     ],
     "HTMLTableSectionElement": [
-      "align",
-      "ch",
-      "chOff",
-      "rows",
-      "vAlign"
-    ],
-    "HTMLTemplateElement": [
-      "shadowRootClonable",
-      "shadowRootCustomElementRegistry",
-      "shadowRootDelegatesFocus",
-      "shadowRootMode",
-      "shadowRootSerializable",
-      "shadowRootSlotAssignment"
-    ],
-    "HTMLTextAreaElement": [
-      "dirName"
+      "rows"
     ],
     "HTMLTitleElement": [
       "text"
     ],
     "HTMLTrackElement": [
       "track"
-    ],
-    "HTMLUListElement": [
-      "compact",
-      "type"
     ],
     "ImageData": [
       "pixelFormat"
@@ -715,26 +251,31 @@
       "onclose",
       "onmessageerror"
     ],
-    "Navigator": [
-      "appCodeName",
-      "appName",
-      "appVersion",
-      "javaEnabled",
-      "mimeTypes",
-      "oscpu",
-      "pdfViewerEnabled",
-      "plugins",
-      "product",
-      "productSub",
-      "registerProtocolHandler",
-      "taintEnabled",
-      "unregisterProtocolHandler",
-      "userActivation",
-      "vendorSub"
+    "MouseEvent": [
+      "getModifierState",
+      "layerX",
+      "layerY",
+      "offsetX",
+      "offsetY",
+      "pageX",
+      "pageY",
+      "x",
+      "y"
     ],
-    "PopStateEvent": [
-      "hasUAVisualTransition",
-      "state"
+    "Navigator": [
+      "registerProtocolHandler",
+      "unregisterProtocolHandler",
+      "userActivation"
+    ],
+    "PageTransitionEvent": [
+      "persisted"
+    ],
+    "PointerEvent": [
+      "altitudeAngle",
+      "azimuthAngle",
+      "getCoalescedEvents",
+      "getPredictedEvents",
+      "persistentDeviceId"
     ],
     "ProcessingInstruction": [
       "getAttribute",
@@ -772,8 +313,8 @@
       "adoptedStyleSheets",
       "clonable",
       "customElementRegistry",
+      "fullscreenElement",
       "getHTML",
-      "onslotchange",
       "serializable",
       "setHTML",
       "setHTMLUnsafe"
@@ -788,142 +329,25 @@
       "getBoxQuads",
       "wholeText"
     ],
-    "ToggleEvent": [
-      "source"
+    "Touch": [
+      "altitudeAngle",
+      "azimuthAngle",
+      "touchType"
+    ],
+    "TouchEvent": [
+      "getModifierState"
     ],
     "UIEvent": [
       "which"
     ],
+    "WheelEvent": [
+      "momentum"
+    ],
     "Window": [
-      "blur",
-      "captureEvents",
       "clientInformation",
-      "close",
-      "closed",
       "createImageBitmap",
-      "crossOriginIsolated",
-      "external",
       "fetchLater",
-      "focus",
-      "frameElement",
-      "isSecureContext",
-      "locationbar",
-      "menubar",
-      "moveBy",
-      "moveTo",
-      "name",
       "navigation",
-      "onabort",
-      "onafterprint",
-      "onauxclick",
-      "onbeforeinput",
-      "onbeforematch",
-      "onbeforeprint",
-      "onbeforetoggle",
-      "onbeforeunload",
-      "onblur",
-      "oncancel",
-      "oncanplay",
-      "oncanplaythrough",
-      "onchange",
-      "onclick",
-      "onclose",
-      "oncommand",
-      "oncontextlost",
-      "oncontextmenu",
-      "oncontextrestored",
-      "oncopy",
-      "oncuechange",
-      "oncut",
-      "ondblclick",
-      "ondrag",
-      "ondragend",
-      "ondragenter",
-      "ondragleave",
-      "ondragover",
-      "ondragstart",
-      "ondrop",
-      "ondurationchange",
-      "onemptied",
-      "onended",
-      "onerror",
-      "onfocus",
-      "onformdata",
-      "onhashchange",
-      "oninput",
-      "oninvalid",
-      "onkeydown",
-      "onkeypress",
-      "onkeyup",
-      "onlanguagechange",
-      "onload",
-      "onloadeddata",
-      "onloadedmetadata",
-      "onloadstart",
-      "onmessage",
-      "onmessageerror",
-      "onmousedown",
-      "onmouseenter",
-      "onmouseleave",
-      "onmousemove",
-      "onmouseout",
-      "onmouseover",
-      "onmouseup",
-      "onoffline",
-      "ononline",
-      "onpagehide",
-      "onpagereveal",
-      "onpageshow",
-      "onpageswap",
-      "onpaste",
-      "onpause",
-      "onplay",
-      "onplaying",
-      "onpopstate",
-      "onprogress",
-      "onratechange",
-      "onrejectionhandled",
-      "onreset",
-      "onresize",
-      "onscroll",
-      "onscrollend",
-      "onsecuritypolicyviolation",
-      "onseeked",
-      "onseeking",
-      "onselect",
-      "onselectionchange",
-      "onselectstart",
-      "onslotchange",
-      "onstalled",
-      "onstorage",
-      "onsubmit",
-      "onsuspend",
-      "ontimeupdate",
-      "ontoggle",
-      "onunhandledrejection",
-      "onunload",
-      "onvolumechange",
-      "onwaiting",
-      "onwebkitanimationend",
-      "onwebkitanimationiteration",
-      "onwebkitanimationstart",
-      "onwebkittransitionend",
-      "onwheel",
-      "opener",
-      "originAgentCluster",
-      "personalbar",
-      "print",
-      "releaseEvents",
-      "resizeBy",
-      "screenLeft",
-      "screenTop",
-      "screenX",
-      "screenY",
-      "scrollbars",
-      "status",
-      "statusbar",
-      "stop",
-      "toolbar",
       "visualViewport"
     ],
     "Worker": [
@@ -936,21 +360,38 @@
     ]
   },
   "reflect_gaps": {},
-  "invented_reflect_gaps": {
-    "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]"
-  },
+  "invented_reflect_gaps": {},
   "void_gaps": {
-    "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined"
+    "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined",
+    "External.AddSearchProvider": "returns undefined, which the bridge does not guarantee",
+    "External.IsSearchProviderInstalled": "returns undefined, which the bridge does not guarantee",
+    "MouseEvent.initMouseEvent": "returns undefined, which the bridge does not guarantee",
+    "PluginArray.refresh": "returns undefined, which the bridge does not guarantee",
+    "Window.captureEvents": "returns undefined, which the bridge does not guarantee",
+    "Window.close": "returns undefined, which the bridge does not guarantee",
+    "Window.moveBy": "returns undefined, which the bridge does not guarantee",
+    "Window.print": "returns undefined, which the bridge does not guarantee",
+    "Window.releaseEvents": "returns undefined, which the bridge does not guarantee",
+    "Window.resizeBy": "returns undefined, which the bridge does not guarantee",
+    "Window.stop": "returns undefined, which the bridge does not guarantee"
   },
   "arity_gaps": {},
-  "constructor_arity_gaps": {},
+  "constructor_arity_gaps": {
+    "MouseEvent": "length 0 (IDL requires 1)",
+    "PointerEvent": "length 0 (IDL requires 1)",
+    "Touch": "length 0 (IDL requires 1)",
+    "TouchEvent": "length 0 (IDL requires 1)",
+    "WheelEvent": "length 0 (IDL requires 1)"
+  },
   "iteration_gaps": {},
   "unforgeable_gaps": {},
-  "unscopable_gaps": {},
+  "unscopable_gaps": {
+    "Document.fullscreen": "is [Unscopable] and is not declared"
+  },
   "named_property_gaps": {
-    "Document": "has a named getter and is not declared",
-    "Window": "has a named getter and is not declared",
-    "XMLDocument": "has a named getter and is not declared"
+    "MimeTypeArray": "has a named getter and no named-property support",
+    "PluginArray": "has a named getter and no named-property support",
+    "TouchEvent": "has a named getter and no named-property support"
   },
   "same_object_gaps": {},
   "put_forwards_gaps": {},

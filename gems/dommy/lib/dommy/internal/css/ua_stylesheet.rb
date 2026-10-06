@@ -75,6 +75,39 @@ module Dommy
         def element_declarations(element)
           return [] unless element.is_a?(HTMLElement)
 
+          top_layer_declarations(element) + direction_declarations(element)
+        end
+
+        # The popover and modal dialog rules, which need :popover-open and
+        # :modal:
+        #
+        #   dialog:modal { position: fixed; overflow: auto; inset-block: 0;
+        #     max-width: calc(100% - 6px - 2em); max-height: calc(100% - 6px - 2em) }
+        #   [popover]:not(:popover-open):not(dialog[open]) { display: none }
+        #   dialog:popover-open { display: block }
+        #
+        # (inset-block, which the property registry does not expand, is given
+        # as its top and bottom longhands.)
+        def top_layer_declarations(element)
+          declarations = []
+          dialog = element.local_name == "dialog"
+          if dialog && element.__internal_modal__?
+            declarations.push(["position", "fixed", [0, 1, 1]], ["overflow", "auto", [0, 1, 1]],
+              ["top", "0", [0, 1, 1]], ["bottom", "0", [0, 1, 1]],
+              ["max-width", "calc(100% - 6px - 2em)", [0, 1, 1]],
+              ["max-height", "calc(100% - 6px - 2em)", [0, 1, 1]])
+          end
+          return declarations unless element.__internal_has_attribute__?("popover")
+
+          if ElementState.popover_open?(element)
+            declarations << ["display", "block", [0, 1, 1]] if dialog
+          elsif !(dialog && element.__internal_has_attribute__?("open"))
+            declarations << ["display", "none", [0, 3, 1]]
+          end
+          declarations
+        end
+
+        def direction_declarations(element)
           specificities = []
           specificities << [0, 2, 0] if element.__internal_has_attribute__?("dir")
           specificities << [0, 1, 1] if element.local_name == "bdi"

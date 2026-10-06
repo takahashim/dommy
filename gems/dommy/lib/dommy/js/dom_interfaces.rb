@@ -48,7 +48,7 @@ module Dommy
         HTMLFormElement HTMLHeadElement HTMLHeadingElement HTMLHRElement
         HTMLHtmlElement HTMLIFrameElement HTMLImageElement HTMLInputElement
         HTMLLabelElement HTMLLegendElement HTMLLIElement HTMLLinkElement
-        HTMLMapElement HTMLMetaElement HTMLMeterElement HTMLModElement
+        HTMLMapElement HTMLMarqueeElement HTMLMenuElement HTMLMetaElement HTMLMeterElement HTMLModElement
         HTMLObjectElement HTMLOListElement HTMLOptGroupElement HTMLOptionElement
         HTMLOutputElement HTMLParagraphElement HTMLPictureElement HTMLPreElement
         HTMLProgressElement HTMLQuoteElement HTMLScriptElement HTMLSelectElement
@@ -91,6 +91,7 @@ module Dommy
         %w[CustomEvent Event],
         %w[MessageEvent Event],
         %w[PopStateEvent Event],
+        %w[PageTransitionEvent Event],
         %w[HashChangeEvent Event],
         %w[SubmitEvent Event],
         %w[FormDataEvent Event],
@@ -103,6 +104,7 @@ module Dommy
         %w[CompositionEvent UIEvent Event],
         %w[PromiseRejectionEvent Event],
         %w[ToggleEvent Event],
+        %w[CommandEvent Event],
         %w[ErrorEvent Event],
         %w[DOMException], %w[DOMImplementation],
         # Window-exposed constructors that frameworks call bare (new X(...)).
@@ -110,7 +112,7 @@ module Dommy
         %w[MutationObserver], %w[IntersectionObserver], %w[ResizeObserver],
         %w[PerformanceObserver], %w[AbortController], %w[AbortSignal EventTarget],
         %w[FormData], %w[URL], %w[URLSearchParams], %w[Headers], %w[Request], %w[Response],
-        %w[Blob], %w[File Blob], %w[FileList], %w[FileReader EventTarget],
+        %w[Blob], %w[File Blob], %w[FileList], %w[DOMStringList], %w[FileReader EventTarget],
         %w[XMLHttpRequest XMLHttpRequestEventTarget EventTarget],
         %w[XMLHttpRequestEventTarget EventTarget], %w[XMLHttpRequestUpload XMLHttpRequestEventTarget EventTarget],
         %w[TextEncoder], %w[TextDecoder], %w[DOMParser], %w[XMLSerializer],
@@ -203,13 +205,7 @@ module Dommy
         # rule is a CSSStyleRule, and so on.
         return css_rule_chain(obj) if defined?(Dommy::CSSRule) && obj.instance_of?(Dommy::CSSRule)
 
-        names = []
-        klass = obj.class
-        while klass && klass.name&.start_with?("Dommy::")
-          name = name_for(klass)
-          names << name if name && !names.include?(name)
-          klass = klass.superclass
-        end
+        names = class_chain(obj.class).dup
         # An HTML document reports as an HTMLDocument — the legacy alias browsers
         # expose — so `document.constructor === HTMLDocument` and
         # `document.__proto__ === HTMLDocument.prototype` hold.
@@ -220,13 +216,28 @@ module Dommy
             names.unshift("XMLDocument")
           end
         end
+        names
+      end
+
+      # The interface chain every instance of `klass` shares: the Dommy class
+      # superclass walk, the IDL bases Dommy has no class for, and Node /
+      # EventTarget, which Dommy models as mixins. (#chain_for adds what depends
+      # on the instance.)
+      def class_chain(klass)
+        names = []
+        k = klass
+        while k && k.name&.start_with?("Dommy::")
+          name = name_for(k)
+          names << name if name && !names.include?(name)
+          k = k.superclass
+        end
         # WebIDL bases Dommy has no Ruby class for, so the superclass walk above
         # cannot find them.
         IMPLICIT_BASES[names.first]&.each { |base| names << base unless names.include?(base) }
-        if defined?(Dommy::Node) && obj.is_a?(Dommy::Node)
+        if defined?(Dommy::Node) && klass <= Dommy::Node
           names << "Node" unless names.include?("Node")
           names << "EventTarget" unless names.include?("EventTarget")
-        elsif defined?(Dommy::EventTarget) && obj.is_a?(Dommy::EventTarget)
+        elsif defined?(Dommy::EventTarget) && klass <= Dommy::EventTarget
           # Every non-node EventTarget (FileReader, XMLHttpRequest, Worker, …)
           # inherits EventTarget in its IDL too, but Dommy models EventTarget as
           # a mixin rather than a superclass, so append it here.

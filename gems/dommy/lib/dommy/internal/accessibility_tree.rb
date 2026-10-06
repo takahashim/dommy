@@ -199,8 +199,20 @@ module Dommy
 
       # An element (and its whole subtree) is excluded from the tree when
       # `aria-hidden="true"` or when it is not visually rendered. `visible?`
-      # deliberately ignores aria-hidden, so it is checked here.
-      def excluded?(element) = AccessibilityVisibility.hidden?(element)
+      # deliberately ignores aria-hidden, so it is checked here. An element
+      # with the inert attribute is excluded too (HTML: inert nodes are not
+      # exposed to accessibility APIs) — unless the modal dialog that
+      # escapes its inertness sits inside it.
+      def excluded?(element)
+        AccessibilityVisibility.hidden?(element) || inert_subtree?(element)
+      end
+
+      def inert_subtree?(element)
+        return false unless element.namespace_uri == Namespaces::HTML && element.__internal_has_attribute__?("inert")
+
+        blocker = element.owner_document.__internal_blocking_modal_dialog__
+        !(blocker && element.contains?(blocker))
+      end
 
       # A lone, unscoped <th> that is the only cell of the only row of its table
       # is not emitted as a header cell — Chromium folds it into the row's
@@ -231,7 +243,7 @@ module Dommy
       private_class_method :range_default
       private_class_method :numeric
       private_class_method :format_number
-      private_class_method :excluded?
+      private_class_method :excluded?, :inert_subtree?
       private_class_method :lone_unscoped_th?
     end
   end
