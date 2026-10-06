@@ -1713,7 +1713,7 @@ globalThis.__rbHost = (function () {
     const parent = (i + 1 < chain.length) ? protoForChain(chain, i + 1) : Object.prototype;
     const proto = Object.create(parent);
     Object.defineProperty(proto, Symbol.toStringTag, { value: name, configurable: true });
-    const ctor = function (...args) {
+    let ctor = function (...args) {
       const nt = new.target;
       if (nt === undefined) throw new TypeError(name + " requires 'new'");
       // HTML element constructors ([HTMLConstructor]): a custom element's
@@ -1746,6 +1746,7 @@ globalThis.__rbHost = (function () {
     const ctorArity = CONSTRUCTOR_ARITY[name];
     if (ctorArity !== undefined) Object.defineProperty(ctor, "length", { value: ctorArity, configurable: true });
     ctor.prototype = proto;
+    if (isHTMLElementInterface(name)) ctor = htmlElementConstructor(ctor, name);
     Object.defineProperty(proto, "constructor", { value: ctor, configurable: true, writable: true });
     // [Unscopable] members -> a null-prototyped @@unscopables object on the
     // prototype (WebIDL: configurable, non-writable, non-enumerable).
@@ -3267,6 +3268,27 @@ globalThis.__rbHost = (function () {
   // (Internal::CEReactions) and calls back in by the definition's id:
   // ceConstruct (create an element with the synchronous flag), ceUpgrade
   // (upgrade an element) and ceInvoke (a lifecycle callback).
+
+  // An HTML element interface's constructor ([HTMLConstructor]) is a Proxy
+  // with a construct trap: a function's own [[Construct]] would read
+  // NewTarget.prototype before the steps below run (to make `this`), where
+  // HTML reads it once, after its checks. Anything but a defined custom
+  // element's constructor as NewTarget is a TypeError.
+  function isHTMLElementInterface(name) {
+    return name.startsWith("HTML") && name.endsWith("Element");
+  }
+  function htmlElementConstructor(target, name) {
+    const proxy = new Proxy(target, {
+      construct(_target, _args, newTarget) {
+        if (newTarget !== proxy) {
+          const built = constructCustomElement(name, newTarget);
+          if (built !== undefined) return built;
+        }
+        throw new TypeError("Illegal constructor");
+      },
+    });
+    return proxy;
+  }
 
   // The HTML element constructor steps for a custom element's `super()`
   // (HTML §3.2.3), `activeName` being the interface whose constructor runs.
