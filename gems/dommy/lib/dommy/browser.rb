@@ -71,6 +71,7 @@ module Dommy
       @console = []
       @disposed = false
       @pending_navigations = []
+      @popups = []
       @runtime = nil
       # One browsing session: every window it shows (and their frames) shares
       # localStorage per origin and sessionStorage per origin.
@@ -197,6 +198,103 @@ module Dommy
 
       # The frames of the document loaded into this frame load the same way.
       def load_frame(frame, **nav) = @browser.load_frame(frame, **nav)
+
+      # A popup opened from inside the frame is the browser's too.
+      def open_window(**opts) = @browser.open_window(**opts)
+    end
+
+    # The navigation delegate of an auxiliary window this browser opened
+    # (window.open): its navigations load into it, keeping the Window the
+    # opener holds (Dommy has no WindowProxy, so the document is swapped
+    # under it), and its close() closes it.
+    class PopupDelegate
+      def initialize(browser, popup)
+        @browser = browser
+        @popup = popup
+      end
+
+      def navigate(url:, source:, method: "GET", body: nil, params: nil, enctype: nil, target: nil, headers: {}, replace: false)
+        @browser.__internal_load_popup__(@popup, {url: url, method: method, body: body, params: params,
+                                                  enctype: enctype, headers: headers})
+      end
+
+      def traverse(_delta) = nil
+
+      def close_window = @browser.__internal_close_popup__(@popup)
+
+      def find_window(name) = @browser.find_window(name)
+
+      def load_frame(frame, **nav) = @browser.load_frame(frame, **nav)
+
+      def open_window(**opts) = @browser.open_window(**opts)
+    end
+
+    # The auxiliary windows the page opened with window.open and has not
+    # closed, oldest first.
+    def popups = @popups.dup
+
+    # NavigationDelegate `open_window`: window.open asked for a new top-level
+    # browsing context. It is created at once with the initial about:blank
+    # (whose origin is the opener's) and navigated to `url` from a task; it
+    # shares this browser's storage and cookies. Window#window_open sets its
+    # opener and name.
+    def open_window(url:, target:, features: "")
+      return nil if @disposed
+
+      popup = Dommy.parse(Internal::ChildNavigable::BLANK_HTML)
+      popup.location.__internal_set_url__("about:blank")
+      popup.__internal_initial_about_blank__ = true
+      popup.storage_provider = @storage_provider
+      popup.cookie_jar = @cookie_jar
+      popup.navigation_delegate = PopupDelegate.new(self, popup)
+      @popups << popup
+      unless Internal::ChildNavigable.matches_about_blank?(url)
+        @window.scheduler.set_timeout(proc { __internal_load_popup__(popup, {url: url, method: "GET"}) }, 0)
+      end
+      popup
+    end
+
+    # Load a navigation into a popup: fetch it, give the popup's Window the
+    # document, and fire its load. Nothing happens when nothing serves it.
+    def __internal_load_popup__(popup, nav)
+      return nil if @disposed || @resources.nil? || !@popups.include?(popup)
+
+      url = nav[:url].to_s
+      @fetcher ||= navigation_fetcher
+      response, final_url = begin
+        @fetcher.request(method: nav[:method] || "GET", url: url, params: nav[:params],
+                         body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {})
+      rescue StandardError
+        [nil, url]
+      end
+      return nil unless response && document_response?(response)
+
+      loaded = Internal::ChildNavigable.window_for_response(response.body, response_header(response, "content-type"), final_url)
+      popup.__internal_adopt_document_of__(loaded)
+      popup.navigation_delegate = PopupDelegate.new(self, popup)
+      document = popup.document
+      document.__internal_update_readiness__("loading")
+      document.__internal_finish_loading__
+      nil
+    end
+
+    # NavigationDelegate `find_window`: the top-level window (this browser's
+    # page or a popup) or a frame in one, whose target name is `name`.
+    def find_window(name)
+      ([@window] + @popups).each do |top|
+        return top if top.name == name
+
+        found = top.__internal_find_descendant_window__(name)
+        return found if found
+      end
+      nil
+    end
+
+    # A popup's close(): it leaves the browser, closed.
+    def __internal_close_popup__(popup)
+      @popups.delete(popup)
+      popup.__internal_discard__
+      nil
     end
 
     def frame_navigation_delegate(frame) = FrameNavigationDelegate.new(self, frame)
@@ -277,6 +375,7 @@ module Dommy
     # `setTimeout(300)` — use `advance_time(300)` for debounce/throttle.
     def settle
       @runtime.settle
+      drive_popups(0)
       flush_navigation!
       check_js_errors!
       self
@@ -285,6 +384,7 @@ module Dommy
     # Advance virtual time by `ms`, running timers that come due, then settle.
     def advance_time(ms)
       @window.scheduler.advance_time(ms)
+      drive_popups(ms)
       @runtime.drain_microtasks
       flush_navigation!
       check_js_errors!
@@ -296,6 +396,7 @@ module Dommy
     # land before the next line, then enforce strict mode.
     def after_interaction
       @runtime.drain_microtasks
+      drive_popups(0)
       flush_navigation!
       check_js_errors!
     end
@@ -405,6 +506,12 @@ module Dommy
       # Leave the page in a ready state: run on-load promises, due-now timers,
       # and rAF (not future timers). `settle: false` observes it mid-flight.
       runtime.settle if @settle_after_boot
+    end
+
+    # A popup has no realm of its own; the tasks queued on its window (a
+    # close(), its timers) run as the browser's time moves.
+    def drive_popups(ms)
+      @popups.dup.each { |popup| popup.scheduler.advance_time(ms) }
     end
 
     def navigation_fetcher

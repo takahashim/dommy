@@ -140,6 +140,12 @@ module Dommy
           parent.load_frame(frame, **nav) if parent.respond_to?(:load_frame)
         end
 
+        # A popup opened from inside the frame is its top-level embedder's.
+        def open_window(**opts)
+          parent = parent_delegate
+          parent.open_window(**opts) if parent.respond_to?(:open_window)
+        end
+
         private
 
         def parent_delegate

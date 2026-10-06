@@ -239,8 +239,9 @@ module Dommy
       when "name"
         name
       when "opener"
-        # No auxiliary browsing contexts are created, so there is never an opener.
-        nil
+        # The window that opened this auxiliary one (null without one, or
+        # once disowned).
+        @__internal_opener__
       when "closed"
         closed?
       when "status"
@@ -341,9 +342,14 @@ module Dommy
         @status = value.to_s
         return nil
       when "opener"
-        # [Replaceable]-like: null clears the (always absent) opener; anything
-        # else replaces the attribute with a data property.
-        value.nil? ? @globals.delete("opener") : @globals["opener"] = value
+        # Setting null disowns the opener; anything else replaces the
+        # attribute with a data property ([Replaceable]).
+        if value.nil?
+          @globals.delete("opener")
+          @__internal_opener__ = nil
+        else
+          @globals["opener"] = value
+        end
         return nil
       end
       # `window.onload = fn` (and the other window event handlers) registers a
@@ -743,8 +749,8 @@ module Dommy
     end
 
     # `window.close()`: only a top-level, script-closable navigable closes — one
-    # whose session history holds a single entry (Dommy creates no auxiliary
-    # browsing contexts) — and only from a task. The request is recorded
+    # a script opened, or whose session history holds a single entry — and
+    # only from a task. The request is recorded
     # (`__test_close_calls__`) and the embedder's navigation delegate, when it
     # answers `close_window`, is asked to close it.
     def close
@@ -759,9 +765,15 @@ module Dommy
       nil
     end
 
+    # HTML "script-closable": a top-level traversable that a script created
+    # (window.open) or whose session history holds a single entry.
     def script_closable?
-      @history.length == 1
+      @__internal_created_by_web_content__ == true || @history.length == 1
     end
+
+    # The window whose `window.open` created this auxiliary one (its opener
+    # unless `noopener` — kept for the origin its initial about:blank takes).
+    attr_accessor :__internal_opener__, :__internal_creator__, :__internal_created_by_web_content__
 
     # Each close() call that reached the closing steps, with whether the window
     # was script-closable (and so began closing).
@@ -835,7 +847,8 @@ module Dommy
         resolved = __internal_parse_url__(url)
         raise DOMException::SyntaxError, "Unable to open a window with invalid URL #{url.inspect}" if resolved.nil?
       end
-      noopener = features.split(/[\s,]+/).any? { |f| %w[noopener noreferrer].include?(f.downcase.split("=").first) }
+      tokenized = tokenize_window_features(features)
+      noopener = boolean_window_feature(tokenized, "noopener") || boolean_window_feature(tokenized, "noreferrer")
 
       existing = choose_navigable(target)
       if existing
@@ -848,10 +861,65 @@ module Dommy
       if @navigation_delegate.respond_to?(:open_window)
         opened = @navigation_delegate.open_window(url: resolved || "about:blank", target: target, features: features)
       end
+      if opened.is_a?(Window)
+        opened.__internal_creator__ ||= self
+        opened.__internal_created_by_web_content__ = true
+        opened.__internal_opener__ = self unless noopener
+        opened.__internal_seed_name__(target) unless target.casecmp?("_blank")
+      end
       noopener ? nil : opened
     end
 
     def __test_open_calls__ = (@open_calls || []).dup
+
+    FEATURE_SEPARATORS = [" ", "\t", "\n", "\f", "\r", "=", ","].freeze
+    FEATURE_NAME_ALIASES = {"screenx" => "left", "screeny" => "top", "innerwidth" => "width", "innerheight" => "height"}.freeze
+
+    # HTML "tokenize the features argument": an ordered name -> value map.
+    def tokenize_window_features(features)
+      tokens = {}
+      chars = features.to_s.chars
+      pos = 0
+      separator = ->(c) { FEATURE_SEPARATORS.include?(c) }
+      while pos < chars.length
+        pos += 1 while pos < chars.length && separator.call(chars[pos])
+        start = pos
+        pos += 1 while pos < chars.length && !separator.call(chars[pos])
+        name = chars[start...pos].join.downcase
+        name = FEATURE_NAME_ALIASES.fetch(name, name)
+        value = ""
+        while pos < chars.length && chars[pos] != "="
+          break if chars[pos] == "," || !separator.call(chars[pos])
+
+          pos += 1
+        end
+        if pos < chars.length && separator.call(chars[pos])
+          while pos < chars.length && separator.call(chars[pos])
+            break if chars[pos] == ","
+
+            pos += 1
+          end
+          start = pos
+          pos += 1 while pos < chars.length && !separator.call(chars[pos])
+          value = chars[start...pos].join.downcase
+        end
+        tokens[name] = value unless name.empty?
+      end
+      tokens
+    end
+    private :tokenize_window_features
+
+    # HTML "parse a boolean feature".
+    def boolean_window_feature(tokens, name)
+      return false unless tokens.key?(name)
+
+      value = tokens[name]
+      return true if value.empty? || value == "yes" || value == "true"
+
+      parsed = value.sub(/\A[ \t\n\f\r]+/, "")[/\A[-+]?\d+/]
+      parsed.to_i != 0
+    end
+    private :boolean_window_feature
 
     # The rules for choosing a navigable, for the targets that name an existing
     # one: nil means a new one would be created.
@@ -880,7 +948,11 @@ module Dommy
 
         window = window.frame_element ? window.parent_window : nil
       end
-      nil
+      # Another top-level traversable of the session (a popup it opened),
+      # when the embedder keeps any.
+      top = top_window || self
+      delegate = top.navigation_delegate
+      delegate.respond_to?(:find_window) ? delegate.find_window(name) : nil
     end
 
     def __internal_find_descendant_window__(name)

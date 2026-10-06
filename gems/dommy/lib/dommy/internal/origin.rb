@@ -43,10 +43,13 @@ module Dommy
       end
 
       # The window whose document created `window`'s document: the container's
-      # document's window for a nested browsing context.
+      # document's window for a nested browsing context, the opener (the
+      # window whose `window.open` made it) for an auxiliary one.
       def creator_of(window)
         frame = window.frame_element
-        frame&.owner_document&.default_view
+        return frame.owner_document&.default_view if frame
+
+        window.__internal_creator__ if window.respond_to?(:__internal_creator__)
       end
 
       # Secure Contexts "Is url potentially trustworthy?".
