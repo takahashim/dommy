@@ -262,7 +262,13 @@ module Dommy
       check_validity
     end
 
+    # WebIDL indexed getter: `form[i]` is `form.elements[i]`; indices come
+    # before the named properties.
     def __js_get__(key)
+      if key.is_a?(Integer) || (key.is_a?(String) && key.match?(/\A(?:0|[1-9]\d*)\z/))
+        return elements.to_a[key.to_i] || Bridge::ABSENT
+      end
+
       # HTMLFormElement is [LegacyOverrideBuiltIns]: a control whose name/id
       # matches a builtin (`elements`, `length`, `submit`, `action`, …) shadows
       # that builtin. So the named getter is consulted BEFORE the builtins.

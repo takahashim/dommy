@@ -25,7 +25,9 @@ globalThis.__rbIdl = (function () {
   const ARRAY_LIKE_COLLECTIONS = new Set([
     "HTMLCollection", "HTMLFormControlsCollection", "HTMLOptionsCollection", "NodeList",
     "RadioNodeList", "DOMTokenList", "NamedNodeMap", "DOMStringList", "FileList", "CSSRuleList",
-    "StyleSheetList", "DataTransferItemList", "MediaList", "HTMLSelectElement"
+    "StyleSheetList", "DataTransferItemList", "MediaList", "HTMLSelectElement",
+    // `getter Element (unsigned long index)` + `length`: form[i] is elements[i].
+    "HTMLFormElement"
   ]);
   // Legacy platform objects with a WebIDL indexed property SETTER: `obj[i] = v`
   // routes to the host (Ruby __js_set__ with the index) instead of being a
