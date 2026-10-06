@@ -17,6 +17,7 @@ module Dommy
   # Spec: https://drafts.csswg.org/cssom-view/#mediaquerylist
   class MediaQueryList
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     attr_reader :media
 
@@ -24,7 +25,6 @@ module Dommy
       @window = window
       @media = query.to_s
       @forced = nil
-      @onchange = nil
       @last_matches = evaluate
       window.__internal_register_media_query_list__(self) if window.respond_to?(:__internal_register_media_query_list__)
     end
@@ -79,24 +79,15 @@ module Dommy
         @media
       when "matches"
         matches
-      when "onchange"
-        @onchange
       else
-        Bridge::ABSENT
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
     def __js_set__(key, value)
-      case key
-      when "onchange"
-        remove_event_listener("change", @onchange) if @onchange
-        @onchange = value
-        add_event_listener("change", value) if value
-      else
-        return Bridge::UNHANDLED
-      end
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
-      nil
+      event_handler_idl_set(key, value)
     end
 
     include Bridge::Methods

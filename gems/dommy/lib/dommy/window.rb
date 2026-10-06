@@ -454,7 +454,7 @@ module Dommy
       when "getSelection"
         document&.get_selection
       when "postMessage"
-        post_message(args[0])
+        post_message(args[0], args.length > 1 ? args[1] : "*", source: args[2])
       else
         # Additional window-level methods (fetch, location, history,
         # Promise, MutationObserver, etc.) arrive in later sessions.
@@ -527,11 +527,9 @@ module Dommy
     # nil when the page handled it. That token is what a later `rejectionhandled`
     # hands back so the host can take the report away again.
     #
-    # WHEN this runs is the engine's call, not ours: the spec decides at the end
-    # of a microtask checkpoint, over the promises still unhandled then, so a
-    # `.catch` attached later in the same checkpoint keeps the page silent. An
-    # engine that instead notifies the moment a promise rejects reports handled
-    # code too.
+    # Called from the "notify about rejected promises" task (see
+    # __internal_handle_promise_rejection__), for a promise still unhandled
+    # when that task runs.
     def __internal_report_rejection__(reason_value, host_error: nil, promise: nil)
       return nil unless __internal_fire_event__("unhandledrejection",
         {"promise" => promise, "reason" => reason_value, "cancelable" => true}, event_class: PromiseRejectionEvent)
@@ -540,25 +538,72 @@ module Dommy
     end
 
     # The engine's promise-rejection hook, carrying the REAL promise and reason
-    # (see the JS side's onPromiseRejection). Both halves of HTML's promise
-    # rejection tracking arrive here.
+    # (see the JS side's onPromiseRejection), at the end of a microtask
+    # checkpoint: HTML's HostPromiseRejectionTracker, as far as the engine
+    # tells it.
+    #
+    # "unhandledrejection" is the about-to-be-notified list "notify about
+    # rejected promises" empties: a global task (DOM manipulation task source)
+    # fires the event — for each promise that is still unhandled when the task
+    # runs, so a handler attached before then (even a task later) keeps the page
+    # silent. "rejectionhandled" is the "handle" operation: a promise still
+    # waiting for that task just leaves the list; one whose event fired (the
+    # outstanding rejected promises set) gets `rejectionhandled` from a queued
+    # task. Anything else is ignored.
     #
     # A reported promise is remembered against what the host made of the report,
     # so `rejectionhandled` can hand that token back and have the report
-    # retracted. The map is keyed by the value's bridge ref, which is stable per
-    # JS object, and lives on the window because both the realm and the reports
-    # belong to this document.
+    # retracted. Keyed by the value's bridge ref, which is stable per JS object.
     def __internal_handle_promise_rejection__(type, reason_value, promise: nil)
       @rejection_records ||= {}
+      @about_to_be_notified ||= {}
+      @outstanding_rejections ||= {}
       key = promise.respond_to?(:ref) ? promise.ref : promise
       if type == "rejectionhandled"
-        __internal_report_rejection_handled__(reason_value, promise: promise, record: @rejection_records.delete(key))
+        return nil unless @about_to_be_notified.delete(key).nil?
+        # Handled by a listener of its own unhandledrejection event: it never
+        # becomes outstanding.
+        return @notifying_rejections[key] = :handled if @notifying_rejections&.key?(key)
+        return nil unless @outstanding_rejections.delete(key)
+
+        record = @rejection_records.delete(key)
+        __internal_queue_rejection_task__ do
+          __internal_report_rejection_handled__(reason_value, promise: promise, record: record)
+        end
       else
-        record = __internal_report_rejection__(reason_value, promise: promise,
-          host_error: Internal::ExceptionReport.thrown_host_error(reason_value))
-        @rejection_records[key] = record unless record.nil?
+        @about_to_be_notified[key] = true
+        __internal_queue_rejection_task__ { __internal_notify_rejected_promise__(key, reason_value, promise) }
       end
       nil
+    end
+
+    # One step of "notify about rejected promises": skip a promise handled
+    # since, else fire `unhandledrejection`, and keep the promise as outstanding
+    # unless a listener handled it meanwhile.
+    def __internal_notify_rejected_promise__(key, reason_value, promise)
+      return if @about_to_be_notified.delete(key).nil?
+
+      (@notifying_rejections ||= {})[key] = :notifying
+      begin
+        record = __internal_report_rejection__(reason_value, promise: promise,
+          host_error: Internal::ExceptionReport.thrown_host_error(reason_value))
+      ensure
+        handled = @notifying_rejections.delete(key) == :handled
+      end
+      return if handled
+
+      @outstanding_rejections[key] = true
+      @rejection_records[key] = record unless record.nil?
+    end
+
+    # A global task on the DOM manipulation task source; run at once when the
+    # window has no event loop.
+    def __internal_queue_rejection_task__(&block)
+      if @scheduler
+        @scheduler.set_timeout(block, 0)
+      else
+        block.call
+      end
     end
 
     # WHATWG: a promise that was reported as unhandled has since been handled, so
@@ -1088,13 +1133,49 @@ module Dommy
       PromiseValue.resolve(self, nil)
     end
 
-    # `window.postMessage`: deliver a structured-cloned `message` to this window's
-    # own message handlers from a TASK (the "post message" task source, not a
-    # microtask) — so it lands in a later event-loop turn, as the spec requires.
-    def post_message(message)
-      data = Dommy.structured_clone(message)
-      @scheduler.set_timeout(proc { dispatch_event(MessageEvent.new("message", "data" => data)) }, 0)
+    # `window.postMessage` — the window post message steps: `message` is
+    # serialized now (a JS caller's arrives already serialized by the realm,
+    # transfer list and all), then a task on the posted message task source
+    # (not a microtask: a later event-loop turn) delivers it, provided this
+    # window's origin is `target_origin`. `target_origin` is "*" (anyone), "/"
+    # (the source's own origin) or a serialized origin; `source` is the window
+    # that posted, whose origin the event reports. A record this window cannot
+    # deserialize fires `messageerror` instead.
+    def post_message(message, target_origin = "*", source: nil)
+      serialized = Dommy.structured_serialize(message)
+      source ||= self
+      source_origin = source.respond_to?(:origin) ? source.origin.to_s : origin.to_s
+      target_origin = target_origin.to_s
+      @scheduler.set_timeout(proc { deliver_posted_message(serialized, target_origin, source, source_origin) }, 0)
       nil
+    end
+
+    def deliver_posted_message(serialized, target_origin, source, source_origin)
+      return unless target_origin == "*" || posted_origin_matches?(target_origin, source, source_origin)
+
+      init = {"origin" => source_origin, "source" => source}
+      begin
+        data, ports = serialized.deserialize_with_transfer
+      rescue DOMException::DataCloneError
+        dispatch_event(MessageEvent.new("messageerror", init).__internal_mark_trusted__)
+        return
+      ensure
+        serialized.release if serialized.respond_to?(:release)
+      end
+      dispatch_event(MessageEvent.new("message", init.merge("data" => data, "ports" => ports)).__internal_mark_trusted__)
+    end
+
+    # "targetWindow's associated Document is same origin with targetOrigin":
+    # "/" stands for the source's own origin. An opaque origin is only ever
+    # same origin with itself — the window posting to itself.
+    def posted_origin_matches?(target_origin, source, source_origin)
+      if target_origin == "/"
+        return true if source.equal?(self)
+
+        target_origin = source_origin
+      end
+      own = origin.to_s
+      own != "null" && !own.empty? && own == target_origin
     end
 
     # Accept either positional `(x, y)` or a `{ left:, top: }` options dict.

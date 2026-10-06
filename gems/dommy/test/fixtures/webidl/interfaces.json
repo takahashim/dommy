@@ -19,7 +19,9 @@
   "touch-events",
   "css-animations",
   "css-transitions",
-  "fullscreen"
+  "fullscreen",
+  "websockets",
+  "notifications"
  ],
  "typedefs": {
   "BlobPart": "(BufferSource or Blob or USVString)",
@@ -4876,6 +4878,84 @@
        {
         "name": "count",
         "type": "unsigned long"
+       }
+      ]
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
+  "CloseEvent": {
+   "spec": "websockets",
+   "inherits": "Event",
+   "exposed": [
+    "Window",
+    "Worker"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "code",
+     "static": false,
+     "readonly": true,
+     "type": "unsigned short",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "reason",
+     "static": false,
+     "readonly": true,
+     "type": "USVString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "wasClean",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "type",
+        "type": "DOMString"
+       },
+       {
+        "name": "eventInitDict",
+        "type": "CloseEventInit",
+        "optional": true
        }
       ]
      ]
@@ -36114,6 +36194,466 @@
    "override_builtins": false,
    "unenumerable_named_properties": false
   },
+  "Notification": {
+   "spec": "notifications",
+   "inherits": "EventTarget",
+   "exposed": [
+    "Window",
+    "Worker"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "actions",
+     "static": false,
+     "readonly": true,
+     "type": "FrozenArray<NotificationAction>",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": true,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "badge",
+     "static": false,
+     "readonly": true,
+     "type": "USVString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "body",
+     "static": false,
+     "readonly": true,
+     "type": "DOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "data",
+     "static": false,
+     "readonly": true,
+     "type": "any",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": true,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "dir",
+     "static": false,
+     "readonly": true,
+     "type": "NotificationDirection",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "icon",
+     "static": false,
+     "readonly": true,
+     "type": "USVString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "image",
+     "static": false,
+     "readonly": true,
+     "type": "USVString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "lang",
+     "static": false,
+     "readonly": true,
+     "type": "DOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "maxActions",
+     "static": true,
+     "readonly": true,
+     "type": "unsigned long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "navigate",
+     "static": false,
+     "readonly": true,
+     "type": "USVString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onclick",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onclose",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onerror",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onshow",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "permission",
+     "static": true,
+     "readonly": true,
+     "type": "NotificationPermission",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "renotify",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "requireInteraction",
+     "static": false,
+     "readonly": true,
+     "type": "boolean",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "silent",
+     "static": false,
+     "readonly": true,
+     "type": "boolean?",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "tag",
+     "static": false,
+     "readonly": true,
+     "type": "DOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "timestamp",
+     "static": false,
+     "readonly": true,
+     "type": "EpochTimeStamp",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "title",
+     "static": false,
+     "readonly": true,
+     "type": "DOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "vibrate",
+     "static": false,
+     "readonly": true,
+     "type": "FrozenArray<unsigned long>",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": true,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "title",
+        "type": "DOMString"
+       },
+       {
+        "name": "options",
+        "type": "NotificationOptions",
+        "optional": true
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "close",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 0,
+     "signatures": [
+      []
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "requestPermission",
+     "static": true,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "Promise<NotificationPermission>",
+     "required": 0,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "deprecatedCallback",
+        "type": "NotificationPermissionCallback",
+        "optional": true
+       }
+      ]
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
+  "NotificationEvent": {
+   "spec": "notifications",
+   "inherits": "ExtendableEvent",
+   "exposed": [
+    "ServiceWorker"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "action",
+     "static": false,
+     "readonly": true,
+     "type": "DOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "notification",
+     "static": false,
+     "readonly": true,
+     "type": "Notification",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "constructor",
+     "required": 2,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "type",
+        "type": "DOMString"
+       },
+       {
+        "name": "eventInitDict",
+        "type": "NotificationEventInit"
+       }
+      ]
+     ]
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
   "OffscreenCanvas": {
    "spec": "html",
    "inherits": "EventTarget",
@@ -47158,6 +47698,255 @@
      "put_forwards": null,
      "replaceable": false,
      "stringifier": false
+    }
+   ],
+   "override_builtins": false,
+   "unenumerable_named_properties": false
+  },
+  "WebSocket": {
+   "spec": "websockets",
+   "inherits": "EventTarget",
+   "exposed": [
+    "Window",
+    "Worker"
+   ],
+   "callback": false,
+   "legacy_no_interface_object": false,
+   "global": false,
+   "members": [
+    {
+     "kind": "attribute",
+     "name": "binaryType",
+     "static": false,
+     "readonly": false,
+     "type": "BinaryType",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "bufferedAmount",
+     "static": false,
+     "readonly": true,
+     "type": "unsigned long long",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "extensions",
+     "static": false,
+     "readonly": true,
+     "type": "DOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onclose",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onerror",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onmessage",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "onopen",
+     "static": false,
+     "readonly": false,
+     "type": "EventHandler",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "protocol",
+     "static": false,
+     "readonly": true,
+     "type": "DOMString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "readyState",
+     "static": false,
+     "readonly": true,
+     "type": "unsigned short",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "attribute",
+     "name": "url",
+     "static": false,
+     "readonly": true,
+     "type": "USVString",
+     "reflect": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "null_to_empty_string": false,
+     "same_object": false,
+     "put_forwards": null,
+     "replaceable": false,
+     "stringifier": false
+    },
+    {
+     "kind": "const",
+     "name": "CLOSED",
+     "value": "3"
+    },
+    {
+     "kind": "const",
+     "name": "CLOSING",
+     "value": "2"
+    },
+    {
+     "kind": "const",
+     "name": "CONNECTING",
+     "value": "0"
+    },
+    {
+     "kind": "const",
+     "name": "OPEN",
+     "value": "1"
+    },
+    {
+     "kind": "constructor",
+     "required": 1,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "url",
+        "type": "USVString"
+       },
+       {
+        "name": "protocols",
+        "type": "(DOMString or sequence<DOMString>)",
+        "optional": true
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "close",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 0,
+     "total": 2,
+     "signatures": [
+      [
+       {
+        "name": "code",
+        "type": "unsigned short",
+        "optional": true
+       },
+       {
+        "name": "reason",
+        "type": "USVString",
+        "optional": true
+       }
+      ]
+     ]
+    },
+    {
+     "kind": "operation",
+     "name": "send",
+     "static": false,
+     "special": null,
+     "unforgeable": false,
+     "unscopable": false,
+     "indexed": null,
+     "returns": "undefined",
+     "required": 1,
+     "total": 1,
+     "signatures": [
+      [
+       {
+        "name": "data",
+        "type": "(BufferSource or Blob or USVString)"
+       }
+      ]
+     ]
     }
    ],
    "override_builtins": false,

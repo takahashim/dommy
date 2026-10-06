@@ -66,9 +66,6 @@
       "stream",
       "textStream"
     ],
-    "BroadcastChannel": [
-      "onmessageerror"
-    ],
     "CSSGroupingRule": [
       "deleteRule",
       "insertRule"
@@ -179,19 +176,6 @@
       "setHTMLUnsafe",
       "setPointerCapture"
     ],
-    "EventSource": [
-      "onerror",
-      "onmessage",
-      "onopen"
-    ],
-    "FileReader": [
-      "onabort",
-      "onerror",
-      "onload",
-      "onloadend",
-      "onloadstart",
-      "onprogress"
-    ],
     "HTMLAnchorElement": [
       "text"
     ],
@@ -247,10 +231,6 @@
     "ImageData": [
       "pixelFormat"
     ],
-    "MessagePort": [
-      "onclose",
-      "onmessageerror"
-    ],
     "MouseEvent": [
       "getModifierState",
       "layerX",
@@ -266,6 +246,19 @@
       "registerProtocolHandler",
       "unregisterProtocolHandler",
       "userActivation"
+    ],
+    "Notification": [
+      "actions",
+      "badge",
+      "dir",
+      "image",
+      "lang",
+      "navigate",
+      "renotify",
+      "requireInteraction",
+      "silent",
+      "timestamp",
+      "vibrate"
     ],
     "PageTransitionEvent": [
       "persisted"
@@ -349,14 +342,6 @@
       "fetchLater",
       "navigation",
       "visualViewport"
-    ],
-    "Worker": [
-      "onerror",
-      "onmessage",
-      "onmessageerror"
-    ],
-    "XMLHttpRequest": [
-      "onreadystatechange"
     ]
   },
   "reflect_gaps": {},
@@ -366,7 +351,9 @@
     "External.AddSearchProvider": "returns undefined, which the bridge does not guarantee",
     "External.IsSearchProviderInstalled": "returns undefined, which the bridge does not guarantee",
     "MouseEvent.initMouseEvent": "returns undefined, which the bridge does not guarantee",
+    "Notification.close": "returns undefined, which the bridge does not guarantee",
     "PluginArray.refresh": "returns undefined, which the bridge does not guarantee",
+    "WebSocket.close": "returns undefined, which the bridge does not guarantee",
     "Window.captureEvents": "returns undefined, which the bridge does not guarantee",
     "Window.close": "returns undefined, which the bridge does not guarantee",
     "Window.moveBy": "returns undefined, which the bridge does not guarantee",
@@ -377,10 +364,13 @@
   },
   "arity_gaps": {},
   "constructor_arity_gaps": {
+    "CloseEvent": "length 0 (IDL requires 1)",
     "MouseEvent": "length 0 (IDL requires 1)",
+    "Notification": "length 0 (IDL requires 1)",
     "PointerEvent": "length 0 (IDL requires 1)",
     "Touch": "length 0 (IDL requires 1)",
     "TouchEvent": "length 0 (IDL requires 1)",
+    "WebSocket": "length 0 (IDL requires 1)",
     "WheelEvent": "length 0 (IDL requires 1)"
   },
   "iteration_gaps": {},

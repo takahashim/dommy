@@ -14,12 +14,11 @@ module Dommy
   # Spec: https://html.spec.whatwg.org/multipage/server-sent-events.html
   class EventSource
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     CONNECTING = 0
     OPEN = 1
     CLOSED = 2
-
-    INLINE_HANDLERS = %w[open message error].freeze
 
     attr_reader :url, :ready_state, :with_credentials
 
@@ -29,7 +28,6 @@ module Dommy
       @ready_state = CONNECTING
       opts = options.is_a?(Hash) ? options : {}
       @with_credentials = !!(opts["withCredentials"] || opts[:withCredentials])
-      @inline_handlers = {}
 
       # A host-installed connector (Dommy::Rack wires real in-process streams
       # through it) owns the connection when it returns a transport; otherwise
@@ -119,16 +117,14 @@ module Dommy
       when "CLOSED"
         CLOSED
       else
-        @inline_handlers[inline_event_for(key)]
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
     def __js_set__(key, value)
-      event = inline_event_for(key)
-      return Bridge::UNHANDLED unless event
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
-      set_inline_handler(event, value)
-      nil
+      event_handler_idl_set(key, value)
     end
 
     include Bridge::Methods
@@ -150,27 +146,5 @@ module Dommy
       nil
     end
 
-    private
-
-    INLINE_EVENT_MAP = INLINE_HANDLERS
-      .each_with_object({}) do |name, h|
-        h["on#{name}"] = name
-      end
-      .freeze
-
-    def inline_event_for(key)
-      INLINE_EVENT_MAP[key.to_s]
-    end
-
-    def set_inline_handler(event, handler)
-      previous = @inline_handlers[event]
-      remove_event_listener(event, previous) if previous
-      if handler.nil?
-        @inline_handlers.delete(event)
-      else
-        add_event_listener(event, handler)
-        @inline_handlers[event] = handler
-      end
-    end
   end
 end

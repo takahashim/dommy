@@ -23,23 +23,13 @@ module Dommy
   # Spec: https://xhr.spec.whatwg.org/
   class XMLHttpRequest
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     UNSENT = 0
     OPENED = 1
     HEADERS_RECEIVED = 2
     LOADING = 3
     DONE = 4
-
-    INLINE_HANDLERS = %w[
-      readystatechange
-      loadstart
-      load
-      loadend
-      progress
-      error
-      timeout
-      abort
-    ].freeze
 
     attr_reader(
       :ready_state,
@@ -61,7 +51,6 @@ module Dommy
       @response_type = ""
       @generation = 0
       reset_state
-      @inline_handlers = {}
       @upload = XMLHttpRequestUpload.new
     end
 
@@ -261,7 +250,7 @@ module Dommy
       when "DONE"
         DONE
       else
-        @inline_handlers[inline_event_for(key)]
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
@@ -284,10 +273,9 @@ module Dommy
       when "withCredentials"
         @with_credentials = !!value
       else
-        event = inline_event_for(key)
-        return Bridge::UNHANDLED unless event
+        return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
-        set_inline_handler(event, value)
+        event_handler_idl_set(key, value)
       end
 
       nil
@@ -348,7 +336,6 @@ module Dommy
       @method = nil
       @url = nil
       @async = true
-      @inline_handlers = {} unless keep_handlers
       @generation = 0 unless keep_generation
     end
 
@@ -510,27 +497,6 @@ module Dommy
       nil
     end
 
-    INLINE_EVENT_MAP = INLINE_HANDLERS
-      .each_with_object({}) do |name, h|
-        h["on#{name}"] = name
-      end
-      .freeze
-
-    def inline_event_for(key)
-      INLINE_EVENT_MAP[key.to_s]
-    end
-
-    def set_inline_handler(event, handler)
-      previous = @inline_handlers[event]
-      remove_event_listener(event, previous) if previous
-
-      if handler.nil?
-        @inline_handlers.delete(event)
-      else
-        add_event_listener(event, handler)
-        @inline_handlers[event] = handler
-      end
-    end
   end
 
   # `XMLHttpRequestUpload` — the upload-side event target. Real
@@ -539,6 +505,18 @@ module Dommy
   # the caller can still `addEventListener` against.
   class XMLHttpRequestUpload
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
+
+    # XMLHttpRequestEventTarget's handlers (onprogress, onload, …).
+    def __js_get__(key)
+      event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
+    end
+
+    def __js_set__(key, value)
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
+
+      event_handler_idl_set(key, value)
+    end
 
     include Bridge::Methods
     js_methods %w[addEventListener removeEventListener dispatchEvent]

@@ -529,7 +529,7 @@ globalThis.__rbHost = (function () {
   // Document or Window, `onreadystatechange` on Document and XMLHttpRequest —
   // and on nothing else, so `div.onbogus = f` is an ordinary expando and
   // `"onClick" in div` is false. An EventTarget whose interfaces the IDL
-  // fixture does not cover (WebSocket, Notification, …) keeps the old reading:
+  // fixture does not cover (Animation, Performance, …) keeps the old reading:
   // any `on` + lowercase name is one.
   const EVENT_HANDLERS = new Map(
     Object.entries(globalThis.__rbIdlEventHandlers || {}).map(([iface, names]) => [iface, new Set(names)]));
@@ -537,15 +537,20 @@ globalThis.__rbHost = (function () {
     const own = EVENT_HANDLERS.get(iface);
     return own !== undefined && own.has(name);
   }
-  // The handler names along `chain`, or null when no interface in it has any
-  // (and the object is not a node, whose interfaces are always covered).
+  // The handler names along `chain`, or null when the IDL fixture does not
+  // know the object's interface at all (an EventTarget Dommy has without its
+  // spec's IDL — Animation, Performance, …), which keeps the `on` + lowercase
+  // reading. A node, and any interface the fixture covers (its
+  // webidl_signatures.js entry says so) has exactly the handlers its chain
+  // declares — none for a bare `new EventTarget()`.
   function eventHandlersOf(chain, isNode) {
     let names = null;
     for (const iface of chain || []) {
       const own = EVENT_HANDLERS.get(iface);
       if (own) for (const n of own) (names ||= new Set()).add(n);
     }
-    return names || (isNode ? new Set() : null);
+    const covered = isNode || (chain && chain.length > 0 && hasOwn(SIGNATURES, chain[0]));
+    return names || (covered ? new Set() : null);
   }
   // Whether `prop` is an event handler IDL attribute of an object of `shape`.
   function isEventHandlerName(shape, prop) {
@@ -769,6 +774,32 @@ globalThis.__rbHost = (function () {
     return out;
   }
 
+  // ===== Host promises as realm Promises =====
+  //
+  // A host API that returns a promise (fetch(), img.decode(), media.play(),
+  // clipboard reads, document.fonts.ready, …) hands back a Ruby PromiseValue.
+  // The page must get a Promise of this realm — `p instanceof Promise`,
+  // `Object.prototype.toString.call(p)` "[object Promise]", `Promise.resolve(p)
+  // === p` — so the PromiseValue crosses as a native Promise subscribed to it,
+  // settled when the host settles it. The same PromiseValue keeps giving the
+  // same Promise while that Promise is alive, and the Promise goes back to the
+  // host as the PromiseValue it stands for.
+  const hostPromiseProxies = new WeakMap(); // realm Promise -> host proxy (keeps the handle alive)
+  const realmPromises = new Map();          // handle -> WeakRef(realm Promise)
+  function realmPromiseFor(proxy) {
+    const handle = proxyHandles.get(proxy);
+    const ref = realmPromises.get(handle);
+    const existing = ref && ref.deref();
+    if (existing && hostPromiseProxies.get(existing) === proxy) return existing;
+    let resolveFn, rejectFn;
+    const promise = new Promise((resolve, reject) => { resolveFn = resolve; rejectFn = reject; });
+    hostPromiseProxies.set(promise, proxy);
+    realmPromises.set(handle, new WeakRef(promise));
+    // Subscribe without a chained host promise (nothing to hand back).
+    __rb_host_promise_subscribe(handle, dehydrate(resolveFn), dehydrate(rejectFn));
+    return promise;
+  }
+
   // The time value of a Date object, or undefined for anything else. getTime
   // throws unless its receiver has a [[DateValue]] slot, which is the brand
   // check; it is captured here so a page replacing it changes nothing.
@@ -785,6 +816,7 @@ globalThis.__rbHost = (function () {
     if (typeof v === "string") return /[\ud800-\udfff]/.test(v) ? scrubLoneSurrogates(v) : v;
     if (typeof v === "function") return { __rb_callback: registerCallback(v) };
     if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+    if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
     // A BufferSource (ArrayBuffer or any typed-array/DataView view) crosses as
     // its raw bytes, so host code gets a uniform byte buffer (TextDecoder.decode,
     // Blob, …) rather than a key→value object from Object.keys.
@@ -951,6 +983,7 @@ globalThis.__rbHost = (function () {
     const t = typeof v;
     if (t === "object" || t === "function") {
       if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+      if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
       return { __rb_js_ref: registerJsRef(v) };
     }
     return v;
@@ -964,7 +997,8 @@ globalThis.__rbHost = (function () {
   // TypeError; §2.3.3.3.3 a thenable settles at most once; §2.3.3.3.4 a throwing
   // `then` rejects.
   function resolveHostPromise(handle, value, knownThen) {
-    if (isProxy(value) && proxyHandles.get(value) === handle) {
+    if ((isProxy(value) && proxyHandles.get(value) === handle) ||
+        (hostPromiseProxies.has(value) && proxyHandles.get(hostPromiseProxies.get(value)) === handle)) {
       __rb_settle_host_promise(handle, false, dehydrateSettle(new TypeError("Chaining cycle detected for promise")));
       return;
     }
@@ -1003,6 +1037,8 @@ globalThis.__rbHost = (function () {
   // plain values are unaffected. Used only for callback RETURN values, never for
   // arguments (a promise passed as an argument must not be resolved).
   function dehydrateReturn(v) {
+    // A realm promise standing for a host promise goes back as that promise.
+    if (hostPromiseProxies.has(v)) return dehydrateSettle(v);
     if (v !== null && (typeof v === "object" || typeof v === "function") && !isProxy(v)) {
       // Read `then` ONCE here (§2.3.3.1) and reuse it, so a one-time getter is not
       // consumed by a separate type-probe before resolveHostPromise reads it.
@@ -1100,7 +1136,8 @@ globalThis.__rbHost = (function () {
         // listener's argument IS the object the caller constructed.
         const jsEvent = jsEventByHandle.get(v.__rb_handle);
         if (jsEvent !== undefined) return jsEvent;
-        return makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+        const proxy = makeProxy(v.__rb_handle, v.__rb_if, v.__rb_ce);
+        return proxyInterfaces.get(proxy) === "PromiseValue" ? realmPromiseFor(proxy) : proxy;
       }
       // An opaque JS-value reference round-tripping back from Ruby — restore the
       // exact original object (identity-preserving).
@@ -1124,6 +1161,619 @@ globalThis.__rbHost = (function () {
   // real Array so it can be spread as a script's `arguments`.
   function rehydrateArgs(wire) {
     return Array.isArray(wire) ? wire.map(rehydrate) : [];
+  }
+
+  // ===== Structured serialization (HTML §2.7 "Safe passing of structured data") =====
+  //
+  // StructuredSerializeInternal / StructuredDeserialize and their WithTransfer
+  // forms, run in the JS realm where the values live: only here can a cycle, a
+  // lone surrogate, a BigInt, a String wrapper or a RegExp's flags be seen, and
+  // only here can an ArrayBuffer be detached. The serialized form is a tree of
+  // plain records (pointing at each other for cycles) that never crosses as
+  // data: Ruby holds it as an opaque `__rb_serialized` reference
+  // (Dommy::Js::SerializedRecord) and asks for it to be deserialized when the
+  // message is delivered.
+  //
+  // Platform objects stay the host's business: a serializable one (Blob, File,
+  // FileList, ImageData, DOMException, …) is snapshotted by the host
+  // (`__rb_host_clone`) and the snapshot cloned again on each deserialization;
+  // a transferable one (MessagePort) is transferred by the host
+  // (`__rb_host_transfer`). Every other platform object is a DataCloneError.
+  //
+  // The intrinsics are captured up front, so a page replacing
+  // `Map.prototype.entries` or a RegExp flag getter cannot steer the algorithm,
+  // which reads internal slots rather than properties.
+  function dataCloneError(message) {
+    return makeHostError({ name: "DataCloneError", message });
+  }
+  const getterOf = (proto, name) => {
+    const d = proto && Object.getOwnPropertyDescriptor(proto, name);
+    return d && d.get;
+  };
+  const callOrUndefined = (fn, v, ...args) => {
+    if (!fn) return undefined;
+    try { return fn.call(v, ...args); } catch (_) { return undefined; }
+  };
+  const brandedBy = (fn, v, ...args) => {
+    if (!fn) return false;
+    try { fn.call(v, ...args); return true; } catch (_) { return false; }
+  };
+  const SC = {
+    booleanValueOf: Boolean.prototype.valueOf,
+    numberValueOf: Number.prototype.valueOf,
+    stringValueOf: String.prototype.valueOf,
+    bigintValueOf: typeof BigInt === "function" ? BigInt.prototype.valueOf : null,
+    symbolValueOf: Symbol.prototype.valueOf,
+    regexpSource: getterOf(RegExp.prototype, "source"),
+    // [[OriginalFlags]], one brand-checked getter per flag (the `flags`
+    // getter would Get each one through the prototype chain).
+    regexpFlags: [["hasIndices", "d"], ["global", "g"], ["ignoreCase", "i"], ["multiline", "m"],
+      ["dotAll", "s"], ["unicode", "u"], ["unicodeSets", "v"], ["sticky", "y"]]
+      .map(([name, flag]) => [getterOf(RegExp.prototype, name), flag]).filter(([g]) => g),
+    abByteLength: getterOf(ArrayBuffer.prototype, "byteLength"),
+    abDetached: getterOf(ArrayBuffer.prototype, "detached"),
+    abResizable: getterOf(ArrayBuffer.prototype, "resizable"),
+    abMaxByteLength: getterOf(ArrayBuffer.prototype, "maxByteLength"),
+    abTransfer: ArrayBuffer.prototype.transfer,
+    abResize: ArrayBuffer.prototype.resize,
+    sabByteLength: typeof SharedArrayBuffer === "function" ? getterOf(SharedArrayBuffer.prototype, "byteLength") : null,
+    typedArrayProto: Object.getPrototypeOf(Uint8Array.prototype),
+    dvBuffer: getterOf(DataView.prototype, "buffer"),
+    dvByteLength: getterOf(DataView.prototype, "byteLength"),
+    dvByteOffset: getterOf(DataView.prototype, "byteOffset"),
+    mapSize: getterOf(Map.prototype, "size"),
+    mapEntries: Map.prototype.entries,
+    mapSet: Map.prototype.set,
+    setSize: getterOf(Set.prototype, "size"),
+    setValues: Set.prototype.values,
+    setAdd: Set.prototype.add,
+    mapIterNext: Object.getPrototypeOf(new Map().entries()).next,
+    setIterNext: Object.getPrototypeOf(new Set().values()).next,
+    weakMapHas: WeakMap.prototype.has,
+    weakSetHas: WeakSet.prototype.has,
+    weakRefDeref: typeof WeakRef === "function" ? WeakRef.prototype.deref : null,
+    isError: typeof Error.isError === "function" ? Error.isError : null,
+    u8Set: Object.getPrototypeOf(Uint8Array.prototype).set,
+    defineProperty: Object.defineProperty,
+    getOwnPropertyDescriptor: Object.getOwnPropertyDescriptor,
+    keys: Object.keys,
+    hasOwn: Object.prototype.hasOwnProperty,
+    objToString: Object.prototype.toString,
+    isArray: Array.isArray,
+  };
+  SC.taBuffer = getterOf(SC.typedArrayProto, "buffer");
+  SC.taByteLength = getterOf(SC.typedArrayProto, "byteLength");
+  SC.taByteOffset = getterOf(SC.typedArrayProto, "byteOffset");
+  SC.taLength = getterOf(SC.typedArrayProto, "length");
+  SC.taName = getterOf(SC.typedArrayProto, Symbol.toStringTag);
+  SC.taEntries = SC.typedArrayProto.entries;
+  // Whether a view of a resizable buffer tracks its length ([[ByteLength]] is
+  // auto). No getter says so; growing the buffer by a byte (and shrinking it
+  // back, which keeps every original byte) does. A buffer already at its
+  // maximum cannot tell, and is taken as fixed-length.
+  function isLengthTracking(view, buffer, isDataView) {
+    if (!isArrayBuffer(buffer) || callOrUndefined(SC.abResizable, buffer) !== true) return false;
+    const size = SC.abByteLength.call(buffer);
+    if (size >= SC.abMaxByteLength.call(buffer)) return false;
+    const lengthOf = () => (isDataView ? SC.dvByteLength.call(view) : SC.taByteLength.call(view));
+    const before = lengthOf();
+    SC.abResize.call(buffer, size + 1);
+    let after;
+    try { after = lengthOf(); } finally { SC.abResize.call(buffer, size); }
+    return after !== before;
+  }
+  const ERROR_NAMES = ["Error", "EvalError", "RangeError", "ReferenceError", "SyntaxError", "TypeError", "URIError"];
+  const ERROR_CTORS = {
+    Error, EvalError, RangeError, ReferenceError, SyntaxError, TypeError, URIError,
+  };
+  const TYPED_ARRAY_CTORS = {};
+  for (const name of ["Int8Array", "Uint8Array", "Uint8ClampedArray", "Int16Array", "Uint16Array",
+    "Int32Array", "Uint32Array", "Float16Array", "Float32Array", "Float64Array", "BigInt64Array", "BigUint64Array"]) {
+    if (typeof globalThis[name] === "function") TYPED_ARRAY_CTORS[name] = globalThis[name];
+  }
+
+  const isObjectLike = (v) => v !== null && (typeof v === "object" || typeof v === "function");
+  const isArrayBuffer = (v) => SC.abByteLength !== undefined && brandedBy(SC.abByteLength, v);
+  const isSharedArrayBuffer = (v) => !!SC.sabByteLength && brandedBy(SC.sabByteLength, v);
+  const isDetachedBuffer = (v) => SC.abDetached ? SC.abDetached.call(v) === true : false;
+  // [[ErrorData]], told apart from an object merely claiming to be an Error
+  // through Symbol.toStringTag: Error.isError where the engine has it, else the
+  // builtin tag with no own/inherited toStringTag override.
+  function hasErrorData(v) {
+    if (SC.isError) return SC.isError(v);
+    if (SC.objToString.call(v) !== "[object Error]") return false;
+    for (let o = v; o; o = Object.getPrototypeOf(o)) {
+      const d = SC.getOwnPropertyDescriptor(o, Symbol.toStringTag);
+      if (d) return false;
+    }
+    return true;
+  }
+  // A platform object, as far as this realm can tell: a host proxy, or a
+  // JS-side Event (docs/js-side-events-design.md).
+  const isPlatformObject = (v) => isProxy(v) || (typeof v === "object" && v[JS_EVENT] !== undefined);
+  const primaryInterfaceOf = (v) => (isProxy(v) ? proxyInterfaces.get(v) || interfaceChainOf(v)[0] : undefined);
+
+  // The host's view of a platform object's transferability: "transferable",
+  // "detached", or anything else (not transferable at all).
+  function hostTransferState(v) {
+    if (!isProxy(v)) return null;
+    return __rb_host_transfer_state(proxyHandles.get(v));
+  }
+
+  function structuredSerializeInternal(value, forStorage, memory) {
+    if (memory.has(value)) return memory.get(value);
+    const type = typeof value;
+    if (value === undefined || value === null || type === "boolean" || type === "number" ||
+        type === "bigint" || type === "string") {
+      return { type: "primitive", value };
+    }
+    if (type === "symbol") throw dataCloneError("A Symbol could not be cloned");
+
+    let serialized;
+    let deep = false;
+    if (type === "object" && brandedBy(SC.booleanValueOf, value)) {
+      serialized = { type: "Boolean", value: SC.booleanValueOf.call(value) };
+    } else if (type === "object" && brandedBy(SC.numberValueOf, value)) {
+      serialized = { type: "Number", value: SC.numberValueOf.call(value) };
+    } else if (type === "object" && SC.bigintValueOf && brandedBy(SC.bigintValueOf, value)) {
+      serialized = { type: "BigInt", value: SC.bigintValueOf.call(value) };
+    } else if (type === "object" && brandedBy(SC.stringValueOf, value)) {
+      serialized = { type: "String", value: SC.stringValueOf.call(value) };
+    } else if (type === "object" && dateTimeValue(value) !== undefined) {
+      serialized = { type: "Date", value: dateTimeValue(value) };
+    } else if (type === "object" && SC.regexpSource && brandedBy(SC.regexpSource, value)) {
+      let flags = "";
+      for (const [getter, flag] of SC.regexpFlags) if (getter.call(value)) flags += flag;
+      serialized = { type: "RegExp", source: SC.regexpSource.call(value), flags };
+    } else if (type === "object" && isSharedArrayBuffer(value)) {
+      // The current settings object's cross-origin isolated capability is
+      // false here (no COOP/COEP), so shared memory never leaves.
+      throw dataCloneError("A SharedArrayBuffer could not be cloned: the page is not cross-origin isolated");
+    } else if (type === "object" && isArrayBuffer(value)) {
+      if (isDetachedBuffer(value)) throw dataCloneError("A detached ArrayBuffer could not be cloned");
+      const size = SC.abByteLength.call(value);
+      const copy = new Uint8Array(size);
+      SC.u8Set.call(copy, new Uint8Array(value));
+      serialized = { type: "ArrayBuffer", data: copy.buffer, byteLength: size };
+      if (callOrUndefined(SC.abResizable, value) === true) {
+        serialized.type = "ResizableArrayBuffer";
+        serialized.maxByteLength = SC.abMaxByteLength.call(value);
+      }
+    } else if (type === "object" && (brandedBy(SC.taBuffer, value) || brandedBy(SC.dvBuffer, value))) {
+      const isDataView = brandedBy(SC.dvBuffer, value);
+      // IsArrayBufferViewOutOfBounds: a DataView's getters throw for it; a
+      // typed array's report 0, but ValidateTypedArray (behind `entries`)
+      // throws. A view of a detached buffer is out of bounds too.
+      let byteLength, byteOffset, length;
+      try {
+        if (!isDataView) SC.taEntries.call(value);
+        byteLength = isDataView ? SC.dvByteLength.call(value) : SC.taByteLength.call(value);
+        byteOffset = isDataView ? SC.dvByteOffset.call(value) : SC.taByteOffset.call(value);
+        if (!isDataView) length = SC.taLength.call(value);
+      } catch (_) {
+        throw dataCloneError("An out-of-bounds ArrayBufferView could not be cloned");
+      }
+      const buffer = isDataView ? SC.dvBuffer.call(value) : SC.taBuffer.call(value);
+      const bufferSerialized = structuredSerializeInternal(buffer, forStorage, memory);
+      serialized = {
+        type: "ArrayBufferView", constructor: isDataView ? "DataView" : SC.taName.call(value),
+        buffer: bufferSerialized, byteLength, byteOffset, length,
+        lengthTracking: isLengthTracking(value, buffer, isDataView),
+      };
+    } else if (type === "object" && brandedBy(SC.mapSize, value)) {
+      serialized = { type: "Map", entries: [] };
+      deep = true;
+    } else if (type === "object" && brandedBy(SC.setSize, value)) {
+      serialized = { type: "Set", entries: [] };
+      deep = true;
+    } else if (type === "object" && !isPlatformObject(value) && hasErrorData(value)) {
+      let name = value.name;
+      if (!ERROR_NAMES.includes(name)) name = "Error";
+      const messageDesc = SC.getOwnPropertyDescriptor(value, "message");
+      const message = messageDesc && "value" in messageDesc ? String(messageDesc.value) : undefined;
+      let stack;
+      try { stack = value.stack; } catch (_) { /* a throwing stack accessor: none */ }
+      serialized = { type: "Error", name, message, stack: typeof stack === "string" ? stack : undefined };
+      // "Interesting accompanying data": an own `cause`, which every engine
+      // carries across (WPT structured-clone battery checks it).
+      const causeDesc = SC.getOwnPropertyDescriptor(value, "cause");
+      if (causeDesc && "value" in causeDesc) serialized.hasCause = true;
+      memory.set(value, serialized);
+      if (serialized.hasCause) serialized.cause = structuredSerializeInternal(causeDesc.value, forStorage, memory);
+      return serialized;
+    } else if (type === "object" && SC.isArray(value) && !isProxy(value)) {
+      serialized = { type: "Array", length: SC.getOwnPropertyDescriptor(value, "length").value, properties: [] };
+      deep = true;
+    } else if (isPlatformObject(value)) {
+      const state = hostTransferState(value);
+      if (state === "detached") throw dataCloneError("A detached " + primaryInterfaceOf(value) + " could not be cloned");
+      // A serializable platform object: the host snapshots it (and throws a
+      // DataCloneError for any other interface, a Node or a Window included).
+      if (!isProxy(value)) throw dataCloneError("The object could not be cloned");
+      const snapshot = rehydrate(__rb_host_clone(proxyHandles.get(value), !!forStorage));
+      serialized = { type: "Platform", interface: primaryInterfaceOf(value), snapshot };
+    } else if (type === "function") {
+      throw dataCloneError("A function could not be cloned");
+    } else if (brandedBy(SC.symbolValueOf, value) || brandedBy(SC.weakMapHas, value, {}) ||
+               brandedBy(SC.weakSetHas, value, {}) || (SC.weakRefDeref && brandedBy(SC.weakRefDeref, value)) ||
+               SC.objToString.call(value) === "[object Promise]") {
+      // Any other internal slot: [[SymbolData]], [[WeakMapData]],
+      // [[PromiseState]], … (an engine cannot be asked about every one, so the
+      // common ones are recognised by their brand checks).
+      throw dataCloneError("The object could not be cloned");
+    } else {
+      serialized = { type: "Object", properties: [] };
+      deep = true;
+    }
+    memory.set(value, serialized);
+
+    if (deep) {
+      if (serialized.type === "Map") {
+        const copied = [];
+        const it = SC.mapEntries.call(value);
+        for (let step = SC.mapIterNext.call(it); !step.done; step = SC.mapIterNext.call(it)) copied.push(step.value);
+        for (const [k, v] of copied) {
+          serialized.entries.push([structuredSerializeInternal(k, forStorage, memory),
+            structuredSerializeInternal(v, forStorage, memory)]);
+        }
+      } else if (serialized.type === "Set") {
+        const copied = [];
+        const it = SC.setValues.call(value);
+        for (let step = SC.setIterNext.call(it); !step.done; step = SC.setIterNext.call(it)) copied.push(step.value);
+        for (const v of copied) serialized.entries.push(structuredSerializeInternal(v, forStorage, memory));
+      } else {
+        for (const key of SC.keys(value)) {
+          if (!SC.hasOwn.call(value, key)) continue;
+          const inputValue = value[key];
+          serialized.properties.push([key, structuredSerializeInternal(inputValue, forStorage, memory)]);
+        }
+      }
+    }
+    return serialized;
+  }
+
+  function structuredDeserialize(serialized, memory) {
+    if (memory.has(serialized)) return memory.get(serialized);
+    let value;
+    let deep = false;
+    switch (serialized.type) {
+      case "primitive": return serialized.value;
+      case "Boolean": value = new Boolean(serialized.value); break;
+      case "Number": value = new Number(serialized.value); break;
+      case "BigInt": value = Object(serialized.value); break;
+      case "String": value = new String(serialized.value); break;
+      case "Date": value = new Date(serialized.value); break;
+      case "RegExp": value = new RegExp(serialized.source, serialized.flags); break;
+      case "ArrayBuffer":
+      case "ResizableArrayBuffer": {
+        try {
+          value = serialized.type === "ResizableArrayBuffer"
+            ? new ArrayBuffer(serialized.byteLength, { maxByteLength: serialized.maxByteLength })
+            : new ArrayBuffer(serialized.byteLength);
+        } catch (_) {
+          throw dataCloneError("The ArrayBuffer could not be allocated");
+        }
+        SC.u8Set.call(new Uint8Array(value), new Uint8Array(serialized.data));
+        break;
+      }
+      case "ArrayBufferView": {
+        const buffer = structuredDeserialize(serialized.buffer, memory);
+        // A length-tracking view stays one (its length argument omitted).
+        const tracking = serialized.lengthTracking;
+        if (serialized.constructor === "DataView") {
+          value = tracking
+            ? new DataView(buffer, serialized.byteOffset)
+            : new DataView(buffer, serialized.byteOffset, serialized.byteLength);
+        } else {
+          const Ctor = TYPED_ARRAY_CTORS[serialized.constructor];
+          if (!Ctor) throw dataCloneError(serialized.constructor + " is not supported");
+          value = tracking ? new Ctor(buffer, serialized.byteOffset) : new Ctor(buffer, serialized.byteOffset, serialized.length);
+        }
+        break;
+      }
+      case "Map": value = new Map(); deep = true; break;
+      case "Set": value = new Set(); deep = true; break;
+      case "Array": value = new Array(serialized.length); deep = true; break;
+      case "Object": value = {}; deep = true; break;
+      case "Error": {
+        const Ctor = ERROR_CTORS[serialized.name] || Error;
+        value = new Ctor();
+        if (serialized.message !== undefined) {
+          SC.defineProperty(value, "message", { value: serialized.message, writable: true, enumerable: false, configurable: true });
+        }
+        if (serialized.stack !== undefined) {
+          SC.defineProperty(value, "stack", { value: serialized.stack, writable: true, enumerable: false, configurable: true });
+        } else {
+          try { delete value.stack; } catch (_) { /* engine-owned */ }
+        }
+        memory.set(serialized, value);
+        if (serialized.hasCause) {
+          SC.defineProperty(value, "cause", {
+            value: structuredDeserialize(serialized.cause, memory), writable: true, enumerable: false, configurable: true,
+          });
+        }
+        return value;
+      }
+      case "Platform":
+        // A new instance from the host's snapshot.
+        value = rehydrate(__rb_host_clone(proxyHandles.get(serialized.snapshot), false));
+        break;
+      case "TransferredArrayBuffer":
+      case "TransferredPlatform":
+        // Received by structuredDeserializeWithTransfer, which seeds memory.
+        throw dataCloneError("A transferred value was deserialized twice");
+      default:
+        throw dataCloneError("Unknown serialized type " + serialized.type);
+    }
+    memory.set(serialized, value);
+    if (deep) {
+      if (serialized.type === "Map") {
+        for (const [k, v] of serialized.entries) {
+          SC.mapSet.call(value, structuredDeserialize(k, memory), structuredDeserialize(v, memory));
+        }
+      } else if (serialized.type === "Set") {
+        for (const v of serialized.entries) SC.setAdd.call(value, structuredDeserialize(v, memory));
+      } else {
+        for (const [key, v] of serialized.properties) {
+          SC.defineProperty(value, key, { value: structuredDeserialize(v, memory), writable: true, enumerable: true, configurable: true });
+        }
+      }
+    }
+    return value;
+  }
+
+  // WebIDL sequence<object> (the transfer list): an iterable of objects.
+  function toObjectSequence(v, what) {
+    if (!isObjectLike(v)) throw new TypeError(what + " is not an iterable of objects");
+    const method = v[Symbol.iterator];
+    if (typeof method !== "function") throw new TypeError(what + " is not iterable");
+    const out = [];
+    for (const item of { [Symbol.iterator]: () => method.call(v) }) {
+      if (!isObjectLike(item)) throw new TypeError(what + " contains a value that is not an object");
+      out.push(item);
+    }
+    return out;
+  }
+
+  // WebIDL StructuredSerializeOptions (and its WindowPostMessageOptions
+  // extension): members read in order, inherited dictionaries first.
+  function toSerializeOptions(v, withTargetOrigin) {
+    const out = { transfer: [] };
+    if (withTargetOrigin) out.targetOrigin = "/";
+    if (v === undefined || v === null) return out;
+    if (!isObjectLike(v)) throw new TypeError("The options argument is not an object");
+    const transfer = v.transfer;
+    if (transfer !== undefined) out.transfer = toObjectSequence(transfer, "transfer");
+    if (withTargetOrigin) {
+      const targetOrigin = v.targetOrigin;
+      if (targetOrigin !== undefined) out.targetOrigin = toUSVString(targetOrigin);
+    }
+    return out;
+  }
+
+  function structuredSerializeWithTransfer(value, transferList) {
+    const memory = new Map();
+    for (const transferable of transferList) {
+      const buffer = isArrayBuffer(transferable);
+      if (!buffer && hostTransferState(transferable) == null) {
+        throw dataCloneError("The object is not transferable");
+      }
+      if (!buffer && isSharedArrayBuffer(transferable)) throw dataCloneError("A SharedArrayBuffer is not transferable");
+      if (memory.has(transferable)) throw dataCloneError("The transfer list contains the same object twice");
+      memory.set(transferable, { type: undefined });
+    }
+    const serialized = structuredSerializeInternal(value, false, memory);
+    const transferDataHolders = [];
+    for (const transferable of transferList) {
+      const holder = memory.get(transferable);
+      if (isArrayBuffer(transferable)) {
+        if (isDetachedBuffer(transferable)) throw dataCloneError("A detached ArrayBuffer could not be transferred");
+      } else if (hostTransferState(transferable) === "detached") {
+        throw dataCloneError("A detached " + primaryInterfaceOf(transferable) + " could not be transferred");
+      }
+    }
+    for (const transferable of transferList) {
+      const holder = memory.get(transferable);
+      if (isArrayBuffer(transferable)) {
+        holder.type = "TransferredArrayBuffer";
+        holder.buffer = SC.abTransfer.call(transferable);
+      } else {
+        holder.type = "TransferredPlatform";
+        holder.interface = primaryInterfaceOf(transferable);
+        holder.value = rehydrate(__rb_host_transfer(proxyHandles.get(transferable)));
+      }
+      transferDataHolders.push(holder);
+    }
+    return { serialized, transferDataHolders };
+  }
+
+  // -> { deserialized, transferredValues }
+  function structuredDeserializeWithTransfer(record) {
+    const memory = new Map();
+    const transferredValues = [];
+    for (const holder of record.transferDataHolders) {
+      const value = holder.type === "TransferredArrayBuffer" ? holder.buffer : holder.value;
+      memory.set(holder, value);
+      transferredValues.push(value);
+    }
+    return { deserialized: structuredDeserialize(record.serialized, memory), transferredValues };
+  }
+
+  // Serialized records Ruby holds by id (Dommy::Js::SerializedRecord). An entry
+  // lives until Ruby releases it.
+  const serializedRecords = new Map();
+  let serializedRecordSeq = 0;
+  function serializedTag(record) {
+    const id = ++serializedRecordSeq;
+    serializedRecords.set(id, record);
+    return { __rb_serialized: id };
+  }
+  // Called from Ruby when a message is delivered: the record deserialized in
+  // this realm, as `{ value, ports }` (the MessagePorts among the transferred
+  // values, in order), or `{ error }` when deserialization threw — the caller
+  // then fires `messageerror`.
+  function deserializeRecord(id) {
+    const record = serializedRecords.get(id);
+    if (!record) return { error: "The serialized message is gone" };
+    try {
+      const { deserialized, transferredValues } = structuredDeserializeWithTransfer(record);
+      const ports = transferredValues.filter((v) => isProxy(v) && primaryInterfaceOf(v) === "MessagePort");
+      return { value: dehydrateSettle(deserialized), ports: ports.map((p) => ({ __rb_handle: proxyHandles.get(p) })) };
+    } catch (e) {
+      return { error: String(e && e.message) };
+    }
+  }
+  function releaseRecord(id) {
+    serializedRecords.delete(id);
+  }
+
+  // The `structuredClone(value, options)` method steps, entirely in this realm.
+  function structuredCloneSteps(value, options) {
+    const { transfer } = toSerializeOptions(options, false);
+    const record = structuredSerializeWithTransfer(value, transfer);
+    return structuredDeserializeWithTransfer(record).deserialized;
+  }
+
+  // The targetOrigin argument of window.postMessage: "/" (the incumbent's own
+  // origin) and "*" pass through; anything else must parse as a URL, whose
+  // origin it then stands for.
+  function postMessageTargetOrigin(targetOrigin) {
+    if (targetOrigin === "/" || targetOrigin === "*") return targetOrigin;
+    let parsed;
+    try {
+      parsed = new globalThis.URL(targetOrigin);
+    } catch (_) {
+      throw makeHostError({ name: "SyntaxError", message: "'" + targetOrigin + "' is not a valid target origin" });
+    }
+    return parsed.origin;
+  }
+
+  // window.postMessage(message, targetOrigin, transfer) /
+  // postMessage(message, options): the overload is picked by the second
+  // argument (WebIDL overload resolution: undefined, null or an object selects
+  // the dictionary).
+  function windowPostMessageStub(prop, ctx) {
+    const { handle, ifaceName } = ctx;
+    return function (message) {
+      if (arguments.length < 1) throw new TypeError("postMessage requires at least 1 argument");
+      const rest = Array.prototype.slice.call(arguments, 1);
+      let targetOrigin, transfer;
+      const second = rest[0];
+      if (rest.length === 0 || second === undefined || second === null || isObjectLike(second)) {
+        ({ targetOrigin, transfer } = toSerializeOptions(second, true));
+      } else {
+        targetOrigin = toUSVString(second);
+        transfer = rest.length > 1 && rest[1] !== undefined ? toObjectSequence(rest[1], "transfer") : [];
+      }
+      targetOrigin = postMessageTargetOrigin(targetOrigin);
+      const record = structuredSerializeWithTransfer(message, transfer);
+      const source = globalThis.window;
+      return hostCallResult(prop, __rb_host_call(handle, prop,
+        [serializedTag(record), targetOrigin, isProxy(source) ? { __rb_handle: proxyHandles.get(source) } : null]), ifaceName);
+    };
+  }
+
+  // MessagePort#postMessage(message, transfer) / (message, options).
+  function portPostMessageStub(prop, ctx) {
+    const { handle, ifaceName } = ctx;
+    return function (message) {
+      if (arguments.length < 1) throw new TypeError("postMessage requires at least 1 argument");
+      const rest = Array.prototype.slice.call(arguments, 1);
+      const second = rest[0];
+      let transfer;
+      if (rest.length === 0 || second === undefined || second === null || !isObjectLike(second) ||
+          typeof second[Symbol.iterator] !== "function") {
+        ({ transfer } = toSerializeOptions(second, false));
+      } else {
+        transfer = toObjectSequence(second, "transfer");
+      }
+      // "If transfer contains this, throw a DataCloneError."
+      if (transfer.some((t) => isProxy(t) && proxyHandles.get(t) === handle)) {
+        throw dataCloneError("A MessagePort cannot transfer itself");
+      }
+      // Posting the target port itself dooms the channel: the message is
+      // serialized (and everything transferred) but never delivered.
+      const target = rehydrate(__rb_host_state(handle, "entangled"));
+      const doomed = target != null && transfer.includes(target);
+      const record = structuredSerializeWithTransfer(message, transfer);
+      return hostCallResult(prop, __rb_host_call(handle, prop, [serializedTag(record), doomed]), ifaceName);
+    };
+  }
+
+  // BroadcastChannel#postMessage(message): StructuredSerialize, no transfer.
+  // The closed check comes first, so it is the host's to make before the
+  // record is built — it answers through `closed`.
+  function broadcastPostMessageStub(prop, ctx) {
+    const { handle, ifaceName } = ctx;
+    return function (message) {
+      if (arguments.length < 1) throw new TypeError("postMessage requires at least 1 argument");
+      if (__rb_host_state(handle, "closed") === true) {
+        throw makeHostError({ name: "InvalidStateError", message: "The BroadcastChannel is closed" });
+      }
+      const record = { serialized: structuredSerializeInternal(message, false, new Map()), transferDataHolders: [] };
+      return hostCallResult(prop, __rb_host_call(handle, prop, [serializedTag(record)]), ifaceName);
+    };
+  }
+
+  // Worker#postMessage: the message is serialized (and transferred) here, so a
+  // throwing getter or an uncloneable value throws at the call; the emulated
+  // worker side is Ruby, which receives the deserialized clone as plain data.
+  function workerPostMessageStub(prop, ctx) {
+    const { handle, ifaceName } = ctx;
+    return function (message) {
+      if (arguments.length < 1) throw new TypeError("postMessage requires at least 1 argument");
+      const rest = Array.prototype.slice.call(arguments, 1);
+      const second = rest[0];
+      let transfer;
+      if (rest.length === 0 || second === undefined || second === null || !isObjectLike(second) ||
+          typeof second[Symbol.iterator] !== "function") {
+        ({ transfer } = toSerializeOptions(second, false));
+      } else {
+        transfer = toObjectSequence(second, "transfer");
+      }
+      const clone = structuredDeserializeWithTransfer(structuredSerializeWithTransfer(message, transfer)).deserialized;
+      return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs([clone])), ifaceName);
+    };
+  }
+
+  const POST_MESSAGE_STUBS = {
+    Window: windowPostMessageStub,
+    MessagePort: portPostMessageStub,
+    BroadcastChannel: broadcastPostMessageStub,
+    Worker: workerPostMessageStub,
+  };
+  function postMessageStub(prop, ctx) {
+    const make = POST_MESSAGE_STUBS[ctx.ifaceName];
+    return make ? make(prop, ctx) : null;
+  }
+
+  function structuredCloneStub(_prop, ctx) {
+    if (ctx.ifaceName !== "Window") return null;
+    return function structuredClone(value, options) {
+      if (arguments.length < 1) throw new TypeError("structuredClone requires at least 1 argument");
+      return structuredCloneSteps(value, options);
+    };
+  }
+
+  // history.pushState / replaceState(data, unused, url): the state is
+  // serialized for storage here — after the fully-active check, before the
+  // host looks at the URL (a DataCloneError wins over a SecurityError). The
+  // string arguments arrive already converted (withConvertedArguments).
+  function historyStateStub(prop, ctx) {
+    if (ctx.ifaceName !== "History") return null;
+    const { handle, ifaceName } = ctx;
+    return function (data, ...rest) {
+      if (__rb_host_state(handle, "fully_active") === false) {
+        throw makeHostError({ name: "SecurityError", message: "The document is not fully active" });
+      }
+      const record = { serialized: structuredSerializeInternal(data, true, new Map()), transferDataHolders: [] };
+      bumpDomEpoch();
+      try {
+        return hostCallResult(prop, __rb_host_call(handle, prop, [serializedTag(record), ...dehydrateArgs(rest)]), ifaceName);
+      } finally {
+        bumpDomEpoch();
+      }
+    };
   }
 
   // ===== wasm host bridge (handle-oriented JS access) =====
@@ -1705,7 +2355,11 @@ globalThis.__rbHost = (function () {
     const name = chain[i];
     const cached = protos.get(name);
     if (cached) return cached;
-    const parent = (i + 1 < chain.length) ? protoForChain(chain, i + 1) : Object.prototype;
+    // WebIDL §3.14.1: the DOMException prototype object's [[Prototype]] is
+    // %Error.prototype% (so `e instanceof Error`, and String(e) is Error's
+    // "name: message"); every other root interface's is %Object.prototype%.
+    const root = name === "DOMException" ? Error.prototype : Object.prototype;
+    const parent = (i + 1 < chain.length) ? protoForChain(chain, i + 1) : root;
     const proto = Object.create(parent);
     Object.defineProperty(proto, Symbol.toStringTag, { value: name, configurable: true });
     // Only node/element constructors adopt an element being upgraded. Otherwise
@@ -2064,6 +2718,23 @@ globalThis.__rbHost = (function () {
       configurable: true, enumerable: false,
       get() { const w = globalThis.window; return w ? w.event : undefined; },
     });
+    defineGlobalEventHandlers();
+  }
+
+  // The Window's event handler IDL attributes, reachable as bare globals
+  // (`onmessage = f`, `onload`): the window IS the global object in a browser,
+  // and here globalThis is not the window proxy, so each one is an accessor
+  // forwarding to the live globalThis.window. A name the realm already has as
+  // its own global is left alone.
+  function defineGlobalEventHandlers() {
+    for (const name of EVENT_HANDLERS.get("Window") || []) {
+      if (Object.hasOwn(globalThis, name)) continue;
+      Object.defineProperty(globalThis, name, {
+        configurable: true, enumerable: true,
+        get() { const w = globalThis.window; return w ? w[name] : undefined; },
+        set(v) { const w = globalThis.window; if (w) w[name] = v; },
+      });
+    }
   }
 
   // ===== Host object proxy =====
@@ -2501,6 +3172,10 @@ globalThis.__rbHost = (function () {
     ["setAttribute", attrWriteStub],
     ["removeAttribute", attrWriteStub],
     ["getRandomValues", randomValuesStub],
+    ["postMessage", postMessageStub],
+    ["structuredClone", structuredCloneStub],
+    ["pushState", historyStateStub],
+    ["replaceState", historyStateStub],
   ]);
 
   function makeMethodStub(prop, ctx) {
@@ -2515,6 +3190,13 @@ globalThis.__rbHost = (function () {
     fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
     if (prop === "toString" && ctx.ifaceName) fn = brandCheckedStringifier(fn, ctx);
     withArity(fn, prop, ctx.ifaceName);
+    // A special stub whose name no arity table lists takes the length its IDL
+    // declares (the shortest overload's required count): `postMessage.length`
+    // and `structuredClone.length` are 1.
+    if (special && fn.length === 0) {
+      const call = declaredConversion(ctx.ifaceName, "operations", prop);
+      if (call && call.required) Object.defineProperty(fn, "length", { value: call.required, configurable: true });
+    }
     return fn;
   }
 
@@ -2802,6 +3484,7 @@ globalThis.__rbHost = (function () {
   // values").
   const IFACE_FROZEN_ARRAY_ATTRIBUTES = new Map([
     ["Navigator", new Set(["languages"])],
+    ["MessageEvent", new Set(["ports"])],
   ]);
 
   // Attributes whose value is one JS object until the host replaces it, by
@@ -3018,7 +3701,8 @@ globalThis.__rbHost = (function () {
         // global of the same name (an OWN globalThis prop — inherited names already
         // resolved via `prop in t` above), so e.g. a UMD bundle's
         // `globalThis.Stimulus = …` is visible as `window.Stimulus`.
-        if (hostHasNoValue && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return globalThis[prop];
+        if (hostHasNoValue && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop) &&
+            !isEventHandlerName(shape, prop)) return globalThis[prop];
         // A Window's named properties (HTML "named access on the Window
         // object") come after every member and global: they live on the named
         // properties object at the bottom of its prototype chain.
@@ -3566,6 +4250,8 @@ globalThis.__rbHost = (function () {
     installRejectionTracker,
     // The engine's promise-rejection hook (see onPromiseRejection).
     onPromiseRejection,
+    // Structured serialization records Ruby holds (Dommy::Js::SerializedRecord).
+    deserializeRecord, releaseRecord,
     seedInterfaces, invokeLifecycle, upgradeInPlace, attachStatics, exposeConstructorsOnWindow,
     // Realm wiring the Ruby bridge drives, kept here rather than as JS built in
     // Ruby strings (see defineGlobal / defineLegacyEventAccessor).

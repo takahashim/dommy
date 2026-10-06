@@ -36,7 +36,8 @@ const WebIDL2 = require(path.join(wpt, "resources/webidl2/lib/webidl2.js"));
 const SPECS = [
   "dom", "cssom", "html", "uievents", "url", "FileAPI", "encoding",
   "xhr", "wai-aria", "fetch", "streams", "cssom-view", "selection-api",
-  "pointerevents", "touch-events", "css-animations", "css-transitions", "fullscreen"
+  "pointerevents", "touch-events", "css-animations", "css-transitions", "fullscreen",
+  "websockets", "notifications"
 ];
 
 const interfaces = new Map(); // name -> record

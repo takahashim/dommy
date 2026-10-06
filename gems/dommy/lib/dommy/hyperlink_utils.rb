@@ -13,10 +13,18 @@ module Dommy
   module HyperlinkUtils
     URL_COMPONENTS = %w[origin protocol username password host hostname port pathname search hash].freeze
 
+    # The mixin's `stringifier` (an element has no stringifier otherwise, so
+    # `String(div)` is "[object HTMLDivElement]").
+    JS_METHOD_NAMES = %w[toString].freeze
+
     # WebIDL stringifier: `String(link)` / `link.toString()` is its href (the
     # resolved absolute URL), not the element's serialization.
     def to_s
       href
+    end
+
+    def __js_call__(method, args)
+      method == "toString" ? href : super
     end
 
     def href

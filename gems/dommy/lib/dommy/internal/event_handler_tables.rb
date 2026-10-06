@@ -110,6 +110,9 @@ module Dommy
         "NavigationHistoryEntry" => %w[
           ondispose
         ].freeze,
+        "Notification" => %w[
+          onclick onclose onerror onshow
+        ].freeze,
         "OffscreenCanvas" => %w[
           oncontextlost oncontextrestored
         ].freeze,
@@ -153,6 +156,9 @@ module Dommy
         ].freeze,
         "VisualViewport" => %w[
           onresize onscroll onscrollend
+        ].freeze,
+        "WebSocket" => %w[
+          onclose onerror onmessage onopen
         ].freeze,
         "Window" => %w[
           onabort onafterprint onanimationcancel onanimationend onanimationiteration onanimationstart

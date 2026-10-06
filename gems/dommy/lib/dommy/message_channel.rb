@@ -32,89 +32,137 @@ module Dommy
   end
 
   # `MessagePort` — one end of a MessageChannel. `postMessage(value)`
-  # dispatches a `MessageEvent` on the entangled port asynchronously.
+  # serializes the value and queues its delivery as a `MessageEvent` on the
+  # entangled port, in a later task.
+  #
+  # A port is transferable: transferring it (`postMessage(x, [port])`) detaches
+  # it and hands its entanglement and its queued messages to the new port the
+  # receiver gets (see #__internal_transfer__).
   class MessagePort
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     def initialize(window)
       @window = window
       @entangled = nil
-      @onmessage = nil
       @started = false
       @pending = []
+      @detached = false
+      @transferred_to = nil
     end
 
+    # Entangle this port with `other` (one-sided; the caller pairs them).
     def __internal_entangle__(other)
       @entangled = other
     end
 
-    def post_message(data)
-      port = @entangled
-      return unless port
+    def __internal_entangled__ = @entangled
+
+    # Internal state the JS-side postMessage reads (see host_bridge.rb
+    # __rb_host_state): the entangled port, to tell a doomed post.
+    def __internal_state__(name)
+      @entangled if name == "entangled"
+    end
+
+    # The port `message` from this port is delivered to: `port` itself, or the
+    # port it was transferred to (its message queue moved along with it).
+    def __internal_final_port__
+      port = self
+      port = port.__internal_transferred_to__ while port.__internal_transferred_to__
+      port
+    end
+
+    def __internal_transferred_to__ = @transferred_to
+
+    # [[Detached]]: true once the port was transferred or closed.
+    def __internal_detached__? = @detached
+
+    # The transfer steps and transfer-receiving steps at once (the receiving
+    # realm is this one): a new port takes over this one's message queue
+    # (disabled until started) and its entanglement, and this one is detached.
+    def __internal_transfer__
+      raise DOMException::DataCloneError, "A detached MessagePort could not be transferred" if @detached
+
+      receiver = MessagePort.new(@window)
+      @detached = true
+      @transferred_to = receiver
+      receiver.__internal_take_queue__(@pending)
+      @pending = []
+      remote = @entangled
+      @entangled = nil
+      if remote
+        remote.__internal_entangle__(receiver)
+        receiver.__internal_entangle__(remote)
+      end
+      receiver
+    end
+
+    def __internal_take_queue__(pending)
+      @pending.concat(pending)
+    end
+
+    # The message port post message steps. `doomed` is true when the transfer
+    # list held the target port itself (the channel is lost; nothing is sent).
+    def post_message(message, doomed: false)
+      serialized = Dommy.structured_serialize(message)
+      target = @entangled
+      return nil if target.nil? || doomed
 
       # The "post message" task source — a task, NOT a microtask, so delivery
       # happens in a later event-loop turn (after the current task's microtask
       # checkpoint), matching browsers.
-      @window.scheduler.set_timeout(
-        proc do
-          evt = MessageEvent.new("message", "data" => Dommy.structured_clone(data))
-          if port.__internal_started?
-            port.dispatch_event(evt)
-          else
-            port.__internal_enqueue__(evt)
-          end
-        end,
-        0
-      )
-
+      @window.scheduler.set_timeout(proc { target.__internal_final_port__.__internal_receive__(serialized) }, 0)
       nil
     end
 
     alias postMessage post_message
 
+    # A task from the port message queue. The queue holds the messages in
+    # order; while it is enabled each task delivers the oldest one, so a message
+    # held back before start() still arrives before a later one.
+    def __internal_receive__(serialized)
+      @pending << serialized
+      deliver(@pending.shift) if __internal_started?
+    end
+
+    # start(): enable the port message queue. The held messages become tasks
+    # (delivered in later turns, not inside this call).
     def start
+      return nil if @started
+
       @started = true
-      flush = @pending
-      @pending = []
-      flush.each { |evt| dispatch_event(evt) }
+      @pending.size.times do
+        @window.scheduler.set_timeout(proc { deliver(@pending.shift) unless @pending.empty? }, 0)
+      end
       nil
     end
 
+    # close(): detach this port and disentangle it from its twin.
     def close
+      @detached = true
+      remote = @entangled
       @entangled = nil
+      remote&.__internal_disentangle__(self)
       nil
     end
 
-    def __internal_started?
-      @started || !@inline_message_handler.nil?
+    def __internal_disentangle__(port)
+      @entangled = nil if @entangled.equal?(port)
     end
 
-    def __internal_enqueue__(event)
-      @pending << event
-    end
+    def __internal_started? = @started
 
     def __js_get__(key)
-      case key
-      when "onmessage"
-        @onmessage
-      else
-        Bridge::ABSENT
-      end
+      event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
     end
 
+    # onmessage / onmessageerror / onclose. Setting onmessage enables the port
+    # message queue, as start() does.
     def __js_set__(key, value)
-      case key
-      when "onmessage"
-        # Setting onmessage implicitly starts the port per spec.
-        remove_event_listener("message", @onmessage) if @onmessage
-        @onmessage = value
-        @inline_message_handler = value
-        add_event_listener("message", value) if value
-        start if value
-      else
-        return Bridge::UNHANDLED
-      end
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
+      event_handler_idl_set(key, value)
+      start if key == "onmessage" && !on_handler("message").nil?
       nil
     end
 
@@ -123,7 +171,7 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "postMessage"
-        post_message(args[0])
+        post_message(args[0], doomed: args[1] == true)
       when "start"
         start
       when "close"
@@ -139,6 +187,22 @@ module Dommy
 
     def __internal_event_parent__
       nil
+    end
+
+    private
+
+    # Deserialize and fire `message` (or `messageerror` when the value cannot
+    # be rebuilt here).
+    def deliver(serialized)
+      begin
+        data, ports = serialized.deserialize_with_transfer
+      rescue DOMException::DataCloneError
+        dispatch_event(MessageEvent.new("messageerror").__internal_mark_trusted__)
+        return
+      ensure
+        serialized.release if serialized.respond_to?(:release)
+      end
+      dispatch_event(MessageEvent.new("message", "data" => data, "ports" => ports).__internal_mark_trusted__)
     end
   end
 
@@ -201,6 +265,7 @@ module Dommy
   # name within the same Window.
   class BroadcastChannel
     include EventTarget
+    include Internal::EventHandlers::IdlAttributeBridge
 
     @@registries = Hash.new { |h, w| h[w] = Hash.new { |c, n| c[n] = [] } }
 
@@ -210,27 +275,38 @@ module Dommy
       @window = window
       @name = name.to_s
       @closed = false
-      @onmessage = nil
       @@registries[window][@name] << self
     end
 
+    # postMessage(message): serialize once, then queue a task per other open
+    # channel of the same name that deserializes its own copy (a closed
+    # destination by then is skipped; one that cannot deserialize gets
+    # `messageerror`).
     def post_message(data)
-      return if @closed
+      raise DOMException::InvalidStateError, "The BroadcastChannel is closed" if @closed
 
+      serialized = Dommy.structured_serialize(data)
+      origin = @window.respond_to?(:origin) ? @window.origin.to_s : ""
       peers = @@registries[@window][@name].reject { |p| p.equal?(self) || p.closed? }
-      cloned = Dommy.structured_clone(data)
       peers.each do |peer|
         # A task (post message task source), not a microtask — delivered in a
         # later turn like a real BroadcastChannel.
-        @window.scheduler.set_timeout(
-          proc do
-            peer.dispatch_event(MessageEvent.new("message", "data" => cloned))
-          end,
-          0
-        )
+        @window.scheduler.set_timeout(proc { peer.__internal_receive__(serialized, origin) }, 0)
       end
 
       nil
+    end
+
+    def __internal_receive__(serialized, origin)
+      return if @closed
+
+      begin
+        data = serialized.deserialize
+      rescue DOMException::DataCloneError
+        dispatch_event(MessageEvent.new("messageerror", "origin" => origin).__internal_mark_trusted__)
+        return
+      end
+      dispatch_event(MessageEvent.new("message", "data" => data, "origin" => origin).__internal_mark_trusted__)
     end
 
     alias postMessage post_message
@@ -247,28 +323,25 @@ module Dommy
       @closed
     end
 
+    # Internal state the JS-side postMessage reads before serializing.
+    def __internal_state__(name)
+      @closed if name == "closed"
+    end
+
     def __js_get__(key)
       case key
       when "name"
         @name
-      when "onmessage"
-        @onmessage
       else
-        Bridge::ABSENT
+        event_handler_idl_attribute?(key) ? event_handler_idl_get(key) : Bridge::ABSENT
       end
     end
 
+    # onmessage / onmessageerror.
     def __js_set__(key, value)
-      case key
-      when "onmessage"
-        remove_event_listener("message", @onmessage) if @onmessage
-        @onmessage = value
-        add_event_listener("message", value) if value
-      else
-        return Bridge::UNHANDLED
-      end
+      return Bridge::UNHANDLED unless event_handler_idl_attribute?(key)
 
-      nil
+      event_handler_idl_set(key, value)
     end
 
     include Bridge::Methods
