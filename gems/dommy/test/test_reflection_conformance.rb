@@ -121,4 +121,68 @@ class TestReflectionConformance < Minitest::Test
     assert_equal({ "a" => :encoding_error, "b" => :fulfilled, "c" => :encoding_error,
                    "d" => :fulfilled, "e" => :encoding_error }, states)
   end
+
+  def test_script_cross_origin_and_fetch_priority
+    script = el("script")
+    assert_nil script.crossorigin
+    script.set_attribute("crossorigin", "")
+    assert_equal "anonymous", script.crossorigin
+    script.set_attribute("crossorigin", "USE-CREDENTIALS")
+    assert_equal "use-credentials", script.crossorigin
+    script.crossorigin = nil
+    refute script.has_attribute?("crossorigin")
+    assert_equal "auto", script.fetch_priority
+    link = el("link")
+    link.set_attribute("fetchpriority", "High")
+    assert_equal "high", link.fetch_priority
+  end
+
+  def test_hyperlink_referrer_policy
+    %w[a area].each do |name|
+      element = el(name)
+      assert_equal "", element.referrer_policy
+      element.set_attribute("referrerpolicy", "NO-REFERRER")
+      assert_equal "no-referrer", element.referrer_policy
+      element.set_attribute("referrerpolicy", "bogus")
+      assert_equal "", element.referrer_policy
+    end
+  end
+
+  def test_template_declarative_shadow_root_attributes
+    template = el("template")
+    assert_equal "", template.shadow_root_mode
+    assert_equal "named", template.shadow_root_slot_assignment
+    template.set_attribute("shadowrootmode", "CLOSED")
+    template.set_attribute("shadowrootslotassignment", "Manual")
+    assert_equal "closed", template.shadow_root_mode
+    assert_equal "manual", template.shadow_root_slot_assignment
+    template.set_attribute("shadowrootmode", "x")
+    template.set_attribute("shadowrootslotassignment", "x")
+    assert_equal "", template.shadow_root_mode
+    assert_equal "named", template.shadow_root_slot_assignment
+    refute template.shadow_root_clonable
+    template.shadow_root_delegates_focus = true
+    assert_equal "", template.get_attribute("shadowrootdelegatesfocus")
+    template.shadow_root_custom_element_registry = "x"
+    assert_equal "x", template.get_attribute("shadowrootcustomelementregistry")
+  end
+
+  def test_col_span_li_ul_type_media_loading
+    col = el("col")
+    assert_equal 1, col.span
+    col.set_attribute("span", "0")
+    assert_equal 1, col.span
+    col.set_attribute("span", "5000")
+    assert_equal 1000, col.span
+    col.span = 7
+    assert_equal "7", col.get_attribute("span")
+    li = el("li")
+    li.type = "disc"
+    assert_equal "disc", li.get_attribute("type")
+    assert_equal "", el("ul").type
+    video = el("video")
+    assert_equal "eager", video.loading
+    video.set_attribute("loading", "LAZY")
+    assert_equal "lazy", video.loading
+  end
 end

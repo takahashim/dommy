@@ -576,6 +576,7 @@ module Dommy
     reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
     reflect_setter :href
     reflect_string :target, :download, :ping, :rel, :hreflang, :type
+    reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
 
     # `a.text` is an alias for the element's descendant text content.
     def text
@@ -604,5 +605,6 @@ module Dommy
     reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
     reflect_setter :href
     reflect_string :alt, :coords, :shape, :target, :download, :ping, :rel
+    reflect_enumerated referrer_policy: Internal::EnumeratedKeywordSets::REFERRER_POLICY.merge(attr: "referrerpolicy")
   end
 end

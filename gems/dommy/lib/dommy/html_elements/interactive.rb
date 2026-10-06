@@ -384,6 +384,18 @@ module Dommy
     # Declarative shadow DOM's `for` attribute, reflected as a plain string
     # (unrelated to the DOMTokenList `output.htmlFor` is).
     reflect_string html_for: { attr: "for", js: "htmlFor" }
+    # The declarative shadow root attributes. shadowrootmode's missing and
+    # invalid value default is the None state, which has no keyword (reads
+    # ""); shadowrootslotassignment's is Named.
+    reflect_enumerated shadow_root_mode: { attr: "shadowrootmode", keywords: %w[open closed],
+                                           missing: nil, invalid: nil },
+                       shadow_root_slot_assignment: { attr: "shadowrootslotassignment",
+                                                      keywords: %w[named manual],
+                                                      missing: "named", invalid: "named" }
+    reflect_boolean shadow_root_delegates_focus: "shadowrootdelegatesfocus",
+                    shadow_root_serializable: "shadowrootserializable",
+                    shadow_root_clonable: "shadowrootclonable"
+    reflect_string shadow_root_custom_element_registry: "shadowrootcustomelementregistry"
 
     def content
       @document.template_content_fragment(self)

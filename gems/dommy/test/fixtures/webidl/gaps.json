@@ -322,7 +322,6 @@
       "charset",
       "coords",
       "name",
-      "referrerPolicy",
       "rev",
       "shape",
       "text"
@@ -330,7 +329,6 @@
     "HTMLAreaElement": [
       "hreflang",
       "noHref",
-      "referrerPolicy",
       "type"
     ],
     "HTMLBRElement": [
@@ -562,16 +560,12 @@
       "useMap",
       "width"
     ],
-    "HTMLLIElement": [
-      "type"
-    ],
     "HTMLLegendElement": [
       "align",
       "form"
     ],
     "HTMLLinkElement": [
       "charset",
-      "fetchPriority",
       "imageSizes",
       "imageSrcset",
       "rev",
@@ -584,7 +578,6 @@
       "error",
       "fastSeek",
       "getStartDate",
-      "loading",
       "played",
       "preservesPitch",
       "seekable",
@@ -620,9 +613,7 @@
     ],
     "HTMLScriptElement": [
       "charset",
-      "crossOrigin",
-      "event",
-      "fetchPriority"
+      "event"
     ],
     "HTMLSelectElement": [
       "showPicker"
@@ -645,7 +636,6 @@
       "align",
       "ch",
       "chOff",
-      "span",
       "vAlign",
       "width"
     ],
@@ -674,14 +664,6 @@
       "rows",
       "vAlign"
     ],
-    "HTMLTemplateElement": [
-      "shadowRootClonable",
-      "shadowRootCustomElementRegistry",
-      "shadowRootDelegatesFocus",
-      "shadowRootMode",
-      "shadowRootSerializable",
-      "shadowRootSlotAssignment"
-    ],
     "HTMLTextAreaElement": [
       "dirName"
     ],
@@ -692,8 +674,7 @@
       "track"
     ],
     "HTMLUListElement": [
-      "compact",
-      "type"
+      "compact"
     ],
     "ImageData": [
       "pixelFormat"

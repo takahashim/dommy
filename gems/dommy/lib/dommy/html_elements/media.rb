@@ -12,7 +12,8 @@ module Dommy
     # The attribute's missing and invalid value default are both
     # implementation-defined; HTML suggests Metadata as the compromise.
     reflect_enumerated preload: { keywords: %w[none metadata auto], missing: "metadata", invalid: "metadata", empty: "auto" },
-                       crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin")
+                       crossorigin: Internal::EnumeratedKeywordSets::CROSS_ORIGIN.merge(js: "crossOrigin"),
+                       loading: Internal::EnumeratedKeywordSets::LAZY_LOADING
     reflect_boolean :autoplay, :controls, loop_: { attr: "loop", js: "loop" }, default_muted: "muted"
     # Own __js_call__ methods, on top of Element's.
     NETWORK_EMPTY = 0

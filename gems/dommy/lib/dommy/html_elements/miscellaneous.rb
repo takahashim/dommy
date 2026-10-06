@@ -11,10 +11,14 @@ module Dommy
   end
 
   class HTMLUListElement < HTMLElement
+    # Obsolete, but still reflected (HTML's obsolete features, HTMLUListElement).
+    reflect_string :type
   end
 
   class HTMLLIElement < HTMLElement
     reflect_long :value
+    # Obsolete, but still reflected (HTML's obsolete features, HTMLLIElement).
+    reflect_string :type
   end
 
   class HTMLTimeElement < HTMLElement

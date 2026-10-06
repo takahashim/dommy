@@ -444,5 +444,8 @@ module Dommy
   # own IDL adds little beyond the base, but they must be distinct types so
   # `createElement("col") instanceof HTMLTableColElement` (and cloneNode
   # identity) holds. `col`/`colgroup` share HTMLTableColElement per spec.
-  class HTMLTableColElement < HTMLElement; end
+  # `<colgroup>` / `<col>`.
+  class HTMLTableColElement < HTMLElement
+    reflect_ulong span: { default: 1, range: 1..1000 }
+  end
 end
