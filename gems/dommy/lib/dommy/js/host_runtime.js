@@ -800,6 +800,11 @@ globalThis.__rbHost = (function () {
   // host as the PromiseValue it stands for.
   const hostPromiseProxies = new WeakMap(); // realm Promise -> host proxy (keeps the handle alive)
   const realmPromises = new Map();          // handle -> WeakRef(realm Promise)
+  // Host promise proxies handed to script as themselves (makeHostDeferred's
+  // `promise`): that proxy is the PromiseValue's face in the realm, so it
+  // must come back as itself — a value that passes JS -> Ruby -> JS keeps its
+  // identity (see dehydrateSettle) — not as a realm Promise standing for it.
+  const exposedHostPromiseProxies = new WeakSet();
   function realmPromiseFor(proxy) {
     const handle = proxyHandles.get(proxy);
     const ref = realmPromises.get(handle);
@@ -1081,8 +1086,10 @@ globalThis.__rbHost = (function () {
   // conformance adapter builds on this.
   function makeHostDeferred() {
     const handle = __rb_new_host_promise();
+    const promise = makeProxy(handle);
+    exposedHostPromiseProxies.add(promise);
     return {
-      promise: makeProxy(handle),
+      promise,
       resolve: (value) => resolveHostPromise(handle, value),
       reject: (reason) => __rb_settle_host_promise(handle, false, dehydrateSettle(reason)),
     };
@@ -1151,7 +1158,8 @@ globalThis.__rbHost = (function () {
         const jsEvent = jsEventByHandle.get(v.__rb_handle);
         if (jsEvent !== undefined) return jsEvent;
         const proxy = makeProxy(v.__rb_handle, v.__rb_if);
-        return proxyInterfaces.get(proxy) === "PromiseValue" ? realmPromiseFor(proxy) : proxy;
+        return proxyInterfaces.get(proxy) === "PromiseValue" && !exposedHostPromiseProxies.has(proxy)
+          ? realmPromiseFor(proxy) : proxy;
       }
       // An opaque JS-value reference round-tripping back from Ruby — restore the
       // exact original object (identity-preserving).
