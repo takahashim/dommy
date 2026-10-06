@@ -36,6 +36,33 @@ class TestCssShadowScoping < Minitest::Test
     assert_equal "rgb(0, 0, 0)", color(@host)
   end
 
+  # Inside its shadow tree the host is featureless and its children are the
+  # shadow root's: `:host:has()` looks at the shadow tree, never at the light
+  # DOM, and a sibling relation never holds.
+  def test_host_has_matches_against_the_shadow_tree
+    @sr.inner_html = "<style>:host:has(.x) { color: rgb(1, 1, 1) }</style><div id='d'></div>"
+    @host.append_child(@doc.create_element("b")).class_name = "x"
+    assert_equal "rgb(0, 0, 0)", color(@host)
+
+    @sr.get_element_by_id("d").class_name = "x"
+    assert_equal "rgb(1, 1, 1)", color(@host)
+  end
+
+  def test_host_has_child_and_sibling_relations
+    @sr.inner_html = "<style>:host:has(> .c) { color: rgb(2, 2, 2) } " \
+                     ":host:has(~ .s) { background-color: rgb(3, 3, 3) }</style>" \
+                     "<div class='c'></div>"
+    @host.after(@doc.create_element("i").tap { |el| el.class_name = "s" })
+    assert_equal "rgb(2, 2, 2)", color(@host)
+    assert_equal "rgba(0, 0, 0, 0)", @win.get_computed_style(@host).get_property_value("background-color")
+  end
+
+  def test_host_compound_with_other_selectors_is_featureless
+    @sr.inner_html = "<style>:host.dark { color: rgb(4, 4, 4) } :host(.dark):is(:host) { background-color: rgb(5, 5, 5) }</style>"
+    assert_equal "rgb(0, 0, 0)", color(@host)
+    assert_equal "rgb(5, 5, 5)", @win.get_computed_style(@host).get_property_value("background-color")
+  end
+
   def test_shadow_internal_selector_scopes_to_shadow_tree
     @sr.inner_html = "<style>.btn { color: rgb(7, 8, 9) }</style><button class='btn' id='b'>B</button>"
     assert_equal "rgb(7, 8, 9)", color(@sr.get_element_by_id("b"))

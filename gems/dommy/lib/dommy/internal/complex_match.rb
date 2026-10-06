@@ -106,7 +106,9 @@ module Dommy
         def anchor_relation?(leftmost, combinator)
           case combinator
           when :child
-            @anchor.equal?(leftmost.parent_element)
+            # parent_node, not parent_element: a :host:has(> x) anchor is the
+            # shadow root, which is no element.
+            @anchor.equal?(leftmost.parent_node)
           when :next_sibling
             @anchor.equal?(leftmost.previous_element_sibling)
           when :subsequent_sibling

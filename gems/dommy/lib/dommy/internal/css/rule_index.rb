@@ -301,7 +301,7 @@ module Dommy
             return Internal::SelectorMatcher.query(shadow.root, list, scope: shadow.root)
           end
 
-          return [] unless host_matches?(shadow.host, host_pseudo)
+          return [] unless host_compound_matches?(shadow, complex.parts.first.compound)
           return [shadow.host] if complex.parts.length == 1
 
           # `:host(...) <rest>` — every shadow element is conceptually a descendant
@@ -314,6 +314,53 @@ module Dommy
         def leading_host_pseudo(complex)
           complex.parts.first.compound.subclass_selectors.find do |selector|
             selector.is_a?(Internal::SelectorAST::PseudoClass) && %w[host host-context].include?(selector.name)
+          end
+        end
+
+        # Whether the leading compound matches the host, seen from inside its
+        # shadow tree. There the host is featureless (CSS Scoping "Shadow
+        # Trees"): no type, id, class or attribute selector matches it, and of
+        # the pseudo-classes only :host / :host() / :host-context() and the
+        # logical ones do. A :has() on it is anchored at the host in the shadow
+        # tree, whose children are the shadow root's (so `:host:has(.x)` looks
+        # at the shadow tree, never the light-DOM children, and a sibling
+        # relation never holds: the host has no siblings there).
+        def host_compound_matches?(shadow, compound)
+          type = compound.type
+          return false if type && !type.is_a?(Internal::SelectorAST::UniversalSelector)
+
+          compound.subclass_selectors.all? { |selector| host_simple_matches?(shadow, selector) }
+        end
+
+        def host_simple_matches?(shadow, selector)
+          return false unless selector.is_a?(Internal::SelectorAST::PseudoClass)
+
+          case selector.name
+          when "host", "host-context" then host_matches?(shadow.host, selector)
+          when "has" then shadow_has?(shadow, selector.argument)
+          when "is", "where" then host_list_matches?(shadow, selector.argument)
+          when "not" then !host_list_matches?(shadow, selector.argument)
+          else false
+          end
+        end
+
+        # A compound-only alternative of :is()/:where()/:not() can match the
+        # host; one with a combinator would need the host's own ancestors,
+        # which the shadow tree does not have.
+        def host_list_matches?(shadow, list)
+          list.selectors.any? do |complex|
+            complex.parts.length == 1 && host_compound_matches?(shadow, complex.parts.first.compound)
+          end
+        end
+
+        def shadow_has?(shadow, relative_selectors)
+          relative_selectors.any? do |relative|
+            leading = relative.leading_combinator || :descendant
+            next false unless %i[descendant child].include?(leading)
+
+            Internal::SelectorMatcher.element_descendants(shadow.root).any? do |candidate|
+              @selector_match.complex?(candidate, relative.complex, anchor: shadow.root, leading: leading)
+            end
           end
         end
 
