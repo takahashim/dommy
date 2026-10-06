@@ -30,7 +30,8 @@ module Dommy
       end
 
       def enableable_element?(element)
-        %w[button input select textarea optgroup option fieldset].include?(element.local_name.to_s.downcase)
+        %w[button input select textarea optgroup option fieldset].include?(element.local_name.to_s.downcase) ||
+          FormAssociatedCustomElements.face?(element)
       end
 
       # A candidate for constraint validation: a form-associated control whose
@@ -60,7 +61,7 @@ module Dommy
       end
 
       def descendant_candidates(element)
-        element.query_selector_all("input, select, textarea, button").select do |c|
+        element.query_selector_all(FormAssociatedCustomElements.selector("input, select, textarea, button")).select do |c|
           validation_candidate?(c)
         end
       end
@@ -220,20 +221,19 @@ module Dommy
       end
 
       # `:defined` — an element whose custom element state is "uncustomized"
-      # or "custom". Every element is uncustomized but an HTML element with a
-      # valid custom element name, which is "undefined" until its definition
-      # has constructed it (in Dommy, until it is wrapped as an instance of
-      # the definition its document's window registered for the name). A
-      # document without a browsing context has no registry, so its
-      # custom-named elements stay undefined.
-      def defined_element?(element)
-        return true unless element.namespace_uri == Namespaces::HTML
-        return true unless CustomElementRegistry.valid_name?(element.local_name)
+      # or "custom" (HTML §4.16.3). An HTML element with a valid custom
+      # element name is "undefined" until a definition has constructed it,
+      # and "failed" when that went wrong.
+      # `:state(name)` — a custom element whose ElementInternals' states
+      # (its CustomStateSet) contain `name`.
+      def custom_state?(element, name)
+        internals = element.__internal_element_internals__ if element.respond_to?(:__internal_element_internals__)
+        internals ? internals.state?(name.to_s) : false
+      end
 
-        window = element.owner_document&.default_view
-        registry = window.custom_elements if window.respond_to?(:custom_elements)
-        definition = registry&.get(element.local_name)
-        definition.is_a?(Module) && element.is_a?(definition) && element.__internal_custom_element_state__ != "failed"
+      def defined_element?(element)
+        state = element.__internal_custom_element_state__
+        state == "uncustomized" || state == "custom"
       end
 
       # `:link` / `:any-link` match an `a` or `area` with an href. A `<link href>`

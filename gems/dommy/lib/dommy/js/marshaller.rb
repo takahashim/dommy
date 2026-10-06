@@ -120,9 +120,6 @@ module Dommy
         if (name = interface_name(value))
           ref[Bridge::WireTags::INTERFACE] = name
         end
-        if value.respond_to?(:__js_custom_element_name__) && (ce = value.__js_custom_element_name__)
-          ref[Bridge::WireTags::CUSTOM_ELEMENT] = ce
-        end
         ref
       end
 

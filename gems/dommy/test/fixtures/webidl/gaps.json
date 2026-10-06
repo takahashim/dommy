@@ -14,7 +14,6 @@
     "CaretPosition",
     "CloseWatcher",
     "CustomStateSet",
-    "ElementInternals",
     "FetchLaterResult",
     "HTMLAllCollection",
     "HTMLSelectedContentElement",
@@ -128,8 +127,12 @@
       "initCompositionEvent"
     ],
     "CustomElementRegistry": [
+      "define",
+      "get",
       "getName",
-      "initialize"
+      "initialize",
+      "upgrade",
+      "whenDefined"
     ],
     "DataTransfer": [
       "setDragImage"
@@ -149,7 +152,6 @@
       "convertRectFromNode",
       "createExpression",
       "createNSResolver",
-      "customElementRegistry",
       "elementsFromPoint",
       "evaluate",
       "execCommand",
@@ -168,13 +170,15 @@
       "convertQuadFromNode",
       "convertRectFromNode",
       "currentCSSZoom",
-      "customElementRegistry",
       "getBoxQuads",
       "hasPointerCapture",
       "releasePointerCapture",
       "setHTML",
       "setHTMLUnsafe",
       "setPointerCapture"
+    ],
+    "ElementInternals": [
+      "states"
     ],
     "HTMLAnchorElement": [
       "text"
@@ -186,7 +190,6 @@
       "options"
     ],
     "HTMLElement": [
-      "attachInternals",
       "scrollParent"
     ],
     "HTMLEmbedElement": [
@@ -305,7 +308,6 @@
     "ShadowRoot": [
       "adoptedStyleSheets",
       "clonable",
-      "customElementRegistry",
       "fullscreenElement",
       "getHTML",
       "serializable",

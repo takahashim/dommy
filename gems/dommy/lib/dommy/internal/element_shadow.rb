@@ -79,6 +79,16 @@ module Dommy
 
         raise DOMException::NotSupportedError, "Shadow root already attached" if __internal_shadow_root__
 
+        registry = shadow_root_registry(options)
+        # A defined custom element's definition may disable shadow.
+        if CustomElementRegistry.valid_name?(name) || !__internal_is_value__.nil?
+          definition = CustomElementRegistry.lookup(__internal_ce_registry__, namespace_uri, name, __internal_is_value__)
+          raise DOMException::NotSupportedError, "the custom element definition disables shadow" if definition&.disable_shadow?
+        end
+        # A custom element being constructed or constructed: the shadow root
+        # is available to its ElementInternals.
+        constructed = %w[precustomized custom].include?(__internal_custom_element_state__)
+
         opts = options.is_a?(Hash) ? options : {}
         mode_raw = opts.key?("mode") ? opts["mode"] : opts[:mode]
         # `mode` is a required WebIDL dictionary member — omitting it, like an
@@ -96,6 +106,8 @@ module Dommy
           delegates_focus: opts["delegatesFocus"] || opts[:delegatesFocus] || false,
           slot_assignment: opts["slotAssignment"] || opts[:slotAssignment] || "named"
         )
+        @__shadow_root.__internal_available_to_internals__ = true if constructed
+        @__shadow_root.__internal_custom_element_registry__ = registry unless registry.equal?(CustomElementRegistry.effective_global_for(owner_document))
         @__shadow_root
       end
 
@@ -114,6 +126,26 @@ module Dommy
       # element upgrade replaces the host's wrapper, not its shadow root.
       def __internal_shadow_root__
         @__shadow_root ||= @document.__internal_shadow_root_for_host__(@__node__)
+      end
+
+      private
+
+      # attachShadow()'s registry: the init's `customElementRegistry`, else
+      # the document's; a global one other than the document's is a
+      # NotSupportedError.
+      def shadow_root_registry(options)
+        registry = CustomElementRegistry.for_document(owner_document)
+        if options.is_a?(Hash) && options.key?("customElementRegistry") && !options["customElementRegistry"].equal?(Bridge::UNDEFINED)
+          given = options["customElementRegistry"]
+          raise Bridge::TypeError, "customElementRegistry is not a CustomElementRegistry" unless given.nil? || given.is_a?(CustomElementRegistry)
+
+          registry = given
+        end
+        if registry && !registry.scoped? && !registry.equal?(CustomElementRegistry.for_document(owner_document))
+          raise DOMException::NotSupportedError, "a global registry other than the document's"
+        end
+
+        registry
       end
     end
   end

@@ -147,30 +147,13 @@ module Dommy
       # local name (an XML node's name holds its prefix).
       def build_element_wrapper(node)
         ns = Backend.namespace_uri(node)
-        # A JS-defined custom element (`customElements.define(name, classExpr)`
-        # from page script) registers its JS constructor — a HostCallback — not a
-        # Ruby class, so we cannot `.new(@document, node)` it. Wrap such a node as
-        # its plain built-in element instead (its server-rendered light-DOM
-        # content still displays; the JS upgrade is simply not run). Only a Ruby
-        # class definition routes a custom Ruby wrapper + #construct.
-        custom_klass = custom_element_class_for(node.name)
-        ruby_custom = custom_klass if custom_klass.is_a?(::Class)
-        klass = ruby_custom || Dommy.element_class_for(node.local_name, ns)
-        instance = klass.new(@document, node)
-
+        # The element's own interface: a custom element's class is applied by
+        # its definition when it is constructed or upgraded (see
+        # CustomElementDefinition), never by wrapping — wrapping a node is no
+        # creation, and an element its definition has not reached yet is
+        # still undefined.
+        instance = Dommy.element_class_for(node.local_name, ns).new(@document, node)
         @wrappers[node] = instance
-
-        # A custom element's constructor is the page's code, so an exception in
-        # it is reported at the window rather than discarded — the wrapper still
-        # exists either way, which is what the caller is owed.
-        if ruby_custom && instance.respond_to?(:construct)
-          begin
-            instance.construct
-          rescue StandardError => e
-            report_construct_exception(e)
-          end
-        end
-
         instance
       end
       private
@@ -218,21 +201,6 @@ module Dommy
         when Backend.document_type_class
           DocumentType.new(backend_node: node, document: @document)
         end
-      end
-
-
-      def report_construct_exception(error)
-        window = (@document.default_view if @document.respond_to?(:default_view))
-        return unless window.respond_to?(:__internal_report_exception__)
-
-        Internal::ExceptionReport.report_at(window, error)
-      end
-
-      def custom_element_class_for(tag_name)
-        # Custom elements are registered on window, not document.
-        # Access via default_view if available.
-        default_view = @document.default_view
-        default_view&.custom_elements&.get(tag_name)
       end
     end
   end

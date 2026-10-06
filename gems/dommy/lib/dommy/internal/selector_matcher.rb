@@ -297,6 +297,7 @@ module Dommy
         when "modal" then ElementState.modal_element?(element)
         when "fullscreen" then ElementState.fullscreen_element?(element)
         when "defined" then ElementState.defined_element?(element)
+        when "state" then ElementState.custom_state?(element, pseudo.argument)
         else
           false
         end

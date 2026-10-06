@@ -1093,12 +1093,39 @@ module Dommy
       return import_attribute(node) if node.is_a?(Attr)
       return nil unless node.is_a?(Node) && node.__dommy_backend_node__
 
-      # WebIDL `optional boolean deep = false`: a missing / undefined argument
-      # is the default (false / shallow), not a truthy sentinel.
-      deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
+      # `(boolean or ImportNodeOptions) options = false`: a boolean is `deep`
+      # (missing / undefined is false); a dictionary's `selfOnly` negates
+      # it, and its `customElementRegistry` (a scoped one, or this
+      # document's) is the registry the copies fall back to.
+      registry = nil
+      if deep.is_a?(Hash)
+        options = deep
+        deep = !Internal::WebIDL.boolean(options["selfOnly"])
+        given = options.fetch("customElementRegistry", Bridge::UNDEFINED)
+        unless given.equal?(Bridge::UNDEFINED)
+          raise Bridge::TypeError, "customElementRegistry is not a CustomElementRegistry" unless given.is_a?(CustomElementRegistry)
+          if !given.scoped? && !given.equal?(__internal_custom_element_registry__)
+            raise DOMException::NotSupportedError, "a global registry other than the document's"
+          end
+
+          registry = given
+        end
+      else
+        deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
+        deep = Internal::WebIDL.boolean(deep)
+      end
+      # "Clone a single node": the node's own registry — a global one standing
+      # for this document's — and the fallback only for a node without one.
+      fallback = registry || __internal_custom_element_registry__
+      source = node.is_a?(Element) ? node.__internal_ce_registry__ : fallback
+      registry = if source.nil? then fallback
+                 elsif source.scoped? then source
+                 else __internal_custom_element_registry__
+                 end
       source_document = node.respond_to?(:document) ? node.document : self
       copy = clone_into_doc(node.__dommy_backend_node__, deep, source_document)
       apply_imported_cloning_steps(node.__dommy_backend_node__, copy, deep, source_document)
+      __internal_enqueue_created_upgrades__(copy, registry) if copy.respond_to?(:element?)
       wrap_node(copy)
     end
 
@@ -1817,8 +1844,8 @@ module Dommy
       nil
     end
 
-    def create_element_ns(namespace_uri, qualified_name)
-      @node_factory.create_element_ns(namespace_uri, qualified_name)
+    def create_element_ns(namespace_uri, qualified_name, options = nil)
+      @node_factory.create_element_ns(namespace_uri, qualified_name, options)
     end
 
     def get_elements_by_tag_name(name)
@@ -1880,6 +1907,7 @@ module Dommy
     # Spec: https://html.spec.whatwg.org/#dom-document-close
     def close
       raise DOMException::InvalidStateError, "close() is not supported on an XML document" unless html_document?
+      raise_if_markup_insertion_forbidden!("close")
       return nil if @script_created_input.nil?
 
       # The parser reaches EOF. With nothing written it has seen no doctype
@@ -1972,6 +2000,8 @@ module Dommy
         cookie
       when "nodeType"
         9
+      when "customElementRegistry"
+        __internal_custom_element_registry__
       when "isConnected"
         # A document is its own shadow-including root, so it is always connected.
         true
@@ -2239,9 +2269,9 @@ module Dommy
 
         ViewTransition.new(@default_view)
       when "createElement"
-        create_element(args[0])
+        create_element(args[0], args[1])
       when "createElementNS"
-        create_element_ns(args[0], args[1])
+        create_element_ns(args[0], args[1], args[2])
       when "createTextNode"
         create_text_node(args[0])
       when "createComment"
@@ -2560,6 +2590,65 @@ module Dommy
       @mutation_coordinator.notify_disconnected_subtree(nk)
     end
 
+    # DOM "custom element registry" of the document: the one initialize()
+    # set, else its window's (none without a browsing context).
+    attr_writer :__internal_custom_element_registry__
+
+    def __internal_custom_element_registry__
+      @__internal_custom_element_registry__ || (@default_view.custom_elements if @default_view.respond_to?(:custom_elements))
+    end
+
+    # The element the HTML element constructor makes for `new MyElement()`.
+    def __internal_create_custom_element__(definition)
+      @node_factory.create_custom_element(definition)
+    end
+
+    # HTML "try to upgrade an element": enqueue an upgrade reaction when the
+    # registry `element` looks definitions up in has one for it.
+    def __internal_try_to_upgrade__(element)
+      registry = element.__internal_ce_registry__
+      return unless registry&.any_definitions?
+
+      definition = CustomElementRegistry.lookup(registry, element.namespace_uri, element.local_name,
+                                                element.__internal_is_value__)
+      Internal::CEReactions.enqueue_upgrade(element, definition) if definition
+    end
+
+    # The elements a parser or a clone just created in this document without
+    # the synchronous custom elements flag (DOM "create an element" step 6.3),
+    # with `registry` (the parser's intended parent's, the original's): each
+    # one gets the registry when it is a scoped one, and each one a definition
+    # applies to an upgrade reaction. `nodes` are backend nodes, each walked
+    # in tree order (a template's contents are not its children, and belong
+    # to a document with no registry).
+    def __internal_enqueue_created_upgrades__(nodes, registry = CustomElementRegistry.for_document(self))
+      explicit = !registry.equal?(CustomElementRegistry.effective_global_for(self))
+      return unless explicit || registry&.any_definitions?
+
+      (nodes.is_a?(Array) ? nodes : [nodes]).each do |root|
+        Internal::NodeTraversal.subtree_nodes(root).each do |node|
+          next unless node.element?
+
+          known = __internal_peek_wrapper__(node)
+          if explicit
+            known ||= wrap_node(node)
+            known.__internal_ce_data__.registry = registry
+          end
+          next if registry.nil?
+          next unless Backend.namespace_uri(node) == Element::HTML_NAMESPACE
+
+          # The is value a wrapper was made with (a clone's), else the one
+          # the parser gives it: its `is` attribute.
+          is_value = known ? known.__internal_is_value__ : Backend.get_attribute_ns(node, nil, "is")
+          definition = registry.lookup_definition(node.name, is_value)
+          next unless definition
+
+          element = known || wrap_node(node)
+          Internal::CEReactions.enqueue_upgrade(element, definition) if element
+        end
+      end
+    end
+
     def __internal_notify_attribute_changed__(element, name, old_value, new_value, namespace = nil)
       @mutation_coordinator.notify_attribute_changed(element, name, old_value, new_value, namespace)
     end
@@ -2687,6 +2776,7 @@ module Dommy
       string = args.map { |a| a.nil? ? "null" : a.to_s }.join
       string += "\n" if line_feed
       raise DOMException::InvalidStateError, "write() is not supported on an XML document" unless html_document?
+      raise_if_markup_insertion_forbidden!("write")
 
       return boot_script_write(string) if @script_created_input.nil? && boot_script_running?
 
@@ -2713,6 +2803,7 @@ module Dommy
     # Spec: https://html.spec.whatwg.org/#document-open-steps
     def document_open_steps
       raise DOMException::InvalidStateError, "open() is not supported on an XML document" unless html_document?
+      raise_if_markup_insertion_forbidden!("open")
       return self if boot_script_running?
       # A second open() while a script-created parser is open keeps it (the
       # spec's steps re-run, but the written input so far is already gone with
@@ -2743,6 +2834,11 @@ module Dommy
       added = Parser.fragment(string, owner_doc: @backend_doc, context: context).children.to_a
       return nil if added.empty?
 
+      # The document's parser creates a defined element by running its
+      # constructor; Dommy's parsed the markup already, so each one is
+      # upgraded instead, before it is inserted.
+      __internal_enqueue_created_upgrades__(added)
+
       if in_body
         reference = script_bn
         added.each do |node|
@@ -2768,7 +2864,31 @@ module Dommy
 
     # Re-parse everything written since open() as a whole document and make
     # its children the document's (see "Dynamic markup insertion" above).
+    # HTML's throw-on-dynamic-markup-insertion counter: while the parser runs
+    # custom element constructors and reactions (see #parser_runs_scripts),
+    # open(), write() and close() are an InvalidStateError.
+    def raise_if_markup_insertion_forbidden!(operation)
+      return unless @throw_on_dynamic_markup_insertion_counter.to_i.positive?
+
+      raise DOMException::InvalidStateError, "#{operation}() is not allowed while the parser constructs a custom element"
+    end
+
+    # The parser's custom element work for markup it inserts: the
+    # constructors ("create an element for a token" with willExecuteScript)
+    # and the reactions they enqueue run before it continues, with the
+    # throw-on-dynamic-markup-insertion counter raised.
+    def parser_runs_scripts
+      @throw_on_dynamic_markup_insertion_counter = @throw_on_dynamic_markup_insertion_counter.to_i + 1
+      Internal::CEReactions.scope { yield }
+    ensure
+      @throw_on_dynamic_markup_insertion_counter -= 1
+    end
+
     def reparse_script_created_input
+      parser_runs_scripts { reparse_script_created_input_now }
+    end
+
+    def reparse_script_created_input_now
       parsed = Document.new(nil, backend_doc: Backend.parse(@script_created_input))
       @quirks_mode = parsed.quirks_mode?
       parsed.__internal_mark_scripts_already_started__
@@ -2971,8 +3091,8 @@ module Dommy
 
     # Delegate factory methods to NodeWrapperCache
 
-    def create_element(name)
-      @node_factory.create_element(name)
+    def create_element(name, options = nil)
+      @node_factory.create_element(name, options)
     end
 
     def create_text_node(text)

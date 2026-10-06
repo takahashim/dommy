@@ -1,23 +1,190 @@
 # frozen_string_literal: true
 
 module Dommy
-  # `window.customElements` — registry mapping custom element tag
-  # names to Ruby classes that extend `HTMLElement`. Lifecycle
-  # callbacks (`connected_callback` / `disconnected_callback` /
-  # `attribute_changed_callback` / `adopted_callback`) are invoked by
-  # the document's mutation pipeline when registered elements are
-  # added, removed, or have observed attributes mutated.
+  # A custom element definition (HTML §4.13.4): the name and local name, the
+  # constructor, the observed attributes and the lifecycle callbacks a
+  # registry holds for a custom element, and the steps that run them. Two
+  # kinds exist: one whose constructor is a Ruby class extending
+  # `HTMLElement` (RubyCustomElementDefinition, what `define` registers), and
+  # one whose constructor is a page's JS class (Js::JsCustomElementDefinition).
+  class CustomElementDefinition
+    attr_reader :name, :local_name, :registry, :observed_attributes
+
+    def initialize(registry:, name:, local_name:, observed_attributes:, callbacks:, disable_shadow: false,
+                   disable_internals: false, form_associated: false)
+      @registry = registry
+      @name = name
+      @local_name = local_name
+      @observed_attributes = observed_attributes.map(&:to_s).freeze
+      @callbacks = callbacks.map(&:to_s).to_set.freeze
+      @disable_shadow = disable_shadow
+      @disable_internals = disable_internals
+      @form_associated = form_associated
+    end
+
+    def autonomous? = @name == @local_name
+
+    def disable_shadow? = @disable_shadow
+    def disable_internals? = @disable_internals
+    def form_associated? = @form_associated
+
+    def callback?(callback_name) = @callbacks.include?(callback_name)
+
+    def observes?(attribute_name) = @observed_attributes.include?(attribute_name)
+
+    # HTML "upgrade an element", given the element's custom element data.
+    # Raises what the construction raised (the reaction invoker reports it).
+    def upgrade(data)
+      return unless %w[undefined uncustomized].include?(data.state)
+
+      data.definition = self
+      data.state = "failed"
+      element = data.wrapper
+      element.__internal_attribute_entries__.each do |local_name, value, namespace|
+        Internal::CEReactions.enqueue_callback(element, "attributeChangedCallback", [local_name, nil, value, namespace])
+      end
+      Internal::CEReactions.enqueue_callback(element, "connectedCallback", []) if element.is_connected?
+      begin
+        if @disable_shadow && element.respond_to?(:__internal_shadow_root__) && element.__internal_shadow_root__
+          raise DOMException::NotSupportedError, "the definition disables shadow, but the element has a shadow root"
+        end
+
+        data.state = "precustomized"
+        construct_for_upgrade(data)
+      rescue StandardError
+        data.definition = nil
+        data.reactions.clear
+        raise
+      end
+      if form_associated?
+        # Step 9: the form owner is reset, and the callbacks it and the
+        # disabled state call for are enqueued.
+        form = element.__internal_form_owner__
+        disabled = element.__internal_has_attribute__?("disabled") || element.disabled_by_ancestor_fieldset?
+        data.form_owner = form
+        data.disabled = disabled
+        Internal::CEReactions.enqueue_callback(element, "formAssociatedCallback", [form]) if form
+        Internal::CEReactions.enqueue_callback(element, "formDisabledCallback", [true]) if disabled
+      end
+      mark_custom(data)
+    end
+
+    # The element is custom now: its state says so, and an element of a
+    # form-associated definition takes on a form control's constraint
+    # validation surface.
+    def mark_custom(data)
+      data.definition = self
+      data.state = "custom"
+      element = data.wrapper
+      element.extend(Internal::FormAssociatedCustomElements::Behavior) if form_associated? && element.is_a?(HTMLElement)
+      data
+    end
+
+    # WHATWG "report an exception" for the definition's constructor's global.
+    def report(error)
+      window = registry&.window
+      return unless window.respond_to?(:__internal_report_exception__)
+
+      Internal::ExceptionReport.report_at(window, error)
+    end
+  end
+
+  # A definition whose constructor is a Ruby class extending HTMLElement. Its
+  # elements ARE instances of the class: constructing one wraps the node as
+  # the class (and calls its `construct`, when it has one), and the callbacks
+  # are its methods — `connected_callback`, `disconnected_callback`,
+  # `adopted_callback`, `connected_move_callback`,
+  # `attribute_changed_callback(name, old, new[, namespace])` and the
+  # form-associated ones (`form_associated_callback(form)`,
+  # `form_disabled_callback(disabled)`, `form_reset_callback`). The class
+  # methods `observed_attributes`, `disabled_features` and
+  # `form_associated` stand for the JS statics.
+  class RubyCustomElementDefinition < CustomElementDefinition
+    RUBY_METHODS = {
+      "connectedCallback" => :connected_callback,
+      "disconnectedCallback" => :disconnected_callback,
+      "connectedMoveCallback" => :connected_move_callback,
+      "adoptedCallback" => :adopted_callback,
+      "attributeChangedCallback" => :attribute_changed_callback,
+      "formAssociatedCallback" => :form_associated_callback,
+      "formResetCallback" => :form_reset_callback,
+      "formDisabledCallback" => :form_disabled_callback
+    }.freeze
+
+    attr_reader :klass
+
+    def initialize(registry:, name:, klass:)
+      @klass = klass
+      observed = klass.respond_to?(:observed_attributes) ? Array(klass.observed_attributes) : []
+      callbacks = RUBY_METHODS.select { |_, method| klass.method_defined?(method) }.keys
+      disabled = klass.respond_to?(:disabled_features) ? Array(klass.disabled_features).map(&:to_s) : []
+      super(registry: registry, name: name, local_name: name, observed_attributes: observed, callbacks: callbacks,
+            disable_shadow: disabled.include?("shadow"), disable_internals: disabled.include?("internals"),
+            form_associated: klass.respond_to?(:form_associated) && klass.form_associated ? true : false)
+    end
+
+    def constructor = @klass
+
+    def invoke(element, callback_name, args)
+      method = RUBY_METHODS.fetch(callback_name)
+      return unless element.respond_to?(method)
+
+      if callback_name == "attributeChangedCallback"
+        # The 4th argument (the attribute's namespace) only reaches a callback
+        # that takes it, so a 3-argument one keeps working.
+        arity = element.method(method).arity
+        args = args.first(3) unless arity.negative? || arity >= 4
+      end
+      element.public_send(method, *args)
+    end
+
+    # "Create an element" with the synchronous custom elements flag: a fresh
+    # node wrapped as the class.
+    def construct_synchronously(document)
+      node = Backend.create_element(@local_name, Element::HTML_NAMESPACE, document.backend_doc)
+      wrap_as_class(document, node, nil) { |data| mark_custom(data) }
+    end
+
+    private
+
+    # Re-wrap the node as the class, handing the element's data on to the new
+    # wrapper, which is told which wrapper it replaces.
+    def construct_for_upgrade(data)
+      previous = data.wrapper
+      wrap_as_class(previous.owner_document, previous.__dommy_backend_node__, data) { nil }
+    end
+
+    def wrap_as_class(document, node, data)
+      previous = document.__internal_peek_wrapper__(node)
+      document.__internal_reset_wrapper__(node)
+      instance = @klass.new(document, node)
+      document.__internal_register_wrapper__(node, instance)
+      instance.__internal_adopt_ce_data__(data) if data
+      yield instance.__internal_ce_data__
+      instance.__internal_upgraded_from__(previous) if previous && instance.respond_to?(:__internal_upgraded_from__)
+      instance.construct if instance.respond_to?(:construct)
+      instance
+    end
+  end
+
+  # `window.customElements` — the window's CustomElementRegistry: custom
+  # element definitions by name.
   #
-  # Names must contain a hyphen per the HTML spec (e.g., `my-button`).
+  # From Ruby, `define(name, klass)` registers a Ruby class (see
+  # RubyCustomElementDefinition); a page's `customElements.define(name,
+  # JSClass)` registers a JS definition through the bridge. Either way the
+  # elements already in the document with that name are upgraded, and the
+  # reactions (constructor, connected/disconnected/adopted/attributeChanged
+  # callbacks) run through Internal::CEReactions.
+  #
+  # Names must be valid custom element names (lower-case, with a hyphen, e.g.
+  # `my-button`).
   class CustomElementRegistry
-    # https://html.spec.whatwg.org/#valid-custom-element-name
-    # PCENChar — the characters allowed after the first (ASCII-lower) char: a
-    # superset of [-._0-9a-z] plus wide Unicode ranges. A valid name is
-    # `[a-z] PCENChar* - PCENChar*` (i.e. lower-alpha start + at least one "-").
-    PCEN = "\\-._0-9a-z\\u00B7\\u00C0-\\u00D6\\u00D8-\\u00F6\\u00F8-\\u037D" \
-           "\\u037F-\\u1FFF\\u200C-\\u200D\\u203F-\\u2040\\u2070-\\u218F" \
-           "\\u2C00-\\u2FEF\\u3001-\\uD7FF\\uF900-\\uFDCF\\uFDF0-\\uFFFD\\u{10000}-\\u{EFFFF}"
-    NAME_RE = Regexp.new("\\A[a-z][#{PCEN}]*-[#{PCEN}]*\\z")
+    # https://html.spec.whatwg.org/#valid-custom-element-name — a valid element
+    # local name (DOM) whose first code point is an ASCII lower alpha (so the
+    # rest may be anything but ASCII whitespace, NULL, "/" and ">"), with no
+    # ASCII upper alpha and at least one "-".
+    NAME_RE = %r{\A[a-z][^\t\n\f\r \0/>A-Z]*\z}
 
     # Hyphenated names that the HTML spec reserves (SVG / MathML elements), so
     # they are NOT valid custom element names even though they match NAME_RE.
@@ -26,12 +193,27 @@ module Dommy
       font-face-format font-face-name missing-glyph
     ].to_set.freeze
 
-    def initialize(window)
+    attr_reader :window
+
+    # `scoped`: made by `new CustomElementRegistry()` (HTML "is scoped"),
+    # rather than a window's own (a global custom element registry).
+    def initialize(window, scoped: false)
       @window = window
-      # name → klass
+      @scoped = scoped
+      # The documents with elements of this scoped registry connected to
+      # them, which define() searches for upgrade candidates.
+      @scoped_documents = {}.compare_by_identity
+      # name → definition
       @definitions = {}
-      # name → Array<{ resolve, reject }>
+      # name → Array<PromiseValue>
       @pending_promises = {}
+    end
+
+    def scoped? = @scoped
+
+    # Add `document` to the scoped document set (DOM insert step 7.7.1).
+    def __internal_note_scoped_document__(document)
+      @scoped_documents[document] = true if @scoped && document
     end
 
     # Whether `name` is a valid custom element name. Also consulted by
@@ -40,35 +222,101 @@ module Dommy
     # element (HTMLUnknownElement).
     def self.valid_name?(name)
       key = name.to_s
-      key.match?(NAME_RE) && !RESERVED_NAMES.include?(key)
+      key.match?(NAME_RE) && key.include?("-") && !RESERVED_NAMES.include?(key)
     end
 
-    def define(name, klass, _options = nil)
-      key = name.to_s
-      unless key.match?(NAME_RE)
-        raise DOMException::SyntaxError, "#{name.inspect} is not a valid custom element name"
+    # A document's custom element registry: the one initialize() gave it,
+    # else its window's when it has a browsing context, else none (a
+    # template's contents, a document made by createHTMLDocument or
+    # DOMParser).
+    def self.for_document(document)
+      return document.__internal_custom_element_registry__ if document.respond_to?(:__internal_custom_element_registry__)
+
+      window = document.default_view if document.respond_to?(:default_view)
+      window.custom_elements if window.respond_to?(:custom_elements)
+    end
+
+    # DOM "effective global custom element registry" of a document's: the
+    # registry when it is a global one, else none.
+    def self.effective_global_for(document)
+      registry = for_document(document)
+      registry unless registry.nil? || registry.scoped?
+    end
+
+    # HTML "look up a custom element registry" given a node: an element's or
+    # a shadow root's own, a document's.
+    def self.for_node(node)
+      case node
+      when Element then node.__internal_ce_registry__
+      when ShadowRoot then node.__internal_custom_element_registry__
+      when Document then for_document(node)
       end
-      if RESERVED_NAMES.include?(key)
-        raise DOMException::SyntaxError, "#{name.inspect} is a reserved element name"
+    end
+
+    # HTML "look up a custom element definition" in `registry`, for an
+    # element of the given namespace, local name and is value.
+    def self.lookup(registry, namespace, local_name, is_value = nil)
+      return nil unless registry && namespace == Element::HTML_NAMESPACE
+
+      registry.lookup_definition(local_name, is_value)
+    end
+
+    # Register a Ruby class extending HTMLElement as the definition for
+    # `name`.
+    def define(name, klass, _options = nil)
+      raise Bridge::TypeError, "the custom element constructor must be a class" unless klass.is_a?(Class)
+
+      key = name.to_s
+      unless CustomElementRegistry.valid_name?(key)
+        raise DOMException::SyntaxError, "#{name.inspect} is not a valid custom element name"
       end
 
       raise DOMException::NotSupportedError, "#{key} already defined" if @definitions.key?(key)
 
-      @definitions[key] = klass
-      # Resolve any pending whenDefined() promises and re-wrap
-      # already-existing nodes (upgrade).
-      resolve_pending(key, klass)
-      upgrade_existing(key)
+      __internal_add_definition__(RubyCustomElementDefinition.new(registry: self, name: key, klass: klass))
       nil
     end
 
+    # The define() steps after the definition is made (its checks are the
+    # caller's): append it, enqueue an upgrade for each element of the
+    # document it applies to, and resolve whenDefined(). A [CEReactions]
+    # member, so the upgrades have run when it returns.
+    def __internal_add_definition__(definition)
+      Internal::FormAssociatedCustomElements.register(definition)
+      Internal::CEReactions.scope do
+        @definitions[definition.name] = definition
+        upgrade_particular_elements(definition)
+        resolve_pending(definition.name, definition.constructor)
+      end
+      nil
+    end
+
+    # The constructor defined for `name`, or nil.
     def get(name)
-      @definitions[name.to_s]
+      @definitions[name.to_s]&.constructor
     end
 
     def get_name(klass)
-      @definitions.each { |k, v| return k if v == klass }
+      @definitions.each_value { |d| return d.name if d.constructor == klass }
       nil
+    end
+
+    def any_definitions? = !@definitions.empty?
+
+    def definition_for(name)
+      @definitions[name.to_s]
+    end
+
+    # HTML "look up a custom element definition" in this registry for an
+    # HTML element: the autonomous definition named `local_name`, or else the
+    # customized built-in one named `is_value` that extends `local_name`.
+    def lookup_definition(local_name, is_value = nil)
+      definition = @definitions[local_name.to_s]
+      return definition if definition&.autonomous?
+      return nil if is_value.nil?
+
+      definition = @definitions[is_value.to_s]
+      definition if definition && !definition.autonomous? && definition.local_name == local_name.to_s
     end
 
     # Returns a Dommy::PromiseValue that resolves with the registered
@@ -76,8 +324,8 @@ module Dommy
     def when_defined(name)
       key = name.to_s
       promise = PromiseValue.new(@window)
-      if (klass = @definitions[key])
-        promise.fulfill(klass)
+      if (definition = @definitions[key])
+        promise.fulfill(definition.constructor)
       else
         @pending_promises[key] ||= []
         @pending_promises[key] << promise
@@ -86,107 +334,103 @@ module Dommy
       promise
     end
 
-    # Walk `root`'s shadow-including subtree and re-wrap any nodes whose tag is now
-    # registered; fires `connectedCallback` for each upgraded node
-    # that's currently attached to a document tree.
+    # `customElements.upgrade(root)`: try to upgrade each element among
+    # root's shadow-including inclusive descendants that this registry is the
+    # one for, in shadow-including tree order. A [CEReactions] member.
     def upgrade(root)
       root_node = root.__dommy_backend_node__ if root.is_a?(Node)
       return nil unless root_node
 
-      @window.document.__internal_each_shadow_including_element__(root_node) do |nk|
-        next unless @definitions.key?(nk.name)
+      document = root.is_a?(Document) ? root : root.owner_document
+      return nil unless document
 
-        wrapped = rewrap_for_upgrade(@window.document, nk)
-        next unless wrapped
+      Internal::CEReactions.scope do
+        document.__internal_each_shadow_including_element__(root_node) do |node|
+          element = document.wrap_node(node)
+          next unless element && element.__internal_ce_registry__.equal?(self)
 
-        replay_observed_attributes(wrapped)
-        # connectedCallback is enqueued only for an element that is actually in
-        # a document tree — `customElements.upgrade()` on a detached subtree
-        # upgrades it without connecting it.
-        @window.document.__internal_notify_connected__(wrapped) if wrapped.is_connected?
+          document.__internal_try_to_upgrade__(element)
+        end
       end
-
       nil
     end
 
-    def __js_get__(_key)
-      Bridge::ABSENT # method-only registry; any property read is absent
+    # `initialize(root)` (HTML §4.13.4): give `root` (a document or a shadow
+    # root without one) and the elements of its subtree without one this
+    # registry, and try to upgrade those it is now the registry of.
+    def initialize_registry(root)
+      root_node = root.is_a?(Document) ? root.backend_doc : (root.__dommy_backend_node__ if root.is_a?(Node))
+      raise Bridge::TypeError, "CustomElementRegistry.initialize: parameter 1 is not of type 'Node'" unless root_node
+
+      document = root.is_a?(Document) ? root : root.owner_document
+      if !@scoped && (root.is_a?(Document) || !CustomElementRegistry.for_document(document).equal?(self))
+        raise DOMException::NotSupportedError, "a global registry initializes only its own document's nodes"
+      end
+
+      Internal::CEReactions.scope do
+        if root.is_a?(Document) && CustomElementRegistry.for_document(root).nil?
+          root.__internal_custom_element_registry__ = self
+        elsif root.is_a?(ShadowRoot) && root.__internal_custom_element_registry__.nil?
+          root.__internal_custom_element_registry__ = self
+        end
+        Internal::NodeTraversal.subtree_nodes(root_node).each do |node|
+          next unless node.element?
+
+          element = document.wrap_node(node)
+          next unless element
+
+          if element.__internal_ce_registry__.nil?
+            element.__internal_ce_data__.registry = self
+            __internal_note_scoped_document__(element.owner_document)
+          end
+          next unless element.__internal_ce_registry__.equal?(self)
+
+          document.__internal_try_to_upgrade__(element)
+        end
+      end
+      nil
     end
 
-    include Bridge::Methods
-    js_methods %w[define get whenDefined upgrade]
-    def __js_call__(method, args)
-      case method
-      when "define"
-        define(args[0], args[1], args[2])
-      when "get"
-        get(args[0])
-      when "whenDefined"
-        when_defined(args[0])
-      when "upgrade"
-        upgrade(args[0])
-      end
+    # The registry's operations are JS-side (host_runtime.js: its definitions'
+    # constructors and callbacks are JS functions), on the
+    # CustomElementRegistry prototype; the host object answers no property.
+    def __js_get__(_key)
+      Bridge::ABSENT
     end
 
     private
 
-    def resolve_pending(name, klass)
+    def resolve_pending(name, constructor)
       list = @pending_promises.delete(name)
-      list&.each { |p| p.fulfill(klass) }
+      list&.each { |p| p.fulfill(constructor) }
     end
 
-    # Re-wrap `nk` as its definition's class, or nil when there is nothing to
-    # upgrade. An element that is already an instance of the class is left alone:
-    # upgrading an element that is already custom does nothing. The new wrapper
-    # is told which one it replaces, because a script may hold the element — a
-    # JS-defined element upgrades that reference in place.
-    def rewrap_for_upgrade(doc, nk)
-      previous = doc.__internal_peek_wrapper__(nk)
-      klass = @definitions[nk.name]
-      return nil if klass.is_a?(Module) && previous.is_a?(klass)
+    # HTML "upgrade particular elements within a document": every element
+    # among the document's shadow-including descendants in the HTML namespace
+    # with the definition's local name, in shadow-including tree order. (A
+    # spec-valid custom element name may contain "." or other CSS selector
+    # metacharacters, so this matches local names rather than querying.)
+    def upgrade_particular_elements(definition)
+      documents = @scoped ? @scoped_documents.keys : [(@window.document if @window.respond_to?(:document))].compact
+      documents.each do |document|
+        document.__internal_each_shadow_including_element__(document.backend_doc) do |node|
+          next unless node.name == definition.local_name && Backend.namespace_uri(node) == Element::HTML_NAMESPACE
 
-      doc.__internal_reset_wrapper__(nk)
-      wrapped = doc.wrap_node(nk)
-      wrapped.__internal_upgraded_from__(previous) if previous && wrapped.respond_to?(:__internal_upgraded_from__)
-      wrapped
-    end
+          element = document.wrap_node(node)
+          next unless element && element.__internal_ce_registry__.equal?(self)
+          next unless definition.autonomous? || element.__internal_is_value__ == definition.name
 
-    # When define() lands after the matching element is already in
-    # the document, those nodes need upgrading: re-wrap them with the
-    # new class and fire connectedCallback.
-    def upgrade_existing(name)
-      doc = @window.document
-      # Match by tag name rather than interpolating `name` into a CSS selector:
-      # a spec-valid custom element name may contain "." (a CSS class selector
-      # char) or other metacharacters, which would corrupt the query.
-      # Shadow trees included, in shadow-including tree order (define step 18).
-      doc.__internal_each_shadow_including_element__(doc.backend_doc) do |nk|
-        next unless nk.name == name
-
-        wrapped = rewrap_for_upgrade(doc, nk)
-        next unless wrapped
-
-        replay_observed_attributes(wrapped)
-        doc.__internal_notify_connected__(wrapped)
-      end
-    end
-
-    # "Upgrade an element" step 6: each attribute in the element's attribute
-    # list, in order, is replayed through attributeChangedCallback with its
-    # local name, a null old value, its value and its namespace, before
-    # connectedCallback, so a definition registered after the markup was
-    # parsed still sees the attributes that were already there. Routed
-    # through the coordinator, which decides what is observed and how many
-    # arguments the callback takes, as for any other attribute change.
-    def replay_observed_attributes(element)
-      return unless element.class.respond_to?(:observed_attributes)
-
-      Backend.attribute_nodes(element.__dommy_backend_node__).each do |attr|
-        info = Backend.attribute_ns_info(attr)
-        @window.document.__internal_notify_attribute_changed__(
-          element, info[:local_name], nil, info[:value], info[:namespace_uri]
-        )
+          Internal::CEReactions.enqueue_upgrade(element, definition)
+        end
       end
     end
   end
 end
+
+# The composite operations Ruby callers reach directly, made [CEReactions]
+# (see Internal::CEReactions.scoped): markup parsed and inserted, a subtree
+# cloned or imported, a node adopted.
+Dommy::Internal::CEReactions.scoped(Dommy::Element, :inner_html=, :outer_html=, :insert_adjacent_html, :clone_node)
+Dommy::Internal::CEReactions.scoped(Dommy::ShadowRoot, :inner_html=)
+Dommy::Internal::CEReactions.scoped(Dommy::Fragment, :clone_node)
+Dommy::Internal::CEReactions.scoped(Dommy::Document, :import_node, :adopt_node, :write, :writeln)

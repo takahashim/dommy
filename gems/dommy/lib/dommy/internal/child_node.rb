@@ -250,7 +250,7 @@ module Dommy
           # adopted node, so JS identity (`parent.appendChild(x); x` ===
           # `parent.lastChild`) survives. Same-document: the wrapper's backend
           # node is unchanged, so this is identical to the previous behavior.
-          detach_with_notify(node)
+          detach_with_notify(node, value)
           [@document.adopt_node(value).__dommy_backend_node__]
         end
       end
@@ -271,12 +271,16 @@ module Dommy
       # record on that old parent first (WHATWG "remove" runs before the
       # subsequent insert, so moving a node yields a removal record + an addition
       # record). Returns the raw node, ready to be re-linked.
-      def detach_with_notify(node)
+      def detach_with_notify(node, wrapper = nil)
         # Document#remove_node_with_notify no-ops on a parentless node, runs the
         # pre-removing steps (live Range / NodeIterator) and captures the
         # position for the record before the unlink — a move must not skip them
-        # just because the node is about to be re-inserted somewhere else.
-        @document.remove_node_with_notify(node)
+        # just because the node is about to be re-inserted somewhere else. The
+        # removal is the node's own document's (a node coming from another
+        # document leaves that one, whose custom elements and observers see it).
+        owner = wrapper.document if wrapper.respond_to?(:document)
+        owner = @document unless owner.respond_to?(:remove_node_with_notify)
+        owner.remove_node_with_notify(node)
         node
       end
     end

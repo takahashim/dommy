@@ -123,24 +123,26 @@ module Dommy
         window_obj
       end
 
-      # Invoke a JS custom element lifecycle callback (connectedCallback etc.) for
-      # a Dommy node. Called by the bridged custom element class (see CustomElementBridge).
-      def invoke_lifecycle(node, callback, args)
-        handle = @codec.register(node)
-        unwrap(@backend.call_js("__rbHost.invokeLifecycle", handle, callback, wrap(Array(args))))
+      # A JS custom element definition's constructor, constructed with no
+      # arguments (DOM "create an element" with the synchronous custom
+      # elements flag): what it returned, or its exception raised.
+      def ce_construct(definition_id)
+        callback_result(@backend.call_js("__rbHost.ceConstruct", definition_id), true)
       end
 
-      # An upgrade replaced `previous`, the element's wrapper from before its
-      # definition existed, with `current`. A script may already hold the
-      # element: its handle moves to the new wrapper and the proxy it holds is
-      # upgraded in place, so it stays the same object and becomes an instance
-      # of the class.
-      def upgrade_in_place(previous, current)
-        handle = @codec.rebind(previous, current)
-        return nil unless handle
+      # HTML "upgrade an element": construct the definition's constructor with
+      # `element` on its construction stack. Raises what it threw.
+      def ce_upgrade(definition_id, element)
+        callback_result(@backend.call_js("__rbHost.ceUpgrade", definition_id, @codec.register(element)), true)
+        nil
+      end
 
-        @backend.call_js("__rbHost.upgradeInPlace", handle, current.__js_custom_element_name__,
-                         DomInterfaces.info(current)["name"])
+      # A JS custom element definition's lifecycle callback, called with
+      # `element` as `this`. Raises what it threw.
+      def ce_invoke(definition_id, element, callback_name, args)
+        raw = @backend.call_js("__rbHost.ceInvoke", definition_id, @codec.register(element), callback_name.to_s,
+                               wrap(Array(args)))
+        callback_result(raw, true)
         nil
       end
 
@@ -273,7 +275,9 @@ module Dommy
           dom_guard do
             obj = host(handle)
             @profile.count(:__rb_host_set, obj, prop)
-            obj.respond_to?(:__js_set__) ? dommy_handled?(obj.__js_set__(prop, unwrap(value))) : false
+            next false unless obj.respond_to?(:__js_set__)
+
+            ce_reactions(obj, :set, prop) { dommy_handled?(obj.__js_set__(prop, unwrap(value))) }
           end
         end
         # Unlistened-dispatch fast path (see dommy-js-quickjs
@@ -308,7 +312,9 @@ module Dommy
           dom_guard do
             obj = host(handle)
             @profile.count(:__rb_host_call, obj, method)
-            obj.respond_to?(:__js_call__) ? wrap(obj.__js_call__(method, unwrap(args))) : nil
+            next nil unless obj.respond_to?(:__js_call__)
+
+            ce_reactions(obj, :call, method) { wrap(obj.__js_call__(method, unwrap(args))) }
           end
         end
         # A pending host PromiseValue used to ADOPT a JS thenable returned from a
@@ -381,14 +387,12 @@ module Dommy
           end
         end
         # 2d: one call returns everything makeProxy needs — interface name +
-        # chain, method names, and the custom element tag (if any).
+        # chain, and method names.
         @backend.define_host_function("__rb_host_describe") do |handle|
           obj = host(handle)
           @profile.count(:__rb_host_describe, obj)
           info = DomInterfaces.info(obj)
           info["methods"] = method_names(obj)
-          # Mark JS-defined custom elements so makeProxy upgrades them on crossing.
-          info["ce"] = obj.__js_custom_element_name__ if obj.respond_to?(:__js_custom_element_name__)
           info
         end
         # One-shot attribute snapshot for the JS-side attribute cache: a plain
@@ -430,7 +434,9 @@ module Dommy
           dom_guard do
             obj = host(handle)
             @profile.count(:__rb_host_delete, obj, prop)
-            obj.respond_to?(:__js_delete__) ? dommy_handled?(obj.__js_delete__(prop)) : false
+            next false unless obj.respond_to?(:__js_delete__)
+
+            ce_reactions(obj, :delete, prop) { dommy_handled?(obj.__js_delete__(prop)) }
           end
         end
       end
@@ -504,29 +510,47 @@ module Dommy
         end
       end
 
-      # customElements.define / .upgrade, delegated to Dommy's registry.
+      # A registry's define() / upgrade(), and the HTML element constructor's
+      # fresh element — the Ruby halves of the JS custom element registry (see
+      # CustomElementBridge).
       def install_custom_elements_abi!
-        # 1d: customElements.define(name, JSClass) wires a Dommy custom element.
-        @backend.define_host_function("__rb_define_custom_element") do |name, observed|
+        @backend.define_host_function("__rb_define_custom_element") do |registry, id, name, local_name, observed, callbacks, disabled, form_associated|
           @profile.count(:__rb_define_custom_element, nil, name)
-          @custom_element_bridge.define(name, Array(observed))
-          nil
-        end
-        # 1d: customElements.upgrade(root) — delegate to Dommy's registry.
-        @backend.define_host_function("__rb_upgrade_custom_elements") do |handle|
-          @profile.count(:__rb_upgrade_custom_elements)
-          @custom_element_bridge.upgrade(host(handle))
-          nil
-        end
-        # 1d: direct `new MyElement()` — mint the backing Dommy element for a
-        # registered tag so the HTMLElement constructor has an element to adopt.
-        # Returns nil when the tag isn't defined (JS then throws Illegal constructor).
-        @backend.define_host_function("__rb_create_custom_element") do |name|
-          @profile.count(:__rb_create_custom_element, nil, name)
           dom_guard do
-            el = @custom_element_bridge.create(name)
-            el ? wrap(el) : nil
+            @custom_element_bridge.define(host(registry), id, name, local_name, Array(observed), Array(callbacks),
+                                          disabled_features: Array(disabled), form_associated: form_associated)
+            nil
           end
+        end
+        @backend.define_host_function("__rb_upgrade_custom_elements") do |registry, root|
+          @profile.count(:__rb_upgrade_custom_elements)
+          dom_guard do
+            host(registry).upgrade(host(root))
+            nil
+          end
+        end
+        # The HTML element constructor with an empty construction stack
+        # (`new MyElement()`): a fresh element of the definition.
+        @backend.define_host_function("__rb_create_custom_element") do |id|
+          @profile.count(:__rb_create_custom_element, nil, id)
+          dom_guard { wrap(@custom_element_bridge.create(id)) }
+        end
+        # `new CustomElementRegistry()`: a scoped registry of the window.
+        @backend.define_host_function("__rb_new_custom_element_registry") do
+          @profile.count(:__rb_new_custom_element_registry)
+          dom_guard { wrap(@custom_element_bridge.new_scoped_registry) }
+        end
+        @backend.define_host_function("__rb_initialize_custom_element_registry") do |registry, root|
+          @profile.count(:__rb_initialize_custom_element_registry)
+          dom_guard do
+            host(registry).initialize_registry(host(root))
+            nil
+          end
+        end
+        # The interface `localName` names in the HTML namespace (define()'s
+        # `extends` check).
+        @backend.define_host_function("__rb_html_interface_for") do |local_name|
+          DomInterfaces.class_chain(Dommy.element_class_for(local_name.to_s, Dommy::Element::HTML_NAMESPACE)).first
         end
       end
 
@@ -552,6 +576,14 @@ module Dommy
 
       # Marshalling is the Marshaller's job; the bridge calls these from its ABI
       # blocks and invoke_* helpers.
+      # A script's call of a [CEReactions] member runs in a custom element
+      # reactions scope (HTML §4.13.6); any other just runs.
+      def ce_reactions(obj, kind, name, &block)
+        return yield unless Internal::CEReactions.member?(obj, kind, name.to_s)
+
+        Internal::CEReactions.scope(&block)
+      end
+
       def wrap(value) = @codec.wrap(value)
       def unwrap(value) = @codec.unwrap(value)
       def dom_guard(&block) = @codec.dom_guard(&block)

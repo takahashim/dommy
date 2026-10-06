@@ -14,7 +14,7 @@ module Dommy
         @wrappers = wrappers
       end
 
-      def create_element(name)
+      def create_element(name, options = nil)
         str = domstring(name)
         raise DOMException::InvalidCharacterError, "name must not be empty" if str.empty?
         raise DOMException::InvalidCharacterError, "invalid element name: #{str.inspect}" unless Namespaces.valid_element_local_name?(str)
@@ -32,9 +32,22 @@ module Dommy
           namespace = @document.content_type == "application/xhtml+xml" ? Element::HTML_NAMESPACE : nil
         end
 
-        node = Backend.create_element(local, namespace, @document.backend_doc)
+        registry, is_value = flatten_options(options)
+        create_an_element(local, namespace, is_value, registry) do
+          Backend.create_element(local, namespace, @document.backend_doc)
+        end
+      end
 
-        @wrappers.wrap(node)
+      # The HTML element constructor run for `new MyElement()` (its
+      # definition's construction stack empty): a new element that is custom
+      # from the start.
+      def create_custom_element(definition)
+        node = Backend.create_element(definition.local_name, Element::HTML_NAMESPACE, @document.backend_doc)
+        element = @wrappers.wrap(node)
+        data = element.__internal_init_ce_data__(definition.autonomous? ? nil : definition.name)
+        element.__internal_set_ce_registry__(definition.registry) if definition.registry&.scoped?
+        definition.mark_custom(data)
+        element
       end
 
       def create_text_node(text)
@@ -83,7 +96,7 @@ module Dommy
         Attr.new(qualified_name, namespace_uri: ns, prefix: prefix, local_name: local, document: @document)
       end
 
-      def create_element_ns(namespace_uri, qualified_name)
+      def create_element_ns(namespace_uri, qualified_name, options = nil)
         # WHATWG "validate and extract": QName-validate the qualifiedName
         # (InvalidCharacterError) and apply the prefix/namespace rules
         # (NamespaceError), then build the element with its prefix bound.
@@ -93,14 +106,105 @@ module Dommy
         qualified_name = domstring(qualified_name)
         ns, = Namespaces.validate_and_extract(namespace_uri, qualified_name, context: :element)
 
-        el = Backend.create_element_ns(ns, qualified_name, @document.backend_doc)
-
-        @wrappers.build_element_wrapper(el)
+        local = qualified_name.include?(":") ? qualified_name.split(":", 2).last : qualified_name
+        registry, is_value = flatten_options(options)
+        create_an_element(local, ns, is_value, registry) do
+          Backend.create_element_ns(ns, qualified_name, @document.backend_doc)
+        end
       end
 
       # Query methods
 
       private
+
+      # DOM "create an element" with the synchronous custom elements flag set
+      # (createElement / createElementNS). `make_node` mints the backend node
+      # when no autonomous definition constructs the element.
+      def create_an_element(local, namespace, is_value, registry)
+        definition = CustomElementRegistry.lookup(registry, namespace, local, is_value)
+        if definition&.autonomous?
+          element = create_custom_element_synchronously(definition, local)
+          element.__internal_set_ce_registry__(registry)
+          return element
+        end
+
+        element = @wrappers.build_element_wrapper(yield)
+        data = element.__internal_init_ce_data__(definition ? definition.name : is_value)
+        element.__internal_set_ce_registry__(registry)
+        upgrade_synchronously(definition, data) if definition
+        element
+      end
+
+      # Step 5 (a customized built-in): upgrade the new element now; what that
+      # throws is reported, and the element's state is "failed".
+      def upgrade_synchronously(definition, data)
+        definition.upgrade(data)
+      rescue StandardError => e
+        definition.report(e)
+        data.state = "failed"
+      end
+
+      # DOM "flatten element creation options": the registry (the document's,
+      # or a dictionary's `customElementRegistry`) and the is value (a
+      # dictionary's `is`; a string argument is the legacy form, which carries
+      # none). Both at once, or a global registry other than the document's,
+      # is a NotSupportedError.
+      def flatten_options(options)
+        registry = CustomElementRegistry.for_document(@document)
+        is_value = nil
+        if options.is_a?(Hash)
+          value = options.key?("is") ? options["is"] : options[:is]
+          is_value = value.to_s unless value.nil? || value.equal?(Bridge::UNDEFINED)
+          given = options.key?("customElementRegistry") ? options["customElementRegistry"] : Bridge::UNDEFINED
+          unless given.equal?(Bridge::UNDEFINED)
+            raise DOMException::NotSupportedError, "is and customElementRegistry are exclusive" unless is_value.nil?
+            unless given.nil? || given.is_a?(CustomElementRegistry)
+              raise Bridge::TypeError, "customElementRegistry is not a CustomElementRegistry"
+            end
+
+            registry = given
+          end
+        end
+        if registry && !registry.scoped? && !registry.equal?(CustomElementRegistry.for_document(@document))
+          raise DOMException::NotSupportedError, "a global registry other than the document's"
+        end
+
+        [registry, is_value]
+      end
+
+      # DOM "create an element" step 6.2, the synchronous custom elements flag
+      # set (createElement / createElementNS): run the definition's
+      # constructor now. What it returns must be a new, empty, parentless HTML
+      # element of this document with the definition's local name; otherwise
+      # — or when it throws — the exception is reported and the element is an
+      # HTMLUnknownElement whose custom element state is "failed".
+      def create_custom_element_synchronously(definition, local)
+        result = definition.construct_synchronously(@document)
+        check_constructed_element!(result, local)
+        result
+      rescue StandardError => e
+        definition.report(e)
+        node = Backend.create_element(local, Element::HTML_NAMESPACE, @document.backend_doc)
+        element = HTMLUnknownElement.new(@document, node)
+        @wrappers.register(node, element)
+        element.__internal_set_custom_element_state__("failed")
+        element
+      end
+
+      def check_constructed_element!(result, local)
+        unless result.is_a?(HTMLElement) && result.namespace_uri == Element::HTML_NAMESPACE
+          raise Bridge::TypeError, "the custom element constructor did not return an HTMLElement"
+        end
+
+        problem =
+          if result.has_attributes? then "has attributes"
+          elsif result.__dommy_backend_node__.children.any? then "has children"
+          elsif result.__dommy_backend_node__.parent then "has a parent"
+          elsif !result.owner_document.equal?(@document) then "belongs to another document"
+          elsif result.local_name != local then "has the local name #{result.local_name.inspect}"
+          end
+        raise DOMException::NotSupportedError, "the constructed custom element #{problem}" if problem
+      end
 
       # WebIDL DOMString coercion for a name/qualifiedName argument: JS
       # `undefined` → "undefined", JS `null` (Ruby nil) → "null", else #to_s.

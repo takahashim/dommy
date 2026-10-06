@@ -63,8 +63,9 @@ module Dommy
         # `form=` attribute from outside the subtree is still found while one in
         # another tree — a shadow tree, or the light DOM around one — is not.
         scope = el.get_root_node || el
-        scope.query_selector_all(LISTED_CONTROL_SELECTOR).select do |c|
+        scope.query_selector_all(Internal::FormAssociatedCustomElements.selector(LISTED_CONTROL_SELECTOR)).select do |c|
           next false if c.tag_name.to_s.casecmp?("input") && c.respond_to?(:type) && c.type.to_s.casecmp?("image")
+          next false if CustomElementRegistry.valid_name?(c.local_name) && !Internal::FormAssociatedCustomElements.face?(c)
 
           el.__internal_owns_control__(c)
         end
@@ -103,7 +104,9 @@ module Dommy
       reset_event = Event.new("reset", "bubbles" => true, "cancelable" => true).__internal_mark_trusted__
       return false unless dispatch_event(reset_event)
 
-      elements.to_a.each { |control| control.__internal_reset__ if control.respond_to?(:__internal_reset__) }
+      controls = elements.to_a
+      controls.each { |control| control.__internal_reset__ if control.respond_to?(:__internal_reset__) }
+      Internal::FormAssociatedCustomElements.reset(self, controls)
       true
     end
 
@@ -261,7 +264,12 @@ module Dommy
     # The submittable elements whose form owner is this form, in tree order.
     def __internal_submittable_controls__
       scope = get_root_node || self
-      scope.query_selector_all(FormEntryList::SUBMITTABLE_SELECTOR).to_a.select { |c| __internal_owns_control__(c) }
+      selector = Internal::FormAssociatedCustomElements.selector(FormEntryList::SUBMITTABLE_SELECTOR)
+      scope.query_selector_all(selector).to_a.select do |c|
+        next false if CustomElementRegistry.valid_name?(c.local_name) && !Internal::FormAssociatedCustomElements.face?(c)
+
+        __internal_owns_control__(c)
+      end
     end
 
     def __js_get__(key)
@@ -768,7 +776,7 @@ module Dommy
       else
         # The first labelable descendant in tree order (a hidden input, being
         # non-labelable, is skipped).
-        query_selector_all("button, input, meter, output, progress, select, textarea")
+        query_selector_all(Internal::FormAssociatedCustomElements.selector("button, input, meter, output, progress, select, textarea"))
           .to_a.find { |c| labelable_control?(c) }
       end
     end
@@ -776,6 +784,8 @@ module Dommy
     # Labelable elements: button, input (except type=hidden), meter, output,
     # progress, select, textarea.
     def labelable_control?(el)
+      return true if Internal::FormAssociatedCustomElements.face?(el)
+
       tag = el.tag_name.to_s.downcase
       return el.type.to_s.downcase != "hidden" if tag == "input"
 
@@ -786,6 +796,8 @@ module Dommy
     # control or it is not form-associated (a meter or progress).
     def form
       target = control
+      return target.__internal_form_owner__ if Internal::FormAssociatedCustomElements.face?(target)
+
       target.form if target.respond_to?(:form)
     end
 
@@ -814,7 +826,9 @@ module Dommy
     def elements
       el = self
       @elements ||= HTMLCollection.new do
-        el.query_selector_all(HTMLFormElement::LISTED_CONTROL_SELECTOR).to_a
+        el.query_selector_all(Internal::FormAssociatedCustomElements.selector(HTMLFormElement::LISTED_CONTROL_SELECTOR)).to_a.reject do |c|
+          CustomElementRegistry.valid_name?(c.local_name) && !Internal::FormAssociatedCustomElements.face?(c)
+        end
       end
     end
 

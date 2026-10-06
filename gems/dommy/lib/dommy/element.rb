@@ -83,6 +83,7 @@ module Dommy
       unless @document.html_document?
         nodes = xml_fragment_nodes(value.to_s, self)
         mark_fragment_scripts_started(nodes)
+        @document.__internal_enqueue_created_upgrades__(nodes, __internal_ce_registry__) unless is_a?(HTMLTemplateElement)
         # A <template> is still the context, but the nodes replace its contents.
         (is_a?(HTMLTemplateElement) ? content : self).__internal_replace_all__(nodes)
         return
@@ -103,6 +104,9 @@ module Dommy
       @__node__.inner_html = value.to_s
       @document.migrate_template_descendants(@__node__)
       mark_fragment_scripts_started(@__node__.children.to_a)
+      # The fragment parser creates a defined element without running its
+      # constructor: it is upgraded by a reaction (see fragment_nodes).
+      @document.__internal_enqueue_created_upgrades__(@__node__.children.to_a, __internal_ce_registry__)
       notify_child_list(added: @__node__.children.to_a, removed: removed)
     end
 
@@ -788,13 +792,94 @@ module Dommy
 
     def __internal_attribute_names__ = get_attribute_names
 
-    # The custom element state an upgrade recorded ("failed" while the
-    # constructor runs, "custom" after), or nil when nothing recorded one —
-    # see ElementState.defined_element? for how the state is otherwise told.
-    attr_reader :__internal_custom_element_state__
+    # DOM "custom element state" / "custom element definition", and the
+    # element's custom element reaction queue (Internal::CEReactions). Made
+    # on first use: until then the state is the one "create an element"
+    # gives an element no definition applied to — "undefined" for an HTML
+    # element with a valid custom element name, "uncustomized" for any other.
+    def __internal_ce_data__
+      @__ce_data ||= begin
+        is_value = __internal_parsed_is_value__
+        Internal::CEReactions::ElementData.new(self, __internal_initial_ce_state__(is_value), is_value)
+      end
+    end
+
+    # DOM "is value": what the element was created with — createElement's
+    # `{ is }`, the definition `new` constructed it for, or (as the parser
+    # creates elements) the `is` attribute it was parsed with.
+    def __internal_is_value__
+      @__ce_data ? @__ce_data.is_value : __internal_parsed_is_value__
+    end
+
+    # Give a just-created element its custom element data: the is value it
+    # was created with, and the state that goes with it.
+    def __internal_init_ce_data__(is_value)
+      @__ce_data = Internal::CEReactions::ElementData.new(self, __internal_initial_ce_state__(is_value), is_value)
+    end
+
+    # An upgrade to a Ruby-class definition re-wraps the node: the new
+    # wrapper takes over the element's data, queue and all.
+    def __internal_adopt_ce_data__(data)
+      @__ce_data = data
+      data.wrapper = self
+    end
+
+    # DOM "custom element registry" of the element: a scoped registry it was
+    # created with or initialized to, else its node document's.
+    def __internal_ce_registry__
+      data = @__ce_data
+      data&.registry_set? ? data.registry : CustomElementRegistry.effective_global_for(owner_document)
+    end
+
+    def __internal_peek_ce_data__ = @__ce_data
+
+    # Give the element `registry`, unless it is its node document's anyway.
+    def __internal_set_ce_registry__(registry)
+      return if !@__ce_data&.registry_set? && registry.equal?(CustomElementRegistry.effective_global_for(owner_document))
+
+      __internal_ce_data__.registry = registry
+    end
+
+    # The wrapper the element's node has now (an upgrade to a Ruby-class
+    # definition replaces this one).
+    def __internal_current_wrapper__
+      @document.__internal_peek_wrapper__(@__node__) || self
+    end
+
+    def __internal_custom_element_state__
+      @__ce_data ? @__ce_data.state : __internal_initial_ce_state__(__internal_parsed_is_value__)
+    end
 
     def __internal_set_custom_element_state__(state)
-      @__internal_custom_element_state__ = state
+      __internal_ce_data__.state = state
+    end
+
+    # Whether the element is custom (its state is "custom"): only such an
+    # element gets callback reactions.
+    def __internal_ce_custom__?
+      @__ce_data ? @__ce_data.custom? : false
+    end
+
+    def __internal_initial_ce_state__(is_value)
+      if namespace_uri == HTML_NAMESPACE && (!is_value.nil? || CustomElementRegistry.valid_name?(local_name))
+        "undefined"
+      else
+        "uncustomized"
+      end
+    end
+
+    def __internal_parsed_is_value__
+      return nil unless namespace_uri == HTML_NAMESPACE
+
+      Backend.get_attribute_ns(@__node__, nil, "is")
+    end
+
+    # The attribute list as [local name, value, namespace], in order.
+    def __internal_attribute_entries__
+      Backend.attribute_nodes(@__node__).map do |attr|
+        info = Backend.attribute_ns_info(attr)
+        [info[:local_name], info[:value], info[:namespace_uri]]
+      end
     end
 
     # WHATWG "legacy-pre-activation behavior": run on the activation target
@@ -860,6 +945,8 @@ module Dommy
       case key
       when "nodeType"
         1
+      when "customElementRegistry"
+        __internal_ce_registry__
       when "isConnected"
         is_connected?
       when "scrollTop", "scrollLeft", "clientTop", "clientLeft"
@@ -1534,6 +1621,11 @@ module Dommy
       # HTML cloning steps: propagate form-control dirty state (an input's value /
       # checkedness, …) that lives on the wrapper, not the backend node.
       @document.__internal_apply_cloning_steps__(@__node__, copy, deep_arg)
+      # "Clone a node" creates the copy with the node's is value, and each
+      # element without the synchronous custom elements flag: a defined one is
+      # upgraded by a reaction.
+      clone.__internal_init_ce_data__(__internal_is_value__) if clone.respond_to?(:__internal_init_ce_data__)
+      @document.__internal_enqueue_created_upgrades__(copy, __internal_ce_registry__)
       clone
     end
 
@@ -1643,12 +1735,25 @@ module Dommy
     # outerHTML does not.
     def fragment_nodes(markup, context, html_as_body: false)
       context = nil unless context.element?
-      if @document.html_document?
-        context = nil if html_as_body && context && context.local_name == "html" && Backend.namespace_uri(context) == HTML_NAMESPACE
-        Parser.fragment(markup, owner_doc: @__node__.document, context: context).children.to_a
-      else
-        xml_fragment_nodes(markup, context && @document.wrap_node(context))
-      end
+      nodes =
+        if @document.html_document?
+          context = nil if html_as_body && context && context.local_name == "html" && Backend.namespace_uri(context) == HTML_NAMESPACE
+          Parser.fragment(markup, owner_doc: @__node__.document, context: context).children.to_a
+        else
+          xml_fragment_nodes(markup, context && @document.wrap_node(context))
+        end
+      # The fragment parser creates its elements without the synchronous
+      # custom elements flag, looking definitions up in the context's
+      # registry: a defined one is upgraded by a reaction.
+      @document.__internal_enqueue_created_upgrades__(nodes, fragment_registry(context))
+      nodes
+    end
+
+    # The registry the fragment parser creates elements with: its target's
+    # (this element, or the shadow root / element `context` stands in).
+    def fragment_registry(context)
+      target = context && @document.wrap_node(context)
+      CustomElementRegistry.for_node(target.is_a?(Element) ? target : self)
     end
 
     def template_content
