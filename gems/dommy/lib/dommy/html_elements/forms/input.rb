@@ -39,6 +39,10 @@ module Dommy
 
     def __internal_submit_button__? = %w[submit image].include?(type) && !disabled
 
+    # An Image Button's "selected coordinate" — where the user clicked on the
+    # image. Dommy lays nothing out, so it is always the origin.
+    def __internal_selected_coordinate__ = [0, 0]
+
     # Value-mode controls keep a sanitized current value and a separate dirty
     # flag. Attribute writes update pristine controls; IDL writes make them
     # dirty. Default/default-on controls reflect the content attribute instead.

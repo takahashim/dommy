@@ -280,27 +280,37 @@ module Dommy
       @owner = owner
     end
 
-    # Append (or insert before `before`) an option element. `before` accepts
-    # another element (insert before it) or an integer index. Strings/`null`
-    # append. The insertion happens in the REFERENCE's parent — which may be an
+    # HTML `add(element, before)`: `element` is an HTMLOptionElement or
+    # HTMLOptGroupElement (anything else is a TypeError), `before` an element
+    # to insert ahead of, an index into the collection, or null to append. The
+    # insertion happens in the reference's parent — which may be an
     # `<optgroup>` — not always the select itself.
-    def add(option, before = nil)
-      return nil unless option.is_a?(Node) && option.__dommy_backend_node__
-
-      reference =
-        case before
-        when nil then nil
-        when Integer then item(before)
-        else before.is_a?(Node) && before.__dommy_backend_node__ ? before : nil
-        end
-
-      parent = reference&.parent_node
-      if reference && parent.respond_to?(:insert_before)
-        parent.insert_before(option, reference)
-      else
-        @owner.append_child(option)
+    def add(element, before = nil)
+      unless element.is_a?(HTMLOptionElement) || element.is_a?(HTMLOptGroupElement)
+        raise Bridge::TypeError, "The provided value is not of type '(HTMLOptionElement or HTMLOptGroupElement)'."
       end
 
+      before = nil if before.equal?(Bridge::UNDEFINED)
+      before_element = before.is_a?(Node)
+      if before_element && !before.is_a?(HTMLElement)
+        raise Bridge::TypeError, "The provided value is not of type '(HTMLElement or long)'."
+      end
+
+      if element.contains?(@owner)
+        raise DOMException::HierarchyRequestError, "The new element is an ancestor of the select."
+      end
+      if before_element && !@owner.contains?(before)
+        raise DOMException::NotFoundError, "The reference element is not a descendant of the select."
+      end
+      return nil if before_element && before.equal?(element)
+
+      reference =
+        if before_element then before
+        elsif before.nil? then nil
+        else item(Internal::WebIDL.long(before))
+        end
+      parent = reference ? reference.parent_node : @owner
+      parent.insert_before(element, reference)
       nil
     end
 
@@ -324,13 +334,23 @@ module Dommy
 
       current = to_a
       if i < current.length
-        @owner.insert_before(option, current[i])
-        current[i].remove
+        current[i].parent_node.replace_child(option, current[i])
       else
-        (i - current.length).times { @owner.append_child(@owner.document.create_element("option")) }
+        append_new_options(i - current.length)
         @owner.append_child(option)
       end
       nil
+    end
+
+    # HTML "append new option elements": `count` blank options, inserted into
+    # the select at once through a fragment.
+    def append_new_options(count)
+      return if count <= 0
+
+      doc = @owner.document
+      fragment = doc.create_document_fragment
+      count.times { fragment.append_child(doc.create_element("option")) }
+      @owner.append_child(fragment)
     end
 
     def selected_index
@@ -344,16 +364,21 @@ module Dommy
     # Setter mirrors `<select>.options.length = n` — destructive resize.
     # Shrinks by removing trailing options, grows by appending blank
     # `<option>`s. Real browsers do the same.
+    #
+    # HTML: growing to more than 100,000 options does nothing at all.
+    MAX_LENGTH = 100_000
+
     def length=(new_length)
-      n = new_length.to_i
+      n = Internal::WebIDL.unsigned_long(new_length)
       current = to_a
       if n < current.length
         current[n..].each(&:remove)
       elsif n > current.length
-        (n - current.length).times { @owner.append_child(@owner.document.create_element("option")) }
-      end
+        return nil if n > MAX_LENGTH
 
-      n
+        append_new_options(n - current.length)
+      end
+      nil
     end
 
     def __js_get__(key)

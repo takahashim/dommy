@@ -84,11 +84,15 @@ module Dommy
       elements.size
     end
 
-    # Spec: `submit()` performs form submission directly WITHOUT firing a
-    # `submit` event and without constraint validation. Navigation is handed to
-    # the delegate (a no-op recording by default).
+    # HTML's "constructing entry list" flag: set while the form builds its
+    # entry list (and fires `formdata`), so a listener cannot re-enter it.
+    attr_accessor :__internal_constructing_entry_list__
+
+    # Spec: `submit()` submits the form "from the submit() method" — WITHOUT
+    # firing a `submit` event and without constraint validation. Navigation is
+    # handed to the delegate (a no-op recording by default).
     def submit
-      __internal_navigate_for_submit__(nil)
+      __internal_submit_form__(self, from_submit_method: true)
       nil
     end
 
@@ -103,68 +107,91 @@ module Dommy
       true
     end
 
-    # Spec: `requestSubmit(submitter?)` MIRRORS user-initiated submission — it
-    # fires a `submit` event (with the submitter), and on a non-canceled event
-    # hands the form navigation to the delegate. Returns true if not
-    # default-prevented. `submitter` (if given) must be a submit button inside
-    # this form.
+    # `requestSubmit(submitter)` mirrors a user's submission: a non-null
+    # submitter must be a submit button (else TypeError) whose form owner is
+    # this form (else NotFoundError); then the form is submitted from it — or
+    # from the form itself when there is none. Returns true unless the submit
+    # event was canceled (the JS method returns undefined).
     def request_submit(submitter = nil)
-      if submitter
-        unless submitter.is_a?(Node) && submitter.__dommy_backend_node__&.ancestors&.include?(@__node__)
-          raise DOMException::NotFoundError, "submitter is not a descendant of this form"
+      submitter = nil if submitter.equal?(Bridge::UNDEFINED)
+      unless submitter.nil?
+        unless submitter.is_a?(HTMLElement) && FormEntryList.submit_button?(submitter)
+          raise Bridge::TypeError, "The specified element is not a submit button."
         end
-
-        type = submitter.respond_to?(:type) ? submitter.type.to_s.downcase : ""
-        unless %w[submit image].include?(type)
-          raise TypeError, "submitter must be a submit button"
+        unless __internal_owns_control__(submitter)
+          raise DOMException::NotFoundError, "The specified element is not owned by this form element."
         end
       end
 
-      __internal_run_form_submission__(submitter)
+      __internal_submit_form__(submitter || self)
     end
 
-    # The form submission algorithm's observable core, shared by
-    # `requestSubmit()`, a submit button's activation (driver click), and Enter's
-    # implicit submission: interactively validate the constraints (unless the
-    # no-validate state is set), then fire a cancelable `SubmitEvent` (carrying
-    # the submitter), and — when nothing canceled it — hand the resulting
-    # navigation to the delegate. Returns true if not default-prevented. This is
-    # the single home for "a form was submitted". `form.submit()` deliberately
-    # does NOT route here: it skips both validation and the submit event.
+    # The interactive submission path, shared by `requestSubmit()`, a submit
+    # button's activation (driver click), and Enter's implicit submission.
     def __internal_run_form_submission__(submitter = nil)
-      # HTML form submission: "if form cannot navigate, then return" — a form
-      # that is not connected has no navigable, so clicking its submit button
-      # fires nothing at all.
+      __internal_submit_form__(submitter || self)
+    end
+
+    # HTML "submit a form from submitter". Unless submitted from `submit()`:
+    # interactively validate the constraints (unless the no-validate state is
+    # set) and fire a cancelable, trusted `SubmitEvent` carrying the submitter.
+    # Then construct the entry list (firing `formdata`) and either close the
+    # form's dialog (method=dialog) or hand the navigation to the delegate.
+    # Returns false when the submission stopped before that point.
+    def __internal_submit_form__(submitter, from_submit_method: false)
+      # "If form cannot navigate, then return" — a form that is not connected
+      # has no navigable, so clicking its submit button fires nothing at all.
       return false unless is_connected?
+      return false if @__internal_constructing_entry_list__
 
-      # Reentrancy guard: the submission algorithm sets `firing submission
-      # events` so a submit handler that submits the form again is a no-op.
-      return false if @firing_submission_events
-      @firing_submission_events = true
-      begin
-        # "If the submitter element's no-validate state is false, then
-        # interactively validate the constraints ... If the result is negative,
-        # return" — an invalid form fires `invalid` on each failing control and
-        # never fires `submit`.
-        return false unless no_validate?(submitter) || report_validity
+      unless from_submit_method
+        # Reentrancy guard: a submit handler that submits the form again is a
+        # no-op.
+        return false if @firing_submission_events
 
-        not_canceled = dispatch_event(
-          SubmitEvent.new("submit",
-            "bubbles" => true, "cancelable" => true, "composed" => true, "submitter" => submitter)
-        )
-        __internal_navigate_for_submit__(submitter) if not_canceled
-        not_canceled
-      ensure
-        @firing_submission_events = false
+        @firing_submission_events = true
+        begin
+          # "If the submitter element's no-validate state is false, then
+          # interactively validate the constraints ... If the result is
+          # negative, return" — an invalid form fires `invalid` on each failing
+          # control and never fires `submit`.
+          return false unless no_validate?(submitter) || report_validity
+
+          submitter_button = submitter.equal?(self) ? nil : submitter
+          should_continue = dispatch_event(
+            SubmitEvent.new("submit",
+              "bubbles" => true, "cancelable" => true, "submitter" => submitter_button).__internal_mark_trusted__
+          )
+        ensure
+          @firing_submission_events = false
+        end
+        return false unless should_continue
+        return false unless is_connected?
       end
+
+      __internal_navigate_for_submit__(submitter.equal?(self) ? nil : submitter)
+      true
     end
 
     # HTML's no-validate state: true when the form carries `novalidate`, or
     # when the clicked control is a submit button carrying `formnovalidate`.
     def no_validate?(submitter)
       return true if __internal_has_attribute__?("novalidate")
+      return false if submitter.equal?(self)
 
       submitter.respond_to?(:__internal_has_attribute__?) && submitter.__internal_has_attribute__?("formnovalidate")
+    end
+
+    # The submitter's method state: a submit button's `formmethod` when it has
+    # one, else the form's `method` — "get", "post" or "dialog".
+    def __internal_submission_method__(submitter)
+      raw = if submitter && FormEntryList.submit_button?(submitter) && submitter.__internal_has_attribute__?("formmethod")
+              submitter.__internal_attribute_value__("formmethod")
+            else
+              __internal_attribute_value__("method")
+            end
+      method = raw.to_s.downcase(:ascii)
+      %w[get post dialog].include?(method) ? method : "get"
     end
 
     # Build the form data set and hand the resulting navigation to the delegate.
@@ -172,10 +199,13 @@ module Dommy
     # enctype, GET query-stripping) — method-override is a host concern, so it's
     # left off here (the delegate applies its own policy).
     def __internal_navigate_for_submit__(submitter)
+      return submit_dialog(submitter) if __internal_submission_method__(submitter) == "dialog"
+
       win = @document&.default_view
       return if win.nil?
 
       result = Dommy::Interaction::FormSubmission.new(self, submitter).submit!
+      return if result.nil?
       # HTML re-runs "cannot navigate" after constructing the entry list: the
       # `formdata` event may have removed the form (or its document).
       return unless is_connected?
@@ -185,6 +215,30 @@ module Dommy
         enctype: result[:enctype], target: result[:target], source: :form
       )
     end
+
+    # The dialog method: the entry list is still constructed (so `formdata`
+    # fires), then — instead of navigating — the form's nearest ancestor
+    # `<dialog>` closes with the submitter's result: an Image Button's selected
+    # coordinate "x,y", another submit button's optional value (its `value`
+    # attribute, else null), or null.
+    def submit_dialog(submitter)
+      return if FormEntryList.new(self, submitter: submitter).form_data.nil?
+      return unless is_connected?
+
+      subject = parent_element
+      subject = subject.parent_element until subject.nil? || subject.is_a?(HTMLDialogElement)
+      return if subject.nil?
+
+      result =
+        if submitter.is_a?(HTMLInputElement) && submitter.type == "image"
+          submitter.__internal_selected_coordinate__.join(",")
+        elsif submitter && FormEntryList.submit_button?(submitter)
+          submitter.__internal_attribute_value__("value")
+        end
+      subject.close(result)
+      nil
+    end
+    private :submit_dialog
 
     # Walk all listed elements; the form is "valid" iff every
     # candidate control passes its own checkValidity. Dispatches a
@@ -300,6 +354,7 @@ module Dommy
         reset
       when "requestSubmit"
         request_submit(args[0])
+        nil
       when "checkValidity"
         check_validity
       when "reportValidity"
@@ -441,6 +496,9 @@ module Dommy
   # `<textarea>` — multi-line text input.
   class HTMLTextAreaElement < HTMLElement
     include Internal::TextSelection
+
+    # The value a form submission carries (wrapping transformation applied).
+    def __internal_submission_value__ = value
     reflect_boolean :disabled, :required, read_only: "readonly"
     reflect_string :name, :placeholder, :wrap
     # `autocomplete` — the setter reflects, but the getter is HTML's autofill

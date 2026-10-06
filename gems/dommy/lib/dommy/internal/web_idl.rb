@@ -54,6 +54,13 @@ module Dommy
         number % (2**32)
       end
 
+      # `value` converted to `long`: as `unsigned long`, then the upper half of
+      # the 2^32 range wraps to negative (so 4294967295 is -1).
+      def long(value)
+        number = unsigned_long(value)
+        number >= 2**31 ? number - 2**32 : number
+      end
+
       def string_to_integer(value)
         float = Float(value.strip.empty? ? "0" : value.strip, exception: false)
         float&.finite? ? float.truncate : 0

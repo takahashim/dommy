@@ -22,10 +22,14 @@ module Dommy
         @method_override_param = method_override_param
       end
 
-      # Returns { method:, url:, params:, enctype:, target: }.
+      # Returns { method:, url:, params:, enctype:, target: }, or nil when the
+      # form is already constructing its entry list (HTML returns then).
       def submit!
         method = form_method
-        params = reduce_files(entry_list.entries)
+        list = entry_list
+        return nil if list.nil?
+
+        params = reduce_files(list.entries)
         method = apply_method_override(method, params)
         params = normalize_line_endings(params)
         params = apply_charset(params)
@@ -58,7 +62,9 @@ module Dommy
       # The entry list, built (and `formdata` fired) with the submission's
       # encoding so a value-less hidden `_charset_` reports the right name.
       def entry_list
-        @entry_list ||= Dommy::FormEntryList.new(
+        return @entry_list if defined?(@entry_list)
+
+        @entry_list = Dommy::FormEntryList.new(
           @form, submitter: @submitter, encoding: form_charset || Encoding::UTF_8
         ).form_data
       end
