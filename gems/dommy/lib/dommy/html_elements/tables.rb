@@ -7,7 +7,6 @@ module Dommy
   # `<td>` / `<th>` — single table cell. `cellIndex` is the
   # position within the parent row's cells collection.
   class HTMLTableCellElement < HTMLElement
-    reflect_string :headers, :abbr
     # The Auto state (missing or invalid value default) has no keyword of its
     # own, so it reads back as "" rather than a made-up default.
     reflect_enumerated scope: { keywords: %w[row col rowgroup colgroup], missing: nil, invalid: nil }
@@ -20,13 +19,10 @@ module Dommy
       row.cells.find_index { |c| c.__dommy_backend_node__ == @__node__ } || -1
     end
 
-    reflect_ulong col_span: { attr: "colspan", default: 1, range: 1..1000 },
-                  row_span: { attr: "rowspan", default: 1, range: 0..65_534 }
-
     # `scope` / `abbr` are only meaningful on `<th>`, but the IDL
-    # exposes them on the cell element either way.
+    # exposes them on the cell element either way. `colSpan` / `rowSpan`
+    # ([ReflectDefault=1, ReflectRange]) and the rest come from the IDL.
 
-    js_accessor :col_span, :row_span
     js_readable :cell_index
 
   end
@@ -446,6 +442,5 @@ module Dommy
   # identity) holds. `col`/`colgroup` share HTMLTableColElement per spec.
   # `<colgroup>` / `<col>`.
   class HTMLTableColElement < HTMLElement
-    reflect_ulong span: { default: 1, range: 1..1000 }
   end
 end

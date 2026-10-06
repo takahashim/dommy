@@ -243,6 +243,15 @@ if JsSurface.available?
         "lib/dommy/js/webidl_signatures.js is stale; re-run ruby script/build_webidl_signatures.rb"
     end
 
+    # The reflected attributes are declared from a table generated from this
+    # fixture (Internal::IdlReflection), so a refreshed interfaces.json needs a
+    # regenerated idl_reflection_table.rb.
+    def test_the_reflection_table_is_generated_from_this_fixture
+      require_relative "../script/build_idl_reflection_table"
+      assert_equal IdlReflectionTable.render, File.read(IdlReflectionTable::OUTPUT),
+        "lib/dommy/internal/idl_reflection_table.rb is stale; re-run ruby script/build_idl_reflection_table.rb"
+    end
+
     # The prototype members are generated from the fixture AND the bridge
     # classes, so adding a member to a class (or refreshing the fixture) needs
     # a regenerated webidl_members.js.

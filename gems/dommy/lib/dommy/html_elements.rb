@@ -93,6 +93,8 @@ module Dommy
     "colgroup" => HTMLTableColElement,
     "datalist" => HTMLDataListElement,
     "dir" => HTMLDirectoryElement,
+    "menu" => HTMLMenuElement,
+    "marquee" => HTMLMarqueeElement,
     "dl" => HTMLDListElement,
     "font" => HTMLFontElement,
     "frame" => HTMLFrameElement,

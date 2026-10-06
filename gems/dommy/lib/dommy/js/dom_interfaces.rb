@@ -48,7 +48,7 @@ module Dommy
         HTMLFormElement HTMLHeadElement HTMLHeadingElement HTMLHRElement
         HTMLHtmlElement HTMLIFrameElement HTMLImageElement HTMLInputElement
         HTMLLabelElement HTMLLegendElement HTMLLIElement HTMLLinkElement
-        HTMLMapElement HTMLMetaElement HTMLMeterElement HTMLModElement
+        HTMLMapElement HTMLMarqueeElement HTMLMenuElement HTMLMetaElement HTMLMeterElement HTMLModElement
         HTMLObjectElement HTMLOListElement HTMLOptGroupElement HTMLOptionElement
         HTMLOutputElement HTMLParagraphElement HTMLPictureElement HTMLPreElement
         HTMLProgressElement HTMLQuoteElement HTMLScriptElement HTMLSelectElement

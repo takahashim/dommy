@@ -111,6 +111,10 @@ require_relative "dommy/hyperlink_utils"
 require_relative "dommy/html_elements"
 require_relative "dommy/svg_elements"
 require_relative "dommy/mathml_elements"
+# Every HTML element class is defined now: give each the reflected attributes
+# its interface's IDL declares and the class does not declare itself.
+require_relative "dommy/internal/idl_reflection"
+Dommy::Internal::IdlReflection.install_all!
 require_relative "dommy/shadow_root"
 require_relative "dommy/custom_elements"
 require_relative "dommy/tree_walker"

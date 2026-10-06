@@ -707,6 +707,29 @@ module Dommy
       html_element&.__internal_set_attribute_value__("dir", value.to_s)
     end
 
+    # HTML §16 (obsolete features), the partial Document interface: fgColor,
+    # linkColor, vlinkColor, alinkColor and bgColor reflect the body element's
+    # text, link, vlink, alink and bgcolor content attributes — "if the body
+    # element is a body element (as opposed to a frameset element). When there
+    # is no body element or if it is a frameset element, the attributes must
+    # instead return the empty string on getting and do nothing on setting."
+    # The setters are [LegacyNullToEmptyString] (null writes "").
+    LEGACY_BODY_COLORS = {
+      fg_color: "text", link_color: "link", vlink_color: "vlink", alink_color: "alink", bg_color: "bgcolor"
+    }.freeze
+
+    LEGACY_BODY_COLORS.each do |name, attr|
+      define_method(name) do
+        element = body
+        element.is_a?(HTMLBodyElement) ? element.__internal_attribute_value__(attr).to_s : ""
+      end
+
+      define_method(:"#{name}=") do |value|
+        element = body
+        element.__internal_set_attribute_value__(attr, value.to_s) if element.is_a?(HTMLBodyElement)
+      end
+    end
+
     # Whether designMode is "on", which makes the whole document editable.
     def __internal_design_mode__? = @design_mode == "on"
 
@@ -1940,6 +1963,11 @@ module Dommy
         read_title
       when "dir"
         dir
+      when "fgColor" then fg_color
+      when "linkColor" then link_color
+      when "vlinkColor" then vlink_color
+      when "alinkColor" then alink_color
+      when "bgColor" then bg_color
       when "cookie"
         cookie
       when "nodeType"
@@ -2094,6 +2122,11 @@ module Dommy
         self.cookie = value.to_s
       when "dir"
         self.dir = value
+      when "fgColor" then self.fg_color = value
+      when "linkColor" then self.link_color = value
+      when "vlinkColor" then self.vlink_color = value
+      when "alinkColor" then self.alink_color = value
+      when "bgColor" then self.bg_color = value
       when "designMode"
         # Enumerated: only "on"/"off" (case-insensitive), else ignored.
         v = value.to_s.downcase

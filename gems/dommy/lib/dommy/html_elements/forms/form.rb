@@ -13,16 +13,13 @@ module Dommy
   class HTMLFormElement < HTMLElement
     include SubmissionUrlAttribute
     reflect_token_list rel_list: { attr: "rel", js: "relList", supported: Internal::SupportedTokens::HYPERLINK_REL }
-    reflect_string :rel
     reflect_setter :action
     def action = submission_url("action")
-    reflect_string :name, :target, :rel, accept_charset: "accept-charset"
     # `encoding` reflects the same `enctype` attribute as `enctype` does.
     reflect_enumerated method_attr: Internal::EnumeratedKeywordSets::METHOD.merge(attr: "method", js: "method"),
                        enctype: Internal::EnumeratedKeywordSets::ENCTYPE,
                        encoding: Internal::EnumeratedKeywordSets::ENCTYPE.merge(attr: "enctype"),
                        autocomplete: { keywords: %w[on off], missing: "on", invalid: "on" }
-    reflect_boolean no_validate: "novalidate"
     # Own __js_call__ methods, on top of Element's.
 
     # `form.elements` — listed elements inside the form (excludes
@@ -387,11 +384,8 @@ module Dommy
     include Internal::PopoverInvokerElement
     include Internal::ConstraintValidation
     reflect_setter :type, :command
-    reflect_element command_for_element: "commandfor"
-    reflect_string :name, :value, form_target: "formtarget"
     reflect_enumerated form_enctype: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_ENCTYPE.merge(attr: "formenctype"),
                        form_method: Internal::EnumeratedKeywordSets::SUBMIT_BUTTON_METHOD.merge(attr: "formmethod")
-    reflect_boolean :disabled, :autofocus, form_no_validate: "formnovalidate"
     include SubmissionUrlAttribute
     reflect_setter form_action: "formaction"
     def form_action = submission_url("formaction")
@@ -555,11 +549,10 @@ module Dommy
   class HTMLTextAreaElement < HTMLElement
     include Internal::TextSelection
     include Internal::ConstraintValidation
-    reflect_string dir_name: "dirname"
+    # The plain reflections — `rows` / `cols` ([ReflectPositiveWithFallback],
+    # defaults 2 and 20), `maxLength` / `minLength` ([ReflectNonNegative]) —
+    # come from the IDL (Internal::IdlReflection).
 
-
-    reflect_boolean :disabled, :required, read_only: "readonly"
-    reflect_string :name, :placeholder, :wrap
     # `autocomplete` — the setter reflects, but the getter is HTML's autofill
     # processing model (Internal::Autofill). A textarea has no type state, so
     # it always wears the "autofill expectation mantle".
@@ -670,26 +663,6 @@ module Dommy
       @__value_dirty = true
     end
 
-    # `rows` / `cols`: unsigned longs limited to only positive numbers with
-    # fallback (HTML's [ReflectPositiveWithFallback]), defaults 2 and 20. The
-    # IDL the audit reads predates their [Reflect], so the getters are written
-    # here over the shared reflection helpers.
-    ROWS = { default: 2, positive: true, fallback: true }.freeze
-    COLS = { default: 20, positive: true, fallback: true }.freeze
-    reflect_ulong_setter rows: ROWS, cols: COLS
-    def rows = reflected_ulong("rows", ROWS)
-    def cols = reflected_ulong("cols", COLS)
-
-    # `maxLength` / `minLength`: [ReflectNonNegative] longs (-1 when missing,
-    # negative or unparseable; a negative value set throws IndexSizeError).
-    # (The IDL the WebIDL audit reads predates their [Reflect], so the getters
-    # are written over the shared helper rather than declared.)
-    MAX_LENGTH = { attr: "maxlength", non_negative: true }.freeze
-    MIN_LENGTH = { attr: "minlength", non_negative: true }.freeze
-    reflect_long_setter max_length: MAX_LENGTH, min_length: MIN_LENGTH
-    def max_length = reflected_long("maxlength", MAX_LENGTH)
-    def min_length = reflected_long("minlength", MIN_LENGTH)
-
     private
 
     public
@@ -747,7 +720,6 @@ module Dommy
   # `<label>` — `htmlFor` IDL maps to the HTML `for` attribute;
   # `control` returns the labelled form control.
   class HTMLLabelElement < HTMLElement
-    reflect_string html_for: "for"
 
     # HTML "interactive content" (§3.2.5.2.7): a click that landed on one of
     # these inside a label is NOT forwarded again by the label — the element
@@ -830,8 +802,6 @@ module Dommy
   # `elements` collection like form.
   class HTMLFieldSetElement < HTMLElement
     include Internal::ConstraintValidation
-    reflect_string :name
-    reflect_boolean :disabled
     def type
       "fieldset"
     end
@@ -863,7 +833,6 @@ module Dommy
 
   # `<legend>` — primarily exposes its `form` back-ref.
   class HTMLLegendElement < HTMLElement
-    reflect_string :align
     # HTML: the legend's `form` is its parent fieldset's form owner, or null
     # when its parent is not a fieldset — it does not fall back to a <form> the
     # legend merely sits inside.
@@ -890,9 +859,7 @@ module Dommy
   # `<output>` — calculation result element.
   class HTMLOutputElement < HTMLElement
     include Internal::ConstraintValidation
-    reflect_string :name
     js_accessor :value
-    reflect_token_list html_for: { attr: "for", js: "htmlFor" }
 
     # `value` is always the descendant text content. `defaultValue` tracks a
     # separate "default value override": while the value mode flag is "default"
@@ -1083,10 +1050,10 @@ module Dommy
   # when no value is set ("indeterminate").
   class HTMLProgressElement < HTMLElement
     reflect_double_setter :value
-    # [ReflectPositive, ReflectDefault=1.0]: the attribute parsed, when it is
-    # a number greater than zero, else 1; the setter ignores a value that is
-    # not greater than zero. This is also the bar's maximum value.
-    reflect_double max: { positive: true, default: 1.0 }
+    # `max` is [ReflectPositive, ReflectDefault=1.0], declared from the IDL
+    # (Internal::IdlReflection): the attribute parsed, when it is a number
+    # greater than zero, else 1; the setter ignores a value that is not greater
+    # than zero. This is also the bar's maximum value.
 
     # A progress bar is determinate iff it HAS a `value` content attribute —
     # whatever it says: `value=""` and `value="x"` are determinate with a

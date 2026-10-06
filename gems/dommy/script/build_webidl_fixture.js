@@ -94,14 +94,20 @@ function idlTypeName(t) {
 function reflectRecord(m) {
   const ea = {};
   for (const a of m.extAttrs || []) ea[a.name] = a.rhs === undefined ? null : a.rhs;
-  const shape = "ReflectURL" in ea ? "url"
-    : "ReflectSetter" in ea ? "setter"
-    : "Reflect" in ea ? "plain"
-    : null;
-  if (!shape) return null;
+  // HTML §2.6.1 "Using reflect via IDL extended attributes": [Reflect],
+  // [ReflectSetter], [ReflectURL], [ReflectNonNegative], [ReflectPositive]
+  // and [ReflectPositiveWithFallback] ALL trigger reflection, one at a time,
+  // each optionally naming the content attribute — `textarea.cols` carries
+  // only [ReflectPositiveWithFallback, ReflectDefault=20].
+  const primary = ["ReflectURL", "ReflectSetter", "Reflect", "ReflectNonNegative",
+    "ReflectPositive", "ReflectPositiveWithFallback"].find((name) => name in ea);
+  if (!primary) return null;
+  const shape = primary === "ReflectURL" ? "url"
+    : primary === "ReflectSetter" ? "setter"
+    : "plain";
 
   const out = { shape };
-  const named = ea.Reflect;
+  const named = ea[primary];
   if (named && named.type === "string") out.attr = named.value.replace(/^"|"$/g, "");
   if ("ReflectDefault" in ea) out.default = literal(ea.ReflectDefault);
   if ("ReflectRange" in ea) out.range = (ea.ReflectRange.value || []).map(literal);
