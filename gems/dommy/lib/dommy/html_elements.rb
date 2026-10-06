@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "date"
+require "set"
 
 require_relative "validity_state"
 require_relative "html_elements/base"
@@ -99,8 +100,24 @@ module Dommy
     "font" => HTMLFontElement,
     "frame" => HTMLFrameElement,
     "frameset" => HTMLFrameSetElement,
-    "param" => HTMLParamElement
+    "param" => HTMLParamElement,
+    # HTML "element interface": listing and xmp are HTMLPreElement.
+    "listing" => HTMLPreElement,
+    "xmp" => HTMLPreElement
   }.freeze
+
+  # HTML "element interface" (https://html.spec.whatwg.org/#element-interface):
+  # the names whose interface is plain HTMLElement — the elements this
+  # specification defines with no interface of their own, plus the obsolete
+  # ones it lists (acronym … tt) — and the obsolete names that are
+  # HTMLUnknownElement whatever else applies.
+  HTML_ELEMENT_NAMES_WITH_NO_OWN_INTERFACE = %w[
+    abbr address article aside b bdi bdo cite code dd dfn dt em figcaption
+    figure footer header hgroup i kbd main mark nav noscript rp rt ruby s samp
+    search section small strong sub summary sup u var wbr
+    acronym basefont big center nobr noembed noframes plaintext rb rtc strike tt
+  ].to_set.freeze
+  HTML_UNKNOWN_ELEMENT_NAMES = %w[applet bgsound blink isindex keygen multicol nextid spacer].to_set.freeze
 
   SVG_NAMESPACE_URI = Internal::Namespaces::SVG
   HTML_NAMESPACE_URI = Internal::Namespaces::HTML
@@ -127,6 +144,9 @@ module Dommy
       # An unrecognized name that is a *valid custom element name* is an
       # undefined custom element, and its interface is HTMLElement — only a
       # genuinely unknown name falls through to HTMLUnknownElement.
+      return HTMLUnknownElement if HTML_UNKNOWN_ELEMENT_NAMES.include?(name)
+      return HTMLElement if HTML_ELEMENT_NAMES_WITH_NO_OWN_INTERFACE.include?(name)
+
       HTML_ELEMENT_CLASSES[name] ||
         (CustomElementRegistry.valid_name?(name) ? HTMLElement : HTMLUnknownElement)
     else

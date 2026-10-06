@@ -56,6 +56,7 @@
 
 ### Fixed
 
+- An HTML element gets the interface HTML's "element interface" gives its name: `b`, `section`, `article`, `nav`, `summary` and the other elements without an interface of their own (and `acronym`, `center`, `tt`, …) are `HTMLElement` instead of `HTMLUnknownElement`, `listing` and `xmp` are `HTMLPreElement`, and `applet`, `blink`, `keygen` and the like stay `HTMLUnknownElement`.
 - `DOMParser#parseFromString` follows the spec's steps: from script `type` is required and matched exactly (`"TEXT/HTML"` throws `TypeError`; the Ruby API keeps its `"text/html"` default), an XML parse error — empty input included — returns a document whose root is a `<parsererror>` in the Mozilla namespace instead of raising, and the new document takes the creating document's URL and origin (so `domain` too), as `createDocument` / `createHTMLDocument` documents take its origin.
 - `URL.prototype` has `href`, `toJSON` and the URL's other members, and `URLSearchParams.prototype` has `append`, `get`, `size` and the rest, so `"append" in URLSearchParams.prototype` is true and `URLSearchParams.prototype.append.call(params, …)` works.
 - URLSearchParams, FormData and Headers are WebIDL pair iterables: `@@iterator` is the `entries` function itself, their iterators inherit from `%IteratorPrototype%` (so iterator helpers work) and are `[object URLSearchParams Iterator]`, and `forEach` passes its `thisArg` and throws `TypeError` for a non-callable callback.
