@@ -7,6 +7,13 @@ module Dommy
     # actions, React synthetic events, …) run exactly as they would in a
     # browser. Dispatch is Ruby-side; a JS-registered listener is invoked
     # synchronously through the bridge (CallableInvoker → __js_call__).
+    #
+    # These events stand for the user's input, so they are trusted
+    # (`isTrusted` is true) — unlike an event a script constructs and
+    # dispatches. An activation triggering input event among them (a key
+    # press other than Esc, a mouse press) first gives the window user
+    # activation (HTML §6.4), and a pointer press and release run light
+    # dismiss for open popovers and dialogs (Internal::LightDismiss).
     module EventSynthesis
       module_function
 
@@ -19,22 +26,22 @@ module Dommy
         click_sequence(element, detail: 1)
       end
 
-      # A secondary-button (right) click: pointerdown → mousedown → pointerup →
-      # mouseup → contextmenu. `button: 2` marks the secondary button, which is
-      # what a `contextmenu` handler checks. No click event fires for a right
+      # A secondary-button (right) click: pointerdown → mousedown →
+      # contextmenu → pointerup → mouseup → auxclick. `button: 2` marks the
+      # secondary button, which is what a `contextmenu` handler checks. No click event fires for a right
       # click, so no activation behavior runs. Returns whether contextmenu was
       # prevented.
       def right_click(element)
-        return false if inert?(element)
+        target, backdrop = hit_target(element)
+        return false if target.nil?
 
-        secondary = mouse_init.merge("button" => 2)
-        dispatch(element, Dommy::PointerEvent.new("pointerdown", secondary))
-        dispatch(element, Dommy::MouseEvent.new("mousedown", secondary))
-        click_focus(element)
-        dispatch(element, Dommy::PointerEvent.new("pointerup", secondary))
-        dispatch(element, Dommy::MouseEvent.new("mouseup", secondary))
-        event = Dommy::MouseEvent.new("contextmenu", secondary)
-        element.dispatch_event(event)
+        secondary = mouse_init.merge("button" => 2, "buttons" => 2)
+        press(target, secondary, backdrop)
+        # The context menu opens on the press (as on Linux and macOS).
+        event = Dommy::PointerEvent.new("contextmenu", pointer_init(secondary))
+        dispatch(target, event)
+        release(target, secondary.merge("buttons" => 0), backdrop)
+        dispatch(target, Dommy::PointerEvent.new("auxclick", pointer_init(secondary.merge("buttons" => 0, "detail" => 1))))
         event.default_prevented?
       end
 
@@ -43,12 +50,13 @@ module Dommy
       # a browser where two native clicks fire two click events. Returns whether
       # dblclick was prevented.
       def double_click(element)
-        return false if inert?(element)
+        target, = hit_target(element)
+        return false if target.nil?
 
         click_sequence(element, detail: 1)
         click_sequence(element, detail: 2)
         dbl = Dommy::MouseEvent.new("dblclick", mouse_init.merge("detail" => 2))
-        element.dispatch_event(dbl)
+        dispatch(target, dbl)
         dbl.default_prevented?
       end
 
@@ -60,18 +68,68 @@ module Dommy
       # takes exactly the same path as `element.click()`.
       #
       # An inert element is not hit by the pointer (HTML "inert": hit-testing
-      # acts as if pointer-events were none), so clicking one fires nothing.
+      # acts as if pointer-events were none). Outside a modal dialog, what
+      # the pointer lands on is the dialog's ::backdrop, so the events go to
+      # the dialog (as a backdrop hit, which light-dismisses a closedby=any
+      # dialog); an element inert otherwise gets nothing.
       def click_sequence(element, detail:)
-        return false if inert?(element)
+        target, backdrop = hit_target(element)
+        return false if target.nil?
 
-        dispatch(element, Dommy::PointerEvent.new("pointerdown", mouse_init))
-        dispatch(element, Dommy::MouseEvent.new("mousedown", mouse_init))
-        click_focus(element)
-        dispatch(element, Dommy::PointerEvent.new("pointerup", mouse_init))
-        dispatch(element, Dommy::MouseEvent.new("mouseup", mouse_init))
-        event = Dommy::MouseEvent.new("click", mouse_init.merge("detail" => detail))
-        element.dispatch_event(event)
+        init = mouse_init.merge("buttons" => 1)
+        press(target, init, backdrop)
+        release(target, init.merge("buttons" => 0), backdrop)
+        event = Dommy::PointerEvent.new("click", pointer_init(mouse_init.merge("detail" => detail)))
+        dispatch(target, event)
         event.default_prevented?
+      end
+
+      # The click a key press activates a focused control with (Space on a
+      # button): a trusted click with no pointer behind it — pointerId -1,
+      # empty pointerType, detail 0 — that a disabled control does not get.
+      def keyboard_click(element)
+        return false if element.respond_to?(:__internal_actually_disabled__) && element.__internal_actually_disabled__
+
+        event = Dommy::PointerEvent.new("click", BUBBLES.merge("button" => 0, "detail" => 0, "pointerId" => -1,
+          "pointerType" => ""))
+        dispatch(element, event)
+        event.default_prevented?
+      end
+
+      # What a pointer aimed at `element` hits: [element, false], or
+      # [blocking modal dialog, true] for an element a modal dialog makes
+      # inert, or nil for one inert some other way.
+      def hit_target(element)
+        return [element, false] unless inert?(element)
+
+        dialog = element.owner_document.__internal_blocking_modal_dialog__
+        dialog && !inert?(dialog) ? [dialog, true] : nil
+      end
+
+      # A primary or secondary press: pointerdown (light dismiss records the
+      # popover and dialog pressed), mousedown, and the focus a press moves
+      # (none for a backdrop). Where it lands becomes the sequential focus
+      # navigation starting point.
+      def press(target, init, backdrop)
+        down = Dommy::PointerEvent.new("pointerdown", pointer_init(init))
+        trusted(target, down)
+        Internal::LightDismiss.run(down, target, backdrop: backdrop)
+        target.dispatch_event(down)
+        document = target.owner_document
+        document.__internal_note_pointer_input__
+        dispatch(target, Dommy::MouseEvent.new("mousedown", init))
+        document.__internal_sequential_focus_navigation_starting_point__ = target
+        click_focus(target) unless backdrop
+      end
+
+      # The release: pointerup (light dismiss closes what the press and the
+      # release agree on) then mouseup.
+      def release(target, init, backdrop)
+        up = Dommy::PointerEvent.new("pointerup", pointer_init(init))
+        trusted(target, up)
+        Internal::LightDismiss.run(up, target, backdrop: backdrop)
+        target.dispatch_event(up)
+        dispatch(target, Dommy::MouseEvent.new("mouseup", init))
       end
 
       # Run the element's focusing steps (Element#focus): moves
@@ -97,15 +155,16 @@ module Dommy
         return nil unless element.is_a?(Dommy::Element)
 
         focusability = Internal::Focusability
+        document = element.owner_document
         node = element
         while node.is_a?(Dommy::Element)
           if focusability.focusable_area?(node) || focusability.delegates_focus?(node)
-            focusability.run_focusing_steps(node, trigger: "click")
+            document.__internal_with_focus_type__(:mouse) { focusability.run_focusing_steps(node, trigger: "click") }
             return nil
           end
           node = focusability.flat_tree_parent(node) || (node.parent_node if node.parent_node.is_a?(Dommy::Element))
         end
-        focused = element.owner_document.__internal_focused_element__
+        focused = document.__internal_focused_element__
         focusability.run_unfocusing_steps(focused) if focused
         nil
       end
@@ -170,8 +229,26 @@ module Dommy
         chain
       end
 
+      # Dispatch `event` as the user's input: trusted, and — for an
+      # activation triggering input event — after the activation
+      # notification steps. Answers dispatch's result.
       def dispatch(element, event)
+        trusted(element, event)
         element.dispatch_event(event)
+      end
+
+      # Mark `event` trusted and run what a user's input does before it is
+      # dispatched at `element`: the activation notification steps, and the
+      # keyboard / pointer modality :focus-visible remembers.
+      def trusted(element, event)
+        event.__internal_mark_trusted__
+        return event unless Internal::UserActivation.activation_triggering?(event)
+
+        document = element.owner_document
+        window = document&.default_view
+        window.__internal_notify_activation__ if window.respond_to?(:__internal_notify_activation__)
+        document.__internal_note_keyboard_input__ if event.type == "keydown" && document.respond_to?(:__internal_note_keyboard_input__)
+        event
       end
 
       # Named keys for Driver#send_keys, mapped to their KeyboardEvent
@@ -202,16 +279,16 @@ module Dommy
       # prevented, like #click.
       def keydown(element, key, code, extra = nil)
         event = Dommy::KeyboardEvent.new("keydown", key_init(key, code, extra))
-        element.dispatch_event(event)
+        dispatch(element, event)
         event.default_prevented?
       end
 
       # keypress fires only for keys that produce a character (legacy but
       # still widely handled). Also cancelable; a prevented keypress
       # suppresses the character insertion.
-      def keypress(element, key, code)
-        event = Dommy::KeyboardEvent.new("keypress", key_init(key, code))
-        element.dispatch_event(event)
+      def keypress(element, key, code, extra = nil)
+        event = Dommy::KeyboardEvent.new("keypress", key_init(key, code, extra))
+        dispatch(element, event)
         event.default_prevented?
       end
 
@@ -251,7 +328,7 @@ module Dommy
         event = Dommy::InputEvent.new(
           "beforeinput", BUBBLES.merge("data" => data, "inputType" => input_type)
         )
-        element.dispatch_event(event)
+        dispatch(element, event)
         event.default_prevented?
       end
 
@@ -274,6 +351,11 @@ module Dommy
 
       def mouse_init
         BUBBLES.merge("button" => 0, "clientX" => 0, "clientY" => 0)
+      end
+
+      # A PointerEvent of the (one) mouse: pointerId 1, the primary pointer.
+      def pointer_init(init)
+        init.merge("pointerId" => 1, "pointerType" => "mouse", "isPrimary" => true)
       end
 
       # mouseenter / mouseleave do NOT bubble (they fire once per element whose

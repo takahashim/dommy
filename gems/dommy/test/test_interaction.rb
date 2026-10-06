@@ -33,12 +33,13 @@ class TestInteraction < Minitest::Test
     win = make_window("<button id='b'>x</button>")
     button = win.document.get_element_by_id("b")
     seen = []
-    %w[pointerdown mousedown pointerup mouseup contextmenu].each do |type|
+    %w[pointerdown mousedown pointerup mouseup contextmenu auxclick].each do |type|
       button.add_event_listener(type, ->(e) { seen << [e.type, e.__js_get__("button")] })
     end
 
     Dommy::Interaction::EventSynthesis.right_click(button)
-    assert_equal %w[pointerdown mousedown pointerup mouseup contextmenu], seen.map(&:first)
+    # The context menu opens on the press; auxclick ends the sequence.
+    assert_equal %w[pointerdown mousedown contextmenu pointerup mouseup auxclick], seen.map(&:first)
     assert(seen.all? { |_type, btn| btn == 2 }, "every right-click event should have button 2")
   end
 

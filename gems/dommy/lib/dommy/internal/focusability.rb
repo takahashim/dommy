@@ -97,12 +97,14 @@ module Dommy
 
       def actually_disabled?(element) = element.__internal_actually_disabled__
 
-      # "Being rendered", approximated without layout: connected, in the flat
-      # tree, in a rendered frame, and with no flat-tree inclusive ancestor
-      # whose computed display is none.
+      # "Being rendered" (having a layout box), approximated without layout:
+      # connected, in the flat tree, in a rendered frame, not display:
+      # contents itself (which generates no box — a slot, by default), and
+      # with no flat-tree inclusive ancestor whose computed display is none.
       def being_rendered?(element)
         style_for = ->(el) { CSS::Cascade.computed_style(el) }
         return false if CSS::Renderability.not_rendered?(element, style_for)
+        return false if style_for.call(element)["display"] == "contents"
 
         node = element
         while node.is_a?(Element)

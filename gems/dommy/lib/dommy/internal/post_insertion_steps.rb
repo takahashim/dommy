@@ -30,6 +30,7 @@ module Dommy
         fire_blank_iframe_load(element)
         element.__internal_run_pragma__ if element.respond_to?(:__internal_run_pragma__)
         autofocus_inserted(element)
+        element.__internal_dialog_inserted__ if element.respond_to?(:__internal_dialog_inserted__)
       end
 
       # An element with an autofocus attribute inserted into a document

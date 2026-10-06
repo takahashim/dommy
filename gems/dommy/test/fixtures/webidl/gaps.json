@@ -12,7 +12,6 @@
     "CSSStyleProperties",
     "CanvasPattern",
     "CaretPosition",
-    "CloseWatcher",
     "CustomStateSet",
     "FetchLaterResult",
     "HTMLAllCollection",
@@ -46,7 +45,6 @@
     "TimeRanges",
     "TrackEvent",
     "TransitionEvent",
-    "UserActivation",
     "VideoTrack",
     "VideoTrackList",
     "VisibilityStateEntry",
@@ -247,8 +245,7 @@
     ],
     "Navigator": [
       "registerProtocolHandler",
-      "unregisterProtocolHandler",
-      "userActivation"
+      "unregisterProtocolHandler"
     ],
     "Notification": [
       "actions",
@@ -349,6 +346,8 @@
   "reflect_gaps": {},
   "invented_reflect_gaps": {},
   "void_gaps": {
+    "CloseWatcher.close": "returns undefined, which the bridge does not guarantee",
+    "CloseWatcher.destroy": "returns undefined, which the bridge does not guarantee",
     "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined",
     "External.AddSearchProvider": "returns undefined, which the bridge does not guarantee",
     "External.IsSearchProviderInstalled": "returns undefined, which the bridge does not guarantee",

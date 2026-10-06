@@ -49,10 +49,31 @@ module Dommy
       # display:none element) is left alone, as is the element already
       # focused. Moving the focus fires blur and focusout at the element that
       # loses it, then focus and focusin here. Nothing scrolls.
-      def focus(_options = nil)
-        Focusability.run_focusing_steps(self)
+      #
+      # FocusOptions' `focusVisible` says whether the focus is indicated
+      # (`:focus-visible`); without it, the heuristics in
+      # Internal::DocumentInteractionState decide.
+      def focus(options = nil)
+        visible = focus_visible_option(options)
+        document = owner_document
+        document.__internal_with_focus_type__(:script, focus_visible: visible) do
+          Focusability.run_focusing_steps(self)
+        end
+        document.__internal_indicate_focus__ if visible == true && document.__internal_focused_element__.equal?(self)
         nil
       end
+
+      # FocusOptions' `focusVisible` (a boolean with no default), nil when the
+      # dictionary has none.
+      def focus_visible_option(options)
+        return nil unless options.is_a?(Hash)
+
+        key = ["focusVisible", :focusVisible].find { |k| options.key?(k) }
+        return nil if key.nil? || options[key].equal?(Bridge::UNDEFINED)
+
+        WebIDL.boolean(options[key])
+      end
+      private :focus_visible_option
 
       # `blur()` — HTML's unfocusing steps: the focused element gives the
       # focus back to the viewport.
