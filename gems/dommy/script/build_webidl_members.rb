@@ -76,7 +76,11 @@ module WebIdlMembers
         end
       end
       # A stringifier (`stringifier;` or `stringifier attribute`) is toString.
-      stringifier = record["members"].any? { |m| m["special"] == "stringifier" || m["stringifier"] }
+      # An unforgeable stringifier (Location's `href`) is an own property of
+      # each instance, not a prototype member.
+      stringifier = record["members"].any? do |m|
+        (m["special"] == "stringifier" || m["stringifier"]) && !m["unforgeable"]
+      end
       entry["m"] << "toString" if stringifier && operations.include?("toString")
       entry.transform_values! { |names| names.uniq.sort }
       entry.reject! { |_, names| names.empty? }

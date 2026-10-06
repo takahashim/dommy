@@ -106,7 +106,6 @@ globalThis.__rbIdlMembers = {
   "ImageData": {"g": ["colorSpace","data","height","width"]},
   "InputEvent": {"g": ["data","inputType","isComposing"]},
   "KeyboardEvent": {"m": ["getModifierState","initKeyboardEvent"], "g": ["altKey","charCode","code","ctrlKey","isComposing","key","keyCode","location","metaKey","repeat","shiftKey"]},
-  "Location": {"m": ["toString"]},
   "MediaList": {"m": ["appendMedium","deleteMedium","item","toString"], "g": ["length"], "p": ["mediaText"]},
   "MediaQueryList": {"m": ["addListener","removeListener"], "g": ["matches","media"], "p": ["onchange"]},
   "MediaQueryListEvent": {"g": ["matches","media"]},
