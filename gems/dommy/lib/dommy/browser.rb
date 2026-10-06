@@ -158,7 +158,7 @@ module Dommy
         navigate_frame(frame,
           {method: method, url: url, params: params, body: body, enctype: enctype, headers: headers},
           resolve_against_current(url.to_s))
-        @window.scheduler.queue_microtask(proc { frame.dispatch_event(Dommy::Event.new("load")) })
+        @window.scheduler.queue_microtask(proc { frame.__internal_run_iframe_load_event_steps__ })
         return nil
       end
 
@@ -186,6 +186,9 @@ module Dommy
       def traverse(_delta) = nil
 
       def history_length = @browser.history_length
+
+      # The frames of the document loaded into this frame load the same way.
+      def load_frame(frame, **nav) = @browser.load_frame(frame, **nav)
     end
 
     def frame_navigation_delegate(frame) = FrameNavigationDelegate.new(self, frame)
@@ -201,8 +204,19 @@ module Dommy
         nav[:url].to_s
       end
       navigate_frame(frame, nav, resolved)
-      frame.dispatch_event(Dommy::Event.new("load"))
+      frame.__internal_run_iframe_load_event_steps__
       nil
+    end
+
+    # NavigationDelegate `load_frame`: an iframe's child navigable is navigating
+    # to `url` (its `src`, or a navigation from inside it) — fetch it through
+    # this browser's resources and answer the document's Window, or nil when
+    # nothing serves it (the frame then keeps its document). The frame installs
+    # it and fires its own `load`.
+    def load_frame(frame, url:, method: "GET", body: nil, params: nil, enctype: nil, headers: {}, **)
+      return nil if @disposed || @resources.nil?
+
+      frame_window_for(frame, {url: url, method: method, body: body, params: params, enctype: enctype, headers: headers}, url.to_s)
     end
 
     # A history traversal by `delta` that the PAGE asked for (`history.go(n)`
@@ -531,33 +545,43 @@ module Dommy
     # it, install the response document as the frame's content, and fire the
     # frame's `load`. The top-level window and joint history are left alone.
     def navigate_frame(frame, nav, resolved_url)
-      response, final_url = @fetcher.request(
-        method: nav[:method] || "GET", url: resolved_url, params: nav[:params],
-        body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
-      )
-      return unless response&.success?
+      # The frame makes about:, data: and blob: documents itself and asks
+      # this browser (#load_frame) for the rest.
+      sub_window = frame.__internal_child_document_for__(resolved_url, nil, nav.except(:url))
+      return nil unless sub_window
 
-      sub_window = frame_document_for(response)
-      sub_window.location.__internal_set_url__(final_url)
-      sub_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
       # A navigation from inside the loaded frame also stays in that frame.
-      sub_window.navigation_delegate = frame_navigation_delegate(frame)
-      # A nested realm needs the seeded constructors to run the response's
-      # scripts; a runtime that cannot expose them simply runs without them.
-      @runtime.expose_constructors_on(sub_window) if @runtime.respond_to?(:expose_constructors_on)
+      sub_window.navigation_delegate = frame_navigation_delegate(frame) if sub_window.navigation_delegate.is_a?(Navigation::NullDelegate)
       frame.__internal_set_content_document__(sub_window.document)
       nil
     end
 
-    # The document a frame shows for a response: HTML/XML is parsed as-is; a
-    # non-document response (e.g. text/plain from an echo endpoint) is displayed
-    # as text, so the frame gets a document whose body holds it.
-    def frame_document_for(response)
-      return Dommy.parse(response.body) if document_response?(response)
+    # Fetch a frame navigation and build the Window of the document it
+    # answers. nil when nothing (successful) serves the URL.
+    def frame_window_for(frame, nav, resolved_url)
+      @fetcher ||= Navigation::Fetcher.new(@resources, same_origin: @same_origin)
+      response, final_url = begin
+        @fetcher.request(
+          method: nav[:method] || "GET", url: resolved_url, params: nav[:params],
+          body: nav[:body], enctype: nav[:enctype], headers: nav[:headers] || {}
+        )
+      rescue StandardError
+        # A resources adapter that cannot serve the request at all fails the
+        # navigation like a network error.
+        [nil, resolved_url]
+      end
+      # Nothing answered: a network error, which shows an error page (and
+      # still fires the frame's load). A response of any status is a document.
+      return Internal::ChildNavigable.error_window(final_url || resolved_url) unless response
 
-      win = Dommy.parse("<!doctype html><html><head></head><body></body></html>")
-      win.document.body.text_content = response.body.to_s.dup.force_encoding(Encoding::UTF_8)
-      win
+      sub_window = Internal::ChildNavigable.window_for_response(
+        response.body, response_header(response, "content-type"), final_url
+      )
+      sub_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
+      # A nested realm needs the seeded constructors to run the response's
+      # scripts; a runtime that cannot expose them simply runs without them.
+      @runtime.expose_constructors_on(sub_window) if @runtime.respond_to?(:expose_constructors_on)
+      sub_window
     end
 
     # If the freshly loaded document asks for an immediate `<meta http-equiv=

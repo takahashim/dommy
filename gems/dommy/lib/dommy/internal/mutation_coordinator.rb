@@ -47,7 +47,7 @@ module Dommy
         report_exception(e)
       end
 
-      # Connected callbacks, connected scripts and blank-iframe loads for every
+      # Connected callbacks, connected scripts and iframe navigables for every
       # element among the subtree's shadow-including inclusive descendants, in
       # shadow-including tree order — so the custom elements in an inserted
       # host's shadow tree connect too.
@@ -77,6 +77,8 @@ module Dommy
         each_shadow_including_element(nk) do |element|
           element.__internal_popover_removed__ if element.respond_to?(:__internal_popover_removed__)
           element.__internal_dialog_removed__ if element.respond_to?(:__internal_dialog_removed__)
+          # The iframe removing steps: destroy its child navigable.
+          element.__internal_destroy_child_navigable__ if element.is_a?(HTMLIFrameElement)
           notify_disconnected(element)
         end
       end
@@ -107,7 +109,7 @@ module Dommy
       # Fire MutationObserver childList records
       # `moving:` marks the records of a move (moveBefore). A move runs neither
       # the insertion nor the removing steps, so the connected / disconnected
-      # walk below — lifecycle callbacks, script execution, blank-iframe load —
+      # walk below — lifecycle callbacks, script execution, iframe navigables —
       # is skipped for it; its custom element reactions are the move's own
       # (notify_moved_subtree).
       def notify_child_list_mutation(
@@ -124,7 +126,7 @@ module Dommy
         return nil if added_nodes.empty? && removed_nodes.empty?
 
         # Custom Element connected/disconnected callbacks, script execution, and
-        # blank-iframe load all require the subtree to be connected to the
+        # iframe child navigables all require the subtree to be connected to the
         # document (the script/iframe paths already check is_connected?, and
         # connectedCallback fires only when connected). So skip the O(subtree)
         # walk for mutations within a still-detached tree — the common case

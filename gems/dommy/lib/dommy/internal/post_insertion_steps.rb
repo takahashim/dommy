@@ -3,8 +3,8 @@
 module Dommy
   module Internal
     # What HTML says happens to an element because it was inserted, beyond the
-    # DOM's own insertion: a connected `<script>` runs, a blank `<iframe>` gets
-    # a document and fires `load`, a `<details>` group settles on one open
+    # DOM's own insertion: a connected `<script>` runs, an `<iframe>` gets
+    # its child navigable, a `<details>` group settles on one open
     # member, a `<select>` re-runs its selectedness algorithm.
     #
     # These are element behaviours, not mutation notification, which is why they
@@ -15,10 +15,6 @@ module Dommy
     # threw); the algorithms below have no rescue of their own, because a
     # failure in one of them is a bug here rather than something the page did.
     class PostInsertionSteps
-      # A srcless ("blank"/about:blank) iframe is the one we give a document to;
-      # a `src` iframe is left to the integration layer.
-      BLANK_IFRAME_SRCS = ["", "about:blank"].freeze
-
       def initialize(document, report)
         @document = document
         @report = report
@@ -27,7 +23,7 @@ module Dommy
       # The per-element steps of a connected insertion.
       def connected(element)
         run_connected_script(element)
-        fire_blank_iframe_load(element)
+        iframe_post_connection(element)
         element.__internal_run_pragma__ if element.respond_to?(:__internal_run_pragma__)
         autofocus_inserted(element)
       end
@@ -212,42 +208,14 @@ module Dommy
         end
       end
 
-      # A blank `<iframe>` connected to the document gets an empty nested
-      # browsing context (a real, complete content document) and fires its
-      # `load` event ASYNCHRONOUSLY (a microtask), like a real browser —
-      # handlers are commonly attached after insertion (`appendChild(f);
-      # f.onload = …`). Without this, code that awaits a blank iframe's load and
-      # then reads `iframe.contentWindow.document` hangs: FingerprintJS's
-      # `withIframe` (its font sources) does exactly that, which hung note.com's
-      # tracking plugin and its whole Nuxt hydration.
-      def fire_blank_iframe_load(element)
-        return unless element.respond_to?(:local_name) && element.local_name == "iframe"
-        return unless element.respond_to?(:is_connected?) && element.is_connected?
-        # The content attribute: `src=""` names no resource, where the IDL `src`
-        # resolves it to the document's own address (a URL reflection).
-        return unless BLANK_IFRAME_SRCS.include?(element.__internal_attribute_value__("src").to_s.strip)
+      # The iframe HTML element post-connection steps: a child navigable with
+      # the initial about:blank document, then its attributes processed — a
+      # srcless (or about:blank) iframe fires `load` right here, during the
+      # insertion, and any other is navigated from a task.
+      def iframe_post_connection(element)
+        return unless element.is_a?(HTMLIFrameElement)
 
-        ensure_blank_content_document(element)
-        defer do
-          element.__internal_fire_event__("load")
-        rescue StandardError => e
-          @report.call(e)
-        end
-      end
-
-      # Give a blank iframe a fresh empty document (or its `srcdoc`) so
-      # `contentWindow` / `contentDocument` resolve and DOM ops + measurement
-      # inside it work (readyState defaults to "complete"). No-op if it already
-      # has one.
-      def ensure_blank_content_document(element)
-        return unless element.respond_to?(:__internal_build_blank_content_document__)
-        return if element.respond_to?(:content_document) && element.content_document
-
-        # The frame builds it, not this: the document URL a blank browsing
-        # context gets (about:blank, about:srcdoc) and the base URL it inherits
-        # from its creator are the frame's business, and a second copy here
-        # built a Window at the library's default `http://localhost/`.
-        element.__internal_set_content_document__(element.__internal_build_blank_content_document__)
+        element.__internal_post_connection__
       end
 
       # Run at the next microtask checkpoint, or inline when the document has no

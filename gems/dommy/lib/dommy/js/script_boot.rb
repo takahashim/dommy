@@ -81,16 +81,63 @@ module Dommy
         @runtime.set_document_ready_state("loading")
         @loader = install_module_loader
         wire_inline_event_handlers
+        # The parser inserted the document's iframes: each gets its child
+        # navigable (a srcless one fires `load` now; one with a `src` starts
+        # navigating in a task, which comes before this document's `load`).
+        @document.__internal_process_parsed_iframes__ if @document.respond_to?(:__internal_process_parsed_iframes__)
         scripts = @document.scripts.to_a
         # Pass 1: parser-blocking classic scripts, in document order.
         scripts.each { |element| run_one(element) unless deferred?(element) }
-        # Pass 2: deferred scripts (modules + classic `defer`), in document order.
+        the_end(scripts)
+      end
+
+      # HTML §13.2.7 "The end": the document becomes "interactive", the
+      # deferred scripts (modules + classic `defer`) run in document order, and
+      # then DOMContentLoaded and — once nothing delays it — `load` fire from
+      # tasks of their own. Work the page queued before them (a timer, a
+      # history traversal, a frame's navigation) therefore runs first, as in a
+      # browser. Those tasks are run here, before boot returns, so a host that
+      # booted the page finds it loaded; a later timer stays pending.
+      def the_end(scripts)
+        # A runtime that only records the lifecycle (it left the document as
+        # it was) is replayed the transitions through the port, as before.
+        return replay_the_end(scripts) unless @document.__internal_ready_state__ == "loading"
+
+        @document.__internal_update_readiness__("interactive")
+        @runtime.drain_microtasks
         scripts.each { |element| run_one(element) if deferred?(element) }
         # The modules the page fetched, for the next page of its origin to read
         # as bytecode.
         ModulePreload.register(@runtime, @loader.served)
+        scheduler = microtask_scheduler
+        unless scheduler
+          @document.__internal_fire_dom_content_loaded__
+          @document.__internal_finish_loading__
+          return
+        end
+
+        scheduler.set_timeout(proc { @document.__internal_fire_dom_content_loaded__ }, 0)
+        queue_load_task(scheduler)
+        scheduler.run_tasks_until { @document.__internal_completely_loaded__? }
+      end
+
+      def replay_the_end(scripts)
+        scripts.each { |element| run_one(element) if deferred?(element) }
+        ModulePreload.register(@runtime, @loader.served)
         @runtime.set_document_ready_state("interactive")
         @runtime.set_document_ready_state("complete")
+      end
+
+      # The load task, queued once nothing delays the load event: while a
+      # child navigable is still navigating, wait behind its task.
+      def queue_load_task(scheduler)
+        scheduler.set_timeout(proc do
+          if @document.__internal_load_delayed__?
+            queue_load_task(scheduler)
+          else
+            @document.__internal_finish_loading__
+          end
+        end, 0)
       end
 
       def wire_inline_event_handlers

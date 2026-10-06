@@ -646,6 +646,26 @@ module Dommy
       frame.nil? || frame.is_connected?
     end
 
+    # Whether this window's document has an opaque origin whatever its URL
+    # says (an error page a failed navigation shows).
+    attr_accessor :__internal_opaque_origin__
+
+    # HTML "create and initialize a Document object": a navigation away from
+    # the initial about:blank to a same-origin document reuses its Window. The
+    # document `other` (built with a Window of its own) becomes this window's,
+    # with its URL; this window's listeners, name and properties stay.
+    def __internal_adopt_document_of__(other)
+      document = other.document
+      @document = document
+      document.default_view = self
+      @location.__internal_set_url__(other.location.href)
+      @history = History.new(self, @location)
+      @__internal_initial_about_blank__ = false
+      delegate = other.navigation_delegate
+      @navigation_delegate = delegate unless delegate.is_a?(Navigation::NullDelegate)
+      nil
+    end
+
     # The embedder replaced this window's document with another (a
     # cross-document navigation): the window keeps existing for scripts that
     # hold it, but its document is no longer fully active.

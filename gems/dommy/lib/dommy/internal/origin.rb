@@ -26,6 +26,7 @@ module Dommy
         seen = []
         while window && !seen.include?(window)
           seen << window
+          return "null" if window.respond_to?(:__internal_opaque_origin__) && window.__internal_opaque_origin__
           url = window.location&.href.to_s
           return of_url(url) unless inherits_origin?(url)
 
