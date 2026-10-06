@@ -262,6 +262,11 @@ module Dommy
       @y
     end
 
+    # DOMRect's serialization + deserialization steps (Geometry Interfaces).
+    def __internal_structured_clone__(_for_storage = false)
+      self.class.new(x: @x, y: @y, width: @width, height: @height)
+    end
+
     def left
       @x
     end

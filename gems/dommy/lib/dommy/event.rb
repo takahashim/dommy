@@ -1061,7 +1061,8 @@ module Dommy
     def read_init(init, key)
       case init
       when Hash
-        init[key] || init[key.to_sym]
+        # `false` is a value (MessageEvent's `data: false`), not an absence.
+        init.key?(key) ? init[key] : init[key.to_sym]
       else
         init.respond_to?(:__js_get__) ? init.__js_get__(key) : nil
       end

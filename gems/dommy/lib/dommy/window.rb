@@ -454,7 +454,7 @@ module Dommy
       when "getSelection"
         document&.get_selection
       when "postMessage"
-        post_message(args[0])
+        post_message(args[0], args.length > 1 ? args[1] : "*", source: args[2])
       else
         # Additional window-level methods (fetch, location, history,
         # Promise, MutationObserver, etc.) arrive in later sessions.
@@ -1088,13 +1088,49 @@ module Dommy
       PromiseValue.resolve(self, nil)
     end
 
-    # `window.postMessage`: deliver a structured-cloned `message` to this window's
-    # own message handlers from a TASK (the "post message" task source, not a
-    # microtask) — so it lands in a later event-loop turn, as the spec requires.
-    def post_message(message)
-      data = Dommy.structured_clone(message)
-      @scheduler.set_timeout(proc { dispatch_event(MessageEvent.new("message", "data" => data)) }, 0)
+    # `window.postMessage` — the window post message steps: `message` is
+    # serialized now (a JS caller's arrives already serialized by the realm,
+    # transfer list and all), then a task on the posted message task source
+    # (not a microtask: a later event-loop turn) delivers it, provided this
+    # window's origin is `target_origin`. `target_origin` is "*" (anyone), "/"
+    # (the source's own origin) or a serialized origin; `source` is the window
+    # that posted, whose origin the event reports. A record this window cannot
+    # deserialize fires `messageerror` instead.
+    def post_message(message, target_origin = "*", source: nil)
+      serialized = Dommy.structured_serialize(message)
+      source ||= self
+      source_origin = source.respond_to?(:origin) ? source.origin.to_s : origin.to_s
+      target_origin = target_origin.to_s
+      @scheduler.set_timeout(proc { deliver_posted_message(serialized, target_origin, source, source_origin) }, 0)
       nil
+    end
+
+    def deliver_posted_message(serialized, target_origin, source, source_origin)
+      return unless target_origin == "*" || posted_origin_matches?(target_origin, source, source_origin)
+
+      init = {"origin" => source_origin, "source" => source}
+      begin
+        data, ports = serialized.deserialize_with_transfer
+      rescue DOMException::DataCloneError
+        dispatch_event(MessageEvent.new("messageerror", init).__internal_mark_trusted__)
+        return
+      ensure
+        serialized.release if serialized.respond_to?(:release)
+      end
+      dispatch_event(MessageEvent.new("message", init.merge("data" => data, "ports" => ports)).__internal_mark_trusted__)
+    end
+
+    # "targetWindow's associated Document is same origin with targetOrigin":
+    # "/" stands for the source's own origin. An opaque origin is only ever
+    # same origin with itself — the window posting to itself.
+    def posted_origin_matches?(target_origin, source, source_origin)
+      if target_origin == "/"
+        return true if source.equal?(self)
+
+        target_origin = source_origin
+      end
+      own = origin.to_s
+      own != "null" && !own.empty? && own == target_origin
     end
 
     # Accept either positional `(x, y)` or a `{ left:, top: }` options dict.

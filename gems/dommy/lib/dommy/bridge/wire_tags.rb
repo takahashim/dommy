@@ -72,6 +72,10 @@ module Dommy
       THROW = "__rb_throw__"
       # A callback whose JS invocation threw (the thrown value is carried here).
       CALLBACK_THREW = "__rb_cb_threw__"
+      # A structured-serialization record the JS realm holds (by id), crossing
+      # as an opaque Dommy::Js::SerializedRecord (see host_runtime.js
+      # serializedTag).
+      SERIALIZED = "__rb_serialized"
     end
   end
 end

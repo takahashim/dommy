@@ -63,6 +63,12 @@ module Dommy
       @__message.to_s
     end
 
+    # DOMException's serialization + deserialization steps (WebIDL): its name
+    # and message.
+    def __internal_structured_clone__(_for_storage = false)
+      DOMException.new(message, name)
+    end
+
     def name
       @explicit_name || self.class::NAME
     end

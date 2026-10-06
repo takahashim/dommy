@@ -92,6 +92,11 @@ module Dommy
       nil
     end
 
+    # Internal state pushState/replaceState read JS-side before serializing.
+    def __internal_state__(name)
+      @window.__internal_fully_active__? if name == "fully_active"
+    end
+
     # `history.length`: the joint session history's size when the embedder keeps
     # one, otherwise this document's own entries.
     def length
@@ -143,7 +148,7 @@ module Dommy
     # "Restore the history object state": deserialize the entry's serialized
     # state afresh.
     def restore_state(serialized)
-      @state = Dommy.structured_clone(serialized)
+      @state = Dommy.structured_deserialize(serialized)
       @state_version += 1
     end
 
@@ -191,7 +196,7 @@ module Dommy
       ensure_fully_active!
       # StructuredSerializeForStorage comes first: a DataCloneError wins over a
       # bad URL.
-      serialized = Dommy.structured_clone(data)
+      serialized = Dommy.structured_serialize(data)
       new_url = @location.href
       # A null (or omitted) URL, and — for historical reasons — the empty
       # string, keep the document's URL, fragment and all.

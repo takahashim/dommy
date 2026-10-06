@@ -174,6 +174,18 @@ module Dommy
           window_handler ? true : false), true)
       end
 
+      # StructuredDeserializeWithTransfer of a record the realm serialized (see
+      # SerializedRecord): `{"value" => …, "ports" => [MessagePort…]}`, or
+      # `{"error" => message}` when it cannot be deserialized.
+      def deserialize_record(id)
+        unwrap(@backend.call_js("__rbHost.deserializeRecord", id))
+      end
+
+      def release_record(id)
+        @backend.call_js("__rbHost.releaseRecord", id)
+        nil
+      end
+
       # Invoke a JS EventListener *object*'s handleEvent (see HostEventListener),
       # passing the dispatched event as a proxy. A thrown value re-raises as a
       # ThrowValue (identity preserved) so event dispatch can report it as a
@@ -313,6 +325,49 @@ module Dommy
             promise = host(handle)
             fulfilled ? promise.fulfill(unwrap(value)) : promise.reject(unwrap(value))
             nil
+          end
+        end
+        # Structured serialization of a platform object (host_runtime.js
+        # structuredSerializeInternal): a serializable one answers
+        # `__internal_structured_clone__(for_storage)` with a new object holding
+        # the same data — the snapshot a record keeps, and each deserialized
+        # copy; anything else is a DataCloneError.
+        @backend.define_host_function("__rb_host_clone") do |handle, for_storage|
+          @profile.count(:__rb_host_clone)
+          dom_guard do
+            obj = host(handle)
+            unless obj.respond_to?(:__internal_structured_clone__)
+              raise DOMException::DataCloneError, "#{DomInterfaces.info(obj)["name"] || obj.class.name} object could not be cloned"
+            end
+
+            wrap(obj.__internal_structured_clone__(for_storage ? true : false))
+          end
+        end
+        # A transferable platform object's state: "transferable", "detached"
+        # (its [[Detached]] slot is true), or nil for one that is not
+        # transferable at all.
+        @backend.define_host_function("__rb_host_transfer_state") do |handle|
+          @profile.count(:__rb_host_transfer_state)
+          obj = host(handle)
+          next nil unless obj.respond_to?(:__internal_transfer__)
+
+          obj.respond_to?(:__internal_detached__?) && obj.__internal_detached__? ? "detached" : "transferable"
+        end
+        # The transfer steps + transfer-receiving steps: the object is detached
+        # and the new one that takes over its data is returned.
+        @backend.define_host_function("__rb_host_transfer") do |handle|
+          @profile.count(:__rb_host_transfer)
+          dom_guard { wrap(host(handle).__internal_transfer__) }
+        end
+        # A piece of a host object's internal state an algorithm running JS-side
+        # needs before it crosses (a BroadcastChannel's closed flag, a port's
+        # entangled port, whether a History's document is fully active):
+        # `__internal_state__(name)`, never a page-visible member.
+        @backend.define_host_function("__rb_host_state") do |handle, name|
+          @profile.count(:__rb_host_state, nil, name)
+          dom_guard do
+            obj = host(handle)
+            wrap(obj.respond_to?(:__internal_state__) ? obj.__internal_state__(name.to_s) : nil)
           end
         end
         # 2d: one call returns everything makeProxy needs — interface name +
