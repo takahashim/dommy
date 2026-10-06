@@ -115,7 +115,11 @@ module Dommy
     # `files` is otherwise read-only, so the shared setters never see it.
     def __js_set__(key, value)
       if key == "files"
-        self.files = value
+        # `FileList?`: anything else is a TypeError. A null value, or an input
+        # not in the File Upload state, leaves the selected files alone.
+        raise Bridge::TypeError, "The provided value is not of type 'FileList'." unless value.nil? || value.is_a?(FileList)
+
+        self.files = value unless value.nil? || type != "file"
         return nil
       end
 
@@ -221,11 +225,28 @@ module Dommy
         number = strategy.to_number(raw.to_s)
         number.finite? ? strategy.from_number(number) : ""
       when "color"
-        s = raw.to_s.strip.downcase
-        s.match?(/\A#[0-9a-f]{6}\z/) ? s : "#000000"
+        sanitize_color(raw.to_s)
       else
         raw.to_s
       end
+    end
+
+    CSS_WHITESPACE = /\A[ \t\n\r\f]+|[ \t\n\r\f]+\z/
+    SERIALIZED_RGB = /\Argba?\((\d+), (\d+), (\d+)(?:, [\d.e-]+)?\)\z/
+
+    # HTML "update a color well control color" in the Limited sRGB state
+    # without `alpha`: the value parsed as a CSS <color> (a named color,
+    # #rgb / #rrggbb, rgb(), hsl(), …) and serialized as "#rrggbb", opaque
+    # black when it does not parse. (The `alpha` and Display P3 serializations
+    # are not modelled; they get the same hex form.)
+    def sanitize_color(raw)
+      text = raw.gsub(CSS_WHITESPACE, "")
+      return "#000000" if text.empty? || text.match?(/[\u0000]/)
+
+      match = SERIALIZED_RGB.match(Internal::CSS::Color.normalize(text))
+      return "#000000" unless match
+
+      format("#%02x%02x%02x", *match.captures.map { |c| c.to_i.clamp(0, 255) })
     end
 
     def strip_newlines(str)
@@ -681,7 +702,9 @@ module Dommy
       id = __internal_attribute_value__("list")
       return nil if id.nil? || id.empty?
 
-      element = @document.get_element_by_id(id)
+      # The first element with that ID in the input's own tree — a detached
+      # subtree or a shadow tree included.
+      element = __internal_tree_element_by_id__(id)
       element.is_a?(HTMLDataListElement) ? element : nil
     end
 

@@ -256,7 +256,7 @@ class TestWPTInputBadInput < Minitest::Test
   # WPT: html/semantics/forms/constraints/form-validation-validity-badInput.html
   def test_color_invalid_is_sanitized_rather_than_bad_input
     i = input("color")
-    i.value = "purple"
+    i.value = "not-a-color"
     assert_equal("#000000", i.value)
     refute(i.validity.bad_input)
   end

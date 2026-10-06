@@ -693,8 +693,9 @@ module Dommy
     # Priority: explicit `for=`, then first form control descendant.
     def control
       target = html_for
-      if !target.empty?
-        el = @document.get_element_by_id(target)
+      if __internal_has_attribute__?("for")
+        # The first element in the label's own tree with that ID.
+        el = __internal_tree_element_by_id__(target)
         el if el && labelable_control?(el)
       else
         # The first labelable descendant in tree order (a hidden input, being

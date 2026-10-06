@@ -392,6 +392,17 @@ module Dommy
       __internal_has_attribute__?("disabled") || disabled_by_ancestor_fieldset?
     end
 
+    # The first element in tree order, in this element's own tree (a
+    # document, a shadow root, or a detached subtree), whose ID is `id`.
+    def __internal_tree_element_by_id__(id)
+      root = get_root_node
+      return root.get_element_by_id(id) if root.respond_to?(:get_element_by_id)
+      return nil unless root.is_a?(Element)
+      return root if root.id == id
+
+      root.query_selector_all("[id]").to_a.find { |el| el.id == id }
+    end
+
     # HTML attribute names are case-insensitive only in an HTML document — the
     # browser DOM lowercases everything there. In a non-HTML (XML) document even an
     # HTML-namespaced element preserves case. Shortcuts Element's namespace check

@@ -169,3 +169,39 @@ class TestInputStepping < Minitest::Test
     assert_equal "3", i.value
   end
 end
+
+# Smaller HTML rules on inputs and labels.
+class TestInputSmallRules < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window("<input id=c type=color>")
+    @doc = @win.document
+  end
+
+  def test_color_values_are_parsed_as_css_colors
+    c = @doc.get_element_by_id("c")
+    { "crimson" => "#dc143c", "#FfF" => "#ffffff", "rgb(1,1,1)" => "#010101",
+      "hsl(120, 100%, 25%)" => "#008000", "bogus" => "#000000", "#fff\u0000" => "#000000" }.each do |given, expected|
+      c.value = given
+      assert_equal expected, c.value, given
+    end
+  end
+
+  def test_list_and_label_control_look_in_their_own_tree
+    div = @doc.create_element("div")
+    div.inner_html = "<input id=i list=dl><datalist id=dl></datalist><label id=l for=i></label>"
+    input = div.query_selector("#i")
+    assert_equal "dl", input.list&.id
+    assert_same input, div.query_selector("label").control
+  end
+
+  def test_files_null_is_ignored
+    f = @doc.create_element("input")
+    f.type = "file"
+    before = f.files
+    f.__js_set__("files", nil)
+    assert_same before, f.files
+    assert_raises(Dommy::Bridge::TypeError) { f.__js_set__("files", []) }
+  end
+end
