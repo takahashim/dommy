@@ -32,11 +32,7 @@ module Dommy
       # definition re-wraps the node), so an element's queue survives the
       # upgrade that its own reactions are being processed for.
       class ElementData
-        # `registry` is the element's custom element registry when it is a
-        # scoped one; nil stands for its node document's (a global registry
-        # is the effective global registry of whatever document the element
-        # is in, so it follows the element when it is adopted).
-        attr_accessor :state, :definition, :wrapper, :is_value, :form_owner, :disabled, :registry
+        attr_accessor :state, :definition, :wrapper, :is_value, :form_owner, :disabled
         attr_reader :reactions
 
         def initialize(wrapper, state, is_value = nil)
@@ -45,6 +41,25 @@ module Dommy
           @is_value = is_value
           @definition = nil
           @reactions = []
+          @registry = UNSET
+        end
+
+        # The element's custom element registry, when it is not its node
+        # document's: a scoped one, or null. Unset, the element has its
+        # document's (a global registry is the effective global registry of
+        # whatever document the element is in, so it follows the element when
+        # it is adopted).
+        UNSET = Object.new.freeze
+
+        def registry = @registry.equal?(UNSET) ? nil : @registry
+        def registry_set? = !@registry.equal?(UNSET)
+
+        def registry=(registry)
+          @registry = registry
+        end
+
+        def reset_registry!
+          @registry = UNSET
         end
 
         def custom? = @state == "custom"

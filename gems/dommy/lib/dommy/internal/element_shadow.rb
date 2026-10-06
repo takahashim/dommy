@@ -107,7 +107,7 @@ module Dommy
           slot_assignment: opts["slotAssignment"] || opts[:slotAssignment] || "named"
         )
         @__shadow_root.__internal_available_to_internals__ = true if constructed
-        @__shadow_root.__internal_custom_element_registry__ = registry if registry&.scoped?
+        @__shadow_root.__internal_custom_element_registry__ = registry unless registry.equal?(CustomElementRegistry.effective_global_for(owner_document))
         @__shadow_root
       end
 

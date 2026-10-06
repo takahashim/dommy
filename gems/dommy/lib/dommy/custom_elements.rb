@@ -236,6 +236,13 @@ module Dommy
       window.custom_elements if window.respond_to?(:custom_elements)
     end
 
+    # DOM "effective global custom element registry" of a document's: the
+    # registry when it is a global one, else none.
+    def self.effective_global_for(document)
+      registry = for_document(document)
+      registry unless registry.nil? || registry.scoped?
+    end
+
     # HTML "look up a custom element registry" given a node: an element's or
     # a shadow root's own, a document's.
     def self.for_node(node)
@@ -352,9 +359,8 @@ module Dommy
     # root without one) and the elements of its subtree without one this
     # registry, and try to upgrade those it is now the registry of.
     def initialize_registry(root)
-      unless root.is_a?(Node) && root.__dommy_backend_node__
-        raise Bridge::TypeError, "CustomElementRegistry.initialize: parameter 1 is not of type 'Node'"
-      end
+      root_node = root.is_a?(Document) ? root.backend_doc : (root.__dommy_backend_node__ if root.is_a?(Node))
+      raise Bridge::TypeError, "CustomElementRegistry.initialize: parameter 1 is not of type 'Node'" unless root_node
 
       document = root.is_a?(Document) ? root : root.owner_document
       if !@scoped && (root.is_a?(Document) || !CustomElementRegistry.for_document(document).equal?(self))
@@ -367,7 +373,7 @@ module Dommy
         elsif root.is_a?(ShadowRoot) && root.__internal_custom_element_registry__.nil?
           root.__internal_custom_element_registry__ = self
         end
-        Internal::NodeTraversal.subtree_nodes(root.__dommy_backend_node__).each do |node|
+        Internal::NodeTraversal.subtree_nodes(root_node).each do |node|
           next unless node.element?
 
           element = document.wrap_node(node)

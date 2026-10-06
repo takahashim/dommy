@@ -78,6 +78,28 @@ module Dommy
 
       def backend_doc = @document.backend_doc
 
+      # DOM adopt step 3.2.2.2: an element without a scoped registry gets the
+      # new document's (its parent's, under a parent) effective global one —
+      # what an unset registry stands for — or keeps null under a parent
+      # whose registry is scoped or null.
+      def adopt_registry(element)
+        shadow = element.respond_to?(:__internal_shadow_root__) ? element.__internal_shadow_root__ : nil
+        shadow&.__internal_adopt_registry__
+        data = element.__internal_peek_ce_data__
+        return unless data&.registry_set?
+
+        registry = data.registry
+        return if registry&.scoped?
+
+        parent = element.parent_node
+        if registry || parent.nil? || parent.is_a?(Fragment)
+          data.reset_registry!
+        else
+          parent_registry = CustomElementRegistry.for_node(parent)
+          parent_registry && !parent_registry.scoped? ? data.reset_registry! : (data.registry = nil)
+        end
+      end
+
       # DOM adopt step 3.3: each custom element among the adopted node's
       # shadow-including inclusive descendants gets an adoptedCallback
       # reaction, given the old and the new document.
@@ -86,7 +108,10 @@ module Dommy
 
         @document.__internal_each_shadow_including_element__(root) do |node|
           element = @document.__internal_peek_wrapper__(node)
-          next unless element.respond_to?(:__internal_ce_custom__?) && element.__internal_ce_custom__?
+          next unless element.respond_to?(:__internal_ce_custom__?)
+
+          adopt_registry(element)
+          next unless element.__internal_ce_custom__?
 
           CEReactions.enqueue_callback(element, "adoptedCallback", [old_document, @document])
         end

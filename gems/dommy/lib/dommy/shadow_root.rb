@@ -28,10 +28,19 @@ module Dommy
 
     # DOM "custom element registry" of the shadow root: the scoped registry
     # attachShadow() or initialize() gave it, else its document's.
-    attr_writer :__internal_custom_element_registry__
+    def __internal_custom_element_registry__=(registry)
+      @__registry_set = true
+      @__registry = registry
+    end
 
     def __internal_custom_element_registry__
-      @__internal_custom_element_registry__ || CustomElementRegistry.for_document(@document)
+      @__registry_set ? @__registry : CustomElementRegistry.effective_global_for(@host.owner_document)
+    end
+
+    # DOM adopt step 3.2.1: a null or global registry becomes the new
+    # document's effective global one (what an unset one stands for).
+    def __internal_adopt_registry__
+      @__registry_set = false unless @__registry&.scoped?
     end
 
     def __dommy_backend_node__ = @__node__

@@ -45,7 +45,7 @@ module Dommy
         node = Backend.create_element(definition.local_name, Element::HTML_NAMESPACE, @document.backend_doc)
         element = @wrappers.wrap(node)
         data = element.__internal_init_ce_data__(definition.autonomous? ? nil : definition.name)
-        data.registry = definition.registry if definition.registry&.scoped?
+        element.__internal_set_ce_registry__(definition.registry) if definition.registry&.scoped?
         definition.mark_custom(data)
         element
       end
@@ -124,13 +124,13 @@ module Dommy
         definition = CustomElementRegistry.lookup(registry, namespace, local, is_value)
         if definition&.autonomous?
           element = create_custom_element_synchronously(definition, local)
-          element.__internal_ce_data__.registry = registry if registry&.scoped?
+          element.__internal_set_ce_registry__(registry)
           return element
         end
 
         element = @wrappers.build_element_wrapper(yield)
         data = element.__internal_init_ce_data__(definition ? definition.name : is_value)
-        data.registry = registry if registry&.scoped?
+        element.__internal_set_ce_registry__(registry)
         upgrade_synchronously(definition, data) if definition
         element
       end

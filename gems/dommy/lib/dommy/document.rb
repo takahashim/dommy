@@ -176,8 +176,6 @@ module Dommy
         NodeList.new
       when "firstChild", "lastChild"
         nil
-      when "customElementRegistry"
-        __internal_custom_element_registry__
       when "isConnected"
         is_connected?
       end
@@ -2002,6 +2000,8 @@ module Dommy
         cookie
       when "nodeType"
         9
+      when "customElementRegistry"
+        __internal_custom_element_registry__
       when "isConnected"
         # A document is its own shadow-including root, so it is always connected.
         true
@@ -2619,20 +2619,19 @@ module Dommy
     # in tree order (a template's contents are not its children, and belong
     # to a document with no registry).
     def __internal_enqueue_created_upgrades__(nodes, registry = CustomElementRegistry.for_document(self))
-      return if registry.nil?
-
-      scoped = registry.scoped?
-      return unless scoped || registry.any_definitions?
+      explicit = !registry.equal?(CustomElementRegistry.effective_global_for(self))
+      return unless explicit || registry&.any_definitions?
 
       (nodes.is_a?(Array) ? nodes : [nodes]).each do |root|
         Internal::NodeTraversal.subtree_nodes(root).each do |node|
           next unless node.element?
 
           known = __internal_peek_wrapper__(node)
-          if scoped
+          if explicit
             known ||= wrap_node(node)
             known.__internal_ce_data__.registry = registry
           end
+          next if registry.nil?
           next unless Backend.namespace_uri(node) == Element::HTML_NAMESPACE
 
           # The is value a wrapper was made with (a clone's), else the one

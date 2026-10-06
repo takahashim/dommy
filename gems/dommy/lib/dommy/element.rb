@@ -827,7 +827,17 @@ module Dommy
     # DOM "custom element registry" of the element: a scoped registry it was
     # created with or initialized to, else its node document's.
     def __internal_ce_registry__
-      @__ce_data&.registry || CustomElementRegistry.for_document(owner_document)
+      data = @__ce_data
+      data&.registry_set? ? data.registry : CustomElementRegistry.effective_global_for(owner_document)
+    end
+
+    def __internal_peek_ce_data__ = @__ce_data
+
+    # Give the element `registry`, unless it is its node document's anyway.
+    def __internal_set_ce_registry__(registry)
+      return if !@__ce_data&.registry_set? && registry.equal?(CustomElementRegistry.effective_global_for(owner_document))
+
+      __internal_ce_data__.registry = registry
     end
 
     # The wrapper the element's node has now (an upgrade to a Ruby-class
