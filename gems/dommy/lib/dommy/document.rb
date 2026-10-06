@@ -2706,7 +2706,7 @@ module Dommy
       # A <template>'s contents live in a separate content fragment, not its
       # child list, so the pass over `children` misses them. It still runs: an
       # XML document's <template> keeps its children in the child list.
-      clone_template_content(source, copy, source_document) if source.element? && source.name == "template"
+      clone_template_content(source, copy, source_document) if @template_content_registry.template_node?(source)
       source.children.each do |child|
         copy.add_child(clone_into_doc(child, true, source_document))
       end

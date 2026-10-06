@@ -31,10 +31,16 @@ module Dommy
       # and a MutationObserver watching it sees the swap. Only the fragment's
       # children change.
       #
+      # The markup is parsed with the template element itself as the context
+      # element (the fragment parsing algorithm's "in template" insertion
+      # mode), so `<td>a</td>` keeps its `<td>` instead of being parsed as body
+      # content.
+      #
       # Spec: https://html.spec.whatwg.org/#dom-innerhtml
       def attach(template_element, html)
         content = fragment_for(template_element)
-        parsed = Parser.fragment(html.to_s, owner_doc: @document.backend_doc)
+        parsed = Parser.fragment(html.to_s, owner_doc: @document.backend_doc,
+                                            context: template_element.__dommy_backend_node__)
         nodes = parsed.children.to_a
         content.__internal_replace_all__(nodes)
         mark_parser_inserted_scripts(nodes)
