@@ -2606,8 +2606,11 @@ module Dommy
     # HTML "try to upgrade an element": enqueue an upgrade reaction when the
     # registry `element` looks definitions up in has one for it.
     def __internal_try_to_upgrade__(element)
-      definition = CustomElementRegistry.lookup(element.__internal_ce_registry__, element.namespace_uri,
-                                                element.local_name, element.__internal_is_value__)
+      registry = element.__internal_ce_registry__
+      return unless registry&.any_definitions?
+
+      definition = CustomElementRegistry.lookup(registry, element.namespace_uri, element.local_name,
+                                                element.__internal_is_value__)
       Internal::CEReactions.enqueue_upgrade(element, definition) if definition
     end
 
