@@ -831,7 +831,7 @@ module Dommy
     # Give a just-created element its custom element data: the is value it
     # was created with, and the state that goes with it.
     def __internal_init_ce_data__(is_value)
-      @document.__internal_note_is_value__ unless is_value.nil?
+      @document.__internal_note_is_value__(self) unless is_value.nil?
       @__ce_data = Internal::CEReactions::ElementData.new(self, __internal_initial_ce_state__(is_value), is_value)
     end
 

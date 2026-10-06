@@ -2753,14 +2753,22 @@ module Dommy
     # serializer's fast path asks before looking for shadow hosts.
     def __internal_any_shadow_roots__? = !@shadow_registry.all.empty?
 
-    # Whether an element of this document was ever given an is value it may
-    # not carry as an `is` attribute (createElement's `{is}`, a customized
-    # built-in's constructor, a clone of either) — the serializer's other
-    # reason to leave its fast path.
-    def __internal_any_is_values__? = @any_is_values ? true : false
+    # Whether an element of this document has an is value it does not carry
+    # as an `is` attribute (createElement's `{is}`, a customized built-in's
+    # constructor, a clone of either) — the serializer's other reason to
+    # leave its fast path. The elements given an is value are held weakly.
+    def __internal_any_is_values__?
+      return false unless @is_value_elements
 
-    def __internal_note_is_value__
-      @any_is_values = true
+      @is_value_elements.keys.any? do |element|
+        node = element.__dommy_backend_node__
+        current = @node_wrapper_cache.peek(node) || element
+        current.__internal_is_value__ && !Backend.has_attribute_ns?(node, nil, "is")
+      end
+    end
+
+    def __internal_note_is_value__(element)
+      (@is_value_elements ||= ObjectSpace::WeakMap.new)[element] = true
     end
 
     # Every element among `root`'s shadow-including inclusive descendants, as
