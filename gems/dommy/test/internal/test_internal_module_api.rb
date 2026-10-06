@@ -35,7 +35,7 @@ class TestInternalModuleApi < Minitest::Test
       html_element? html_document? enableable_element? disabled_element?
       constraint_invalid? constraint_valid? form_control_required?
       form_control_optional? read_only_element? read_write_element?
-      dir_match? lang_match? link_element?
+      dir_match? lang_match? link_element? defined_element?
     ],
     Dommy::Internal::Infra => %w[ascii_whitespace? split_on_ascii_whitespace],
     Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],

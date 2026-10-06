@@ -786,6 +786,15 @@ module Dommy
 
     def __internal_attribute_names__ = get_attribute_names
 
+    # The custom element state an upgrade recorded ("failed" while the
+    # constructor runs, "custom" after), or nil when nothing recorded one —
+    # see ElementState.defined_element? for how the state is otherwise told.
+    attr_reader :__internal_custom_element_state__
+
+    def __internal_set_custom_element_state__(state)
+      @__internal_custom_element_state__ = state
+    end
+
     # WHATWG "legacy-pre-activation behavior": run on the activation target
     # BEFORE the click is dispatched, so a listener already sees the new state
     # (a checkbox reads as checked inside its own onclick). Returns whatever

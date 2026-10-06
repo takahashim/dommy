@@ -294,6 +294,7 @@ module Dommy
         when "lang" then ElementState.lang_match?(element, pseudo.argument)
         when "link" then ElementState.link_element?(element)
         when "any-link" then ElementState.link_element?(element)
+        when "defined" then ElementState.defined_element?(element)
         else
           false
         end
