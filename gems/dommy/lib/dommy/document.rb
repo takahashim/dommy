@@ -587,6 +587,25 @@ module Dommy
       nil
     end
 
+    # A `->(element, name, body, window_handler) {}` set by the JS layer that
+    # compiles an event handler content attribute's body into a function (the
+    # element, its form owner and the document in its scope; none for a
+    # Window's handler, whose `onerror` takes five arguments), raising the
+    # SyntaxError of a body that does not parse. nil = no engine, nothing runs.
+    attr_accessor :event_handler_compiler
+
+    # Activate the event handler content attributes of every element the
+    # parser built (it runs no attribute change steps), as though each had
+    # just been set. Run at boot, before any script, and safe to repeat.
+    def __internal_activate_parsed_event_handlers__
+      selector = (Internal::EventHandlers::GLOBAL | Internal::EventHandlers::WINDOW).map { |name| "[#{name}]" }.join(",")
+      @backend_doc.css(selector).each do |node|
+        element = wrap_node(node)
+        element.__internal_wire_inline_handler__(nil) if element.respond_to?(:__internal_wire_inline_handler__)
+      end
+      nil
+    end
+
     def initialize(host = nil, backend_doc: nil, default_view: nil)
       @host = host
       @default_view = default_view
@@ -1772,7 +1791,7 @@ module Dommy
         # DocumentAndElementEventHandlers, plus onreadystatechange and
         # onvisibilitychange): the registered handler, or null when unset —
         # matching Element's on* getter.
-        return @on_handlers&.[](event_name_from_on(key))
+        return on_handler(event_name_from_on(key))
       end
 
       case key

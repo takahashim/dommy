@@ -230,6 +230,9 @@ module Dommy
         # Custom Element attributeChangedCallback (synchronous)
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
         @post_insertion_steps.script_attribute_changed(target, attr, new_value, namespace)
+        # An event handler content attribute (`onclick="…"`) sets or removes
+        # its handler.
+        EventHandlers.attribute_changed(target, attr, new_value, namespace) if attr.start_with?("on") && target.is_a?(Element)
 
         nil
       end

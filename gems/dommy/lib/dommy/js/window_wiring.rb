@@ -17,9 +17,11 @@ module Dommy
     # HostBridge#window= used to spell all of it out, which left a setter
     # carrying eight side effects and no name for the thing they add up to.
     class WindowWiring
-      def initialize(backend, script_runner:, constructor_resolver:, custom_elements:, microtask_scheduler:)
+      def initialize(backend, script_runner:, event_handler_compiler:, constructor_resolver:, custom_elements:,
+                     microtask_scheduler:)
         @backend = backend
         @script_runner = script_runner
+        @event_handler_compiler = event_handler_compiler
         @constructor_resolver = constructor_resolver
         @custom_elements = custom_elements
         @microtask_scheduler = microtask_scheduler
@@ -57,12 +59,14 @@ module Dommy
         window.scheduler.native_microtask_scheduler = @microtask_scheduler
       end
 
-      # Let a classic <script> inserted into the document execute (Dommy has no
-      # JS engine; it calls back here to run the body in global scope).
+      # Let a classic <script> inserted into the document execute, and an event
+      # handler content attribute compile (Dommy has no JS engine; it calls
+      # back here to run the body in global scope or build the function).
       def wire_script_runner!(window)
         return unless window.respond_to?(:document) && window.document.respond_to?(:script_runner=)
 
         window.document.script_runner = @script_runner
+        window.document.event_handler_compiler = @event_handler_compiler
       end
     end
   end

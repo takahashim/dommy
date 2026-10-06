@@ -327,7 +327,7 @@ module Dommy
       # Installed whenever a runtime is attached — an embedder that drives script
       # boot itself (`execute_scripts: false`) still needs inline handlers wired.
       doc.inline_handler_wirer = lambda do
-        Js::ScriptBoot.wire_inline_handlers(runtime, on_error: ->(e) { @error_log.record(e) })
+        Js::ScriptBoot.wire_inline_handlers(runtime, document: doc, on_error: ->(e) { @error_log.record(e) })
       end
       return unless @execute_scripts
 

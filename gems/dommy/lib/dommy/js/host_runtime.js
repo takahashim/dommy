@@ -169,69 +169,42 @@ globalThis.__rbHost = (function () {
     return isProxy(arg) ? arg : String(arg);
   }
 
-  function isHandlerAttribute(el, name) {
-    if (ELEMENT_HANDLER_ATTRIBUTES.has(name)) return true;
-    if (!WINDOW_REFLECTED_HANDLERS.has(name)) return false;
-
+  // HTML "get the current value of the event handler", the compile step: an
+  // event handler content attribute's body becomes a function named after the
+  // handler (`function onclick(event) {\n…\n}`, so its source text reads as a
+  // browser's), whose scope is the element, its form owner and its document
+  // for an element's handler and the global alone for a Window's — where
+  // `onerror` takes (event, source, lineno, colno, error). Called from Ruby
+  // (Document#event_handler_compiler) when the handler is first read or run.
+  // A body that is not a FunctionBody throws its SyntaxError back, tagged, so
+  // the Ruby side reports it.
+  function compileEventHandler(wireEl, name, code, windowHandler) {
+    bumpDomEpoch(); // Ruby -> JS entry: see invokeCallback
     try {
-      const tag = el.tagName;
-      return tag === "BODY" || tag === "FRAMESET";
-    } catch (e) {
-      return false;
-    }
-  }
-
-  // Setting an on* content attribute at runtime (`el.setAttribute("onclick",
-  // code)`) must compile+activate the handler synchronously, exactly like the
-  // boot-time inline-handler wiring (script_boot). Mirrors its scope chain —
-  // [element, form owner, document] — so `onclick="getElementById(…)"` or a
-  // form control's bare member resolve, and assigns via the on* IDL setter
-  // (el.onclick = fn), which the proxy routes to the Ruby handler registry.
-  // A null code (removeAttribute) clears the handler. Invalid source is ignored.
-  function wireInlineHandler(el, name, code) {
-    try {
-      if (!isHandlerAttribute(el, name)) return;
-      if (code == null) { el[name] = null; return; }
-      let src = "with(this){\n" + String(code) + "\n}";
-      try { if (el.form) src = "with(this.form){\n" + src + "\n}"; } catch (e) { /* no form owner */ }
-      src = "with(document){\n" + src + "\n}";
-      let fn;
-      try { fn = new Function("event", src); }
-      catch (e) { fn = new Function("event", String(code)); } // fall back to plain scope
-      el[name] = fn;
-    } catch (e) { /* syntactically invalid handler: skip, non-fatal */ }
-  }
-
-  // Compile every on* content attribute already in the document into a live
-  // handler. Run once at boot, after parsing and before scripts (matching the
-  // spec, where content attributes are set as the document is parsed), and
-  // replayed whenever an element carrying one turns up later (cloneNode,
-  // innerHTML, a template's fragment). Idempotent: an element whose handler is
-  // already compiled is left alone.
-  //
-  // The scan is selector-driven — only elements carrying a known handler
-  // attribute — rather than a walk of every element. A handler on body/frameset
-  // for a window-reflected event belongs on the WINDOW, so it is wired with
-  // addEventListener; the element's own load never fires, which is what makes
-  // `<body onload>` work. Everything else goes through wireInlineHandler, the
-  // same compilation the runtime `setAttribute("on*")` path uses.
-  function wireInlineHandlers() {
-    const selector = [...ELEMENT_HANDLER_ATTRIBUTES, ...WINDOW_REFLECTED_HANDLERS]
-      .map((name) => "[" + name + "]").join(",");
-    const body = document.body;
-    for (const el of document.querySelectorAll(selector)) {
-      const onBody = el === body || el.tagName === "FRAMESET";
-      for (const name of el.getAttributeNames()) {
-        if (!ELEMENT_HANDLER_ATTRIBUTES.has(name) &&
-            !(onBody && WINDOW_REFLECTED_HANDLERS.has(name))) continue;
-        if (onBody && BODY_REFLECTED_HANDLERS.has(name)) {
-          try {
-            window.addEventListener(name.slice(2), new Function("event", el.getAttribute(name)));
-          } catch (e) { /* syntactically invalid handler: skip, non-fatal */ }
-        } else if (typeof el[name] !== "function") {
-          wireInlineHandler(el, name, el.getAttribute(name));
-        }
+      const el = wireEl == null ? null : rehydrate(wireEl);
+      const params = windowHandler && name === "onerror"
+        ? ["event", "source", "lineno", "colno", "error"] : ["event"];
+      const body = String(code);
+      // Parse the body as a FunctionBody first: wrapping it below could let a
+      // stray `}` close the function early and still parse.
+      new Function(...params, body);
+      const scopes = [];
+      if (typeof globalThis.window !== "undefined" && globalThis.window !== globalThis) scopes.push(globalThis.window);
+      if (el) {
+        const doc = el.ownerDocument;
+        if (doc) scopes.push(doc);
+        let form = null;
+        try { form = el.form || null; } catch (e) { /* no form owner */ }
+        if (form && typeof form === "object") scopes.push(form);
+        scopes.push(el);
       }
+      const names = scopes.map((_, i) => "__s" + i);
+      const opens = names.map((n) => "with (" + n + ") ").join("");
+      const source = "function " + name + "(" + params.join(", ") + ") {\n" + body + "\n}";
+      const make = indirectEval("(function (" + names.join(", ") + ") { " + opens + "{ return " + source + "; } })");
+      return dehydrate(make(...scopes));
+    } catch (e) {
+      return tagThrow(e);
     }
   }
 
@@ -492,8 +465,13 @@ globalThis.__rbHost = (function () {
   // The return value is the host's answer to "did I claim this write?" — false
   // means the caller should keep the value JS-side as an expando.
   function hostSet(handle, name, value) {
+    return hostSetWire(handle, name, dehydrateTop(value));
+  }
+
+  // hostSet for a value already in its wire form.
+  function hostSetWire(handle, name, wire) {
     bumpDomEpoch();
-    const handled = __rb_host_set(handle, name, dehydrateTop(value));
+    const handled = __rb_host_set(handle, name, wire);
     bumpDomEpoch();
     if (handled && typeof handled === "object" && handled.__rb_exception__) {
       throw makeHostError(handled.__rb_exception__);
@@ -2303,9 +2281,8 @@ globalThis.__rbHost = (function () {
     return (name) => read(prop, name);
   }
 
-  // setAttribute / removeAttribute: a mutating attribute op, and additionally
-  // an on* attribute set or removed at runtime (re)compiles or clears the
-  // inline event handler.
+  // setAttribute / removeAttribute: a mutating attribute op. (An on*
+  // attribute's handler is the host's business: its attribute change steps.)
   function attrWriteStub(prop, ctx) {
     if (!ctx.nodeChain) return null;
 
@@ -2313,12 +2290,7 @@ globalThis.__rbHost = (function () {
     return function (...args) {
       bumpDomEpoch();
       try {
-        const r = hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ctx.ifaceName);
-        const attr = String(args[0] == null ? "" : args[0]);
-        if (/^on[a-z]/i.test(attr)) {
-          wireInlineHandler(this, attr.toLowerCase(), prop === "removeAttribute" ? null : args[1]);
-        }
-        return r;
+        return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ctx.ifaceName);
       } finally {
         bumpDomEpoch();
       }
@@ -2673,12 +2645,45 @@ globalThis.__rbHost = (function () {
     // A writable named property (Storage/DOMStringMap) has a DOMString named
     // setter: `storage.x = 42` stores "42" and `= null` stores "null".
     if (shape.named && shape.named.writable) value = toDOMString(value);
-    if (hostSet(handle, prop, value)) return true;
+    if (isEventHandlerAttribute(handle, shape, prop)) {
+      if (hostSetWire(handle, prop, eventHandlerWire(value))) return true;
+    } else if (hostSet(handle, prop, value)) {
+      return true;
+    }
 
     t[prop] = value;
     pinIfProxy(handle, receiver);
     rememberDecline(handle, shape, prop);
     return true;
+  }
+
+  // Event handler IDL attributes whose names do not say which interfaces have
+  // them: Document's and a few of Element's beyond the element/window sets.
+  const DOCUMENT_HANDLERS = new Set([
+    "onreadystatechange", "onvisibilitychange", "onpointerlockchange", "onpointerlockerror",
+    "onfullscreenchange", "onfullscreenerror", "onselectionchange", "onbeforematch",
+  ]);
+
+  // Whether a write of `prop` is to an EventHandler attribute of an
+  // EventTarget. On a node or the window only the event handlers HTML
+  // defines count, so `window.onboarding = 5` stays an ordinary global; on
+  // any other EventTarget (XMLHttpRequest, AbortSignal, a MessagePort, …) an
+  // on-prefixed attribute is one.
+  function isEventHandlerAttribute(handle, shape, prop) {
+    if (!isEventHandlerName(prop) || !shape.methods.has("addEventListener")) return false;
+    if (!shape.nodeChain && !isGlobalWindow(handle) && shape.name !== "Window") return true;
+    return ELEMENT_HANDLER_ATTRIBUTES.has(prop) || WINDOW_REFLECTED_HANDLERS.has(prop) || DOCUMENT_HANDLERS.has(prop);
+  }
+
+  // An EventHandler value as it crosses: the type is
+  // [LegacyTreatNonObjectAsNull], so a value that is not an object is null,
+  // a function is a callback, and any other object crosses as itself — an
+  // opaque reference, never an EventListener, since a handler's handleEvent
+  // is not looked up — so `el.onclick = obj` reads back as `obj`.
+  function eventHandlerWire(v) {
+    if (typeof v === "function") return dehydrate(v);
+    if (v === null || typeof v !== "object") return null;
+    return dehydrateSettle(v);
   }
 
   // Remember a decline per (interface, prop): the host's set dispatch is a pure
@@ -3423,7 +3428,7 @@ globalThis.__rbHost = (function () {
     seedInterfaces, invokeLifecycle, upgradeInPlace, attachStatics, exposeConstructorsOnWindow,
     // Realm wiring the Ruby bridge drives, kept here rather than as JS built in
     // Ruby strings (see defineGlobal / defineLegacyEventAccessor).
-    defineGlobal, exposeConstructorsOnSubWindow, defineLegacyEventAccessor, wireInlineHandlers,
+    defineGlobal, exposeConstructorsOnSubWindow, defineLegacyEventAccessor, compileEventHandler,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,
     wasmTypeof, wasmToString, wasmStrictEqual, wasmIsNull, wasmInstanceof,

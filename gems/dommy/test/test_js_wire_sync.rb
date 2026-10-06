@@ -145,22 +145,20 @@ class TestEventHandlerContentAttributes < Minitest::Test
     end
   end
 
-  # The boot-time scan and the runtime setAttribute path must read one list and
-  # compile handlers one way. They do when the scan lives beside them, so what
-  # this pins is that Ruby carries no second copy of either.
-  def test_the_boot_wiring_lives_with_the_sets_rather_than_repeating_them
-    boot = Dommy::Js::ScriptBoot.method(:wire_inline_handlers).source_location
-    ruby = ::File.read(boot.first)
-    refute_match(/new Set\(\["on/, ruby, "the boot wiring must not carry its own copy of the list")
-    refute_match(/new Function\(/, ruby, "the boot wiring must not compile handlers of its own")
-    assert_includes(RUNTIME_JS, "function wireInlineHandlers()")
-    assert_match(/wireInlineHandler\(el, name, el\.getAttribute\(name\)\)/, RUNTIME_JS,
-      "the boot scan must reuse the per-attribute compilation")
+  # The event handler content attribute steps run host-side
+  # (Internal::EventHandlers), which keeps its own copy of the two sets: it
+  # must name exactly the handlers the JS tables do.
+  def test_the_host_attribute_steps_read_the_same_sets
+    assert_equal(element_handlers.sort, Dommy::Internal::EventHandlers::GLOBAL.to_a.sort)
+    assert_equal(reflected_handlers.sort, Dommy::Internal::EventHandlers::WINDOW.to_a.sort)
   end
 
-  def test_the_runtime_gates_the_set_attribute_path_on_them
-    assert_includes(RUNTIME_JS, "function isHandlerAttribute(el, name)")
-    assert_match(/if \(!isHandlerAttribute\(el, name\)\) return;/, RUNTIME_JS)
+  # Compilation is the engine's: host_runtime builds the function, Ruby only
+  # stores the body until then.
+  def test_the_runtime_compiles_handlers
+    assert_includes(RUNTIME_JS, "function compileEventHandler(wireEl, name, code, windowHandler)")
+    boot = Dommy::Js::ScriptBoot.method(:wire_inline_handlers).source_location
+    refute_match(/new Function\(/, ::File.read(boot.first), "the boot wiring must not compile handlers of its own")
   end
 end
 

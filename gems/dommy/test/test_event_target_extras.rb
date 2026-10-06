@@ -100,57 +100,133 @@ class TestEventTargetExtras < Minitest::Test
   end
 end
 
-# HTML compiles an `on*` content attribute the first time a matching event
-# reaches its element, so a node that arrived by `cloneNode` / `innerHTML` /
-# `setAttribute` — after the boot-time wiring pass — still gets its handler.
-class TestLazyInlineHandlerWiring < Minitest::Test
+# HTML event handlers, with a Ruby stand-in for the engine's compiler: an
+# `on*` content attribute's handler is activated when the attribute is set (or,
+# for one a parser set, at boot or when an event first reaches the element),
+# compiled when first read or run, and keeps its place in the listener list
+# however its value changes.
+class TestEventHandlerAttributes < Minitest::Test
   include DommyTestHelper
 
   def setup
     @win = make_window
     @doc = @win.document
-    @wired = 0
-    @doc.inline_handler_wirer = -> { @wired += 1 }
+    @compiled = []
+    @ran = []
+    @doc.event_handler_compiler = lambda do |element, name, source, window_handler|
+      raise Dommy::Bridge::ThrowValue.new("SyntaxError") if source == "}"
+
+      @compiled << [element&.local_name, name, source, window_handler]
+      ran = @ran
+      proc { ran << source }
+    end
     @el = @doc.create_element("div")
     @doc.body.append_child(@el)
   end
 
-  def test_an_element_without_an_on_attribute_never_wires
-    @el.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
-    assert_equal(0, @wired)
+  def click(target = @el) = target.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
+
+  def listener(label) = proc { @ran << label }
+
+  def test_set_attribute_activates_and_compiles_lazily
+    @el.set_attribute("onclick", "a()")
+    assert_empty @compiled
+    click
+    assert_equal [["div", "onclick", "a()", false]], @compiled
+    assert_equal ["a()"], @ran
   end
 
-  def test_the_first_matching_event_triggers_the_wiring_pass
-    @el.set_attribute("onclick", "noop()")
-    @el.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
-    assert_equal(1, @wired)
+  # The listener is added when the handler first gets a value and keeps its
+  # position when the value changes.
+  def test_the_handler_keeps_its_position
+    @el.add_event_listener("click", listener("one"))
+    @el.set_attribute("onclick", "first()")
+    @el.add_event_listener("click", listener("three"))
+    @el.__js_set__("onclick", listener("two"))
+    click
+    assert_equal %w[one two three], @ran
   end
 
-  def test_a_second_event_of_the_same_type_does_not_wire_again
-    @el.set_attribute("onclick", "noop()")
-    2.times { @el.dispatch_event(Dommy::Event.new("click", "bubbles" => true)) }
-    assert_equal(1, @wired)
+  def test_null_deactivates_and_a_new_value_goes_last
+    @el.set_attribute("onclick", "first()")
+    @el.add_event_listener("click", listener("one"))
+    @el.__js_set__("onclick", nil)
+    @el.__js_set__("onclick", listener("two"))
+    click
+    assert_equal %w[one two], @ran
   end
 
-  def test_an_unrelated_event_type_does_not_wire
-    @el.set_attribute("onclick", "noop()")
-    @el.dispatch_event(Dommy::Event.new("focus", "bubbles" => true))
-    assert_equal(0, @wired)
+  # EventHandler is [LegacyTreatNonObjectAsNull].
+  def test_a_non_object_value_is_null
+    @el.__js_set__("onclick", "a()")
+    assert_nil @el.__js_get__("onclick")
+    @el.__js_set__("onclick", 42)
+    assert_nil @el.__js_get__("onclick")
   end
 
-  # An element the event only passes through wires its own handler too.
-  def test_an_ancestor_on_the_bubble_path_wires_as_well
-    @el.set_attribute("onclick", "noop()")
-    child = @doc.create_element("span")
-    @el.append_child(child)
-    child.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
-    assert_equal(1, @wired)
+  def test_removing_the_attribute_deactivates_only_when_it_was_there
+    @el.__js_set__("onclick", listener("idl"))
+    @el.remove_attribute("onclick")
+    click
+    assert_equal ["idl"], @ran
+
+    @el.set_attribute("onclick", "attr()")
+    @el.remove_attribute("onclick")
+    @ran.clear
+    click
+    assert_empty @ran
   end
 
-  def test_no_wirer_means_no_work
-    @doc.inline_handler_wirer = nil
-    @el.set_attribute("onclick", "noop()")
-    @el.dispatch_event(Dommy::Event.new("click", "bubbles" => true))
-    assert_equal(0, @wired)
+  # A body that does not compile makes the value null (reported), without
+  # deactivating the handler: a later value takes the same place.
+  def test_a_compile_error_keeps_the_position
+    @el.add_event_listener("click", listener("one"))
+    @el.set_attribute("onclick", "}")
+    @el.add_event_listener("click", listener("three"))
+    assert_nil @el.__js_get__("onclick")
+    @el.__js_set__("onclick", listener("two"))
+    click
+    assert_equal %w[one two three], @ran
+  end
+
+  # The parser runs no attribute change steps: a parsed element's handlers
+  # are activated when an event first reaches it, once.
+  def test_parsed_handlers_activate_on_first_dispatch
+    @el.inner_html = "<span onclick='parsed()'></span>"
+    span = @el.first_element_child
+    click(span)
+    click(span)
+    assert_equal %w[parsed() parsed()], @ran
+    assert_equal 1, @compiled.size
+  end
+
+  def test_a_parsed_handler_nulled_by_script_stays_null
+    @el.inner_html = "<span onclick='parsed()'></span>"
+    span = @el.first_element_child
+    @doc.__internal_activate_parsed_event_handlers__
+    span.__js_set__("onclick", nil)
+    @doc.__internal_activate_parsed_event_handlers__
+    click(span)
+    assert_empty @ran
+  end
+
+  # On body, a Window-reflecting handler is the Window's: compiled without
+  # the element in scope, and onerror with the five-argument form.
+  def test_body_reflected_handlers_belong_to_the_window
+    @doc.body.set_attribute("onload", "loaded()")
+    @doc.body.set_attribute("onerror", "failed()")
+    refute_nil @win.__js_get__("onload")
+    refute_nil @win.__js_get__("onerror")
+    assert_equal [[nil, "onload", "loaded()", true], [nil, "onerror", "failed()", true]], @compiled
+    @win.dispatch_event(Dommy::Event.new("load"))
+    assert_equal ["loaded()"], @ran
+  end
+
+  def test_no_compiler_means_no_handler
+    @doc.event_handler_compiler = nil
+    @el.set_attribute("onclick", "a()")
+    assert_nil @el.__js_get__("onclick")
+    click
+    assert_empty @ran
   end
 end

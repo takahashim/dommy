@@ -34,14 +34,13 @@ module Dommy
         ScriptBooter.new(runtime, document, resources: resources, on_error: on_error, on_script: on_script).run
       end
 
-      # Re-run the inline-handler scan. Idempotent — the scan skips an element
-      # whose handler is already compiled — so it can be replayed whenever an
-      # element carrying an `on*` attribute turns up after boot (cloneNode,
-      # innerHTML, a fragment inserted by a template). The scan itself lives in
-      # host_runtime.js, next to the handler-attribute sets it reads and the
-      # per-attribute compilation the runtime setAttribute path shares with it.
-      def wire_inline_handlers(runtime, on_error: nil)
-        runtime.execute("__rbHost.wireInlineHandlers();")
+      # Activate the event handler content attributes the parser left on the
+      # document's elements (it runs no attribute change steps). Safe to
+      # replay: an attribute is activated once, and one whose handler was
+      # since set by script is left alone. Compilation itself is lazy (the
+      # handler's first read or event) and lives in host_runtime.js.
+      def wire_inline_handlers(_runtime = nil, document: nil, on_error: nil)
+        document&.__internal_activate_parsed_event_handlers__
       rescue StandardError => e
         on_error&.call(e)
       end
@@ -95,7 +94,7 @@ module Dommy
       end
 
       def wire_inline_event_handlers
-        ScriptBoot.wire_inline_handlers(@runtime, on_error: @on_error)
+        ScriptBoot.wire_inline_handlers(@runtime, document: @document, on_error: @on_error)
       end
 
       # Run a script that was not parser-inserted once its turn comes: an
