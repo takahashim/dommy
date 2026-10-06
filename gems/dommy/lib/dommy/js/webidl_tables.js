@@ -179,7 +179,7 @@ globalThis.__rbIdl = (function () {
   // (`rule.type === CSSRule.STYLE_RULE`).
   const CSSRULE_CONSTANTS = {
     STYLE_RULE: 1, CHARSET_RULE: 2, IMPORT_RULE: 3, MEDIA_RULE: 4, FONT_FACE_RULE: 5,
-    PAGE_RULE: 6, MARGIN_RULE: 9, NAMESPACE_RULE: 10
+    PAGE_RULE: 6, KEYFRAMES_RULE: 7, KEYFRAME_RULE: 8, MARGIN_RULE: 9, NAMESPACE_RULE: 10
   };
 
   // EventSource / FileReader ready-state [Constant]s.
@@ -191,6 +191,9 @@ globalThis.__rbIdl = (function () {
     DOM_KEY_LOCATION_STANDARD: 0x00, DOM_KEY_LOCATION_LEFT: 0x01,
     DOM_KEY_LOCATION_RIGHT: 0x02, DOM_KEY_LOCATION_NUMPAD: 0x03
   };
+
+  // WheelEvent.deltaMode [Constant]s.
+  const WHEELEVENT_CONSTANTS = { DOM_DELTA_PIXEL: 0x00, DOM_DELTA_LINE: 0x01, DOM_DELTA_PAGE: 0x02 };
 
   // HTMLMediaElement networkState / readyState, and HTMLTrackElement readyState.
   const HTMLMEDIAELEMENT_CONSTANTS = {
@@ -209,7 +212,7 @@ globalThis.__rbIdl = (function () {
     WebSocket: WEBSOCKET_CONSTANTS, Range: RANGE_CONSTANTS, XMLHttpRequest: XHR_CONSTANTS,
     DOMException: DOMEXCEPTION_CONSTANTS, CSSRule: CSSRULE_CONSTANTS,
     EventSource: EVENTSOURCE_CONSTANTS, FileReader: FILEREADER_CONSTANTS,
-    KeyboardEvent: KEYBOARDEVENT_CONSTANTS,
+    KeyboardEvent: KEYBOARDEVENT_CONSTANTS, WheelEvent: WHEELEVENT_CONSTANTS,
     HTMLMediaElement: HTMLMEDIAELEMENT_CONSTANTS,
     HTMLTrackElement: HTMLTRACKELEMENT_CONSTANTS
   };

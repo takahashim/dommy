@@ -27,9 +27,16 @@ const WebIDL2 = require(path.join(wpt, "resources/webidl2/lib/webidl2.js"));
 // than failing the suite outright.
 // (Web Storage, DOMParser and XMLSerializer live in html.idl, not in a spec
 // file of their own.)
+//
+// pointerevents, touch-events, css-animations, css-transitions and fullscreen
+// are here for the event handler IDL attributes they add to
+// GlobalEventHandlers / Element / Document (onpointerdown, ontouchstart,
+// onanimationend, ontransitionend, onfullscreenchange), which
+// script/build_event_handlers.rb turns into the event handler tables.
 const SPECS = [
   "dom", "cssom", "html", "uievents", "url", "FileAPI", "encoding",
-  "xhr", "wai-aria", "fetch", "streams", "cssom-view", "selection-api"
+  "xhr", "wai-aria", "fetch", "streams", "cssom-view", "selection-api",
+  "pointerevents", "touch-events", "css-animations", "css-transitions", "fullscreen"
 ];
 
 const interfaces = new Map(); // name -> record
