@@ -26,6 +26,12 @@ module Dommy
       def traverse(delta)
         @session.__internal_enqueue_page_traverse__(@window, delta)
       end
+
+      # `history.length` is the session's joint history.
+      def history_length = @session.history.length
+
+      # `window.stop()`: drop the page's navigation not yet performed.
+      def stop = @session.__internal_stop_page_navigation__(@window)
     end
 
     # A single browser-like session over a Rack application. Owns the current
@@ -126,6 +132,10 @@ module Dommy
         @headers = HeaderStore.new
         @navigation = Navigation.new(self, @config)
         @history = History.new
+        # Web Storage shared by every page of this session (see
+        # Dommy::StorageProvider): localStorage per origin, sessionStorage per
+        # origin for this one top-level browsing session.
+        @storage_provider = Dommy::StorageProvider.new
         @current_url = nil
         @current_window = nil
         @last_request = nil
@@ -460,6 +470,14 @@ module Dommy
         @pending_navigation = {traverse: delta}
       end
 
+      def __internal_stop_page_navigation__(window)
+        @pending_navigation = nil if window.equal?(@current_window)
+        nil
+      end
+
+      # The provider of this session's Web Storage areas.
+      attr_reader :storage_provider
+
       # Perform a recorded page navigation, if any. Called after the JS runtime
       # drains so the document/realm swap never runs with the outgoing realm's
       # JS on the stack.
@@ -469,7 +487,7 @@ module Dommy
 
         @pending_navigation = nil
         if nav.key?(:traverse)
-          traverse_history(nav[:traverse].negative? ? :back : :forward)
+          traverse_history(nav[:traverse])
         else
           perform_page_navigation(nav)
         end
@@ -812,7 +830,12 @@ module Dommy
 
       # One step of the joint back/forward traversal (see #back).
       def traverse_history(direction)
-        target = direction == :back ? @history.back : @history.forward
+        target =
+          case direction
+          when :back then @history.back
+          when :forward then @history.forward
+          else @history.go(direction.to_i)
+          end
         return nil unless target
 
         if target.window&.equal?(@current_window) && target.windex
@@ -853,7 +876,13 @@ module Dommy
         @last_response = response
         @current_url = final_url
         if response.html?
+          previous_window = @current_window
           @current_window = response.window
+          @current_window.storage_provider = @storage_provider
+          referrer = @last_request && @last_request["HTTP_REFERER"]
+          @current_window.document.__internal_referrer__ = referrer.to_s if referrer
+          # The page navigated away from is no longer fully active.
+          previous_window.__internal_discard__ if previous_window && !previous_window.equal?(@current_window)
           @current_window.dialog_handler = @dialog_handler
           # Set the geometry mode before scripts boot so the very first
           # getBoundingClientRect a framework calls already sees it.

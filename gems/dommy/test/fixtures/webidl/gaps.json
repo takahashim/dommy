@@ -4,7 +4,6 @@
   "missing_interfaces": [
     "AudioTrack",
     "AudioTrackList",
-    "BarProp",
     "CDATASection",
     "CSSMarginRule",
     "CSSNamespaceRule",
@@ -17,7 +16,6 @@
     "CustomStateSet",
     "DOMStringList",
     "ElementInternals",
-    "External",
     "FetchLaterResult",
     "HTMLAllCollection",
     "HTMLMarqueeElement",
@@ -42,7 +40,6 @@
     "OffscreenCanvasRenderingContext2D",
     "PageRevealEvent",
     "PageSwapEvent",
-    "PageTransitionEvent",
     "Path2D",
     "Plugin",
     "PluginArray",
@@ -66,6 +63,9 @@
     "XSLTProcessor"
   ],
   "missing_members": {
+    "BarProp": [
+      "visible"
+    ],
     "Blob": [
       "stream",
       "textStream"
@@ -732,9 +732,8 @@
       "userActivation",
       "vendorSub"
     ],
-    "PopStateEvent": [
-      "hasUAVisualTransition",
-      "state"
+    "PageTransitionEvent": [
+      "persisted"
     ],
     "ProcessingInstruction": [
       "getAttribute",
@@ -795,23 +794,9 @@
       "which"
     ],
     "Window": [
-      "blur",
-      "captureEvents",
       "clientInformation",
-      "close",
-      "closed",
       "createImageBitmap",
-      "crossOriginIsolated",
-      "external",
       "fetchLater",
-      "focus",
-      "frameElement",
-      "isSecureContext",
-      "locationbar",
-      "menubar",
-      "moveBy",
-      "moveTo",
-      "name",
       "navigation",
       "onabort",
       "onafterprint",
@@ -909,21 +894,6 @@
       "onwebkitanimationstart",
       "onwebkittransitionend",
       "onwheel",
-      "opener",
-      "originAgentCluster",
-      "personalbar",
-      "print",
-      "releaseEvents",
-      "resizeBy",
-      "screenLeft",
-      "screenTop",
-      "screenX",
-      "screenY",
-      "scrollbars",
-      "status",
-      "statusbar",
-      "stop",
-      "toolbar",
       "visualViewport"
     ],
     "Worker": [
@@ -940,7 +910,16 @@
     "HTMLIFrameElement.srcdoc": "declared string though the IDL has no [Reflect]"
   },
   "void_gaps": {
-    "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined"
+    "DataTransferItemList.add": "returns DataTransferItem?, but a null answer becomes undefined",
+    "External.AddSearchProvider": "returns undefined, which the bridge does not guarantee",
+    "External.IsSearchProviderInstalled": "returns undefined, which the bridge does not guarantee",
+    "Window.captureEvents": "returns undefined, which the bridge does not guarantee",
+    "Window.close": "returns undefined, which the bridge does not guarantee",
+    "Window.moveBy": "returns undefined, which the bridge does not guarantee",
+    "Window.print": "returns undefined, which the bridge does not guarantee",
+    "Window.releaseEvents": "returns undefined, which the bridge does not guarantee",
+    "Window.resizeBy": "returns undefined, which the bridge does not guarantee",
+    "Window.stop": "returns undefined, which the bridge does not guarantee"
   },
   "arity_gaps": {},
   "constructor_arity_gaps": {},

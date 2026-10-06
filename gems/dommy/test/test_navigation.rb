@@ -83,6 +83,7 @@ class TestNavigation < Minitest::Test
     @win.add_event_listener("hashchange", ->(e) { fired << e.__js_get__("newURL") })
 
     @doc.get_element_by_id("frag").click
+    @win.scheduler.advance_time(0) # hashchange is queued as a task
 
     # No cross-document navigation reaches the delegate.
     assert_empty(@delegate.attempts)
@@ -97,6 +98,7 @@ class TestNavigation < Minitest::Test
     seen = nil
     @win.add_event_listener("hashchange", ->(e) { seen = [e.__js_get__("oldURL"), e.__js_get__("newURL")] })
     @win.location.__js_set__("hash", "top")
+    @win.scheduler.advance_time(0)
 
     old_url, new_url = seen
     assert_match(%r{\Ahttp://localhost/}, new_url)

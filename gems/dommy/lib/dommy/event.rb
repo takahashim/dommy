@@ -1040,12 +1040,33 @@ module Dommy
     def initialize(type, init = nil)
       super
       @state = read_init(init, "state")
+      @has_ua_visual_transition = read_init(init, "hasUAVisualTransition") ? true : false
     end
 
-    def __js_get__(key)
-      return @state if key == "state"
+    def has_ua_visual_transition = @has_ua_visual_transition
 
+    def __js_get__(key)
+      case key
+      when "state" then @state
+      when "hasUAVisualTransition" then @has_ua_visual_transition
+      else super
+      end
+    end
+  end
+
+  # PageTransitionEvent — `pageshow` / `pagehide`. `persisted` says whether the
+  # page comes from (or goes into) the back/forward cache; Dommy has none, so
+  # the events it fires carry false.
+  class PageTransitionEvent < Event
+    def initialize(type, init = nil)
       super
+      @persisted = read_init(init, "persisted") ? true : false
+    end
+
+    def persisted = @persisted
+
+    def __js_get__(key)
+      key == "persisted" ? @persisted : super
     end
   end
 

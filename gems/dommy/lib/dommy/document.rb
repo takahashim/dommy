@@ -814,17 +814,40 @@ module Dommy
       nil
     end
 
-    # `document.domain` — host portion of the URL. Real browsers
-    # restrict cross-origin reads of this; we just return the bare host.
+    # `document.domain` — the effective domain of the document's origin
+    # serialized: the domain a `document.domain =` set, or else the origin's
+    # host; "" for an opaque origin.
     def domain
-      view = @default_view
-      return "" unless view&.location
+      return @domain_override if @domain_override
 
-      view.location.__js_get__("hostname").to_s
+      host = Internal::Origin.host_of(origin)
+      host.nil? ? "" : host.to_s
     end
 
-    # `document.origin` — serialized origin of the document URL, mirroring
-    # `window.location.origin`. Empty when there is no associated window.
+    # The `document.domain` setter. It needs a browsing context and a tuple
+    # origin, and accepts only the current effective domain or a registrable
+    # suffix of it (everything else is a SecurityError). The agent cluster is
+    # site-keyed (no Origin-Agent-Cluster header), so the domain is then set.
+    #
+    # Without a public suffix list, a single label (a bare TLD such as "com")
+    # stands in for the public suffix.
+    def domain=(value)
+      view = @default_view
+      raise DOMException::SecurityError, "The document has no browsing context" unless view&.navigable?
+
+      current = Internal::Origin.host_of(origin)
+      raise DOMException::SecurityError, "The document's origin is opaque" if current.nil?
+
+      candidate = value.to_s
+      unless registrable_domain_suffix_or_equal?(candidate, current.to_s)
+        raise DOMException::SecurityError, "'#{candidate}' is not a suffix of '#{current}'"
+      end
+
+      @domain_override = Internal::UrlParser.parse("http://#{candidate}/").host.to_s
+    end
+
+    # `document.origin` — this document's origin, serialized (the same answer as
+    # `self.origin`). Empty when there is no associated window.
     def origin
       view = @default_view
       return "" unless view&.location
@@ -832,10 +855,20 @@ module Dommy
       view.origin
     end
 
-    # `document.referrer` — Dommy never has a referring page, so this
-    # is always empty.
+    # `document.referrer` — the URL of the document that navigated here, as the
+    # embedder reports it (`__internal_referrer__=`); empty when there was none.
     def referrer
-      ""
+      @referrer.to_s
+    end
+
+    def __internal_referrer__=(url)
+      @referrer = url
+    end
+
+    # Whether the document has completely finished loading: its `load` event
+    # has been fired. A document whose lifecycle no one replays is born loaded.
+    def __internal_completely_loaded__?
+      !@loading_lifecycle
     end
 
     # Live HTMLCollection helpers — each call re-queries the
@@ -1939,6 +1972,8 @@ module Dommy
         # Enumerated: only "on"/"off" (case-insensitive), else ignored.
         v = value.to_s.downcase
         @design_mode = v if %w[on off].include?(v)
+      when "domain"
+        self.domain = value.to_s
       when "location"
         # `document.location = url` navigates, same as `location.href = url`.
         loc = @default_view&.__js_get__("location")
@@ -2118,14 +2153,42 @@ module Dommy
       return if @ready_state == state
 
       @ready_state = state
+      @loading_lifecycle = true if state == "loading"
       dispatch_event(Event.new("readystatechange"))
       case state
       when "interactive"
         dispatch_event(Event.new("DOMContentLoaded", "bubbles" => true))
       when "complete"
-        @default_view&.dispatch_event(Event.new("load"))
+        fire_load_and_pageshow
       end
       nil
+    end
+
+    # The end of loading, from "update the current document readiness to
+    # complete": fire a trusted `load` at the window with the legacy target
+    # override (so `event.target` is this document), then `pageshow` (persisted
+    # false), and mark the document completely loaded — ready for post-load
+    # tasks such as a print() requested while it loaded.
+    def fire_load_and_pageshow
+      view = @default_view
+      if view
+        load = Event.new("load")
+        load.__internal_set_target__(self)
+        view.dispatch_event(load.__internal_mark_trusted__)
+        view.dispatch_event(__internal_page_transition_event__("pageshow"))
+      end
+      @loading_lifecycle = false
+      view.__internal_ready_for_post_load_tasks__ if view.respond_to?(:__internal_ready_for_post_load_tasks__)
+    end
+    private :fire_load_and_pageshow
+
+    # A trusted page transition event (`pageshow` / `pagehide`) for this
+    # document's window: bubbles, cancelable, `persisted` false (there is no
+    # back/forward cache), targeted at the document (legacy target override).
+    def __internal_page_transition_event__(type, persisted: false)
+      event = PageTransitionEvent.new(type, "persisted" => persisted, "bubbles" => true, "cancelable" => true)
+      event.__internal_set_target__(self)
+      event.__internal_mark_trusted__
     end
 
     # Set `document.currentScript` to the <script> element being executed (and
@@ -2626,6 +2689,28 @@ module Dommy
 
 
     private
+
+    # HTML "is a registrable domain suffix of or is equal to" (a single label
+    # stands in for the public suffix; see #domain=).
+    def registrable_domain_suffix_or_equal?(suffix_string, original_host)
+      return false if suffix_string.empty?
+
+      suffix = Internal::UrlParser.parse("http://#{suffix_string}/").host.to_s
+      return true if suffix == original_host
+      return false if ip_host?(suffix) || ip_host?(original_host)
+      return false unless original_host.end_with?(".#{suffix}")
+      # The suffix may not itself be a public suffix.
+      return false unless suffix.include?(".")
+
+      true
+    rescue Internal::UrlParser::Failure
+      false
+    end
+
+    def ip_host?(host)
+      host.start_with?("[") || host.match?(/\A\d+\.\d+\.\d+\.\d+\z/)
+    end
+
 
     def creator_base_url
       @creator_base_url if @creator_base_url && FALLBACK_BASE_URLS.include?(url)

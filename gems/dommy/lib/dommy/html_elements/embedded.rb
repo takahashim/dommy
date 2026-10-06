@@ -53,6 +53,9 @@ module Dommy
       html = srcdoc.to_s.empty? ? BLANK_DOCUMENT_HTML : srcdoc.to_s
       win = Window.new(nil, backend_doc: Backend.parse(html))
       win.location.__internal_set_url__(srcdoc.nil? ? "about:blank" : "about:srcdoc")
+      win.__internal_initial_about_blank__ = srcdoc.nil?
+      # The `name` attribute names the content navigable when it is created.
+      win.__internal_seed_name__(__internal_attribute_value__("name"))
       doc = win.document
       doc.__internal_set_creator_base_url__(owner_document&.base_uri)
       win.frame_element = self if win.respond_to?(:frame_element=)
@@ -65,6 +68,7 @@ module Dommy
       # detect content inside a non-rendered (display:none / disconnected) frame.
       view = doc.respond_to?(:default_view) ? doc.default_view : nil
       view.frame_element = self if view.respond_to?(:frame_element=)
+      view.__internal_seed_name__(__internal_attribute_value__("name")) if view.respond_to?(:__internal_seed_name__)
     end
 
     def content_window
