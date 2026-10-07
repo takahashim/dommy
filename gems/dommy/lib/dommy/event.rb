@@ -94,6 +94,7 @@ module Dommy
 
       list = listeners_for(type.to_s)
       entry = Listener.new(cb, options, event_handler)
+      entry.default_passive = default_passive_value?(type.to_s)
       # Per spec, a listener is deduplicated by (type, callback, capture) — so
       # the same function may be registered once as a capture and once as a
       # bubble listener.
@@ -116,6 +117,23 @@ module Dommy
 
       nil
     end
+
+    # DOM "default passive value": a touchstart / touchmove / wheel /
+    # mousewheel listener on a Window, a Document, or a document's document
+    # element or body element is passive unless its options say otherwise.
+    #
+    # Spec: https://dom.spec.whatwg.org/#default-passive-value
+    DEFAULT_PASSIVE_TYPES = %w[touchstart touchmove wheel mousewheel].freeze
+    private_constant :DEFAULT_PASSIVE_TYPES
+
+    def default_passive_value?(type)
+      return false unless DEFAULT_PASSIVE_TYPES.include?(type)
+      return true if is_a?(Window) || is_a?(Document)
+      return false unless respond_to?(:owner_document) && (document = owner_document)
+
+      equal?(document.document_element) || equal?(document.body)
+    end
+    private :default_passive_value?
 
     def remove_event_listener(type, listener, options = nil)
       return nil if type.nil? || listener.nil?
@@ -666,7 +684,7 @@ module Dommy
 
     private
 
-    Listener = Struct.new(:listener, :options, :event_handler, :removed) do
+    Listener = Struct.new(:listener, :options, :event_handler, :removed, :default_passive) do
       # Set by removeEventListener. A listener removed by an earlier listener in
       # the same dispatch must not be invoked, even though the dispatch walks a
       # snapshot of the list taken before it ran.
@@ -694,14 +712,14 @@ module Dommy
       end
 
       # `{ passive: true }` — the listener promises not to call preventDefault,
-      # so the event's preventDefault() is neutralized while it runs.
+      # so the event's preventDefault() is neutralized while it runs. Without a
+      # `passive` member the target's default passive value decides.
       def passive?
-        case options
-        when Hash
-          EventTarget.js_truthy?(options.key?("passive") ? options["passive"] : options[:passive])
-        else
-          false
-        end
+        key = options.is_a?(Hash) && (options.key?("passive") ? "passive" : (:passive if options.key?(:passive)))
+        value = key ? options[key] : Bridge::UNDEFINED
+        return default_passive ? true : false if value.equal?(Bridge::UNDEFINED)
+
+        EventTarget.js_truthy?(value)
       end
     end
 

@@ -299,4 +299,34 @@ class TestUserAgentEventsAreTrusted < Minitest::Test
     win.dispatch_event(event)
     refute event.default_prevented?
   end
+
+end
+
+class TestDefaultPassiveListeners < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window("<button id='b'>X</button>")
+    @doc = @win.document
+    @btn = @doc.get_element_by_id("b")
+  end
+
+  # DOM "default passive value": touchstart/touchmove/wheel/mousewheel
+  # listeners on a Window, a Document, the document element or the body are
+  # passive unless their options say otherwise; elsewhere they are not.
+  def test_default_passive_value
+    prevented = lambda do |target, type, options = nil|
+      target.add_event_listener(type, proc { |e| e.__js_call__("preventDefault", []) }, options)
+      event = Dommy::Event.new(type, {"cancelable" => true})
+      target.dispatch_event(event)
+      event.default_prevented?
+    end
+    refute prevented.call(@win, "wheel")
+    refute prevented.call(@doc, "touchstart")
+    refute prevented.call(@doc.document_element, "touchmove")
+    refute prevented.call(@doc.body, "mousewheel")
+    assert prevented.call(@btn, "wheel")
+    assert prevented.call(@win, "click")
+    assert prevented.call(@doc.body, "wheel", {"passive" => false})
+  end
 end
