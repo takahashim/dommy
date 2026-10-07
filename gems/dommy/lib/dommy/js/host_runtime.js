@@ -781,7 +781,10 @@ globalThis.__rbHost = (function () {
     const out = { capture: !!options.capture };
     if (method === "addEventListener") {
       out.once = !!options.once;
-      out.passive = !!options.passive;
+      // `passive` has no default in AddEventListenerOptions: left out, the
+      // target's default passive value decides (DOM "flatten more").
+      const passive = options.passive;
+      if (passive !== undefined) out.passive = !!passive;
       const signal = options.signal;
       if (signal !== undefined) out.signal = signal;
     }

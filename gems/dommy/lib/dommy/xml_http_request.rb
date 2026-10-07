@@ -31,6 +31,9 @@ module Dommy
     LOADING = 3
     DONE = 4
 
+    # XMLHttpRequestResponseType.
+    RESPONSE_TYPES = ["", "arraybuffer", "blob", "document", "json", "text"].freeze
+
     attr_reader(
       :ready_state,
       :status,
@@ -257,17 +260,22 @@ module Dommy
     def __js_set__(key, value)
       case key
       when "responseType"
-        # WHATWG: setting responseType on a synchronous request in a Window, or
-        # once the request is loading/done, is an InvalidStateError.
-        if @window && !@async
-          raise DOMException::InvalidStateError,
-                "responseType cannot be set on a synchronous XMLHttpRequest in a document"
-        end
+        # XHR "responseType" setter. The attribute is an XMLHttpRequestResponseType
+        # enum, so a value outside it is ignored (WebIDL) before any step runs;
+        # then a loading/done request is an InvalidStateError and a synchronous
+        # one in a Window an InvalidAccessError.
+        value = value.to_s
+        return nil unless RESPONSE_TYPES.include?(value)
+
         if @ready_state == LOADING || @ready_state == DONE
           raise DOMException::InvalidStateError,
                 "responseType cannot be set when the request state is loading or done"
         end
-        @response_type = value.to_s
+        if @window && !@async
+          raise DOMException::InvalidAccessError,
+                "responseType cannot be set on a synchronous XMLHttpRequest in a document"
+        end
+        @response_type = value
       when "timeout"
         @timeout = value.to_i
       when "withCredentials"

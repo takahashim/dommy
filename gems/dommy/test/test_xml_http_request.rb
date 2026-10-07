@@ -161,6 +161,20 @@ class TestXMLHttpRequest < Minitest::Test
     assert_equal("{\"name\":\"alice\",\"age\":30}", xhr.response_text)
   end
 
+  # XHR responseType setter: an unknown value is ignored (WebIDL enum), a
+  # synchronous request in a Window is an InvalidAccessError.
+  def test_response_type_setter_follows_the_idl_and_the_spec
+    xhr = new_xhr
+    xhr.__js_set__("responseType", "json")
+    xhr.__js_set__("responseType", "nosuchtype")
+    assert_equal "json", xhr.__js_get__("responseType")
+
+    xhr.open("GET", "/api/foo", false)
+    assert_raises(Dommy::DOMException::InvalidAccessError) { xhr.__js_set__("responseType", "text") }
+    xhr.__js_set__("responseType", "nosuchtype")
+    assert_equal "json", xhr.__js_get__("responseType")
+  end
+
   def test_response_type_text_returns_string
     xhr = new_xhr
     xhr.response_type = "text"
