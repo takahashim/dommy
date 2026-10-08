@@ -2258,7 +2258,7 @@ globalThis.__rbHost = (function () {
   function jsEventProtoFor(name) {
     let proto = jsEventProtoByName.get(name);
     if (proto) return proto;
-    proto = Object.create(protos.get(name));
+    proto = Object.create(protoNamed(name));
     defineJsEventMembers(proto, name);
     jsEventProtoByName.set(name, proto);
     return proto;
@@ -2371,6 +2371,21 @@ globalThis.__rbHost = (function () {
   // (via Symbol.toStringTag) work. Constructable interfaces (Event, DOMException,
   // …) build via Ruby; the rest throw Illegal constructor (HTMLElement until 1d).
   const protos = new Map();
+  // Interfaces seeded lazily (seedInterfaces): name -> the chain from it up,
+  // until something first needs it. lazyGlobals holds the names whose global
+  // is still the building accessor (a page assignment replaces it).
+  const lazyChains = new Map();
+  const lazyGlobals = new Set();
+  // Every seeded interface's static method names, once the window is bound
+  // (attachStatics); until then null.
+  let staticNames = null;
+  // The interface's prototype, building it (and its chain) on first use.
+  function protoNamed(name) {
+    const proto = protos.get(name);
+    if (proto) return proto;
+    const chain = lazyChains.get(name);
+    return chain ? protoForChain(chain, 0) : undefined;
+  }
   // Full per-interface descriptor (name + prototype chain + method names) keyed
   // by interface name. A handle that crosses tagged with its interface (see the
   // marshaller) reuses this instead of a `__rb_host_describe` round trip; the
@@ -2568,8 +2583,14 @@ globalThis.__rbHost = (function () {
         });
       }
     }
-    if (!(name in globalThis)) globalThis[name] = ctor;
+    lazyChains.delete(name);
+    if (lazyGlobals.delete(name)) {
+      Object.defineProperty(globalThis, name, { value: ctor, writable: true, enumerable: true, configurable: true });
+    } else if (!(name in globalThis)) {
+      globalThis[name] = ctor;
+    }
     protos.set(name, proto);
+    if (staticNames !== null) attachStaticsTo(name, ctor, staticNames[name]);
     return proto;
   }
 
@@ -2580,45 +2601,92 @@ globalThis.__rbHost = (function () {
   // to Ruby (which builds the actual <img>/<audio>/<option> element).
   const NAMED_CONSTRUCTORS = { Image: "HTMLImageElement", Audio: "HTMLAudioElement", Option: "HTMLOptionElement" };
 
+  function namedConstructor(alias) {
+    const proto = protoNamed(NAMED_CONSTRUCTORS[alias]);
+    if (!proto) return undefined;
+    const ctor = function (...args) {
+      if (new.target === undefined) throw new TypeError(alias + " requires 'new'");
+      return constructInterface(alias, args);
+    };
+    Object.defineProperty(ctor, "name", { value: alias, configurable: true });
+    // Share the interface prototype (so `new Image() instanceof HTMLImageElement`)
+    // as a non-writable/enumerable/configurable own property, per WebIDL — a
+    // constructor's `prototype` is not writable.
+    Object.defineProperty(ctor, "prototype", { value: proto, writable: false, enumerable: false, configurable: false });
+    return ctor;
+  }
+
   function exposeNamedConstructors() {
     for (const alias in NAMED_CONSTRUCTORS) {
-      if (alias in globalThis) continue;
-      const proto = protos.get(NAMED_CONSTRUCTORS[alias]);
-      if (!proto) continue;
-      const ctor = function (...args) {
-        if (new.target === undefined) throw new TypeError(alias + " requires 'new'");
-        return constructInterface(alias, args);
-      };
-      Object.defineProperty(ctor, "name", { value: alias, configurable: true });
-      // Share the interface prototype (so `new Image() instanceof HTMLImageElement`)
-      // as a non-writable/enumerable/configurable own property, per WebIDL — a
-      // constructor's `prototype` is not writable.
-      Object.defineProperty(ctor, "prototype", { value: proto, writable: false, enumerable: false, configurable: false });
-      globalThis[alias] = ctor;
+      if (alias in globalThis || !lazyChains.has(NAMED_CONSTRUCTORS[alias]) && !protos.has(NAMED_CONSTRUCTORS[alias])) continue;
+      defineLazyGlobal(alias, () => namedConstructor(alias));
     }
   }
 
-  // Eagerly build the base interfaces (chains supplied by Ruby, the single
-  // source of hierarchy knowledge) so `instanceof Node` / `typeof HTMLElement`
-  // resolve before an instance of that exact type has crossed.
+  // A global that builds its value the first time it is read, then becomes an
+  // ordinary data property holding it. Assigning it first replaces it, as
+  // assigning any global does.
+  function defineLazyGlobal(name, build) {
+    lazyGlobals.add(name);
+    Object.defineProperty(globalThis, name, {
+      get() {
+        const value = build();
+        if (lazyGlobals.delete(name)) {
+          Object.defineProperty(globalThis, name, { value, writable: true, enumerable: true, configurable: true });
+        }
+        return value;
+      },
+      set(value) {
+        lazyGlobals.delete(name);
+        Object.defineProperty(globalThis, name, { value, writable: true, enumerable: true, configurable: true });
+      },
+      enumerable: true,
+      configurable: true,
+    });
+  }
+
+  // The base interfaces (chains supplied by Ruby, the single source of
+  // hierarchy knowledge) are global from the start, so `instanceof Node` /
+  // `typeof HTMLElement` resolve before an instance of that exact type has
+  // crossed — but each is built only when first read. A page touches a few
+  // of the ~200; building them all costs every page load several ms.
   function seedInterfaces(chains) {
-    chains.forEach((c) => protoForChain(c, 0));
+    for (const chain of chains) {
+      for (let i = 0; i < chain.length; i++) {
+        const name = chain[i];
+        if (protos.has(name) || lazyChains.has(name)) continue;
+        lazyChains.set(name, chain.slice(i));
+        if (!(name in globalThis)) defineLazyGlobal(name, () => (protoNamed(name), globalThis[name]));
+      }
+    }
     exposeNamedConstructors();
   }
 
   // 1c: expose an interface constructor's static/class methods (URL.createObjectURL,
   // URL.parse, …) on the seeded global, delegating to the window's constructor.
-  // Called once the window is bound (statics live on the window's constructors).
+  // Called once the window is bound (statics live on the window's constructors):
+  // one crossing fetches every seeded interface's names, those already built
+  // get theirs now, and the rest as they are built (protoForChain).
   function attachStatics() {
-    for (const name of protos.keys()) {
-      const ctor = globalThis[name];
-      if (typeof ctor !== "function") continue;
-      for (const m of __rb_static_names(name)) {
-        if (m in ctor) continue;
-        const call = declaredConversion(name, "static_operations", m);
-        ctor[m] = withStaticArity((...args) =>
-          rehydrate(__rb_static_call(name, m, dehydrateArgs(call ? convertArguments(call, args) : args))), m, call);
-      }
+    const names = [...protos.keys(), ...lazyChains.keys()];
+    if (typeof globalThis.__rb_static_names_all === "function") {
+      staticNames = __rb_static_names_all(names) || {};
+    } else {
+      // A host that registered only the per-interface lookup is asked one
+      // name at a time.
+      staticNames = {};
+      for (const name of names) staticNames[name] = __rb_static_names(name);
+    }
+    for (const name of protos.keys()) attachStaticsTo(name, globalThis[name], staticNames[name]);
+  }
+
+  function attachStaticsTo(name, ctor, statics) {
+    if (typeof ctor !== "function" || !statics) return;
+    for (const m of statics) {
+      if (m in ctor) continue;
+      const call = declaredConversion(name, "static_operations", m);
+      ctor[m] = withStaticArity((...args) =>
+        rehydrate(__rb_static_call(name, m, dehydrateArgs(call ? convertArguments(call, args) : args))), m, call);
     }
   }
 
@@ -2647,24 +2715,42 @@ globalThis.__rbHost = (function () {
         enumerable: true, configurable: true,
       });
     }
-    const names = [...protos.keys()];
-    if (typeof globalThis.DOMException === "function") names.push("DOMException");
+    const names = [...protos.keys(), ...lazyChains.keys()];
+    if (!names.includes("DOMException") && typeof globalThis.DOMException === "function") names.push("DOMException");
     // Mirror the JS built-in constructors too, so an iframe's contentWindow
     // resolves `defaultView.TypeError` / `defaultView.Array` like a real window
     // (WPT reaches for `(root.ownerDocument).defaultView.TypeError`). The same
     // list the forced pass at the end of this function uses — a window mirrors
     // one set of native globals, so there is one table of them.
     names.push(...JS_GLOBALS);
-    const interfaceNames = new Set(protos.keys());
+    const interfaceNames = new Set(names.filter((name) => protos.has(name) || lazyChains.has(name)));
     // Legacy named constructors are seeded JS functions too; the window
     // otherwise resolves them to the host-backed Constructor proxy (a
     // non-constructable "object"), so replace those the same way as interfaces.
     for (const alias in NAMED_CONSTRUCTORS) { names.push(alias); interfaceNames.add(alias); }
     for (const name of names) {
+      // A global not built yet stays unbuilt: the window resolves it through
+      // the global the first time it is read, then holds it as a value.
+      if (lazyGlobals.has(name)) {
+        try {
+          Object.defineProperty(w, name, {
+            get() {
+              const value = globalThis[name];
+              Object.defineProperty(w, name, { value, configurable: true, writable: true });
+              return value;
+            },
+            set(value) { Object.defineProperty(w, name, { value, configurable: true, writable: true }); },
+            configurable: true,
+          });
+        } catch (e) { /* non-configurable / frozen — leave as-is */ }
+        continue;
+      }
       const ctor = globalThis[name];
       if (typeof ctor !== "function") continue;
       try {
-        const current = w[name];
+        // An interface name is replaced whatever the window answers, so only a
+        // non-interface name pays the host read.
+        const current = interfaceNames.has(name) ? null : w[name];
         // Fill in names the window doesn't resolve at all; AND replace a
         // host-backed interface object with the constructable seeded constructor,
         // so `new document.defaultView.MutationObserver(cb)` works — in a real
@@ -4014,7 +4100,7 @@ globalThis.__rbHost = (function () {
     }
     let proto = nt.prototype;
     if (proto === null || (typeof proto !== "object" && typeof proto !== "function")) {
-      proto = protos.get(activeName) || Object.prototype;
+      proto = protoNamed(activeName) || Object.prototype;
     }
     const stack = def.constructionStack;
     if (stack.length === 0) {

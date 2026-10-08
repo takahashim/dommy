@@ -28,6 +28,24 @@ module Dommy
         extra(name)
       end
 
+      # The static/class method names of `name`'s constructor (URL.parse, …),
+      # or [] when it has none. They belong to the interface, not to a window,
+      # so they are worked out once per process for each kind of window: every
+      # page load asks for all ~200 seeded interfaces, and resolving them
+      # through the window each time cost a millisecond a page.
+      def static_names(name)
+        key = [@source.class, name]
+        STATIC_NAMES.fetch(key) do
+          ctor = resolve(name)
+          names = ctor.respond_to?(:__js_class_method_names__) ? Array(ctor.__js_class_method_names__).freeze : EMPTY
+          STATIC_NAMES[key] = names
+        end
+      end
+
+      EMPTY = [].freeze
+      STATIC_NAMES = {}
+      private_constant :EMPTY, :STATIC_NAMES
+
       private
 
       # Constructors the window doesn't expose.

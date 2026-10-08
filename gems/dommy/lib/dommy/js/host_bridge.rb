@@ -498,8 +498,17 @@ module Dommy
         # URL.parse, …): names to expose, and the dispatch.
         @backend.define_host_function("__rb_static_names") do |name|
           @profile.count(:__rb_static_names, nil, name)
-          ctor = @constructor_resolver.resolve(name)
-          ctor.respond_to?(:__js_class_method_names__) ? ctor.__js_class_method_names__ : []
+          @constructor_resolver.static_names(name)
+        end
+        # The same for every seeded interface at once — {name => [methods]},
+        # interfaces without statics left out — so attaching them to the
+        # globals is one crossing per window rather than one per interface.
+        @backend.define_host_function("__rb_static_names_all") do |names|
+          @profile.count(:__rb_static_names_all)
+          Array(names).each_with_object({}) do |name, out|
+            methods = @constructor_resolver.static_names(name)
+            out[name] = methods unless methods.empty?
+          end
         end
         @backend.define_host_function("__rb_static_call") do |name, method, args|
           @profile.count(:__rb_static_call, nil, "#{name}.#{method}")
