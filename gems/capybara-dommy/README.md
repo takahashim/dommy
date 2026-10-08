@@ -30,9 +30,11 @@ speed and simplicity of a Rack-style driver.
 
 - The default driver does not execute JavaScript. Use the JavaScript-enabled
   variant for embedded QuickJS execution.
-- Screenshots and browser windows are not supported. Native alerts, confirms,
-  and prompts are supported by the JavaScript-enabled variant through
-  Capybara's modal helpers.
+- Screenshots and additional browser windows are not supported. The one
+  window there is can be resized (`current_window.resize_to`), which resizes
+  the viewport `@media` and `matchMedia` see. Native alerts, confirms, and
+  prompts are supported by the JavaScript-enabled variant through Capybara's
+  modal helpers.
 - Constructable stylesheets can be built (`new CSSStyleSheet()`), but
   `adoptedStyleSheets` is not implemented — assigning one applies no style.
   Component libraries that feature-detect (`'adoptedStyleSheets' in

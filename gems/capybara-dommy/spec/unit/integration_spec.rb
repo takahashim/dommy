@@ -242,4 +242,47 @@ RSpec.describe "Capybara DSL over the :dommy driver" do
       expect { driver.visit("/broken") }.to raise_error(ArgumentError)
     end
   end
+
+  describe "the window" do
+    let(:app) do
+      page = html_response(
+        "<style>.mobile { display: none } @media (max-width: 767px) { .mobile { display: block } }</style>" \
+        '<p class="mobile">mobile</p><a href="/">again</a>'
+      )
+      app_for("GET /" => page)
+    end
+
+    it "starts at the default viewport size" do
+      page = session_for(app)
+      page.visit("/")
+
+      expect(page.current_window.size).to eq([1280, 720])
+      expect(page.windows).to eq([page.current_window])
+    end
+
+    it "resizes the viewport the page's media queries see" do
+      page = session_for(app)
+      page.visit("/")
+      expect(page).to have_no_css(".mobile")
+
+      page.current_window.resize_to(375, 667)
+
+      expect(page.current_window.size).to eq([375, 667])
+      expect(page).to have_css(".mobile")
+      page.click_link("again")
+      expect(page).to have_css(".mobile")
+    end
+
+    it "keeps its size across reset! and a change of app_host" do
+      page = session_for(app)
+      page.visit("/")
+      page.current_window.resize_to(375, 667)
+
+      page.reset!
+      page.visit("http://other.example/")
+
+      expect(page.current_window.size).to eq([375, 667])
+      expect(page).to have_css(".mobile")
+    end
+  end
 end
