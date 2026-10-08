@@ -43,6 +43,21 @@ class Dommy::Rack::TestSession < Minitest::Test
     assert_includes session.text, "Hi"
   end
 
+  def test_navigating_to_a_text_response_replaces_the_page
+    app = app_for(
+      "GET /" => html_response('<a href="/robots.txt">Robots</a>'),
+      "GET /robots.txt" => [200, {"Content-Type" => "text/plain"}, ["User-agent: *\n"]]
+    )
+    session = Dommy::Rack::Session.new(app)
+    session.visit("/")
+    session.click_link("Robots")
+
+    assert_equal "User-agent: *\n", session.text
+    assert_nil session.at_css("a")
+    session.back
+    refute_nil session.at_css("a")
+  end
+
   def test_cookie_persistence_across_requests
     app = app_for(
       "GET /set" => [200, {"Content-Type" => "text/html", "Set-Cookie" => "sid=42; path=/"}, ["<p>set</p>"]],

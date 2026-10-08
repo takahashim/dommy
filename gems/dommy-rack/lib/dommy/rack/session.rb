@@ -908,11 +908,11 @@ module Dommy
       end
 
       # Apply a final navigation response: update last_response, current_url,
-      # the document (HTML only), and the history stack.
+      # the document (HTML, or text shown in a <pre>), and the history stack.
       def apply_navigation_response(response, final_url, push_history: true, replace: false)
         @last_response = response
         @current_url = final_url
-        if response.html?
+        if response.document?
           previous_window = @current_window
           @current_window = response.window
           @current_window.storage_provider = @storage_provider

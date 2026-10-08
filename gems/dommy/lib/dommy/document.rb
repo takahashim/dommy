@@ -639,14 +639,17 @@ module Dommy
       @__current_script__ = nil
     end
 
-    # Whether this is an "HTML document" in the DOM sense (created by the HTML
-    # parser / `text/html`), as opposed to an XML document. It drives the
-    # case-folding rules: `createElement` lowercases names and `Element#tagName`
-    # uppercases HTML-namespace names only in an HTML document. An XML or XHTML
-    # document (e.g. an `application/xhtml+xml` / `text/xml` resource) preserves
-    # case.
+    # Whether this is an "HTML document" in the DOM sense (DOM's type "html"),
+    # as opposed to an XML document. It drives the case-folding rules:
+    # `createElement` lowercases names and `Element#tagName` uppercases
+    # HTML-namespace names only in an HTML document. An XML or XHTML document
+    # (e.g. an `application/xhtml+xml` / `text/xml` resource) preserves case.
+    #
+    # The type is not the content type: a text document (a text/plain or
+    # text/css response shown in a <pre>) is an HTML document too. Every way of
+    # making an XML document gives it an XML MIME type, so that is what decides.
     def html_document?
-      @content_type == "text/html"
+      !Internal::MimeType.xml?(@content_type)
     end
 
     # Whether this document is DOM's XMLDocument — the interface

@@ -129,6 +129,7 @@
 
 ### Fixed
 
+- An `<iframe>` showing a text response (`text/plain`, CSS, JavaScript, JSON) has a document whose `contentType` is that type and whose `compatMode` is `"BackCompat"`.
 - A shadow tree's `:host` rule matches the host only when its whole compound does: the host is featureless there (CSS Scoping), so `:host.dark` or `:host[x]` never match it, and `:host:has(...)` looks at the shadow tree, never the light-DOM children (a sibling relation never holds). `:host:has(.x)` used to style every host.
 - `new EventSource(url)` from script works again. The mixin that gives `ToggleEvent` and `CommandEvent` their `source` was named `Dommy::Internal::EventSource`, which the window's constructor table found instead of `Dommy::EventSource` ("undefined method `new' for module Dommy::Internal::EventSource"), so no page could open a Server-Sent Events stream (Turbo's `<turbo-stream-source>` among them). The mixin is now `Internal::SourceMember`.
 - The promise `__rbHost.makeHostDeferred()` hands to script comes back from the host as itself: rejected or fulfilled with as a value, it had been turned into a realm Promise standing for the same host promise, so `reason === promise` failed (Promises/A+ 2.3.3.3.2 timed out in the engine gems' runs of the official suite). Every other host promise still crosses as a realm Promise.

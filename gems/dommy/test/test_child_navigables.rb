@@ -165,6 +165,20 @@ class TestChildNavigables < Minitest::Test
     assert_equal "blob", g.content_document.get_element_by_id("b").text_content
   end
 
+  def test_a_text_response_becomes_a_quirks_mode_html_document_holding_a_pre
+    f = frame(src: "data:text/plain,<p>not markup</p>")
+    @doc.body.append_child(f)
+    run_tasks
+    doc = f.content_document
+
+    assert_equal "<html><head></head><body><pre>&lt;p&gt;not markup&lt;/p&gt;</pre></body></html>",
+                 doc.document_element.outer_html
+    assert_equal "text/plain", doc.content_type
+    assert_equal "BackCompat", doc.compat_mode
+    assert doc.html_document?
+    assert_equal "DIV", doc.create_element("div").tag_name
+  end
+
   def test_changing_src_navigates_and_removing_it_goes_to_about_blank
     f = frame(src: "data:text/html,<p>one</p>")
     @doc.body.append_child(f)
