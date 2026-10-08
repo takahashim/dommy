@@ -19,9 +19,12 @@ module Dommy
     # here either; one that flips `:empty` is seen through the document's
     # own path alone.
     #
-    # Host contract: @backend_doc, @__internal_css_style_cache__ and
-    # #__internal_style_sheet_elements__.
+    # Host contract: @backend_doc, @__internal_css_style_cache__,
+    # #__internal_style_sheet_elements__ and #quirks_mode?.
     module DocumentGenerations
+      # The attributes SelectorIndex records an element under.
+      INDEXED_ATTRIBUTES = %w[id class].freeze
+
       def style_generation
         (@style_generation || 0) + backend_tree_version
       end
@@ -36,6 +39,26 @@ module Dommy
       # attribute-triggered cascade rebuild can then skip re-walking for them.
       def tree_generation
         (@tree_generation || 0) + backend_tree_version
+      end
+
+      # What the selector index (SelectorIndex) is built from: the element tree
+      # and each element's `id` and `class`. Nothing else it holds can go
+      # stale, so a value, focus or `data-*` change, which moves
+      # dom_generation, leaves it standing.
+      #
+      # An attribute edit the document saw and could name (see
+      # #__internal_note_attribute_mutation__) is accounted for: an `id` or
+      # `class` one moves the index's own counter, any other moves nothing.
+      # One Makiri counted that the document did not account for — edited
+      # around its mutation paths — moves the epoch, so the index is rebuilt
+      # rather than trusted.
+      def __internal_selector_index_generation__
+        version = backend_attribute_version
+        unless version == @__index_attribute_version
+          @__index_attribute_epoch = (@__index_attribute_epoch || 0) + 1
+          @__index_attribute_version = version
+        end
+        [tree_generation, @__index_generation || 0, @__index_attribute_epoch, quirks_mode?]
       end
 
       def __internal_bump_style_generation__
@@ -66,6 +89,7 @@ module Dommy
       # <style>/<link>, whose media/disabled/rel gate whole sheets.
       def __internal_note_attribute_mutation__(name, target_node)
         __internal_bump_dom_generation__
+        __internal_note_index_attribute__(name)
         __internal_bump_style_generation__ if __internal_style_affected_by_attribute__(name, target_node)
       end
 
@@ -187,6 +211,19 @@ module Dommy
       end
 
       private
+
+      # The index-side accounting for one attribute edit, called after the
+      # backend took it. A non-indexed name is accounted only when it is the
+      # single backend edit since the last accounted one; anything else leaves
+      # the gap for #__internal_selector_index_generation__ to see.
+      def __internal_note_index_attribute__(name)
+        if INDEXED_ATTRIBUTES.any? { |indexed| name.casecmp?(indexed) }
+          @__index_generation = (@__index_generation || 0) + 1
+        else
+          version = backend_attribute_version
+          @__index_attribute_version = version if @__index_attribute_version == version - 1
+        end
+      end
 
       def backend_tree_version = @backend_doc ? @backend_doc.tree_version : 0
 
