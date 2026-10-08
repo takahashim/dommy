@@ -485,11 +485,12 @@ module Dommy
 
 
 
-    # A by-id/class/tag index of the backend element tree, memoized per DOM
-    # generation, for SelectorMatcher's document-scoped fast path (or nil to tell
-    # the caller to walk). Rebuilt lazily only after a mutation bumps
-    # dom_generation, so it costs one tree walk per generation and pays off when
-    # several queries run before the next mutation.
+    # A by-id/class/tag index of the backend element tree, memoized per
+    # #__internal_selector_index_generation__, for SelectorMatcher's
+    # document-scoped fast path (or nil to tell the caller to walk). Rebuilt
+    # lazily only after a mutation that can change it (the tree, or an `id` /
+    # `class`), so it costs one tree walk per such mutation and pays off when
+    # several queries run before the next one.
     #
     # Adaptive bypass: if the index keeps getting invalidated after serving only a
     # handful of queries (a mutation-between-every-query workload, where building
@@ -501,7 +502,7 @@ module Dommy
     SELECTOR_INDEX_RETEST_GAP = 64 # generations to wait before re-testing a bypass
 
     def __internal_selector_index__
-      gen = dom_generation
+      gen = __internal_selector_index_generation__
       if @__sel_idx_gen != gen
         if @__sel_idx
           if @__sel_idx_served.to_i < SELECTOR_INDEX_MIN_REUSE
@@ -1596,7 +1597,7 @@ module Dommy
       detach_node(bn, moving: true)                               # steps 10-11, 14
       ref_bn = nil if ref_bn && ref_bn.parent != @backend_doc
       __internal_ranges_will_insert__(@backend_doc, ref_bn, 1)    # step 16
-      new_previous = ref_bn ? ref_bn.previous_sibling : @backend_doc.children.to_a.last
+      new_previous = ref_bn ? ref_bn.previous_sibling : @backend_doc.children.last
       ref_bn ? ref_bn.add_previous_sibling(bn) : @backend_doc.add_child(bn) # step 18
       if old_parent
         notify_child_list_mutation(

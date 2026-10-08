@@ -139,4 +139,46 @@ class TestSelectorIndex < Minitest::Test
       assert_equal(2, @doc.query_selector_all("a").length, "iteration #{i}")
     end
   end
+
+  # The index holds only the tree and each element's id and class, so an edit
+  # to anything else must not throw it away, and an id/class edit must.
+  def test_index_survives_edits_it_does_not_depend_on
+    p = @doc.query_selector("p")
+    index = @doc.__internal_selector_index__
+    p.set_attribute("data-x", "1")
+    p.toggle_attribute("hidden")
+    p.style.set_property("width", "1px")
+    assert_same(index, @doc.__internal_selector_index__)
+    assert_equal(3, @doc.query_selector_all(".link").length)
+    assert_equal(1, @doc.query_selector_all("[data-x]").length)
+  end
+
+  def test_index_is_rebuilt_on_an_id_or_class_edit
+    p = @doc.query_selector("p")
+    index = @doc.__internal_selector_index__
+    p.id = "para"
+    refute_same(index, (index = @doc.__internal_selector_index__))
+    assert_equal("text", @doc.query_selector("#para").text_content)
+    p.class_list.add("link")
+    refute_same(index, @doc.__internal_selector_index__)
+    assert_equal(4, @doc.query_selector_all(".link").length)
+  end
+
+  # An edit made on the backend node directly, around the document's mutation
+  # paths, is one the document cannot vouch for: the index must not survive it.
+  def test_index_is_rebuilt_on_an_edit_the_document_did_not_see
+    p = @doc.query_selector("p")
+    index = @doc.__internal_selector_index__
+    p.__dommy_backend_node__["class"] = "link"
+    refute_same(index, @doc.__internal_selector_index__)
+    assert_equal(4, @doc.query_selector_all(".link").length)
+  end
+
+  def test_index_is_rebuilt_when_a_seen_and_an_unseen_edit_interleave
+    p = @doc.query_selector("p")
+    @doc.__internal_selector_index__
+    p.__dommy_backend_node__["class"] = "link"
+    p.set_attribute("data-x", "1") # seen, but two backend edits since the last accounted one
+    assert_equal(4, @doc.query_selector_all(".link").length)
+  end
 end

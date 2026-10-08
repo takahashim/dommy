@@ -93,7 +93,7 @@ class TestInternalModuleApi < Minitest::Test
       __internal_note_selector_state_change__ __internal_style_value_sensitive__
       __internal_style_affected_by_attribute__ __internal_style_text_sensitive__
       __internal_inside_style_element__ __internal_direction_sensitive__
-      __internal_direction_sensitive_ancestor__
+      __internal_direction_sensitive_ancestor__ __internal_selector_index_generation__
     ],
     Dommy::Internal::DocumentLiveRanges => %w[
       __internal_register_range__ __internal_each_live_range__ live_ranges?
