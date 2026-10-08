@@ -58,7 +58,16 @@ module Dommy
           @__index_attribute_epoch = (@__index_attribute_epoch || 0) + 1
           @__index_attribute_version = version
         end
-        [tree_generation, @__index_generation || 0, @__index_attribute_epoch, quirks_mode?]
+        # The same frozen key while nothing moved: the matcher asks once per
+        # candidate, so this must not allocate.
+        tree = tree_generation
+        own = @__index_generation || 0
+        quirks = quirks_mode?
+        key = @__index_generation_key
+        unless key && key[0] == tree && key[1] == own && key[2] == @__index_attribute_epoch && key[3] == quirks
+          key = @__index_generation_key = [tree, own, @__index_attribute_epoch, quirks].freeze
+        end
+        key
       end
 
       def __internal_bump_style_generation__
