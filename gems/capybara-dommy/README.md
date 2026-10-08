@@ -71,8 +71,12 @@ in a few polls rather than in real time. Nothing advances it outside that loop:
 
 **The app runs in the test process.** There is no server thread and no port, so
 `use_transactional_tests` works unchanged and an exception in the app is raised
-directly in the test. In exchange, `Capybara.server` and anything built on a
-separate app thread has no meaning here.
+directly in the test, at the request that raised it rather than at the next
+Capybara command. `Capybara.raise_server_errors` and `Capybara.server_errors`
+still decide which exceptions those are: with `raise_server_errors` off, or for
+an exception not listed in `server_errors`, the page gets the 500 response Puma
+would send. In exchange, `Capybara.server` and anything built on a separate app
+thread has no meaning here.
 
 **There is no layout.** Visibility comes from HTML-level rules and stylesheet
 `display` / `visibility` / `opacity`, never from geometry, so `obscured?`,

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- With `Capybara.raise_server_errors = false`, an exception the app raises gives the page a 500 response with Puma's error text instead of failing the test; an exception not in `Capybara.server_errors` gives the same 500.
+
 ## 0.15.0 — 2026-10-04
 
 ### Changed

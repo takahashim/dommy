@@ -186,4 +186,60 @@ RSpec.describe "Capybara DSL over the :dommy driver" do
     page.driver.reset!
     expect(page.driver.rack_session.cookies).to be_empty
   end
+
+  describe "an exception the app raises" do
+    around do |example|
+      raise_server_errors = Capybara.raise_server_errors
+      server_errors = Capybara.server_errors
+      example.run
+    ensure
+      Capybara.raise_server_errors = raise_server_errors
+      Capybara.server_errors = server_errors
+    end
+
+    let(:app) do
+      app_for(
+        "GET /" => html_response('<a href="/broken">Broken</a>'),
+        "GET /broken" => ->(_req) { raise ArgumentError, "boom" }
+      )
+    end
+
+    it "is raised in the test while raise_server_errors is on" do
+      page = session_for(app)
+      page.visit("/")
+
+      expect { page.click_link("Broken") }.to raise_error(ArgumentError, "boom")
+    end
+
+    it "becomes the server's 500 page once raise_server_errors is off" do
+      Capybara.raise_server_errors = false
+      page = session_for(app)
+      page.visit("/")
+      page.click_link("Broken")
+
+      expect(page.status_code).to eq(500)
+      expect(page).to have_text("An unhandled lowlevel error occurred.")
+    end
+
+    it "becomes a 500 when it is not one of the server_errors" do
+      Capybara.server_errors = [NameError]
+      page = session_for(app)
+      page.visit("/broken")
+
+      expect(page.status_code).to eq(500)
+    end
+
+    it "is reported when only a superclass is listed in server_errors" do
+      Capybara.server_errors = [StandardError]
+      page = session_for(app)
+
+      expect { page.visit("/broken") }.to raise_error(ArgumentError)
+    end
+
+    it "is raised by a driver used without a Capybara session" do
+      driver = Capybara::Dommy::Driver.new(app)
+
+      expect { driver.visit("/broken") }.to raise_error(ArgumentError)
+    end
+  end
 end

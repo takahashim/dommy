@@ -103,7 +103,7 @@ module Capybara
         host = effective_host
         if @rack_session.nil? || @rack_session_host != host
           @rack_session&.dispose
-          @rack_session = ::Dommy::Rack::Session.new(@app, **@session_options.merge(default_host: host))
+          @rack_session = ::Dommy::Rack::Session.new(app_server, **@session_options.merge(default_host: host))
           @rack_session_host = host
         end
         @rack_session
@@ -340,6 +340,10 @@ module Capybara
 
       def frame_stack
         @frame_stack ||= []
+      end
+
+      def app_server
+        @app_server ||= AppServer.new(@app) { owning_session_options }
       end
 
       # A frame's document: its `srcdoc` when present (Dommy builds it from
