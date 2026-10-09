@@ -136,6 +136,7 @@
 ### Fixed
 
 - `setAttribute`, `getAttribute`, `hasAttribute`, attribute selectors and the CSS cascade fold an HTML element's attribute and tag names in ASCII only, as DOM says: `setAttribute("Ö", "")` makes an attribute named `Ö`, and `[Ä]` matches the `Ä` attribute the parser keeps.
+- Upgrading a custom element is a selector-visible change: a rule on `x-foo:defined` reaches the element and its descendants once `customElements.define` upgrades it, and a cached `querySelectorAll(":defined")` is recomputed.
 - `createElement("Foo:Bar")` in a page parsed as HTML and typed as XHTML or XML makes an element whose local name is `Foo:Bar`, in the namespace of that type's `createElement` (the HTML namespace for XHTML, none for XML).
 - An `<iframe>` showing a text response (`text/plain`, CSS, JavaScript, JSON) has a document whose `contentType` is that type and whose `compatMode` is `"BackCompat"`.
 - A shadow tree's `:host` rule matches the host only when its whole compound does: the host is featureless there (CSS Scoping), so `:host.dark` or `:host[x]` never match it, and `:host:has(...)` looks at the shadow tree, never the light-DOM children (a sibling relation never holds). `:host:has(.x)` used to style every host.

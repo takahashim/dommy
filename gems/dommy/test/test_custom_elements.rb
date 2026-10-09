@@ -370,6 +370,36 @@ class TestCustomElementReactions < Minitest::Test
   end
 end
 
+# An upgrade makes the element `:defined`, a selector-observable state like
+# checkedness: a computed style or a cached query that looked at it is
+# recomputed.
+class TestCustomElementUpgradeIsObservable < Minitest::Test
+  include DommyTestHelper
+
+  class Plain < Dommy::HTMLElement; end
+
+  def setup
+    @win = make_window('<style>x-late:defined .child { color: red }</style><x-late><p class="child" id="c">x</p></x-late>')
+    @doc = @win.document
+  end
+
+  def color_of_child
+    Dommy::Internal::CSS::Cascade.computed_style(@doc.get_element_by_id("c"))["color"]
+  end
+
+  def test_a_rule_on_defined_reaches_the_descendants_after_the_upgrade
+    refute_equal "rgb(255, 0, 0)", color_of_child
+    @win.custom_elements.define("x-late", Plain)
+    assert_equal "rgb(255, 0, 0)", color_of_child
+  end
+
+  def test_a_cached_query_on_defined_sees_the_upgrade
+    assert_empty @doc.query_selector_all("x-late:defined")
+    @win.custom_elements.define("x-late", Plain)
+    assert_equal 1, @doc.query_selector_all("x-late:defined").length
+  end
+end
+
 # DOM "create an element" with the synchronous custom elements flag: a
 # constructor that throws is reported, and the element is an
 # HTMLUnknownElement whose custom element state is "failed".
