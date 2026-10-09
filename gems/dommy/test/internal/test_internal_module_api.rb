@@ -27,7 +27,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::CssSyntax => %w[
       preprocess valid_escape_at? ident_start_code_point? name_code_point? atom_end
     ],
-    Dommy::Internal::CSS::CustomProperties => %w[contains_var? resolve_all substitute split_args],
+    Dommy::Internal::CSS::CustomProperties => %w[contains_var? resolve_declared substitute split_args],
     Dommy::Internal::CSS::MediaQuery => %w[match?],
     Dommy::Internal::Directionality => %w[direction_of text_dependent? reflected_dir auto_directionality_form_associated?],
     Dommy::Internal::ElementEditing => %w[state editable?],

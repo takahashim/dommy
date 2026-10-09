@@ -96,14 +96,20 @@ module Dommy
           # Nothing of its own: the parent's set, already resolved.
           return inherited if winners.empty?
 
-          merged = inherited.dup
+          declared = {}
+          removed = nil
           winners.each_property do |name|
             next unless name.start_with?("--")
 
             value = winners.value_for(name, @parent_styles)
-            value.nil? ? merged.delete(name) : merged[name] = value
+            if value.nil?
+              (removed ||= []) << name
+            else
+              declared[name] = value
+            end
           end
-          CustomProperties.resolve_all(merged)
+          inherited = inherited.except(*removed) if removed
+          CustomProperties.resolve_declared(inherited, declared)
         end
 
         # The parent's computed custom property set: the one it was built

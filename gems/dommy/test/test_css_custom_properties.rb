@@ -225,4 +225,43 @@ class TestCssCustomProperties < Minitest::Test
     HTML
     assert_equal "rgb(239, 68, 68)", computed(doc, "x")["background-color"]
   end
+
+  # Custom properties inherit as computed values: --a was substituted on the
+  # parent, so a child's own --b does not reach the --a it inherits.
+  def test_an_inherited_value_keeps_what_it_was_computed_from
+    doc = doc_for(<<~HTML)
+      <style>
+        #parent { --b: red; --a: var(--b) }
+        #child { --b: blue; color: var(--a); background-color: var(--b) }
+      </style>
+      <div id="parent"><p id="child">x</p></div>
+    HTML
+    assert_equal "red", computed(doc, "child")["--a"]
+    assert_equal "rgb(255, 0, 0)", computed(doc, "child")["color"]
+    assert_equal "rgb(0, 0, 255)", computed(doc, "child")["background-color"]
+  end
+
+  def test_a_declared_value_builds_on_an_inherited_one
+    doc = doc_for(<<~HTML)
+      <style>
+        :root { --channel: 255 }
+        #x { --red: rgb(var(--channel) 0 0); color: var(--red) }
+      </style>
+      <p id="x">x</p>
+    HTML
+    assert_equal "rgb(255 0 0)", computed(doc, "x")["--red"]
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_a_declared_value_referencing_a_removed_inherited_one_uses_its_fallback
+    doc = doc_for(<<~HTML)
+      <style>
+        :root { --main: red }
+        #x { --main: initial; --pick: var(--main, blue); color: var(--pick) }
+      </style>
+      <p id="x">x</p>
+    HTML
+    assert_nil computed(doc, "x")["--main"]
+    assert_equal "rgb(0, 0, 255)", computed(doc, "x")["color"]
+  end
 end

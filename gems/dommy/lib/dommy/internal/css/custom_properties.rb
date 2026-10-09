@@ -87,34 +87,6 @@ module Dommy
           value.to_s.match?(VAR_PATTERN)
         end
 
-        # Resolve var() inside the custom property values themselves.
-        # `values` is "--name" => raw value; returns "--name" => substituted
-        # value with invalid (cyclic / unresolvable) entries dropped.
-        #
-        # Cycles are detected up front on the dependency graph (the strongly
-        # connected components): every property in a cycle is the guaranteed-
-        # invalid value, fallback notwithstanding (css-variables-1 §3.1). A
-        # property that merely *references* a cyclic/unset property still uses
-        # its var() fallback — so the same DFS that mishandles secondary cycles
-        # (a property in two overlapping cycles) is replaced by SCC analysis.
-        def resolve_all(values)
-          cyclic = cyclic_properties(values)
-          resolved = {}
-
-          resolve = lambda do |name|
-            next resolved[name] if resolved.key?(name)
-            next (resolved[name] = nil) if cyclic[name]
-
-            value = values[name]
-            next (resolved[name] = nil) if value.nil?
-
-            resolved[name] = substitute(value, resolve)
-          end
-
-          values.each_key { |name| resolve.call(name) }
-          resolved.compact
-        end
-
         # Substitute every var(--name[, fallback]) in `value` using `lookup`
         # (callable: name -> resolved value, or nil when the property is unset
         # or cyclic — in which case the fallback is used). Returns the
@@ -152,6 +124,42 @@ module Dommy
             index = close + 1
           end
           out << source.slice(index, source.length)
+        end
+
+        # An element's computed custom properties: `inherited` ("--name" =>
+        # computed value, its var()s substituted where it was declared) with
+        # `declared` ("--name" => the element's own raw value) resolved over it.
+        # Only the declared values are resolved, and only they can form a
+        # cycle — an inherited value references nothing — so a page's root
+        # palette is not resolved again for every element under it. A declared
+        # value that is invalid (cyclic / unresolvable) drops the property.
+        #
+        # Cycles are detected up front on the dependency graph (the strongly
+        # connected components): every property in a cycle is the guaranteed-
+        # invalid value, fallback notwithstanding (css-variables-1 §3.1). A
+        # property that merely *references* a cyclic/unset property still uses
+        # its var() fallback — so the same DFS that mishandles secondary cycles
+        # (a property in two overlapping cycles) is replaced by SCC analysis.
+        def resolve_declared(inherited, declared)
+          return inherited if declared.empty?
+
+          cyclic = cyclic_properties(declared)
+          resolved = {}
+          resolve = lambda do |name|
+            next inherited[name] unless declared.key?(name)
+            next resolved[name] if resolved.key?(name)
+            next (resolved[name] = nil) if cyclic[name]
+
+            value = declared[name]
+            resolved[name] = contains_var?(value) ? substitute(value, resolve) : value
+          end
+
+          result = inherited.dup
+          declared.each_key do |name|
+            value = resolve.call(name)
+            value.nil? ? result.delete(name) : result[name] = value
+          end
+          result
         end
 
         # The custom-property names that participate in a dependency cycle: the
