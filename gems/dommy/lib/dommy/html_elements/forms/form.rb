@@ -346,17 +346,34 @@ module Dommy
     end
 
     # name/id -> [controls], for the named getter (a name matching more than one
-    # control yields a RadioNodeList-like NodeList).
+    # control yields a RadioNodeList-like NodeList). Frozen, and nil for a name
+    # no control carries.
+    #
+    # The form is [LegacyOverrideBuiltIns], so every property a script reads
+    # off it asks this first. It depends on which elements the form owns and
+    # on their `name` and `id`: tree and attribute changes, and a custom
+    # element upgrade (which can make an element form-associated), all move
+    # the document's dom_generation, so the table is built once per
+    # generation. The document is part of the key because an adopted form
+    # keeps its wrapper, and the new document's generation can equal the old
+    # one's.
     def named_controls
-      map = ::Hash.new { |h, k| h[k] = [] }
+      document = @document
+      dom_generation = document.dom_generation
+      return @named_controls if @named_controls_document.equal?(document) && @named_controls_dom_generation == dom_generation
+
+      map = {}
       elements.each do |el|
         node = el.__dommy_backend_node__
         name = Backend.no_namespace_attribute_value(node, "name").to_s
-        map[name] << el unless name.empty?
+        (map[name] ||= []) << el unless name.empty?
         id = Backend.no_namespace_attribute_value(node, "id").to_s
-        map[id] << el unless id.empty? || id == name
+        (map[id] ||= []) << el unless id.empty? || id == name
       end
-      map
+      map.each_value(&:freeze)
+      @named_controls_document = document
+      @named_controls_dom_generation = dom_generation
+      @named_controls = map.freeze
     end
 
     js_methods %w[submit reset requestSubmit checkValidity reportValidity]

@@ -468,3 +468,78 @@ class TestHTMLInputElementSanitization < Minitest::Test
     assert_instance_of(Dommy::FileList, input("<input id='i' type='file'>").__js_get__("files"))
   end
 end
+
+# A form's named properties (its [LegacyOverrideBuiltIns] named getter) follow
+# its controls as they are added, renamed and removed.
+class TestHTMLFormElementNamedProperties < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = make_window('<form id="f"><input name="title"><input id="body"></form>')
+    @doc = @win.document
+    @form = @doc.get_element_by_id("f")
+  end
+
+  def test_names_and_ids_are_named_properties
+    assert_equal %w[title body], @form.__js_named_props__
+    assert_same @doc.query_selector("[name=title]"), @form.__js_get__("title")
+  end
+
+  def test_named_properties_follow_added_renamed_and_removed_controls
+    @form.__js_get__("title")
+    added = @doc.create_element("input")
+    added.set_attribute("name", "tags")
+    @form.append_child(added)
+    assert_same added, @form.__js_get__("tags")
+
+    added.set_attribute("name", "labels")
+    assert_same added, @form.__js_get__("labels")
+    # "tags" stays: the past names map keeps a name a script used for as long
+    # as the form still owns the control.
+    assert_equal %w[title body labels tags], @form.__js_named_props__
+
+    @doc.query_selector("#body").remove
+    assert_equal %w[title labels tags], @form.__js_named_props__
+  end
+
+  def test_looking_up_a_missing_name_adds_no_named_property
+    @form.__js_get__("missing")
+    assert_equal %w[title body], @form.__js_named_props__
+  end
+
+  class LateControl < Dommy::HTMLElement
+    def self.form_associated = true
+  end
+
+  # Defining a custom element can make an element a listed control of its
+  # form; its name then answers like any other control's.
+  def test_a_custom_element_defined_later_joins_the_named_properties
+    win = make_window('<form id="f"><x-late name="q"></x-late></form>')
+    form = win.document.get_element_by_id("f")
+    refute_includes form.__js_named_props__, "q"
+
+    win.custom_elements.define("x-late", LateControl)
+    assert_includes form.__js_named_props__, "q"
+    assert_same win.document.query_selector("x-late"), form.__js_get__("q")
+  end
+
+  # An adopted form keeps its wrapper; the controls it named in its old
+  # document are not its controls in the new one, even when the new
+  # document's generation happens to equal the old one's.
+  def test_an_adopted_form_does_not_name_its_old_documents_controls
+    win = make_window('<form id="f"></form><input form="f" name="outside">')
+    form = win.document.get_element_by_id("f")
+    refute_nil form.__js_get__("outside")
+
+    other = make_window("<p>other</p>").document
+    generation = win.document.dom_generation
+    other.define_singleton_method(:dom_generation) { generation }
+    other.adopt_node(form)
+    other.body.append_child(form)
+    refute_includes form.__js_named_props__, "outside"
+  end
+
+  def test_a_builtin_answers_when_no_control_takes_its_name
+    assert_equal "f", @form.__js_get__("id")
+  end
+end

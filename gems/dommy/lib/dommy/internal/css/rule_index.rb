@@ -17,8 +17,9 @@ module Dommy
       # The document's "element -> matching rules" index. A plain rule (no
       # @scope, not shadow-scoped, no ::part) is NOT matched at build time:
       # it is bucketed by its subject compound's most selective simple
-      # selector (id > class > tag > universal, the WebKit rule-hash shape)
-      # and matched lazily, per element, on the first matches_for — so
+      # selector (id > class > tag > attribute > universal, the WebKit
+      # rule-hash shape) and matched lazily, per element, on the first
+      # matches_for — so
       # building the index costs parsing, not rules x document queries, and
       # an invalidation is priced by the elements actually styled afterward.
       # Only the rules whose targeting needs whole-document queries (@scope
@@ -74,10 +75,12 @@ module Dommy
           # (see Document#__internal_note_attribute_mutation__).
           @dependencies = SelectorDependencies.new
           # The lazy-rule buckets (LazyEntry, keyed by the subject compound's
-          # most selective simple selector) and the per-element match memos.
+          # most selective simple selector — id, class, tag, then attribute
+          # name) and the per-element match memos.
           @bucket_id = {}
           @bucket_class = {}
           @bucket_tag = {}
+          @bucket_attribute = {}
           @bucket_universal = []
           @element_matches = {}.compare_by_identity
           @pseudo_matches = {}
@@ -437,9 +440,22 @@ module Dommy
             (@bucket_class[bucket_key(cls.value)] ||= []) << entry
           elsif compound.type.is_a?(Internal::SelectorAST::TypeSelector)
             (@bucket_tag[Internal::Infra.ascii_lowercase(compound.type.name)] ||= []) << entry
+          elsif (attribute = compound.subclass_selectors.find { |s| no_namespace_attribute_selector?(s) })
+            (@bucket_attribute[Internal::Infra.ascii_lowercase(attribute.name)] ||= []) << entry
           else
             @bucket_universal << entry
           end
+        end
+
+        # `[name]`, `[name=value]` and the rest only match an element that has
+        # the attribute, so a rule can wait in that attribute's bucket. One
+        # with a namespace (`[*|href]`) can match a namespaced attribute, whose
+        # qualified name is not the selector's, so it does not; `[|name]`
+        # (parsed as the :none namespace) means no namespace, like `[name]`.
+        def no_namespace_attribute_selector?(selector)
+          return false unless selector.is_a?(Internal::SelectorAST::AttributeSelector)
+
+          selector.namespace.nil? || selector.namespace == :none
         end
 
         # The element's full match list: the eagerly-indexed rules (@scope /
@@ -500,8 +516,9 @@ module Dommy
 
         # Yield every bucketed entry whose subject key the element carries:
         # its tag bucket, id bucket, one bucket per class token (deduplicated
-        # — a repeated token must not emit a rule twice), and the universal
-        # bucket. A superset of the true matches; the matcher decides.
+        # — a repeated token must not emit a rule twice), one per attribute
+        # name, and the universal bucket. A superset of the true matches; the
+        # matcher decides.
         def each_candidate_entry(element, &block)
           tag = Internal::Infra.ascii_lowercase(element.local_name)
           @bucket_tag[tag]&.each(&block)
@@ -515,6 +532,15 @@ module Dommy
             # class_tokens / class_attr_token? split (Ruby's default split
             # adds \v, which is NOT a class separator — "a\vb" is ONE token).
             classes.split(Internal::Infra::ASCII_WHITESPACE).map { |token| bucket_key(token) }.uniq.each { |token| @bucket_class[token]&.each(&block) }
+          end
+
+          # Lowercased on both sides, so a case-sensitive (foreign) attribute
+          # can only bring a rule to the matcher that does not match, never
+          # keep away one that does.
+          unless @bucket_attribute.empty?
+            element.get_attribute_names.map { |name| Internal::Infra.ascii_lowercase(name) }.uniq.each do |name|
+              @bucket_attribute[name]&.each(&block)
+            end
           end
 
           @bucket_universal.each(&block)
