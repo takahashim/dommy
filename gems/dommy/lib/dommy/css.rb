@@ -1,5 +1,6 @@
 # frozen_string_literal: true
 
+require_relative "internal/bounded_cache"
 require_relative "internal/css/supports"
 
 module Dommy
@@ -18,6 +19,13 @@ module Dommy
   class CSSStyleSheet
     attr_reader :owner_node, :css_rules
 
+    # A sheet's source text split into its top-level rule texts, shared by
+    # every sheet built from the same text: a page's <link> stylesheets are
+    # the same files on every page load, and splitting a large one is most of
+    # what building its sheet costs. The slices are frozen, and each sheet
+    # still makes CSSRule objects of its own, so the CSSOM stays per sheet.
+    SPLIT_CACHE = Internal::BoundedCache.new(16)
+
     # A stylesheet constructed by `new CSSStyleSheet()` has no owner node.
     # Element-owned sheets still pass their <style> / <link> node explicitly.
     def initialize(owner_node: nil, href: nil, media: nil, title: nil, type: "text/css", source_text: nil)
@@ -27,12 +35,18 @@ module Dommy
       @title = title
       @type = type
       @disabled = false
+      # The text the sheet was made from, which the cascade reads until a
+      # CSSOM change makes the rules the truth (see #cascade_text).
+      @source_text = source_text.to_s.freeze
       @css_rules = CSSRuleList.new
       # The owner node's CSS text at sheet creation, split into one CSSRule
       # per top-level rule (source order) so cssRules mirrors the parsed
       # sheet — selectorText / style / nested cssRules read off each slice.
       # insertRule(0) lands before them, appends after, as a real sheet would.
-      Internal::CSSRuleText.split_rules(source_text).each_with_index do |slice, i|
+      slices = SPLIT_CACHE.fetch(source_text.to_s) do
+        Internal::CSSRuleText.split_rules(source_text).map(&:freeze).freeze
+      end
+      slices.each_with_index do |slice, i|
         @css_rules.__internal_insert__(i, CSSRule.new(slice, self))
       end
     end
@@ -50,10 +64,14 @@ module Dommy
     end
 
     # The sheet's full CSS text in document order — what the cascade
-    # parses in place of the owner `<style>`'s raw text once the sheet
-    # has been mutated through the CSSOM.
+    # parses in place of the owner `<style>`'s raw text. Until the CSSOM
+    # changes the sheet that is the text it was made from, as for a <style>
+    # with no sheet; after a change, every rule's text, memoized until the
+    # next one (serializing every rule of a large sheet is not free).
     def cascade_text
-      @css_rules.map(&:css_text).join("\n")
+      return @source_text unless @cssom_changed
+
+      @cascade_text ||= @css_rules.map(&:css_text).join("\n").freeze
     end
 
     def href
@@ -89,7 +107,7 @@ module Dommy
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx > @css_rules.length
 
       @css_rules.__internal_insert__(idx, CSSRule.new(rule_text.to_s, self))
-      __internal_bump_owner_style_generation__
+      __internal_note_rules_changed__
       idx
     end
 
@@ -101,7 +119,7 @@ module Dommy
       raise DOMException::IndexSizeError, "out of range" if idx < 0 || idx >= @css_rules.length
 
       @css_rules.__internal_delete_at__(idx)
-      __internal_bump_owner_style_generation__
+      __internal_note_rules_changed__
       nil
     end
 
@@ -128,7 +146,7 @@ module Dommy
     def replace_sync(text)
       @css_rules.__internal_clear__
       @css_rules.__internal_insert__(0, CSSRule.new(text.to_s, self)) unless text.to_s.empty?
-      __internal_bump_owner_style_generation__
+      __internal_note_rules_changed__
       nil
     end
 
@@ -199,10 +217,18 @@ module Dommy
     # invalidates the owner document's computed style the same way
     # insertRule/deleteRule do — its rebuilt cssText feeds `cascade_text`.
     def __internal_notify_rule_changed__
-      __internal_bump_owner_style_generation__
+      __internal_note_rules_changed__
     end
 
     private
+
+    # The rules changed through the CSSOM: from now on they, not the source
+    # text, are what the cascade reads.
+    def __internal_note_rules_changed__
+      @cssom_changed = true
+      @cascade_text = nil
+      __internal_bump_owner_style_generation__
+    end
 
     # CSSOM mutations must invalidate the owner document's computed-style
     # cache — the rule index re-reads `cascade_text` on the next lookup.
