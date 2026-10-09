@@ -22,6 +22,15 @@ class TestCreateElementTypedDocument < Minitest::Test
     assert_equal ["fooBar", "fooBar", nil], element("application/xml", "fooBar")
   end
 
+  # A colon makes no prefix: the whole name is the local name, case kept.
+  def test_an_xhtml_typed_document_keeps_a_colon_name_as_written
+    assert_equal %w[Foo:Bar Foo:Bar http://www.w3.org/1999/xhtml], element("application/xhtml+xml", "Foo:Bar")
+  end
+
+  def test_an_xml_typed_document_keeps_a_colon_name_as_written
+    assert_equal ["Foo:Bar", "Foo:Bar", nil], element("application/xml", "Foo:Bar")
+  end
+
   def test_an_html_document_lowercases_it
     assert_equal %w[foobar FOOBAR http://www.w3.org/1999/xhtml], element("text/html", "fooBar")
   end
