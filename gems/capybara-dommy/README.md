@@ -84,9 +84,12 @@ thread has no meaning here.
 `display` / `visibility` / `opacity`, never from geometry, so `obscured?`,
 scroll position and element size are unavailable.
 
-**Input is synthesised.** Events are dispatched from Ruby rather than by the OS,
-so `isTrusted` is false and hover, drag and special keys are limited. An
-unanswered `confirm` returns false rather than blocking.
+**Input is synthesised.** Events are dispatched from Ruby rather than by the OS.
+They are trusted, as a user's input is, but the pointer has no real position:
+mouse coordinates are 0 (each element's box center for a drag), and `drag_to`
+moves straight from the element pressed to the target, with `delay` seconds of
+virtual time between the steps. An unanswered `confirm` returns false rather
+than blocking.
 
 **Frames are fetched, not live.** Switching to a frame re-requests its URL; the
 frame's own scripts do not run.

@@ -84,6 +84,47 @@ module Dommy
         event.default_prevented?
       end
 
+      # Drag `source` with the mouse and release it over `target`. When the
+      # press lands inside a draggable element and the page does not cancel
+      # the mousedown, the drag is an HTML drag-and-drop (see DragAndDrop);
+      # otherwise the pointer just moves: mousedown on the source, then the
+      # pointer leaves it for the target (mouseout / mouseover and the rest),
+      # mousemove and mouseup there, which is what a script-driven sortable
+      # listens for. `html5: false` makes it the plain move even from a
+      # draggable element. `pause` runs where a browser's event loop would get
+      # a turn between the steps. Returns whether a drag-and-drop dropped.
+      def drag_and_drop(source, target, pause: nil, html5: true)
+        origin, backdrop = hit_target(source)
+        return false if origin.nil?
+
+        init = mouse_init.merge("buttons" => 1)
+        canceled = press(origin, init, backdrop)
+        dragged = drag_source(origin) if html5 && !canceled
+        return DragAndDrop.new(dragged, origin, pause: pause).run(target) if dragged
+
+        pause&.call
+        landing, = hit_target(target)
+        return false if landing.nil?
+
+        unless landing.equal?(origin)
+          unhover(origin, to: landing)
+          hover(landing, from: origin)
+        end
+        dispatch(landing, Dommy::PointerEvent.new("pointermove", pointer_init(init)))
+        dispatch(landing, Dommy::MouseEvent.new("mousemove", init))
+        pause&.call
+        release(landing, init.merge("buttons" => 0), false)
+        false
+      end
+
+      # What a press on `element` drags: the nearest inclusive ancestor whose
+      # `draggable` is true, or nil.
+      def drag_source(element)
+        node = element
+        node = node.parent_element until node.nil? || (node.respond_to?(:draggable) && node.draggable)
+        node
+      end
+
       # The click a key press activates a focused control with (Space on a
       # button): a trusted click with no pointer behind it — pointerId -1,
       # empty pointerType, detail 0 — that a disabled control does not get.
@@ -109,7 +150,7 @@ module Dommy
       # A primary or secondary press: pointerdown (light dismiss records the
       # popover and dialog pressed), mousedown, and the focus a press moves
       # (none for a backdrop). Where it lands becomes the sequential focus
-      # navigation starting point.
+      # navigation starting point. Returns whether mousedown was canceled.
       def press(target, init, backdrop)
         down = Dommy::PointerEvent.new("pointerdown", pointer_init(init))
         trusted(target, down)
@@ -117,9 +158,11 @@ module Dommy
         target.dispatch_event(down)
         document = target.owner_document
         document.__internal_note_pointer_input__
-        dispatch(target, Dommy::MouseEvent.new("mousedown", init))
+        mousedown = Dommy::MouseEvent.new("mousedown", init)
+        dispatch(target, mousedown)
         document.__internal_sequential_focus_navigation_starting_point__ = target
         click_focus(target) unless backdrop
+        mousedown.default_prevented?
       end
 
       # The release: pointerup (light dismiss closes what the press and the

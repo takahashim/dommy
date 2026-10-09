@@ -11,13 +11,23 @@ module Dommy
   #
   # Spec: https://html.spec.whatwg.org/multipage/dnd.html#datatransfer
   class DataTransfer
-    attr_reader :files
+    # The drag data store mode (HTML §6.11.3). A drag gives dragstart a store
+    # in :read_write mode, drop one in :read_only mode and every other drag
+    # event one in :protected mode, where the data can be neither read nor
+    # changed (`types` still lists the formats). A DataTransfer a script or a
+    # test makes is :read_write.
+    attr_accessor :__internal_mode__
 
     def initialize(files: [], data: {})
       @files = files.is_a?(FileList) ? files : FileList.new(Array(files))
       @data = data.transform_keys { |k| normalize_format(k) }
       @drop_effect = "none"
       @effect_allowed = "uninitialized"
+      @__internal_mode__ = :read_write
+    end
+
+    def files
+      @__internal_mode__ == :protected ? FileList.new([]) : @files
     end
 
     def types
@@ -25,15 +35,21 @@ module Dommy
     end
 
     def get_data(format)
+      return "" if @__internal_mode__ == :protected
+
       @data[normalize_format(format)].to_s
     end
 
     def set_data(format, data)
+      return nil unless writable?
+
       @data[normalize_format(format)] = data.to_s
       nil
     end
 
     def clear_data(format = nil)
+      return nil unless writable?
+
       if format
         @data.delete(normalize_format(format))
       else
@@ -49,6 +65,8 @@ module Dommy
       @items ||= DataTransferItemList.new(self)
     end
 
+    def writable? = @__internal_mode__ == :read_write
+
     # Called by the item list when a File/Blob is added through `items.add`.
     # FileList is immutable, so rebuild it with the new file appended.
     def __internal_add_file__(file)
@@ -59,7 +77,7 @@ module Dommy
     def __js_get__(key)
       case key
       when "files"
-        @files
+        files
       when "items"
         items
       when "types"
@@ -128,6 +146,8 @@ module Dommy
     end
 
     def add(data, type = nil)
+      return nil unless @owner.writable?
+
       item = DataTransferItem.new(data, type)
       @items << item
       if data.is_a?(Blob)

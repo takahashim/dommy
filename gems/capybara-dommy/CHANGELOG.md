@@ -4,6 +4,7 @@
 
 ### Added
 
+- `drag_to` under JavaScript: a press inside a draggable element runs an HTML drag-and-drop (`dragstart` through `drop` and `dragend`), anything else moves the pointer to the target and releases it there (`mousemove`, `mouseup`), with `delay` (0.05 s) of virtual time between the steps.
 - `current_window.size` and `current_window.resize_to(width, height)`: the one window starts at 1280x720, and its size is the viewport `@media` and `matchMedia` see, kept across `reset!`.
 
 ### Changed

@@ -231,6 +231,29 @@ module Capybara
         nil
       end
 
+      # Drag this element onto `element` with the mouse. Under JavaScript the
+      # press and what follows run as in a browser: an HTML drag-and-drop when
+      # the press lands in a draggable element (dragstart through dragend),
+      # the pointer moving over and releasing on `element` otherwise or with
+      # `html5: false`. `delay` seconds of virtual time pass between the steps,
+      # as Capybara's Selenium driver waits, so a page that defers its
+      # dragover work to a timer sees it run before the drop. Without
+      # JavaScript only the virtual :hover state moves to `element`.
+      def drag_to(element, html5: nil, delay: 0.05, drop_modifiers: [])
+        unless Array(drop_modifiers).empty?
+          raise Capybara::NotSupportedByDriverError, "capybara-dommy does not support drop_modifiers"
+        end
+
+        target = element.native
+        if driver.javascript?
+          pause = -> { driver.rack_session.advance_time((delay * 1000).round) }
+          ::Dommy::Interaction::EventSynthesis.drag_and_drop(native, target, pause: pause, html5: html5 != false)
+        end
+        target.owner_document.__internal_set_hovered_element__(target)
+        driver.drain_js if driver.javascript?
+        nil
+      end
+
       # The shadow root this element hosts (`attachShadow`), as a Capybara node
       # scoped to that tree — Capybara's `shadow_root`/`within` support. nil
       # when the element has no shadow root.
