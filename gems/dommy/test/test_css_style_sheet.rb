@@ -362,4 +362,45 @@ class TestLinkStylesheetCascade < Minitest::Test
     el.set_stylesheet_text("#x { color: blue }")
     assert_equal "rgb(0, 0, 255)", color
   end
+
+  # Sheets built from the same text share its split but not their rules: one
+  # page's CSSOM edit must not reach another page's sheet.
+  def test_sheets_from_the_same_text_have_their_own_rules
+    css = "p { color: red } a { color: blue }"
+    one = Dommy::CSSStyleSheet.new(source_text: css)
+    two = Dommy::CSSStyleSheet.new(source_text: css)
+    refute_same one.css_rules[0], two.css_rules[0]
+
+    one.css_rules[0].style.set_property("color", "green")
+    one.delete_rule(1)
+
+    assert_equal "p { color: green; }", one.cascade_text
+    assert_equal css, two.cascade_text
+  end
+
+  # Until the CSSOM changes a sheet, the cascade reads the text it was made
+  # from; disabling it changes no rule.
+  def test_cascade_text_is_the_source_until_a_rule_changes
+    css = "p { color: red } /* note */"
+    sheet = Dommy::CSSStyleSheet.new(source_text: css)
+    sheet.disabled = true
+    sheet.disabled = false
+    assert_equal css, sheet.cascade_text
+  end
+
+  def test_cascade_text_follows_every_cssom_change_after_it_was_read
+    sheet = Dommy::CSSStyleSheet.new(source_text: "p { color: red }")
+    assert_equal "p { color: red }", sheet.cascade_text
+
+    sheet.insert_rule("a { color: blue }", 1)
+    assert_equal "p { color: red; }\na { color: blue; }", sheet.cascade_text
+    sheet.css_rules[0].selector_text = "div"
+    assert_equal "div { color: red; }\na { color: blue; }", sheet.cascade_text
+    sheet.css_rules[1].style.set_property("color", "green")
+    assert_equal "div { color: red; }\na { color: green; }", sheet.cascade_text
+    sheet.delete_rule(0)
+    assert_equal "a { color: green; }", sheet.cascade_text
+    sheet.replace_sync("b { color: black }")
+    assert_equal "b { color: black; }", sheet.cascade_text
+  end
 end
