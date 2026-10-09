@@ -2755,7 +2755,7 @@ module Dommy
 
     # Whether any shadow root was ever attached in this document — the HTML
     # serializer's fast path asks before looking for shadow hosts.
-    def __internal_any_shadow_roots__? = !@shadow_registry.all.empty?
+    def __internal_any_shadow_roots__? = @shadow_registry.any?
 
     # Whether an element of this document has an is value it does not carry
     # as an `is` attribute (createElement's `{is}`, a customized built-in's

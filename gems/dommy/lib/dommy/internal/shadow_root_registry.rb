@@ -40,6 +40,13 @@ module Dommy
         @shadow_roots.values
       end
 
+      # Whether any shadow root is registered at all. The flat-tree check
+      # short-circuits on this: with none, no element can be a shadow host, so
+      # nothing is outside the flat tree and no ancestor walk is needed.
+      def any?
+        !@shadow_roots.empty?
+      end
+
       # The ShadowRoot whose tree the node is in, its own fragment aside. A
       # shadow root's fragment is the root of its tree, so it can only be the
       # node's root.

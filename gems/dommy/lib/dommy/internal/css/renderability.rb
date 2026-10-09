@@ -29,6 +29,12 @@ module Dommy
         # tree only if assigned to a slot, so an unslotted one (and its subtree)
         # is outside it.
         def outside_flat_tree?(element)
+          # No shadow roots in the document means no shadow hosts, so no
+          # element is outside the flat tree — skip the ancestor walk, which
+          # is otherwise O(depth) on every getComputedStyle.
+          doc = element.owner_document if element.respond_to?(:owner_document)
+          return false if doc.respond_to?(:__internal_any_shadow_roots__?) && !doc.__internal_any_shadow_roots__?
+
           node = element
           while node.respond_to?(:parent_element) && (host = node.parent_element)
             if host.respond_to?(:shadow_root) && host.shadow_root &&
