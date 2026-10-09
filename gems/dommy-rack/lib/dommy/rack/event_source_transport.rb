@@ -46,6 +46,10 @@ module Dommy
         @reader = Thread.new { run }
       end
 
+      # Whether the stream is over, so no event can arrive on it: the page
+      # closed it, or the reader stopped (the response ended or failed).
+      def closed? = @closed || @reader_done
+
       # Called from the page thread when the EventSource is closed: stop the
       # reader and release the response body.
       def close
@@ -56,9 +60,12 @@ module Dommy
 
       # Hard teardown (session dispose): drop the stream; the reader exits on
       # the closed body or at the next chunk.
-      def dispose
+      # Hard teardown: drop the stream; the reader exits on the closed body
+      # or at the next chunk. With `wait` it is also joined (briefly), for a
+      # session going away for good; a page navigating away does not wait.
+      def dispose(wait: true)
         close
-        @reader&.join(1)
+        @reader&.join(1) if wait
       rescue IOError
         nil
       end
@@ -82,6 +89,7 @@ module Dommy
         post { @es.__internal_transport_error__ } unless @closed
       ensure
         close_body
+        @reader_done = true
       end
 
       def env

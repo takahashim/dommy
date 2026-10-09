@@ -99,6 +99,24 @@ module Dommy
         end
       end
 
+      # The current realm's virtual clock, in ms.
+      def now_ms = scheduler_of(@current_document.call)&.now_ms
+
+      # The virtual ms until the current realm's next timer (setTimeout,
+      # setInterval, requestAnimationFrame) is due — 0 for one due already —
+      # or nil when none is scheduled.
+      def next_timer_delay
+        scheduler = scheduler_of(@current_document.call)
+        due = scheduler&.next_due_timer_at
+        due && [due - scheduler.now_ms, 0].max
+      end
+
+      # Whether a completion another thread handed back (a response, a socket
+      # message) waits to be delivered to any realm.
+      def external_pending?
+        @runtimes.each_key.any? { |doc| scheduler_of(doc)&.external_pending? }
+      end
+
       # The realm VM for one document, built lazily and cached by identity so a
       # frame switch keeps each realm's JS state instead of rebuilding it.
       def runtime_for(doc)

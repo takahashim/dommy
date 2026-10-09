@@ -5,9 +5,11 @@
 ### Added
 
 - `Session#resize_viewport(width, height)` resizes the browser window: the current page gets a `resize` event and re-evaluated `@media`, and later pages open at that size (`viewport_size` reads it back).
+- `Session#virtual_time`, `Session#next_timer_delay` (the virtual ms to the page's next timer, nil when none), `Session#completion_pending?` (a response or message another thread handed back awaits the next turn of the loop) and `Session#open_connections?` (a WebSocket or EventSource is open), for a host waiting on the virtual clock.
 
 ### Changed
 
+- Navigating away from a page closes the WebSockets and EventSources it and its frames opened, as unloading a document does, without waiting for their readers; a connection the app ended or dropped reports `closed?` too.
 - Navigating to a `text/plain`, CSS, JavaScript or JSON response shows it as a text document, a `<pre>` holding the body, so `session.text` is the body and `on_document_loaded` fires; other non-HTML responses still keep the previous document.
 
 ## 0.15.0 — 2026-10-04

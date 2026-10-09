@@ -233,6 +233,37 @@ module Dommy
         self
       end
 
+      # The current page's virtual clock in ms (nil when JS is disabled).
+      def virtual_time = @js_runtime&.now_ms
+
+      # The virtual ms until the current page's next timer is due, or nil when
+      # none is scheduled (or JS is disabled). Moving the clock that far is the
+      # soonest the page can change by itself.
+      def next_timer_delay = @js_runtime&.next_timer_delay
+
+      # Whether a completion another thread handed back (a response, a
+      # socket message) waits to be delivered: the next turn of the event
+      # loop (#advance_time, even by 0) applies it.
+      def completion_pending?
+        @js_runtime ? @js_runtime.external_pending? : false
+      end
+
+      # Whether a WebSocket or EventSource is open, so the app can push to
+      # the page at any moment — something the virtual clock does not drive,
+      # which only waiting in real time can see arrive. A closed transport
+      # carries nothing more and nothing brings it back (a reconnecting page
+      # opens a new one), so it leaves the lists here.
+      #
+      # A fetch still running on a `network_executor` worker is not counted:
+      # it shows up as a pending completion once the worker hands its
+      # response back. Without an executor (the default) fetch completes
+      # before it returns, so there is nothing in flight to miss.
+      def open_connections?
+        @live_websocket_transports&.reject!(&:closed?)
+        @live_event_source_transports&.reject!(&:closed?)
+        !(Array(@live_websocket_transports) + Array(@live_event_source_transports)).empty?
+      end
+
       # Uncaught JS errors / unhandled rejections and console output collected
       # by the JS runtime ([] when JS is disabled). Only what the PAGE left
       # unhandled is here: an error it cancels in `window.onerror` never reaches
@@ -937,7 +968,10 @@ module Dommy
           referrer = @last_request && @last_request["HTTP_REFERER"]
           @current_window.document.__internal_referrer__ = referrer.to_s if referrer
           # The page navigated away from is no longer fully active.
-          previous_window.__internal_discard__ if previous_window && !previous_window.equal?(@current_window)
+          if previous_window && !previous_window.equal?(@current_window)
+            previous_window.__internal_discard__
+            close_page_connections
+          end
           @current_window.dialog_handler = @dialog_handler
           # Set the geometry mode before scripts boot so the very first
           # getBoundingClientRect a framework calls already sees it.
@@ -1045,6 +1079,17 @@ module Dommy
       end
 
       private
+
+      # A top-level navigation unloads the page and its frames, which closes
+      # every WebSocket and EventSource they opened (HTML "unload a
+      # document"); the new page starts with none. The readers are not
+      # waited for: one blocked in a streaming body ends on its own.
+      def close_page_connections
+        Array(@live_websocket_transports).each { |t| t.dispose(wait: false) }
+        Array(@live_event_source_transports).each { |t| t.dispose(wait: false) }
+        @live_websocket_transports = nil
+        @live_event_source_transports = nil
+      end
 
       def apply_viewport_size(window)
         env = window.media_environment
