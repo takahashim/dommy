@@ -168,7 +168,11 @@ module Dommy
         # var()-reference graph.
         def cyclic_properties(values)
           graph = {}
-          values.each_key { |name| graph[name] = references(values[name]).select { |ref| values.key?(ref) }.uniq }
+          values.each do |name, value|
+            # A value without var() references nothing; most of a utility
+            # sheet's custom properties are such plain values.
+            graph[name] = contains_var?(value) ? references(value).select { |ref| values.key?(ref) }.uniq : []
+          end
 
           DependencyCycles.new(graph).cyclic_nodes
         end
