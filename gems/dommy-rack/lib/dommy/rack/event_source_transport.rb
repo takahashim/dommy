@@ -58,8 +58,6 @@ module Dommy
         nil
       end
 
-      # Hard teardown (session dispose): drop the stream; the reader exits on
-      # the closed body or at the next chunk.
       # Hard teardown: drop the stream; the reader exits on the closed body
       # or at the next chunk. With `wait` it is also joined (briefly), for a
       # session going away for good; a page navigating away does not wait.

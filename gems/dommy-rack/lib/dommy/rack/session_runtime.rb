@@ -74,11 +74,16 @@ module Dommy
         self
       end
 
-      # Advance the current realm's virtual clock, running timers that come
-      # due, then drain.
+      # Advance the page's virtual clock: every live realm's (the top window's
+      # and its frames'), which move together as one page's time does, running
+      # the timers that come due and the completions handed back, then
+      # draining each realm's microtasks. Snapshot iteration: a fired timer
+      # may navigate and replace the map.
       def advance_time(ms)
-        scheduler_of(@current_document.call)&.advance_time(ms)
-        current_runtime.drain_microtasks
+        @runtimes.to_a.each do |doc, runtime|
+          scheduler_of(doc)&.advance_time(ms)
+          runtime.drain_microtasks
+        end
         self
       end
 
@@ -89,32 +94,34 @@ module Dommy
         self
       end
 
-      # Advance virtual time a slice and drain across EVERY live realm, so a
-      # timer in any window (top or frame) progresses while a poller waits.
-      # Snapshot iteration: a fired timer may navigate and replace the map.
-      def pump
-        @runtimes.to_a.each do |doc, runtime|
-          scheduler_of(doc)&.advance_time(PUMP_SLICE_MS)
-          runtime.drain_microtasks
-        end
-      end
+      # Advance the page's clock a slice (dommy-js-quickjs's legacy Capybara
+      # adapter polls with it).
+      def pump = advance_time(PUMP_SLICE_MS)
 
       # The current realm's virtual clock, in ms.
       def now_ms = scheduler_of(@current_document.call)&.now_ms
 
-      # The virtual ms until the current realm's next timer (setTimeout,
-      # setInterval, requestAnimationFrame) is due — 0 for one due already —
+      # The virtual ms until the page's next timer (setTimeout, setInterval,
+      # requestAnimationFrame) in any realm is due — 0 for one due already —
       # or nil when none is scheduled.
       def next_timer_delay
-        scheduler = scheduler_of(@current_document.call)
-        due = scheduler&.next_due_timer_at
-        due && [due - scheduler.now_ms, 0].max
+        @runtimes.each_key.filter_map do |doc|
+          scheduler = scheduler_of(doc)
+          due = scheduler&.next_due_timer_at
+          due && [due - scheduler.now_ms, 0].max
+        end.min
       end
 
       # Whether a completion another thread handed back (a response, a socket
       # message) waits to be delivered to any realm.
       def external_pending?
         @runtimes.each_key.any? { |doc| scheduler_of(doc)&.external_pending? }
+      end
+
+      # Whether any realm has handed work to a worker (a fetch on the network
+      # executor) that has not come back yet.
+      def external_work_in_flight?
+        @runtimes.each_key.any? { |doc| scheduler_of(doc)&.external_work_in_flight? }
       end
 
       # The realm VM for one document, built lazily and cached by identity so a

@@ -248,20 +248,26 @@ module Dommy
         @js_runtime ? @js_runtime.external_pending? : false
       end
 
-      # Whether a WebSocket or EventSource is open, so the app can push to
-      # the page at any moment — something the virtual clock does not drive,
-      # which only waiting in real time can see arrive. A closed transport
-      # carries nothing more and nothing brings it back (a reconnecting page
-      # opens a new one), so it leaves the lists here.
-      #
-      # A fetch still running on a `network_executor` worker is not counted:
-      # it shows up as a pending completion once the worker hands its
-      # response back. Without an executor (the default) fetch completes
-      # before it returns, so there is nothing in flight to miss.
+      # Whether a fetch the page handed to the `network_executor` is still
+      # running on a worker. Its response will change the page without the
+      # clock moving, so only waiting in real time sees it arrive; once the
+      # worker hands it back it is #completion_pending?. Without an executor
+      # (the default) fetch completes before it returns.
+      def fetch_in_flight?
+        @js_runtime ? @js_runtime.external_work_in_flight? : false
+      end
+
+      # Whether a WebSocket or EventSource of the page (or of one of its
+      # frames) is open, so the app can push to the page at any moment —
+      # something the virtual clock does not drive, which only waiting in
+      # real time can see arrive. A connection whose window was unloaded (its
+      # frame navigated or removed) is closed here; a closed one carries
+      # nothing more and nothing brings it back (a reconnecting page opens a
+      # new one), so it leaves the list.
       def open_connections?
-        @live_websocket_transports&.reject!(&:closed?)
-        @live_event_source_transports&.reject!(&:closed?)
-        !(Array(@live_websocket_transports) + Array(@live_event_source_transports)).empty?
+        close_unloaded_connections
+        @page_connections&.reject! { |_window, transport| transport.closed? }
+        !Array(@page_connections).empty?
       end
 
       # Uncaught JS errors / unhandled rejections and console output collected
@@ -296,16 +302,15 @@ module Dommy
         @js_runtime&.error_log&.check!(context: @current_url)
       end
 
-      # Full session teardown: the JS runtime(s) plus any live WebSocket
-      # transports. Safe to call when JS is disabled, and repeatedly.
+      # Full session teardown: the JS runtime(s) plus the page's open
+      # WebSockets and EventSources. Safe to call when JS is disabled, and
+      # repeatedly.
       # Tear the session down, then fail on anything the page left unhandled and
       # nobody has reported. Disposing first means the failure cannot leave live
       # realms behind.
       def dispose
-        Array(@live_websocket_transports).each(&:dispose)
-        @live_websocket_transports = nil
-        Array(@live_event_source_transports).each(&:dispose)
-        @live_event_source_transports = nil
+        Array(@page_connections).each { |_window, transport| transport.dispose }
+        @page_connections = nil
         log = @js_runtime&.error_log
         dispose_js
         log&.check!(context: @current_url)
@@ -333,7 +338,7 @@ module Dommy
             app: @app, ws: ws, scheduler: window.scheduler, url: target,
             origin: target.origin, cookie_string: @cookie_jar.cookies_for(target.to_s)
           )
-          (@live_websocket_transports ||= []) << transport
+          (@page_connections ||= []) << [window, transport]
           transport
         end
       end
@@ -355,7 +360,7 @@ module Dommy
             origin: target.origin,
             cookie_string: with_credentials ? @cookie_jar.cookies_for(target.to_s) : ""
           )
-          (@live_event_source_transports ||= []) << transport
+          (@page_connections ||= []) << [window, transport]
           transport
         end
       end
@@ -970,7 +975,7 @@ module Dommy
           # The page navigated away from is no longer fully active.
           if previous_window && !previous_window.equal?(@current_window)
             previous_window.__internal_discard__
-            close_page_connections
+            close_unloaded_connections
           end
           @current_window.dialog_handler = @dialog_handler
           # Set the geometry mode before scripts boot so the very first
@@ -1080,15 +1085,18 @@ module Dommy
 
       private
 
-      # A top-level navigation unloads the page and its frames, which closes
-      # every WebSocket and EventSource they opened (HTML "unload a
-      # document"); the new page starts with none. The readers are not
-      # waited for: one blocked in a streaming body ends on its own.
-      def close_page_connections
-        Array(@live_websocket_transports).each { |t| t.dispose(wait: false) }
-        Array(@live_event_source_transports).each { |t| t.dispose(wait: false) }
-        @live_websocket_transports = nil
-        @live_event_source_transports = nil
+      # Unloading a document closes the WebSockets and EventSources it opened
+      # (HTML "unload a document"): those of every window no longer fully
+      # active — the page navigated away from and its frames, a frame that
+      # navigated, a removed iframe's. The readers are not waited for: one
+      # blocked in a streaming body ends on its own.
+      def close_unloaded_connections
+        @page_connections&.reject! do |window, transport|
+          next false if window.__internal_fully_active__?
+
+          transport.dispose(wait: false)
+          true
+        end
       end
 
       def apply_viewport_size(window)
