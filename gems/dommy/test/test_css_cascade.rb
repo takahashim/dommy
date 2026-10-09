@@ -522,6 +522,41 @@ class TestCssCascade < Minitest::Test
     assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
   end
 
+  # --- attribute buckets ----------------------------------------------
+
+  def test_a_rule_whose_subject_is_an_attribute_selector_applies
+    doc = doc_for('<style>[type=checkbox] { color: red } [data-open] .x { color: blue }</style><input id="c" type="checkbox"><input id="t" type="text"><div data-open><p class="x" id="x">x</p></div>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "c")["color"]
+    assert_equal "rgb(0, 0, 0)", computed(doc, "t")["color"]
+    assert_equal "rgb(0, 0, 255)", computed(doc, "x")["color"]
+  end
+
+  def test_attribute_names_match_case_insensitively_in_an_html_document
+    doc = doc_for('<style>[DATA-STATE] { color: red }</style><p id="x" data-state="on">x</p>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_an_any_namespace_attribute_selector_matches_a_namespaced_attribute
+    doc = doc_for('<style>@namespace xlink url(http://www.w3.org/1999/xlink); [*|href] { color: red }</style><svg><a id="x" xlink:href="#t">x</a></svg>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_an_explicitly_unnamespaced_attribute_selector_applies
+    doc = doc_for('<style>[|data-state] { color: red }</style><p id="x" data-state="on">x</p><p id="y">y</p>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+    assert_equal "rgb(0, 0, 0)", computed(doc, "y")["color"]
+    index = Dommy::Internal::CSS::Cascade.index_for(doc)
+    assert_includes index.instance_variable_get(:@bucket_attribute).keys, "data-state"
+  end
+
+  # HTML lowercases only ASCII in attribute names, so `\u00c4` stays
+  # `\u00c4` and the rule must still find it.
+  def test_an_attribute_name_with_a_non_ascii_capital_matches
+    doc = doc_for("<style>[\\C4] { color: red }</style><p id=\"x\" \u00c4>x</p>")
+    assert_equal ["id", "\u00c4"], doc.get_element_by_id("x").get_attribute_names
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
   # --- CSSOM (CSSStyleSheet) connection --------------------------------
 
   def test_insert_rule_reaches_the_computed_style
