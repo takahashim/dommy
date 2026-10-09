@@ -12,6 +12,7 @@ require_relative "dommy/modal"
 require_relative "dommy/app_server"
 require_relative "dommy/node"
 require_relative "dommy/driver"
+require_relative "dommy/virtual_wait"
 
 module Capybara
   module Dommy

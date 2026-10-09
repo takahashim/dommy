@@ -10,6 +10,8 @@
 ### Changed
 
 - With `Capybara.raise_server_errors = false`, an exception the app raises gives the page a 500 response with Puma's error text instead of failing the test; an exception not in `Capybara.server_errors` gives the same 500.
+- Under JavaScript, a Capybara wait (`default_max_wait_time`, `wait:`) is a span of the page's virtual time: a retry moves the clock to the page's next timer within it instead of sleeping, and a query that nothing within the wait can satisfy fails at once. dommy-examples' debounced live search runs its system specs at 41 ms an example instead of 296 ms, and `have_no_css` on an element that stays fails in milliseconds instead of after the wait. Only an open WebSocket or EventSource is waited for in real time.
+- A node whose element left the tree (a Turbo Stream replaced it, a framework re-rendered it) is stale, as under Selenium, so Capybara finds it again instead of reading the detached element.
 
 ## 0.15.0 — 2026-10-04
 

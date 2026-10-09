@@ -22,6 +22,10 @@ module Capybara
       # The handle of the one window there is.
       WINDOW_HANDLE = "dommy"
 
+      # The frame each query moves the clock by before it reads the page:
+      # the time a browser would have had between two Capybara commands.
+      FRAME_MS = 16
+
       attr_reader :app, :visibility
 
       # --- Deterministic-time seam (used by JS runtimes) ---
@@ -72,7 +76,7 @@ module Capybara
         # A JS session needs the virtual clock pumped inside Capybara's
         # synchronize loop, so waiting expectations converge on timer/fetch
         # driven updates. A host-installed pump (the documented seam) wins.
-        @time_pump ||= -> { @rack_session&.advance_time(16) } if @javascript
+        @time_pump ||= -> { @rack_session&.advance_time(FRAME_MS) } if @javascript
       end
 
       # Whether this driver runs page JavaScript (`javascript: true`, backed by
@@ -290,6 +294,55 @@ module Capybara
         !@time_pump.nil?
       end
 
+      # --- Waiting on the virtual clock (see VirtualWait) ---
+
+      # One Capybara wait: the virtual time it may still move the clock by.
+      class Wait
+        attr_reader :remaining_ms
+
+        def initialize(seconds)
+          @remaining_ms = (seconds.to_f * 1000).round
+        end
+
+        def spend(ms)
+          @remaining_ms -= ms
+        end
+      end
+
+      def begin_wait(seconds)
+        @wait = Wait.new(seconds)
+      end
+
+      def end_wait
+        @wait = nil
+      end
+
+      # After a failed attempt: let the page move on — deliver a completion a
+      # worker handed back, or move the clock to the next timer when it is due
+      # within what is left of the wait — and answer true, to try again. False
+      # when nothing within the wait can change the page.
+      def wait_on(wait)
+        session = @rack_session
+        return false unless session
+
+        if session.completion_pending?
+          session.advance_time(0)
+          return true
+        end
+        delay = session.next_timer_delay
+        return false if delay.nil? || delay > wait.remaining_ms
+
+        wait.spend(delay)
+        session.advance_time(delay)
+        true
+      end
+
+      # Whether the app can push to the page at any moment (an open WebSocket
+      # or EventSource), which only waiting in real time can see.
+      def open_connections?
+        @rack_session ? @rack_session.open_connections? : false
+      end
+
       def needs_server?
         false
       end
@@ -360,6 +413,7 @@ module Capybara
       # otherwise sit in the ledger until some later command happened to check.
       def pump!
         @time_pump&.call
+        @wait&.spend(FRAME_MS)
         rack_session.check_js_errors! if @javascript
       end
 
