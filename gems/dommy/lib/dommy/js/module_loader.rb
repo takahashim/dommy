@@ -18,16 +18,19 @@ module Dommy
 
       # `preloaded` are the URLs of the modules the engine read in as
       # bytecode, which a specifier resolving to one is redirected to.
-      def initialize(resources, import_map, base_url: nil, preloaded: [])
+      # `kept` answers the source an earlier page fetched from a URL (or nil),
+      # which is used instead of fetching it again (ModulePreload.source).
+      def initialize(resources, import_map, base_url: nil, preloaded: [], kept: nil)
         @resources = resources
         @import_map = import_map
         @base_url = base_url.to_s
         @preloaded = preloaded.to_set
+        @kept = kept
         @seeded = {}
         @served = {}
       end
 
-      # The modules this loader fetched over the network, URL => source.
+      # The modules this loader fetched (or found kept), URL => source.
       attr_reader :served
 
       # Register an in-memory module source under `url` (served before any
@@ -98,9 +101,13 @@ module Dommy
       private
 
       # A network fetch of `url`, remembered: the engine asking for a module
-      # that was prefetched gets the same response.
+      # that was prefetched gets the same response. A module an earlier page
+      # fetched and ModulePreload kept is not fetched again.
       def fetch(url)
         return @served[url] if @served.key?(url)
+
+        kept = @kept&.call(url)
+        return @served[url] = kept if kept
 
         response = @resources&.get(url)
         return nil unless response&.success?

@@ -107,8 +107,8 @@ module Dommy
         @document.__internal_update_readiness__("interactive")
         @runtime.drain_microtasks
         scripts.each { |element| run_one(element) if deferred?(element) }
-        # The modules the page fetched, for the next page of its origin to read
-        # as bytecode.
+        # The modules the page fetched, for the next page to read without a
+        # request, and as bytecode.
         ModulePreload.register(@runtime, @loader.served)
         scheduler = microtask_scheduler
         unless scheduler
@@ -255,7 +255,8 @@ module Dommy
       # modules can be seeded under a document URL.
       def install_module_loader
         loader = ModuleLoader.new(@resources, parse_import_map, base_url: document_base,
-                                                                preloaded: ModulePreload.preloaded(@runtime))
+                                                                preloaded: ModulePreload.preloaded(@runtime),
+                                                                kept: ModulePreload.method(:source))
         # The engine requires a Proc specifically.
         @runtime.module_loader = ->(specifier, importer) { loader.call(specifier, importer) }
         ScriptBoot.register_module_loader(@document, loader)
