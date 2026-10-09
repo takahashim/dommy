@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../selector_ast"
+require_relative "../infra"
 
 module Dommy
   module Internal
@@ -101,7 +102,7 @@ module Dommy
         # Whether a mutation of attribute `name` can change what any observed
         # selector matches.
         def attribute?(name)
-          @all_attributes || @attributes.key?(name.to_s.downcase)
+          @all_attributes || @attributes.key?(Internal::Infra.ascii_lowercase(name))
         end
 
         # Whether any observed selector reads text content (:empty), so an
@@ -159,7 +160,7 @@ module Dommy
         def add_attribute(name)
           # Once every attribute already invalidates, individual names are
           # moot — the walk continues only to find text-sensitive pseudos.
-          @attributes[name.to_s.downcase] = true unless @all_attributes
+          @attributes[Internal::Infra.ascii_lowercase(name)] = true unless @all_attributes
         end
       end
     end

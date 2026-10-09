@@ -43,7 +43,7 @@ class TestInternalModuleApi < Minitest::Test
       focus_delegate autofocus_delegate run_focusing_steps run_unfocusing_steps
       flat_tree_parent shadow_including_inclusive_ancestor?
     ],
-    Dommy::Internal::Infra => %w[ascii_whitespace? split_on_ascii_whitespace],
+    Dommy::Internal::Infra => %w[ascii_lowercase ascii_whitespace? split_on_ascii_whitespace],
     Dommy::Internal::LightDismiss => %w[run],
     Dommy::Internal::SequentialFocusNavigation => %w[navigate navigation_order],
     Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],

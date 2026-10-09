@@ -34,7 +34,7 @@ module Dommy
 
         # The bits an element contributes to its descendants' filter.
         def element_bits(element, fold)
-          mask = bits("t:#{element.local_name.to_s.downcase}")
+          mask = bits("t:#{Internal::Infra.ascii_lowercase(element.local_name)}")
           id = element.__internal_attribute_value__("id").to_s
           mask |= bits("##{fold.call(id)}") unless id.empty?
           classes = element.__internal_attribute_value__("class").to_s
@@ -72,7 +72,7 @@ module Dommy
           keys = []
           type = compound.type
           if type.is_a?(Internal::SelectorAST::TypeSelector) && type.name && type.name != "*"
-            keys << "t:#{type.name.to_s.downcase}"
+            keys << "t:#{Internal::Infra.ascii_lowercase(type.name)}"
           end
           compound.subclass_selectors.each do |selector|
             case selector
