@@ -322,6 +322,12 @@ module Dommy
         node.attribute_value_ns(nil, local_name)
       end
 
+      # The qualified names of the element's attributes, in order, without
+      # materializing an attribute node for each (Element#getAttributeNames).
+      def attribute_names(node)
+        node.keys
+      end
+
       # The element's attribute nodes (each readable via attribute_ns_info).
       # The single choke point so DOM code doesn't touch parser internals.
       def attribute_nodes(node)

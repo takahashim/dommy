@@ -924,7 +924,7 @@ module Dommy
     end
 
     def get_attribute_names
-      Backend.attribute_nodes(@__node__).map(&:name)
+      Backend.attribute_names(@__node__)
     end
 
     # A plain {name => value} snapshot of ALL attributes, for the JS bridge's
