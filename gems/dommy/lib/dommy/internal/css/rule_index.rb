@@ -436,7 +436,7 @@ module Dommy
           elsif (cls = compound.subclass_selectors.find { |s| s.is_a?(Internal::SelectorAST::ClassSelector) })
             (@bucket_class[bucket_key(cls.value)] ||= []) << entry
           elsif compound.type.is_a?(Internal::SelectorAST::TypeSelector)
-            (@bucket_tag[compound.type.name.to_s.downcase] ||= []) << entry
+            (@bucket_tag[Internal::Infra.ascii_lowercase(compound.type.name)] ||= []) << entry
           else
             @bucket_universal << entry
           end
@@ -503,7 +503,7 @@ module Dommy
         # — a repeated token must not emit a rule twice), and the universal
         # bucket. A superset of the true matches; the matcher decides.
         def each_candidate_entry(element, &block)
-          tag = element.local_name.to_s.downcase
+          tag = Internal::Infra.ascii_lowercase(element.local_name)
           @bucket_tag[tag]&.each(&block)
 
           id = element.__internal_attribute_value__("id").to_s
@@ -524,7 +524,7 @@ module Dommy
         # a quirks-mode document, where those selectors match ASCII
         # case-insensitively, its ASCII-lowercased form.
         def bucket_key(value)
-          @selector_match.quirks ? value.downcase(:ascii) : value
+          @selector_match.quirks ? Internal::Infra.ascii_lowercase(value) : value
         end
 
         # Record a (fully-qualified) layer's first appearance, idempotently —

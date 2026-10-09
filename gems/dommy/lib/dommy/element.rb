@@ -1712,8 +1712,7 @@ module Dommy
     end
 
     def normalize_attr_key(name)
-      s = name.to_s
-      case_sensitive_attribute_names? ? s : s.downcase
+      case_sensitive_attribute_names? ? name.to_s : Internal::Infra.ascii_lowercase(name)
     end
 
     # WebIDL nullable-DOMString namespace argument (*AttributeNS): JS null and

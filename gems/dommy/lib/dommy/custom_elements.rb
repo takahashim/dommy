@@ -67,6 +67,9 @@ module Dommy
         Internal::CEReactions.enqueue_callback(element, "formDisabledCallback", [true]) if disabled
       end
       mark_custom(data)
+      # The element is `:defined` now, which selectors observe: a cached
+      # query or computed style that looked at it is stale.
+      data.wrapper.owner_document&.__internal_note_selector_state_change__
     end
 
     # The element is custom now: its state says so, and an element of a

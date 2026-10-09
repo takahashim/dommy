@@ -22,6 +22,15 @@ module Dommy
       def split_on_ascii_whitespace(value)
         value.to_s.split(ASCII_WHITESPACE).reject(&:empty?)
       end
+
+      # ASCII lowercase (https://infra.spec.whatwg.org/#ascii-lowercase): A-Z
+      # to a-z and nothing else, which is how HTML folds an attribute or tag
+      # name and how a quirks-mode document folds an id or class. Ruby's
+      # `downcase` would fold `\u00c4` too, making it the same name as
+      # `\u00e4`.
+      def ascii_lowercase(value)
+        value.to_s.downcase(:ascii)
+      end
     end
   end
 end
