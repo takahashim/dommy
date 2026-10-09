@@ -58,6 +58,7 @@
 
 ### Changed
 
+- Requires makiri >= 0.15.0.
 - A CSS rule that needs an ancestor (`.menu li a`, `:where(.space-y-4 > :not(:last-child))`) is skipped without matching for an element whose ancestors lack it, so the computed style of an element 21 levels deep under decidim's 3,000-rule sheet takes 18.6 ms instead of 50.6 ms.
 - A DOM edit keeps the document's CSS rule index unless it changed a stylesheet, the viewport, or something an `@scope`, shadow-tree or `::part` rule was matched against, so `getComputedStyle` after an edit on a page with decidim's 3,000-rule sheet takes 7.9 ms instead of 46 ms. An `@import`ed sheet is read once for the same parent sheets.
 - A `<link>` stylesheet a page loads again is built from the split of its text kept from the last load, and the cascade reads its source until the CSSOM changes it: a page with decidim's 3,000-rule sheet gets it in 1.4 ms instead of 113 ms.
@@ -134,6 +135,7 @@
 
 ### Fixed
 
+- `createElement("Foo:Bar")` in a page parsed as HTML and typed as XHTML or XML makes an element whose local name is `Foo:Bar`, in the namespace of that type's `createElement` (the HTML namespace for XHTML, none for XML).
 - An `<iframe>` showing a text response (`text/plain`, CSS, JavaScript, JSON) has a document whose `contentType` is that type and whose `compatMode` is `"BackCompat"`.
 - A shadow tree's `:host` rule matches the host only when its whole compound does: the host is featureless there (CSS Scoping), so `:host.dark` or `:host[x]` never match it, and `:host:has(...)` looks at the shadow tree, never the light-DOM children (a sibling relation never holds). `:host:has(.x)` used to style every host.
 - `new EventSource(url)` from script works again. The mixin that gives `ToggleEvent` and `CommandEvent` their `source` was named `Dommy::Internal::EventSource`, which the window's constructor table found instead of `Dommy::EventSource` ("undefined method `new' for module Dommy::Internal::EventSource"), so no page could open a Server-Sent Events stream (Turbo's `<turbo-stream-source>` among them). The mixin is now `Internal::SourceMember`.

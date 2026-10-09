@@ -78,7 +78,7 @@ module Dommy
       # which matches no-quirks everywhere Dommy asks). An XML document is
       # never in it.
       def quirks_mode?(doc)
-        doc.respond_to?(:quirks_mode?) && doc.quirks_mode?
+        doc.quirks_mode?
       end
 
       # An empty backing document matching `doc`'s kind (HTML stays HTML, XML
@@ -138,21 +138,13 @@ module Dommy
       end
 
       # The DOM's createElement: an element whose local name is `local_name`
-      # as written, colons included (`foo:` and `f::oo` are valid local names,
-      # not prefixed ones), in `namespace` — the HTML namespace in an HTML or
-      # XHTML document, nil in any other. An XML document's own creator parses
-      # a QName, so its element is built from the parts. An HTML-backed one —
-      # which a document typed as XHTML or XML after an HTML parse also is —
-      # makes it by createElementNS, which keeps the name's case and the
-      # namespace given; that splits a name at its colon, and refuses `xmlns`
-      # outside the XMLNS namespace, as createElementNS must — so a name with
-      # a colon, or `xmlns`, takes the HTML document's creator, which keeps
-      # the name as written but folds it into the HTML namespace in lower case.
+      # as written, colons and case included (`foo:` and `f::oo` are valid
+      # local names, not prefixed ones), in `namespace` — the HTML namespace
+      # in an HTML or XHTML document, nil in any other. Makiri builds it from
+      # the parts in an HTML and an XML document alike, without parsing the
+      # name as a QName.
       def create_element(local_name, namespace, doc)
-        return doc.create_loose_dom_element(local_name, nil, local_name, namespace) unless doc.is_a?(::Makiri::HTML::Document)
-        return doc.create_element(local_name) if local_name.include?(":") || local_name == "xmlns"
-
-        doc.create_element_ns(namespace, local_name)
+        doc.create_loose_dom_element(local_name, nil, local_name, namespace)
       end
 
       # The DOM's createElementNS, in an HTML or an XML document alike: the

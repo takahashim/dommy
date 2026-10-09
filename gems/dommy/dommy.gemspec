@@ -24,7 +24,7 @@ Gem::Specification.new do |spec|
   spec.require_paths = ["lib"]
 
   # Default HTML parser backend.
-  spec.add_dependency "makiri", ">= 0.14.0"
+  spec.add_dependency "makiri", ">= 0.15.0"
   # used for window.btoa / atob
   spec.add_dependency "base64"
 end
