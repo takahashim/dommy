@@ -9,6 +9,7 @@ require_relative "../selector_matcher"
 require_relative "../bounded_cache"
 require_relative "selector_dependencies"
 require_relative "rule_index_inputs"
+require_relative "ancestor_filter"
 
 module Dommy
   module Internal
@@ -33,7 +34,9 @@ module Dommy
         # A bucketed plain rule awaiting lazy matching: the one-complex
         # SelectorList to match (pseudo-element stripped), the pseudo-element
         # name it styles (nil for the element itself), and the Match to emit.
-        LazyEntry = Struct.new(:list, :pseudo, :match)
+        # `ancestor_mask` is the AncestorFilter mask of what its ancestors
+        # must carry (0 for nothing).
+        LazyEntry = Struct.new(:list, :pseudo, :match, :ancestor_mask)
 
         # A resolved @scope: the scoping roots that scope-start matched, and the
         # per-root scope limits (boundary elements from scope-end). An element is
@@ -78,6 +81,8 @@ module Dommy
           @bucket_universal = []
           @element_matches = {}.compare_by_identity
           @pseudo_matches = {}
+          @ancestor_filters = {}.compare_by_identity
+          @fold = method(:bucket_key)
           # Cascade-layer order: full layer name => 0-based index, assigned on
           # first declaration (statement or block), in source order across all
           # sheets. Unlayered styles act as a final implicit layer at index
@@ -97,6 +102,7 @@ module Dommy
         def reset_element_memos
           @element_matches = {}.compare_by_identity
           @pseudo_matches = {}
+          @ancestor_filters = {}.compare_by_identity
           self
         end
 
@@ -422,7 +428,7 @@ module Dommy
         def bucket_complex(complex, spec, origin, layer, declarations)
           stripped = complex.pseudo_element? ? complex.without_pseudo_element : complex
           entry = LazyEntry.new(single_complex_list(stripped), complex.pseudo_element&.name,
-            Match.new(origin, spec, @order, declarations, layer, nil))
+            Match.new(origin, spec, @order, declarations, layer, nil), AncestorFilter.mask_for(stripped, @fold))
 
           compound = complex.parts.last.compound
           if (id = compound.subclass_selectors.find { |s| s.is_a?(Internal::SelectorAST::IdSelector) })
@@ -455,13 +461,31 @@ module Dommy
           return EMPTY if in_shadow_tree?(element)
 
           out = nil
+          filter = nil
           each_candidate_entry(element) do |entry|
             next unless entry.pseudo == pseudo
+
+            mask = entry.ancestor_mask
+            unless mask.zero?
+              filter ||= ancestor_filter(element)
+              next unless filter & mask == mask
+            end
             next unless @selector_match.list?(element, entry.list)
 
             (out ||= []) << entry.match
           end
           out || EMPTY
+        end
+
+        # The AncestorFilter of what `element`'s ancestors carry: its parent's
+        # filter plus the parent's own keys, memoized per element.
+        def ancestor_filter(element)
+          memo = @ancestor_filters[element]
+          return memo if memo
+
+          parent = element.parent_element
+          @ancestor_filters[element] =
+            parent ? ancestor_filter(parent) | AncestorFilter.element_bits(parent, @fold) : 0
         end
 
         def in_shadow_tree?(element)

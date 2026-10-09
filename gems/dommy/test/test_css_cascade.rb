@@ -479,6 +479,49 @@ class TestCssCascade < Minitest::Test
     assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
   end
 
+  # --- the ancestor filter ----------------------------------------------
+  #
+  # A rule that needs an ancestor the element lacks is dropped before
+  # matching; these pin down that nothing that matches is dropped.
+
+  def test_a_descendant_rule_applies_only_under_its_ancestor
+    doc = doc_for('<style>.menu li a { color: red }</style><ul class="menu"><li><a id="in">x</a></li></ul><ul><li><a id="out">y</a></li></ul>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "in")["color"]
+    assert_equal "rgb(0, 0, 0)", computed(doc, "out")["color"]
+  end
+
+  def test_a_compound_before_a_sibling_combinator_is_not_an_ancestor
+    doc = doc_for('<style>.a ~ .b .c { color: red } .a + .b { color: blue }</style><div class="a"></div><div class="b" id="b"><p class="c" id="c">x</p></div>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "c")["color"]
+    assert_equal "rgb(0, 0, 255)", computed(doc, "b")["color"]
+  end
+
+  def test_a_where_subject_needs_its_argument_s_ancestors
+    doc = doc_for('<style>:where(.list > :not(:last-child)) { color: red }</style><div class="list"><p id="first">1</p><p id="last">2</p></div><div><p id="other">3</p><p>4</p></div>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "first")["color"]
+    assert_equal "rgb(0, 0, 0)", computed(doc, "last")["color"]
+    assert_equal "rgb(0, 0, 0)", computed(doc, "other")["color"]
+  end
+
+  def test_an_is_ancestor_with_alternatives_still_matches
+    doc = doc_for('<style>:is(.a, .b) .x { color: red }</style><div class="b"><p class="x" id="x">x</p></div>')
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_ancestor_classes_fold_case_in_quirks_mode
+    doc = Dommy.parse('<html><body><style>.Wrap .x { color: red }</style><div class="wrap"><p class="X" id="x">x</p></div></body></html>').document
+    assert_equal "BackCompat", doc.compat_mode
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_an_element_moved_under_a_new_ancestor_matches_its_rules
+    doc = doc_for('<style>.menu a { color: red }</style><div id="plain"><a id="x">x</a></div><div class="menu" id="menu"></div>')
+    assert_equal "rgb(0, 0, 0)", computed(doc, "x")["color"]
+
+    doc.get_element_by_id("menu").append_child(doc.get_element_by_id("x"))
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
   # --- CSSOM (CSSStyleSheet) connection --------------------------------
 
   def test_insert_rule_reaches_the_computed_style

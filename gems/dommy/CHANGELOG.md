@@ -58,6 +58,7 @@
 
 ### Changed
 
+- A CSS rule that needs an ancestor (`.menu li a`, `:where(.space-y-4 > :not(:last-child))`) is skipped without matching for an element whose ancestors lack it, so the computed style of an element 21 levels deep under decidim's 3,000-rule sheet takes 18.6 ms instead of 50.6 ms.
 - A DOM edit keeps the document's CSS rule index unless it changed a stylesheet, the viewport, or something an `@scope`, shadow-tree or `::part` rule was matched against, so `getComputedStyle` after an edit on a page with decidim's 3,000-rule sheet takes 7.9 ms instead of 46 ms. An `@import`ed sheet is read once for the same parent sheets.
 - A `<link>` stylesheet a page loads again is built from the split of its text kept from the last load, and the cascade reads its source until the CSSOM changes it: a page with decidim's 3,000-rule sheet gets it in 1.4 ms instead of 113 ms.
 - `attachShadow()` on a host whose shadow root came from a declarative template of the same mode empties that shadow root (one removal per child) and returns it, instead of throwing `NotSupportedError`; a second call, or a different mode, still throws. The init dictionary is converted before anything else, so a missing `mode` or an unknown `slotAssignment` is a `TypeError` even on an element that cannot host a shadow root.
