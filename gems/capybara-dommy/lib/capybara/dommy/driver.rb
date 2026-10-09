@@ -317,30 +317,38 @@ module Capybara
         @wait = nil
       end
 
-      # After a failed attempt: let the page move on — deliver a completion a
-      # worker handed back, or move the clock to the next timer when it is due
-      # within what is left of the wait — and answer true, to try again. False
-      # when nothing within the wait can change the page.
+      # After a failed attempt, what lets the page move on:
+      #
+      # - :moved — a completion a worker handed back was delivered, or the
+      #   clock moved to the next timer, due within what is left of the wait:
+      #   try again now.
+      # - :outside — only something outside the clock can change the page: a
+      #   fetch still running on a worker, or an open WebSocket / EventSource
+      #   the app can push to. Only waiting in real time sees it arrive.
+      # - nil — nothing within the wait can change the page.
+      #
+      # A fetch in flight comes before the next timer, as its response would
+      # in a browser, where the network takes milliseconds: moving the clock
+      # past it first would let a timeout race the response and win. An open
+      # connection comes after: it may never carry anything, and the page's
+      # timers must not wait on it.
       def wait_on(wait)
         session = @rack_session
-        return false unless session
+        return nil unless session
 
         if session.completion_pending?
           session.advance_time(0)
-          return true
+          return :moved
         end
+        return :outside if session.fetch_in_flight?
+
         delay = session.next_timer_delay
-        return false if delay.nil? || delay > wait.remaining_ms
-
-        wait.spend(delay)
-        session.advance_time(delay)
-        true
-      end
-
-      # Whether the app can push to the page at any moment (an open WebSocket
-      # or EventSource), which only waiting in real time can see.
-      def open_connections?
-        @rack_session ? @rack_session.open_connections? : false
+        if delay && delay <= wait.remaining_ms
+          wait.spend(delay)
+          session.advance_time(delay)
+          return :moved
+        end
+        :outside if session.open_connections?
       end
 
       def needs_server?

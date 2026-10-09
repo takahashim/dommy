@@ -74,8 +74,11 @@ moves the clock straight to the page's next timer, as long as that is within
 the wait, so a 300 ms debounce costs one retry, not 300 ms. When nothing within
 the wait can change the page, the query fails at once: `have_no_css` on an
 element that stays, or a `have_css` that will never match, does not wait 2
-seconds. Only an open WebSocket or EventSource, which the app can push to at
-any moment, is waited for in real time. Nothing advances the clock outside
+seconds. The clock is the whole page's: an iframe's timers run on it too. Only
+what the clock does not drive is waited for in real time, for at most the
+wait: a fetch still running on a `network_executor` worker (before any later
+timer, as its response would come first in a browser), and an open WebSocket or
+EventSource, which the app can push to at any moment. Nothing advances the clock outside
 Capybara's commands: `sleep` does not, and Rails' `travel_to` does not reach
 JavaScript's `Date`.
 

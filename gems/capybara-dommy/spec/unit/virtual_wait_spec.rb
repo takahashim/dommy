@@ -113,14 +113,44 @@ RSpec.describe "Waiting on the virtual clock" do
     expect(node.text).to eq("new")
   end
 
-  it "sees a completion a worker hands back while it waits in real time" do
+  # A worker fetch: in flight until the worker posts its completion back.
+  def fetch_on_a_worker(after:, &deliver)
+    scheduler.begin_external_work
     Thread.new do
-      sleep 0.05
-      scheduler.post_external { add("delivered") }
+      sleep after
+      scheduler.post_external(&deliver)
+    ensure
+      scheduler.end_external_work
     end
-    allow(session).to receive(:open_connections?).and_return(true)
+  end
 
-    expect(@page).to have_css("#delivered", wait: 2)
+  it "waits in real time for a fetch on a worker, before a later timer" do
+    fetch_on_a_worker(after: 0.05) { add("loaded") }
+    timed_out = false
+    later(100) { timed_out = true }
+
+    expect(@page).to have_css("#loaded", wait: 2)
+    expect(timed_out).to be(false)
+  end
+
+  it "delivers a completion handed back to a frame's realm" do
+    document.get_element_by_id("root").inner_html = "<iframe></iframe>"
+    frame = document.query_selector("iframe").content_window
+    session.instance_variable_get(:@js_runtime).runtime_for(frame.document)
+    frame.scheduler.post_external { add("from-frame") }
+
+    elapsed = real_time { expect(@page).to have_css("#from-frame", wait: 2) }
+
+    expect(elapsed).to be < 0.1
+  end
+
+  it "runs a frame's timer within the wait" do
+    document.get_element_by_id("root").inner_html = "<iframe></iframe>"
+    frame = document.query_selector("iframe").content_window
+    session.instance_variable_get(:@js_runtime).runtime_for(frame.document)
+    frame.scheduler.set_timeout(-> { add("from-frame-timer") }, 300)
+
+    expect(@page).to have_css("#from-frame-timer", wait: 2)
   end
 
   it "waits in real time only while a connection is open" do

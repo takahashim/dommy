@@ -18,9 +18,10 @@ module Capybara
     # the wait. A 300 ms debounce therefore costs one retry, not 300 ms. When
     # nothing within the wait can change the page, the query is tried once
     # more after a reload (a node may have gone stale) and then fails at once,
-    # not after the wait has passed in real time. Only an open WebSocket or
-    # EventSource, which the app can push to at any moment, is waited for in
-    # real time, for at most the wait.
+    # not after the wait has passed in real time. Only what the clock does not
+    # drive — a fetch still running on a network worker, an open WebSocket or
+    # EventSource the app can push to — is waited for in real time, for at
+    # most the wait.
     module VirtualWait
       # A bound on the retries of one wait, against a page that keeps the
       # clock busy for nothing (a timer that re-arms itself at no delay
@@ -45,9 +46,10 @@ module Capybara
           raise e unless catch_error?(e, errors)
           raise e if (attempts += 1) > MAX_ATTEMPTS
 
-          if driver.wait_on(wait)
+          step = driver.wait_on(wait)
+          if step == :moved
             reloaded = false
-          elsif driver.open_connections? && !real_time.expired?
+          elsif step == :outside && !real_time.expired?
             sleep session_options.default_retry_interval
           elsif !reloaded
             reloaded = true
