@@ -125,6 +125,13 @@ session.click_button("Save")        # submits the owning form
 session.submit_form(session.at_css("form"))
 ```
 
+In a session with `javascript: true`, `click_button` and `click_link` click the
+element as a browser would: the page's listeners see the click and the
+`submit`, so Turbo or a client-side router can take the submission or the
+navigation over, and an un-prevented one submits or follows through the page.
+What the page does afterwards on a later frame (a Turbo Stream rendering, say)
+shows after `session.settle`.
+
 Locators are Capybara-style and depend on the element type:
 fields match by `id`, `name`, label text, placeholder, or `aria-label`;
 links match by visible text, `id`, `title`, or exact `href`;
