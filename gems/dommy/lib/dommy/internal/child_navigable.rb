@@ -42,14 +42,14 @@ module Dommy
         type = type_for_path(url) if type.empty?
         body = body.to_s.dup.force_encoding(Encoding::UTF_8).scrub
         win =
-          if xml_type?(type)
+          if MimeType.xml?(type)
             w = Window.new(nil, backend_doc: Backend.parse_xml(body.to_s))
             w.document.content_type = type
             w
           elsif type == "text/html"
             Dommy.parse(body.to_s)
           else
-            text_window(body)
+            text_window(body, type)
           end
         win.location.__internal_set_url__(url.to_s)
         win
@@ -70,12 +70,6 @@ module Dommy
         return nil unless blob
 
         window_for_response(blob.text, blob.type.to_s.empty? ? "text/plain" : blob.type, url)
-      end
-
-      XML_TYPES = %w[text/xml application/xml application/xhtml+xml image/svg+xml].freeze
-
-      def xml_type?(type)
-        XML_TYPES.include?(type) || type.end_with?("+xml")
       end
 
       PATH_TYPES = {
@@ -101,11 +95,14 @@ module Dommy
         win
       end
 
-      def text_window(body)
-        win = Dommy.parse(BLANK_HTML)
-        pre = win.document.create_element("pre")
-        pre.text_content = body
-        win.document.body.append_child(pre)
+      # A text document (HTML's page load processing model for text files):
+      # the HTML parser started at a <pre> in its PLAINTEXT state, so the body
+      # is all text, held in that one <pre>. No doctype is read, so the
+      # document is in quirks mode; its content type is the response's.
+      def text_window(body, content_type)
+        win = Dommy.parse("<html><head></head><body><pre></pre></body></html>")
+        win.document.query_selector("pre").text_content = body
+        win.document.content_type = content_type
         win
       end
 

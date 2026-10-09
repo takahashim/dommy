@@ -30,9 +30,11 @@ speed and simplicity of a Rack-style driver.
 
 - The default driver does not execute JavaScript. Use the JavaScript-enabled
   variant for embedded QuickJS execution.
-- Screenshots and browser windows are not supported. Native alerts, confirms,
-  and prompts are supported by the JavaScript-enabled variant through
-  Capybara's modal helpers.
+- Screenshots and additional browser windows are not supported. The one
+  window there is can be resized (`current_window.resize_to`), which resizes
+  the viewport `@media` and `matchMedia` see. Native alerts, confirms, and
+  prompts are supported by the JavaScript-enabled variant through Capybara's
+  modal helpers.
 - Constructable stylesheets can be built (`new CSSStyleSheet()`), but
   `adoptedStyleSheets` is not implemented — assigning one applies no style.
   Component libraries that feature-detect (`'adoptedStyleSheets' in
@@ -71,16 +73,23 @@ in a few polls rather than in real time. Nothing advances it outside that loop:
 
 **The app runs in the test process.** There is no server thread and no port, so
 `use_transactional_tests` works unchanged and an exception in the app is raised
-directly in the test. In exchange, `Capybara.server` and anything built on a
-separate app thread has no meaning here.
+directly in the test, at the request that raised it rather than at the next
+Capybara command. `Capybara.raise_server_errors` and `Capybara.server_errors`
+still decide which exceptions those are: with `raise_server_errors` off, or for
+an exception not listed in `server_errors`, the page gets the 500 response Puma
+would send. In exchange, `Capybara.server` and anything built on a separate app
+thread has no meaning here.
 
 **There is no layout.** Visibility comes from HTML-level rules and stylesheet
 `display` / `visibility` / `opacity`, never from geometry, so `obscured?`,
 scroll position and element size are unavailable.
 
-**Input is synthesised.** Events are dispatched from Ruby rather than by the OS,
-so `isTrusted` is false and hover, drag and special keys are limited. An
-unanswered `confirm` returns false rather than blocking.
+**Input is synthesised.** Events are dispatched from Ruby rather than by the OS.
+They are trusted, as a user's input is, but the pointer has no real position:
+mouse coordinates are 0 (each element's box center for a drag), and `drag_to`
+moves straight from the element pressed to the target, with `delay` seconds of
+virtual time between the steps. An unanswered `confirm` returns false rather
+than blocking.
 
 **Frames are fetched, not live.** Switching to a frame re-requests its URL; the
 frame's own scripts do not run.

@@ -146,6 +146,76 @@ RSpec.describe "Capybara::Dommy::Driver with javascript: true" do
     end
   end
 
+  describe "drag_to" do
+    let(:list) do
+      '<ul id="list"><li id="a" draggable="true">A</li><li id="b">B</li></ul>'
+    end
+
+    it "drags a draggable element onto the target, from dragstart to dragend" do
+      driver = js_driver_for(list)
+      a, b = driver.find_css("li")
+      seen = []
+      %w[dragstart dragenter dragover drop dragend].each do |type|
+        driver.document.add_event_listener(type, ->(e) { seen << "#{e.type}@#{e.__js_get__("target").get_attribute("id")}" })
+      end
+      b.native.add_event_listener("dragenter", prevent_default)
+      b.native.add_event_listener("dragover", prevent_default)
+
+      a.drag_to(b)
+
+      expect(seen).to include("dragstart@a", "dragover@b", "drop@b", "dragend@a")
+      expect(seen.last(2)).to eq(%w[drop@b dragend@a])
+    end
+
+    # A sortable often moves its placeholder in a timer it (re)starts on
+    # dragover, and the drop then moves the item to the placeholder.
+    it "lets virtual time pass between the steps, so dragover work deferred to a timer runs before the drop" do
+      driver = js_driver_for(list)
+      a, b = driver.find_css("li")
+      scheduler = driver.document.default_view.scheduler
+      placed = false
+      b.native.add_event_listener("dragenter", prevent_default)
+      b.native.add_event_listener("dragover", lambda { |e|
+        prevent_default.call(e)
+        scheduler.set_timeout(-> { placed = true }, 0)
+      })
+      dropped_after_placing = nil
+      b.native.add_event_listener("drop", ->(_e) { dropped_after_placing = placed })
+
+      a.drag_to(b)
+
+      expect(dropped_after_placing).to be(true)
+    end
+
+    it "leaves the pointer over the target" do
+      driver = js_driver_for(list)
+      a, b = driver.find_css("li")
+
+      a.drag_to(b)
+
+      expect(driver.document.__internal_hovered_element__).to eq(b.native)
+    end
+
+    it "does not support drop_modifiers" do
+      driver = js_driver_for(list)
+      a, b = driver.find_css("li")
+
+      expect { a.drag_to(b, drop_modifiers: [:alt]) }.to raise_error(Capybara::NotSupportedByDriverError)
+    end
+
+    it "only moves the hover without JavaScript" do
+      driver = driver_for(list)
+      a, b = driver.find_css("li")
+      fired = false
+      driver.document.add_event_listener("dragstart", ->(_e) { fired = true })
+
+      a.drag_to(b)
+
+      expect(fired).to be(false)
+      expect(driver.document.__internal_hovered_element__).to eq(b.native)
+    end
+  end
+
   describe "right_click / double_click" do
     it "right_click dispatches contextmenu with button 2" do
       driver = js_driver_for("<button id='b'>Go</button>")

@@ -43,6 +43,42 @@ class Dommy::Rack::TestSession < Minitest::Test
     assert_includes session.text, "Hi"
   end
 
+  def test_navigating_to_a_text_response_replaces_the_page
+    app = app_for(
+      "GET /" => html_response('<a href="/robots.txt">Robots</a>'),
+      "GET /robots.txt" => [200, {"Content-Type" => "text/plain"}, ["User-agent: *\n"]]
+    )
+    session = Dommy::Rack::Session.new(app)
+    session.visit("/")
+    session.click_link("Robots")
+
+    assert_equal "User-agent: *\n", session.text
+    assert_nil session.at_css("a")
+    session.back
+    refute_nil session.at_css("a")
+  end
+
+  def test_resize_viewport_applies_to_the_page_and_the_pages_after_it
+    page = html_response(
+      "<style>.wide { display: none } @media (min-width: 768px) { .wide { display: block } }</style>" \
+      '<p class="wide">wide</p>'
+    )
+    session = Dommy::Rack::Session.new(app_for("GET /a" => page, "GET /b" => page))
+    session.visit("/a")
+    resizes = 0
+    session.document.default_view.add_event_listener("resize", ->(_e) { resizes += 1 })
+    assert_equal "block", session.document.default_view.get_computed_style(session.at_css(".wide")).get_property_value("display")
+
+    session.resize_viewport(375, 667)
+    assert_equal [375, 667], session.viewport_size
+    assert_equal 1, resizes
+    assert_equal "none", session.document.default_view.get_computed_style(session.at_css(".wide")).get_property_value("display")
+
+    session.visit("/b")
+    assert_equal 375, session.document.default_view.inner_width
+    assert_equal "none", session.document.default_view.get_computed_style(session.at_css(".wide")).get_property_value("display")
+  end
+
   def test_cookie_persistence_across_requests
     app = app_for(
       "GET /set" => [200, {"Content-Type" => "text/html", "Set-Cookie" => "sid=42; path=/"}, ["<p>set</p>"]],

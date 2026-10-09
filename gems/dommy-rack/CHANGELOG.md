@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `Session#resize_viewport(width, height)` resizes the browser window: the current page gets a `resize` event and re-evaluated `@media`, and later pages open at that size (`viewport_size` reads it back).
+
+### Changed
+
+- Navigating to a `text/plain`, CSS, JavaScript or JSON response shows it as a text document, a `<pre>` holding the body, so `session.text` is the body and `on_document_loaded` fires; other non-HTML responses still keep the previous document.
+
 ## 0.15.0 — 2026-10-04
 
 ### Added

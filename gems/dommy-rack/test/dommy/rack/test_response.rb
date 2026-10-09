@@ -33,9 +33,29 @@ class Dommy::Rack::TestResponse < Minitest::Test
     assert_equal "Title", res.document.query_selector("h1").text_content
   end
 
-  def test_non_html_has_no_document
-    res = build(200, {"Content-Type" => "text/plain"}, ["plain"])
-    assert_nil res.document
+  def test_text_plain_body_is_shown_in_a_pre
+    res = build(500, {"Content-Type" => "text/plain; charset=utf-8"}, ["<b>not markup</b>\n"])
+    assert_equal "<html><head></head><body><pre>&lt;b&gt;not markup&lt;/b&gt;\n</pre></body></html>",
+                 res.document.document_element.outer_html
+    assert_equal "BackCompat", res.document.compat_mode
+  end
+
+  def test_scripts_stylesheets_and_json_are_text_documents
+    ["text/css", "text/javascript", "application/x-javascript", "application/json",
+     "application/vnd.api+json", "text/vtt"].each do |type|
+      res = build(200, {"Content-Type" => type}, ["body"])
+      assert res.text?, type
+      assert_equal "body", res.document.query_selector("pre").text_content, type
+    end
+  end
+
+  def test_other_types_have_no_document
+    ["image/png", "application/pdf", "application/octet-stream"].each do |type|
+      res = build(200, {"Content-Type" => type}, ["x"])
+      refute res.text?, type
+      assert_nil res.document, type
+    end
+    assert_nil build(200, {}, ["x"]).document
   end
 
   def test_configures_document_url

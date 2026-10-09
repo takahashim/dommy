@@ -406,6 +406,21 @@ module Dommy
       # Internal: Resources records a declined cross-origin host here.
       def __internal_record_blocked_subresource(host) = @subresource_policy.record_blocked(host)
 
+      # --- Window size ---
+
+      # The browser window's viewport as [width, height] in CSS px, or nil while
+      # the session has not been resized (each page then has Dommy's default).
+      attr_reader :viewport_size
+
+      # Resize the browser window. Like a browser's, the size outlives the
+      # page: the current one sees @media / matchMedia re-evaluated and a
+      # `resize` event, and every page loaded later starts at this size.
+      def resize_viewport(width, height)
+        @viewport_size = [Integer(width), Integer(height)]
+        @current_window&.resize_to(*@viewport_size)
+        self
+      end
+
       # --- Navigation API ---
 
       # Navigate to `path` (GET). For a `javascript: true` session, the loaded
@@ -908,11 +923,11 @@ module Dommy
       end
 
       # Apply a final navigation response: update last_response, current_url,
-      # the document (HTML only), and the history stack.
+      # the document (HTML, or text shown in a <pre>), and the history stack.
       def apply_navigation_response(response, final_url, push_history: true, replace: false)
         @last_response = response
         @current_url = final_url
-        if response.html?
+        if response.document?
           previous_window = @current_window
           @current_window = response.window
           @current_window.storage_provider = @storage_provider
@@ -927,6 +942,9 @@ module Dommy
           # Set the geometry mode before scripts boot so the very first
           # getBoundingClientRect a framework calls already sees it.
           @current_window.approximate_layout = @approximate_layout if @approximate_layout
+          # A new page opens at the window's size, before any script or style
+          # reads it; nothing resized, so no `resize` event.
+          apply_viewport_size(@current_window) if @viewport_size
           # Fill external stylesheets before listeners (script boot /
           # DOMContentLoaded) run, so CSS-driven computed styles and :visible
           # are correct from the first observation.
@@ -1027,6 +1045,12 @@ module Dommy
       end
 
       private
+
+      def apply_viewport_size(window)
+        env = window.media_environment
+        env.viewport_width, env.viewport_height = @viewport_size
+        window.__internal_media_environment_changed__
+      end
 
       # Fire `listeners` with `arg`, inline or (with a `sched`) posted to its
       # inbox so they run later on the page thread. Shared by #page_exchange

@@ -8,8 +8,9 @@ module Capybara
     # navigation / query / reset! parts of the Capybara::Driver::Base contract;
     # element interaction lives in Capybara::Dommy::Node. The JS-enabled mode
     # additionally supplies deterministic native dialog responses for Capybara's
-    # alert/confirm/prompt helpers. Screenshot and window methods remain with
-    # Driver::Base (which raises Capybara::NotSupportedByDriverError).
+    # alert/confirm/prompt helpers. There is one window, which can be resized;
+    # opening, switching and closing windows remain with Driver::Base (which
+    # raises Capybara::NotSupportedByDriverError).
     class Driver < Capybara::Driver::Base
       VISIBILITY_MODES = %i[all html none].freeze
 
@@ -17,6 +18,9 @@ module Capybara
       # screenshot is asked to save must still hold a valid image: Rails'
       # screenshot helper reads it back for its inline / artifact output.
       BLANK_PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==".unpack1("m").freeze
+
+      # The handle of the one window there is.
+      WINDOW_HANDLE = "dommy"
 
       attr_reader :app, :visibility
 
@@ -103,7 +107,8 @@ module Capybara
         host = effective_host
         if @rack_session.nil? || @rack_session_host != host
           @rack_session&.dispose
-          @rack_session = ::Dommy::Rack::Session.new(@app, **@session_options.merge(default_host: host))
+          @rack_session = ::Dommy::Rack::Session.new(app_server, **@session_options.merge(default_host: host))
+          @rack_session.resize_viewport(*@window_size) if @window_size
           @rack_session_host = host
         end
         @rack_session
@@ -225,6 +230,26 @@ module Capybara
         document&.title
       end
 
+      # --- Window ---
+      #
+      # One browser window, whose size is the page's viewport (there is no
+      # browser chrome, so the outer and inner sizes are the same). Like a
+      # browser window it keeps its size across reset! and app_host changes,
+      # which build a new rack session.
+
+      def current_window_handle = WINDOW_HANDLE
+      def window_handles = [WINDOW_HANDLE]
+
+      def window_size(_handle)
+        @window_size || default_window_size
+      end
+
+      def resize_window_to(_handle, width, height)
+        @window_size = [Integer(width), Integer(height)]
+        rack_session.resize_viewport(*@window_size)
+        nil
+      end
+
       # --- Focus / keyboard ---
 
       def active_element
@@ -340,6 +365,15 @@ module Capybara
 
       def frame_stack
         @frame_stack ||= []
+      end
+
+      def default_window_size
+        env = ::Dommy::Internal::CSS::MediaQuery::Environment.default
+        [env.viewport_width, env.viewport_height]
+      end
+
+      def app_server
+        @app_server ||= AppServer.new(@app) { owning_session_options }
       end
 
       # A frame's document: its `srcdoc` when present (Dommy builds it from

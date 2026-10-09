@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- `drag_to` under JavaScript: a press inside a draggable element runs an HTML drag-and-drop (`dragstart` through `drop` and `dragend`), anything else moves the pointer to the target and releases it there (`mousemove`, `mouseup`), with `delay` (0.05 s) of virtual time between the steps.
+- `current_window.size` and `current_window.resize_to(width, height)`: the one window starts at 1280x720, and its size is the viewport `@media` and `matchMedia` see, kept across `reset!`.
+
+### Changed
+
+- With `Capybara.raise_server_errors = false`, an exception the app raises gives the page a 500 response with Puma's error text instead of failing the test; an exception not in `Capybara.server_errors` gives the same 500.
+
 ## 0.15.0 — 2026-10-04
 
 ### Changed

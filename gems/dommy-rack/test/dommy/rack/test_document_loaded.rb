@@ -10,7 +10,8 @@ class Dommy::Rack::TestDocumentLoaded < Minitest::Test
       "GET /a" => html_response("<p>a</p>"),
       "GET /b" => html_response("<p>b</p>"),
       "POST /posts" => [302, {"Location" => "/a"}, []],
-      "GET /api" => [200, {"Content-Type" => "application/json"}, ['{"ok":true}']]
+      "GET /api" => [200, {"Content-Type" => "application/json"}, ['{"ok":true}']],
+      "GET /logo.png" => [200, {"Content-Type" => "image/png"}, ["png"]]
     )
   end
 
@@ -38,13 +39,24 @@ class Dommy::Rack::TestDocumentLoaded < Minitest::Test
     assert_equal "/a", session.current_path
   end
 
-  def test_does_not_fire_for_fetch_or_non_html_responses
+  def test_does_not_fire_for_fetch_or_responses_without_a_document
     session = Dommy::Rack::Session.new(app)
     count = 0
     session.on_document_loaded { count += 1 }
 
     session.fetch("/api")
-    session.get("/api")
+    session.get("/logo.png")
     assert_equal 0, count
+  end
+
+  # A browser shows JSON (like text/plain, CSS or a script) as a text document.
+  def test_fires_for_a_navigation_to_json
+    session = Dommy::Rack::Session.new(app)
+    count = 0
+    session.on_document_loaded { count += 1 }
+
+    session.get("/api")
+    assert_equal 1, count
+    assert_equal({"ok" => true}, session.json)
   end
 end

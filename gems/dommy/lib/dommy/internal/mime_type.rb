@@ -19,6 +19,14 @@ module Dommy
 
       module_function
 
+      # Whether the essence names an XML MIME type: text/xml, application/xml,
+      # or any subtype ending in "+xml" (image/svg+xml, application/xhtml+xml).
+      # https://mimesniff.spec.whatwg.org/#xml-mime-type
+      def xml?(essence)
+        essence = essence.to_s
+        essence == "text/xml" || essence == "application/xml" || essence.end_with?("+xml")
+      end
+
       # The value of `name` among the MIME type's parameters, or nil. The name
       # is ASCII case-insensitive; a quoted value comes back unquoted.
       def parameter(mime_type, name)

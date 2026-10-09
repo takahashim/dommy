@@ -9,6 +9,9 @@ module Dommy
     # and the Dommy document is parsed lazily on first access.
     class Response
       HTML_CONTENT_TYPES = ["text/html", "application/xhtml+xml"].freeze
+      # Besides JavaScript and JSON, the types a browser loads as a text
+      # document (HTML's page load processing model for text files).
+      TEXT_CONTENT_TYPES = ["text/plain", "text/css", "text/vtt"].freeze
       REDIRECT_STATUSES = [301, 302, 303, 307, 308].freeze
 
       attr_reader :status, :headers, :url
@@ -43,6 +46,17 @@ module Dommy
       def html?
         HTML_CONTENT_TYPES.include?(content_type)
       end
+
+      # Whether a navigation to this response shows the body as text: a
+      # document holding one <pre> with the body in it, as a browser renders
+      # a stylesheet, a script, JSON or a text/plain error page.
+      def text?
+        TEXT_CONTENT_TYPES.include?(content_type) || json? ||
+          ::Dommy::HTMLScriptElement.javascript_mime_type_essence_match?(content_type)
+      end
+
+      # Whether a navigation to this response replaces the page's document.
+      def document? = html? || text?
 
       # True when the response advertises a JSON content type, including
       # structured-suffix types such as application/vnd.api+json.
@@ -101,7 +115,7 @@ module Dommy
         Array(values).flat_map { |v| v.to_s.split("\n") }.reject(&:empty?)
       end
 
-      # The parsed Dommy window, or nil for non-HTML responses.
+      # The parsed Dommy window, or nil for a response that gets no document.
       def window
         parse_document! unless @document_parsed
         @window
@@ -126,9 +140,13 @@ module Dommy
 
       def parse_document!
         @document_parsed = true
-        return unless html?
+        return unless document?
 
-        @window = Dommy.parse(@body)
+        @window = if html?
+          Dommy.parse(@body)
+        else
+          ::Dommy::Internal::ChildNavigable.text_window(@body.dup.force_encoding(Encoding::UTF_8).scrub, content_type)
+        end
         # Establish the document's URL (not a navigation: nothing is asked of
         # the navigation delegate, and the first session history entry is this
         # URL).
