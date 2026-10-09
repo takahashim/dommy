@@ -138,6 +138,28 @@ class TestFetchHandler < Minitest::Test
     assert_equal "async!", response.__js_call__("text", []).await
   end
 
+  # From the hand-off until the worker posts the completion, the fetch is in
+  # flight; after it, the completion waits in the inbox.
+  def test_a_fetch_on_a_worker_is_in_flight_until_it_comes_back
+    async_handler("http://localhost/api" => {status: 200, body: "async!"})
+    refute @win.scheduler.external_work_in_flight?
+
+    Dommy::FetchFn.new(@win).__js_call__("fetch", ["/api", nil])
+    assert @win.scheduler.external_work_in_flight?
+    refute @win.scheduler.external_pending?
+
+    @executor.run_all
+    refute @win.scheduler.external_work_in_flight?
+    assert @win.scheduler.external_pending?
+  end
+
+  def test_a_worker_failure_ends_the_work_in_flight
+    async_handler("http://localhost/api" => {error: true})
+    Dommy::FetchFn.new(@win).__js_call__("fetch", ["/api", nil])
+    @executor.run_all
+    refute @win.scheduler.external_work_in_flight?
+  end
+
   def test_unserved_url_falls_through_to_stub_without_touching_the_executor
     async_handler({}) # serves nothing -> request_job returns nil synchronously
 
