@@ -817,7 +817,10 @@ module Dommy
 
       def click_link(locator)
         @trace&.__internal_open_action(:click_link, locator)
-        click_link_element(finder.find_link(locator))
+        link = finder.find_link(locator)
+        return click_through_page(link) if javascript?
+
+        click_link_element(link)
       end
 
       def click_link_element(element)
@@ -844,6 +847,8 @@ module Dommy
       def click_button(locator)
         @trace&.__internal_open_action(:click_button, locator)
         button = finder.find_button(locator)
+        return click_through_page(button) if javascript?
+
         # Only submit buttons submit a form. type=button / type=reset are
         # no-ops here since there is no JavaScript to handle their click.
         return button unless submit_button?(button)
@@ -1084,6 +1089,15 @@ module Dommy
       end
 
       private
+
+      # With JavaScript, a click is the page's to handle, as in a browser: its
+      # listeners see it (Turbo, a framework's router), and an un-prevented
+      # one runs the element's activation behavior — a submit button submits
+      # its form, a link is followed — through the page's own navigation.
+      def click_through_page(element)
+        with_interaction { Dommy::Interaction::EventSynthesis.click(element) }
+        element
+      end
 
       # Unloading a document closes the WebSockets and EventSources it opened
       # (HTML "unload a document"): those of every window no longer fully

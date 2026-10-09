@@ -4,46 +4,90 @@ require "uri"
 
 module Dommy
   module Js
-    # Reads a page's big ES modules as bytecode instead of parsing their
-    # source again on every page load. A test suite boots the same bundles —
-    # Turbo, Stimulus, an app's vendored libraries — page after page, each in
-    # a runtime of its own, and parsing them is most of what booting costs.
+    # Keeps a page's ES modules for the next page instead of fetching and
+    # parsing them again. A test suite boots the same bundles — Turbo,
+    # Stimulus, an app's controllers and vendored libraries — page after
+    # page, each in a runtime of its own; fetching them through the app and
+    # parsing them is most of what booting costs.
     #
-    # Once a page has run, each module its loader fetched that is big enough
-    # to be worth it (MIN_BYTES; a small one reads as bytecode slower than it
-    # parses) is registered with the engine under its resolved URL, once per
-    # process. Every later runtime for a page of the same origin is built with
-    # those modules preloaded: the engine finds one by its URL before asking
-    # the loader, and the loader answers a bare specifier the import map
-    # resolves to one with a redirect to it.
+    # Once a page has run, each module its loader fetched is kept, once per
+    # process: its source, which the next page's loader answers from without
+    # a request, and — when it is big enough to be worth it (MIN_BYTES; a
+    # small one reads as bytecode slower than it parses) — its registration
+    # with the engine under its resolved URL. Every later runtime for a page
+    # of the same origin is built with the registered modules preloaded: the
+    # engine finds one by its URL before asking the loader, and the loader
+    # answers a bare specifier the import map resolves to one with a
+    # redirect to it.
     #
-    # Off unless `enabled`: a preloaded module is never fetched again, so a
-    # URL whose content changes within the process — one without a digest in
-    # it — would keep running what it served first.
+    # A kept module is never fetched again, so which ones are kept is the
+    # `scope`: :digested (the default) keeps only those whose URL carries a
+    # digest of their content (`application-f004202c.js`, the way Propshaft,
+    # Sprockets and the bundlers name what they serve), which no change to
+    # the source can leave in place; :all keeps every one, for an app that
+    # serves modules under fixed names and does not change them while the
+    # process runs; :none keeps none.
     #
     # The engine side is optional: a runtime class that has
     # `register_module(name, source:)`, and that takes `preload_modules:` when
-    # built (dommy-js-quickjs's Runtime does). With any other, nothing is
-    # registered and runtimes are built as before.
+    # built (dommy-js-quickjs's Runtime does). With any other, only the
+    # sources are kept and runtimes are built as before.
     module ModulePreload
       # The size, in bytes, from which a module's bytecode reads faster than
       # its source parses.
       MIN_BYTES = 10_000
 
-      @enabled = false
+      # The last path segment of a digested asset: a name, then `-` or `.`
+      # and at least seven hex digits (Propshaft's 8, Webpack's 20,
+      # Sprockets' 64) with a digit among them, then the extension.
+      DIGESTED = /[-.](?=[0-9a-f]*[0-9])[0-9a-f]{7,}\.[a-z0-9]+\z/
+      SCOPES = %i[digested all none].freeze
+
+      @scope = :digested
       @registered = {}
+      @sources = {}
       @preloaded = ObjectSpace::WeakMap.new
       @mutex = Mutex.new
 
       class << self
-        attr_accessor :enabled
+        attr_reader :scope
+
+        def scope=(value)
+          raise ArgumentError, "scope must be one of #{SCOPES.inspect}" unless SCOPES.include?(value)
+
+          @scope = value
+        end
+
+        # Whether a module fetched from `url` is kept for the next page.
+        def keeps?(url)
+          case @scope
+          when :all then true
+          when :digested then digested?(url)
+          else false
+          end
+        end
+
+        # Whether `url`'s file name carries a digest of its content.
+        def digested?(url)
+          path = URI.parse(url.to_s).path
+          !path.nil? && DIGESTED.match?(path)
+        rescue URI::InvalidURIError
+          false
+        end
+
+        # The kept source of the module fetched from `url`, or nil.
+        def source(url)
+          return nil unless keeps?(url)
+
+          @mutex.synchronize { @sources[url] }
+        end
 
         # A runtime for `document` from the named backend (or the default),
         # with the registered modules of its origin preloaded. Should the
         # engine refuse them, the runtime is built without, and they are not
         # offered again.
         def build_runtime(document, backend = nil)
-          names = enabled ? names_for(document) : []
+          names = names_for(document)
           return remember(Js.build_runtime(backend), []) if names.empty?
 
           begin
@@ -57,18 +101,19 @@ module Dommy
         # The modules `runtime` was built with preloaded.
         def preloaded(runtime) = @preloaded[runtime] || []
 
-        # Register the modules a page's loader fetched (`served`, URL =>
-        # source) that are big enough and not registered yet, with the engine
-        # behind `runtime`.
+        # Keep the modules a page's loader fetched (`served`, URL => source)
+        # that the scope covers and are not kept yet: the source of each, and
+        # the big ones registered with the engine behind `runtime`.
         def register(runtime, served)
           engine = runtime.class
-          return unless enabled && engine.respond_to?(:register_module)
-
           served.each do |url, source|
-            next if source.bytesize < MIN_BYTES
+            next unless keeps?(url)
 
             @mutex.synchronize do
-              next if @registered.key?(url)
+              next if @sources.key?(url)
+
+              @sources[url] = source
+              next if source.bytesize < MIN_BYTES || !engine.respond_to?(:register_module) || @registered.key?(url)
 
               engine.register_module(url, source: source)
               @registered[url] = true
@@ -78,10 +123,13 @@ module Dommy
           end
         end
 
-        # Forget every registration, for a test that starts from none. The
+        # Forget every kept module, for a test that starts from none. The
         # engine keeps what it compiled; it is just not offered again.
         def reset!
-          @mutex.synchronize { @registered.clear }
+          @mutex.synchronize do
+            @registered.clear
+            @sources.clear
+          end
         end
 
         private
@@ -101,7 +149,7 @@ module Dommy
           origin = origin_of(document&.url)
           return [] if origin.nil?
 
-          @mutex.synchronize { @registered.select { |_, offered| offered }.keys }.select { |url| origin_of(url) == origin }
+          @mutex.synchronize { @registered.select { |_, offered| offered }.keys }.select { |url| origin_of(url) == origin && keeps?(url) }
         end
 
         def origin_of(url)
