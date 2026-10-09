@@ -21,9 +21,10 @@ module Dommy
       # makes both affordable.
       #
       # Per-document state (RuleIndex + per-element memo) is cached against
-      # Document#style_generation and rebuilt wholesale when it moves — which
+      # Document#style_generation and dropped when it moves — which
       # style-neutral mutations avoid (the epoch split: see Document's
-      # __internal_note_* seams and RuleIndex's dependency collection).
+      # __internal_note_* seams and RuleIndex's dependency collection). The
+      # RuleIndex itself survives a move that changed no sheet (RuleIndex.build).
       #
       # Precedence, high to low: UA !important > author !important (the
       # style attribute's !important on top) > style attribute > author
@@ -79,7 +80,7 @@ module Dommy
         # documents in general) never pay for UA-sheet selector queries.
         def index_for(document)
           cache = style_cache(document)
-          cache.index ||= RuleIndex.build(document)
+          cache.index ||= RuleIndex.build(document, previous: cache.previous_index)
         end
 
         # The in-scope CSS counter values at `element` ({ name => stack }), for

@@ -373,6 +373,112 @@ class TestCssCascade < Minitest::Test
     assert_same first, computed(doc, "x")
   end
 
+  # --- rule index reuse -------------------------------------------------
+  #
+  # A style generation bump keeps the rule index when what it is built from
+  # (the sheets, the media environment, quirks mode, no shadow roots) has not
+  # changed, and builds a new one when it has.
+
+  def index_of(doc) = Dommy::Internal::CSS::Cascade.index_for(doc)
+
+  def test_a_tree_edit_keeps_the_rule_index_and_styles_the_new_element
+    doc = doc_for('<style>.hidden { display: none }</style><div id="x">x</div>')
+    index = index_of(doc)
+    assert_equal "block", computed(doc, "x")["display"]
+
+    added = doc.create_element("p")
+    added.id = "y"
+    added.class_name = "hidden"
+    doc.body.append_child(added)
+    doc.get_element_by_id("x").class_list.add("hidden")
+
+    assert_same index, index_of(doc)
+    assert_equal "none", computed(doc, "y")["display"]
+    assert_equal "none", computed(doc, "x")["display"]
+  end
+
+  def test_a_sheet_change_builds_a_new_rule_index
+    doc = doc_for('<style id="sheet">#x { color: red }</style><p id="x">x</p>')
+    index = index_of(doc)
+
+    doc.get_element_by_id("sheet").text_content = "#x { color: blue }"
+    refute_same index, index_of(doc)
+    assert_equal "rgb(0, 0, 255)", computed(doc, "x")["color"]
+
+    index = index_of(doc)
+    doc.query_selector("style").sheet.insert_rule("#x { color: green }")
+    refute_same index, index_of(doc)
+    assert_equal "rgb(0, 128, 0)", computed(doc, "x")["color"]
+  end
+
+  def test_a_new_sheet_builds_a_new_rule_index
+    doc = doc_for('<style>#x { color: red }</style><p id="x">x</p>')
+    index = index_of(doc)
+
+    style = doc.create_element("style")
+    style.text_content = "#x { color: blue }"
+    doc.body.append_child(style)
+    refute_same index, index_of(doc)
+    assert_equal "rgb(0, 0, 255)", computed(doc, "x")["color"]
+  end
+
+  def test_a_media_attribute_or_a_resize_builds_a_new_rule_index
+    doc = doc_for(<<~HTML)
+      <style id="narrow">#x { color: red }</style>
+      <style>@media (max-width: 500px) { #x { display: none } }</style>
+      <p id="x">x</p>
+    HTML
+    index = index_of(doc)
+
+    doc.get_element_by_id("narrow").set_attribute("media", "(max-width: 500px)")
+    refute_same index, index_of(doc)
+    assert_equal "rgb(0, 0, 0)", computed(doc, "x")["color"]
+
+    index = index_of(doc)
+    doc.default_view.resize_to(400, 600)
+    refute_same index, index_of(doc)
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+    assert_equal "none", computed(doc, "x")["display"]
+  end
+
+  def test_a_shadow_root_builds_a_new_rule_index
+    doc = doc_for('<style>p { color: red }</style><div id="host"></div>')
+    index = index_of(doc)
+
+    root = doc.get_element_by_id("host").attach_shadow("mode" => "open")
+    root.inner_html = '<style>p { color: blue }</style><p id="inner">x</p>'
+    refute_same index, index_of(doc)
+    assert_equal "rgb(0, 0, 255)", CASCADE.computed_style(root.query_selector("#inner"))["color"]
+  end
+
+  def test_an_imported_sheet_is_not_read_again_after_a_tree_edit
+    doc = doc_for('<style>@import url(base.css);</style><div id="box"></div>')
+    reads = 0
+    doc.css_import_resolver = lambda { |_url|
+      reads += 1
+      ".x { color: red }"
+    }
+    index = index_of(doc)
+
+    doc.get_element_by_id("box").inner_html = '<p class="x" id="x">x</p>'
+    assert_same index, index_of(doc)
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+    assert_equal 1, reads
+
+    doc.css_import_resolver = ->(_url) { ".x { color: blue }" }
+    refute_same index, index_of(doc)
+    assert_equal "rgb(0, 0, 255)", computed(doc, "x")["color"]
+  end
+
+  def test_an_index_with_scope_rules_is_built_again_after_a_tree_edit
+    doc = doc_for('<style>@scope (.card) { p { color: red } }</style><div id="box"></div>')
+    index = index_of(doc)
+
+    doc.get_element_by_id("box").inner_html = '<div class="card"><p id="x">x</p></div>'
+    refute_same index, index_of(doc)
+    assert_equal "rgb(255, 0, 0)", computed(doc, "x")["color"]
+  end
+
   # --- CSSOM (CSSStyleSheet) connection --------------------------------
 
   def test_insert_rule_reaches_the_computed_style

@@ -8,6 +8,7 @@ require_relative "../selector_ast"
 require_relative "../selector_matcher"
 require_relative "../bounded_cache"
 require_relative "selector_dependencies"
+require_relative "rule_index_inputs"
 
 module Dommy
   module Internal
@@ -21,9 +22,11 @@ module Dommy
       # an invalidation is priced by the elements actually styled afterward.
       # Only the rules whose targeting needs whole-document queries (@scope
       # roots/limits, shadow-tree sheets, ::part) are resolved eagerly.
-      # Built lazily per style generation (see Cascade) and thrown away
-      # wholesale on invalidation — a viewport resize bumps the generation
-      # too, so @media re-evaluates.
+      # Built lazily per style generation (see Cascade). The next generation
+      # takes it over, its per-element matches forgotten, when nothing it was
+      # built from (Inputs) changed and none of it was resolved against the
+      # tree; otherwise it is built again, which is how a sheet edit or a
+      # viewport resize (re-evaluating @media) reaches the cascade.
       class RuleIndex
         Match = Struct.new(:origin, :specificity, :order, :declarations, :layer, :proximity)
 
@@ -38,12 +41,24 @@ module Dommy
         # not an inclusive descendant of any of the root's limits.
         Scope = Struct.new(:roots, :ends)
 
-        def self.build(document)
-          new(document)
+        # The index for `document`, or `previous` again — its per-element
+        # memos cleared — when it was built from the same inputs and nothing
+        # in it depends on the tree. A DOM edit moves the style generation
+        # far more often than anything a plain rule index is built from
+        # changes, and building one walks every rule of every sheet.
+        def self.build(document, previous: nil)
+          inputs = Inputs.new(document)
+          return previous.reset_element_memos if previous&.reusable_for?(inputs)
+
+          new(document, inputs)
         end
 
-        def initialize(document)
+        def initialize(document, inputs = Inputs.new(document))
           @document = document
+          @inputs = inputs
+          # Cleared by whatever makes the index depend on the tree: @scope
+          # roots, shadow-tree sheets and ::part hosts are found in it.
+          @reusable = true
           # Every selector this index matches against an element runs in the
           # same document with no :scope, so one Match serves them all — and
           # holds the document's quirks mode the id and class buckets fold by.
@@ -70,8 +85,19 @@ module Dommy
           @layer_order = {}
           @anon_layer_seq = 0
           add_rules(UAStylesheet.rules, :ua)
-          author_sheets.each { |rules| add_rules(rules, :author) }
+          inputs.sheets.each { |rules| add_rules(rules, :author) }
           add_shadow_sheets
+        end
+
+        # Whether this index is what a build from `inputs` would make.
+        def reusable_for?(inputs) = @reusable && @inputs.same_as?(inputs)
+
+        # Forget which rules matched which element (the tree they were
+        # matched in has changed); the rules themselves stand.
+        def reset_element_memos
+          @element_matches = {}.compare_by_identity
+          @pseudo_matches = {}
+          self
         end
 
         EMPTY = [].freeze
@@ -125,78 +151,7 @@ module Dommy
 
         private
 
-        # Author sheets in document order. <style> and <link rel=stylesheet>
-        # are walked together so their relative order is preserved (it breaks
-        # cascade ties). A `media` attribute gates the whole sheet (same
-        # evaluator as @media); `disabled` mutes it.
-        def author_sheets
-          sheet_elements.filter_map do |element|
-            media = element.__internal_attribute_value__("media").to_s.strip
-            next nil unless media.empty? || MediaQuery.match?(media, environment)
-
-            link_element?(element) ? link_sheet_rules(element) : style_element_rules(element)
-          end
-        end
-
-        def link_element?(element)
-          element.local_name.to_s.casecmp("link").zero?
-        end
-
-        def sheet_elements
-          if @document.respond_to?(:__internal_style_sheet_elements__)
-            @document.__internal_style_sheet_elements__
-          else
-            @document.query_selector_all("style, link").to_a
-          end
-        end
-
-        # A <link rel=stylesheet> contributes only once a host environment has
-        # filled its CSS in (Dommy fetches nothing). The filled sheet is read
-        # through `cascade_text`, exactly like a <style>'s CSSOM sheet.
-        def link_sheet_rules(element)
-          return nil unless element.respond_to?(:__internal_stylesheet_for_cascade__)
-
-          sheet = element.__internal_stylesheet_for_cascade__
-          return nil if sheet.nil? || sheet.disabled
-
-          safe_parse(sheet.cascade_text)
-        end
-
-        # When a CSSStyleSheet was instantiated for the <style> (and isn't
-        # stale), its CSSOM state wins: `cascade_text` carries insertRule edits
-        # and `disabled` mutes it. Otherwise the element's text is parsed.
-        def style_element_rules(element)
-          sheet = element.respond_to?(:__internal_instantiated_sheet__) && element.__internal_instantiated_sheet__
-          if sheet
-            return nil if sheet.disabled
-
-            safe_parse(sheet.cascade_text)
-          else
-            safe_parse(element.text_content.to_s)
-          end
-        end
-
-        # Parsed-sheet cache (text => rules), module-level like the selector
-        # AST cache: an invalidation rebuilds the index far more often than
-        # any sheet's text changes, so the parse — the dominant build cost
-        # now that plain rules match lazily — is reused. The parse results
-        # are read-only value objects, safe to share between builds. (Hash
-        # dup+freezes unfrozen String keys, so a later mutation of the
-        # source text can't corrupt an entry.)
-        PARSE_CACHE = Internal::BoundedCache.new(64)
-
-        def safe_parse(text)
-          PARSE_CACHE.fetch(text) { Parser.parse(text) }
-        rescue Parser::Unavailable
-          # A missing makiri is not a malformed sheet: it means CSS is
-          # unavailable at all, which the caller reports rather than swallows.
-          raise
-        rescue StandardError
-          # Lexbor recovers from bad CSS itself, so reaching here means the
-          # normalization above it broke on a shape it did not expect. One
-          # sheet is dropped rather than the page.
-          []
-        end
+        def safe_parse(text) = Inputs.parse(text)
 
         def add_rules(rules, origin, layer: nil, scope: nil, shadow: nil)
           rules.each do |rule|
@@ -263,6 +218,7 @@ module Dommy
             host = root.respond_to?(:host) ? root.host : nil
             next unless host
 
+            @reusable = false
             shadow = Shadow.new(root, host)
             # The UA style sheet applies in every tree, shadow trees included
             # (`slot { display: contents }`, `dialog:not([open])`, …).
@@ -413,6 +369,7 @@ module Dommy
         # matching `part` token inside the shadow tree of a host the compound chain
         # matches.
         def index_part_complex(complex, spec, origin, layer, declarations)
+          @reusable = false
           names = complex.pseudo_element.argument
           return unless names.is_a?(Array) && !names.empty?
 
@@ -591,6 +548,7 @@ module Dommy
         # lower boundary. scope-end is matched with `:scope` bound to the root
         # and kept to that root's subtree (a "donut" lower boundary).
         def build_scope(start_text, end_text)
+          @reusable = false
           roots =
             if start_text
               ast = parse_selector(start_text)
@@ -675,14 +633,7 @@ module Dommy
           end
         end
 
-        # The media environment of the document's window — or the default
-        # (1280x720) for windowless documents (fragments, DOMParser output).
-        def environment
-          @environment ||= begin
-            view = @document.respond_to?(:default_view) ? @document.default_view : nil
-            (view && view.media_environment) || MediaQuery::DEFAULT
-          end
-        end
+        def environment = @inputs.environment
 
         # Match one complex selector (its pseudo-element stripped — the
         # matcher never matches pseudo-element subjects against elements;

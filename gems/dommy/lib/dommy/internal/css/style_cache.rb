@@ -14,9 +14,11 @@ module Dommy
       # written down nowhere.
       #
       # Nothing here is invalidated piecemeal. A generation bump throws the
-      # whole cache away, which is what makes the memos safe to hold.
+      # whole cache away, which is what makes the memos safe to hold. The one
+      # thing handed on is the last rule index built, for the next build to
+      # reuse when its inputs have not changed (RuleIndex.build decides).
       class StyleCache
-        attr_reader :generation
+        attr_reader :generation, :previous_index
         attr_accessor :index, :counters, :author_css
 
         # The document's cache for its current style generation, replacing a
@@ -24,14 +26,15 @@ module Dommy
         def self.for(document)
           cache = document.__internal_css_style_cache__
           unless cache&.current?(document.style_generation)
-            cache = new(document.style_generation)
+            cache = new(document.style_generation, previous_index: cache&.index || cache&.previous_index)
             document.__internal_css_style_cache__ = cache
           end
           cache
         end
 
-        def initialize(generation)
+        def initialize(generation, previous_index: nil)
           @generation = generation
+          @previous_index = previous_index
           @computed = {}.compare_by_identity
           @pseudo_computed = {}
           @directions = {}.compare_by_identity
