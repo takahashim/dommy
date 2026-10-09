@@ -185,6 +185,23 @@ class Dommy::Rack::TestWebSocketTransport < Minitest::Test
     assert_empty ws.opens
   end
 
+  # The app dropping an open socket ends the connection: nothing more can
+  # arrive, though the page never closed it.
+  def test_a_socket_the_app_dropped_is_closed
+    dropping_app = lambda do |env|
+      env["rack.hijack"].call
+      io = env["rack.hijack_io"]
+      io.write("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n\r\n")
+      io.close
+      [-1, {}, []]
+    end
+    transport, ws, scheduler = build_transport(app: dropping_app)
+
+    drain_until(scheduler, "the drop") { ws.closes.any? }
+    assert_equal [[1006, "", false]], ws.closes
+    drain_until(scheduler, "the reader to stop") { transport.closed? }
+  end
+
   def test_rack_target_resolution
     base = "http://example.org/page"
 

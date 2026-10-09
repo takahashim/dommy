@@ -106,8 +106,18 @@ module Dommy
         return nil unless job
 
         deferred = Dommy::DeferredResponse.new(@scheduler)
-        @executor.submit(job) do |response|
-          deferred.complete(response && to_entry(response, url))
+        # In flight from here until the worker has posted the completion, so
+        # a host waiting on the page sees the response coming.
+        @scheduler.begin_external_work
+        begin
+          @executor.submit(job) do |response|
+            deferred.complete(response && to_entry(response, url))
+          ensure
+            @scheduler.end_external_work
+          end
+        rescue StandardError
+          @scheduler.end_external_work
+          raise
         end
         deferred
       end

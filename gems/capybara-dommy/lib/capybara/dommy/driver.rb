@@ -22,6 +22,10 @@ module Capybara
       # The handle of the one window there is.
       WINDOW_HANDLE = "dommy"
 
+      # The frame each query moves the clock by before it reads the page:
+      # the time a browser would have had between two Capybara commands.
+      FRAME_MS = 16
+
       attr_reader :app, :visibility
 
       # --- Deterministic-time seam (used by JS runtimes) ---
@@ -72,7 +76,7 @@ module Capybara
         # A JS session needs the virtual clock pumped inside Capybara's
         # synchronize loop, so waiting expectations converge on timer/fetch
         # driven updates. A host-installed pump (the documented seam) wins.
-        @time_pump ||= -> { @rack_session&.advance_time(16) } if @javascript
+        @time_pump ||= -> { @rack_session&.advance_time(FRAME_MS) } if @javascript
       end
 
       # Whether this driver runs page JavaScript (`javascript: true`, backed by
@@ -290,6 +294,63 @@ module Capybara
         !@time_pump.nil?
       end
 
+      # --- Waiting on the virtual clock (see VirtualWait) ---
+
+      # One Capybara wait: the virtual time it may still move the clock by.
+      class Wait
+        attr_reader :remaining_ms
+
+        def initialize(seconds)
+          @remaining_ms = (seconds.to_f * 1000).round
+        end
+
+        def spend(ms)
+          @remaining_ms -= ms
+        end
+      end
+
+      def begin_wait(seconds)
+        @wait = Wait.new(seconds)
+      end
+
+      def end_wait
+        @wait = nil
+      end
+
+      # After a failed attempt, what lets the page move on:
+      #
+      # - :moved — a completion a worker handed back was delivered, or the
+      #   clock moved to the next timer, due within what is left of the wait:
+      #   try again now.
+      # - :outside — only something outside the clock can change the page: a
+      #   fetch still running on a worker, or an open WebSocket / EventSource
+      #   the app can push to. Only waiting in real time sees it arrive.
+      # - nil — nothing within the wait can change the page.
+      #
+      # A fetch in flight comes before the next timer, as its response would
+      # in a browser, where the network takes milliseconds: moving the clock
+      # past it first would let a timeout race the response and win. An open
+      # connection comes after: it may never carry anything, and the page's
+      # timers must not wait on it.
+      def wait_on(wait)
+        session = @rack_session
+        return nil unless session
+
+        if session.completion_pending?
+          session.advance_time(0)
+          return :moved
+        end
+        return :outside if session.fetch_in_flight?
+
+        delay = session.next_timer_delay
+        if delay && delay <= wait.remaining_ms
+          wait.spend(delay)
+          session.advance_time(delay)
+          return :moved
+        end
+        :outside if session.open_connections?
+      end
+
       def needs_server?
         false
       end
@@ -360,6 +421,7 @@ module Capybara
       # otherwise sit in the ledger until some later command happened to check.
       def pump!
         @time_pump&.call
+        @wait&.spend(FRAME_MS)
         rack_session.check_js_errors! if @javascript
       end
 

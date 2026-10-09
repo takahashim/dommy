@@ -66,10 +66,21 @@ Dommy does not implement yet. Turn it off with
 `config.raise_js_errors = false`, or suppress it for one block with
 `page.driver.allow_js_errors { ... }`.
 
-**There are two clocks.** Dommy's timers run on a virtual clock that Capybara's
-retry loop advances a frame at a time, so a debounce or a `setTimeout` resolves
-in a few polls rather than in real time. Nothing advances it outside that loop:
-`sleep` does not, and Rails' `travel_to` does not reach JavaScript's `Date`.
+**There are two clocks, and a wait is measured on the page's.** Dommy's
+timers run on a virtual clock, which only Capybara's commands move. Each query
+first moves it by a frame (16 ms); a wait (`default_max_wait_time`, `wait:`)
+is then a span of that clock, not of real time. When a query fails, the retry
+moves the clock straight to the page's next timer, as long as that is within
+the wait, so a 300 ms debounce costs one retry, not 300 ms. When nothing within
+the wait can change the page, the query fails at once: `have_no_css` on an
+element that stays, or a `have_css` that will never match, does not wait 2
+seconds. The clock is the whole page's: an iframe's timers run on it too. Only
+what the clock does not drive is waited for in real time, for at most the
+wait: a fetch still running on a `network_executor` worker (before any later
+timer, as its response would come first in a browser), and an open WebSocket or
+EventSource, which the app can push to at any moment. Nothing advances the clock outside
+Capybara's commands: `sleep` does not, and Rails' `travel_to` does not reach
+JavaScript's `Date`.
 
 **The app runs in the test process.** There is no server thread and no port, so
 `use_transactional_tests` works unchanged and an exception in the app is raised

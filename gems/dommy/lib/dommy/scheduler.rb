@@ -65,6 +65,10 @@ module Dommy
       @microtasks = []
       @native_microtask_scheduler = nil
       @external_inbox = Thread::Queue.new
+      # Work handed to another thread whose completion has not come back yet
+      # (#begin_external_work / #end_external_work).
+      @external_work = 0
+      @external_work_mutex = Mutex.new
       # The nesting level of the timer task currently running (0 at top level);
       # a timer scheduled while it runs nests one deeper. Drives the 4ms clamp.
       @nesting_level = 0
@@ -106,6 +110,24 @@ module Dommy
     # True when a worker has handed back work not yet delivered. Lets the host
     # keep the loop alive (ticking) until in-flight network responses are applied.
     def external_pending? = !@external_inbox.empty?
+
+    # A worker took on work it will hand back through #post_external (a fetch
+    # on a network executor), and #end_external_work when it has. Between the
+    # two the page can still change without the clock moving: a host waiting
+    # on the page waits for it in real time. THREAD-SAFE.
+    def begin_external_work
+      @external_work_mutex.synchronize { @external_work += 1 }
+      nil
+    end
+
+    def end_external_work
+      @external_work_mutex.synchronize { @external_work -= 1 }
+      nil
+    end
+
+    # Whether work handed to a worker has not come back yet. Once it has, its
+    # completion is #external_pending? until the loop delivers it.
+    def external_work_in_flight? = @external_work_mutex.synchronize { @external_work.positive? }
 
     # An optional hook (set by a JS runtime) that enqueues a microtask onto the
     # engine's NATIVE promise-job queue. When present, `queue_microtask` routes

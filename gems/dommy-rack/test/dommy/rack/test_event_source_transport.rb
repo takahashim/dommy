@@ -70,6 +70,23 @@ class Dommy::Rack::TestEventSourceTransport < Minitest::Test
     assert_equal 0, es.errors
   end
 
+  # A stream the app ended carries nothing more, so a host waiting on the
+  # virtual clock need not treat it as live.
+  def test_a_stream_the_app_ended_is_closed
+    transport, es, scheduler = build_transport("data: once\n\n")
+    drain_until(scheduler, "the end of the stream") { es.closes == 1 }
+    drain_until(scheduler, "the reader to stop") { transport.closed? }
+  end
+
+  def test_a_failed_response_is_closed
+    transport = Dommy::Rack::EventSourceTransport.new(
+      app: sse_app(""), es: FakeEventSource.new, scheduler: Dommy::Scheduler.new,
+      url: Dommy::URL.new("http://example.org/missing"), origin: "http://example.org"
+    )
+    @transports << transport
+    drain_until(Dommy::Scheduler.new, "the reader to stop") { transport.closed? }
+  end
+
   def test_multiline_data_is_joined_with_newlines
     _transport, es, scheduler = build_transport("data: line1\ndata: line2\n\n")
 

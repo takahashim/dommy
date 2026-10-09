@@ -79,12 +79,20 @@ module Dommy
         send_close_frame(code == 1005 ? 1000 : code, reason)
       end
 
+      # Whether the connection is over, so no message can arrive on it: the
+      # page closed it, or the reader stopped (the app ended it, the socket
+      # dropped, the handshake failed).
+      def closed? = @closed || @reader_done
+
       # Hard teardown (session dispose): drop the socket; the reader thread
       # exits on EOF. Safe to call repeatedly.
-      def dispose
+      # Hard teardown: drop the socket; the reader thread exits on EOF. With
+      # `wait` it is also joined (briefly), for a session going away for
+      # good; a page navigating away does not wait for it.
+      def dispose(wait: true)
         @closed = true
         @client_io&.close unless @client_io&.closed?
-        @reader&.join(1)
+        @reader&.join(1) if wait
       rescue IOError
         nil
       end
@@ -141,6 +149,7 @@ module Dommy
         post { @ws.__internal_transport_closed__(1006, "", was_clean: false) } unless @closed
       ensure
         @client_io.close rescue nil
+        @reader_done = true
       end
 
       class HandshakeFailed < StandardError; end

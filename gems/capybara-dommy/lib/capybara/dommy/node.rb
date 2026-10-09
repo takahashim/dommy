@@ -346,10 +346,19 @@ module Capybara
         end
       end
 
+      # Stale as Selenium's node is: the element belongs to a page that is
+      # gone (a navigation), or it left the tree (a Turbo Stream replaced it,
+      # a framework re-rendered it). Capybara then finds the element again
+      # by the query it came from, so a spec holding a node across such a
+      # change reads the page, not a detached copy of it.
       def stale_check
-        return if native.document.equal?(driver.document)
+        return if native.document.equal?(driver.document) && connected?(native)
 
         raise StaleElementReferenceError, "element is no longer attached to the document"
+      end
+
+      def connected?(node)
+        node.respond_to?(:is_connected?) ? node.is_connected? : true
       end
 
       def submit_owning_form
