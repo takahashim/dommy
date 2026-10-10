@@ -65,12 +65,17 @@ module Dommy
       copy
     end
 
-    def append(name, value, filename = nil)
+    # A filename left out, as opposed to one given as nil (JS null) or
+    # undefined: WebIDL picks an overload by how many arguments a call passed.
+    NO_FILENAME = Object.new.freeze
+    private_constant :NO_FILENAME
+
+    def append(name, value, filename = NO_FILENAME)
       @pairs << [name.to_s, entry_value(value, filename)]
       nil
     end
 
-    def set(name, value, filename = nil)
+    def set(name, value, filename = NO_FILENAME)
       key = name.to_s
       v = entry_value(value, filename)
       replaced = false
@@ -160,9 +165,9 @@ module Dommy
     def __js_call__(method, args)
       case method
       when "append"
-        append(args[0], args[1], args[2])
+        append(args[0], args[1], args.fetch(2, NO_FILENAME))
       when "set"
-        set(args[0], args[1], args[2])
+        set(args[0], args[1], args.fetch(2, NO_FILENAME))
       when "get"
         get(args[0])
       when "getAll"
@@ -186,20 +191,22 @@ module Dommy
 
     # XHR's "create an entry": a Blob that is not a File becomes a File named
     # "blob", and a File given a filename one of that name, so every file
-    # entry is a File with a name; anything else is a string. Only the
-    # (name, Blob, filename) overload takes a filename, so a string with one
-    # is a TypeError.
+    # entry is a File with a name; anything else is a string. A call with a
+    # third argument, even undefined, can only be the (name, Blob, filename)
+    # overload, so a string value with one is a TypeError. The filename is
+    # optional: undefined is its absence, null the string "null".
     def entry_value(value, filename)
-      filename = nil if filename.equal?(Bridge::UNDEFINED)
       unless value.is_a?(Blob)
-        raise Bridge::TypeError, "parameter 2 is not of type 'Blob'." unless filename.nil?
+        raise Bridge::TypeError, "parameter 2 is not of type 'Blob'." unless filename.equal?(NO_FILENAME)
 
         return Internal::WebIDL.dom_string(value)
       end
 
-      return value if value.is_a?(File) && filename.nil?
+      return value if value.is_a?(File) && default_filename?(filename)
 
-      value.__internal_file_named__(filename.nil? ? "blob" : filename.to_s)
+      value.__internal_file_named__(default_filename?(filename) ? "blob" : Internal::WebIDL.dom_string(filename))
     end
+
+    def default_filename?(filename) = filename.equal?(NO_FILENAME) || filename.equal?(Bridge::UNDEFINED)
   end
 end
