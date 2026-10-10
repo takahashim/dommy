@@ -620,7 +620,7 @@ module Dommy
       # `how` is a WebIDL `unsigned short`: coerce first (NaN/±0/±Infinity → 0,
       # otherwise truncate toward zero and take modulo 2^16), then require one of
       # the four named constants, else NotSupportedError.
-      how = to_unsigned_short(how)
+      how = Internal::WebIDL.unsigned_short(how)
       Internal::WebIDL.interface!(other, Range)
       unless [START_TO_START, START_TO_END, END_TO_END, END_TO_START].include?(how)
         raise DOMException::NotSupportedError, "invalid comparison type: #{how}"
@@ -868,35 +868,6 @@ module Dommy
         node.respond_to?(:data) ? Internal::Utf16.length(node.data.to_s) : 0
       else
         node.respond_to?(:child_nodes) ? node.child_nodes.length : 0
-      end
-    end
-
-    # WebIDL `unsigned short` conversion: ToNumber, then NaN/±0/±Infinity → 0,
-    # otherwise truncate toward zero and take modulo 2^16.
-    def to_unsigned_short(value)
-      num = web_to_number(value)
-      return 0 if num.nan? || num.zero? || num.infinite?
-
-      ((num.negative? ? -1 : 1) * num.abs.floor) % 65536
-    end
-
-    # WebIDL ToNumber for the values that reach a bridged argument.
-    def web_to_number(value)
-      case value
-      when Numeric then value.to_f
-      when nil, false then 0.0
-      when true then 1.0
-      when String
-        stripped = value.strip
-        return 0.0 if stripped.empty?
-
-        begin
-          Float(stripped)
-        rescue ArgumentError
-          Float::NAN
-        end
-      else
-        Float::NAN
       end
     end
 

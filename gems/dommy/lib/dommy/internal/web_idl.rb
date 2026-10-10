@@ -39,19 +39,20 @@ module Dommy
         interface!(value, Dommy::Node)
       end
 
-      # `value` converted to `unsigned long`: ToNumber, then NaN and ±Infinity
-      # become 0, and anything else truncates toward zero and wraps modulo 2^32
-      # (so -1 is 4294967295).
-      def unsigned_long(value)
-        number =
-          case value
-          when Integer then value
-          when Float then value.finite? ? value.truncate : 0
-          when true then 1
-          when String then string_to_integer(value)
-          else 0 # null, false, undefined, NaN
-          end
-        number % (2**32)
+      # `value` converted to `unsigned long` (so -1 is 4294967295).
+      def unsigned_long(value) = convert_to_unsigned(value, 32)
+
+      # `value` converted to `unsigned short` (so -1 is 65535).
+      def unsigned_short(value) = convert_to_unsigned(value, 16)
+
+      # WebIDL ConvertToInt for an unsigned type of `bits` bits: ToNumber,
+      # then NaN, ±0 and ±Infinity become 0, and anything else truncates
+      # toward zero and wraps modulo 2^bits.
+      def convert_to_unsigned(value, bits)
+        number = value.is_a?(Integer) ? value : to_number(value)
+        return 0 if number.is_a?(Float) && !number.finite?
+
+        number.truncate % (2**bits)
       end
 
       # `value` converted to `long`: ToNumber, then NaN and ±Infinity become
@@ -65,11 +66,6 @@ module Dommy
         wrapped >= 2**31 ? wrapped - (2**32) : wrapped
       end
 
-      def string_to_integer(value)
-        float = Float(value.strip.empty? ? "0" : value.strip, exception: false)
-        float&.finite? ? float.truncate : 0
-      end
-
       # `value` converted to `Node?`: null and undefined both become nil.
       def nullable_node!(value)
         return nil if value.nil? || value.equal?(Bridge::UNDEFINED)
@@ -77,30 +73,56 @@ module Dommy
         node!(value)
       end
 
-      # `value` converted to `unrestricted double` (JS ToNumber): NaN and the
-      # infinities pass through. The bridge hands JS NaN over as the symbol
-      # :NaN; a Date is its time value. An object Ruby cannot ask for a
-      # primitive is NaN.
-      def unrestricted_double(value)
+      # `value` converted to `unrestricted double`: ToNumber, with NaN and
+      # the infinities passed through.
+      def unrestricted_double(value) = to_number(value).to_f
+
+      # ECMAScript ToNumber for what the bridge hands over: a JS object
+      # arrives as a Hash, an array as an Array, NaN as a Float NaN or the
+      # symbol :NaN, a Date as a Bridge::Date (its time value). An object is
+      # read through its string, as ToPrimitive does for an ordinary one:
+      # an array's joined elements, a plain object's "[object Object]",
+      # which is NaN.
+      def to_number(value)
         case value
-        when Numeric then value.to_f
-        when nil, false then 0.0
-        when true then 1.0
-        when String then string_to_double(value)
+        when Numeric then value
+        when nil, false then 0
+        when true then 1
+        when String then string_to_number(value)
+        when Array then string_to_number(dom_string(value))
         when Bridge::Date then value.time_value
-        else ::Float::NAN # undefined, NaN, other objects
+        else ::Float::NAN # undefined, :NaN, other objects
         end
       end
 
-      # JS StringToNumber for the decimal forms: surrounding whitespace is
-      # ignored and the empty string is 0.
-      def string_to_double(value)
-        text = value.strip
-        return 0.0 if text.empty?
-        return ::Float::INFINITY if text == "Infinity" || text == "+Infinity"
-        return -::Float::INFINITY if text == "-Infinity"
+      # StrWhiteSpaceChar: what StringToNumber trims from either end.
+      STR_WHITE_SPACE = /[\t\v\f \u00A0\uFEFF\n\r\u2028\u2029\p{Zs}]/
+      STRING_NUMERIC_LITERAL = /\A#{STR_WHITE_SPACE}*(.*?)#{STR_WHITE_SPACE}*\z/m
+      NON_DECIMAL = {"b" => [/\A[01]+\z/, 2], "o" => [/\A[0-7]+\z/, 8], "x" => [/\A\h+\z/, 16]}.freeze
+      DECIMAL = /\A([+-]?)(?:(Infinity)|(\d*)(?:\.(\d*))?(?:[eE]([+-]?\d+))?)\z/
 
-        Float(text, exception: false)&.to_f || ::Float::NAN
+      # ECMAScript StringToNumber: StringNumericLiteral between optional
+      # white space — empty, a `0b` / `0o` / `0x` integer with no sign, or a
+      # signed decimal (digits with an optional fraction, or a fraction
+      # alone, then an optional exponent) or Infinity. Anything else, `1_0`
+      # and `-0x1` included, is NaN.
+      def string_to_number(string)
+        text = string.match(STRING_NUMERIC_LITERAL)[1]
+        return 0 if text.empty?
+
+        if (base = text.match(/\A0([bBoOxX])(.*)\z/m))
+          pattern, radix = NON_DECIMAL.fetch(base[1].downcase)
+          return pattern.match?(base[2]) ? base[2].to_i(radix).to_f : ::Float::NAN
+        end
+
+        match = DECIMAL.match(text)
+        return ::Float::NAN unless match
+
+        sign, infinity, integer, fraction, exponent = match.captures
+        return sign == "-" ? -::Float::INFINITY : ::Float::INFINITY if infinity
+        return ::Float::NAN if integer.empty? && fraction.to_s.empty?
+
+        Float("#{sign}#{integer.empty? ? "0" : integer}.#{fraction.to_s.empty? ? "0" : fraction}e#{exponent || 0}")
       end
 
       # `value` converted to `DOMString` (JS ToString) as the bridge hands it
