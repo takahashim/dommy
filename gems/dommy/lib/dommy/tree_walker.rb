@@ -435,7 +435,12 @@ module Dommy
 
     private
 
+    # The candidate lives on the iterator, not in a local, so that a node
+    # removed by the filter moves it (#adjust_pointer). A traversal a filter
+    # starts from inside its own callback cannot filter (the iterator is
+    # active) and must leave the outer traversal's candidate as it found it.
     def traverse(type)
+      outer = @candidate
       @candidate = [@reference_node, @pointer_before_reference]
       result = nil
       loop do
@@ -459,20 +464,16 @@ module Dommy
         end
 
         node = @candidate[0]
-        begin
-          filter_result = accept(node)
-        rescue StandardError
-          @candidate = nil
-          raise
-        end
+        filter_result = accept(node)
         next unless filter_result == NodeFilter::FILTER_ACCEPT
 
         @reference_node, @pointer_before_reference = @candidate
         result = node
         break
       end
-      @candidate = nil
       result
+    ensure
+      @candidate = outer
     end
 
     # WHATWG "adjust a node pointer": a pointer into the subtree being removed

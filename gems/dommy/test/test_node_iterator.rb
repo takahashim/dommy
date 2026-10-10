@@ -99,4 +99,24 @@ class TestNodeIterator < Minitest::Test
     assert_same(a, iter.__js_get__("referenceNode"))
     assert_same(c, iter.next_node)
   end
+
+  # A filter that calls nextNode() on its own iterator gets InvalidStateError,
+  # and the outer traversal carries on from where it was.
+  def test_a_nested_traversal_leaves_the_outer_one_where_it_was
+    iter = nil
+    filter = proc do |_node|
+      begin
+        iter.next_node
+      rescue Dommy::DOMException::InvalidStateError
+        nil
+      end
+      Dommy::NodeFilter::FILTER_ACCEPT
+    end
+    iter = @doc.create_node_iterator(@root, Dommy::NodeFilter::SHOW_ALL, filter)
+    visited = []
+    while (node = iter.next_node)
+      visited << (node.respond_to?(:tag_name) ? node.tag_name : node.text_content)
+    end
+    assert_equal %w[BODY P 1 P 2 P 3], visited
+  end
 end
