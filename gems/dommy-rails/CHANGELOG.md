@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.0 — 2026-10-10
+
+Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.16.0; no change of its own.
+
 ## 0.15.0 — 2026-10-04
 
 Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.15.0; no change of its own.
