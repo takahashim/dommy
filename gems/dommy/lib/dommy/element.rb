@@ -401,7 +401,9 @@ module Dommy
     # WHATWG Node.normalize: drop empty Text nodes and merge each run of
     # contiguous Text nodes into the first, firing the matching mutation records
     # (childList for every removed node, characterData for the merged data).
-    def toggle_attribute(name, force = nil)
+    # `optional boolean force`: missing (or undefined) toggles; anything
+    # else, null included, is a boolean read with ToBoolean.
+    def toggle_attribute(name, force = Bridge::UNDEFINED)
       validate_attribute_name!(name)
 
       # step 3 looks for the attribute whose QUALIFIED name matches, so an
@@ -409,7 +411,7 @@ module Dommy
       # `node.key?` answers by local name and would report it present.
       key = normalize_attr_key(name)
       present = !Backend.attr_value_by_qualified_name(@__node__, key).nil?
-      desired = force.nil? ? !present : !!force
+      desired = force.equal?(Bridge::UNDEFINED) ? !present : Internal::WebIDL.boolean(force)
       if desired
         set_attribute(key, "") unless present
         true
@@ -1275,7 +1277,7 @@ module Dommy
       when "insertAdjacentText"
         insert_adjacent_text(args[0], args[1])
       when "toggleAttribute"
-        toggle_attribute(args[0], args[1])
+        toggle_attribute(args[0], args.fetch(1, Bridge::UNDEFINED))
       when "matches", "webkitMatchesSelector"
         raise Bridge::TypeError, "1 argument required, but only 0 present" if args.empty?
 
@@ -1633,7 +1635,10 @@ module Dommy
       old_child
     end
 
-    def clone_node(deep_arg)
+    def clone_node(deep_arg = false)
+      # `optional boolean subtree = false`, read with ToBoolean: undefined,
+      # null and "" are false.
+      deep_arg = Internal::WebIDL.boolean(deep_arg)
       # Copy the node in place via the backend's deep clone, NOT by re-parsing
       # to_html as a fragment: the HTML fragment parser unwraps `<body>` /
       # `<head>` / `<html>`, so cloning a body would produce its children, not a

@@ -72,4 +72,61 @@ class TestWebIDLArgumentConversion < Minitest::Test
       assert_raises(Dommy::Bridge::TypeError) { @div.set_attribute_node_ns(value) }
     end
   end
+
+  # A boolean argument or dictionary member is read with ToBoolean: 0, ""
+  # and null are false, undefined is false or, for an optional argument
+  # with no default, missing. Script hands these over as they are.
+  def test_boolean_arguments_use_to_boolean
+    @div.inner_html = "<i></i>"
+    [Dommy::Bridge::UNDEFINED, "", 0, nil].each do |deep|
+      assert_equal 0, @div.clone_node(deep).child_nodes.length, deep.inspect
+    end
+    assert_equal 1, @div.clone_node(1).child_nodes.length
+
+    refute @div.toggle_attribute("a", 0)
+    refute @div.toggle_attribute("a", nil)
+    assert @div.toggle_attribute("a", "x")
+    refute @div.toggle_attribute("a")
+
+    list = @div.class_list
+    assert list.__js_call__("toggle", ["c", 1])
+    refute list.__js_call__("toggle", ["c", nil])
+    assert list.__js_call__("toggle", ["c"])
+
+    range = @doc.create_range
+    range.set_start(@text, 1)
+    range.set_end(@text, 2)
+    range.collapse(0)
+    assert_equal [2, 2], [range.start_offset, range.end_offset]
+
+    event = Dommy::Event.new("e", {"bubbles" => 0, "cancelable" => "x", "composed" => ""})
+    assert_equal [false, true, false], %w[bubbles cancelable composed].map { |key| event.__js_get__(key) }
+  end
+
+  # importNode's `(boolean or ImportNodeOptions) options = false`: undefined
+  # is the default, false; null is a dictionary, whose selfOnly is false.
+  def test_import_node_options
+    @div.inner_html = "<i></i>"
+    other = make_window.document
+    assert_equal 0, other.import_node(@div, Dommy::Bridge::UNDEFINED).child_nodes.length
+    assert_equal 1, other.import_node(@div, nil).child_nodes.length
+    assert_equal 0, other.import_node(@div, {"selfOnly" => true}).child_nodes.length
+    assert_equal 1, other.import_node(@div, "x").child_nodes.length
+    # From script, a missing argument is undefined, not null.
+    assert_equal 0, other.__js_call__("importNode", [@div]).child_nodes.length
+  end
+
+  # Setting data, nodeValue or textContent from script is "replace data" over
+  # the whole node: a live range inside it goes to its start.
+  def test_setting_data_from_script_replaces_data
+    %w[data nodeValue textContent].each do |key|
+      text = @doc.create_text_node("abcdef")
+      @div.append_child(text)
+      range = @doc.create_range
+      range.set_start(text, 4)
+      range.set_end(text, 5)
+      text.__js_set__(key, "xy")
+      assert_equal [text, 0, text, 0], [range.start_container, range.start_offset, range.end_container, range.end_offset], key
+    end
+  end
 end

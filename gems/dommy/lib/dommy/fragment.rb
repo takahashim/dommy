@@ -28,7 +28,7 @@ module Dommy
     # processing instruction does not come back as one.
     def clone_node(deep = false)
       copy = @document.create_document_fragment
-      return copy unless deep
+      return copy unless Internal::WebIDL.boolean(deep)
 
       child_nodes.each { |child| copy.append_child(child.clone_node(true)) }
       copy

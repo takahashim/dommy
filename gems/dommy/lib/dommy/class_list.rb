@@ -159,7 +159,7 @@ module Dommy
         # contains() does not validate; null coerces to the string "null".
         class_tokens.include?(stringify_token(args[0]))
       when "toggle"
-        toggle(args[0], args[1])
+        toggle(args[0], args.fetch(1, Bridge::UNDEFINED))
       when "replace"
         replace(args[0], args[1])
       when "item"
@@ -175,16 +175,18 @@ module Dommy
 
     private
 
-    def toggle(token, force)
+    # `optional boolean force`: missing (or undefined) toggles; anything
+    # else, null included, is a boolean read with ToBoolean.
+    def toggle(token, force = Bridge::UNDEFINED)
       name = validate_token(token)
       present = class_tokens.include?(name)
-      force_given = !(force.nil? || force.equal?(Bridge::UNDEFINED))
+      force_given = !force.equal?(Bridge::UNDEFINED)
 
       # Spec: toggle runs the update steps only when it actually adds or removes.
       # With an explicit force that already matches the current state it's a
       # no-op — the attribute is left byte-for-byte untouched (no re-serialize).
       if force_given
-        want = !!force
+        want = Internal::WebIDL.boolean(force)
         return want if want == present
 
         update_tokens { |tokens| want ? tokens | [name] : tokens - [name] }

@@ -236,7 +236,7 @@ module Dommy
     end
 
     def collapse(to_start = false)
-      if to_start
+      if Internal::WebIDL.boolean(to_start)
         @end_container = @start_container
         @end_offset = @start_offset
       else
