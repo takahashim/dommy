@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- **`click_link` and `click_button` click the element as the page sees it, and return that element, with or without JavaScript**, as Capybara's and `click(selector)` do; without JavaScript they returned the navigation's Response. Read it from `last_response`, or use the request API (`visit`, `get` / `post`, `submit_form`, `click_link_element`), which returns a Response. With `javascript: true` the click is the page's to handle: Turbo, a client-side router or any listener can take the submission or the navigation over, and an un-prevented click submits or follows through the page; a Turbo Stream response then renders on a later frame, after `settle`. dommy-examples' signup browser specs build 19 pages' scripts instead of 35, because Turbo now keeps the page across its form submissions.
+
 ### Added
 
 - `Session#resize_viewport(width, height)` resizes the browser window: the current page gets a `resize` event and re-evaluated `@media`, and later pages open at that size (`viewport_size` reads it back).
@@ -9,18 +13,15 @@
 
 ### Changed
 
-- **`click_link` and `click_button` return the element they clicked, with or without JavaScript**, as Capybara's and `click(selector)` do; without JavaScript they returned the navigation's Response. Read it from `last_response`, or use the request API (`visit`, `submit_form`, `click_link_element`), which returns a Response.
-- A form the page submits (a click on a submit button with JavaScript, `form.submit()`, `requestSubmit()`) is recorded in the trace as `submit_form` records one.
+- `Session#advance_time` moves the clock of the page and of every frame together, and `Session#next_timer_delay` is the soonest timer among them. A frame that navigated away or was removed is left off the clock: its timers stay unfired, and its fetches in flight and completions keep no one waiting.
 - `Session#settle` settles the page's frames too: the ready work of every realm, going round again while one hands another work that is ready at once (a frame's `postMessage` to the page). An animation that requests frame after frame runs its next frame and lets `settle` return.
-- With `javascript: true`, `click_button` and `click_link` fire the click at the page, so Turbo, a client-side router or any listener can take the submission or the navigation over; an un-prevented click submits or follows through the page. dommy-examples' signup browser specs build 19 pages' scripts instead of 35, because Turbo now keeps the page across its form submissions.
 - Unloading a document closes the WebSockets and EventSources it opened, without waiting for their readers: the page's and its frames' when the page navigates away, a frame's when it navigates or its iframe is removed. A connection the app ended or dropped reports `closed?` too.
-- `Session#advance_time` moves the clock of the page and of every frame together, and `Session#next_timer_delay` is the soonest timer among them.
+- A form the page submits (a click on a submit button with JavaScript, `form.submit()`, `requestSubmit()`) is recorded in the trace as `submit_form` records one.
 - Navigating to a `text/plain`, CSS, JavaScript or JSON response shows it as a text document, a `<pre>` holding the body, so `session.text` is the body and `on_document_loaded` fires; other non-HTML responses still keep the previous document.
 
 ### Fixed
 
 - A response's document is decoded in the charset its Content-Type names (a byte-order mark first, UTF-8 otherwise), so a Shift_JIS or ISO-8859-1 page no longer reads as U+FFFD.
-- A frame that navigated away or was removed no longer runs on the page's clock: its timers stay unfired, `next_timer_delay` and `settle` skip it, and its fetches in flight and completions do not keep a waiting host waiting.
 
 ## 0.15.0 — 2026-10-04
 
