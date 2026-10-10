@@ -287,10 +287,13 @@ module Dommy
       cookie
     end
 
+    # RFC 6265bis "Storage Model" step 16: a secure cookie of the name whose
+    # domain matches either way, and under whose path the new cookie's path
+    # falls (the new path path-matches the stored one).
     def shadows_secure_cookie?(name, domain, path)
       @cookies.any? do |c|
         c.secure && c.name == name &&
-          (domain_match?(domain, c.domain) || domain_match?(c.domain, domain)) && path_match?(path, c.path)
+          (domain_match?(domain, c.domain) || domain_match?(c.domain, domain)) && path_match?(c.path, path)
       end
     end
 

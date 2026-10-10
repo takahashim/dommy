@@ -100,6 +100,15 @@ class TestCookieJar < Minitest::Test
     assert_nil store("s=2", "http://example.test/"), "an insecure cookie cannot shadow a secure one"
   end
 
+  # The path the insecure cookie is refused under is the secure one's and
+  # below it, not above.
+  def test_an_insecure_cookie_cannot_shadow_a_secure_one_below_its_path
+    refute_nil store("sid=good; Secure; Path=/app", "https://example.test/app/")
+    assert_nil store("sid=evil; Path=/app/x", "http://example.test/app/x/")
+    refute_nil store("sid=other; Path=/", "http://example.test/")
+    assert_equal "sid=good; sid=other", string("https://example.test/app/")
+  end
+
   def test_httponly_is_hidden_from_and_protected_against_non_http_apis
     store("h=1; HttpOnly; Path=/")
     assert_equal "h=1", string("http://example.test/")
