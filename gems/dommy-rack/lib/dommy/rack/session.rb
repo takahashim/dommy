@@ -216,9 +216,9 @@ module Dommy
         result
       end
 
-      # Settle work ready at the current virtual time (microtasks + due-now
-      # timers + requestAnimationFrame). A future setTimeout(ms) needs
-      # #advance_time.
+      # Settle the page and its frames: the work ready at the current virtual
+      # time (microtasks, due-now timers, the next requestAnimationFrame) in
+      # every realm. A future setTimeout(ms) needs #advance_time.
       def settle
         require_js!.settle
         __internal_flush_page_navigation__

@@ -9,6 +9,7 @@
 
 ### Changed
 
+- `Session#settle` settles the page's frames too: the ready work of every realm, going round again while one hands another work that is ready at once (a frame's `postMessage` to the page). An animation that requests frame after frame runs its next frame and lets `settle` return.
 - With `javascript: true`, `click_button` and `click_link` fire the click at the page, so Turbo, a client-side router or any listener can take the submission or the navigation over; an un-prevented click submits or follows through the page. dommy-examples' signup browser specs build 19 pages' scripts instead of 35, because Turbo now keeps the page across its form submissions.
 - Unloading a document closes the WebSockets and EventSources it opened, without waiting for their readers: the page's and its frames' when the page navigates away, a frame's when it navigates or its iframe is removed. A connection the app ended or dropped reports `closed?` too.
 - `Session#advance_time` moves the clock of the page and of every frame together, and `Session#next_timer_delay` is the soonest timer among them.

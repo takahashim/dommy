@@ -166,4 +166,49 @@ class Dommy::Rack::TestVirtualClock < Minitest::Test
     assert delivered
     refute @session.completion_pending?
   end
+
+  def framed_realm
+    window = frame_window
+    @session.instance_variable_get(:@js_runtime).runtime_for(window.document)
+    window
+  end
+
+  # settle reaches a frame's ready work too: its due-now timers and its next
+  # animation frame.
+  def test_settle_runs_a_frames_ready_work
+    window = framed_realm
+    ran = []
+    window.scheduler.set_timeout(-> { ran << :timer }, 0)
+    window.scheduler.request_animation_frame(->(_t) { ran << :frame })
+
+    @session.settle
+    assert_equal %i[timer frame], ran
+  end
+
+  # A frame that hands the page work ready at once is followed by the page
+  # settling that work in the same call.
+  def test_settle_follows_work_one_realm_hands_another
+    window = framed_realm
+    ran = []
+    window.scheduler.request_animation_frame(lambda do |_t|
+      ran << :frame
+      scheduler.set_timeout(-> { ran << :page }, 0)
+    end)
+
+    @session.settle
+    assert_equal %i[frame page], ran
+  end
+
+  # An animation requesting one frame after another does not keep settle
+  # going: it runs the next frame and returns.
+  def test_settle_returns_on_an_endless_animation
+    window = framed_realm
+    frames = 0
+    tick = nil
+    tick = ->(_t) { frames += 1; window.scheduler.request_animation_frame(tick) }
+    window.scheduler.request_animation_frame(tick)
+
+    @session.settle
+    assert_operator frames, :<=, 2
+  end
 end
