@@ -1150,22 +1150,14 @@ module Dommy
       nil
     end
 
-    # CSSOM getComputedStyle. With the makiri-backed CSS parser available
-    # this resolves the full cascade (UA sheet + <style> sheets + style
-    # attribute); without it, falls back to the element's inline style (the
-    # historical behavior). A pseudo-element argument yields an empty
-    # declaration (Dommy renders no ::before/::after boxes).
+    # CSSOM getComputedStyle: the full cascade (UA sheet + <style> sheets +
+    # style attribute). A pseudo-element argument yields an empty declaration
+    # (Dommy renders no ::before/::after boxes).
     def get_computed_style(element, pseudo_element = nil)
       return nil unless element
 
-      if Internal::CSS::Parser.available?
-        pseudo = pseudo_element.to_s
-        Internal::CSS::ComputedStyleDeclaration.new(
-          element, pseudo_element: pseudo.empty? ? nil : pseudo
-        )
-      else
-        element.respond_to?(:style) ? element.style : nil
-      end
+      pseudo = pseudo_element.to_s
+      Internal::CSS::ComputedStyleDeclaration.new(element, pseudo_element: pseudo.empty? ? nil : pseudo)
     end
 
     private

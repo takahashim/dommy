@@ -108,15 +108,6 @@ class TestInnerTextGetter < Minitest::Test
   def test_closed_details_hides_non_summary_content
     assert_equal "abc", inner_text("<div><details><summary>abc</summary>123")
   end
-
-  # With no CSS layer every computed property is unknown: visibility and
-  # white-space take their initial values, and block boxes come from the tags.
-  def test_without_a_css_layer
-    unavailable = ->(*) { raise Dommy::Internal::CSS::Parser::Unavailable }
-    Dommy::Internal::CSS::Cascade.stub(:computed_style, unavailable) do
-      assert_equal "a b\nc", inner_text("<div>a  b<div>c")
-    end
-  end
 end
 
 class TestOuterText < Minitest::Test
