@@ -141,6 +141,7 @@
 
 ### Fixed
 
+- Text, Comment and ProcessingInstruction nodes answer `isConnected` (false inside a DocumentFragment, true in a document or a connected shadow tree); script read `undefined`, and Ruby had no `is_connected?` for them.
 - The CSS layer no longer falls back when makiri's CSS parser is missing: `getComputedStyle` answered with the inline style, the cascade treated the page as unstyled, and `innerText` and accessible names skipped computed styles, which hid a broken makiri. makiri is a hard dependency; `Internal::CSS::Parser.available?` and `Parser::Unavailable` are gone.
 - Boolean arguments and init members are read with JavaScript's ToBoolean, so `0`, `""` and `null` are false: `cloneNode("")` and `cloneNode(undefined)` clone shallow, `toggleAttribute(name, 0)` and `classList.toggle(token, null)` force removal (a missing or undefined force still toggles), `range.collapse(0)` collapses to the end, and `new Event(type, {bubbles: 0})` does not bubble. `importNode(node, null)` clones deep, as null converts to the options dictionary; a missing or undefined options argument still clones shallow.
 - Setting `data`, `nodeValue` or `textContent` on a Text, Comment or ProcessingInstruction from script replaces the data as the Ruby setter does, so a live range inside the node moves to its start instead of being left past its end.
