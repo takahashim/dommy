@@ -15,6 +15,10 @@
 - `Session#advance_time` moves the clock of the page and of every frame together, and `Session#next_timer_delay` is the soonest timer among them.
 - Navigating to a `text/plain`, CSS, JavaScript or JSON response shows it as a text document, a `<pre>` holding the body, so `session.text` is the body and `on_document_loaded` fires; other non-HTML responses still keep the previous document.
 
+### Fixed
+
+- A frame that navigated away or was removed no longer runs on the page's clock: its timers stay unfired, `next_timer_delay` and `settle` skip it, and its fetches in flight and completions do not keep a waiting host waiting.
+
 ## 0.15.0 — 2026-10-04
 
 ### Added

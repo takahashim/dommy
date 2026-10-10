@@ -211,4 +211,23 @@ class Dommy::Rack::TestVirtualClock < Minitest::Test
     @session.settle
     assert_operator frames, :<=, 2
   end
+
+  # A removed frame's document is not fully active: its timers no longer
+  # run or count toward the page's next one, and its work in flight is not
+  # waited for.
+  def test_a_removed_frame_s_realm_is_left_out
+    window = framed_realm
+    ran = []
+    window.scheduler.set_timeout(-> { ran << :frame }, 100)
+    window.scheduler.begin_external_work
+    assert_equal 100, @session.next_timer_delay
+    assert @session.fetch_in_flight?
+
+    @session.document.query_selector("iframe").remove
+    assert_nil @session.next_timer_delay
+    refute @session.fetch_in_flight?
+    @session.advance_time(200)
+    @session.settle
+    assert_empty ran
+  end
 end
