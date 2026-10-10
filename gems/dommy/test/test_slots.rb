@@ -42,6 +42,62 @@ class TestSlotBasics < Minitest::Test
     assert_equal %i[second first slotchange], order
   end
 
+  # The slots that fire slotchange once the pending signals have run.
+  def slotchanges_after
+    @win.scheduler.drain_microtasks
+    fired = []
+    @sr.query_selector_all("slot").each do |slot|
+      slot.add_event_listener("slotchange", proc { fired << (slot.get_attribute("name") || "") })
+    end
+    yield
+    @win.scheduler.drain_microtasks
+    fired
+  end
+
+  # Which slot a slottable finds depends on the tree's slots alone, so a
+  # shadow-tree change that brings in no slot moves nothing.
+  def test_a_non_slot_coming_into_the_shadow_tree_signals_nothing
+    assert_empty(slotchanges_after { @sr.query_selector("main").append_child(@doc.create_element("div")) })
+  end
+
+  # A slot inserted ahead of another with its name takes that slot's nodes.
+  def test_a_slot_wrapped_in_an_insertion_takes_the_nodes_of_a_later_one
+    wrapper = @doc.create_element("div")
+    wrapper.inner_html = "<span><slot></slot></span>"
+    inserted = wrapper.query_selector("slot")
+    fired_on_inserted = false
+    inserted.add_event_listener("slotchange", proc { fired_on_inserted = true })
+    taken = @default_slot.assigned_nodes
+    fired = slotchanges_after { @sr.insert_before(wrapper, @sr.first_element_child) }
+    assert_equal [""], fired
+    assert fired_on_inserted
+    assert_empty @default_slot.assigned_nodes
+    assert_equal taken, inserted.assigned_nodes
+  end
+
+  # A slot leaving inside a removed subtree loses its nodes to the next slot
+  # with its name, and both are signaled: the tree's slots first, then the
+  # removed one (DOM "remove" step 14).
+  def test_a_slot_removed_inside_a_subtree_hands_its_nodes_on
+    @sr.append_child(@doc.create_element("aside")).inner_html = "<slot name='header'></slot>"
+    @win.scheduler.drain_microtasks
+    taken = @named_slot.assigned_nodes
+    later = @sr.query_selector("aside slot")
+    fired = []
+    [later, @named_slot].each { |slot| slot.add_event_listener("slotchange", proc { fired << slot }) }
+    @sr.query_selector("header").remove
+    @win.scheduler.drain_microtasks
+    assert_empty @named_slot.assigned_nodes
+    assert_equal taken, later.assigned_nodes
+    assert_equal [later, @named_slot], fired
+  end
+
+  # A change outside every shadow tree, away from any host, signals nothing.
+  def test_a_light_tree_change_away_from_hosts_signals_nothing
+    other = @doc.body.append_child(@doc.create_element("section"))
+    assert_empty(slotchanges_after { other.inner_html = "<slot></slot><p></p>" })
+  end
+
   def test_slot_element_is_html_slot
     assert_kind_of(Dommy::HTMLSlotElement, @default_slot)
     assert_kind_of(Dommy::HTMLSlotElement, @named_slot)

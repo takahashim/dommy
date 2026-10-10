@@ -28,15 +28,21 @@ module Dommy
         shadow_root.query_selector_all("slot").each { |slot| reassign(slot) }
       end
 
-      # Slots in a subtree that just left a shadow tree (backend node `root`)
-      # lose whatever was assigned to them.
-      def removed_subtree(root)
-        NodeTraversal.subtree_nodes(root).each do |node|
-          next unless node.element? && node.name.casecmp?("slot")
+      # The backend slot elements of the subtree rooted at backend node `root`,
+      # found by the backend's selector engine rather than a walk in Ruby.
+      def slots_in(root)
+        return [] unless root.element?
 
-          slot = @document.__internal_peek_wrapper__(node)
-          reassign(slot) if slot.is_a?(HTMLSlotElement)
-        end
+        slots = root.css("slot").to_a
+        root.name.casecmp?("slot") ? slots.unshift(root) : slots
+      end
+
+      # A slot that just left a shadow tree (backend node `node`) loses whatever
+      # was assigned to it. A slot never wrapped was never looked at, so had
+      # nothing to lose.
+      def removed(node)
+        slot = @document.__internal_peek_wrapper__(node)
+        reassign(slot) if slot.is_a?(HTMLSlotElement)
       end
 
       # A slot showing its fallback content (no assigned nodes) has changed

@@ -132,7 +132,7 @@ module Dommy
           end
         end
 
-        slottables_changed(target, target_node, removed_nodes) unless @document.__internal_all_shadow_roots__.empty?
+        slottables_changed(target, target_node, added_nodes, removed_nodes) unless @document.__internal_all_shadow_roots__.empty?
 
         # Custom Element connected/disconnected callbacks, script execution, and
         # iframe child navigables all require the subtree to be connected to the
@@ -311,13 +311,23 @@ module Dommy
       # go, so either can change what a slot is assigned. A slot showing its
       # fallback content changes with its children, and a slot that left a
       # shadow tree loses what it had.
-      def slottables_changed(target, target_node, removed_nodes)
+      #
+      # Inside a shadow tree only a slot coming or going can move a slottable
+      # (which slot a slottable finds depends on the tree's slots alone), so a
+      # change that brings in or takes out no slot leaves the tree's slots as
+      # they were and skips the re-query.
+      def slottables_changed(target, target_node, added_nodes, removed_nodes)
         signals = @document.__internal_slot_signals__
         signals.assign_slottables_for_tree(target.__internal_shadow_root__) if target.respond_to?(:__internal_shadow_root__)
         tree = target.is_a?(ShadowRoot) ? target : @document.__internal_shadow_root_containing__(target_node)
-        signals.assign_slottables_for_tree(tree)
-        signals.fallback_changed(target) if tree && target.is_a?(HTMLSlotElement)
-        removed_nodes.each { |nk| signals.removed_subtree(nk) }
+        return unless tree
+
+        removed_slots = removed_nodes.flat_map { |nk| signals.slots_in(nk) }
+        if !removed_slots.empty? || added_nodes.any? { |nk| signals.slots_in(nk).any? }
+          signals.assign_slottables_for_tree(tree)
+        end
+        signals.fallback_changed(target) if target.is_a?(HTMLSlotElement)
+        removed_slots.each { |slot| signals.removed(slot) }
       end
 
       # A slottable's `slot` attribute picks its slot, and a slot's `name` the
