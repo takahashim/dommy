@@ -229,6 +229,8 @@ module Dommy
     # `removeChild` / `replaceChild` against the render root, so a shadow root
     # must support them — not just appendChild.
     def insert_before(node, ref)
+      Internal::WebIDL.node!(node)
+      Internal::WebIDL.nullable_node!(ref)
       ensure_pre_insertion_validity!(node, ref)
       ref_bn = ref.__dommy_backend_node__ if ref.is_a?(Node)
       ref_bn = nil unless ref_bn && ref_bn.parent == @__node__

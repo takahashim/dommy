@@ -244,6 +244,8 @@ module Dommy
     private
 
     def observe(target, options)
+      # WebIDL converts the arguments in order, the target before the options.
+      Internal::WebIDL.node!(target)
       entry = Internal::ObserverOptions.new(options).to_registration(target)
 
       # WHATWG MutationObserver §observe: if `target` is already observed,

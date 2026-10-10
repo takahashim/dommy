@@ -1556,6 +1556,8 @@ module Dommy
     # a doctype only ahead of the document element), so each forwards to the
     # `document_*` implementation that carries them.
     def insert_before(node, reference)
+      Internal::WebIDL.node!(node)
+      Internal::WebIDL.nullable_node!(reference)
       document_insert_before(node, reference)
     end
 
@@ -2325,9 +2327,8 @@ module Dommy
         document_remove_child(args[0])
       when "insertBefore"
         raise Bridge::TypeError, "insertBefore requires 2 arguments." if args.length < 2
-        Internal::WebIDL.nullable_node!(args[1])
 
-        document_insert_before(args[0], args[1])
+        insert_before(args[0], args[1])
       when "replaceChild"
         document_replace_child(args[0], args[1])
       when "moveBefore"
