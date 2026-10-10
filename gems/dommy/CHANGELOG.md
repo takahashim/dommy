@@ -141,6 +141,7 @@
 
 ### Fixed
 
+- A `location` navigation while the document is still loading replaces the history entry only without transient user activation, as HTML says: `location.href = "/next"` from a click during the load adds an entry, so `history.back()` returns to the page.
 - A page, frame or popup response is decoded in the charset its Content-Type names (a byte-order mark first, UTF-8 otherwise), so a `text/html; charset=Shift_JIS` frame or `Dommy::Browser` page reads as Japanese instead of U+FFFD. A blob: URL's document is decoded from its bytes the same way.
 - A window `Dommy::Browser` opens with `window.open` starts its `sessionStorage` as a copy of its opener's, as a new top-level browsing context does, instead of sharing the opener's area; `localStorage` stays shared, and a change to it still fires `storage` at the other window.
 - `cookieStore.set` with an `expires` already past deletes the cookie and resolves, firing a `change` event that lists it as deleted, instead of rejecting with "the cookie was refused".
