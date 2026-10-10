@@ -140,6 +140,8 @@
 
 ### Fixed
 
+- An `unsigned long` or `unsigned short` argument (CharacterData's offsets and counts, Range's offsets, `compareBoundaryPoints`' `how`) converts through JavaScript's ToNumber: `true` is 1, `[2]` is 2, `"0b11"` and `"0o7"` are 3 and 7, `"1_0"` and `"-0x1"` are NaN and so 0, and white space such as U+00A0, U+3000 and U+FEFF around a number is trimmed.
+- `compareDocumentPosition`, `insertBefore`, `MutationObserver#observe`, `setAttributeNode` and `setAttributeNodeNS` throw a `TypeError` for an argument that is not a `Node` (or an `Attr`) as WebIDL converts it, also when called from Ruby: `compareDocumentPosition(null)`, `insertBefore(node, "x")`, `observe(true, ...)` and `setAttributeNode(null)`.
 - `MutationObserver#observe` converts `attributeFilter` as a `sequence<DOMString>`: a value that is not an array (`null`, a string, a plain object) throws a `TypeError`, each name goes through JavaScript's ToString (`null` is `"null"`, `1.0` is `"1"`), and the names are matched case-sensitively, so `["ID"]` no longer matches an `id` attribute. An `undefined` member counts as missing.
 - `addEventListener`'s `once` member is read with JavaScript truthiness, so `{once: 0}` and `{once: ""}` add an ordinary listener, and a `signal` member that is not an `AbortSignal` (`null` included) throws a `TypeError` before anything is added.
 - `append`, `prepend`, `replaceChildren`, `before`, `after` and `replaceWith` with two or more arguments convert them into a node first, as DOM says: they are moved into a new DocumentFragment before the insertion is checked, so `el.after(a, b)` that the parent rejects leaves `a` and `b` in that fragment, and `x.before(a, doctype)` leaves `a` there, instead of rejecting the call with nothing moved.

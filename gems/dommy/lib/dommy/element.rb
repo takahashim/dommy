@@ -459,6 +459,7 @@ module Dommy
     end
 
     def set_attribute_node(attr)
+      Internal::WebIDL.interface!(attr, Attr)
       attributes.set_named_item(attr)
     end
 
@@ -1566,6 +1567,7 @@ module Dommy
 
     def insert_before(child, reference)
       Internal::WebIDL.node!(child)
+      Internal::WebIDL.nullable_node!(reference)
       # WHATWG pre-insert validates the reference the CALLER gave (step 1), and
       # only then, in step 3, replaces it with the node's next sibling when it is
       # the node being inserted — so "insert x before x" doesn't move x. Doing

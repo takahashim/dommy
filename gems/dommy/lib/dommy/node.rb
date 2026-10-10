@@ -366,6 +366,7 @@ module Dommy
     # element contains its own attributes.
     # Spec: https://dom.spec.whatwg.org/#dom-node-comparedocumentposition
     def compare_document_position(other)
+      Internal::WebIDL.node!(other)
       return 0 if equal?(other)
 
       attr1 = other if other.is_a?(Attr)

@@ -178,27 +178,11 @@ module Dommy
     def substring_data(offset, count)
       s = @__node__.content
       len = utf16_length(s)
-      o = to_uint32(offset)
+      o = Internal::WebIDL.unsigned_long(offset)
       raise DOMException::IndexSizeError, "offset out of bounds" if o > len
 
-      c = [to_uint32(count), len - o].min
+      c = [Internal::WebIDL.unsigned_long(count), len - o].min
       utf16_slice(s, o, c)
-    end
-
-    # ECMAScript ToUint32 — WebIDL `unsigned long` conversion for a data offset
-    # or count: ToNumber (a non-numeric string is NaN), truncate toward zero,
-    # then take modulo 2**32 (so -1 wraps to 4294967295, 0x100000000+2 to 2).
-    def to_uint32(value)
-      num =
-        case value
-        when Integer then value
-        when Numeric then value
-        when nil then 0 # JS null -> 0
-        else Float(value.to_s) rescue Float::NAN
-        end
-      return 0 unless num.respond_to?(:finite?) ? num.finite? : true
-
-      num.to_i % (2**32)
     end
 
     def append_data(value)
@@ -222,10 +206,10 @@ module Dommy
     def replace_data(offset, count, value)
       s = @__node__.content
       len = utf16_length(s)
-      o = to_uint32(offset)
+      o = Internal::WebIDL.unsigned_long(offset)
       raise DOMException::IndexSizeError, "offset out of bounds" if o > len
 
-      c = [to_uint32(count), len - o].min
+      c = [Internal::WebIDL.unsigned_long(count), len - o].min
       inserted = dom_string(value)
       write_data(utf16_slice(s, 0, o) + inserted + utf16_slice(s, o + c, len - (o + c)))
       # Live ranges whose boundary sits in (or past) the replaced run follow it.
