@@ -804,9 +804,9 @@ module Dommy
 
     def initialize(type, init = nil)
       @type = type.to_s
-      @bubbles = !!read_init(init, "bubbles")
-      @cancelable = !!read_init(init, "cancelable")
-      @composed = !!read_init(init, "composed")
+      @bubbles = read_init_boolean(init, "bubbles")
+      @cancelable = read_init_boolean(init, "cancelable")
+      @composed = read_init_boolean(init, "composed")
       @default_prevented = false
       @propagation_stopped = false
       @immediate_propagation_stopped = false
@@ -1026,8 +1026,8 @@ module Dommy
 
       @initialized = true
       @type = type.to_s
-      @bubbles = !!bubbles
-      @cancelable = !!cancelable
+      @bubbles = Internal::WebIDL.boolean(bubbles)
+      @cancelable = Internal::WebIDL.boolean(cancelable)
       @default_prevented = false
       @propagation_stopped = false
       @immediate_propagation_stopped = false
@@ -1093,6 +1093,10 @@ module Dommy
     def event_phase
       @event_phase
     end
+
+    # A boolean member of an event's init dictionary, read with ToBoolean
+    # (0 and "" are false).
+    def read_init_boolean(init, key) = Internal::WebIDL.boolean(read_init(init, key))
 
     def read_init(init, key)
       case init
@@ -1433,10 +1437,10 @@ module Dommy
     def initialize(type, init = nil)
       super
       @button = read_init(init, "button") || 0
-      @ctrl_key = !!read_init(init, "ctrlKey")
-      @shift_key = !!read_init(init, "shiftKey")
-      @alt_key = !!read_init(init, "altKey")
-      @meta_key = !!read_init(init, "metaKey")
+      @ctrl_key = read_init_boolean(init, "ctrlKey")
+      @shift_key = read_init_boolean(init, "shiftKey")
+      @alt_key = read_init_boolean(init, "altKey")
+      @meta_key = read_init_boolean(init, "metaKey")
       @buttons = read_init(init, "buttons") || 0
       @related_target = read_init(init, "relatedTarget")
       @screen_x = read_init(init, "screenX") || 0
@@ -1491,10 +1495,10 @@ module Dommy
           @screen_y = (args[6] || 0).to_i
           @client_x = (args[7] || 0).to_i
           @client_y = (args[8] || 0).to_i
-          @ctrl_key = !!args[9]
-          @alt_key = !!args[10]
-          @shift_key = !!args[11]
-          @meta_key = !!args[12]
+          @ctrl_key = Internal::WebIDL.boolean(args[9])
+          @alt_key = Internal::WebIDL.boolean(args[10])
+          @shift_key = Internal::WebIDL.boolean(args[11])
+          @meta_key = Internal::WebIDL.boolean(args[12])
           @button = (args[13] || 0).to_i
         end
         nil
@@ -1542,13 +1546,13 @@ module Dommy
       super
       @key = read_init(init, "key").to_s
       @code = read_init(init, "code").to_s
-      @ctrl_key = !!read_init(init, "ctrlKey")
-      @shift_key = !!read_init(init, "shiftKey")
-      @alt_key = !!read_init(init, "altKey")
-      @meta_key = !!read_init(init, "metaKey")
-      @repeat = !!read_init(init, "repeat")
+      @ctrl_key = read_init_boolean(init, "ctrlKey")
+      @shift_key = read_init_boolean(init, "shiftKey")
+      @alt_key = read_init_boolean(init, "altKey")
+      @meta_key = read_init_boolean(init, "metaKey")
+      @repeat = read_init_boolean(init, "repeat")
       @location = (read_init(init, "location") || 0).to_i
-      @is_composing = !!read_init(init, "isComposing")
+      @is_composing = read_init_boolean(init, "isComposing")
       @key_code = read_init(init, "keyCode")
       @char_code = read_init(init, "charCode")
     end
@@ -1624,7 +1628,7 @@ module Dommy
           @view = args[3]
           @key = args[4].to_s
           @location = (args[5] || 0).to_i
-          @repeat = !!args[7]
+          @repeat = Internal::WebIDL.boolean(args[7])
         end
         nil
       else
@@ -1647,7 +1651,7 @@ module Dommy
       super
       @data = read_init(init, "data")
       @input_type = (read_init(init, "inputType") || "").to_s
-      @is_composing = !!read_init(init, "isComposing")
+      @is_composing = read_init_boolean(init, "isComposing")
     end
 
     def __js_get__(key)
@@ -1679,7 +1683,7 @@ module Dommy
       @tilt_x = (read_init(init, "tiltX") || 0).to_i
       @tilt_y = (read_init(init, "tiltY") || 0).to_i
       @twist = (read_init(init, "twist") || 0).to_i
-      @is_primary = !!read_init(init, "isPrimary")
+      @is_primary = read_init_boolean(init, "isPrimary")
     end
 
     def __js_get__(key)
@@ -1718,7 +1722,7 @@ module Dommy
       super
       @loaded = (read_init(init, "loaded") || 0).to_i
       @total = (read_init(init, "total") || 0).to_i
-      @length_computable = !!read_init(init, "lengthComputable")
+      @length_computable = read_init_boolean(init, "lengthComputable")
     end
 
     def __js_get__(key)
@@ -1856,10 +1860,10 @@ module Dommy
       @touches = TouchList.new(Array(read_init(init, "touches") || []))
       @target_touches = TouchList.new(Array(read_init(init, "targetTouches") || []))
       @changed_touches = TouchList.new(Array(read_init(init, "changedTouches") || []))
-      @alt_key = !!read_init(init, "altKey")
-      @ctrl_key = !!read_init(init, "ctrlKey")
-      @shift_key = !!read_init(init, "shiftKey")
-      @meta_key = !!read_init(init, "metaKey")
+      @alt_key = read_init_boolean(init, "altKey")
+      @ctrl_key = read_init_boolean(init, "ctrlKey")
+      @shift_key = read_init_boolean(init, "shiftKey")
+      @meta_key = read_init_boolean(init, "metaKey")
     end
 
     attr_reader :touches, :target_touches, :changed_touches
@@ -2167,7 +2171,7 @@ module Dommy
       @alpha = nullable_double(read_init(init, "alpha"))
       @beta = nullable_double(read_init(init, "beta"))
       @gamma = nullable_double(read_init(init, "gamma"))
-      @absolute = !!read_init(init, "absolute")
+      @absolute = read_init_boolean(init, "absolute")
     end
 
     attr_reader :alpha, :beta, :gamma, :absolute
@@ -2193,7 +2197,7 @@ module Dommy
           @alpha = nullable_double(args[3])
           @beta = nullable_double(args[4])
           @gamma = nullable_double(args[5])
-          @absolute = !!args[6]
+          @absolute = Internal::WebIDL.boolean(args[6])
         end
         nil
       else

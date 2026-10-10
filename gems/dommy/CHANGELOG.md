@@ -140,6 +140,7 @@
 
 ### Fixed
 
+- Boolean arguments and init members are read with JavaScript's ToBoolean, so `0`, `""` and `null` are false: `cloneNode("")` and `cloneNode(undefined)` clone shallow, `toggleAttribute(name, 0)` and `classList.toggle(token, null)` force removal (a missing or undefined force still toggles), `range.collapse(0)` collapses to the end, and `new Event(type, {bubbles: 0})` does not bubble. `importNode(node, null)` clones deep, as null converts to the options dictionary; a missing or undefined options argument still clones shallow.
 - Setting `data`, `nodeValue` or `textContent` on a Text, Comment or ProcessingInstruction from script replaces the data as the Ruby setter does, so a live range inside the node moves to its start instead of being left past its end.
 - An `unsigned long` or `unsigned short` argument (CharacterData's offsets and counts, Range's offsets, `compareBoundaryPoints`' `how`) converts through JavaScript's ToNumber: `true` is 1, `[2]` is 2, `"0b11"` and `"0o7"` are 3 and 7, `"1_0"` and `"-0x1"` are NaN and so 0, and white space such as U+00A0, U+3000 and U+FEFF around a number is trimmed.
 - `compareDocumentPosition`, `insertBefore`, `MutationObserver#observe`, `setAttributeNode` and `setAttributeNodeNS` throw a `TypeError` for an argument that is not a `Node` (or an `Attr`) as WebIDL converts it, also when called from Ruby: `compareDocumentPosition(null)`, `insertBefore(node, "x")`, `observe(true, ...)` and `setAttributeNode(null)`.

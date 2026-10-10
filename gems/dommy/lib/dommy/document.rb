@@ -1096,13 +1096,16 @@ module Dommy
       return import_attribute(node) if node.is_a?(Attr)
       return nil unless node.is_a?(Node) && node.__dommy_backend_node__
 
-      # `(boolean or ImportNodeOptions) options = false`: a boolean is `deep`
-      # (missing / undefined is false); a dictionary's `selfOnly` negates
-      # it, and its `customElementRegistry` (a scoped one, or this
-      # document's) is the registry the copies fall back to.
+      # `(boolean or ImportNodeOptions) options = false`: missing or undefined
+      # is the default, false. Null and an object convert to the dictionary,
+      # whose `selfOnly` negates `deep` (so null clones deep) and whose
+      # `customElementRegistry` (a scoped one, or this document's) is the
+      # registry the copies fall back to. Anything else is a boolean, read
+      # with ToBoolean.
       registry = nil
-      if deep.is_a?(Hash)
-        options = deep
+      deep = false if deep.equal?(Bridge::UNDEFINED)
+      if deep.nil? || deep.is_a?(Hash)
+        options = deep || {}
         deep = !Internal::WebIDL.boolean(options["selfOnly"])
         given = options.fetch("customElementRegistry", Bridge::UNDEFINED)
         unless given.equal?(Bridge::UNDEFINED)
@@ -1114,7 +1117,6 @@ module Dommy
           registry = given
         end
       else
-        deep = false if deep.nil? || deep.equal?(Bridge::UNDEFINED)
         deep = Internal::WebIDL.boolean(deep)
       end
       # "Clone a single node": the node's own registry — a global one standing
@@ -1830,7 +1832,8 @@ module Dommy
     # deep clone then copies the original's children into it — so nothing
     # sprouts an html/head/body of its own, and a document with no children
     # clones to one with no children.
-    def clone_node(deep)
+    def clone_node(deep = false)
+      deep = Internal::WebIDL.boolean(deep)
       copy = Document.new(nil, backend_doc: Backend.empty_document_like(@backend_doc))
       copy.content_type = @content_type
       copy.__internal_xml_document__ = @xml_document
@@ -2394,7 +2397,8 @@ module Dommy
       when "createEvent"
         create_event(args[0])
       when "importNode"
-        import_node(args[0], args[1])
+        # A missing options argument is undefined (the default), not null.
+        import_node(args[0], args.fetch(1, Bridge::UNDEFINED))
       when "adoptNode"
         adopt_node(args[0])
       when "hasFocus"
