@@ -157,9 +157,11 @@ module Dommy
       nil
     end
 
-    private
-
+    # The jar's current time (a Time), which its expiries are measured
+    # against.
     def now = @clock.call
+
+    private
 
     def set_cookie_values(headers)
       pairs = headers.respond_to?(:each_pair) ? headers.each_pair.to_a : Array(headers)
