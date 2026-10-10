@@ -8,27 +8,14 @@ module Dommy
   # each encoding that turns bytes into code points, streaming, with the
   # replacement-or-throw error mode TextDecoder exposes as `fatal`.
   #
-  # UTF-8, UTF-16 and the legacy single-byte encodings are decoded here, from
-  # the spec's own algorithms and index tables. The legacy multi-byte
-  # encodings (Big5, EUC-JP, ISO-2022-JP, Shift_JIS, EUC-KR, GBK, gb18030) go
-  # through Ruby's converters for the encoding closest to the spec's index,
-  # which differ from it in a few code points and in how many U+FFFD a broken
-  # sequence yields.
+  # Every decoder is the spec's own algorithm: UTF-8, UTF-16 and the legacy
+  # single-byte encodings here, with their index tables, and the legacy
+  # multi-byte ones (Big5, EUC-JP, ISO-2022-JP, Shift_JIS, EUC-KR, GBK,
+  # gb18030) in encodings/legacy_multibyte, which read their indexes through
+  # the Ruby encoding that matches each.
   #
   # Spec: https://encoding.spec.whatwg.org/
   module Encodings
-    # The Ruby encoding whose mapping is closest to the spec's index for each
-    # legacy multi-byte encoding.
-    RUBY_ENCODINGS = {
-      "Big5" => "Big5-HKSCS",
-      "EUC-JP" => "EUC-JP",
-      "ISO-2022-JP" => "ISO-2022-JP",
-      "Shift_JIS" => "Windows-31J",
-      "EUC-KR" => "CP949",
-      "GBK" => "GBK",
-      "gb18030" => "GB18030"
-    }.freeze
-
     REPLACEMENT_CHARACTER = 0xFFFD
 
     # The name of the encoding `label` stands for, or nil. Only ASCII
@@ -36,7 +23,7 @@ module Dommy
     #
     # Spec: https://encoding.spec.whatwg.org/#concept-encoding-get
     def self.get(label)
-      LABELS[label.gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "").downcase]
+      LABELS[label.gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "").downcase(:ascii)]
     end
 
     # The byte-order marks that name their own encoding, longest first.
@@ -101,17 +88,21 @@ module Dommy
       when "UTF-16BE" then Utf16Decoder.new(fatal, big_endian: true)
       when "x-user-defined" then XUserDefinedDecoder.new(fatal)
       when "replacement" then ReplacementDecoder.new(fatal)
+      when "ISO-2022-JP" then Iso2022JpDecoder.new(fatal)
+      when "Shift_JIS" then ShiftJisDecoder.new(fatal)
+      when "EUC-JP" then EucJpDecoder.new(fatal)
+      when "Big5" then Big5Decoder.new(fatal)
+      when "EUC-KR" then EucKrDecoder.new(fatal)
+      # GBK's decoder is gb18030's.
+      when "GBK", "gb18030" then Gb18030Decoder.new(fatal)
       else
         index = SINGLE_BYTE_INDEXES[name]
         return SingleByteDecoder.new(fatal, index) if index
 
-        ruby_encoding = RUBY_ENCODINGS[name]
         # `name` comes from ::get, so every spec encoding is covered above. A
         # name from anywhere else is the caller's mistake, and says so rather
         # than surfacing a Hash's KeyError.
-        raise ArgumentError, "not an encoding the standard names: #{name.inspect}" unless ruby_encoding
-
-        ConverterDecoder.new(fatal, ruby_encoding)
+        raise ArgumentError, "not an encoding the standard names: #{name.inspect}"
       end
     end
 
@@ -307,34 +298,7 @@ module Dommy
         [replacement!]
       end
     end
-
-    # A legacy multi-byte encoding, through Ruby's converter. Partial input is
-    # held between calls; at a flush what is left over is an error.
-    class ConverterDecoder < Decoder
-      def initialize(fatal, ruby_encoding)
-        super(fatal)
-        options = fatal ? {} : {invalid: :replace, undef: :replace, replace: "\uFFFD"}
-        @converter = ::Encoding::Converter.new(ruby_encoding, "UTF-8", **options)
-      end
-
-      def decode(bytes, flush:)
-        output = +""
-        result = @converter.primitive_convert(bytes.dup, output, nil, nil, partial_input: !flush)
-        code_points = output.codepoints
-        case result
-        when :finished, :source_buffer_empty
-          code_points
-        when :incomplete_input, :invalid_byte_sequence, :undefined_conversion
-          # Only reached in fatal mode, or by an incomplete sequence at a
-          # flush; either way the stream is over.
-          code_points << replacement!
-        else
-          # :destination_buffer_full and :after_output need a byte limit or an
-          # output filter to occur, and this call passes neither. Reaching here
-          # would mean the converter contract changed under us.
-          raise "unexpected Encoding::Converter result: #{result.inspect}"
-        end
-      end
-    end
   end
 end
+
+require_relative "encodings/legacy_multibyte"

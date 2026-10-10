@@ -4,6 +4,8 @@
 
 ### Changed
 
+- The legacy multi-byte decoders (Shift_JIS, EUC-JP, ISO-2022-JP, Big5, EUC-KR, GBK, gb18030) are the Encoding Standard's handlers rather than Ruby's converters: a broken sequence gives an ASCII byte back (`"\x81@"` in Big5 is `"\uFFFD@"`, not `"\uFFFD"`), ISO-2022-JP's escape sequences switch state as specified, Shift_JIS `0x80` is U+0080, jis0208 is Windows-31J's (`0xA1DD` in EUC-JP is U+FF0D, not U+2212), and gb18030 has GB18030-2005's and -2022's mappings. Ruby still supplies the index lookups. `Encodings::RUBY_ENCODINGS` and `Encodings::ConverterDecoder` are gone.
+
 - `element.getClientRects()` returns one zero-sized rect for an element being rendered (connected, in the flat tree, not under `display: none`) and an empty list otherwise; it was always empty. Nothing is laid out, so the rect stays zero (`window.approximate_layout` still sizes it), but `el.getClientRects().length` — jQuery's `:visible`, WPT's popover helpers — now tells a shown element from a hidden one.
 - `slotchange` is signaled as DOM specifies: it fires in a microtask, once per slot whose assigned nodes changed — after a host's children change, a slot is inserted or removed, a `slot` or `name` attribute changes, a slot showing its fallback content gets new children, or `slot.assign()` runs. `assign()` fired it synchronously, and nothing else fired it.
 - A manual-assignment slot's assigned nodes are the host's children among those `assign()`ed to it, in assignment order; a node assigned to another slot leaves the first. Nodes that are not the host's children were reported.
@@ -33,6 +35,9 @@
 - Inserting or removing a fieldset's legend refreshes the disabled state of the form-associated custom elements in it, firing `formDisabledCallback` when the first legend changes.
 - `slot.assignedNodes({flatten: true})` finds the flattened slottables: a slot among the assigned nodes (or the fallback children) is replaced by its own, and a slot outside a shadow tree has none. Only Elements and Text nodes are slottables (a Comment child was assigned), a slottable goes to the first slot of its name in tree order, and `assignedSlot` answers for manual assignment too.
 - A custom element's default ARIA semantics set through `ElementInternals` (`internals.role`, `internals.ariaLabel`) are used when the element has no `role` / `aria-label` attribute: in its computed role, accessible name, and the name a `form` or `region` role needs.
+- A TextDecoder call that does not continue a stream starts a new decoder, so a fatal error mid-sequence does not leave its state to the next call. An encoding label is ASCII-lowercased only (`"İSO-8859-1"` is not a label).
+- `getComputedStyle(element, pseudo)` ignores a `pseudo` that does not start with a colon (the element's own style), names a pseudo-element with `::` (or `:` for `before`, `after`, `first-line`, `first-letter`), and is empty for an unknown one; `::file-selector-button`, `::grammar-error`, `::spelling-error`, `::target-text`, `::view-transition` and the functional `::highlight()` / `::view-transition-*()` read their cascaded style. Writing a property of the returned declaration throws NoModificationAllowedError.
+- A color function's components may be math functions: `hsl(calc(50deg + (sign(1em - 10px) * 10deg)) 100% 37.5%)` computes, with lengths resolved against the element's font. `calc()` also reduces `sign()` and `abs()`. Modern-syntax `hsl()` takes a bare number for saturation and lightness.
 
 ## 0.16.0 — 2026-10-10
 

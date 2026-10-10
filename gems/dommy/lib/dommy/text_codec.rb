@@ -73,9 +73,18 @@ module Dommy
     # `stream: true` a partial sequence at the end is kept for the next call.
     #
     # Spec: https://encoding.spec.whatwg.org/#dom-textdecoder-decode
+    # TextDecoder decode(): a call that does not continue a stream starts a
+    # new decoder — at its start, so one a fatal error left mid-sequence is
+    # not reused.
+    #
+    # Spec: https://encoding.spec.whatwg.org/#dom-textdecoder-decode
     def decode(input = nil, options = nil)
       stream = options.is_a?(Hash) && truthy?(options["stream"] || options[:stream])
-      @decoder ||= Encodings.decoder_for(@name, fatal: @fatal)
+      unless @do_not_flush
+        @decoder = Encodings.decoder_for(@name, fatal: @fatal)
+        @bom_seen = false
+      end
+      @do_not_flush = stream
       code_points = @decoder.decode(extract_bytes(input), flush: !stream)
 
       # The byte-order mark is dropped at the code-point level, so one split
@@ -85,10 +94,6 @@ module Dommy
         @bom_seen = true
       end
 
-      unless stream
-        @decoder = nil
-        @bom_seen = false
-      end
       code_points.pack("U*")
     end
 

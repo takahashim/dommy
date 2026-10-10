@@ -210,40 +210,35 @@ class TestEncodings < Minitest::Test
     assert_equal("utf-8", Dommy::TextEncoder.new.encoding)
   end
 
-  # The legacy multi-byte encodings go through Ruby's converter for the
-  # encoding closest to the spec's index (Encodings::RUBY_ENCODINGS), and
-  # "closest" is not "equal". This records where they land today, so a change
-  # under us — a Ruby upgrade, a different converter — is visible rather than
-  # silent. These are OUR behaviour, not the spec's; the one known divergence
-  # is called out.
-  DIVERGENCES = {
-    # The spec's shift_jis decoder returns the byte itself for 0x00..0x80, so
-    # 0x80 is U+0080. Windows-31J has no mapping for it.
-    ["Shift_JIS", "\x80"] => "\ufffd", # spec: U+0080
+  # The legacy multi-byte encodings decode with the spec's handlers, reading
+  # their indexes through Ruby; a few code points where Ruby's tables are not
+  # the spec's index (Windows-31J for jis0208, GB18030-2005/2022 over 2000).
+  SPEC_DECODES = {
+    ["Shift_JIS", "\x80"] => "\u0080",     # the byte itself; Windows-31J has no mapping
+    ["Shift_JIS", "\xA1"] => "｡",     # halfwidth ideographic full stop
+    ["Shift_JIS", "\xDF"] => "ﾟ",     # halfwidth katakana semi-voiced mark
+    ["Shift_JIS", "\x81\x5F"] => "＼", # fullwidth reverse solidus
+    ["EUC-JP", "\xA1\xDD"] => "－",    # jis0208's fullwidth hyphen-minus, not U+2212
+    ["EUC-KR", "\xA1\xA1"] => "　",
+    ["Big5", "\xA1\x40"] => "　",
+    ["GBK", "\x80"] => "€",           # euro sign
+    ["gb18030", "\xA8\xBC"] => "ḿ",   # GB18030-2005
+    ["gb18030", "\xFE\x59"] => "龴",   # GB18030-2022
+    ["EUC-JP", "\xFF"] => "�",
   }.freeze
 
-  AGREEMENTS = {
-    ["Shift_JIS", "\xA1"] => "\uff61",     # halfwidth ideographic full stop
-    ["Shift_JIS", "\xDF"] => "\uff9f",     # halfwidth katakana semi-voiced mark
-    ["Shift_JIS", "\x81\x5F"] => "\uff3c", # fullwidth reverse solidus
-    ["EUC-KR", "\xA1\xA1"] => "\u3000",
-    ["Big5", "\xA1\x40"] => "\u3000",
-    ["GBK", "\x80"] => "\u20ac",           # euro sign
-    ["EUC-JP", "\xFF"] => "\ufffd",
-  }.freeze
-
-  def test_the_converter_approximations_still_land_where_they_did
-    (DIVERGENCES.merge(AGREEMENTS)).each do |(name, bytes), expected|
+  def test_the_legacy_multi_byte_decoders_follow_the_spec_index
+    SPEC_DECODES.each do |(name, bytes), expected|
       assert_equal(expected, Dommy::Encodings.decode(bytes.b, name), "#{name} #{bytes.b.inspect}")
     end
   end
 
-  # Every legacy multi-byte name must have a converter, or decoder_for blows up
-  # at the first byte of such a page.
-  def test_every_legacy_multi_byte_name_resolves_to_a_converter
-    Dommy::Encodings::RUBY_ENCODINGS.each_key do |name|
-      assert_kind_of(Dommy::Encodings::ConverterDecoder, Dommy::Encodings.decoder_for(name), name)
-    end
+  # A broken sequence gives an ASCII byte back to the stream, so it is not
+  # swallowed by the error.
+  def test_an_ascii_byte_after_a_broken_lead_is_kept
+    assert_equal("�@", Dommy::Encodings.decode("\x81\x40".b, "Big5"))
+    assert_equal("A� A", Dommy::Encodings.decode("A\xA1 A".b, "EUC-KR"))
+    assert_equal("�$P", Dommy::Encodings.decode("\x1B$P".b, "ISO-2022-JP"))
   end
 
   # A name the standard does not know is the caller's mistake, and says so

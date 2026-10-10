@@ -193,7 +193,12 @@ module Dommy
         # `viewport_width` / `viewport_height` the viewport in px. Together they
         # let a bare length resolve to px without layout (em/rem/absolute/vw/vh).
         def computed_value(name, value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
-          return Color.normalize(value) if COLOR_PROPERTIES.include?(name)
+          if COLOR_PROPERTIES.include?(name)
+            return Color.normalize(value) do |text|
+              resolve_length_px(text, font_size: font_size, root_font_size: root_font_size,
+                                      viewport_width: viewport_width, viewport_height: viewport_height)
+            end
+          end
           return FONT_WEIGHT_KEYWORDS.fetch(value.downcase, value) if name == "font-weight"
           return clamp_opacity(value) if name == "opacity"
           # A <percentage> line-height computes to px against the element's own

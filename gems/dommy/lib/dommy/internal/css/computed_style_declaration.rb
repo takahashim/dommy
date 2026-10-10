@@ -17,6 +17,7 @@ module Dommy
         # pseudo-elements yield an empty declaration, as browsers do.
         KNOWN_PSEUDO_ELEMENTS = %w[
           before after first-line first-letter marker selection placeholder backdrop
+          file-selector-button grammar-error spelling-error target-text view-transition
         ].freeze
 
         def initialize(element, pseudo_element: nil)
@@ -73,7 +74,13 @@ module Dommy
           end
         end
 
-        def __js_set__(_key, _value)
+        # The declaration is read-only: writing one of its properties (or
+        # cssText) is a NoModificationAllowedError. Any other name is a plain
+        # expando.
+        def __js_set__(key, _value)
+          kebab = camel_to_kebab(key)
+          raise_read_only if key == "cssText" || css_property?(kebab)
+
           Bridge::UNHANDLED
         end
 
@@ -123,13 +130,42 @@ module Dommy
 
         def setter?(name) = name.to_s.end_with?("=")
 
-        def styles
-          if @pseudo_element
-            name = @pseudo_element.to_s.delete_prefix("::").delete_prefix(":")
-            return EMPTY unless KNOWN_PSEUDO_ELEMENTS.include?(name)
-          end
+        def css_property?(name)
+          PropertyRegistry::PROPERTIES.key?(name) || PropertyRegistry::BOX_SHORTHANDS.key?(name) ||
+            Cascade.computed_style(@element).key?(name)
+        end
 
-          Cascade.computed_style(@element, pseudo_element: @pseudo_element)
+        # CSS2's pseudo-elements, which a single colon still names.
+        LEGACY_PSEUDO_ELEMENTS = %w[before after first-line first-letter].freeze
+
+        # Pseudo-elements that take an argument (`::highlight(name)`).
+        FUNCTIONAL_PSEUDO_ELEMENTS = %w[
+          highlight view-transition-group view-transition-image-pair view-transition-old view-transition-new
+        ].freeze
+
+        # CSSOM getComputedStyle step 4: a pseudoElt that does not start with a
+        # colon is ignored (the element's own style); one that does names a
+        # pseudo-element — `::name`, or `:name` for the CSS2 four — and any
+        # other, an unknown or a `:marker`, gets an empty declaration.
+        def styles
+          return Cascade.computed_style(@element) unless @pseudo_element
+
+          text = @pseudo_element.to_s
+          return Cascade.computed_style(@element) unless text.start_with?(":")
+
+          name = text.delete_prefix("::")
+          name = text.delete_prefix(":") if name == text && LEGACY_PSEUDO_ELEMENTS.include?(text.delete_prefix(":").downcase)
+          return EMPTY if name == text
+
+          # The cascade indexes a functional pseudo-element by its name; the
+          # argument selects nothing further here.
+          base = name.downcase
+          functional = base.match(/\A([a-z-]+)\(.+\)\z/)
+          base = functional[1] if functional
+          known = functional ? FUNCTIONAL_PSEUDO_ELEMENTS.include?(base) : KNOWN_PSEUDO_ELEMENTS.include?(base)
+          return EMPTY unless known
+
+          Cascade.computed_style(@element, pseudo_element: "::#{base}")
         end
 
         def camel_to_kebab(name)

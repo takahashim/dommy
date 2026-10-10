@@ -153,4 +153,11 @@ class TestCssColor < Minitest::Test
     assert_equal "currentcolor", Color.normalize("currentcolor")
     assert_equal "not-a-color", Color.normalize("not-a-color")
   end
+
+  # The modern hsl() syntax takes bare numbers for saturation and lightness;
+  # the legacy comma syntax does not.
+  def test_modern_hsl_takes_numbers
+    assert_equal "rgb(191, 191, 0)", Color.normalize("hsl(60 100 37.5)")
+    assert_equal "hsl(60, 100, 37.5)", Color.normalize("hsl(60, 100, 37.5)")
+  end
 end
