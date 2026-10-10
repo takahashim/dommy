@@ -169,6 +169,14 @@ globalThis.__rbHost = (function () {
     return isProxy(arg) ? arg : String(arg);
   }
 
+  // Whether `name` on interface `iface` is the ParentNode / ChildNode
+  // `(Node or DOMString)...` member. The names are shared with members that
+  // take something else — FormData's, URLSearchParams' and Headers' `append`
+  // — so the interface has to be a Node.
+  function nodeOrStringMember(name, iface) {
+    return NODE_OR_STRING_METHODS.has(name) && !!iface && signatureChain(iface).indexOf("Node") !== -1;
+  }
+
   // HTML "get the current value of the event handler", the compile step: an
   // event handler content attribute's body becomes a function named after the
   // handler (`function onclick(event) {\n…\n}`, so its source text reads as a
@@ -419,7 +427,7 @@ globalThis.__rbHost = (function () {
   // the DOM changes underneath a cached parentNode / attribute snapshot and the
   // next read hands back the state from before the call.
   function memberMethodStub(name, iface) {
-    const coerce = NODE_OR_STRING_METHODS.has(name);
+    const coerce = nodeOrStringMember(name, iface);
     const readOnly = NON_MUTATING_METHODS.has(name);
     const stub = withArity(function (...args) {
       // Resolve back through the receiver: the proxy get trap returns the
@@ -3288,7 +3296,7 @@ globalThis.__rbHost = (function () {
     if (!fn) {
       if (CANCELED_STATE_METHODS.has(prop)) fn = canceledStateStub(prop, ctx);
       else if (NON_MUTATING_METHODS.has(prop)) fn = nonMutatingStub(prop, ctx);
-      else if (NODE_OR_STRING_METHODS.has(prop)) fn = nodeOrStringStub(prop, ctx);
+      else if (nodeOrStringMember(prop, ctx.ifaceName)) fn = nodeOrStringStub(prop, ctx);
       else fn = mutatingStub(prop, ctx);
     }
     fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
