@@ -17,23 +17,96 @@ module Dommy
       # Run the handler over `bytes`, then over end-of-queue when `flush`.
       # The handler takes the byte (nil for end-of-queue), the queue it may
       # restore bytes to, and the output, and returns :finished at the end.
+      #
+      # A restored byte is read before the rest of the input. While the
+      # handler holds nothing (#idle?), two shortcuts stand in for it, both
+      # exact: a run of ASCII bytes is a run of the same code points in every
+      # one of these encodings, so it is copied at once; and two bytes that
+      # start with a non-ASCII one decode, from the idle state, to what the
+      # handler made of them the first time (#pair_output), so a text's
+      # characters are looked up rather than run through the handler again.
       def decode(bytes, flush:)
         out = []
-        queue = bytes.bytes
+        restored = []
+        input = bytes.b
+        position = 0
+        size = input.bytesize
         loop do
-          if queue.empty?
-            break unless flush
-            break if handle(nil, queue, out) == :finished && queue.empty?
+          if !restored.empty?
+            handle(restored.shift, restored, out)
+          elsif position < size
+            if idle?
+              stop = input.index(NON_ASCII, position) || size
+              if stop > position
+                out.concat(input.byteslice(position, stop - position).bytes)
+                position = stop
+                next
+              end
+              start = position
+              position = pairs(input, position, size, out)
+              next if position > start
+            end
+            byte = input.getbyte(position)
+            position += 1
+            handle(byte, restored, out)
           else
-            handle(queue.shift, queue, out)
+            break unless flush
+            break if handle(nil, restored, out) == :finished && restored.empty?
           end
         end
         out
       end
 
+      NON_ASCII = /[\x80-\xFF]/n
+      private_constant :NON_ASCII
+
       private
 
+      # Whether the handler holds no partial sequence, so that the next ASCII
+      # byte is that code point. A stateful decoder whose ASCII means
+      # something else in some states answers false.
+      def idle? = false
+
       def ascii?(byte) = byte && byte <= 0x7F
+
+      # From the idle state at `position`, append the output of each pair of
+      # bytes that starts with a non-ASCII one and that the handler, run on
+      # them from its idle state, leaves idle again (bytes it restores
+      # included) — remembered per class, so a text's characters are looked
+      # up rather than run through the handler again. Stops at an ASCII byte,
+      # the last byte, or a longer sequence (three or four bytes, left to the
+      # handler); not in fatal mode, where an error must raise where it is.
+      # Answers the position reached.
+      def pairs(input, position, size, out)
+        return position if @fatal
+
+        cache = self.class.pair_outputs
+        while position + 1 < size && (lead = input.getbyte(position)) > 0x7F
+          key = (lead << 8) | input.getbyte(position + 1)
+          output = cache[key]
+          output = cache[key] = self.class.new(false).__send__(:run_pair, lead, key & 0xFF) if output.nil?
+          break unless output
+
+          out.concat(output)
+          position += 2
+        end
+        position
+      end
+
+      # On a fresh decoder: handle the two bytes and whatever they restore,
+      # and answer the output if it ends idle, else false.
+      def run_pair(lead, trail)
+        out = []
+        restored = []
+        handle(lead, restored, out)
+        handle(trail, restored, out)
+        handle(restored.shift, restored, out) until restored.empty?
+        idle? ? out.freeze : false
+      end
+
+      class << self
+        def pair_outputs = (@pair_outputs ||= {})
+      end
 
       # The code point Ruby's `encoding` decodes `bytes` to, or nil when they
       # decode to nothing (or to more than one code point).
@@ -119,6 +192,8 @@ module Dommy
 
     # Spec: https://encoding.spec.whatwg.org/#shift_jis-decoder
     class ShiftJisDecoder < HandlerDecoder
+      private def idle? = @leading.zero?
+
       def initialize(fatal)
         super
         @leading = 0x00
@@ -165,6 +240,8 @@ module Dommy
 
     # Spec: https://encoding.spec.whatwg.org/#euc-jp-decoder
     class EucJpDecoder < HandlerDecoder
+      private def idle? = @leading.zero?
+
       def initialize(fatal)
         super
         @leading = 0x00
@@ -303,6 +380,8 @@ module Dommy
 
     # Spec: https://encoding.spec.whatwg.org/#big5-decoder
     class Big5Decoder < HandlerDecoder
+      private def idle? = @leading.zero?
+
       # Pointers whose index entry is two code points.
       PAIRS = {1133 => [0x00CA, 0x0304], 1135 => [0x00CA, 0x030C], 1164 => [0x00EA, 0x0304], 1166 => [0x00EA, 0x030C]}.freeze
 
@@ -347,6 +426,8 @@ module Dommy
 
     # Spec: https://encoding.spec.whatwg.org/#euc-kr-decoder
     class EucKrDecoder < HandlerDecoder
+      private def idle? = @leading.zero?
+
       def initialize(fatal)
         super
         @leading = 0x00
@@ -385,6 +466,8 @@ module Dommy
 
     # Spec: https://encoding.spec.whatwg.org/#gb18030-decoder
     class Gb18030Decoder < HandlerDecoder
+      private def idle? = @first.zero? && @second.zero? && @third.zero?
+
       def initialize(fatal)
         super
         @first = @second = @third = 0x00

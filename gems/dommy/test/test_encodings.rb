@@ -306,4 +306,28 @@ class TestEncodings < Minitest::Test
     Dommy::FetchFn.new(win).__js_call__("fetch", ["/a?q=\u65E5", nil])
     assert_equal ["http://e.test/a?q=%E6%97%A5"], requested
   end
+
+  # The legacy decoders copy ASCII runs and look two-byte sequences up
+  # instead of handing every byte to the handler; what they produce must be
+  # what the handler alone produces, broken sequences, a lead at the end and
+  # chunked input included.
+  def test_the_shortcuts_decode_as_the_handler_alone_does
+    rng = Random.new(20_261_011)
+    {
+      "Shift_JIS" => Dommy::Encodings::ShiftJisDecoder, "EUC-JP" => Dommy::Encodings::EucJpDecoder,
+      "Big5" => Dommy::Encodings::Big5Decoder, "EUC-KR" => Dommy::Encodings::EucKrDecoder,
+      "gb18030" => Dommy::Encodings::Gb18030Decoder
+    }.each do |name, klass|
+      slow = Class.new(klass) { private def idle? = false }
+      150.times do
+        bytes = Array.new(rng.rand(1..40)) { rng.rand < 0.3 ? rng.rand(0x20..0x7E) : rng.rand(0x80..0xFF) }.pack("C*")
+        cut = rng.rand(0..bytes.bytesize)
+        fast = klass.new(false)
+        expected = slow.new(false)
+        got = fast.decode(bytes.byteslice(0, cut), flush: false) + fast.decode(bytes.byteslice(cut..), flush: true)
+        want = expected.decode(bytes.byteslice(0, cut), flush: false) + expected.decode(bytes.byteslice(cut..), flush: true)
+        assert_equal want, got, "#{name} #{bytes.unpack1("H*")} cut at #{cut}"
+      end
+    end
+  end
 end
