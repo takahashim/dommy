@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- **Under JavaScript, a Capybara wait (`default_max_wait_time`, `wait:`) is a span of the page's virtual time**: a retry moves the clock to the page's next timer within it instead of sleeping, and a query that nothing within the wait can satisfy fails at once. dommy-examples' debounced live search runs its system specs at 41 ms an example instead of 296 ms, and `have_no_css` on an element that stays fails in milliseconds instead of after the wait. Only a fetch still running on a `network_executor` worker and an open WebSocket or EventSource are waited for in real time. A wait for something outside the page and its clock — a background job, another process — now fails at once instead of polling in real time; wait for it in the test, or reach it through the app.
+
 ### Added
 
 - `drag_to` under JavaScript: a press inside a draggable element runs an HTML drag-and-drop (`dragstart` through `drop` and `dragend`), anything else moves the pointer to the target and releases it there (`mousemove`, `mouseup`), with `delay` (0.05 s) of virtual time between the steps.
@@ -10,7 +14,6 @@
 ### Changed
 
 - With `Capybara.raise_server_errors = false`, an exception the app raises gives the page a 500 response with Puma's error text instead of failing the test; an exception not in `Capybara.server_errors` gives the same 500.
-- Under JavaScript, a Capybara wait (`default_max_wait_time`, `wait:`) is a span of the page's virtual time: a retry moves the clock to the page's next timer within it instead of sleeping, and a query that nothing within the wait can satisfy fails at once. dommy-examples' debounced live search runs its system specs at 41 ms an example instead of 296 ms, and `have_no_css` on an element that stays fails in milliseconds instead of after the wait. Only a fetch still running on a `network_executor` worker and an open WebSocket or EventSource are waited for in real time.
 - A node whose element left the tree (a Turbo Stream replaced it, a framework re-rendered it) is stale, as under Selenium, so Capybara finds it again instead of reading the detached element.
 
 ## 0.15.0 — 2026-10-04
