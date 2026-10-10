@@ -141,6 +141,7 @@
 
 ### Fixed
 
+- A window `Dommy::Browser` opens with `window.open` starts its `sessionStorage` as a copy of its opener's, as a new top-level browsing context does, instead of sharing the opener's area; `localStorage` stays shared, and a change to it still fires `storage` at the other window.
 - `cookieStore.set` with an `expires` already past deletes the cookie and resolves, firing a `change` event that lists it as deleted, instead of rejecting with "the cookie was refused".
 - A cookie from an insecure URL is refused when a Secure cookie of its name has a path it falls under, as RFC 6265bis says: `sid=evil; Path=/app` from http no longer shadows `sid; Secure; Path=/`, and `sid; Path=/` from http is stored beside `sid; Secure; Path=/app`. The paths were compared the wrong way round.
 - The CSS layer no longer falls back when makiri's CSS parser is missing: `getComputedStyle` answered with the inline style, the cascade treated the page as unstyled, and `innerText` and accessible names skipped computed styles, which hid a broken makiri. makiri is a hard dependency; `Internal::CSS::Parser.available?` and `Parser::Unavailable` are gone.
