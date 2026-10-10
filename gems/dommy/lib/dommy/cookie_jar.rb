@@ -157,9 +157,11 @@ module Dommy
       nil
     end
 
-    private
-
+    # The jar's current time (a Time), which its expiries are measured
+    # against.
     def now = @clock.call
+
+    private
 
     def set_cookie_values(headers)
       pairs = headers.respond_to?(:each_pair) ? headers.each_pair.to_a : Array(headers)
@@ -287,10 +289,13 @@ module Dommy
       cookie
     end
 
+    # RFC 6265bis "Storage Model" step 16: a secure cookie of the name whose
+    # domain matches either way, and under whose path the new cookie's path
+    # falls (the new path path-matches the stored one).
     def shadows_secure_cookie?(name, domain, path)
       @cookies.any? do |c|
         c.secure && c.name == name &&
-          (domain_match?(domain, c.domain) || domain_match?(c.domain, domain)) && path_match?(path, c.path)
+          (domain_match?(domain, c.domain) || domain_match?(c.domain, domain)) && path_match?(c.path, path)
       end
     end
 

@@ -130,6 +130,17 @@ class TestBrowsingContext < Minitest::Test
     assert_equal 1, history(win).__js_get__("length")
   end
 
+  # Only without transient user activation: a click during the load adds an
+  # entry.
+  def test_navigation_while_loading_with_user_activation_adds_an_entry
+    win = window_at("https://a.test/p")
+    win.document.__internal_set_ready_state__("loading")
+    win.__internal_notify_activation__
+    win.location.__js_set__("href", "https://a.test/next")
+
+    refute win.navigation_delegate.attempts.last[:replace]
+  end
+
   # --- Location setters navigate ---
 
   def test_pathname_search_host_and_port_setters_navigate

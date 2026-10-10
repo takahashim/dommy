@@ -34,13 +34,14 @@ module Dommy
       end
 
       # The document (as its Window) for a response to a child navigable's
-      # navigation: HTML parsed as HTML, an XML type parsed as XML, anything
-      # else shown as text. A response that names no type is typed by the
+      # navigation, its bytes decoded as the response declares
+      # (Encodings.decode_document): HTML parsed as HTML, an XML type parsed
+      # as XML, anything else shown as text. A response that names no type is typed by the
       # extension of its URL's path, as a static file server would.
       def window_for_response(body, content_type, url)
         type = content_type.to_s.split(";").first.to_s.strip.downcase
         type = type_for_path(url) if type.empty?
-        body = body.to_s.dup.force_encoding(Encoding::UTF_8).scrub
+        body = Encodings.decode_document(body, content_type)
         win =
           if MimeType.xml?(type)
             w = Window.new(nil, backend_doc: Backend.parse_xml(body.to_s))
@@ -69,7 +70,7 @@ module Dommy
         blob = URL.__test_resolve_blob_url__(url.sub(/#.*\z/m, ""))
         return nil unless blob
 
-        window_for_response(blob.text, blob.type.to_s.empty? ? "text/plain" : blob.type, url)
+        window_for_response(blob.__dommy_bytes__, blob.type.to_s.empty? ? "text/plain" : blob.type, url)
       end
 
       PATH_TYPES = {

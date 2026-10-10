@@ -80,10 +80,10 @@ module Dommy
       # requests one frame after another would never let the page settle.
       # Snapshot iteration: a settling realm may navigate and replace the map.
       def settle
-        realms = @runtimes.to_a
+        realms = live_realms
         SETTLE_ROUNDS.times do
           realms.each { |_doc, runtime| runtime.settle }
-          realms = @runtimes.to_a.select { |doc, _runtime| ready_work?(scheduler_of(doc)) }
+          realms = live_realms.select { |doc, _runtime| ready_work?(scheduler_of(doc)) }
           break if realms.empty?
         end
         self
@@ -95,7 +95,7 @@ module Dommy
       # draining each realm's microtasks. Snapshot iteration: a fired timer
       # may navigate and replace the map.
       def advance_time(ms)
-        @runtimes.to_a.each do |doc, runtime|
+        live_realms.each do |doc, runtime|
           scheduler_of(doc)&.advance_time(ms)
           runtime.drain_microtasks
         end
@@ -120,7 +120,7 @@ module Dommy
       # requestAnimationFrame) in any realm is due — 0 for one due already —
       # or nil when none is scheduled.
       def next_timer_delay
-        @runtimes.each_key.filter_map do |doc|
+        live_realms.filter_map do |doc, _runtime|
           scheduler = scheduler_of(doc)
           due = scheduler&.next_due_timer_at
           due && [due - scheduler.now_ms, 0].max
@@ -130,13 +130,13 @@ module Dommy
       # Whether a completion another thread handed back (a response, a socket
       # message) waits to be delivered to any realm.
       def external_pending?
-        @runtimes.each_key.any? { |doc| scheduler_of(doc)&.external_pending? }
+        live_realms.any? { |doc, _runtime| scheduler_of(doc)&.external_pending? }
       end
 
       # Whether any realm has handed work to a worker (a fetch on the network
       # executor) that has not come back yet.
       def external_work_in_flight?
-        @runtimes.each_key.any? { |doc| scheduler_of(doc)&.external_work_in_flight? }
+        live_realms.any? { |doc, _runtime| scheduler_of(doc)&.external_work_in_flight? }
       end
 
       # The realm VM for one document, built lazily and cached by identity so a
@@ -264,6 +264,19 @@ module Dommy
         return [] unless doc.respond_to?(:query_selector_all)
 
         doc.query_selector_all("script[src]").filter_map { |el| el.get_attribute("src") }
+      end
+
+      # The realms whose document is fully active, as [document, runtime]
+      # pairs. A frame that navigated away or was removed keeps its realm —
+      # the page may hold its objects — but HTML runs no task of a document
+      # that is not fully active, so its timers stay where they are, a
+      # completion handed back to it is never delivered, and nothing waits
+      # on it. A snapshot: a realm that runs may navigate and change the map.
+      def live_realms
+        @runtimes.to_a.select do |doc, _runtime|
+          window = doc&.default_view
+          window.nil? || !window.respond_to?(:__internal_fully_active__?) || window.__internal_fully_active__?
+        end
       end
 
       def dispose_all

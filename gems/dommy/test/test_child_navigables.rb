@@ -333,4 +333,11 @@ class TestChildNavigables < Minitest::Test
 
     assert_equal "about:srcdoc", f.content_document.url
   end
+
+  # A frame's response is decoded as its Content-Type's charset says.
+  def test_a_frame_response_is_decoded_in_its_declared_charset
+    body = "<!doctype html><p id=x>\u65E5\u672C</p>".encode("Windows-31J").b
+    window = Dommy::Internal::ChildNavigable.window_for_response(body, "text/html; charset=Shift_JIS", "http://localhost/f")
+    assert_equal "\u65E5\u672C", window.document.get_element_by_id("x").text_content
+  end
 end

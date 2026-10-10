@@ -87,6 +87,18 @@ class TestCookieStore < Minitest::Test
     @cs.set("evt", "1").await
     assert_equal("evt", fired)
   end
+
+  # Setting a cookie that has already expired deletes its match: it
+  # resolves, and the change event reports the deletion.
+  def test_setting_an_expired_cookie_deletes_it
+    @cs.set("k", "v").await
+    deleted = nil
+    @cs.add_event_listener("change", proc { |e| deleted = e.deleted.map { |d| d["name"] } })
+    past = (Time.now.to_f * 1000) - 1000
+    assert_nil @cs.set({"name" => "k", "value" => "v", "expires" => past}).await
+    assert_nil @cs.get("k").await
+    assert_equal ["k"], deleted
+  end
 end
 
 # --- Navigator extras ----------------------------------------------

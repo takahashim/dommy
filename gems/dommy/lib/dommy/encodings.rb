@@ -67,6 +67,16 @@ module Dommy
       valid_utf8(bytes, name) || decoder_for(name).decode(bytes, flush: true).pack("U*")
     end
 
+    # A document's bytes as text, in the encoding its response declares: a
+    # byte-order mark first, then the Content-Type's `charset`, else UTF-8.
+    # (HTML's prescan of a `<meta charset>` is not done.)
+    #
+    # Spec: https://html.spec.whatwg.org/#determining-the-character-encoding
+    def self.decode_document(bytes, content_type)
+      label = Internal::MimeType.charset_of(content_type.to_s)
+      decode(bytes.to_s, (label && get(label)) || "UTF-8")
+    end
+
     # Already-valid UTF-8 needs no decoding: the spec's decoder would walk it
     # byte by byte and rebuild it code point by code point, which measures ~40x
     # the cost of asking Ruby, on the whole-buffer path an XHR response takes.

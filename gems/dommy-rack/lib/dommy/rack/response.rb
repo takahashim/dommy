@@ -142,11 +142,10 @@ module Dommy
         @document_parsed = true
         return unless document?
 
-        @window = if html?
-          Dommy.parse(@body)
-        else
-          ::Dommy::Internal::ChildNavigable.text_window(@body.dup.force_encoding(Encoding::UTF_8).scrub, content_type)
-        end
+        # Decoded as the response declares (a byte-order mark, then the
+        # Content-Type's charset, else UTF-8).
+        text = ::Dommy::Encodings.decode_document(@body, header("content-type"))
+        @window = html? ? Dommy.parse(text) : ::Dommy::Internal::ChildNavigable.text_window(text, content_type)
         # Establish the document's URL (not a navigation: nothing is asked of
         # the navigation delegate, and the first session history entry is this
         # URL).

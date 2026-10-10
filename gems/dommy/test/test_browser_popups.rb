@@ -39,8 +39,30 @@ class TestBrowserPopups < Minitest::Test
     assert_equal 1, loads
     assert_equal "http://localhost/popup", popup.location.href
     assert_equal "popup", popup.document.get_element_by_id("p").text_content
-    assert_same b.storage_provider, popup.storage_provider
     assert_same b.cookie_jar, popup.cookie_jar
+  end
+
+  # A popup's sessionStorage starts as a copy of its opener's and then goes
+  # its own way; localStorage is the one area, and a change to it fires
+  # `storage` at the other window.
+  def test_a_popup_copies_session_storage_and_shares_local_storage
+    b = open_browser
+    win = b.window
+    win.session_storage.set_item("k", "opener")
+    popup = win.window_open("/popup", "_blank", "")
+    b.advance_time(0)
+
+    assert_equal "opener", popup.session_storage.get_item("k")
+    popup.session_storage.set_item("k", "popup")
+    assert_equal "opener", win.session_storage.get_item("k")
+
+    events = []
+    win.add_event_listener("storage", ->(e) { events << e.__js_get__("key") })
+    popup.session_storage.set_item("s", "1")
+    popup.local_storage.set_item("l", "1")
+    b.advance_time(0)
+    assert_equal "1", win.local_storage.get_item("l")
+    assert_equal ["l"], events
   end
 
   def test_a_popup_closes_itself

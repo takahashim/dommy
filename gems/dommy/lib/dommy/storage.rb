@@ -31,16 +31,18 @@ module Dommy
     def local_area(origin) = (@local[origin.to_s] ||= StorageArea.new)
     def session_area(origin) = (@session[origin.to_s] ||= StorageArea.new)
 
-    # A fresh session (a new top-level browsing context) keeps the local areas
-    # and starts with empty session ones.
+    # The session of a new top-level browsing context this session opens (a
+    # popup): the same local areas, and so the same windows to tell of a
+    # change to one, and a copy of each session area as it is now — later
+    # changes on either side stay on that side.
     def new_session
-      fresh = StorageProvider.new
-      fresh.__internal_share_local__(@local)
-      fresh
+      StorageProvider.new.__internal_branch_from__(@local, @session, @windows)
     end
 
-    def __internal_share_local__(local)
+    def __internal_branch_from__(local, session, windows)
       @local = local
+      @windows = windows
+      session.each { |origin, area| @session[origin] = area.copy }
       self
     end
   end
@@ -49,9 +51,11 @@ module Dommy
   class StorageArea
     attr_reader :map
 
-    def initialize
-      @map = {}
+    def initialize(map = {})
+      @map = map
     end
+
+    def copy = StorageArea.new(@map.dup)
   end
 
   # `Storage` — the object behind `localStorage` / `sessionStorage`. Mirrors the
@@ -213,8 +217,8 @@ module Dommy
     end
 
     # HTML "broadcast": queue a `storage` event at every OTHER window whose
-    # Storage object of this kind shares this area — same provider (session),
-    # same origin — and whose document is fully active. `url` is the URL of the
+    # Storage object of this kind shares this area — the same origin, and the
+    # same session for sessionStorage — and whose document is fully active. `url` is the URL of the
     # document that made the change; `storageArea` is the receiving window's own
     # Storage object.
     def broadcast(key, old_value, new_value)
@@ -224,7 +228,7 @@ module Dommy
       provider = @window.storage_provider
       origin = @window.origin
       provider.windows.each do |target|
-        next if target.equal?(@window) || !target.storage_provider.equal?(provider)
+        next if target.equal?(@window)
         next unless target.__internal_fully_active__? && target.origin == origin
 
         storage = @kind == "sessionStorage" ? target.session_storage : target.local_storage

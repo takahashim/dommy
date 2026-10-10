@@ -236,7 +236,8 @@ module Dommy
     # NavigationDelegate `open_window`: window.open asked for a new top-level
     # browsing context. It is created at once with the initial about:blank
     # (whose origin is the opener's) and navigated to `url` from a task; it
-    # shares this browser's storage and cookies. Window#window_open sets its
+    # shares this browser's cookies and localStorage, and starts its
+    # sessionStorage as a copy of this one's. Window#window_open sets its
     # opener and name.
     def open_window(url:, target:, features: "")
       return nil if @disposed
@@ -244,7 +245,7 @@ module Dommy
       popup = Dommy.parse(Internal::ChildNavigable::BLANK_HTML)
       popup.location.__internal_set_url__("about:blank")
       popup.__internal_initial_about_blank__ = true
-      popup.storage_provider = @storage_provider
+      popup.storage_provider = @storage_provider.new_session
       popup.cookie_jar = @cookie_jar
       popup.navigation_delegate = PopupDelegate.new(self, popup)
       @popups << popup
@@ -557,7 +558,7 @@ module Dommy
       fire_unload(old_window)
       check_js_errors!
 
-      new_window = Dommy.parse(response.body)
+      new_window = Dommy.parse(Encodings.decode_document(response.body, response_header(response, "content-type")))
       new_window.location.__internal_set_url__(final_url)
       new_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
       new_window.document.__internal_referrer__ = referrer if referrer

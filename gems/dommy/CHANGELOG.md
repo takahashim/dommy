@@ -59,6 +59,7 @@
 
 ### Changed
 
+- A Window's named properties are read from a table built once per DOM change instead of a query over the whole document per lookup, so `window.jQuery` before jQuery loads costs 0.3 µs instead of 3.3 ms on a page of 6,000 elements.
 - The module sources kept for the next page are capped at 64 MB (`ModulePreload.max_source_bytes`), the least recently read going first, and one is used only for a URL the page's resources would serve, so a host the embedder blocks stays blocked.
 - `childNodes` and `children` count and index a node's children through makiri without building the child list, as do `firstChild`, `lastChild`, `firstElementChild`, `lastElementChild` and `childElementCount`, and `isConnected` and `getRootNode()` ask makiri for the root: on a list of 4,000 children `firstChild` and `lastChild` take 0.2 µs instead of 56 µs, `childNodes.length` after a change 14 µs instead of 73 µs, and `isConnected` 31 levels deep 0.25 µs instead of 1.6 µs.
 - A URL parsed from the same strings again (input, base and encoding, each up to 2 KB) is answered from the last 1,024 parses, as a copy the caller can change: dommy-examples' signup browser specs spend 11.5 ms parsing 1,206 URLs instead of 66 ms.
@@ -142,6 +143,11 @@
 
 ### Fixed
 
+- A `location` navigation while the document is still loading replaces the history entry only without transient user activation, as HTML says: `location.href = "/next"` from a click during the load adds an entry, so `history.back()` returns to the page.
+- A page, frame or popup response is decoded in the charset its Content-Type names (a byte-order mark first, UTF-8 otherwise), so a `text/html; charset=Shift_JIS` frame or `Dommy::Browser` page reads as Japanese instead of U+FFFD. A blob: URL's document is decoded from its bytes the same way.
+- A window `Dommy::Browser` opens with `window.open` starts its `sessionStorage` as a copy of its opener's, as a new top-level browsing context does, instead of sharing the opener's area; `localStorage` stays shared, and a change to it still fires `storage` at the other window.
+- `cookieStore.set` with an `expires` already past deletes the cookie and resolves, firing a `change` event that lists it as deleted, instead of rejecting with "the cookie was refused".
+- A cookie from an insecure URL is refused when a Secure cookie of its name has a path it falls under, as RFC 6265bis says: `sid=evil; Path=/app` from http no longer shadows `sid; Secure; Path=/`, and `sid; Path=/` from http is stored beside `sid; Secure; Path=/app`. The paths were compared the wrong way round.
 - An element can replace a Document's only doctype (`replaceChild` and `replaceWith`): replace refuses an element only when a doctype follows the child, unlike pre-insert, which also refuses one placed before the doctype.
 - `document.removeChild(doctype)` returns the doctype, and throws NotFoundError for another document's doctype.
 - A DocumentType answers only Node's and ChildNode's members to script: `tagName`, `children`, `childElementCount` and Element's and ParentNode's other getters are `undefined` instead of `null`.

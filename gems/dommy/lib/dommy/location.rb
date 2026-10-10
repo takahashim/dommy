@@ -134,14 +134,19 @@ module Dommy
 
         return
       end
-      # Location-object navigate: while the document is still loading, a
-      # navigation made by script (without user activation) replaces the
-      # current entry instead of adding one.
-      replace ||= source == :location && !@window.__internal_completely_loaded__?
+      replace ||= source == :location && loading_without_activation?
       navigate_record(target, source: source, replace: replace, sync_cross_doc: sync_cross_doc)
     end
 
     private
+
+    # HTML "Location-object navigate" step 2: while the document is still
+    # loading, a navigation made by script without transient user activation
+    # replaces the current entry instead of adding one. One a click handler
+    # makes during the load is the user's, and adds an entry.
+    def loading_without_activation?
+      !@window.__internal_completely_loaded__? && !@window.__internal_transient_activation__?
+    end
 
     # The navigate algorithm's history handling and its same-document branch.
     # A URL equal to the document's own is a "replace"; so is any navigation
@@ -171,7 +176,7 @@ module Dommy
     end
 
     def location_object_navigate(target)
-      replace = !@window.__internal_completely_loaded__?
+      replace = loading_without_activation?
       navigate_record(target, source: :location, replace: replace, sync_cross_doc: true)
     end
 

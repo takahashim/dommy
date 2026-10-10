@@ -36,7 +36,13 @@ module Dommy
     def set(name_or_options, value = nil)
       opts = name_or_options.is_a?(Hash) ? name_or_options.transform_keys(&:to_s) : {"name" => name_or_options, "value" => value}
       cookie = write(opts)
-      dispatch_event(CookieChangeEvent.new("change", "changed" => [build_record(cookie)], "deleted" => []))
+      event =
+        if cookie
+          {"changed" => [build_record(cookie)], "deleted" => []}
+        else
+          {"changed" => [], "deleted" => [{"name" => opts["name"].to_s, "value" => nil}]}
+        end
+      dispatch_event(CookieChangeEvent.new("change", event))
       PromiseValue.resolve(@window, nil)
     rescue Bridge::TypeError => e
       PromiseValue.reject(@window, e)
@@ -104,7 +110,8 @@ module Dommy
     end
 
     # "Set a cookie" with the store's defaults, through the jar's storage
-    # model; a cookie it refuses is a TypeError.
+    # model: the cookie stored, or nil for one that expires at once, which
+    # deletes its match. A cookie the jar refuses is a TypeError.
     def write(opts)
       name = opts["name"].to_s
       value = opts["value"].to_s
@@ -130,9 +137,15 @@ module Dommy
       parts << "SameSite=#{(opts["sameSite"] || "strict").to_s.capitalize}"
       parts << "Secure"
       cookie = @window.document.__internal_cookie_averse__? ? nil : @window.cookie_jar.store(parts.join("; "), document_url, http: false)
-      raise Bridge::TypeError, "the cookie was refused" unless cookie || opts["value"] == "" && opts["expires"] == 0
+      return cookie if cookie
+      return nil if expired_at_once?(opts)
 
-      cookie || Dommy::CookieJar::Cookie.new(name: name, value: value, path: path)
+      raise Bridge::TypeError, "the cookie was refused"
+    end
+
+    def expired_at_once?(opts)
+      expires = opts["expires"]
+      !expires.nil? && expires.to_f / 1000 <= @window.cookie_jar.now.to_f
     end
 
     def build_record(cookie)
