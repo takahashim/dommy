@@ -14,17 +14,19 @@ module Dommy
     # Includers must expose `@__node__` (the backing node) and `@document`.
     module ChildNode
       # ChildNode#before — insert nodes as preceding siblings of `@__node__`.
-      # Follows the spec's "viable previous sibling" dance: the reference child
-      # is the first preceding sibling NOT among the argument nodes, resolved
-      # AFTER the arguments are detached (converting them into a node removes
-      # them from their old parents). Nodes are then inserted forward before the
-      # (fixed) reference — reversing would emit them backwards.
+      # Follows the spec's "viable previous sibling" dance: the viable previous
+      # sibling is the first preceding sibling NOT among the argument nodes,
+      # found before the arguments are converted into a node, and the reference
+      # child is its next sibling AFTER (converting them moves them). Nodes are
+      # then inserted forward before the (fixed) reference — reversing would
+      # emit them backwards.
       def child_node_before(args)
         parent = @__node__.parent
         return nil unless parent
 
         arg_nodes = backend_nodes_in(args)
         viable_prev = InsertionPoint.skip_args_backwards(@__node__.previous_sibling, arg_nodes)
+        args = InsertionPoint.convert_nodes_into_a_node(@document, args)
         ref = InsertionPoint.skip_args(reference_after(parent, viable_prev), arg_nodes)
         ensure_parent_insertion_validity!(parent, args, ref)
         record_previous = insertion_previous_sibling(parent, ref)
@@ -44,6 +46,7 @@ module Dommy
 
         arg_nodes = backend_nodes_in(args)
         viable_next = InsertionPoint.skip_args(@__node__.next_sibling, arg_nodes)
+        args = InsertionPoint.convert_nodes_into_a_node(@document, args)
 
         ensure_parent_insertion_validity!(parent, args, viable_next)
         record_previous = insertion_previous_sibling(parent, viable_next)
@@ -62,22 +65,24 @@ module Dommy
 
         arg_nodes = backend_nodes_in(args)
         viable_next = InsertionPoint.skip_args(@__node__.next_sibling, arg_nodes)
+        args = InsertionPoint.convert_nodes_into_a_node(@document, args)
 
-        # Step 6 replaces this node within the parent and step 7 pre-inserts
-        # before the viable next sibling; both run the parent's validity checks,
-        # and "replace" is the one that disregards the child being replaced.
-        ensure_parent_insertion_validity!(parent, args, @__node__, replacing: @__node__)
-
-        # Step 4 "convert nodes into a node" only moves the arguments when there
-        # is more than one of them (it builds a DocumentFragment and appends
-        # them). With a single argument nothing moves, so step 5's "this's
-        # parent is parent" still holds even when the argument IS this node:
-        # `x.replaceWith(x)` is a replace, not a pre-insert.
-        moved_by_conversion = args.size > 1 && arg_nodes.any? { |n| n == @__node__ }
+        # Step 5: when this node is still parent's child, it is replaced;
+        # otherwise the conversion moved it — it was one of two or more
+        # arguments, now in the DocumentFragment — and step 6 pre-inserts
+        # before the viable next sibling. A single argument moves nothing, so
+        # `x.replaceWith(x)` is a replace. "Replace" is the check that
+        # disregards the child being replaced.
+        moved_by_conversion = @__node__.parent != parent
+        if moved_by_conversion
+          ensure_parent_insertion_validity!(parent, args, viable_next)
+        else
+          ensure_parent_insertion_validity!(parent, args, @__node__, replacing: @__node__)
+        end
 
         # Replace step 4's previousSibling is THIS node's previous sibling, and
         # the pre-insert path's is insert step 6's — both read before the
-        # conversion below detaches anything.
+        # replacements are taken out of the DocumentFragment below.
         record_previous_replace = wrap_sibling(@__node__.previous_sibling)
         record_previous_insert = insertion_previous_sibling(parent, viable_next)
         record_next = wrap_sibling(viable_next)
@@ -94,8 +99,8 @@ module Dommy
 
         if moved_by_conversion
           # `@__node__` was itself an argument of a multi-argument call, so the
-          # conversion already moved it into `nodes`; pre-insert the set before
-          # the viable next sibling (step 6).
+          # conversion moved it into the DocumentFragment; pre-insert the set
+          # before the viable next sibling (step 6).
           @document.__internal_ranges_will_insert__(parent, anchor, nodes.size)
           insert_child_nodes(nodes, anchor, parent)
           notify_child_list(added: nodes, target: parent,
@@ -144,13 +149,9 @@ module Dommy
       # PARENT (`before` / `after` / `replaceWith`). The constraints belong to
       # the parent, which may be a Document — whose step 6 forbids a Text child,
       # a second element and a misplaced doctype — so the check is dispatched on
-      # the parent's wrapper rather than on self.
-      #
-      # It runs before the arguments are converted, so a rejected call leaves
-      # the tree untouched. (The spec converts first, and for two or more
-      # arguments that conversion moves them into a fresh DocumentFragment; the
-      # rejection then comes from the fragment being an ancestor of the parent
-      # instead. Same exception, less collateral damage.)
+      # the parent's wrapper rather than on self. It runs after the arguments
+      # were converted into a node (InsertionPoint.convert_nodes_into_a_node), as
+      # in the spec.
       def ensure_parent_insertion_validity!(parent_bn, args, ref_bn, replacing: nil)
         parent = @document.wrap_node(parent_bn)
         return unless parent.respond_to?(:__internal_ensure_insertion_validity__)

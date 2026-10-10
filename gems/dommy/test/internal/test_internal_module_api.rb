@@ -46,7 +46,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::Infra => %w[ascii_lowercase ascii_whitespace? split_on_ascii_whitespace],
     Dommy::Internal::LightDismiss => %w[run],
     Dommy::Internal::SequentialFocusNavigation => %w[navigate navigation_order],
-    Dommy::Internal::InsertionPoint => %w[count previous_sibling skip_args skip_args_backwards surviving_anchor],
+    Dommy::Internal::InsertionPoint => %w[convert_nodes_into_a_node count previous_sibling skip_args skip_args_backwards surviving_anchor],
     Dommy::Internal::LiteralLookup => %w[element_by_id class_tokens elements_with_classes elements_named],
     Dommy::Internal::NodeIdentity => %w[same_node? key_for],
     Dommy::Internal::RenderedText::Fragment => %w[set_inner set_outer],

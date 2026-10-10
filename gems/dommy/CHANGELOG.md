@@ -139,6 +139,7 @@
 
 ### Fixed
 
+- `append`, `prepend`, `replaceChildren`, `before`, `after` and `replaceWith` with two or more arguments convert them into a node first, as DOM says: they are moved into a new DocumentFragment before the insertion is checked, so `el.after(a, b)` that the parent rejects leaves `a` and `b` in that fragment, and `x.before(a, doctype)` leaves `a` there, instead of rejecting the call with nothing moved.
 - `setAttribute`, `getAttribute`, `hasAttribute`, attribute selectors and the CSS cascade fold an HTML element's attribute and tag names in ASCII only, as DOM says: `setAttribute("Ö", "")` makes an attribute named `Ö`, and `[Ä]` matches the `Ä` attribute the parser keeps.
 - Upgrading a custom element is a selector-visible change: a rule on `x-foo:defined` reaches the element and its descendants once `customElements.define` upgrades it, and a cached `querySelectorAll(":defined")` is recomputed.
 - `createElement("Foo:Bar")` in a page parsed as HTML and typed as XHTML or XML makes an element whose local name is `Foo:Bar`, in the namespace of that type's `createElement` (the HTML namespace for XHTML, none for XML).

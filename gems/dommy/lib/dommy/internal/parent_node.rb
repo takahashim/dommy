@@ -43,6 +43,7 @@ module Dommy
 
       # ParentNode#append — mixed Node/String args appended in order.
       def append(*args)
+        args = InsertionPoint.convert_nodes_into_a_node(@document, args)
         validate_insertion_args!(args)
         record_previous = insertion_previous_sibling(@__node__, nil)
         nodes = convert_for_insert(args, @__node__, nil)
@@ -53,6 +54,7 @@ module Dommy
 
       # ParentNode#prepend — insert before the current first child.
       def prepend(*args)
+        args = InsertionPoint.convert_nodes_into_a_node(@document, args)
         validate_insertion_args!(args)
         # The reference child is the CURRENT first child, and insert step 5 is
         # measured against it before the arguments are detached.
@@ -77,6 +79,7 @@ module Dommy
       # ParentNode#replaceChildren — remove all existing children, then
       # append the new set. One mutation record carries both sides.
       def replace_children(*args)
+        args = InsertionPoint.convert_nodes_into_a_node(@document, args)
         validate_insertion_args!(args)
         # "Replace all" removes every child first and then APPENDS, so there is
         # no reference child and insert step 5 shifts nothing.

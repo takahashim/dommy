@@ -13,6 +13,30 @@ module Dommy
     module InsertionPoint
       module_function
 
+      # WHATWG "convert nodes into a node" in `document`, for the variadic
+      # methods (ChildNode's, ParentNode's and the Document's own): two or
+      # more arguments are appended, in order, to a new DocumentFragment —
+      # strings as new Text nodes — and the fragment stands for them. That
+      # append moves each node out of wherever it was and checks it as any
+      # append does, so it can fail half way (a doctype or a Document among
+      # the arguments): the nodes appended by then stay in the fragment, out of
+      # the tree, as the spec has it. One argument is left as it is: a string
+      # becomes a Text node where it is inserted, and a node moves only then.
+      #
+      # Spec: https://dom.spec.whatwg.org/#converting-nodes-into-a-node
+      def convert_nodes_into_a_node(document, args)
+        return args if args.size < 2
+
+        fragment = document.create_document_fragment
+        args.each do |arg|
+          case arg
+          when Dommy::Node then fragment.append_child(arg)
+          when String then fragment.append_child(document.create_text_node(arg))
+          end
+        end
+        [fragment]
+      end
+
       # Insert step 1's count: how many nodes `args` will contribute once
       # converted. A DocumentFragment expands to its children, a String becomes
       # one Text node, and anything without a backing node contributes nothing.
