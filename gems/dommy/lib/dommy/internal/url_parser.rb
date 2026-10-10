@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "bounded_cache"
+
 module Dommy
   module Internal
     # A WHATWG URL Standard "basic URL parser" (https://url.spec.whatwg.org/).
@@ -21,12 +23,76 @@ module Dommy
       # The spec URL record. `path` is an Array of segments for a hierarchical
       # URL, or a String for an "opaque path" (cannot-be-a-base) URL. `host` is
       # the already-serialized host string (IPv6 stored with brackets), or nil.
+      #
+      # A copy owns its path, which the URL API's setters change in place;
+      # the strings are shared, since nothing changes them in place.
       Record = Struct.new(:scheme, :username, :password, :host, :port, :path, :query, :fragment) do
         def special? = SPECIAL.key?(scheme)
         def opaque_path? = path.is_a?(String)
         def includes_credentials? = !username.to_s.empty? || !password.to_s.empty?
         def default_port = SPECIAL[scheme]
+
+        def initialize_copy(source)
+          super
+          self.path = source.path.dup if source.path.is_a?(Array)
+        end
+
+        # Frozen through: the strings and the path too, so that what a frozen
+        # record shares with its copies cannot change under it.
+        def freeze
+          each { |value| value.freeze }
+          path.each(&:freeze) if path.is_a?(Array)
+          super
+        end
       end
+
+      # The last parses of strings, each as a frozen record that every caller
+      # gets a copy of, or as the message of the Failure it raised. A page
+      # parses the same few URLs over and over — its own address, its assets,
+      # its links' hrefs, each against the same base. A parse whose input or
+      # base is longer than MAX_BYTES (a `data:` URL can be megabytes) is not
+      # remembered. Network workers parse too, hence the lock.
+      class Memo
+        CAPACITY = 1024
+        MAX_BYTES = 2048
+
+        def initialize
+          @entries = BoundedCache.new(CAPACITY)
+          @mutex = Mutex.new
+        end
+
+        # The parse of `input` against `base` (a String or nil) with
+        # `encoding`: the block's, the first time.
+        def fetch(input, base, encoding)
+          return yield if input.bytesize > MAX_BYTES || base.to_s.bytesize > MAX_BYTES
+
+          key = [-input, base && -base, encoding]
+          entry = @mutex.synchronize { @entries[key] } || remember(key) { yield }
+          raise Failure, entry if entry.is_a?(String)
+
+          entry.dup
+        end
+
+        def size = @mutex.synchronize { @entries.size }
+
+        def clear
+          @mutex.synchronize { @entries.clear }
+          self
+        end
+
+        private
+
+        def remember(key)
+          entry = begin
+            yield.freeze
+          rescue Failure => e
+            e.message.freeze
+          end
+          @mutex.synchronize { @entries[key] = entry }
+        end
+      end
+
+      PARSES = Memo.new
 
       # `encoding` is the Encoding Standard name HTML's "encoding-parse a URL"
       # hands the parser (the document's character encoding); nil means UTF-8,
@@ -37,12 +103,15 @@ module Dommy
       # Only nil means "no base": a given base, the empty string included, is
       # parsed first, and its failure is the parse's (`new URL("a:b", "")`
       # throws).
+      #
+      # A parse of strings is remembered (PARSES); one against a record is
+      # not.
       def parse(input, base_input = nil, encoding: nil)
-        base = nil
-        unless base_input.nil?
-          base = base_input.is_a?(Record) ? base_input : run(base_input.to_s, nil)
-        end
-        run(input.to_s, base, encoding: encoding)
+        input = input.to_s
+        return run(input, base_input, encoding: encoding) if base_input.is_a?(Record)
+
+        base = base_input&.to_s
+        PARSES.fetch(input, base, encoding) { run(input, base && run(base, nil), encoding: encoding) }
       end
 
       # The basic URL parser with a state override: `input` is read from

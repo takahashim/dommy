@@ -59,6 +59,7 @@
 
 ### Changed
 
+- A URL parsed from the same strings again (input, base and encoding, each up to 2 KB) is answered from the last 1,024 parses, as a copy the caller can change: dommy-examples' signup browser specs spend 11.5 ms parsing 1,206 URLs instead of 66 ms.
 - A page's ES modules whose URL carries a content digest (`application-f004202c.js`) are kept for the rest of the process by default: the next page reads them without a request, and the big ones as bytecode. dommy-examples' signup browser specs make 88 requests instead of 292 and boot a page's scripts in 6.8 ms instead of 19.4 ms. `Dommy::Js::ModulePreload.scope = :all` keeps modules without a digest too, and `:none` keeps none; `ModulePreload.enabled` is gone.
 - A CSS rule whose subject is only an attribute selector (`[type=checkbox]`, `[data-state] .x`) is matched only against elements carrying that attribute, so an element on a decidim page is run through 37 rules instead of 77 and the computed style of an element 21 levels deep takes 9.2 ms instead of 10.7 ms.
 - A `<form>` builds the name and id table its named getter reads once per DOM change rather than on every property read, so reading `form.action` from script with 50 controls takes 27 µs instead of 222 µs.
