@@ -150,20 +150,8 @@ module Dommy
       })
     end
 
-    # ToString for what a bridge hands over: a JS object arrives as a Hash
-    # and an array as an Array.
-    def self.to_string(chunk)
-      case chunk
-      when String then chunk
-      when Hash then "[object Object]"
-      when Array then chunk.map { |element| to_string(element) }.join(",")
-      when nil then "null"
-      when true then "true"
-      when false then "false"
-      when Float then chunk == chunk.to_i ? chunk.to_i.to_s : chunk.to_s
-      else chunk.equal?(Bridge::UNDEFINED) ? "undefined" : chunk.to_s
-      end
-    end
+    # ToString for what a bridge hands over.
+    def self.to_string(chunk) = Internal::WebIDL.dom_string(chunk)
 
     def encoding
       "utf-8"

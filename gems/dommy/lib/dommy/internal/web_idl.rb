@@ -103,6 +103,55 @@ module Dommy
         Float(text, exception: false)&.to_f || ::Float::NAN
       end
 
+      # `value` converted to `DOMString` (JS ToString) as the bridge hands it
+      # over: a JS object arrives as a Hash, an array as an Array, NaN as a
+      # Float NaN or the symbol :NaN.
+      def dom_string(value)
+        case value
+        when String then value
+        when nil then "null"
+        when true then "true"
+        when false then "false"
+        when Hash then "[object Object]"
+        when Array then value.map { |element| element.nil? || element.equal?(Bridge::UNDEFINED) ? "" : dom_string(element) }.join(",")
+        when Integer then value.to_s
+        when Float then number_to_string(value)
+        when :NaN then "NaN"
+        else value.equal?(Bridge::UNDEFINED) ? "undefined" : value.to_s
+        end
+      end
+
+      # ECMAScript Number::toString(x) in base 10: the shortest digits that
+      # round-trip (which Ruby's Float#to_s also finds), laid out as JS does —
+      # plain up to 21 integer digits, `0.000001` down to 6 leading zeros,
+      # `1e+21` / `1e-7` beyond, and no `.0` on an integral value.
+      def number_to_string(x)
+        return "NaN" if x.nan?
+        return x.positive? ? "Infinity" : "-Infinity" if x.infinite?
+        return "0" if x.zero?
+        return "-#{number_to_string(-x)}" if x.negative?
+
+        mantissa, exponent = x.to_s.split("e")
+        integer, fraction = mantissa.split(".")
+        all = integer + fraction.to_s
+        leading = all[/\A0*/].size
+        digits = all[leading..].sub(/0+\z/, "")
+        k = digits.size
+        n = integer.size - leading + exponent.to_i
+        if k <= n && n <= 21
+          digits + ("0" * (n - k))
+        elsif n.positive? && n <= 21
+          "#{digits[0, n]}.#{digits[n..]}"
+        elsif n > -6 && n <= 0
+          "0.#{"0" * -n}#{digits}"
+        else
+          e = n - 1
+          sign = e.negative? ? "-" : "+"
+          head = k == 1 ? digits : "#{digits[0]}.#{digits[1..]}"
+          "#{head}e#{sign}#{e.abs}"
+        end
+      end
+
       # `value` converted to `object?`: null and undefined become nil, and a
       # primitive is a TypeError.
       def nullable_object!(value)
