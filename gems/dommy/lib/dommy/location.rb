@@ -175,11 +175,7 @@ module Dommy
       navigate_record(target, source: :location, replace: replace, sync_cross_doc: true)
     end
 
-    def copy_record
-      record = @record.dup
-      record.path = record.path.dup
-      record
-    end
+    def copy_record = @record.dup
 
     # Resolve a possibly-relative URL against the document base URL with the
     # URL parser; nil when it fails. Returns a Record, not a string, so

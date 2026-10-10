@@ -40,6 +40,19 @@ class TestUrlParseCache < Minitest::Test
     refute_same first, second
   end
 
+  # A copy of a record owns its path; a frozen record is frozen through.
+  def test_a_record_copy_owns_its_path
+    record = PARSER.parse("http://example.test/a")
+    copy = record.dup
+    copy.path << "b"
+    assert_equal %w[a], record.path
+
+    record.freeze
+    assert record.scheme.frozen?
+    assert record.path.frozen?
+    refute record.dup.path.frozen?
+  end
+
   def test_a_failure_is_remembered_and_raised_again
     2.times { assert_raises(PARSER::Failure) { PARSER.parse("http://[") } }
     assert_equal 1, PARSER::PARSES.size
