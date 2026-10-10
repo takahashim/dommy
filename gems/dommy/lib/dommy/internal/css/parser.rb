@@ -282,9 +282,29 @@ module Dommy
         # block or handed to `getPropertyValue` / `setProperty` alike: ASCII
         # case-insensitive, except a CUSTOM property, whose name is
         # case-SENSITIVE (`--Foo` and `--foo` are two properties).
+        # Compat Standard §3.4.1: -webkit- names that are legacy name aliases
+        # of the unprefixed property, which is what they set and serialize as.
+        WEBKIT_ALIASES = %w[
+          align-items align-content align-self animation-name animation-duration animation-timing-function
+          animation-iteration-count animation-direction animation-play-state animation-delay animation-fill-mode
+          animation backface-visibility background-clip background-origin background-size
+          border-bottom-left-radius border-bottom-right-radius border-top-left-radius border-top-right-radius
+          border-radius box-shadow box-sizing flex flex-basis flex-direction flex-flow flex-grow flex-shrink
+          flex-wrap filter justify-content mask mask-clip mask-composite mask-image mask-origin mask-position
+          mask-repeat mask-size order perspective perspective-origin transform-origin transform-style transform
+          transition-delay transition-duration transition-property transition-timing-function transition
+        ].to_h { |name| ["-webkit-#{name}", name] }.merge(
+          "-webkit-mask-box-image" => "mask-border", "-webkit-mask-box-image-outset" => "mask-border-outset",
+          "-webkit-mask-box-image-repeat" => "mask-border-repeat", "-webkit-mask-box-image-slice" => "mask-border-slice",
+          "-webkit-mask-box-image-source" => "mask-border-source", "-webkit-mask-box-image-width" => "mask-border-width"
+        ).freeze
+
         def property_name(name)
           str = name.to_s
-          custom_property?(str) ? str : str.downcase
+          return str if custom_property?(str)
+
+          lower = str.downcase
+          WEBKIT_ALIASES.fetch(lower, lower)
         end
 
         def custom_property?(name) = name.start_with?("--")

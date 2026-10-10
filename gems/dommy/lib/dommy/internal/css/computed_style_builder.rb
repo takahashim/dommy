@@ -65,6 +65,7 @@ module Dommy
           lengths = compute_font_size_into(result)
           compute_registered_properties(result, lengths)
           carry_unregistered_properties(result)
+          blockify!(result)
           resolve_current_color!(result)
           # Computed custom properties are part of the computed style: the
           # children inherit them from here, and getPropertyValue("--x")
@@ -75,6 +76,25 @@ module Dommy
         end
 
         private
+
+        # The display types blockification turns an inline-level box into.
+        BLOCKIFIED = {"inline" => "block", "inline-block" => "block", "inline-flex" => "flex",
+                      "inline-grid" => "grid", "inline-table" => "table", "run-in" => "block"}.freeze
+        ITEM_CONTAINERS = %w[flex inline-flex grid inline-grid].freeze
+
+        # CSS Display §2.7: the root element, a float, an absolutely positioned
+        # box, and a flex or grid item (a child of a flex or grid container)
+        # compute an inline-level display to its block-level equivalent.
+        def blockify!(result)
+          display = result["display"]
+          return unless display && BLOCKIFIED.key?(display)
+
+          root = !@pseudo_element && @element.parent_element.nil? && @document&.document_element.equal?(@element)
+          floated = result.fetch("float", "none") != "none"
+          positioned = %w[absolute fixed].include?(result["position"])
+          item = @parent_styles && ITEM_CONTAINERS.include?(@parent_styles["display"])
+          result["display"] = BLOCKIFIED[display] if root || floated || positioned || item
+        end
 
         # A pseudo-element inherits from its originating element; an element
         # from its parent (nil at the root — the initial values then apply).

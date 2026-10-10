@@ -54,14 +54,52 @@ module Dommy
       valid_utf8(bytes, name) || decoder_for(name).decode(bytes, flush: true).pack("U*")
     end
 
-    # A document's bytes as text, in the encoding its response declares: a
-    # byte-order mark first, then the Content-Type's `charset`, else UTF-8.
-    # (HTML's prescan of a `<meta charset>` is not done.)
+    # A document's bytes as text, in its encoding (::document_encoding).
+    def self.decode_document(bytes, content_type)
+      decode(bytes.to_s, document_encoding(bytes, content_type))
+    end
+
+    # The encoding an HTML document's bytes are in: a byte-order mark's, else
+    # the Content-Type's `charset`, else what a `<meta>` in the first 1024
+    # bytes declares (the prescan), else UTF-8.
     #
     # Spec: https://html.spec.whatwg.org/#determining-the-character-encoding
-    def self.decode_document(bytes, content_type)
+    def self.document_encoding(bytes, content_type)
+      bytes = bytes.to_s.b
+      BOMS.each { |mark, name| return name if bytes.start_with?(mark) }
       label = Internal::MimeType.charset_of(content_type.to_s)
-      decode(bytes.to_s, (label && get(label)) || "UTF-8")
+      (label && get(label)) || prescan(bytes) || "UTF-8"
+    end
+
+    META_TAG = /<meta(?=[\s\/>])([^>]*)>/i
+    META_ATTRIBUTE = /([^\s="'\/>][^\s=\/>]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/
+    private_constant :META_TAG, :META_ATTRIBUTE
+
+    # HTML's "prescan a byte stream to determine its encoding", for the
+    # `<meta charset>` and `<meta http-equiv=content-type content="…;
+    # charset=…">` forms, outside comments, in the first 1024 bytes. A
+    # declared UTF-16 is UTF-8 (the bytes are ASCII-compatible if the tag was
+    # read), and x-user-defined windows-1252.
+    #
+    # Spec: https://html.spec.whatwg.org/#prescan-a-byte-stream-to-determine-its-encoding
+    def self.prescan(source)
+      head = source.to_s.b.byteslice(0, 1024).gsub(/<!--.*?(?:-->|\z)/m, "")
+      head.scan(META_TAG) do |(attributes)|
+        attrs = {}
+        attributes.scan(META_ATTRIBUTE) { |name, value| attrs[name.downcase] ||= value.to_s.delete_prefix('"').delete_suffix('"').delete_prefix("'").delete_suffix("'") }
+        label =
+          if attrs["charset"]
+            attrs["charset"]
+          elsif attrs["http-equiv"]&.casecmp?("content-type") && attrs["content"]
+            Internal::MimeType.charset_of(attrs["content"]) || attrs["content"][/charset\s*=\s*["']?([^"';\s]+)/i, 1]
+          end
+        name = label && get(label)
+        next unless name
+
+        return "UTF-8" if name.start_with?("UTF-16")
+        return name == "x-user-defined" ? "windows-1252" : name
+      end
+      nil
     end
 
     # Already-valid UTF-8 needs no decoding: the spec's decoder would walk it

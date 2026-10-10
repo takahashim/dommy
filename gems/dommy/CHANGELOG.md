@@ -4,6 +4,9 @@
 
 ### Changed
 
+- A document's character encoding is what its bytes were decoded with — a byte-order mark's, the Content-Type's `charset`, else what a `<meta charset>` in the first 1024 bytes declares (HTML's prescan), else UTF-8 — and `Dommy.parse` of a full document takes its own `<meta charset>`. It was always UTF-8. `document.characterSet`, a link's or an iframe's query (`a.href = "?€"` in a Big5 page is `?%A3%E1`) and `window`-level URL parsing follow it; `Encodings.decode_document` prescans too, and `Dommy.parse` takes `encoding:`.
+- The computed `display` is blockified as CSS Display specifies: the root element, a float, an absolutely positioned box and a flex or grid item turn `inline` into `block`, `inline-flex` into `flex` and so on — in `getComputedStyle` and in `innerText`'s line breaks.
+
 - The legacy multi-byte decoders (Shift_JIS, EUC-JP, ISO-2022-JP, Big5, EUC-KR, GBK, gb18030) are the Encoding Standard's handlers rather than Ruby's converters: a broken sequence gives an ASCII byte back (`"\x81@"` in Big5 is `"\uFFFD@"`, not `"\uFFFD"`), ISO-2022-JP's escape sequences switch state as specified, Shift_JIS `0x80` is U+0080, jis0208 is Windows-31J's (`0xA1DD` in EUC-JP is U+FF0D, not U+2212), and gb18030 has GB18030-2005's and -2022's mappings. Ruby still supplies the index lookups. `Encodings::RUBY_ENCODINGS` and `Encodings::ConverterDecoder` are gone.
 
 - `element.getClientRects()` returns one zero-sized rect for an element being rendered (connected, in the flat tree, not under `display: none`) and an empty list otherwise; it was always empty. Nothing is laid out, so the rect stays zero (`window.approximate_layout` still sizes it), but `el.getClientRects().length` — jQuery's `:visible`, WPT's popover helpers — now tells a shown element from a hidden one.
@@ -38,6 +41,11 @@
 - A TextDecoder call that does not continue a stream starts a new decoder, so a fatal error mid-sequence does not leave its state to the next call. An encoding label is ASCII-lowercased only (`"İSO-8859-1"` is not a label).
 - `getComputedStyle(element, pseudo)` ignores a `pseudo` that does not start with a colon (the element's own style), names a pseudo-element with `::` (or `:` for `before`, `after`, `first-line`, `first-letter`), and is empty for an unknown one; `::file-selector-button`, `::grammar-error`, `::spelling-error`, `::target-text`, `::view-transition` and the functional `::highlight()` / `::view-transition-*()` read their cascaded style. Writing a property of the returned declaration throws NoModificationAllowedError.
 - A color function's components may be math functions: `hsl(calc(50deg + (sign(1em - 10px) * 10deg)) 100% 37.5%)` computes, with lengths resolved against the element's font. `calc()` also reduces `sign()` and `abs()`. Modern-syntax `hsl()` takes a bare number for saturation and lightness.
+- The Big5 and ISO-2022-JP encoders are the spec's (Big5 without the HKSCS extensions and with its six last-pointer duplicates; ISO-2022-JP's escape sequences), used where a URL's query is encoded in such a document. The legacy multi-byte indexes take the entries where Ruby's tables differ from the spec's index files from a generated `encodings/multibyte_overrides.rb` (218 in Big5, among them U+20AC at 0xA3E1).
+- `element.style.cssFloat` is `float`, a `webkit`-cased name (`webkitFilter`) is the `-webkit-` property, and the Compat Standard's `-webkit-` legacy name aliases (`-webkit-filter`, `-webkit-transform`, …) set and read the unprefixed property.
+- `innerText` drops SVG elements that are never rendered (`<defs>`, gradient `<stop>`s, …) and applies Turkish and Azeri casing in a `lang="tr"` / `"az"` element's `text-transform`.
+- `imageData.data` is a Uint8ClampedArray, the same one on every read, and what a page writes into it is what `putImageData`, `structuredClone` and the rest see; it was a fresh plain array whose writes were lost.
+- `QuotaExceededError` is WebIDL's interface (a DOMException subclass with `requested` and `quota`), and what `crypto.getRandomValues` and other quota errors throw.
 
 ## 0.16.0 — 2026-10-10
 

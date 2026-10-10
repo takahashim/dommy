@@ -476,6 +476,16 @@ globalThis.__rbHost = (function () {
     return hostSetWire(handle, name, dehydrateTop(value));
   }
 
+  // ImageData's `data`: one Uint8ClampedArray per ImageData, made from the
+  // host's pixels at the first read and the page's to write into. The host
+  // copies the pixels back in (`__dommyPixels`) before it next needs them —
+  // when the ImageData crosses to it, or is cloned.
+  const livePixels = new WeakMap();
+  function syncLivePixels(proxy) {
+    const pixels = livePixels.get(proxy);
+    if (pixels !== undefined) __rb_host_set(proxyHandles.get(proxy), "__dommyPixels", Array.from(pixels));
+  }
+
   // hostSet for a value already in its wire form.
   function hostSetWire(handle, name, wire) {
     bumpDomEpoch();
@@ -845,7 +855,10 @@ globalThis.__rbHost = (function () {
   function dehydrate(v, seen) {
     if (typeof v === "string") return /[\ud800-\udfff]/.test(v) ? scrubLoneSurrogates(v) : v;
     if (typeof v === "function") return { __rb_callback: registerCallback(v) };
-    if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+    if (isProxy(v)) {
+      syncLivePixels(v);
+      return { __rb_handle: proxyHandles.get(v) };
+    }
     if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
     // A BufferSource (ArrayBuffer or any typed-array/DataView view) crosses as
     // its raw bytes, so host code gets a uniform byte buffer (TextDecoder.decode,
@@ -1012,7 +1025,10 @@ globalThis.__rbHost = (function () {
     if (v === null) return null;
     const t = typeof v;
     if (t === "object" || t === "function") {
-      if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+      if (isProxy(v)) {
+        syncLivePixels(v);
+        return { __rb_handle: proxyHandles.get(v) };
+      }
       if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
       return { __rb_js_ref: registerJsRef(v) };
     }
@@ -1118,8 +1134,49 @@ globalThis.__rbHost = (function () {
   // re-thrown JS-side as a real DOMException (name + legacy code, and
   // `instanceof DOMException`). Without this the quickjs gem flattens it to a
   // plain Error, breaking assert_throws_dom and the DOM's error contracts.
+  // WebIDL's QuotaExceededError: a DOMException named "QuotaExceededError"
+  // with the amount `requested` and the `quota`, each null when unknown. Made
+  // once DOMException exists, and installed as a global.
+  //
+  // Spec: https://webidl.spec.whatwg.org/#quotaexceedederror
+  let quotaExceededErrorClass = null;
+  function quotaExceededError() {
+    if (quotaExceededErrorClass !== null) return quotaExceededErrorClass;
+    const Base = globalThis.DOMException;
+    if (typeof Base !== "function") return null;
+    const amounts = new WeakMap();
+    const amount = (options, key) => {
+      const value = options == null ? undefined : options[key];
+      if (value === undefined) return null;
+      const number = Number(value);
+      if (!Number.isFinite(number)) throw new TypeError("QuotaExceededError: " + key + " is not a finite number");
+      if (number < 0) throw new RangeError("QuotaExceededError: " + key + " is negative");
+      return number;
+    };
+    class QuotaExceededError extends Base {
+      constructor(message = "", options = undefined) {
+        const quota = amount(options, "quota");
+        const requested = amount(options, "requested");
+        if (quota !== null && requested !== null && requested < quota) {
+          throw new RangeError("QuotaExceededError: requested is less than quota");
+        }
+        super(message === undefined ? "" : String(message), "QuotaExceededError");
+        amounts.set(this, { quota, requested });
+      }
+      get quota() { const a = amounts.get(this); if (!a) throw new TypeError("Illegal invocation"); return a.quota; }
+      get requested() { const a = amounts.get(this); if (!a) throw new TypeError("Illegal invocation"); return a.requested; }
+    }
+    Object.defineProperty(globalThis, "QuotaExceededError", { value: QuotaExceededError, writable: true, enumerable: false, configurable: true });
+    quotaExceededErrorClass = QuotaExceededError;
+    return QuotaExceededError;
+  }
+
   function makeHostError(info) {
     const G = globalThis;
+    if (info.name === "QuotaExceededError" && !info.js_native) {
+      const Quota = quotaExceededError();
+      if (Quota) return new Quota(info.message);
+    }
     // A deliberate JS-native error (TypeError, RangeError, …): build the real
     // constructor so `instanceof` holds. URL construction failures arrive here
     // as TypeError (per the URL Standard), not as a DOMException.
@@ -1423,6 +1480,7 @@ globalThis.__rbHost = (function () {
       // A serializable platform object: the host snapshots it (and throws a
       // DataCloneError for any other interface, a Node or a Window included).
       if (!isProxy(value)) throw dataCloneError("The object could not be cloned");
+      syncLivePixels(value);
       const snapshot = rehydrate(__rb_host_clone(proxyHandles.get(value), !!forStorage));
       serialized = { type: "Platform", interface: primaryInterfaceOf(value), snapshot };
     } else if (type === "function") {
@@ -2731,6 +2789,7 @@ globalThis.__rbHost = (function () {
     }
     const names = [...protos.keys(), ...lazyChains.keys()];
     if (!names.includes("DOMException") && typeof globalThis.DOMException === "function") names.push("DOMException");
+    if (quotaExceededError()) names.push("QuotaExceededError");
     // Mirror the JS built-in constructors too, so an iframe's contentWindow
     // resolves `defaultView.TypeError` / `defaultView.Array` like a real window
     // (WPT reaches for `(root.ownerDocument).defaultView.TypeError`). The same
@@ -3754,6 +3813,14 @@ globalThis.__rbHost = (function () {
           return Reflect.get(t, prop, receiver);
         }
         if (constCache !== null && constCache.has(prop)) return constCache.get(prop);
+        if (prop === "data" && shape.name === "ImageData") {
+          let pixels = isProxy(receiver) ? livePixels.get(receiver) : undefined;
+          if (pixels === undefined) {
+            pixels = new Uint8ClampedArray(rehydrate(__rb_host_get(handle, "data")));
+            if (isProxy(receiver)) livePixels.set(receiver, pixels);
+          }
+          return pixels;
+        }
         if (ifaceFrozenArrays !== null && ifaceFrozenArrays.has(prop)) {
           return frozenArrayRead(ifaceAttrCache, prop, rehydrate(__rb_host_get(handle, prop)));
         }

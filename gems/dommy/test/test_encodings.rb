@@ -225,6 +225,10 @@ class TestEncodings < Minitest::Test
     ["gb18030", "\xA8\xBC"] => "ḿ",   # GB18030-2005
     ["gb18030", "\xFE\x59"] => "龴",   # GB18030-2022
     ["EUC-JP", "\xFF"] => "�",
+  ["Big5", "\xA3\xE1"] => "€",          # from the spec's index; Ruby's HKSCS lacks it
+  ["Big5", "\xF9\xFA"] => "╭",
+  ["gb18030", "\x81\x30\x81\x30"] => "\u0080", # a four-byte range
+  ["gb18030", "\xA3\xA0"] => "\u3000",   # the index's compatibility mapping
   }.freeze
 
   def test_the_legacy_multi_byte_decoders_follow_the_spec_index
@@ -246,5 +250,27 @@ class TestEncodings < Minitest::Test
   def test_decoder_for_rejects_a_name_outside_the_standard
     error = assert_raises(ArgumentError) { Dommy::Encodings.decoder_for("Nonexistent") }
     assert_match(/not an encoding the standard names/, error.message)
+  end
+
+  # HTML's prescan: a <meta charset> or http-equiv Content-Type in the first
+  # 1024 bytes, outside comments.
+  def test_prescan_finds_a_meta_charset
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<!doctype html><meta charset="big5">))
+    assert_equal "Shift_JIS", Dommy::Encodings.prescan(%(<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">))
+    assert_equal "UTF-8", Dommy::Encodings.prescan(%(<meta charset="utf-16le">))
+    assert_nil Dommy::Encodings.prescan(%(<!-- <meta charset="big5"> --><p>x</p>))
+  end
+
+  # A document's encoding decides how a link's query is encoded, with the
+  # spec's Big5 and ISO-2022-JP encoders.
+  def test_a_documents_meta_charset_encodes_link_queries
+    query = lambda do |charset, text|
+      doc = Dommy.parse(%(<!doctype html><meta charset="#{charset}"><a href="https://e.test/?#{text}">x</a>)).document
+      [doc.character_encoding, doc.query_selector("a").__js_get__("search")]
+    end
+    assert_equal ["Big5", "?%A3%E1"], query.("big5", "€")
+    assert_equal ["Big5", "?%26%239731%3B"], query.("big5", "☃")
+    assert_equal ["ISO-2022-JP", "?%1B(J\\%1B(B"], query.("iso-2022-jp", "¥")
+    assert_equal ["UTF-8", "?%E2%82%AC"], query.("utf-8", "€")
   end
 end

@@ -1147,7 +1147,9 @@ module Dommy
     # the URL parser fails on it.
     def __internal_parse_url__(url)
       base = @document&.base_uri.to_s
-      Internal::UrlParser.serialize(Internal::UrlParser.parse(url.to_s, base.empty? ? nil : base))
+      # HTML "encoding-parse a URL": the document's encoding decides how a query
+      # is encoded.
+      Internal::UrlParser.serialize(Internal::UrlParser.parse(url.to_s, base.empty? ? nil : base, encoding: @document&.character_encoding))
     rescue Internal::UrlParser::Failure
       nil
     end

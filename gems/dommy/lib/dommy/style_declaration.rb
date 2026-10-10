@@ -104,7 +104,7 @@ module Dommy
           # An unset CSS property reads as "" (per CSSStyleDeclaration), not nil —
           # `el.style.display` is "" until assigned, which `v-show` and other
           # display-toggling code compares against.
-          properties[method_to_css_name(key)] || ""
+          properties[property_key(method_to_css_name(key))] || ""
         end
       end
     end
@@ -205,10 +205,18 @@ module Dommy
       s.match?(/\A[a-z][a-zA-Z0-9_]*=?\z/) && !s.start_with?("to_") && !NOT_PROPERTY_ACCESSORS.include?(s)
     end
 
+    # The property an attribute name stands for (CSSOM's camel-cased and
+    # webkit-cased attributes): `cssFloat` is `float`, `webkitFilter`
+    # `-webkit-filter`, and a dashed name is itself. A Ruby snake_case name
+    # is the kebab one.
     def method_to_css_name(name)
       s = name.to_s.sub(/=\z/, "")
-      # snake_case (Ruby idiomatic) → kebab; camelCase (JS idiomatic) → kebab.
-      s.include?("_") ? s.tr("_", "-") : s.gsub(/[A-Z]/) { |m| "-#{m.downcase}" }
+      return "float" if s == "cssFloat" || s == "css_float"
+      return s if s.include?("-")
+      return s.tr("_", "-") if s.include?("_")
+
+      kebab = s.gsub(/[A-Z]/) { |m| "-#{m.downcase}" }
+      kebab.start_with?("webkit-") ? "-#{kebab}" : kebab
     end
 
     # The declaration block as an ordered { property => [value, priority] } hash,

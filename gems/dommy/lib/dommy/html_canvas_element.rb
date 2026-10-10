@@ -205,6 +205,13 @@ module Dommy
       end
     end
 
-    def __js_set__(_key, _value) = Bridge::UNHANDLED
+    # The page's writes to `data`, which it holds as a typed array of its own
+    # and hands back before the pixels are next read here.
+    def __js_set__(key, value)
+      return Bridge::UNHANDLED unless key == "__dommyPixels"
+
+      @data = Array(value).map { |byte| byte.to_i.clamp(0, 255) }
+      nil
+    end
   end
 end

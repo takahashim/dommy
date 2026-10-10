@@ -169,6 +169,10 @@ module Dommy
         # matching encoding. Only a handful of the standard's names lack one
         # (x-user-defined, replacement), and those are never a document's.
         def encode_bytes(encoding_name, input)
+          if Encodings::LegacyEncoders.handles?(encoding_name)
+            return Encodings::LegacyEncoders.encode(encoding_name, input) { |cp| "%26%23#{cp}%3B".bytes }
+          end
+
           ruby = begin
             ::Encoding.find(encoding_name.to_s)
           rescue ArgumentError

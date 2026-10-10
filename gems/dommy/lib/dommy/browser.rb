@@ -558,7 +558,8 @@ module Dommy
       fire_unload(old_window)
       check_js_errors!
 
-      new_window = Dommy.parse(Encodings.decode_document(response.body, response_header(response, "content-type")))
+      encoding = Encodings.document_encoding(response.body, response_header(response, "content-type"))
+      new_window = Dommy.parse(Encodings.decode(response.body.to_s, encoding), encoding: encoding)
       new_window.location.__internal_set_url__(final_url)
       new_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
       new_window.document.__internal_referrer__ = referrer if referrer

@@ -175,10 +175,16 @@ module Dommy
   #
   # The Window has no host (standalone CRuby usage); embedders that need
   # bridge callbacks (e.g. a wasm host) pass a host instead.
-  def self.parse(html)
+  #
+  # `encoding` is the encoding the markup's bytes were decoded with, when it
+  # came from bytes; otherwise a full document takes what its own `<meta
+  # charset>` declares.
+  def self.parse(html, encoding: nil)
     s = html.to_s
     if s.match?(/\A\s*(<!doctype|<html\b)/i)
-      Window.new(nil, backend_doc: Backend.parse(s))
+      window = Window.new(nil, backend_doc: Backend.parse(s))
+      window.document.__internal_character_encoding__ = encoding || Encodings.prescan(s) || "UTF-8"
+      window
     else
       window = Window.new
       body = window.document.body

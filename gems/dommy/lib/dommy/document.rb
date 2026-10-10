@@ -693,12 +693,17 @@ module Dommy
       @quirks_mode = value
     end
 
-    # The document's character encoding, as an Encoding Standard name. Dommy
-    # holds the DOM as UTF-8 and models no other encoding; this is the one place
-    # HTML's "encoding-parse a URL" reads it from (see Element#resolve_url), so a
-    # future non-UTF-8 document has a single place to teach.
+    # The document's character encoding, as an Encoding Standard name: what
+    # its bytes were decoded with, or what its own `<meta charset>` declared
+    # when it was parsed from text, else UTF-8. The DOM is held as UTF-8
+    # either way; the encoding is what HTML's "encoding-parse a URL" (a link's
+    # query) and form submission encode with.
     def character_encoding
-      "UTF-8"
+      @character_encoding || "UTF-8"
+    end
+
+    def __internal_character_encoding__=(name)
+      @character_encoding = name
     end
 
     # ----- Public Ruby API (snake_case) -----

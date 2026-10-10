@@ -91,13 +91,22 @@ module Dommy
           box = box(node.parent_element)
           return [] unless box.visible?
 
-          [TextRun.new(node.data.to_s, box.white_space, box.text_transform)]
+          [TextRun.new(node.data.to_s, box.white_space, box.text_transform, turkic?(node.parent_element, box))]
+        end
+
+        # Whether the text's case maps as Turkish / Azeri does — asked only
+        # when it is transformed at all.
+        def turkic?(element, box)
+          return false if box.text_transform == "none"
+
+          ElementState.lang_match?(element, %w[tr az])
         end
 
         def collect_element(element)
           box = box(element)
-          # Nothing inside a display:none box is rendered.
-          return [] if box.none?
+          # Nothing inside a display:none box is rendered, nor inside an SVG
+          # element that is never rendered (a <defs>, a gradient's <stop>).
+          return [] if box.none? || svg_never_rendered?(element)
 
           items = collect_children(element)
           # Invisible, or no box of its own (display:contents): the children's
@@ -202,6 +211,16 @@ module Dommy
         end
 
         # --- element facts --------------------------------------------------
+
+        # SVG 2 §"Elements that are never rendered", and a gradient's stops.
+        SVG_NEVER_RENDERED = %w[
+          clipPath defs desc filter linearGradient marker mask metadata pattern radialGradient
+          script stop style symbol title
+        ].freeze
+
+        def svg_never_rendered?(element)
+          element.namespace_uri == Element::SVG_NAMESPACE && SVG_NEVER_RENDERED.include?(element.local_name.to_s)
+        end
 
         def tag(element) = element.local_name.to_s.downcase
 
