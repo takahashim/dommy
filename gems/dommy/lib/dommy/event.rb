@@ -87,6 +87,9 @@ module Dommy
     end
 
     def add_event_listener(type, listener = nil, options = nil, event_handler: false, &block)
+      # WebIDL converts the options before the method steps run, so a bad
+      # signal throws even when nothing would be added.
+      signal = EventTarget.listener_signal(options)
       cb = listener || block
       return nil if type.nil? || cb.nil?
 
@@ -105,8 +108,7 @@ module Dommy
       # `{ signal: AbortSignal }` — when the signal aborts, auto-
       # remove the listener. Per spec, if the signal is already aborted
       # the listener must not be registered at all.
-      signal = options.is_a?(Hash) ? (options["signal"] || options[:signal]) : nil
-      if signal.is_a?(AbortSignal)
+      if signal
         if signal.aborted?
           remove_event_listener(type, cb, options)
         else
@@ -695,13 +697,12 @@ module Dommy
       # per the event handler processing algorithm (a false return cancels).
       def event_handler? = event_handler ? true : false
 
+      # `{ once: … }`, read with JS truthiness like every boolean member: 0
+      # and "" are false.
       def once?
-        case options
-        when Hash
-          options["once"] || options[:once]
-        else
-          false
-        end
+        return false unless options.is_a?(Hash)
+
+        EventTarget.js_truthy?(options.key?("once") ? options["once"] : options[:once])
       end
 
       # useCapture: a boolean third argument, or `{capture: …}` in the options
@@ -735,6 +736,23 @@ module Dommy
           options
         end
       js_truthy?(raw)
+    end
+
+    # The AddEventListenerOptions `signal` member: nil when it is missing or
+    # undefined, else the AbortSignal it must be. Anything else — null
+    # included — cannot convert to AbortSignal, which WebIDL makes a
+    # TypeError.
+    def self.listener_signal(options)
+      return nil unless options.is_a?(Hash)
+
+      key = options.key?("signal") ? "signal" : (:signal if options.key?(:signal))
+      return nil if key.nil?
+
+      signal = options[key]
+      return nil if defined?(Bridge::UNDEFINED) && signal.equal?(Bridge::UNDEFINED)
+      raise Bridge::TypeError, "addEventListener: 'signal' member is not an AbortSignal" unless signal.is_a?(AbortSignal)
+
+      signal
     end
 
     # JS ToBoolean (Internal::WebIDL.boolean).
