@@ -178,6 +178,14 @@ module Dommy
         nil
       when "isConnected"
         is_connected?
+      when "textContent", "nodeValue"
+        nil
+      when "baseURI"
+        @owner_document&.base_uri
+      else
+        # A doctype is a Node and a ChildNode only: Element's and ParentNode's
+        # getters (tagName, children, ...) are not its members.
+        Bridge::ABSENT
       end
     end
 
@@ -1474,10 +1482,18 @@ module Dommy
         end
       end
 
+      # Pre-insert refuses an element before a doctype `child` or one that
+      # follows it; replace (`exclude` is the child replaced) only one that
+      # follows it, since the doctype being replaced goes.
+      doctype_in_the_way =
+        if exclude
+          doctype_after_child?(existing, child_bn, inclusive: false)
+        else
+          (child_bn && child_bn.node_type == 10) || doctype_after_child?(existing, child_bn)
+        end
       if elements > 1
         raise DOMException::HierarchyRequestError, "Only one element may be a child of a document."
-      elsif elements == 1 &&
-            (has_element || (child_bn && child_bn.node_type == 10) || doctype_after_child?(existing, child_bn))
+      elsif elements == 1 && (has_element || doctype_in_the_way)
         raise DOMException::HierarchyRequestError, "An element cannot be inserted here."
       end
 
@@ -1530,12 +1546,13 @@ module Dommy
       existing[0...idx].any? { |c| c.node_type == 1 }
     end
 
-    # Whether any doctype child follows `child_bn` in the document's child list.
-    def doctype_after_child?(existing, child_bn)
+    # Whether a doctype child is at `child_bn` (when `inclusive`) or follows
+    # it in the document's child list.
+    def doctype_after_child?(existing, child_bn, inclusive: true)
       idx = child_bn && existing.index { |c| c == child_bn }
       return false unless idx
 
-      existing[idx..].any? { |c| c.node_type == 10 }
+      existing[(inclusive ? idx : idx + 1)..].any? { |c| c.node_type == 10 }
     end
 
     # Append a node as a child of the document itself (e.g. a comment alongside
@@ -1703,7 +1720,13 @@ module Dommy
     end
 
     def document_remove_child(node)
-      return __internal_remove_doctype__(node) if node.is_a?(DocumentType)
+      if node.is_a?(DocumentType)
+        bn = backend_node(node)
+        raise DOMException::NotFoundError, "node is not a child of this document" if bn && bn.parent != @backend_doc
+
+        __internal_remove_doctype__(node)
+        return node
+      end
 
       bn = backend_node(node)
       raise DOMException::NotFoundError, "node is not a child of this document" unless bn && bn.parent == @backend_doc

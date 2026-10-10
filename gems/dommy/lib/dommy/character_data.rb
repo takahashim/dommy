@@ -114,6 +114,13 @@ module Dommy
       self.data = value
     end
 
+    # Node.isConnected: whether the shadow-including root is a Document.
+    def is_connected?
+      Internal::NodeTraversal.connected?(@__node__, @document)
+    end
+
+    alias connected? is_connected?
+
     def remove
       @document.remove_node_with_notify(@__node__)
       nil
@@ -241,6 +248,8 @@ module Dommy
         next_sibling
       when "previousSibling"
         previous_sibling
+      when "isConnected"
+        is_connected?
       when "childNodes"
         # CharacterData is a leaf node: childNodes is always an empty (but
         # present and iterable) NodeList, and firstChild/lastChild are null.

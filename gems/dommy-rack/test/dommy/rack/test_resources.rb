@@ -39,6 +39,19 @@ class Dommy::Rack::TestResources < Minitest::Test
     assert_equal "abc", resources.get("/whoami").body
   end
 
+  # serves? answers what a request would: a same-origin URL is served; a
+  # cross-origin one, or one on a blocked host, is not.
+  def test_serves_answers_as_a_request_would
+    session = Dommy::Rack::Session.new(app)
+    session.visit("/")
+    r = Dommy::Rack::Resources.new(session)
+    assert r.serves?("/api")
+    refute r.serves?("http://elsewhere.test/x.js")
+
+    session.subresource_host_blocker = ->(host) { host == "example.org" }
+    refute r.serves?("/api")
+  end
+
   def test_cross_origin_declines_with_nil
     assert_nil resources.get("https://cdn.example.com/x")
   end

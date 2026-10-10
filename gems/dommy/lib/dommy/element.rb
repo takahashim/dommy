@@ -135,9 +135,6 @@ module Dommy
     end
 
     HTML_NAMESPACE = Internal::Namespaces::HTML
-    # More shadow trees nested in one another than any real page has.
-    MAX_SHADOW_DEPTH = 100_000
-
     # tagName is the qualified name, ASCII-upper-cased only for an HTML-namespace
     # element whose node document is an HTML document. An XHTML element (HTML
     # namespace, but in an XML document) and any non-HTML-namespace element keep
@@ -535,26 +532,9 @@ module Dommy
       @document
     end
 
-    # Walks parents up to the Document (or false when the chain
-    # dead-ends). Crosses ShadowRoot boundaries: a node inside an
-    # open or closed shadow tree is connected iff its host is.
+    # Node.isConnected: whether the shadow-including root is a Document.
     def is_connected?
-      current = @__node__
-      # From each tree's root to the host of its shadow root, if it is one.
-      # Shadow trees do not nest in a cycle; the cap only keeps a malformed
-      # chain from hanging.
-      MAX_SHADOW_DEPTH.times do
-        root = Internal::NodeTraversal.root_of(current)
-        return true if root.is_a?(Backend.document_class)
-
-        # Only a fragment can be a shadow root's.
-        sr = root.document_fragment? && @document.__internal_shadow_root_for_fragment__(root)
-        host = sr && sr.host
-        return false unless host
-
-        current = host.__dommy_backend_node__
-      end
-      false
+      Internal::NodeTraversal.connected?(@__node__, @document)
     end
 
     alias connected? is_connected?

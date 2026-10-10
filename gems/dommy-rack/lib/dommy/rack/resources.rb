@@ -19,6 +19,12 @@ module Dommy
 
       def get(url, headers: {}) = request(method: "GET", url: url, headers: headers)
 
+      # Whether a GET of `url` would be served: what a copy kept from an
+      # earlier page (Dommy::Js::ModulePreload) asks before it stands in for
+      # the request, so a blocked or declined host is recorded and refused as
+      # a request to it would be.
+      def serves?(url) = !served_target(method: "GET", url: url, headers: {}, body: nil).nil?
+
       def request(method:, url:, headers: {}, body: nil)
         target = served_target(method: method, url: url, headers: headers, body: body)
         return nil unless target

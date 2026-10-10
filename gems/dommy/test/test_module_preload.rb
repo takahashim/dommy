@@ -49,6 +49,9 @@ class TestModulePreload < Minitest::Test
   # The resources, counting the requests made of them per path.
   class CountingResources
     attr_reader :requests
+    attr_accessor :refuse
+
+    def serves?(_url) = !refuse
 
     def initialize(inner)
       @inner = inner
@@ -79,6 +82,7 @@ class TestModulePreload < Minitest::Test
 
   def teardown
     PRELOAD.scope = :digested
+    PRELOAD.max_source_bytes = PRELOAD::MAX_SOURCE_BYTES
     PRELOAD.reset!
   end
 
@@ -152,6 +156,28 @@ class TestModulePreload < Minitest::Test
     PRELOAD.scope = :none
     runtime = runtime_of(page(modules("/big-0123abcd.js", "/small-4567ef01.js")))
     assert_empty runtime.preload_modules
+    assert_equal 2, @resources.requests["/small-4567ef01.js"]
+  end
+
+  # Past the cap the least recently read source goes, and is fetched again
+  # when next asked for.
+  def test_kept_sources_are_capped
+    PRELOAD.max_source_bytes = SMALL.bytesize + BIG.bytesize - 1
+    page(modules("/small-4567ef01.js"))
+    page(modules("/big-0123abcd.js"))
+    assert_nil PRELOAD.source(SMALL_URL)
+    refute_nil PRELOAD.source(BIG_URL)
+
+    page(modules("/small-4567ef01.js"))
+    assert_equal 2, @resources.requests["/small-4567ef01.js"]
+  end
+
+  # A kept source stands in only for a URL the resources would serve: one
+  # they refuse now is asked of them, and refused.
+  def test_a_kept_source_is_not_used_for_a_url_the_resources_refuse
+    page(modules("/small-4567ef01.js"))
+    @resources.refuse = true
+    page(modules("/small-4567ef01.js"))
     assert_equal 2, @resources.requests["/small-4567ef01.js"]
   end
 
