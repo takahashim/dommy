@@ -763,7 +763,7 @@ module Dommy
       document = window.document
       window.dispatch_event(document.__internal_page_transition_event__("pagehide"))
       unload = Dommy::Event.new("unload")
-      unload.__internal_set_target__(document)
+      unload.__internal_set_legacy_target_override__(document)
       window.dispatch_event(unload.__internal_mark_trusted__)
     end
 

@@ -703,7 +703,7 @@ module Dommy
         consume_body { immediate(Response.utf8_decode(@body_bytes)) }
       when "json"
         consume_body do
-          immediate(JSON.parse(Response.utf8_decode(@body_bytes)))
+          immediate(JSON.parse(Response.utf8_decode(@body_bytes), **Response::JSON_OPTIONS))
         rescue JSON::ParserError => e
           rejected(ErrorValue.new("JSON parse: #{e.message}"))
         end
@@ -913,6 +913,10 @@ module Dommy
     # UTF-8, replacing any ill-formed sequence with U+FFFD, and drop a single
     # leading byte-order mark (U+FEFF). Well-formed UTF-8 (the common case) is
     # returned unchanged. Used by both Request and Response text().
+    # ECMAScript's JSON.parse, which a page's JSON goes through, keeps the last
+    # of duplicate keys; json 3 rejects them unless told otherwise.
+    JSON_OPTIONS = {allow_duplicate_key: true}.freeze
+
     def self.utf8_decode(bytes)
       s = bytes.to_s.dup.force_encoding(Encoding::UTF_8)
       s = s.scrub("\u{FFFD}") unless s.valid_encoding?
@@ -1011,7 +1015,7 @@ module Dommy
         consume_body { immediate(Response.utf8_decode(@body)) }
       when "json"
         consume_body do
-          immediate(JSON.parse(scrub_lone_surrogates(@body)))
+          immediate(JSON.parse(scrub_lone_surrogates(@body), **Response::JSON_OPTIONS))
         rescue JSON::ParserError => e
           rejected(ErrorValue.new("JSON parse: #{e.message}"))
         end

@@ -853,7 +853,16 @@ module Dommy
     end
 
     def boundaries_moved
+      track_in_document_of(@start_container)
       @selection&.__internal_range_moved__(self)
+    end
+
+    # A range is live wherever its boundaries are: one set into another
+    # document's tree has to hear that document's mutations, which only its
+    # registry reports. (Registration is weak and idempotent.)
+    def track_in_document_of(node)
+      document = node.is_a?(Document) ? node : (node.owner_document if node.respond_to?(:owner_document))
+      document.__internal_register_range__(self) if document.respond_to?(:__internal_register_range__)
     end
 
     # A Text node in the spec's sense, which includes a CDATASection.

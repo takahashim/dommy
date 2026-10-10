@@ -21,7 +21,7 @@ module Dommy
       # A malformed import map is ignored, per the proposal — but only a parse
       # failure is. Anything else raised here is a bug, not a bad map.
       def self.parse_json(json)
-        JSON.parse(json)
+        JSON.parse(json, **Response::JSON_OPTIONS)
       rescue JSON::ParserError
         {}
       end

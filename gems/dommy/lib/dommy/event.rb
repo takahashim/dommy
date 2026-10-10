@@ -347,7 +347,7 @@ module Dommy
       # The legacy `window.event` global is set for the duration of a listener,
       # then restored — but NOT for a listener inside a shadow tree, which would
       # otherwise hand an encapsulated event to the outer global.
-      window = window_of(entry.invocation_target)
+      window = listener_window(entry.invocation_target, event.type) || window_of(entry.invocation_target)
       previous_event = window&.__internal_current_event__
       window.__internal_set_current_event__(event) if window && !entry.in_shadow_tree
       begin
@@ -358,13 +358,30 @@ module Dommy
       throw :stop_propagation if event.propagation_stopped?
     end
 
-    # The Window whose `event` global covers this node, or nil for a node with
-    # no browsing context.
+    # The Window whose `event` global covers this target, or nil for a node
+    # with no browsing context. A target that is not a node (an
+    # XMLHttpRequest, a WebSocket, a MessagePort) is covered by the window it
+    # was created for.
     def window_of(node)
       return node if node.is_a?(Window)
 
       document = node.is_a?(Document) ? node : (node.document if node.respond_to?(:document))
-      document.default_view if document.respond_to?(:default_view)
+      return document.default_view if document.respond_to?(:default_view)
+
+      window = node.instance_variable_get(:@window) unless node.is_a?(Node)
+      window if window.is_a?(Window)
+    end
+
+    # For a target with no window of its own (`new EventTarget()`, an
+    # AbortSignal), the window of a script listener's realm, whose `event` the
+    # spec sets around each listener.
+    def listener_window(target, type)
+      target.__send__(:listeners_for, type).each do |entry|
+        listener = entry.listener
+        window = listener.__internal_window__ if listener.respond_to?(:__internal_window__)
+        return window if window.is_a?(Window)
+      end
+      nil
     end
 
     # WHATWG dispatch steps 5-12: walk from the target outward, recording one
@@ -859,8 +876,20 @@ module Dommy
       @in_passive_listener = previous
     end
 
+    # Dispatch's targetOverride: the target itself, or the document a Window
+    # event carries under the legacy target override. The override holds for
+    # one dispatch only, so a re-dispatch starts from its own target rather
+    # than from where the previous dispatch left `target`.
     def __internal_prepare_for_dispatch__(target)
-      @target ||= target
+      @target = @legacy_target_override || target
+      @legacy_target_override = nil
+    end
+
+    # HTML's "legacy target override flag": a Window's load, pageshow,
+    # pagehide and unload are targeted at its document.
+    def __internal_set_legacy_target_override__(document)
+      @legacy_target_override = document
+      self
     end
 
     # The shadow-adjusted target for the node currently being visited. The

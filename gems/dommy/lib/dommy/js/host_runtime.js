@@ -877,7 +877,7 @@ globalThis.__rbHost = (function () {
       // getter.
       const proto = Object.getPrototypeOf(v);
       const isExotic = proto !== Object.prototype && proto !== null;
-      const handlesEvents = "handleEvent" in v;
+      const handlesEvents = "handleEvent" in v || listenerObjects.has(v);
       const acceptsNodes = "acceptNode" in v;
       if (isExotic || handlesEvents || acceptsNodes) {
         const ref = { __rb_js_ref: registerJsRef(v) };
@@ -3111,9 +3111,16 @@ globalThis.__rbHost = (function () {
     };
   }
 
+  // Objects passed as an EventListener: one with no handleEvent yet is still a
+  // callback interface (handleEvent is looked up when it is called), so it
+  // crosses as a live reference rather than as a data map.
+  const listenerObjects = new WeakSet();
+
   function listenerStub(prop, ctx) {
     const handle = ctx.handle;
     return (...args) => {
+      const listener = args[1];
+      if (listener !== null && typeof listener === "object") listenerObjects.add(listener);
       if (args.length >= 3) args[2] = flattenListenerOptions(prop, args[2]);
       return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ctx.ifaceName);
     };

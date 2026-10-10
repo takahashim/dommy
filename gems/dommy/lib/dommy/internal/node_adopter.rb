@@ -135,11 +135,13 @@ module Dommy
       # owned by the destination — an imported copy for Makiri. Then carry the
       # wrapper, the subtree's wrappers, and any template contents over.
       def adopt_across_documents(node, src)
-        transfer = Transfer.new(node.respond_to?(:document) ? node.document : nil, @document)
+        source = node.respond_to?(:document) ? node.document : nil
+        transfer = Transfer.new(source, @document)
         adopted = Backend.adopt(src, backend_doc)
 
         transfer.reseat(node, src, adopted)
         transfer.carry_over(src, adopted)
+        source.__internal_hand_over_ranges__(node, @document) if source.respond_to?(:__internal_hand_over_ranges__)
         node
       end
 

@@ -213,4 +213,29 @@ class TestRange < Minitest::Test
     assert_equal(0.0, rect.x)
     assert_equal(0.0, rect.width)
   end
+
+  # Live ranges belong to no document: one inside a subtree adopted into
+  # another document still follows that subtree's mutations.
+  def test_a_range_inside_an_adopted_subtree_follows_its_mutations
+    container = @doc.create_element("container")
+    element = @doc.create_element("element")
+    container.append_child(element)
+    range = @doc.create_range
+    range.select_node(element)
+    other = @doc.implementation.create_document(nil, nil)
+    other.append_child(container)
+    container.remove_child(container.first_child)
+    assert_equal(0, range.end_offset)
+  end
+
+  # A range set into another document's tree follows that document's
+  # mutations, whichever document created it.
+  def test_a_range_set_into_another_document_follows_its_mutations
+    other = @doc.implementation.create_document(Dommy::Element::HTML_NAMESPACE, "html", nil)
+    range = @doc.create_range
+    range.set_start(other, 0)
+    range.set_end(other, 1)
+    other.insert_before(@doc.create_comment("x"), other.document_element)
+    assert_equal(2, range.end_offset)
+  end
 end

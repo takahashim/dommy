@@ -177,6 +177,7 @@ module Dommy
       case method
       when "click"
         click
+        Bridge::UNDEFINED
       when "attachInternals"
         attach_internals
       else

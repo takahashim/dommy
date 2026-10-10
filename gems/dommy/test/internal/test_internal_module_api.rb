@@ -96,7 +96,7 @@ class TestInternalModuleApi < Minitest::Test
       __internal_direction_sensitive_ancestor__ __internal_selector_index_generation__
     ],
     Dommy::Internal::DocumentLiveRanges => %w[
-      __internal_register_range__ __internal_each_live_range__ live_ranges?
+      __internal_register_range__ __internal_each_live_range__ live_ranges? __internal_hand_over_ranges__
       __internal_ranges_normalize_merge__ __internal_ranges_split_text__
       __internal_ranges_will_insert__ live_ranges_where child_index_of_wrapper
     ],

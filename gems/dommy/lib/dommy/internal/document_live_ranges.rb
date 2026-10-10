@@ -23,6 +23,33 @@ module Dommy
         !@live_ranges.nil? && @live_ranges.size.positive?
       end
 
+      # A subtree adopted into `destination` takes the ranges inside it along:
+      # live ranges belong to no document, so a later mutation there has to
+      # find them. `root` is the adopted node, already in `destination`.
+      def __internal_hand_over_ranges__(root, destination)
+        return unless live_ranges?
+
+        moving = []
+        @live_ranges.each_key { |range| moving << range if inclusive_ancestor_of?(root, range.start_container) }
+        moving.each do |range|
+          @live_ranges.delete(range)
+          destination.__internal_register_range__(range)
+        end
+        nil
+      end
+
+      # Whether `node` is `root` or inside it (by parents, so a CharacterData
+      # root, which has no contains?, works too).
+      def inclusive_ancestor_of?(root, node)
+        while node
+          return true if node.equal?(root)
+
+          node = node.respond_to?(:parent_node) ? node.parent_node : nil
+        end
+        false
+      end
+      private :inclusive_ancestor_of?
+
       # WHATWG normalize() steps 6.1-6.4. `current` is a contiguous exclusive Text
       # sibling whose data has just been appended to `node` at `length`; its own
       # boundaries — and a parent-anchored boundary pointing AT it — follow the

@@ -256,4 +256,33 @@ class TestShadowRootEvents < Minitest::Test
     assert_raises(Dommy::DOMException::NotSupportedError) { root.clone_node(true) }
     assert_raises(Dommy::DOMException::NotSupportedError) { root.__js_call__("cloneNode", [false]) }
   end
+
+  # Node's getters a ShadowRoot answers to script.
+  def test_owner_document_is_connected_and_base_uri_from_script
+    root = @doc.create_element("div").attach_shadow("mode" => "open")
+    assert_same(@doc, root.__js_get__("ownerDocument"))
+    assert_equal(false, root.__js_get__("isConnected"))
+    assert_equal(@doc.base_uri, root.__js_get__("baseURI"))
+    assert_nil(root.__js_call__("elementFromPoint", [1, 1]))
+  end
+
+  # A re-dispatched event starts from its own target, not from where the
+  # previous dispatch left `target`: one still inside a shadow tree when the
+  # path ends is cleared.
+  def test_a_redispatched_event_clears_a_shadow_tree_target
+    make = lambda do
+      host = @doc.create_element("div")
+      target = @doc.create_element("div")
+      host.attach_shadow("mode" => "open").append(target)
+      @doc.body.append(host)
+      [host, target]
+    end
+    _, first = make.call
+    second_host, second = make.call
+    event = Dommy::MouseEvent.new("test", "bubbles" => true, "composed" => true, "relatedTarget" => second)
+    first.dispatch_event(event)
+    assert_same(second_host, event.__js_get__("relatedTarget"))
+    second.dispatch_event(event)
+    assert_nil(event.__js_get__("target"))
+  end
 end

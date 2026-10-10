@@ -18,6 +18,14 @@
 - `dialog.showModal()` throws InvalidStateError when the dialog's document is not fully active (a `createHTMLDocument()` or `DOMParser` document).
 - NodeIterator follows the DOM Standard's candidate reference: a filter that removes the node it is filtering leaves `referenceNode` on a node still in the tree, and the traversal continues from there.
 - `new StorageEvent(type, {url: null})` has `url` `"null"`, and `{url: undefined}` `""`; `initStorageEvent` with an undefined `url` or `storageArea` takes the default (`""`, null).
+- `XMLHttpRequest`'s `json` response, `Response#json()`, `Request#json()` and import maps keep the last of duplicate keys, as JavaScript's `JSON.parse` does; with json 3 (Ruby 4's) such a body was null or a rejection.
+- An object with no `handleEvent` yet can be registered as an event listener; `handleEvent` is looked up when the listener is called. It was passed as a plain data object and never called.
+- `window.event` is set around a listener whose target is not a node (`new EventTarget()`, an AbortSignal, an XMLHttpRequest), and to the listener's realm's window rather than the target's document's.
+- A re-dispatched event starts from its own target: the previous dispatch's `target` no longer leaks into the path, so a target still inside a shadow tree when the path ends is cleared. The legacy target override (a Window's `load`, `pageshow`, `pagehide`, `unload` targeted at its document) holds for its one dispatch.
+- A ShadowRoot answers `ownerDocument`, `isConnected` and `baseURI` to script, and has `elementFromPoint()` (null, as the document's).
+- `element.click()` from script returns undefined, not true.
+- A live Range follows the mutations of the document its boundaries are in: one set into another document's tree with `setStart` / `setEnd`, and one inside a subtree adopted into another document.
+- Inserting or removing a fieldset's legend refreshes the disabled state of the form-associated custom elements in it, firing `formDisabledCallback` when the first legend changes.
 
 ## 0.16.0 — 2026-10-10
 
