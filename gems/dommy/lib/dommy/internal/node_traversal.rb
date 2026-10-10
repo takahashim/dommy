@@ -20,6 +20,29 @@ module Dommy
       # ancestor, the backend document when it is attached.
       def self.root_of(node) = node.root_node
 
+      # More shadow trees nested in one another than any real page has.
+      MAX_SHADOW_DEPTH = 100_000
+
+      # Whether `node` (a backend node of `document`) is connected: its
+      # shadow-including root is a document. From each tree's root to the
+      # host of its shadow root, if it is one. Shadow trees do not nest in a
+      # cycle; the cap only keeps a malformed chain from hanging.
+      def self.connected?(node, document)
+        current = node
+        MAX_SHADOW_DEPTH.times do
+          root = root_of(current)
+          return true if root.is_a?(Backend.document_class)
+
+          # Only a fragment can be a shadow root's.
+          shadow_root = root.document_fragment? && document.__internal_shadow_root_for_fragment__(root)
+          host = shadow_root && shadow_root.host
+          return false unless host
+
+          current = host.__dommy_backend_node__
+        end
+        false
+      end
+
       # Check if ancestor is an ancestor of node.
       def self.ancestor_of?(ancestor, node)
         each_ancestor(node) { |n| return true if n == ancestor }
