@@ -142,10 +142,12 @@ module Dommy
         @document_parsed = true
         return unless document?
 
-        # Decoded as the response declares (a byte-order mark, then the
-        # Content-Type's charset, else UTF-8).
-        text = ::Dommy::Encodings.decode_document(@body, header("content-type"))
-        @window = html? ? Dommy.parse(text) : ::Dommy::Internal::ChildNavigable.text_window(text, content_type)
+        # Decoded as the response declares (a byte-order mark, the
+        # Content-Type's charset, an HTML page's `<meta charset>`, else
+        # UTF-8), and the document told which encoding that was.
+        text, encoding = ::Dommy::Encodings.decode_document(@body, header("content-type"), html: html?)
+        @window = html? ? Dommy.parse(text, encoding: encoding) : ::Dommy::Internal::ChildNavigable.text_window(text, content_type)
+        @window.document.__internal_character_encoding__ = encoding
         # Establish the document's URL (not a navigation: nothing is asked of
         # the navigation delegate, and the first session history entry is this
         # URL).

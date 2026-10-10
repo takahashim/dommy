@@ -1139,17 +1139,22 @@ module Dommy
     # Resolve a (possibly relative) URL against the document base URL — the
     # API base URL of this window's environment, as fetch/XHR use when
     # constructing a request. Returns the input unchanged if it can't resolve.
-    def __internal_resolve_url__(url)
-      __internal_parse_url__(url) || url.to_s
+    def __internal_resolve_url__(url, utf8: false)
+      __internal_parse_url__(url, utf8: utf8) || url.to_s
     end
 
     # `url` parsed against the document base URL and serialized, or nil when
     # the URL parser fails on it.
-    def __internal_parse_url__(url)
+    #
+    # By default this is HTML's "encoding-parse a URL": the document's
+    # encoding decides how a query is encoded, as for a link, a form, XHR,
+    # window.open, history and an iframe's src. An API that uses the plain
+    # URL parser — fetch, sendBeacon, cookieStore — passes `utf8: true`, so a
+    # Shift_JIS page's fetch('?q=…') still sends UTF-8.
+    def __internal_parse_url__(url, utf8: false)
       base = @document&.base_uri.to_s
-      # HTML "encoding-parse a URL": the document's encoding decides how a query
-      # is encoded.
-      Internal::UrlParser.serialize(Internal::UrlParser.parse(url.to_s, base.empty? ? nil : base, encoding: @document&.character_encoding))
+      encoding = utf8 ? nil : @document&.character_encoding
+      Internal::UrlParser.serialize(Internal::UrlParser.parse(url.to_s, base.empty? ? nil : base, encoding: encoding))
     rescue Internal::UrlParser::Failure
       nil
     end

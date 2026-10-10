@@ -273,4 +273,37 @@ class TestEncodings < Minitest::Test
     assert_equal ["ISO-2022-JP", "?%1B(J\\%1B(B"], query.("iso-2022-jp", "¥")
     assert_equal ["UTF-8", "?%E2%82%AC"], query.("utf-8", "€")
   end
+
+  # A document built from bytes takes the encoding they were decoded with:
+  # the Content-Type's charset over the page's own <meta>.
+  def test_a_document_from_bytes_takes_the_encoding_it_was_decoded_with
+    nav = Dommy::Internal::ChildNavigable
+    sjis = "<!doctype html><a id=a href=\"/s?q=\u65E5\">x</a>".encode("Windows-31J").b
+    win = nav.window_for_response(sjis, "text/html; charset=Shift_JIS", "http://e.test/")
+    assert_equal ["Shift_JIS", "http://e.test/s?q=%93%FA"], [win.document.character_encoding, win.document.get_element_by_id("a").href]
+
+    utf8 = "<!doctype html><meta charset=shift_jis><a id=a href=\"/s?q=\u65E5\">x</a>".b
+    win = nav.window_for_response(utf8, "text/html; charset=utf-8", "http://e.test/")
+    assert_equal ["UTF-8", "http://e.test/s?q=%E6%97%A5"], [win.document.character_encoding, win.document.get_element_by_id("a").href]
+
+    text = nav.window_for_response("caf\xE9".b, "text/plain; charset=iso-8859-1", "http://e.test/t")
+    assert_equal "windows-1252", text.document.character_encoding
+  end
+
+  # fetch, sendBeacon and cookieStore use the plain URL parser: a query is
+  # UTF-8 whatever the document's encoding. A link, XHR and history encode
+  # it in the document's.
+  def test_fetch_encodes_a_query_in_utf8_on_a_legacy_page
+    win = Dommy.parse(%(<!doctype html><meta charset="shift_jis"><p>x</p>))
+    win.location.__internal_set_url__("http://e.test/")
+    assert_equal "http://e.test/a?q=%93%FA", win.__internal_parse_url__("/a?q=\u65E5")
+    assert_equal "http://e.test/a?q=%E6%97%A5", win.__internal_parse_url__("/a?q=\u65E5", utf8: true)
+
+    requested = []
+    resources = Object.new
+    resources.define_singleton_method(:request) { |method:, url:, **| (requested << url) && nil }
+    win.globals["__fetch_handler__"] = Dommy::Resources::FetchHandler.new(resources)
+    Dommy::FetchFn.new(win).__js_call__("fetch", ["/a?q=\u65E5", nil])
+    assert_equal ["http://e.test/a?q=%E6%97%A5"], requested
+  end
 end

@@ -36,7 +36,7 @@ module Dommy
       # Per Fetch, the request URL is resolved against the document base URL up
       # front; the handler, stub maps, and response.url all see the absolute
       # URL (no per-handler resolution).
-      url = @window.__internal_resolve_url__(args[0].to_s)
+      url = @window.__internal_resolve_url__(args[0].to_s, utf8: true)
       init = normalize_init(args[1] || {})
       # A cross-origin request always carries an Origin header (even for GET,
       # which normalize_init omits it for same-origin GETs).

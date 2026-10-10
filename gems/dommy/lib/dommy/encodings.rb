@@ -54,9 +54,13 @@ module Dommy
       valid_utf8(bytes, name) || decoder_for(name).decode(bytes, flush: true).pack("U*")
     end
 
-    # A document's bytes as text, in its encoding (::document_encoding).
-    def self.decode_document(bytes, content_type)
-      decode(bytes.to_s, document_encoding(bytes, content_type))
+    # A document's bytes as text, and the encoding they were decoded with
+    # (::document_encoding), which is the document's: a caller hands both to
+    # the document, so that its URLs encode a query as its bytes were.
+    # `html: false` (an XML or a text document) skips the `<meta>` prescan.
+    def self.decode_document(bytes, content_type, html: true)
+      encoding = document_encoding(bytes, content_type, html: html)
+      [decode(bytes.to_s, encoding), encoding]
     end
 
     # The encoding an HTML document's bytes are in: a byte-order mark's, else
@@ -64,11 +68,11 @@ module Dommy
     # bytes declares (the prescan), else UTF-8.
     #
     # Spec: https://html.spec.whatwg.org/#determining-the-character-encoding
-    def self.document_encoding(bytes, content_type)
+    def self.document_encoding(bytes, content_type, html: true)
       bytes = bytes.to_s.b
       BOMS.each { |mark, name| return name if bytes.start_with?(mark) }
       label = Internal::MimeType.charset_of(content_type.to_s)
-      (label && get(label)) || prescan(bytes) || "UTF-8"
+      (label && get(label)) || (html && prescan(bytes)) || "UTF-8"
     end
 
     META_TAG = /<meta(?=[\s\/>])([^>]*)>/i

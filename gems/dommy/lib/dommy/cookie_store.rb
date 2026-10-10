@@ -95,7 +95,7 @@ module Dommy
       opts = arg.transform_keys(&:to_s)
       url = document_url
       if opts["url"]
-        parsed = @window.__internal_parse_url__(opts["url"].to_s)
+        parsed = @window.__internal_parse_url__(opts["url"].to_s, utf8: true)
         raise Bridge::TypeError, "invalid url" unless parsed && Internal::Origin.of_url(parsed) == @window.origin
 
         url = parsed
