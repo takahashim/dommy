@@ -84,7 +84,7 @@ module Dommy
     def __js_named_props__
       names = []
       first_named = Set.new
-      window_named_candidates.each do |el|
+      window_named_table.candidates.each do |el|
         if (target = child_navigable_name(el))
           # The document-tree child navigable target name property set: the
           # first navigable of each non-empty name, kept when its document is
@@ -108,19 +108,52 @@ module Dommy
       name = name.to_s
       return Bridge::ABSENT if name.empty?
 
-      candidates = window_named_candidates
-      container = candidates.find { |el| child_navigable_name(el) == name }
+      table = window_named_table
+      container = table.containers.find { |el| child_navigable_name(el) == name }
       # (An iframe whose document the host has not supplied yet has no window
       # here; its name then falls through to the elements.)
       window = container&.content_window
       return window if window
 
-      elements = window_named_elements(candidates, name)
+      elements = table.elements(name)
       return Bridge::ABSENT if elements.empty?
       return elements.first if elements.size == 1
 
-      HTMLCollection.new { window_named_elements(window_named_candidates, name) }
+      HTMLCollection.new { window_named_table.elements(name) }
     end
+
+    # The candidates for the window's named properties, in tree order, the
+    # navigable containers among them, and the elements by the name or id
+    # they are named by. A script's every global the host does not answer
+    # (`window.jQuery` before jQuery loads) asks for a name, so it is built
+    # once per DOM change — what it holds depends on the tree, ids and names
+    # only — rather than by querying the whole document each time. A child
+    # navigable's own name can change without the DOM changing, so that is
+    # read from its containers on each lookup.
+    WindowNamedTable = Struct.new(:candidates, :containers, :by_name) do
+      def elements(name) = by_name.fetch(name, [])
+    end
+
+    def window_named_table
+      generation = @document.respond_to?(:dom_generation) ? @document.dom_generation : nil
+      if @window_named_table && generation && @window_named_table_document.equal?(@document) &&
+         @window_named_table_generation == generation
+        return @window_named_table
+      end
+
+      candidates = window_named_candidates.freeze
+      by_name = {}
+      candidates.each do |el|
+        name = window_named_element_name(el)
+        id = el.__internal_attribute_value__("id").to_s
+        [name, (id unless id.empty?)].compact.uniq.each { |key| (by_name[key] ||= []) << el }
+      end
+      by_name.each_value(&:freeze)
+      @window_named_table_document = @document
+      @window_named_table_generation = generation
+      @window_named_table = WindowNamedTable.new(candidates, candidates.grep(HTMLIFrameElement).freeze, by_name.freeze)
+    end
+    private :window_named_table
 
     # Optional WebSocket transport factory (a host seam, like the document's
     # external_script_runner): `->(ws, url, protocols) -> transport | nil`.
@@ -1189,11 +1222,6 @@ module Dommy
 
       name = el.__internal_attribute_value__("name").to_s
       name.empty? ? nil : name
-    end
-
-    # The named objects of this window with the name `name` that are elements.
-    def window_named_elements(candidates, name)
-      candidates.select { |el| window_named_element_name(el) == name || el.__internal_attribute_value__("id").to_s == name }
     end
 
     # The printing steps: beforeprint at this window and its child frames'

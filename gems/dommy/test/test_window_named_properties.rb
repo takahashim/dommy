@@ -60,6 +60,24 @@ class TestWindowNamedProperties < Minitest::Test
     assert_same(@doc.query_selector("p"), @win.__js_named_get__("twice"))
   end
 
+  # The names are read once per DOM change; any change of the tree, an id
+  # or a name shows at the next lookup.
+  def test_the_names_follow_every_change
+    assert_equal(Dommy::Bridge::ABSENT, @win.__js_named_get__("late"))
+    late = @doc.create_element("div")
+    late.id = "late"
+    @doc.body.append_child(late)
+    assert_same(late, @win.__js_named_get__("late"))
+
+    late.id = "renamed"
+    assert_equal(Dommy::Bridge::ABSENT, @win.__js_named_get__("late"))
+    assert_same(late, @win.__js_named_get__("renamed"))
+
+    collection = @win.__js_named_get__("twice")
+    @doc.get_element_by_id("twice").remove
+    assert_equal(1, collection.length)
+  end
+
   def test_an_unsupported_name_is_absent
     assert_equal(Dommy::Bridge::ABSENT, @win.__js_named_get__("missing"))
     assert_equal(Dommy::Bridge::ABSENT, @win.__js_named_get__(""))
