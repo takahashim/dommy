@@ -8,7 +8,8 @@
 
 ### Fixed
 
-- `FormData#append(name, value, filename)` and `#set` with a value that is not a Blob throw TypeError: only the Blob overload takes a filename.
+- `FormData#append(name, value, filename)` and `#set` with a value that is not a Blob throw TypeError, also when the filename is `undefined` or `null`: a third argument picks the Blob overload. For a Blob, an `undefined` filename is none (`"blob"`) and `null` is `"null"`.
+- `FormData`'s, `URLSearchParams`' and `Headers`' `append` no longer get ParentNode's `(Node or DOMString)` conversion from script, which turned `fd.append("a", blob, undefined)`'s filename into `"undefined"`.
 - A File put in a FormData under another name keeps its `lastModified`; only a Blob gets the current time.
 - `range.insertNode()` and `range.surroundContents()` on a range whose start node is an Attr throw HierarchyRequestError instead of a Ruby NoMethodError.
 - `element.getAttribute(name)` and `hasAttribute(name)` from script lowercase only ASCII letters, so `getAttribute("Ä")` finds an attribute set as `"Ä"` (the attribute cache folded it to `"ä"`).
@@ -16,7 +17,7 @@
 - Clicking a radio button that is already checked fires only `click`, not `input` and `change`.
 - `event.returnValue = false` in a passive listener does not cancel the event, as `preventDefault()` already did not; the value is read with ToBoolean.
 - `dialog.showModal()` throws InvalidStateError when the dialog's document is not fully active (a `createHTMLDocument()` or `DOMParser` document).
-- NodeIterator follows the DOM Standard's candidate reference: a filter that removes the node it is filtering leaves `referenceNode` on a node still in the tree, and the traversal continues from there.
+- NodeIterator follows the DOM Standard's candidate reference: a filter that removes the node it is filtering leaves `referenceNode` on a node still in the tree, and the traversal continues from there. A filter that calls `nextNode()` on its own iterator gets InvalidStateError and leaves the outer traversal where it was.
 - `new StorageEvent(type, {url: null})` has `url` `"null"`, and `{url: undefined}` `""`; `initStorageEvent` with an undefined `url` or `storageArea` takes the default (`""`, null).
 - `XMLHttpRequest`'s `json` response, `Response#json()`, `Request#json()` and import maps keep the last of duplicate keys, as JavaScript's `JSON.parse` does; with json 3 (Ruby 4's) such a body was null or a rejection.
 - An object with no `handleEvent` yet can be registered as an event listener; `handleEvent` is looked up when the listener is called. It was passed as a plain data object and never called.
