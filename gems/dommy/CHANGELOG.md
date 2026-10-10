@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `FormData#append` and `#set` convert a non-Blob value as a USVString, so `nil` (JS `null`) is `"null"` instead of `""`, as CharacterData's methods already do.
+
+### Fixed
+
+- `FormData#append(name, value, filename)` and `#set` with a value that is not a Blob throw TypeError: only the Blob overload takes a filename.
+- A File put in a FormData under another name keeps its `lastModified`; only a Blob gets the current time.
+- `range.insertNode()` and `range.surroundContents()` on a range whose start node is an Attr throw HierarchyRequestError instead of a Ruby NoMethodError.
+
 ## 0.16.0 — 2026-10-10
 
 ### Breaking changes

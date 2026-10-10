@@ -87,6 +87,16 @@ class TestRange < Minitest::Test
     assert(win.document.query_selector("mark span"))
   end
 
+  # An Attr takes no children, so pre-insert rejects a range rooted in one.
+  def test_insert_node_into_an_attr_rooted_range_is_a_hierarchy_request_error
+    attr = @doc.create_attribute("x")
+    range = @doc.create_range
+    range.set_start(attr, 0)
+    span = @doc.create_element("span")
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { range.insert_node(span) }
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { range.surround_contents(span) }
+  end
+
   # --- Ordering / containment ------------------------------------
 
   def test_compare_boundary_points

@@ -186,11 +186,17 @@ module Dommy
 
     # XHR's "create an entry": a Blob that is not a File becomes a File named
     # "blob", and a File given a filename one of that name, so every file
-    # entry is a File with a name; anything else is a string.
+    # entry is a File with a name; anything else is a string. Only the
+    # (name, Blob, filename) overload takes a filename, so a string with one
+    # is a TypeError.
     def entry_value(value, filename)
-      return value.nil? ? "" : value.to_s unless value.is_a?(Blob)
-
       filename = nil if filename.equal?(Bridge::UNDEFINED)
+      unless value.is_a?(Blob)
+        raise Bridge::TypeError, "parameter 2 is not of type 'Blob'." unless filename.nil?
+
+        return Internal::WebIDL.dom_string(value)
+      end
+
       return value if value.is_a?(File) && filename.nil?
 
       value.__internal_file_named__(filename.nil? ? "blob" : filename.to_s)

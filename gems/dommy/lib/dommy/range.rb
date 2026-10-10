@@ -566,6 +566,12 @@ module Dommy
       parent = reference.nil? ? start_node : parent_of(reference)
       # Step 6, ahead of the split: an insertion pre-insert would reject must
       # not leave the Text node split behind it.
+      # Pre-insert's first check: only a Document, DocumentFragment or Element
+      # takes children, so an Attr-rooted range has nowhere to put the node.
+      unless parent.respond_to?(:__internal_ensure_insertion_validity__)
+        raise DOMException::HierarchyRequestError, "the range's start node cannot have children"
+      end
+
       ref_bn = reference&.__dommy_backend_node__
       parent.__internal_ensure_insertion_validity__([node], ref_bn)
 
