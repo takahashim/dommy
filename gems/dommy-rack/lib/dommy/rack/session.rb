@@ -815,12 +815,19 @@ module Dommy
 
       # --- Link navigation ---
 
+      # click_link / click_button operate on the page and return the element
+      # they clicked, with or without JavaScript, as Capybara's do; what the
+      # click led to is the page, and #last_response. (With JavaScript the
+      # page may take the click over, so a response is not theirs to return.)
+      # The request API — #visit, #get / #post, #submit_form,
+      # #click_link_element — is what returns a Response.
       def click_link(locator)
         @trace&.__internal_open_action(:click_link, locator)
         link = finder.find_link(locator)
         return click_through_page(link) if javascript?
 
         click_link_element(link)
+        link
       end
 
       def click_link_element(element)
@@ -851,9 +858,8 @@ module Dommy
 
         # Only submit buttons submit a form. type=button / type=reset are
         # no-ops here since there is no JavaScript to handle their click.
-        return button unless submit_button?(button)
-
-        submit_form(finder.form_for(button), submitter: button)
+        submit_form(finder.form_for(button), submitter: button) if submit_button?(button)
+        button
       end
 
       def submit_form(form, submitter: nil)
@@ -1220,6 +1226,8 @@ module Dommy
         method = (nav[:method] || "GET").to_s.upcase
         params = nav[:params]
         method, params = apply_delegate_method_override(method, params) if params
+        # A form the page submitted is traced as #submit_form's are.
+        @trace&.__internal_record_form(method: method, url: target, params: params) if nav[:source] == :form
         navigate(method: method, url: target, params: params, body: nav[:body], enctype: nav[:enctype],
                  headers: referer_headers, replace: nav[:replace])
       end

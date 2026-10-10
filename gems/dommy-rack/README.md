@@ -121,9 +121,16 @@ session.select("Tokyo", from: "City")             # <select>
 session.unselect("Tokyo", from: "City")
 session.attach_file("Avatar", "/path/to/file.png")
 
-session.click_button("Save")        # submits the owning form
-session.submit_form(session.at_css("form"))
+session.click_button("Save")        # submits the owning form; returns the button
+session.last_response.status        # what the click led to
+session.submit_form(session.at_css("form"))  # => the Response
 ```
+
+The methods that operate on the page — `fill_in`, `choose`, `check`,
+`click_button`, `click_link`, `click` — return the element they acted on, as
+Capybara's do; what an action led to is the page itself and
+`session.last_response`. The request API — `visit`, `get` / `post` and the
+other verbs, `submit_form`, `fetch` — returns the `Response`.
 
 In a session with `javascript: true`, `click_button` and `click_link` click the
 element as a browser would: the page's listeners see the click and the
