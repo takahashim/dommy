@@ -1671,6 +1671,7 @@ module Dommy
     # ParentNode / Node mutation on the document's direct children (the doctype
     # and the document element).
     def document_insert(args, prepend:)
+      args = Internal::InsertionPoint.convert_nodes_into_a_node(self, args)
       ref_bn = prepend ? @backend_doc.children.first : nil
       ensure_document_insertion_validity!(args, ref_bn)
       __internal_ranges_will_insert__(@backend_doc, ref_bn, document_insertion_count(args))
@@ -1685,6 +1686,7 @@ module Dommy
     end
 
     def document_replace_children(args)
+      args = Internal::InsertionPoint.convert_nodes_into_a_node(self, args)
       # replaceChildren removes the current children first, so the validity
       # checks ignore them (whatwg/dom#1045).
       ensure_document_insertion_validity!(args, nil, ignore_existing: true)

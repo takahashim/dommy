@@ -25,8 +25,11 @@ module Dommy
       end
 
       # The spec's steps 1-6, in their order: the implications are in the
-      # readers below, then "at least one", then the contradictions.
+      # readers below, then "at least one", then the contradictions. WebIDL
+      # converted the dictionary before them, so a member that cannot convert
+      # throws first.
       def to_registration(target)
+        filter = attribute_filter
         unless child_list? || attributes? || character_data?
           raise Bridge::TypeError,
             "MutationObserver.observe: at least one of childList, attributes, characterData must be true"
@@ -38,7 +41,7 @@ module Dommy
           child_list: child_list?,
           subtree: flag("subtree"),
           attributes: attributes?,
-          attribute_filter: attribute_filter,
+          attribute_filter: filter,
           attribute_old_value: flag("attributeOldValue"),
           character_data: character_data?,
           character_data_old_value: flag("characterDataOldValue")
@@ -47,9 +50,18 @@ module Dommy
 
       private
 
+      # `sequence<DOMString>`: an array (the iterable the bridge hands over),
+      # each element through ToString — null is "null". Anything else, null
+      # and a string included, cannot convert and is a TypeError. The names
+      # stay as given: the filter is matched against an attribute's local name
+      # case-sensitively ("queue a mutation record" step 2.3).
       def attribute_filter
-        filter = @opts["attributeFilter"] || @opts[:attributeFilter]
-        filter.is_a?(Array) ? filter.map { |name| name.to_s.downcase } : filter
+        return nil unless given?("attributeFilter")
+
+        filter = member("attributeFilter")
+        raise Bridge::TypeError, "MutationObserver.observe: attributeFilter is not a sequence" unless filter.is_a?(Array)
+
+        filter.map { |name| WebIDL.dom_string(name) }
       end
 
       def child_list? = flag("childList")
@@ -76,18 +88,16 @@ module Dommy
         raise Bridge::TypeError, "characterDataOldValue requires characterData to be true"
       end
 
-      def given?(name) = @opts.key?(name) || @opts.key?(name.to_sym)
-
-      # JS truthiness for a dictionary member, which is what WebIDL's `boolean`
-      # conversion amounts to here.
-      def flag(name)
-        value = @opts.key?(name) ? @opts[name] : @opts[name.to_sym]
-        return false if value.nil? || value == false || value == 0 || value == ""
-        return false if defined?(Bridge::UNDEFINED) && value.equal?(Bridge::UNDEFINED)
-        return false if value.is_a?(Float) && value.nan?
-
-        true
+      # Whether the dictionary has the member: an undefined value is as if it
+      # were missing (WebIDL dictionary conversion skips it).
+      def given?(name)
+        (@opts.key?(name) || @opts.key?(name.to_sym)) && !member(name).equal?(Bridge::UNDEFINED)
       end
+
+      def member(name) = @opts.key?(name) ? @opts[name] : @opts[name.to_sym]
+
+      # A boolean member through WebIDL's conversion (ToBoolean).
+      def flag(name) = WebIDL.boolean(member(name))
     end
   end
 end

@@ -35,6 +35,46 @@ class TestMutationObserverAttrs < Minitest::Test
     assert_equal("only", @records.first.__js_get__("attributeName"))
   end
 
+  # attributeFilter is a sequence<DOMString>: a value that is not a sequence
+  # cannot convert, null and a string included.
+  def test_attribute_filter_must_be_a_sequence
+    [nil, "only", {}].each do |filter|
+      assert_raises(Dommy::Bridge::TypeError) do
+        @obs.__js_call__("observe", [@root, {"attributes" => true, "attributeFilter" => filter}])
+      end
+    end
+  end
+
+  # Each element goes through ToString: null is "null", 1.0 is "1".
+  def test_attribute_filter_elements_convert_to_strings
+    @obs.__js_call__("observe", [@root, {"attributeFilter" => [nil, 1.0]}])
+    @root.set_attribute("null", "a")
+    @root.set_attribute("1", "b")
+    @root.set_attribute("other", "c")
+    drain
+    assert_equal(%w[null 1], @records.map { |r| r.__js_get__("attributeName") })
+  end
+
+  # The filter is matched against the attribute's local name as given: "ID"
+  # is not "id".
+  def test_attribute_filter_is_case_sensitive
+    plain = @doc.create_element_ns(nil, "plain")
+    @root.append_child(plain)
+    @obs.__js_call__("observe", [@root, {"subtree" => true, "attributeFilter" => ["ID"]}])
+    @root.set_attribute("id", "x")
+    plain.set_attribute("ID", "y")
+    drain
+    assert_equal([plain], @records.map { |r| r.__js_get__("target") })
+  end
+
+  # An undefined member is as if missing: it implies nothing.
+  def test_an_undefined_member_is_missing
+    @obs.__js_call__("observe", [@root, {"childList" => true, "attributeOldValue" => Dommy::Bridge::UNDEFINED}])
+    @root.set_attribute("data-x", "1")
+    drain
+    assert_empty(@records)
+  end
+
   def test_attribute_old_value_supplied_when_requested
     @root.set_attribute("data-x", "first")
     @obs.__js_call__("observe", [@root, {"attributes" => true, "attributeOldValue" => true}])

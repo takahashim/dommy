@@ -52,6 +52,30 @@ class TestEventTargetExtras < Minitest::Test
     assert_equal([:a, :b], fired)
   end
 
+  # WebIDL reads the `once` boolean with ToBoolean: 0 and "" are false.
+  def test_once_uses_js_truthiness
+    count = 0
+    @btn.add_event_listener("click", proc { count += 1 }, {"once" => 0})
+    @btn.add_event_listener("click", proc { count += 10 }, {"once" => ""})
+    @btn.click
+    @btn.click
+    assert_equal(22, count)
+  end
+
+  # A `signal` that is not an AbortSignal cannot be converted, so the call
+  # throws before anything is added; an undefined one is as if missing.
+  def test_a_signal_must_be_an_abort_signal
+    fired = []
+    [nil, "signal", {}].each do |signal|
+      assert_raises(Dommy::Bridge::TypeError) do
+        @btn.add_event_listener("click", proc { fired << signal }, {"signal" => signal})
+      end
+    end
+    @btn.add_event_listener("click", proc { fired << :undefined }, {"signal" => Dommy::Bridge::UNDEFINED})
+    @btn.click
+    assert_equal([:undefined], fired)
+  end
+
   def test_an_on_name_no_interface_declares_is_not_an_event_handler
     # HTML §8.1.8.1: only the event handler IDL attributes an interface
     # declares are handlers. `el.oncustom = fn` is an ordinary property, so a
