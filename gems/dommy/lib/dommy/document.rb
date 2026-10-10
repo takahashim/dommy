@@ -1604,7 +1604,7 @@ module Dommy
       detach_node(bn, moving: true)                               # steps 10-11, 14
       ref_bn = nil if ref_bn && ref_bn.parent != @backend_doc
       __internal_ranges_will_insert__(@backend_doc, ref_bn, 1)    # step 16
-      new_previous = ref_bn ? ref_bn.previous_sibling : @backend_doc.children.last
+      new_previous = ref_bn ? ref_bn.previous_sibling : @backend_doc.last_child
       ref_bn ? ref_bn.add_previous_sibling(bn) : @backend_doc.add_child(bn) # step 18
       if old_parent
         notify_child_list_mutation(
@@ -1676,11 +1676,11 @@ module Dommy
     # and the document element).
     def document_insert(args, prepend:)
       args = Internal::InsertionPoint.convert_nodes_into_a_node(self, args)
-      ref_bn = prepend ? @backend_doc.children.first : nil
+      ref_bn = prepend ? @backend_doc.first_child : nil
       ensure_document_insertion_validity!(args, ref_bn)
       __internal_ranges_will_insert__(@backend_doc, ref_bn, document_insertion_count(args))
       nodes = document_insertion_nodes(args)
-      if prepend && (first = @backend_doc.children.first)
+      if prepend && (first = @backend_doc.first_child)
         nodes.reverse_each { |n| first.add_previous_sibling(n) }
       else
         nodes.each { |n| @backend_doc.add_child(n) }
@@ -1817,7 +1817,7 @@ module Dommy
     # (at the document start) or after it (just before the document element).
     def __internal_insert_at_doctype__(nodes, after:)
       bns = nodes.filter_map { |n| backend_node(n) }
-      anchor = after ? backend_document_element : @backend_doc.children.first
+      anchor = after ? backend_document_element : @backend_doc.first_child
       __internal_ranges_will_insert__(@backend_doc, anchor, bns.size)
       if after
         anchor ? bns.each { |n| anchor.add_previous_sibling(n) } : bns.each { |n| @backend_doc.add_child(n) }
@@ -3631,7 +3631,7 @@ module Dommy
       root = backend_document_element
       if svg_root?(root)
         title = svg_title_child(root)
-        title = insert_title(root, Internal::Namespaces::SVG, before: root.children.first) unless title
+        title = insert_title(root, Internal::Namespaces::SVG, before: root.first_child) unless title
       elsif root && Backend.namespace_uri(root) == Internal::Namespaces::HTML
         title = html_title_element
         unless title

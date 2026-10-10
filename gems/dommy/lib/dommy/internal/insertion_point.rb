@@ -45,7 +45,7 @@ module Dommy
       def count(args)
         args.sum do |arg|
           case arg
-          when Fragment then arg.__dommy_backend_node__.children.size
+          when Fragment then arg.__dommy_backend_node__.child_count
           when String then 1
           else arg.is_a?(Node) && arg.__dommy_backend_node__ ? 1 : 0
           end
@@ -56,7 +56,7 @@ module Dommy
       # or the parent's last child when appending. Measured before anything
       # moves. Returns the backend node; the caller wraps it.
       def previous_sibling(parent, ref)
-        ref ? ref.previous_sibling : parent.children.last
+        ref ? ref.previous_sibling : parent.last_child
       end
 
       # Advance `ref` past any node that is itself being inserted: it is about

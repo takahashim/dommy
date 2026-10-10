@@ -2,10 +2,10 @@
 
 require_relative "test_helper"
 
-# A node's childNodes and children answer `length` and `[i]` from the
-# backend's own child list, and keep the length and the last child read until
-# the tree changes, so a loop over their indices is O(n) — and stay live: a
-# change shows at the next read, however it was made.
+# A node's childNodes and children answer `length` and `[i]` by counting and
+# indexing the backend's child list, never building it, so a loop over their
+# indices is O(n) — and stay live: a change shows at the next read, however
+# it was made.
 class TestChildListFastPath < Minitest::Test
   def setup
     @doc = Dommy.parse("<ul id=t><li>a</li>text<li>b</li></ul>").document
@@ -45,7 +45,7 @@ class TestChildListFastPath < Minitest::Test
     assert_equal [1, 1], [nodes.length, shadow.__js_get__("children").length]
   end
 
-  # Forward and back, each index after the first is a step from the last.
+  # Forward and back, no read builds the child list.
   def test_a_loop_over_the_indices_lists_the_children_once_for_each
     @ul.inner_html = (1..50).map { |i| "<li>#{i}</li>" }.join
     lookups = 0
@@ -57,14 +57,14 @@ class TestChildListFastPath < Minitest::Test
     backward = (elements.length - 1).downto(0).map { |i| elements.item(i).text_content }
     assert_equal (1..50).map(&:to_s), forward
     assert_equal forward.reverse, backward
-    assert_equal 2, lookups, "the length once, the first item once"
+    assert_equal 0, lookups
   ensure
     backend.singleton_class.remove_method(:element_children)
   end
 
-  # What is kept goes when the tree changes, by any route: a parse into the
-  # node, a removal mid-loop, a child moved to another document.
-  def test_what_is_kept_goes_with_any_change
+  # Every route of change shows: a parse into the node, a removal mid-loop,
+  # a child moved to another document.
+  def test_every_change_shows
     nodes = @ul.__js_get__("childNodes")
     assert_equal ["a", 3], [nodes.item(0).text_content, nodes.length]
 
