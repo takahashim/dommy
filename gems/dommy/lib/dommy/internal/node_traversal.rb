@@ -18,12 +18,7 @@ module Dommy
 
       # The root of the tree a backend node is in: its topmost inclusive
       # ancestor, the backend document when it is attached.
-      def self.root_of(node)
-        while (parent = node.parent)
-          node = parent
-        end
-        node
-      end
+      def self.root_of(node) = node.root_node
 
       # Check if ancestor is an ancestor of node.
       def self.ancestor_of?(ancestor, node)

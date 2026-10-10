@@ -196,23 +196,23 @@ module Dommy
     end
 
     def first_element_child
-      @document.wrap_node(@__node__.element_children.first)
+      @document.wrap_node(@__node__.first_element_child)
     end
 
     def last_element_child
-      @document.wrap_node(@__node__.element_children.last)
+      @document.wrap_node(@__node__.last_element_child)
     end
 
     def first_child
-      @document.wrap_node(@__node__.children.first)
+      @document.wrap_node(@__node__.first_child)
     end
 
     def last_child
-      @document.wrap_node(@__node__.children.last)
+      @document.wrap_node(@__node__.last_child)
     end
 
     def child_element_count
-      @__node__.element_children.size
+      @__node__.element_child_count
     end
 
     def child_nodes
@@ -588,7 +588,7 @@ module Dommy
         @__node__.add_previous_sibling(node)
         notify_child_list(added: [node], target: parent)
       when "afterbegin"
-        first = @__node__.children.first
+        first = @__node__.first_child
         node = convert_for_insert([element], @__node__, first).first
         first = nil if first && first.parent != @__node__
         first ? first.add_previous_sibling(node) : @__node__.add_child(node)
@@ -640,7 +640,7 @@ module Dommy
         nodes.each { |n| @__node__.add_previous_sibling(n) }
         notify_child_list(added: nodes, target: context)
       when "afterbegin"
-        first = @__node__.children.first
+        first = @__node__.first_child
         @document.__internal_ranges_will_insert__(@__node__, first, nodes.size)
         if first
           nodes.each { |n| first.add_previous_sibling(n) }
@@ -725,7 +725,7 @@ module Dommy
       return false unless other.is_a?(Element)
       return false unless @__node__.name == other.__dommy_backend_node__.name
       return false unless attribute_signature == other.send(:attribute_signature)
-      return false unless @__node__.children.size == other.__dommy_backend_node__.children.size
+      return false unless @__node__.child_count == other.__dommy_backend_node__.child_count
 
       @__node__.children.zip(other.__dommy_backend_node__.children).all? do |a, b|
         wa = @document.wrap_node(a)

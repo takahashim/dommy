@@ -58,7 +58,7 @@ module Dommy
         validate_insertion_args!(args)
         # The reference child is the CURRENT first child, and insert step 5 is
         # measured against it before the arguments are detached.
-        anchor = @__node__.children.first
+        anchor = @__node__.first_child
         record_previous = insertion_previous_sibling(@__node__, anchor)
         record_next = wrap_sibling(anchor)
         nodes = convert_for_insert(args, @__node__, anchor)

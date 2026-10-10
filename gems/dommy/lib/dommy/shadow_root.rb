@@ -151,23 +151,23 @@ module Dommy
     end
 
     def child_element_count
-      @__node__.element_children.size
+      @__node__.element_child_count
     end
 
     def first_child
-      @document.wrap_node(@__node__.children.first)
+      @document.wrap_node(@__node__.first_child)
     end
 
     def last_child
-      @document.wrap_node(@__node__.children.last)
+      @document.wrap_node(@__node__.last_child)
     end
 
     def first_element_child
-      @document.wrap_node(@__node__.element_children.first)
+      @document.wrap_node(@__node__.first_element_child)
     end
 
     def last_element_child
-      @document.wrap_node(@__node__.element_children.last)
+      @document.wrap_node(@__node__.last_element_child)
     end
 
     # Whether this shadow root participates in the document (its host is

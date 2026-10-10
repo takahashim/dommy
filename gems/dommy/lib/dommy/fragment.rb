@@ -47,7 +47,7 @@ module Dommy
     end
 
     def child_element_count
-      @__node__.element_children.size
+      @__node__.element_child_count
     end
 
     # Live, cached childNodes so `fragment.childNodes === fragment.childNodes` and
@@ -59,11 +59,11 @@ module Dommy
     end
 
     def first_child
-      @document.wrap_node(@__node__.children.first)
+      @document.wrap_node(@__node__.first_child)
     end
 
     def last_child
-      @document.wrap_node(@__node__.children.last)
+      @document.wrap_node(@__node__.last_child)
     end
 
     def first_element_child
@@ -71,7 +71,7 @@ module Dommy
     end
 
     def last_element_child
-      @document.wrap_node(@__node__.element_children.last)
+      @document.wrap_node(@__node__.last_element_child)
     end
 
     def text_content

@@ -160,7 +160,7 @@ module Dommy
       # WHATWG `before` step 5: the reference child is the viable previous
       # sibling's next sibling, or the parent's first child when there is none.
       def reference_after(parent, viable_prev)
-        viable_prev.nil? ? parent.children.first : viable_prev.next_sibling
+        viable_prev.nil? ? parent.first_child : viable_prev.next_sibling
       end
 
       # WHATWG pre-insert step 3: when the reference child IS one of the nodes

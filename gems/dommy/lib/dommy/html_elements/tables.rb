@@ -262,7 +262,7 @@ module Dommy
       return existing if existing
 
       cap = @document.create_element("caption")
-      first = @__node__.children.first
+      first = @__node__.first_child
       first ? first.add_previous_sibling(cap.__dommy_backend_node__) : @__node__.add_child(cap.__dommy_backend_node__)
       cap
     end
@@ -282,7 +282,7 @@ module Dommy
       if cap
         cap.__dommy_backend_node__.add_next_sibling(head.__dommy_backend_node__)
       else
-        first = @__node__.children.first
+        first = @__node__.first_child
         first ? first.add_previous_sibling(head.__dommy_backend_node__) : @__node__.add_child(head.__dommy_backend_node__)
       end
 
