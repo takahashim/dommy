@@ -119,19 +119,24 @@ class TestSlotChangeOnAssignment < Minitest::Test
     @slot = @sr.get_element_by_id("s")
   end
 
+  # slotchange is signaled, so it fires in a microtask, not during assign().
   def test_assign_fires_slotchange_event
     fired = false
     @slot.add_event_listener("slotchange", proc { fired = true })
-    @slot.assign(@win.document.create_element("p"))
+    @slot.assign(@host.append_child(@win.document.create_element("p")))
+    refute(fired)
+    @win.scheduler.drain_microtasks
     assert(fired)
   end
 
-  def test_manual_assigned_nodes_returns_assigned_list
-    p1 = @win.document.create_element("p")
-    p2 = @win.document.create_element("p")
-    @slot.assign(p1, p2)
-    nodes = @slot.assigned_nodes
-    assert_equal(2, nodes.size)
+  # Only the host's children among the assigned nodes are slotted, in the
+  # order they were assigned.
+  def test_manual_assigned_nodes_are_the_hosts_children_in_assignment_order
+    p1 = @host.append_child(@win.document.create_element("p"))
+    p2 = @host.append_child(@win.document.create_element("p"))
+    stray = @win.document.create_element("p")
+    @slot.assign(p2, stray, p1)
+    assert_equal([p2, p1], @slot.assigned_nodes)
   end
 end
 

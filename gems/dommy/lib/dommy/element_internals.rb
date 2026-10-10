@@ -35,6 +35,18 @@ module Dommy
       @validity = nil
     end
 
+    # The element's default ARIA value for content attribute `attr` ("role",
+    # "aria-label"), as set through these internals; nil when unset.
+    def __internal_default_aria__(attr)
+      value = @aria[ARIA_IDL_BY_ATTRIBUTE[attr]]
+      value&.to_s
+    end
+
+    ARIA_IDL_BY_ATTRIBUTE = Internal::IdlReflection::TABLE.fetch("Element")
+                                                          .select { |name, _| ARIA_ATTRIBUTES.include?(name) }
+                                                          .to_h { |name, spec| [spec[:attr] || name, name] }.freeze
+    private_constant :ARIA_IDL_BY_ATTRIBUTE
+
     # Whether the custom state `name` is set (`:state(name)`).
     def state?(name) = @states.include?(name)
 

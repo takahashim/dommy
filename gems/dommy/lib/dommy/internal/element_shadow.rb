@@ -55,10 +55,9 @@ module Dommy
         sr = host.shadow_root
         return nil unless sr
 
-        slot_name = @__node__.element? ? __internal_attribute_value__("slot").to_s : ""
-        sr.query_selector_all("slot").find do |slot|
-          (slot.respond_to?(:name) ? slot.name.to_s : "") == slot_name
-        end
+        # The slot whose assigned nodes hold this one: by name, or by assign()
+        # in a manual-assignment shadow root.
+        sr.query_selector_all("slot").find { |slot| slot.assigned_nodes.any? { |n| n.equal?(self) } }
       end
 
       # `el.attachShadow(init)` (DOM): the ShadowRootInit dictionary is

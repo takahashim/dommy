@@ -80,7 +80,7 @@ module Dommy
         end
 
         # 2. aria-label.
-        aria_label = node.__internal_attribute_value__("aria-label").to_s
+        aria_label = node.__internal_aria_value__("aria-label").to_s
         return aria_label unless aria_label.strip.empty?
 
         # 3. Native host-language labeling.

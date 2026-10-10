@@ -491,17 +491,30 @@ module Dommy
   class HTMLSlotElement < HTMLElement
     # Own __js_call__ methods, on top of Element's.
 
-    # `slot.assignedNodes({ flatten: true|false })` — returns the
-    # light DOM children currently composed into this slot. With
-    # `flatten: true` and no assigned nodes, falls back to the
-    # slot's own children (the default content).
+    # `slot.assignedNodes({ flatten })`: the slottables assigned to this slot,
+    # or with `flatten`, DOM's "find flattened slottables" — a slot among
+    # them (or among the fallback children, when nothing is assigned) is
+    # replaced by its own flattened slottables, and a slot outside a shadow
+    # tree has none.
     def assigned_nodes(options = nil)
-      flatten = options.is_a?(Hash) ? (options["flatten"] || options[:flatten]) : false
-      nodes = matching_light_nodes
-      if nodes.empty? && flatten
-        @__node__.children.map { |n| @document.wrap_node(n) }.compact
-      else
-        nodes
+      flatten = options.is_a?(Hash) && Internal::WebIDL.boolean(options.key?("flatten") ? options["flatten"] : options[:flatten])
+      flatten ? __internal_flattened_slottables__ : matching_light_nodes
+    end
+
+    # Spec: https://dom.spec.whatwg.org/#find-flattened-slotables
+    def __internal_flattened_slottables__
+      return [] unless @document.__internal_shadow_root_containing__(@__node__)
+
+      slottables = matching_light_nodes
+      if slottables.empty?
+        slottables = @__node__.children.select { |n| slottable?(n) }.map { |n| @document.wrap_node(n) }.compact
+      end
+      slottables.flat_map do |node|
+        if node.is_a?(HTMLSlotElement) && @document.__internal_shadow_root_containing__(node.__dommy_backend_node__)
+          node.__internal_flattened_slottables__
+        else
+          [node]
+        end
       end
     end
 
@@ -509,14 +522,37 @@ module Dommy
       assigned_nodes(options).select { |n| n.is_a?(Element) }
     end
 
-    # `slot.assign(...)` — manual assignment (honored only when the
-    # owning shadow uses `slotAssignment: "manual"`). We accept the
-    # call and fire `slotchange` in both modes; named mode simply
-    # ignores the override.
+    # `slot.assign(...nodes)`: the slot's manually assigned nodes, which a
+    # shadow root with `slotAssignment: "manual"` uses. A node assigned to
+    # another slot leaves it, and each tree whose slots may have changed is
+    # re-assigned, so the slots that changed get their slotchange.
+    #
+    # Spec: https://html.spec.whatwg.org/#dom-slot-assign
     def assign(*nodes)
-      @__manual_assignment = nodes.flatten.select { |n| n.is_a?(Node) && n.__dommy_backend_node__ }
-      dispatch_event(Event.new("slotchange", "bubbles" => true))
+      nodes = nodes.flatten.select { |n| n.is_a?(Node) && n.__dommy_backend_node__ }
+      trees = [self]
+      (@__manual_assignment || []).each { |node| node.__internal_manual_slot__ = nil if node.__internal_manual_slot__.equal?(self) }
+      nodes.each do |node|
+        previous = node.__internal_manual_slot__
+        if previous && !previous.equal?(self)
+          previous.__internal_drop_manual_assignment__(node)
+          trees << previous
+        end
+        node.__internal_manual_slot__ = self
+      end
+      @__manual_assignment = nodes.uniq(&:object_id)
+      signals = @document.__internal_slot_signals__
+      trees.each do |slot|
+        signals.assign_slottables_for_tree(@document.__internal_shadow_root_containing__(slot.__dommy_backend_node__))
+      end
       nil
+    end
+
+    # What this slot's assigned nodes were when slotchange last compared them.
+    attr_accessor :__internal_last_assigned_nodes__
+
+    def __internal_drop_manual_assignment__(node)
+      @__manual_assignment&.reject! { |n| n.equal?(node) }
     end
 
     js_readable :assigned_nodes, :assigned_elements
@@ -537,6 +573,11 @@ module Dommy
 
     private
 
+    # DOM "slottable": an Element or a Text node.
+    def slottable?(node)
+      node.element? || node.text?
+    end
+
     def matching_light_nodes
       sr = @document.__internal_shadow_root_containing__(@__node__)
       return [] unless sr
@@ -545,14 +586,21 @@ module Dommy
       return [] unless host
 
       slot_name = name
-      # Manual mode honors the explicit list.
-      if sr.slot_assignment == "manual" && @__manual_assignment
-        return @__manual_assignment
+      # Manual mode: the host's children among the manually assigned nodes,
+      # in the order they were assigned.
+      if sr.slot_assignment == "manual"
+        children = host.__dommy_backend_node__.children.to_a
+        return (@__manual_assignment || []).select { |n| children.any? { |c| c == n.__dommy_backend_node__ } }
       end
+      # Named mode: a slottable goes to the FIRST slot in tree order with its
+      # name, so a later slot of the same name gets none.
+      first = sr.query_selector_all("slot").find { |slot| slot.name.to_s == slot_name.to_s }
+      return [] unless first.equal?(self)
 
       host
         .__dommy_backend_node__
         .children
+        .select { |child| slottable?(child) }
         .map do |child|
           wrapped = @document.wrap_node(child)
           next nil unless wrapped

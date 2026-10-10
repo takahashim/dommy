@@ -279,9 +279,7 @@ module Dommy
       return nil unless sr
       return nil if sr.__js_get__("mode") == "closed"
 
-      sr.query_selector_all("slot").find do |slot|
-        (slot.respond_to?(:name) ? slot.name.to_s : "") == ""
-      end
+      sr.query_selector_all("slot").find { |slot| slot.assigned_nodes.any? { |n| n.equal?(self) } }
     end
 
     def __js_set__(key, value)

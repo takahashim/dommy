@@ -132,6 +132,8 @@ module Dommy
           end
         end
 
+        slottables_changed(target, target_node, removed_nodes) unless @document.__internal_all_shadow_roots__.empty?
+
         # Custom Element connected/disconnected callbacks, script execution, and
         # iframe child navigables all require the subtree to be connected to the
         # document (the script/iframe paths already check is_connected?, and
@@ -250,6 +252,9 @@ module Dommy
 
         notify_attribute_changed(target, attr, old_value, new_value, namespace)
         form_association_attribute_changed(target, target_node, attr) if namespace.nil? && FormAssociatedCustomElements.any?
+        if namespace.nil? && %w[slot name].include?(attr) && !@document.__internal_all_shadow_roots__.empty?
+          slot_attribute_changed(target, target_node, attr)
+        end
         @post_insertion_steps.script_attribute_changed(target, attr, new_value, namespace)
         # An event handler content attribute (`onclick="…"`) sets or removes
         # its handler.
@@ -300,6 +305,33 @@ module Dommy
         end
       end
 
+
+      # DOM "assign slottables for a tree" after a child-list change: a host's
+      # children are its slottables, and a shadow tree's slots are where they
+      # go, so either can change what a slot is assigned. A slot showing its
+      # fallback content changes with its children, and a slot that left a
+      # shadow tree loses what it had.
+      def slottables_changed(target, target_node, removed_nodes)
+        signals = @document.__internal_slot_signals__
+        signals.assign_slottables_for_tree(target.__internal_shadow_root__) if target.respond_to?(:__internal_shadow_root__)
+        tree = target.is_a?(ShadowRoot) ? target : @document.__internal_shadow_root_containing__(target_node)
+        signals.assign_slottables_for_tree(tree)
+        signals.fallback_changed(target) if tree && target.is_a?(HTMLSlotElement)
+        removed_nodes.each { |nk| signals.removed_subtree(nk) }
+      end
+
+      # A slottable's `slot` attribute picks its slot, and a slot's `name` the
+      # slottables it takes.
+      def slot_attribute_changed(target, target_node, attr)
+        signals = @document.__internal_slot_signals__
+        case attr
+        when "slot"
+          host = target.parent_node
+          signals.assign_slottables_for_tree(host.__internal_shadow_root__) if host.respond_to?(:__internal_shadow_root__)
+        when "name"
+          signals.assign_slottables_for_tree(@document.__internal_shadow_root_containing__(target_node)) if target.is_a?(HTMLSlotElement)
+        end
+      end
 
       # A `form` or `disabled` attribute of a form-associated custom element,
       # a fieldset's `disabled`, or any `id` (a form's, which a `form`

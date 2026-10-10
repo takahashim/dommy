@@ -1398,6 +1398,17 @@ module Dommy
       Backend.no_namespace_attribute_value(@__node__, local_name)
     end
 
+    # An ARIA attribute (`role`, `aria-*`) as accessibility reads it: the
+    # content attribute, else a custom element's default ARIA semantics from
+    # its ElementInternals (ARIA §"default implicit ARIA semantics").
+    def __internal_aria_value__(attr)
+      value = __internal_attribute_value__(attr)
+      return value unless value.nil?
+
+      internals = __internal_element_internals__ if respond_to?(:__internal_element_internals__)
+      internals&.__internal_default_aria__(attr)
+    end
+
     # HTML's cloning steps, for the state an element keeps beside its
     # attributes: what a copy takes over, as a Hash, or nil when there is
     # nothing. Each interface and mixin with such state adds its own to what

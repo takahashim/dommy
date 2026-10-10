@@ -4,6 +4,10 @@
 
 ### Changed
 
+- `element.getClientRects()` returns one zero-sized rect for an element being rendered (connected, in the flat tree, not under `display: none`) and an empty list otherwise; it was always empty. Nothing is laid out, so the rect stays zero (`window.approximate_layout` still sizes it), but `el.getClientRects().length` — jQuery's `:visible`, WPT's popover helpers — now tells a shown element from a hidden one.
+- `slotchange` is signaled as DOM specifies: it fires in a microtask, once per slot whose assigned nodes changed — after a host's children change, a slot is inserted or removed, a `slot` or `name` attribute changes, a slot showing its fallback content gets new children, or `slot.assign()` runs. `assign()` fired it synchronously, and nothing else fired it.
+- A manual-assignment slot's assigned nodes are the host's children among those `assign()`ed to it, in assignment order; a node assigned to another slot leaves the first. Nodes that are not the host's children were reported.
+
 - `FormData#append` and `#set` convert a non-Blob value as a USVString, so `nil` (JS `null`) is `"null"` instead of `""`, as CharacterData's methods already do.
 
 ### Fixed
@@ -27,6 +31,8 @@
 - `element.click()` from script returns undefined, not true.
 - A live Range follows the mutations of the document its boundaries are in: one set into another document's tree with `setStart` / `setEnd`, and one inside a subtree adopted into another document.
 - Inserting or removing a fieldset's legend refreshes the disabled state of the form-associated custom elements in it, firing `formDisabledCallback` when the first legend changes.
+- `slot.assignedNodes({flatten: true})` finds the flattened slottables: a slot among the assigned nodes (or the fallback children) is replaced by its own, and a slot outside a shadow tree has none. Only Elements and Text nodes are slottables (a Comment child was assigned), a slottable goes to the first slot of its name in tree order, and `assignedSlot` answers for manual assignment too.
+- A custom element's default ARIA semantics set through `ElementInternals` (`internals.role`, `internals.ariaLabel`) are used when the element has no `role` / `aria-label` attribute: in its computed role, accessible name, and the name a `form` or `region` role needs.
 
 ## 0.16.0 — 2026-10-10
 

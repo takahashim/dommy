@@ -2826,6 +2826,11 @@ module Dommy
       @shadow_registry.all
     end
 
+    # The slots whose slotchange is pending (DOM "signal slots").
+    def __internal_slot_signals__
+      @slot_signals ||= Internal::SlotSignals.new(self)
+    end
+
     # Lifecycle callback dispatchers. Errors raised inside user
     # callbacks are swallowed so a single buggy custom element can't
     # break the whole mutation pipeline.
