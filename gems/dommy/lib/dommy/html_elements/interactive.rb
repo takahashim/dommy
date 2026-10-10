@@ -203,6 +203,11 @@ module Dommy
       if popover_showing?
         raise DOMException::InvalidStateError, "showModal() called on a dialog that is showing as a popover"
       end
+      # A document with no browsing context (createHTMLDocument's, DOMParser's)
+      # is not fully active, and has no top layer to show it in.
+      unless @document.default_view&.__internal_fully_active__?
+        raise DOMException::InvalidStateError, "showModal() called on a dialog whose document is not fully active"
+      end
 
       return nil unless fire_beforetoggle(false, true, source)
       # A beforetoggle listener may have opened, disconnected, or

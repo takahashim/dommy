@@ -380,7 +380,7 @@ module Dommy
       querySelector querySelectorAll getElementById append prepend replaceChildren moveBefore appendChild
       insertBefore removeChild replaceChild
       getRootNode contains addEventListener removeEventListener dispatchEvent
-      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition getHTML setHTMLUnsafe
+      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition getHTML setHTMLUnsafe cloneNode
     ]
     def __js_call__(method, args)
       case method
@@ -395,6 +395,8 @@ module Dommy
       when "setHTMLUnsafe"
         set_html_unsafe(args[0], args[1])
         Bridge::UNDEFINED
+      when "cloneNode"
+        clone_node(args[0])
       when "isEqualNode"
         is_equal_node(args[0])
       when "isSameNode"

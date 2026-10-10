@@ -249,4 +249,11 @@ class TestShadowRootEvents < Minitest::Test
     @btn.click
     assert(seen_outside)
   end
+
+  # cloneNode step 1, from script as from Ruby.
+  def test_clone_node_on_a_shadow_root_is_not_supported
+    root = @doc.create_element("div").attach_shadow("mode" => "open")
+    assert_raises(Dommy::DOMException::NotSupportedError) { root.clone_node(true) }
+    assert_raises(Dommy::DOMException::NotSupportedError) { root.__js_call__("cloneNode", [false]) }
+  end
 end

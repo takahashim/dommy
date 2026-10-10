@@ -957,8 +957,9 @@ module Dommy
         @propagation_stopped = true if value
       when "returnValue"
         # Legacy alias: returnValue = false cancels the event (like
-        # preventDefault); a truthy value does not un-cancel.
-        @default_prevented = true if !value && @cancelable
+        # preventDefault, so not from a passive listener); a truthy value does
+        # not un-cancel.
+        @default_prevented = true if !Internal::WebIDL.boolean(value) && @cancelable && !@in_passive_listener
       else
         return Bridge::UNHANDLED
       end
@@ -2061,8 +2062,8 @@ module Dommy
           @key = nullable_string(args[3])
           @old_value = nullable_string(args[4])
           @new_value = nullable_string(args[5])
-          @url = (args[6] || "").to_s
-          @storage_area = args[7]
+          @url = optional_url(args[6])
+          @storage_area = args[7].equal?(Bridge::UNDEFINED) ? nil : args[7]
         end
         nil
       else
@@ -2071,6 +2072,12 @@ module Dommy
     end
 
     private
+
+    # initStorageEvent's `optional USVString url = ""`: an undefined (or
+    # omitted) argument takes the default.
+    def optional_url(value)
+      value.nil? || value.equal?(Bridge::UNDEFINED) ? "" : value.to_s
+    end
 
     # The IDL's nullable DOMString: a present value stringifies, null/undefined
     # stay null rather than becoming "".

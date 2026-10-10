@@ -308,6 +308,8 @@ module Dommy
       return form&.__internal_run_form_submission__(self) if __internal_submit_button__?
       return form&.reset if type == "reset" && !disabled
       return unless CHECKABLE_TYPES.include?(type) && is_connected?
+      # A radio that was already checked did not change, so it fires neither.
+      return if type == "radio" && @__radio_was_checked
 
       dispatch_event(Event.new("input", "bubbles" => true).__internal_mark_trusted__)
       dispatch_event(Event.new("change", "bubbles" => true).__internal_mark_trusted__)
@@ -347,6 +349,7 @@ module Dommy
         { kind: :checkbox, old_checked: old, old_indeterminate: old_indeterminate }
       when "radio"
         old_checked = checked
+        @__radio_was_checked = old_checked
         previously_checked = old_checked ? nil : currently_checked_in_radio_group
         self.checked = true
         { kind: :radio, old_checked: old_checked, previously_checked: previously_checked }

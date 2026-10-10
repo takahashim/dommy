@@ -11,6 +11,13 @@
 - `FormData#append(name, value, filename)` and `#set` with a value that is not a Blob throw TypeError: only the Blob overload takes a filename.
 - A File put in a FormData under another name keeps its `lastModified`; only a Blob gets the current time.
 - `range.insertNode()` and `range.surroundContents()` on a range whose start node is an Attr throw HierarchyRequestError instead of a Ruby NoMethodError.
+- `element.getAttribute(name)` and `hasAttribute(name)` from script lowercase only ASCII letters, so `getAttribute("Ä")` finds an attribute set as `"Ä"` (the attribute cache folded it to `"ä"`).
+- `shadowRoot.cloneNode()` from script throws NotSupportedError, as `clone_node` already did in Ruby.
+- Clicking a radio button that is already checked fires only `click`, not `input` and `change`.
+- `event.returnValue = false` in a passive listener does not cancel the event, as `preventDefault()` already did not; the value is read with ToBoolean.
+- `dialog.showModal()` throws InvalidStateError when the dialog's document is not fully active (a `createHTMLDocument()` or `DOMParser` document).
+- NodeIterator follows the DOM Standard's candidate reference: a filter that removes the node it is filtering leaves `referenceNode` on a node still in the tree, and the traversal continues from there.
+- `new StorageEvent(type, {url: null})` has `url` `"null"`, and `{url: undefined}` `""`; `initStorageEvent` with an undefined `url` or `storageArea` takes the default (`""`, null).
 
 ## 0.16.0 — 2026-10-10
 

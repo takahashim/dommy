@@ -87,4 +87,14 @@ class TestDialogFocusAndClose < Minitest::Test
     assert_equal "closed-by-button", el("d").return_value
     assert_equal %w[opener closer], sources
   end
+
+  # showModal() needs a fully active document: one with no browsing context has
+  # no top layer.
+  def test_show_modal_in_a_document_without_a_browsing_context_throws
+    other = @doc.implementation.create_html_document("")
+    dialog = other.create_element("dialog")
+    other.body.append_child(dialog)
+    assert_raises(Dommy::DOMException::InvalidStateError) { dialog.show_modal }
+    refute(dialog.open)
+  end
 end

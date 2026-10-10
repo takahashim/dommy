@@ -81,4 +81,22 @@ class TestNodeIterator < Minitest::Test
     assert_equal(1, accepted.size)
     assert_equal("2", accepted.first.text_content)
   end
+
+  # The filter runs while the candidate is not yet the reference: removing the
+  # candidate moves the candidate back, and the reference follows it.
+  def test_removing_the_candidate_during_filtering_retargets_the_reference
+    root = @doc.create_element("div")
+    a, b, c = %w[a b c].map { |name| @doc.create_element(name) }
+    root.append(a, b, c)
+    filter = proc do |node|
+      b.remove if node.equal?(b)
+      Dommy::NodeFilter::FILTER_ACCEPT
+    end
+    iter = @doc.create_node_iterator(root, Dommy::NodeFilter::SHOW_ELEMENT, filter)
+    assert_same(root, iter.next_node)
+    assert_same(a, iter.next_node)
+    assert_same(b, iter.next_node)
+    assert_same(a, iter.__js_get__("referenceNode"))
+    assert_same(c, iter.next_node)
+  end
 end

@@ -1975,6 +1975,12 @@ globalThis.__rbHost = (function () {
       bubbles: "boolean", cancelable: "boolean", composed: "boolean",
       command: "DOMString", source: "any",
     },
+    // `key`, `oldValue` and `newValue` are `DOMString?` and `storageArea` a
+    // `Storage?`, so null passes through to Ruby; `url` is a USVString.
+    StorageEvent: {
+      bubbles: "boolean", cancelable: "boolean", composed: "boolean",
+      key: "any", newValue: "any", oldValue: "any", storageArea: "any", url: "DOMString",
+    },
   };
 
   // WebIDL argument coercion for a constructor that takes `(DOMString type,
@@ -3633,15 +3639,16 @@ globalThis.__rbHost = (function () {
       return attrsCache;
     };
     // A cached-attribute read: answers from the snapshot when one is
-    // available, else falls back to a normal bridge call. Lookup lowercases
-    // the argument — snapshots exist only for elements whose Ruby-side lookup
-    // is case-insensitive, so this matches get_attribute exactly. "__proto__"
+    // available, else falls back to a normal bridge call. Lookup ASCII-
+    // lowercases the argument — snapshots exist only for elements whose
+    // Ruby-side lookup is case-insensitive, so this matches get_attribute
+    // exactly (toLowerCase would also fold "Ä" to "ä"). "__proto__"
     // is excluded (a snapshot object can't represent it as a data property).
     const cachedAttrRead = (method, name) => {
       let attrs = null;
       let key;
       if (typeof name === "string") {
-        key = name.toLowerCase();
+        key = name.replace(/[A-Z]+/g, (s) => s.toLowerCase());
         if (key !== "__proto__") attrs = attrsSnapshot();
       }
       if (attrs === null) return rehydrate(__rb_host_call(handle, method, dehydrateArgs([name])));

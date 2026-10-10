@@ -382,74 +382,25 @@ module Dommy
       @pointer_before_reference = true
     end
 
-    # WHATWG "traverse" (direction=next). referenceNode / pointerBeforeReferenceNode
-    # are committed only when a node is accepted; if no node matches we return null
-    # and leave the iterator's position untouched.
-    def next_node
-      node = @reference_node
-      before = @pointer_before_reference
-      loop do
-        if before
-          before = false
-        else
-          node = next_in_document_order(node)
-          return nil unless node
-        end
-
-        next unless accept(node) == NodeFilter::FILTER_ACCEPT
-
-        @reference_node = node
-        @pointer_before_reference = before
-        return node
-      end
-    end
-
-    # WHATWG "traverse" (direction=previous).
-    def previous_node
-      node = @reference_node
-      before = @pointer_before_reference
-      loop do
-        if before
-          node = previous_in_document_order(node)
-          return nil unless node
-        else
-          before = true
-        end
-
-        next unless accept(node) == NodeFilter::FILTER_ACCEPT
-
-        @reference_node = node
-        @pointer_before_reference = before
-        return node
-      end
-    end
+    # WHATWG "traverse". The iterator moves a candidate reference, which
+    # becomes its reference only when the filter accepts the node; the
+    # pre-remove steps adjust both, so a filter that removes nodes leaves
+    # neither pointing into a detached subtree. If no node is accepted it
+    # returns null and the reference stays where it was.
+    #
+    # Spec: https://dom.spec.whatwg.org/#concept-nodeiterator-traverse
+    def next_node = traverse(:next)
+    def previous_node = traverse(:previous)
 
     def detach
       nil
     end
 
-    # WHATWG "NodeIterator pre-removing steps". `removed` is the wrapped node
+    # WHATWG "NodeIterator pre-remove steps". `removed` is the wrapped node
     # about to be detached (still attached when this runs).
     def pre_remove(removed)
-      # Terminate unless `removed` is in this iterator's collection and an
-      # inclusive ancestor of the reference node: skip if it is an inclusive
-      # ancestor of root (never in the collection) or not one of referenceNode.
-      return if inclusive_ancestor?(removed, @root)
-      return unless inclusive_ancestor?(removed, @reference_node)
-
-      unless @pointer_before_reference
-        @reference_node = tree_preceding(removed)
-        return
-      end
-
-      following = tree_next_descendants(removed)
-      if following
-        @reference_node = following
-        return
-      end
-
-      @reference_node = tree_preceding(removed)
-      @pointer_before_reference = false
+      @reference_node, @pointer_before_reference = adjust_pointer([@reference_node, @pointer_before_reference], removed)
+      @candidate = adjust_pointer(@candidate, removed) if @candidate
     end
 
     def __js_get__(key)
@@ -483,6 +434,61 @@ module Dommy
     end
 
     private
+
+    def traverse(type)
+      @candidate = [@reference_node, @pointer_before_reference]
+      result = nil
+      loop do
+        node, before = @candidate
+        if type == :next
+          if before
+            @candidate = [node, false]
+          else
+            following = next_in_document_order(node)
+            break unless following
+
+            @candidate = [following, false]
+          end
+        elsif before
+          preceding = previous_in_document_order(node)
+          break unless preceding
+
+          @candidate = [preceding, true]
+        else
+          @candidate = [node, true]
+        end
+
+        node = @candidate[0]
+        begin
+          filter_result = accept(node)
+        rescue StandardError
+          @candidate = nil
+          raise
+        end
+        next unless filter_result == NodeFilter::FILTER_ACCEPT
+
+        @reference_node, @pointer_before_reference = @candidate
+        result = node
+        break
+      end
+      @candidate = nil
+      result
+    end
+
+    # WHATWG "adjust a node pointer": a pointer into the subtree being removed
+    # moves to the first node after it (staying before that node) or, failing
+    # that or when it was after its node, to the node just before it.
+    def adjust_pointer(pointer, removed)
+      node, before = pointer
+      return pointer if inclusive_ancestor?(removed, @root) || !inclusive_ancestor?(removed, node)
+
+      if before
+        following = tree_next_descendants(removed)
+        return [following, true] if following
+      end
+
+      [tree_preceding(removed), false]
+    end
 
     def next_in_document_order(node)
       return @root if node.nil?

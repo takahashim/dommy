@@ -74,4 +74,16 @@ class TestInputActivation < Minitest::Test
     cb.click
     refute(cb.indeterminate, "pre-click activation clears indeterminate")
   end
+
+  # A radio that was already checked does not change on a click, so it fires
+  # only the click.
+  def test_clicking_a_checked_radio_fires_only_click
+    radio = input("<input type=radio checked>")
+    events = []
+    %w[click input change].each { |type| radio.add_event_listener(type, proc { events << type }) }
+    radio.click
+
+    assert(radio.checked)
+    assert_equal(["click"], events)
+  end
 end

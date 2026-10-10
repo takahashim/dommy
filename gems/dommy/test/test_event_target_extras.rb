@@ -353,4 +353,18 @@ class TestDefaultPassiveListeners < Minitest::Test
     assert prevented.call(@win, "click")
     assert prevented.call(@doc.body, "wheel", {"passive" => false})
   end
+
+  # `returnValue = false` sets the canceled flag as preventDefault() does, so
+  # not from a passive listener.
+  def test_return_value_false_is_ignored_in_a_passive_listener
+    canceled = lambda do |options|
+      target = @doc.create_element("div")
+      target.add_event_listener("x", proc { |e| e.__js_set__("returnValue", false) }, options)
+      event = Dommy::Event.new("x", {"cancelable" => true})
+      target.dispatch_event(event)
+      event.default_prevented?
+    end
+    assert canceled.call({"passive" => false})
+    refute canceled.call({"passive" => true})
+  end
 end
