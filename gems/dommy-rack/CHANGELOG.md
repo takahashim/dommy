@@ -9,6 +9,8 @@
 
 ### Changed
 
+- **`click_link` and `click_button` return the element they clicked, with or without JavaScript**, as Capybara's and `click(selector)` do; without JavaScript they returned the navigation's Response. Read it from `last_response`, or use the request API (`visit`, `submit_form`, `click_link_element`), which returns a Response.
+- A form the page submits (a click on a submit button with JavaScript, `form.submit()`, `requestSubmit()`) is recorded in the trace as `submit_form` records one.
 - `Session#settle` settles the page's frames too: the ready work of every realm, going round again while one hands another work that is ready at once (a frame's `postMessage` to the page). An animation that requests frame after frame runs its next frame and lets `settle` return.
 - With `javascript: true`, `click_button` and `click_link` fire the click at the page, so Turbo, a client-side router or any listener can take the submission or the navigation over; an un-prevented click submits or follows through the page. dommy-examples' signup browser specs build 19 pages' scripts instead of 35, because Turbo now keeps the page across its form submissions.
 - Unloading a document closes the WebSockets and EventSources it opened, without waiting for their readers: the page's and its frames' when the page navigates away, a frame's when it navigates or its iframe is removed. A connection the app ended or dropped reports `closed?` too.
