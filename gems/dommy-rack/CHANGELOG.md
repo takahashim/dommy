@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- A response's document is decoded in the charset its Content-Type names (a byte-order mark first, UTF-8 otherwise), so a Shift_JIS or ISO-8859-1 page no longer reads as U+FFFD.
 - A frame that navigated away or was removed no longer runs on the page's clock: its timers stay unfired, `next_timer_delay` and `settle` skip it, and its fetches in flight and completions do not keep a waiting host waiting.
 
 ## 0.15.0 — 2026-10-04

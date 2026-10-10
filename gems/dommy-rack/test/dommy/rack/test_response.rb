@@ -33,6 +33,17 @@ class Dommy::Rack::TestResponse < Minitest::Test
     assert_equal "Title", res.document.query_selector("h1").text_content
   end
 
+  # The body is decoded as the Content-Type's charset says (a byte-order mark
+  # first), not read as UTF-8 whatever it is.
+  def test_the_body_is_decoded_in_its_declared_charset
+    body = "<!doctype html><p id=x>\u65E5\u672C</p>".encode("Windows-31J").b
+    html = build(200, {"Content-Type" => "text/html; charset=Shift_JIS"}, [body])
+    assert_equal "\u65E5\u672C", html.document.get_element_by_id("x").text_content
+
+    text = build(200, {"Content-Type" => "text/plain; charset=iso-8859-1"}, ["caf\xE9".b])
+    assert_equal "caf\u00E9", text.document.query_selector("pre").text_content
+  end
+
   def test_text_plain_body_is_shown_in_a_pre
     res = build(500, {"Content-Type" => "text/plain; charset=utf-8"}, ["<b>not markup</b>\n"])
     assert_equal "<html><head></head><body><pre>&lt;b&gt;not markup&lt;/b&gt;\n</pre></body></html>",
