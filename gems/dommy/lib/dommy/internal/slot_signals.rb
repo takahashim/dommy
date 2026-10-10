@@ -3,8 +3,9 @@
 module Dommy
   module Internal
     # DOM "signal a slot change": a slot whose assigned nodes changed joins the
-    # signal slots, and a microtask fires `slotchange` at each of them, once,
-    # in the order they were signaled.
+    # window's signal slots, and the mutation observer microtask fires
+    # `slotchange` at each of them, once, after the MutationObservers' records
+    # (Internal::MutationObserverMicrotask).
     #
     # The spec runs "assign slottables for a tree" at each mutation that can
     # move a slottable (an insertion or removal under a host or in a shadow
@@ -17,8 +18,6 @@ module Dommy
     class SlotSignals
       def initialize(document)
         @document = document
-        @signal_slots = []
-        @scheduled = false
       end
 
       # Re-assign the slots of `shadow_root`'s tree, signaling the ones that
@@ -46,9 +45,9 @@ module Dommy
         signal(slot) if slot.assigned_nodes.empty? && @document.__internal_shadow_root_containing__(slot.__dommy_backend_node__)
       end
 
+      # A document with no window has no event loop to fire it from.
       def signal(slot)
-        @signal_slots << slot unless @signal_slots.any? { |s| s.equal?(slot) }
-        schedule
+        @document.default_view&.__internal_mutation_observer_microtask__&.signal_slot(slot)
       end
 
       private
@@ -62,23 +61,6 @@ module Dommy
 
       def same_nodes?(a, b)
         a.length == b.length && a.zip(b).all? { |x, y| x.equal?(y) }
-      end
-
-      def schedule
-        return if @scheduled
-
-        scheduler = @document.default_view&.scheduler
-        return unless scheduler
-
-        @scheduled = true
-        scheduler.queue_microtask(proc { fire })
-      end
-
-      def fire
-        @scheduled = false
-        slots = @signal_slots.dup
-        @signal_slots.clear
-        slots.each { |slot| slot.dispatch_event(Event.new("slotchange", "bubbles" => true).__internal_mark_trusted__) }
       end
     end
   end

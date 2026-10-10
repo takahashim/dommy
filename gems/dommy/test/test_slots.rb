@@ -26,6 +26,22 @@ class TestSlotBasics < Minitest::Test
     @named_slot = @sr.query_selector("slot[name='header']")
   end
 
+  # "Notify mutation observers": the pending observers' callbacks run first,
+  # in the order their registrations were reached, and slotchange fires after
+  # them, in the same microtask.
+  def test_slotchange_fires_after_the_mutation_observers
+    order = []
+    first = Dommy::MutationObserver.new(@win, proc { order << :first })
+    second = Dommy::MutationObserver.new(@win, proc { order << :second })
+    second.__js_call__("observe", [@host, {"childList" => true}])
+    first.__js_call__("observe", [@host, {"childList" => true}])
+    @default_slot.add_event_listener("slotchange", proc { order << :slotchange })
+
+    @host.append_child(@doc.create_element("b"))
+    @win.scheduler.drain_microtasks
+    assert_equal %i[second first slotchange], order
+  end
+
   def test_slot_element_is_html_slot
     assert_kind_of(Dommy::HTMLSlotElement, @default_slot)
     assert_kind_of(Dommy::HTMLSlotElement, @named_slot)

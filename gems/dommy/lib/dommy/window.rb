@@ -762,6 +762,12 @@ module Dommy
     # The embedder replaced this window's document with another (a
     # cross-document navigation): the window keeps existing for scripts that
     # hold it, but its document is no longer fully active.
+    # The window's one "mutation observer microtask": its MutationObservers'
+    # records and its slots' slotchange go out together, in the spec's order.
+    def __internal_mutation_observer_microtask__
+      @mutation_observer_microtask ||= Internal::MutationObserverMicrotask.new(@scheduler)
+    end
+
     def __internal_discard__
       @discarded = true
       nil
