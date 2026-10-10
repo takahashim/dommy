@@ -28,6 +28,12 @@ module Dommy
     # serves modules under fixed names and does not change them while the
     # process runs; :none keeps none.
     #
+    # The kept sources are capped (MAX_SOURCE_BYTES, the least recently read
+    # going first), so a process that browses site after site does not grow
+    # without bound; a module dropped is fetched again when next asked for.
+    # A kept source is used only for a URL the page's resources would serve
+    # (ModuleLoader asks), so a host an embedder blocks stays blocked.
+    #
     # The engine side is optional: a runtime class that has
     # `register_module(name, source:)`, and that takes `preload_modules:` when
     # built (dommy-js-quickjs's Runtime does). With any other, only the
@@ -36,6 +42,10 @@ module Dommy
       # The size, in bytes, from which a module's bytecode reads faster than
       # its source parses.
       MIN_BYTES = 10_000
+
+      # The most source, in bytes, kept at once: far above a test suite's
+      # bundles, a bound for a long-running browser.
+      MAX_SOURCE_BYTES = 64 * 1024 * 1024
 
       # The last path segment of a digested asset: a name, then `-` or `.`
       # and at least seven hex digits (Propshaft's 8, Webpack's 20,
@@ -46,11 +56,16 @@ module Dommy
       @scope = :digested
       @registered = {}
       @sources = {}
+      @source_bytes = 0
+      @max_source_bytes = MAX_SOURCE_BYTES
       @preloaded = ObjectSpace::WeakMap.new
       @mutex = Mutex.new
 
       class << self
         attr_reader :scope
+
+        # The cap on kept source (MAX_SOURCE_BYTES unless changed).
+        attr_accessor :max_source_bytes
 
         def scope=(value)
           raise ArgumentError, "scope must be one of #{SCOPES.inspect}" unless SCOPES.include?(value)
@@ -79,7 +94,10 @@ module Dommy
         def source(url)
           return nil unless keeps?(url)
 
-          @mutex.synchronize { @sources[url] }
+          @mutex.synchronize do
+            source = @sources.delete(url)
+            @sources[url] = source if source # the most recently read last
+          end
         end
 
         # A runtime for `document` from the named backend (or the default),
@@ -112,7 +130,7 @@ module Dommy
             @mutex.synchronize do
               next if @sources.key?(url)
 
-              @sources[url] = source
+              keep_source(url, source)
               next if source.bytesize < MIN_BYTES || !engine.respond_to?(:register_module) || @registered.key?(url)
 
               engine.register_module(url, source: source)
@@ -129,10 +147,22 @@ module Dommy
           @mutex.synchronize do
             @registered.clear
             @sources.clear
+            @source_bytes = 0
           end
         end
 
         private
+
+        # Under the mutex: keep `source`, then drop the least recently read
+        # until the total fits again.
+        def keep_source(url, source)
+          @sources[url] = source
+          @source_bytes += source.bytesize
+          while @source_bytes > @max_source_bytes && (oldest = @sources.first)
+            @sources.delete(oldest[0])
+            @source_bytes -= oldest[1].bytesize
+          end
+        end
 
         def remember(runtime, names)
           @preloaded[runtime] = names
