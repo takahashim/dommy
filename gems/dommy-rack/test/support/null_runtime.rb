@@ -23,7 +23,10 @@ module DommyRackTestSupport
     def on_unhandled_rejection(&block) = @rejection_handler = block
     def on_log(&block) = @log_handler = block
 
-    def install_window(_window) = nil
+    def install_window(window)
+      @window = window
+      nil
+    end
     def install_browser_globals = nil
     def define_host_object(_name, _object) = nil
     def dispose = nil
@@ -48,7 +51,17 @@ module DommyRackTestSupport
 
     def execute(_js) = nil
     def evaluate(_js) = nil
-    def settle = nil
+    # What an engine's settle does to the clock, with no JavaScript of its
+    # own to run: the window's due-now timers, then its next animation frame.
+    def settle
+      scheduler = @window&.scheduler
+      return unless scheduler
+
+      scheduler.advance_time(0)
+      frame_at = scheduler.next_animation_frame_at
+      scheduler.advance_time(frame_at - scheduler.now_ms) if frame_at && frame_at > scheduler.now_ms
+    end
+
     def drain_microtasks = nil
 
     private

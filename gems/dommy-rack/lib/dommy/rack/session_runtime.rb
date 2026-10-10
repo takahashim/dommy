@@ -15,6 +15,9 @@ module Dommy
     # driver's JS support — one realm manager, two front ends.
     class SessionRuntime
       PUMP_SLICE_MS = 50
+      # How many times #settle goes round the realms still handing each other
+      # work, against two that never stop.
+      SETTLE_ROUNDS = 10
 
       # `current_document` yields the document execute/evaluate should target
       # (the session's current document by default; the Capybara driver passes
@@ -67,10 +70,22 @@ module Dommy
 
       def supports_script_args? = current_runtime.respond_to?(:execute_with_args)
 
-      # Settle work ready at the current virtual time (microtasks + due-now
-      # timers + rAF) for the current document's realm.
+      # Settle the page: in every live realm (the top window's and its
+      # frames'), the work ready at its current virtual time — microtasks,
+      # due-now timers, the next animation frame's callbacks. A realm that
+      # settled can hand another one work that is ready at once (a
+      # postMessage to the parent, a response a worker handed back), so the
+      # realms left with such work are settled again, until none is. A
+      # realm's next animation frame does not count: an animation that
+      # requests one frame after another would never let the page settle.
+      # Snapshot iteration: a settling realm may navigate and replace the map.
       def settle
-        current_runtime.settle
+        realms = @runtimes.to_a
+        SETTLE_ROUNDS.times do
+          realms.each { |_doc, runtime| runtime.settle }
+          realms = @runtimes.to_a.select { |doc, _runtime| ready_work?(scheduler_of(doc)) }
+          break if realms.empty?
+        end
         self
       end
 
@@ -139,6 +154,15 @@ module Dommy
       end
 
       private
+
+      # Whether `scheduler`'s realm has work ready now: a timer already due or
+      # a completion handed back.
+      def ready_work?(scheduler)
+        return false unless scheduler
+
+        due = scheduler.next_due_timer_at
+        scheduler.external_pending? || (!due.nil? && due <= scheduler.now_ms)
+      end
 
       # The deterministic scheduler driving a document's realm (nil when the
       # document or its window is absent), keeping the `doc -> window ->

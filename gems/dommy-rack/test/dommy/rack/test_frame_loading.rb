@@ -25,20 +25,11 @@ class Dommy::Rack::TestFrameLoading < Minitest::Test
     )
   end
 
-  # The frame's navigation runs from a task; the null runtime drives none, so
-  # the test runs the window's due tasks itself.
-  def run_tasks(session)
-    session.document.default_view.scheduler.advance_time(0)
-  end
-
   def test_frames_load_from_the_app_when_enabled
     session = Dommy::Rack::Session.new(app, javascript: true, load_frames: true)
     session.visit("/")
+    # The frame's navigation runs from a task, which the visit settles.
     frame = session.document.query_selector("#f")
-    assert_equal "about:blank", frame.content_document.url
-
-    run_tasks(session)
-
     assert_equal "framed", frame.content_document.query_selector("#inner").text_content
     assert_equal "http://example.org/frame", frame.content_document.url
   end
@@ -47,7 +38,6 @@ class Dommy::Rack::TestFrameLoading < Minitest::Test
     requests = []
     session = Dommy::Rack::Session.new(->(env) { requests << env["PATH_INFO"]; app.call(env) }, javascript: true)
     session.visit("/")
-    run_tasks(session)
 
     frame = session.document.query_selector("#f")
     assert_equal "about:blank", frame.content_document.url
