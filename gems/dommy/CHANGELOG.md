@@ -59,6 +59,7 @@
 
 ### Changed
 
+- The module sources kept for the next page are capped at 64 MB (`ModulePreload.max_source_bytes`), the least recently read going first, and one is used only for a URL the page's resources would serve, so a host the embedder blocks stays blocked.
 - `childNodes` and `children` count and index a node's children through makiri without building the child list, as do `firstChild`, `lastChild`, `firstElementChild`, `lastElementChild` and `childElementCount`, and `isConnected` and `getRootNode()` ask makiri for the root: on a list of 4,000 children `firstChild` and `lastChild` take 0.2 µs instead of 56 µs, `childNodes.length` after a change 14 µs instead of 73 µs, and `isConnected` 31 levels deep 0.25 µs instead of 1.6 µs.
 - A URL parsed from the same strings again (input, base and encoding, each up to 2 KB) is answered from the last 1,024 parses, as a copy the caller can change: dommy-examples' signup browser specs spend 11.5 ms parsing 1,206 URLs instead of 66 ms.
 - A page's ES modules whose URL carries a content digest (`application-f004202c.js`) are kept for the rest of the process by default: the next page reads them without a request, and the big ones as bytecode. dommy-examples' signup browser specs make 88 requests instead of 292 and boot a page's scripts in 6.8 ms instead of 19.4 ms. `Dommy::Js::ModulePreload.scope = :all` keeps modules without a digest too, and `:none` keeps none; `ModulePreload.enabled` is gone.

@@ -107,12 +107,20 @@ module Dommy
         return @served[url] if @served.key?(url)
 
         kept = @kept&.call(url)
-        return @served[url] = kept if kept
+        return @served[url] = kept if kept && served?(url)
 
         response = @resources&.get(url)
         return nil unless response&.success?
 
         @served[url] = response.body
+      end
+
+      # Whether the page's resources would serve `url` — a host an embedder
+      # blocks, or a cross-origin one it has not allowed, they would not —
+      # for a kept source to stand in for the request. Resources that cannot
+      # say serve everything they are asked for.
+      def served?(url)
+        !@resources.respond_to?(:serves?) || @resources.serves?(url)
       end
 
       def relative?(spec) = spec.start_with?("./", "../")
