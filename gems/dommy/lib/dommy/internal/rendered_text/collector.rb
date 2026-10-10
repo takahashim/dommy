@@ -217,11 +217,7 @@ module Dommy
           @boxes[element] ||= ComputedBox.from(style(element))
         end
 
-        def style(element)
-          CSS::Cascade.computed_style(element)
-        rescue CSS::Parser::Unavailable
-          {}
-        end
+        def style(element) = CSS::Cascade.computed_style(element)
       end
     end
   end

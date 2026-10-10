@@ -33,8 +33,7 @@ module Dommy
         module_function
 
         # The computed style of `element` as a frozen Hash of
-        # "property" => "value" strings. Raises Parser::Unavailable when the
-        # makiri-backed CSS parser is missing.
+        # "property" => "value" strings.
         def computed_style(element, pseudo_element: nil)
           document = element.owner_document
           return {}.freeze unless document
@@ -57,7 +56,7 @@ module Dommy
         # makiri-less installs), the HTML-level fast path is already exact
         # and no RuleIndex needs building.
         def author_css?(document)
-          return false unless document && Parser.available?
+          return false unless document
 
           cache = style_cache(document)
           cache.author_css = document_has_author_css?(document) if cache.author_css.nil?
@@ -88,7 +87,7 @@ module Dommy
         # map is built once per style generation. {} when there is no CSS layer.
         def counter_values(element)
           document = element.respond_to?(:owner_document) ? element.owner_document : nil
-          return {} unless document && Parser.available?
+          return {} unless document
 
           map = style_cache(document).counters || build_counters(document)
           map[element] || {}

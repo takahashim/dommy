@@ -264,14 +264,14 @@ module Dommy
       end
 
       # Elements that generate a block-level box by the UA stylesheet — used as
-      # the fallback when no CSS layer is available to compute `display`.
+      # the fallback when an element has no computed `display`.
       BLOCK_TAGS = CSS::UAStylesheet::BLOCK_LEVEL_TAGS
 
       # Whether an element generates a block-level box, so its text is separated
       # from siblings by whitespace in name-from-content (inline boxes glue). The
-      # computed `display` decides when CSS is available (honoring author CSS);
-      # otherwise the UA-default block-tag set is used so table cells / list
-      # items still separate.
+      # computed `display` decides (honoring author CSS); without one the
+      # UA-default block-tag set is used so table cells / list items still
+      # separate.
       def block_level?(element)
         display = computed_display(element)
         return BLOCK_TAGS.include?(element.local_name.to_s.downcase) if display.nil?
@@ -279,27 +279,20 @@ module Dommy
         !display.start_with?("inline") && !%w[none contents].include?(display)
       end
 
-      # nil when there is no CSS layer to ask, so block_level? falls back to the
-      # UA-default tag set. Only that absence is caught: a failure inside the
-      # cascade is a bug there, and silently guessing `display` would hide it.
+      # nil when the element has no computed `display` (it is in no
+      # document), so block_level? falls back to the UA-default tag set.
       def computed_display(element)
         value = Internal::CSS::Cascade.computed_style(element)["display"].to_s
         value.empty? ? nil : value
-      rescue Internal::CSS::Parser::Unavailable
-        nil
       end
 
       # The text contribution of a `::before` / `::after` pseudo-element's
-      # computed `content`. "" when the CSS layer is unavailable, the pseudo has
-      # no generated content (`none` / `normal`), or its content is purely
-      # non-text (counter/url/etc.).
+      # computed `content`. "" when the pseudo has no generated content
+      # (`none` / `normal`), or its content is purely non-text
+      # (counter/url/etc.).
       def pseudo_content(node, pseudo)
-        return "" unless Internal::CSS::Parser.available?
-
         decl = Internal::CSS::ComputedStyleDeclaration.new(node, pseudo_element: pseudo)
         content_text(decl.get_property_value("content"), node)
-      rescue Internal::CSS::Parser::Unavailable
-        ""
       end
 
       # Resolve a computed `content` value to its accname text. `counter()` /

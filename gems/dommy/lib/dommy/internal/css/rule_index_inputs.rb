@@ -31,10 +31,6 @@ module Dommy
 
           def self.parse(text)
             PARSE_CACHE.fetch(text) { Parser.parse(text) }
-          rescue Parser::Unavailable
-            # A missing makiri is not a malformed sheet: it means CSS is
-            # unavailable at all, which the caller reports rather than swallows.
-            raise
           rescue StandardError
             # Lexbor recovers from bad CSS itself, so reaching here means the
             # normalization above it broke on a shape it did not expect. One

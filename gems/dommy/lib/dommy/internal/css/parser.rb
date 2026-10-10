@@ -71,35 +71,13 @@ module Dommy
           def grouping? = false
         end
 
-        # Raised when CSS features are used without the makiri gem.
-        class Unavailable < StandardError
-          def initialize(msg = nil)
-            super(msg || "Dommy's CSS support requires the 'makiri' gem (its bundled " \
-                         "lexbor provides the CSS parser). Add `gem \"makiri\"` to use " \
-                         "stylesheet-aware computed styles.")
-          end
-        end
-
         module_function
-
-        def available?
-          return @available unless @available.nil?
-
-          @available = begin
-            require "makiri"
-            !!defined?(::Makiri::Lexbor::CSS)
-          rescue LoadError
-            false
-          end
-        end
 
         # Parse a stylesheet into an Array of StyleRule / MediaRule / LayerRule
         # / SupportsRule in source order (other at-rules are ignored). Lexbor's
         # css-syntax-3 error recovery applies; selectors and at-rules it can't
         # parse are surfaced for Dommy to re-validate, not silently dropped.
         def parse(text)
-          raise Unavailable unless available?
-
           rules = ::Makiri::Lexbor::CSS.parse_stylesheet(text.to_s)
           normalize_rules(rules, collect_namespaces(rules))
         end
