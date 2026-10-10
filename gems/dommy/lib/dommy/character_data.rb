@@ -89,9 +89,10 @@ module Dommy
       @__node__.content
     end
 
+    # Assigning `data`, `nodeValue` or `textContent` is "replace data" over
+    # the whole node, so a live range boundary inside it clamps to the start
+    # rather than dangling past the end.
     def data=(value)
-      # Assigning `data` is "replace data" over the whole node, so a live range
-      # boundary inside it clamps to the start rather than dangling past the end.
       old_length = utf16_length(@__node__.content)
       write_data(value)
       @document.__internal_ranges_replaced_data__(self, 0, old_length, utf16_length(@__node__.content))
@@ -102,7 +103,7 @@ module Dommy
     end
 
     def node_value=(value)
-      write_data(value)
+      self.data = value
     end
 
     def text_content
@@ -110,7 +111,7 @@ module Dommy
     end
 
     def text_content=(value)
-      write_data(value)
+      self.data = value
     end
 
     def remove
@@ -277,7 +278,7 @@ module Dommy
     def __js_set__(key, value)
       case key
       when "textContent", "data", "nodeValue"
-        write_data(value)
+        self.data = value
       end
 
       nil

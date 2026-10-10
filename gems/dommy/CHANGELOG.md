@@ -140,6 +140,7 @@
 
 ### Fixed
 
+- Setting `data`, `nodeValue` or `textContent` on a Text, Comment or ProcessingInstruction from script replaces the data as the Ruby setter does, so a live range inside the node moves to its start instead of being left past its end.
 - An `unsigned long` or `unsigned short` argument (CharacterData's offsets and counts, Range's offsets, `compareBoundaryPoints`' `how`) converts through JavaScript's ToNumber: `true` is 1, `[2]` is 2, `"0b11"` and `"0o7"` are 3 and 7, `"1_0"` and `"-0x1"` are NaN and so 0, and white space such as U+00A0, U+3000 and U+FEFF around a number is trimmed.
 - `compareDocumentPosition`, `insertBefore`, `MutationObserver#observe`, `setAttributeNode` and `setAttributeNodeNS` throw a `TypeError` for an argument that is not a `Node` (or an `Attr`) as WebIDL converts it, also when called from Ruby: `compareDocumentPosition(null)`, `insertBefore(node, "x")`, `observe(true, ...)` and `setAttributeNode(null)`.
 - `MutationObserver#observe` converts `attributeFilter` as a `sequence<DOMString>`: a value that is not an array (`null`, a string, a plain object) throws a `TypeError`, each name goes through JavaScript's ToString (`null` is `"null"`, `1.0` is `"1"`), and the names are matched case-sensitively, so `["ID"]` no longer matches an `id` attribute. An `undefined` member counts as missing.
