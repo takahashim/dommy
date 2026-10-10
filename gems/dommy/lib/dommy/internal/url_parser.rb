@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require_relative "bounded_cache"
+
 module Dommy
   module Internal
     # A WHATWG URL Standard "basic URL parser" (https://url.spec.whatwg.org/).
@@ -37,13 +39,66 @@ module Dommy
       # Only nil means "no base": a given base, the empty string included, is
       # parsed first, and its failure is the parse's (`new URL("a:b", "")`
       # throws).
+      #
+      # A page parses the same few URLs over and over — its own address, its
+      # assets, its links' hrefs, each against the same base — so a parse of
+      # strings is remembered (PARSES) and the next one hands back a copy. A
+      # copy, because the URL API's setters change a record in place.
       def parse(input, base_input = nil, encoding: nil)
+        input = input.to_s
+        return parse_uncached(input, base_input, encoding) if base_input.is_a?(Record) || !rememberable?(input, base_input)
+
+        key = [-input, base_input && -base_input.to_s, encoding].freeze
+        parsed = PARSES_MUTEX.synchronize { PARSES[key] }
+        unless parsed
+          parsed = begin
+            frozen_copy(parse_uncached(input, base_input, encoding))
+          rescue Failure => e
+            Failure.new(e.message).freeze
+          end
+          PARSES_MUTEX.synchronize { PARSES[key] = parsed }
+        end
+        raise parsed if parsed.is_a?(Failure)
+
+        thawed_copy(parsed)
+      end
+
+      # How many parses are remembered, and the longest input or base that
+      # is: a `data:` URL can be megabytes, and is parsed once anyway.
+      PARSES = BoundedCache.new(1024)
+      PARSES_MUTEX = Mutex.new
+      REMEMBERED_BYTES = 2048
+
+      def rememberable?(input, base_input)
+        input.bytesize <= REMEMBERED_BYTES && (base_input.nil? || base_input.to_s.bytesize <= REMEMBERED_BYTES)
+      end
+
+      def parse_uncached(input, base_input, encoding)
         base = nil
         unless base_input.nil?
           base = base_input.is_a?(Record) ? base_input : run(base_input.to_s, nil)
         end
-        run(input.to_s, base, encoding: encoding)
+        run(input, base, encoding: encoding)
       end
+
+      # The remembered form of a record: frozen through, so no copy handed
+      # out can reach it.
+      def frozen_copy(record)
+        copy = record.dup
+        copy.each_pair { |member, value| copy[member] = -value if value.is_a?(String) }
+        copy.path = copy.path.map { |segment| -segment }.freeze if copy.path.is_a?(Array)
+        copy.freeze
+      end
+
+      # A record the caller may change: its own path Array (the setters push
+      # and pop segments); the Strings stay shared, since nothing changes
+      # them in place.
+      def thawed_copy(record)
+        copy = record.dup
+        copy.path = record.path.dup if record.path.is_a?(Array)
+        copy
+      end
+      private_class_method :rememberable?, :parse_uncached, :frozen_copy, :thawed_copy
 
       # The basic URL parser with a state override: `input` is read from
       # `state` into the existing `url`, which the URL API's setters use to
