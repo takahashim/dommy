@@ -274,6 +274,20 @@ class TestEncodings < Minitest::Test
     assert_equal ["UTF-8", "?%E2%82%AC"], query.("utf-8", "€")
   end
 
+  # Shift_JIS, EUC-JP and EUC-KR encode with the spec's encoders and indexes
+  # (Windows-31J's and CP949's, not Ruby's narrower Shift_JIS and EUC-KR):
+  # NEC row 13 and CP949's extended hangul have bytes.
+  def test_shift_jis_euc_jp_and_euc_kr_encode_with_the_spec_indexes
+    query = lambda do |charset, text|
+      Dommy.parse(%(<!doctype html><meta charset="#{charset}"><a href="https://e.test/?#{text}">x</a>)).document.query_selector("a").__js_get__("search")
+    end
+    assert_equal "?%87@%81`", query.("shift_jis", "\u2460\uFF5E")
+    assert_equal "?%93%FA%B1\\", query.("shift_jis", "\u65E5\uFF71\u00A5")
+    assert_equal "?%C6%FC%8E%B1", query.("euc-jp", "\u65E5\uFF71")
+    assert_equal "?%81A%C7%D1", query.("euc-kr", "\uAC02\uD55C")
+    assert_equal "?%26%23128512%3B", query.("shift_jis", "\u{1F600}")
+  end
+
   # A document built from bytes takes the encoding they were decoded with:
   # the Content-Type's charset over the page's own <meta>.
   def test_a_document_from_bytes_takes_the_encoding_it_was_decoded_with

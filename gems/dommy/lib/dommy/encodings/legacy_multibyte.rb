@@ -542,10 +542,67 @@ module Dommy
     module LegacyEncoders
       module_function
 
-      def handles?(name) = %w[Big5 ISO-2022-JP].include?(name)
+      ENCODERS = {"Big5" => :big5, "ISO-2022-JP" => :iso_2022_jp, "Shift_JIS" => :shift_jis,
+                  "EUC-JP" => :euc_jp, "EUC-KR" => :euc_kr}.freeze
+      private_constant :ENCODERS
 
+      def handles?(name) = ENCODERS.key?(name)
+
+      # `string` encoded in `name` as bytes; a code point the encoding cannot
+      # represent is the block's bytes for it.
       def encode(name, string, &on_error)
-        name == "Big5" ? big5(string, &on_error) : iso_2022_jp(string, &on_error)
+        __send__(ENCODERS.fetch(name), string, &on_error)
+      end
+
+      # Spec: https://encoding.spec.whatwg.org/#shift_jis-encoder
+      def shift_jis(string)
+        out = []
+        string.each_codepoint do |code_point|
+          next out << code_point if code_point <= 0x80
+          next out << 0x5C if code_point == 0xA5
+          next out << 0x7E if code_point == 0x203E
+          next out << code_point - 0xFF61 + 0xA1 if code_point.between?(0xFF61, 0xFF9F)
+
+          pointer = shift_jis_pointer(code_point == 0x2212 ? 0xFF0D : code_point)
+          next out.concat(yield(code_point)) if pointer.nil?
+
+          leading, trailing = pointer.divmod(188)
+          out << leading + (leading < 0x1F ? 0x81 : 0xC1) << trailing + (trailing < 0x3F ? 0x40 : 0x41)
+        end
+        out
+      end
+
+      # Spec: https://encoding.spec.whatwg.org/#euc-jp-encoder
+      def euc_jp(string)
+        out = []
+        string.each_codepoint do |code_point|
+          next out << code_point if code_point <= 0x7F
+          next out << 0x5C if code_point == 0xA5
+          next out << 0x7E if code_point == 0x203E
+          next out << 0x8E << code_point - 0xFF61 + 0xA1 if code_point.between?(0xFF61, 0xFF9F)
+
+          pointer = jis0208_first_pointer(code_point == 0x2212 ? 0xFF0D : code_point)
+          next out.concat(yield(code_point)) if pointer.nil?
+
+          leading, trailing = pointer.divmod(94)
+          out << leading + 0xA1 << trailing + 0xA1
+        end
+        out
+      end
+
+      # Spec: https://encoding.spec.whatwg.org/#euc-kr-encoder
+      def euc_kr(string)
+        out = []
+        string.each_codepoint do |code_point|
+          next out << code_point if code_point <= 0x7F
+
+          pointer = euc_kr_pointer(code_point)
+          next out.concat(yield(code_point)) if pointer.nil?
+
+          leading, trailing = pointer.divmod(190)
+          out << leading + 0x81 << trailing + 0x41
+        end
+        out
       end
 
       def big5(string)
@@ -650,6 +707,33 @@ module Dommy
           first
         end
         @big5_pointers[code_point]
+      end
+
+      # The first pointer for each code point of `index` over `pointers`.
+      def first_pointers(index, pointers)
+        pointers.each_with_object({}) do |pointer, map|
+          mapped = LegacyIndexes.public_send(index, pointer)
+          map[mapped] ||= pointer if mapped
+        end
+      end
+
+      # The index jis0208 pointer over the whole index, as EUC-JP's encoder
+      # asks for it.
+      def jis0208_first_pointer(code_point)
+        (@jis0208_first_pointers ||= first_pointers(:jis0208, 0...LegacyIndexes::POINTER_COUNTS[:jis0208]))[code_point]
+      end
+
+      # The index Shift_JIS pointer: index jis0208 without its pointers 8272
+      # to 8835 (the NEC selection of IBM extensions, which the IBM rows
+      # repeat), so those characters encode as their IBM bytes.
+      def shift_jis_pointer(code_point)
+        @shift_jis_pointers ||= first_pointers(:jis0208, (0...LegacyIndexes::POINTER_COUNTS[:jis0208]).reject { |pointer| pointer.between?(8272, 8835) })
+        @shift_jis_pointers[code_point]
+      end
+
+      # The index EUC-KR pointer: the first pointer for a code point.
+      def euc_kr_pointer(code_point)
+        (@euc_kr_pointers ||= first_pointers(:euc_kr, 0...LegacyIndexes::POINTER_COUNTS[:euc_kr]))[code_point]
       end
 
       # The index jis0208 pointer: the first pointer for a code point.
