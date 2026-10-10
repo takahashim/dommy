@@ -16,7 +16,7 @@ module Dommy
       def __internal_each_live_range__
         return if @live_ranges.nil? || @live_ranges.size.zero?
 
-        @live_ranges.each_key { |range| yield range }
+        @live_ranges.each_pair { |range, live| yield range if live }
       end
 
       def live_ranges?
@@ -30,9 +30,11 @@ module Dommy
         return unless live_ranges?
 
         moving = []
-        @live_ranges.each_key { |range| moving << range if inclusive_ancestor_of?(root, range.start_container) }
+        __internal_each_live_range__ { |range| moving << range if inclusive_ancestor_of?(root, range.start_container) }
         moving.each do |range|
-          @live_ranges.delete(range)
+          # Marked rather than deleted: ObjectSpace::WeakMap#delete is Ruby
+          # 3.3's, and a range that comes back is registered true again.
+          @live_ranges[range] = false
           destination.__internal_register_range__(range)
         end
         nil
