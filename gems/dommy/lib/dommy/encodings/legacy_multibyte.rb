@@ -1,0 +1,749 @@
+# frozen_string_literal: true
+
+require_relative "multibyte_overrides"
+
+module Dommy
+  module Encodings
+    # The legacy multi-byte decoders (Shift_JIS, EUC-JP, ISO-2022-JP, Big5,
+    # EUC-KR, gb18030 — GBK's decoder is gb18030's), from the Encoding
+    # Standard's handlers: which byte a broken sequence gives back to the
+    # stream, and so how many U+FFFD it yields and what follows them, are the
+    # algorithm's. Only the index lookup is Ruby's: a pointer is turned back
+    # into the bytes that encode it, and Ruby's converter for the encoding whose
+    # table matches the spec's index decodes them.
+    #
+    # Spec: https://encoding.spec.whatwg.org/#legacy-multi-byte-chinese-(simplified)-encodings
+    class HandlerDecoder < Decoder
+      # Run the handler over `bytes`, then over end-of-queue when `flush`.
+      # The handler takes the byte (nil for end-of-queue), the queue it may
+      # restore bytes to, and the output, and returns :finished at the end.
+      #
+      # A restored byte is read before the rest of the input. While the
+      # handler holds nothing (#idle?), two shortcuts stand in for it, both
+      # exact: a run of ASCII bytes is a run of the same code points in every
+      # one of these encodings, so it is copied at once; and two bytes that
+      # start with a non-ASCII one decode, from the idle state, to what the
+      # handler made of them the first time (#pair_output), so a text's
+      # characters are looked up rather than run through the handler again.
+      def decode(bytes, flush:)
+        out = []
+        restored = []
+        input = bytes.b
+        position = 0
+        size = input.bytesize
+        loop do
+          if !restored.empty?
+            handle(restored.shift, restored, out)
+          elsif position < size
+            if idle?
+              stop = input.index(NON_ASCII, position) || size
+              if stop > position
+                out.concat(input.byteslice(position, stop - position).bytes)
+                position = stop
+                next
+              end
+              start = position
+              position = pairs(input, position, size, out)
+              next if position > start
+            end
+            byte = input.getbyte(position)
+            position += 1
+            handle(byte, restored, out)
+          else
+            break unless flush
+            break if handle(nil, restored, out) == :finished && restored.empty?
+          end
+        end
+        out
+      end
+
+      NON_ASCII = /[\x80-\xFF]/n
+      private_constant :NON_ASCII
+
+      private
+
+      # Whether the handler holds no partial sequence, so that the next ASCII
+      # byte is that code point. A stateful decoder whose ASCII means
+      # something else in some states answers false.
+      def idle? = false
+
+      def ascii?(byte) = byte && byte <= 0x7F
+
+      # From the idle state at `position`, append the output of each pair of
+      # bytes that starts with a non-ASCII one and that the handler, run on
+      # them from its idle state, leaves idle again (bytes it restores
+      # included) — remembered per class, so a text's characters are looked
+      # up rather than run through the handler again. Stops at an ASCII byte,
+      # the last byte, or a longer sequence (three or four bytes, left to the
+      # handler); not in fatal mode, where an error must raise where it is.
+      # Answers the position reached.
+      def pairs(input, position, size, out)
+        return position if @fatal
+
+        cache = self.class.pair_outputs
+        while position + 1 < size && (lead = input.getbyte(position)) > 0x7F
+          key = (lead << 8) | input.getbyte(position + 1)
+          output = cache[key]
+          output = cache[key] = self.class.new(false).__send__(:run_pair, lead, key & 0xFF) if output.nil?
+          break unless output
+
+          out.concat(output)
+          position += 2
+        end
+        position
+      end
+
+      # On a fresh decoder: handle the two bytes and whatever they restore,
+      # and answer the output if it ends idle, else false.
+      def run_pair(lead, trail)
+        out = []
+        restored = []
+        handle(lead, restored, out)
+        handle(trail, restored, out)
+        handle(restored.shift, restored, out) until restored.empty?
+        idle? ? out.freeze : false
+      end
+
+      class << self
+        def pair_outputs = (@pair_outputs ||= {})
+      end
+
+      # The code point Ruby's `encoding` decodes `bytes` to, or nil when they
+      # decode to nothing (or to more than one code point).
+      def self.lookup(encoding, bytes)
+        text = bytes.pack("C*").force_encoding(encoding).encode(::Encoding::UTF_8)
+        text.length == 1 ? text.ord : nil
+      rescue ::EncodingError
+        nil
+      end
+    end
+
+    # The spec's indexes. Each is read through the Ruby encoding whose table
+    # it nearly is, with the entries where the two differ taken from the
+    # spec's own index files (MULTIBYTE_INDEX_OVERRIDES, generated by
+    # script/build_encoding_tables.rb), and remembered.
+    module LegacyIndexes
+      CACHES = Hash.new { |h, k| h[k] = {} }
+      private_constant :CACHES
+
+      module_function
+
+      def jis0208(pointer) = lookup(:jis0208, pointer)
+      def jis0212(pointer) = lookup(:jis0212, pointer)
+      def big5(pointer) = lookup(:big5, pointer)
+      def euc_kr(pointer) = lookup(:euc_kr, pointer)
+      def gb18030(pointer) = lookup(:gb18030, pointer)
+
+      def lookup(name, pointer)
+        cache = CACHES[name]
+        return cache[pointer] if cache.key?(pointer)
+
+        overrides = MULTIBYTE_INDEX_OVERRIDES[name]
+        cache[pointer] =
+          if overrides.key?(pointer) then overrides[pointer]
+          elsif MULTIBYTE_INDEX_NULLS[name]&.any? { |range| range.cover?(pointer) } then nil
+          else ruby_lookup(name, pointer)
+          end
+      end
+
+      # The code point Ruby's table gives the bytes a pointer stands for —
+      # what the overrides are measured against.
+      def ruby_lookup(name, pointer)
+        case name
+        when :jis0208
+          # JIS X 0208 with the NEC and IBM extensions is Windows-31J: a
+          # pointer is its Shift_JIS byte pair.
+          leading, trailing = pointer.divmod(188)
+          bytes = [leading + (leading < 0x1F ? 0x81 : 0xC1), trailing + (trailing < 0x3F ? 0x40 : 0x41)]
+          HandlerDecoder.lookup(::Encoding::Windows_31J, bytes)
+        when :jis0212
+          leading, trailing = pointer.divmod(94)
+          HandlerDecoder.lookup(::Encoding::EUC_JP, [0x8F, leading + 0xA1, trailing + 0xA1])
+        when :big5
+          leading, trailing = pointer.divmod(157)
+          HandlerDecoder.lookup(::Encoding::Big5_HKSCS, [leading + 0x81, trailing + (trailing < 0x3F ? 0x40 : 0x62)])
+        when :euc_kr
+          leading, trailing = pointer.divmod(190)
+          HandlerDecoder.lookup(::Encoding::CP949, [leading + 0x81, trailing + 0x41])
+        when :gb18030
+          leading, trailing = pointer.divmod(190)
+          HandlerDecoder.lookup(::Encoding::GB18030, [leading + 0x81, trailing + (trailing < 0x3F ? 0x40 : 0x41)])
+        end
+      end
+
+      # How many pointers each index spans (its decoder's lead bytes times
+      # trail bytes), for the generator's comparison.
+      POINTER_COUNTS = {jis0208: 60 * 188, jis0212: 94 * 94, big5: 126 * 157, euc_kr: 126 * 190, gb18030: 126 * 190}.freeze
+
+      # The index gb18030 ranges code point for a four-byte pointer.
+      def gb18030_ranges(pointer)
+        return nil if (pointer > 39_419 && pointer < 189_000) || pointer > 1_237_575
+        return 0xE7C7 if pointer == 7457
+
+        cache = CACHES[:gb18030_ranges]
+        return cache[pointer] if cache.key?(pointer)
+
+        first, rest = pointer.divmod(12_600)
+        second, rest = rest.divmod(1260)
+        third, fourth = rest.divmod(10)
+        cache[pointer] = HandlerDecoder.lookup(::Encoding::GB18030, [first + 0x81, second + 0x30, third + 0x81, fourth + 0x30])
+      end
+    end
+
+    # Spec: https://encoding.spec.whatwg.org/#shift_jis-decoder
+    class ShiftJisDecoder < HandlerDecoder
+      private def idle? = @leading.zero?
+
+      def initialize(fatal)
+        super
+        @leading = 0x00
+      end
+
+      private
+
+      def handle(byte, queue, out)
+        if byte.nil?
+          return :finished if @leading.zero?
+
+          @leading = 0x00
+          return out << replacement!
+        end
+
+        unless @leading.zero?
+          leading = @leading
+          @leading = 0x00
+          pointer = nil
+          offset = byte < 0x7F ? 0x40 : 0x41
+          leading_offset = leading < 0xA0 ? 0x81 : 0xC1
+          pointer = (leading - leading_offset) * 188 + byte - offset if byte.between?(0x40, 0x7E) || byte.between?(0x80, 0xFC)
+          # Windows' end-user-defined characters, as the Private Use Area.
+          return out << (0xE000 - 8836 + pointer) if pointer&.between?(8836, 10_715)
+
+          code_point = pointer && LegacyIndexes.jis0208(pointer)
+          return out << code_point if code_point
+
+          queue.unshift(byte) if ascii?(byte)
+          return out << replacement!
+        end
+
+        if ascii?(byte) || byte == 0x80
+          out << byte
+        elsif byte.between?(0xA1, 0xDF)
+          out << (0xFF61 - 0xA1 + byte)
+        elsif byte.between?(0x81, 0x9F) || byte.between?(0xE0, 0xFC)
+          @leading = byte
+        else
+          out << replacement!
+        end
+      end
+    end
+
+    # Spec: https://encoding.spec.whatwg.org/#euc-jp-decoder
+    class EucJpDecoder < HandlerDecoder
+      private def idle? = @leading.zero?
+
+      def initialize(fatal)
+        super
+        @leading = 0x00
+        @jis0212 = false
+      end
+
+      private
+
+      def handle(byte, queue, out)
+        if byte.nil?
+          return :finished if @leading.zero?
+
+          @leading = 0x00
+          return out << replacement!
+        end
+
+        if @leading == 0x8E && byte.between?(0xA1, 0xDF)
+          @leading = 0x00
+          return out << (0xFF61 - 0xA1 + byte)
+        end
+        if @leading == 0x8F && byte.between?(0xA1, 0xFE)
+          @jis0212 = true
+          return @leading = byte
+        end
+
+        unless @leading.zero?
+          leading = @leading
+          @leading = 0x00
+          code_point = nil
+          if leading.between?(0xA1, 0xFE) && byte.between?(0xA1, 0xFE)
+            pointer = (leading - 0xA1) * 94 + byte - 0xA1
+            code_point = @jis0212 ? LegacyIndexes.jis0212(pointer) : LegacyIndexes.jis0208(pointer)
+          end
+          @jis0212 = false
+          return out << code_point if code_point
+
+          queue.unshift(byte) if ascii?(byte)
+          return out << replacement!
+        end
+
+        if ascii?(byte)
+          out << byte
+        elsif byte == 0x8E || byte == 0x8F || byte.between?(0xA1, 0xFE)
+          @leading = byte
+        else
+          out << replacement!
+        end
+      end
+    end
+
+    # Spec: https://encoding.spec.whatwg.org/#iso-2022-jp-decoder
+    class Iso2022JpDecoder < HandlerDecoder
+      def initialize(fatal)
+        super
+        @state = :ascii
+        @output_state = :ascii
+        @leading = 0x00
+        @output = false
+      end
+
+      private
+
+      def handle(byte, queue, out)
+        case @state
+        when :ascii, :roman, :katakana, :leading_byte
+          return @state = :escape_start if byte == 0x1B
+          return :finished if byte.nil?
+
+          @output = false
+          single_state(byte, out)
+        when :trailing_byte
+          if byte == 0x1B
+            @state = :escape_start
+            return out << replacement!
+          end
+          @state = :leading_byte
+          return out << replacement! unless byte&.between?(0x21, 0x7E)
+
+          out << (LegacyIndexes.jis0208((@leading - 0x21) * 94 + byte - 0x21) || replacement!)
+        when :escape_start
+          if byte == 0x24 || byte == 0x28
+            @leading = byte
+            return @state = :escape
+          end
+          queue.unshift(byte) unless byte.nil?
+          @output = false
+          @state = @output_state
+          out << replacement!
+        when :escape
+          escape(byte, queue, out)
+        end
+      end
+
+      def single_state(byte, out)
+        case @state
+        when :ascii
+          out << (byte <= 0x7F && byte != 0x0E && byte != 0x0F ? byte : replacement!)
+        when :roman
+          out << case byte
+                 when 0x5C then 0xA5
+                 when 0x7E then 0x203E
+                 else byte <= 0x7F && byte != 0x0E && byte != 0x0F ? byte : replacement!
+                 end
+        when :katakana
+          out << (byte.between?(0x21, 0x5F) ? 0xFF61 - 0x21 + byte : replacement!)
+        when :leading_byte
+          return out << replacement! unless byte.between?(0x21, 0x7E)
+
+          @leading = byte
+          @state = :trailing_byte
+        end
+      end
+
+      def escape(byte, queue, out)
+        leading = @leading
+        @leading = 0x00
+        state =
+          if leading == 0x28
+            {0x42 => :ascii, 0x4A => :roman, 0x49 => :katakana}[byte]
+          elsif leading == 0x24 && (byte == 0x40 || byte == 0x42)
+            :leading_byte
+          end
+        if state
+          @state = @output_state = state
+          output = @output
+          @output = true
+          # Two escapes in a row with nothing between them are an error.
+          return output ? out << replacement! : nil
+        end
+        byte.nil? ? queue.unshift(leading) : queue.unshift(leading, byte)
+        @output = false
+        @state = @output_state
+        out << replacement!
+      end
+    end
+
+    # Spec: https://encoding.spec.whatwg.org/#big5-decoder
+    class Big5Decoder < HandlerDecoder
+      private def idle? = @leading.zero?
+
+      # Pointers whose index entry is two code points.
+      PAIRS = {1133 => [0x00CA, 0x0304], 1135 => [0x00CA, 0x030C], 1164 => [0x00EA, 0x0304], 1166 => [0x00EA, 0x030C]}.freeze
+
+      def initialize(fatal)
+        super
+        @leading = 0x00
+      end
+
+      private
+
+      def handle(byte, queue, out)
+        if byte.nil?
+          return :finished if @leading.zero?
+
+          @leading = 0x00
+          return out << replacement!
+        end
+
+        unless @leading.zero?
+          leading = @leading
+          @leading = 0x00
+          offset = byte < 0x7F ? 0x40 : 0x62
+          pointer = (leading - 0x81) * 157 + (byte - offset) if byte.between?(0x40, 0x7E) || byte.between?(0xA1, 0xFE)
+          return out.concat(PAIRS[pointer]) if PAIRS.key?(pointer)
+
+          code_point = pointer && LegacyIndexes.big5(pointer)
+          return out << code_point if code_point
+
+          queue.unshift(byte) if ascii?(byte)
+          return out << replacement!
+        end
+
+        if ascii?(byte)
+          out << byte
+        elsif byte.between?(0x81, 0xFE)
+          @leading = byte
+        else
+          out << replacement!
+        end
+      end
+    end
+
+    # Spec: https://encoding.spec.whatwg.org/#euc-kr-decoder
+    class EucKrDecoder < HandlerDecoder
+      private def idle? = @leading.zero?
+
+      def initialize(fatal)
+        super
+        @leading = 0x00
+      end
+
+      private
+
+      def handle(byte, queue, out)
+        if byte.nil?
+          return :finished if @leading.zero?
+
+          @leading = 0x00
+          return out << replacement!
+        end
+
+        unless @leading.zero?
+          leading = @leading
+          @leading = 0x00
+          pointer = (leading - 0x81) * 190 + (byte - 0x41) if byte.between?(0x41, 0xFE)
+          code_point = pointer && LegacyIndexes.euc_kr(pointer)
+          return out << code_point if code_point
+
+          queue.unshift(byte) if ascii?(byte)
+          return out << replacement!
+        end
+
+        if ascii?(byte)
+          out << byte
+        elsif byte.between?(0x81, 0xFE)
+          @leading = byte
+        else
+          out << replacement!
+        end
+      end
+    end
+
+    # Spec: https://encoding.spec.whatwg.org/#gb18030-decoder
+    class Gb18030Decoder < HandlerDecoder
+      private def idle? = @first.zero? && @second.zero? && @third.zero?
+
+      def initialize(fatal)
+        super
+        @first = @second = @third = 0x00
+      end
+
+      private
+
+      def handle(byte, queue, out)
+        if byte.nil?
+          return :finished if @first.zero? && @second.zero? && @third.zero?
+
+          @first = @second = @third = 0x00
+          return out << replacement!
+        end
+
+        unless @third.zero?
+          unless byte.between?(0x30, 0x39)
+            queue.unshift(@second, @third, byte)
+            @first = @second = @third = 0x00
+            return out << replacement!
+          end
+          pointer = ((@first - 0x81) * 12_600) + ((@second - 0x30) * 1260) + ((@third - 0x81) * 10) + byte - 0x30
+          @first = @second = @third = 0x00
+          return out << (LegacyIndexes.gb18030_ranges(pointer) || replacement!)
+        end
+
+        unless @second.zero?
+          return @third = byte if byte.between?(0x81, 0xFE)
+
+          queue.unshift(@second, byte)
+          @first = @second = 0x00
+          return out << replacement!
+        end
+
+        unless @first.zero?
+          return @second = byte if byte.between?(0x30, 0x39)
+
+          leading = @first
+          @first = 0x00
+          offset = byte < 0x7F ? 0x40 : 0x41
+          pointer = (leading - 0x81) * 190 + (byte - offset) if byte.between?(0x40, 0x7E) || byte.between?(0x80, 0xFE)
+          code_point = pointer && LegacyIndexes.gb18030(pointer)
+          return out << code_point if code_point
+
+          queue.unshift(byte) if ascii?(byte)
+          return out << replacement!
+        end
+
+        if ascii?(byte)
+          out << byte
+        elsif byte == 0x80
+          out << 0x20AC
+        elsif byte.between?(0x81, 0xFE)
+          @first = byte
+        else
+          out << replacement!
+        end
+      end
+    end
+  end
+end
+
+module Dommy
+  module Encodings
+    # The Encoding Standard's Big5 and ISO-2022-JP encoders, which choose
+    # pointers (and, for ISO-2022-JP, escape sequences) as Ruby's converters
+    # do not. `encode` returns the bytes, with each code point the encoding
+    # cannot represent yielded to the block, which answers the bytes to put
+    # in its place (the URL parser's percent-encoded `&#N;`).
+    #
+    # Spec: https://encoding.spec.whatwg.org/#big5-encoder
+    module LegacyEncoders
+      module_function
+
+      ENCODERS = {"Big5" => :big5, "ISO-2022-JP" => :iso_2022_jp, "Shift_JIS" => :shift_jis,
+                  "EUC-JP" => :euc_jp, "EUC-KR" => :euc_kr}.freeze
+      private_constant :ENCODERS
+
+      def handles?(name) = ENCODERS.key?(name)
+
+      # `string` encoded in `name` as bytes; a code point the encoding cannot
+      # represent is the block's bytes for it.
+      def encode(name, string, &on_error)
+        __send__(ENCODERS.fetch(name), string, &on_error)
+      end
+
+      # Spec: https://encoding.spec.whatwg.org/#shift_jis-encoder
+      def shift_jis(string)
+        out = []
+        string.each_codepoint do |code_point|
+          next out << code_point if code_point <= 0x80
+          next out << 0x5C if code_point == 0xA5
+          next out << 0x7E if code_point == 0x203E
+          next out << code_point - 0xFF61 + 0xA1 if code_point.between?(0xFF61, 0xFF9F)
+
+          pointer = shift_jis_pointer(code_point == 0x2212 ? 0xFF0D : code_point)
+          next out.concat(yield(code_point)) if pointer.nil?
+
+          leading, trailing = pointer.divmod(188)
+          out << leading + (leading < 0x1F ? 0x81 : 0xC1) << trailing + (trailing < 0x3F ? 0x40 : 0x41)
+        end
+        out
+      end
+
+      # Spec: https://encoding.spec.whatwg.org/#euc-jp-encoder
+      def euc_jp(string)
+        out = []
+        string.each_codepoint do |code_point|
+          next out << code_point if code_point <= 0x7F
+          next out << 0x5C if code_point == 0xA5
+          next out << 0x7E if code_point == 0x203E
+          next out << 0x8E << code_point - 0xFF61 + 0xA1 if code_point.between?(0xFF61, 0xFF9F)
+
+          pointer = jis0208_first_pointer(code_point == 0x2212 ? 0xFF0D : code_point)
+          next out.concat(yield(code_point)) if pointer.nil?
+
+          leading, trailing = pointer.divmod(94)
+          out << leading + 0xA1 << trailing + 0xA1
+        end
+        out
+      end
+
+      # Spec: https://encoding.spec.whatwg.org/#euc-kr-encoder
+      def euc_kr(string)
+        out = []
+        string.each_codepoint do |code_point|
+          next out << code_point if code_point <= 0x7F
+
+          pointer = euc_kr_pointer(code_point)
+          next out.concat(yield(code_point)) if pointer.nil?
+
+          leading, trailing = pointer.divmod(190)
+          out << leading + 0x81 << trailing + 0x41
+        end
+        out
+      end
+
+      def big5(string)
+        out = []
+        string.each_char do |char|
+          code_point = char.ord
+          next out << code_point if code_point <= 0x7F
+
+          pointer = big5_pointer(code_point)
+          next out.concat(yield(code_point)) if pointer.nil?
+
+          leading, trailing = pointer.divmod(157)
+          out << leading + 0x81 << trailing + (trailing < 0x3F ? 0x40 : 0x62)
+        end
+        out
+      end
+
+      # Spec: https://encoding.spec.whatwg.org/#iso-2022-jp-encoder
+      def iso_2022_jp(string)
+        out = []
+        state = :ascii
+        queue = string.codepoints
+        until queue.empty?
+          code_point = queue.shift
+          if [0x0E, 0x0F, 0x1B].include?(code_point) && state != :jis0208
+            out.concat(yield(0xFFFD))
+            next
+          end
+          if state == :ascii && code_point <= 0x7F
+            out << code_point
+            next
+          end
+          if state == :roman && ((code_point <= 0x7F && code_point != 0x5C && code_point != 0x7E) || code_point == 0xA5 || code_point == 0x203E)
+            out << (code_point == 0xA5 ? 0x5C : (code_point == 0x203E ? 0x7E : code_point))
+            next
+          end
+          if code_point <= 0x7F
+            queue.unshift(code_point)
+            state = :ascii
+            out << 0x1B << 0x28 << 0x42
+            next
+          end
+          if code_point == 0xA5 || code_point == 0x203E
+            queue.unshift(code_point)
+            state = :roman
+            out << 0x1B << 0x28 << 0x4A
+            next
+          end
+          original = code_point
+          code_point = 0xFF0D if code_point == 0x2212
+          code_point = katakana(code_point) if code_point.between?(0xFF61, 0xFF9F)
+          pointer = jis0208_pointer(code_point)
+          if pointer.nil?
+            if state == :jis0208
+              queue.unshift(original)
+              state = :ascii
+              out << 0x1B << 0x28 << 0x42
+            else
+              out.concat(yield(original))
+            end
+            next
+          end
+          if state != :jis0208
+            queue.unshift(original)
+            state = :jis0208
+            out << 0x1B << 0x24 << 0x42
+            next
+          end
+          leading, trailing = pointer.divmod(94)
+          out << leading + 0x21 << trailing + 0x21
+        end
+        out << 0x1B << 0x28 << 0x42 unless state == :ascii
+        out
+      end
+
+      # index ISO-2022-JP katakana: halfwidth to fullwidth katakana, as NFKC
+      # maps them, but with the voiced sound marks as their spacing forms.
+      def katakana(code_point)
+        return 0x309B if code_point == 0xFF9E
+        return 0x309C if code_point == 0xFF9F
+
+        code_point.chr(::Encoding::UTF_8).unicode_normalize(:nfkc).ord
+      end
+
+      BIG5_LAST_POINTER = [0x2550, 0x255E, 0x2561, 0x256A, 0x5341, 0x5345].freeze
+      private_constant :BIG5_LAST_POINTER
+
+      # The index Big5 pointer: Big5 without the HKSCS extensions below 0xA1,
+      # the first pointer for a code point, but the last for six duplicates.
+      def big5_pointer(code_point)
+        @big5_pointers ||= begin
+          first = {}
+          last = {}
+          ((0xA1 - 0x81) * 157...((0xFE - 0x81 + 1) * 157)).each do |pointer|
+            mapped = LegacyIndexes.big5(pointer)
+            next unless mapped
+
+            first[mapped] ||= pointer
+            last[mapped] = pointer
+          end
+          BIG5_LAST_POINTER.each { |cp| first[cp] = last[cp] if last[cp] }
+          first
+        end
+        @big5_pointers[code_point]
+      end
+
+      # The first pointer for each code point of `index` over `pointers`.
+      def first_pointers(index, pointers)
+        pointers.each_with_object({}) do |pointer, map|
+          mapped = LegacyIndexes.public_send(index, pointer)
+          map[mapped] ||= pointer if mapped
+        end
+      end
+
+      # The index jis0208 pointer over the whole index, as EUC-JP's encoder
+      # asks for it.
+      def jis0208_first_pointer(code_point)
+        (@jis0208_first_pointers ||= first_pointers(:jis0208, 0...LegacyIndexes::POINTER_COUNTS[:jis0208]))[code_point]
+      end
+
+      # The index Shift_JIS pointer: index jis0208 without its pointers 8272
+      # to 8835 (the NEC selection of IBM extensions, which the IBM rows
+      # repeat), so those characters encode as their IBM bytes.
+      def shift_jis_pointer(code_point)
+        @shift_jis_pointers ||= first_pointers(:jis0208, (0...LegacyIndexes::POINTER_COUNTS[:jis0208]).reject { |pointer| pointer.between?(8272, 8835) })
+        @shift_jis_pointers[code_point]
+      end
+
+      # The index EUC-KR pointer: the first pointer for a code point.
+      def euc_kr_pointer(code_point)
+        (@euc_kr_pointers ||= first_pointers(:euc_kr, 0...LegacyIndexes::POINTER_COUNTS[:euc_kr]))[code_point]
+      end
+
+      # The index jis0208 pointer: the first pointer for a code point.
+      def jis0208_pointer(code_point)
+        @jis0208_pointers ||= (0...(94 * 94)).each_with_object({}) do |pointer, map|
+          mapped = LegacyIndexes.jis0208(pointer)
+          map[mapped] ||= pointer if mapped
+        end
+        @jis0208_pointers[code_point]
+      end
+    end
+  end
+end

@@ -325,6 +325,10 @@ module Dommy
       Internal::NodeEquality.equal?(self, other)
     end
 
+    # The slot this slottable was last assign()ed to (DOM "manual slot
+    # assignment"), or nil.
+    attr_accessor :__internal_manual_slot__
+
     # WHATWG Node.ownerDocument — null when this is a document, this node's
     # node document otherwise. The IDL puts the attribute on Node, so every node
     # class needs it; only Element and Attr defined it before, which left

@@ -476,6 +476,24 @@ globalThis.__rbHost = (function () {
     return hostSetWire(handle, name, dehydrateTop(value));
   }
 
+  // ImageData's `data`: one Uint8ClampedArray per ImageData, which holds its
+  // pixels. Dommy paints nothing, so an ImageData starts transparent black and
+  // only the page's writes change it; the host keeps the size and never needs
+  // the pixels. They stay here, then, and never cross the bridge (a
+  // 1920x1080 image is 8 MB): a structured clone copies them into its record.
+  const livePixels = new WeakMap();
+  function pixelsOf(proxy) {
+    let pixels = livePixels.get(proxy);
+    if (pixels === undefined) {
+      const handle = proxyHandles.get(proxy);
+      const width = rehydrate(__rb_host_get(handle, "width"));
+      const height = rehydrate(__rb_host_get(handle, "height"));
+      pixels = new Uint8ClampedArray(width * height * 4);
+      livePixels.set(proxy, pixels);
+    }
+    return pixels;
+  }
+
   // hostSet for a value already in its wire form.
   function hostSetWire(handle, name, wire) {
     bumpDomEpoch();
@@ -1114,12 +1132,53 @@ globalThis.__rbHost = (function () {
     return Array.prototype.map.call(args, dehydrateTop);
   }
 
+  // WebIDL's QuotaExceededError: a DOMException named "QuotaExceededError"
+  // with the amount `requested` and the `quota`, each null when unknown. Made
+  // once DOMException exists, and installed as a global.
+  //
+  // Spec: https://webidl.spec.whatwg.org/#quotaexceedederror
+  let quotaExceededErrorClass = null;
+  function quotaExceededError() {
+    if (quotaExceededErrorClass !== null) return quotaExceededErrorClass;
+    const Base = globalThis.DOMException;
+    if (typeof Base !== "function") return null;
+    const amounts = new WeakMap();
+    const amount = (options, key) => {
+      const value = options == null ? undefined : options[key];
+      if (value === undefined) return null;
+      const number = Number(value);
+      if (!Number.isFinite(number)) throw new TypeError("QuotaExceededError: " + key + " is not a finite number");
+      if (number < 0) throw new RangeError("QuotaExceededError: " + key + " is negative");
+      return number;
+    };
+    class QuotaExceededError extends Base {
+      constructor(message = "", options = undefined) {
+        const quota = amount(options, "quota");
+        const requested = amount(options, "requested");
+        if (quota !== null && requested !== null && requested < quota) {
+          throw new RangeError("QuotaExceededError: requested is less than quota");
+        }
+        super(message === undefined ? "" : String(message), "QuotaExceededError");
+        amounts.set(this, { quota, requested });
+      }
+      get quota() { const a = amounts.get(this); if (!a) throw new TypeError("Illegal invocation"); return a.quota; }
+      get requested() { const a = amounts.get(this); if (!a) throw new TypeError("Illegal invocation"); return a.requested; }
+    }
+    Object.defineProperty(globalThis, "QuotaExceededError", { value: QuotaExceededError, writable: true, enumerable: false, configurable: true });
+    quotaExceededErrorClass = QuotaExceededError;
+    return QuotaExceededError;
+  }
+
   // A host call that raised a Dommy::DOMException comes back tagged so it can be
   // re-thrown JS-side as a real DOMException (name + legacy code, and
   // `instanceof DOMException`). Without this the quickjs gem flattens it to a
   // plain Error, breaking assert_throws_dom and the DOM's error contracts.
   function makeHostError(info) {
     const G = globalThis;
+    if (info.name === "QuotaExceededError" && !info.js_native) {
+      const Quota = quotaExceededError();
+      if (Quota) return new Quota(info.message);
+    }
     // A deliberate JS-native error (TypeError, RangeError, …): build the real
     // constructor so `instanceof` holds. URL construction failures arrive here
     // as TypeError (per the URL Standard), not as a DOMException.
@@ -1425,6 +1484,8 @@ globalThis.__rbHost = (function () {
       if (!isProxy(value)) throw dataCloneError("The object could not be cloned");
       const snapshot = rehydrate(__rb_host_clone(proxyHandles.get(value), !!forStorage));
       serialized = { type: "Platform", interface: primaryInterfaceOf(value), snapshot };
+      const pixels = livePixels.get(value);
+      if (pixels !== undefined) serialized.pixels = pixels.slice();
     } else if (type === "function") {
       throw dataCloneError("A function could not be cloned");
     } else if (brandedBy(SC.symbolValueOf, value) || brandedBy(SC.weakMapHas, value, {}) ||
@@ -1530,6 +1591,7 @@ globalThis.__rbHost = (function () {
       case "Platform":
         // A new instance from the host's snapshot.
         value = rehydrate(__rb_host_clone(proxyHandles.get(serialized.snapshot), false));
+        if (serialized.pixels !== undefined) livePixels.set(value, serialized.pixels.slice());
         break;
       case "TransferredArrayBuffer":
       case "TransferredPlatform":
@@ -2731,6 +2793,7 @@ globalThis.__rbHost = (function () {
     }
     const names = [...protos.keys(), ...lazyChains.keys()];
     if (!names.includes("DOMException") && typeof globalThis.DOMException === "function") names.push("DOMException");
+    if (quotaExceededError()) names.push("QuotaExceededError");
     // Mirror the JS built-in constructors too, so an iframe's contentWindow
     // resolves `defaultView.TypeError` / `defaultView.Array` like a real window
     // (WPT reaches for `(root.ownerDocument).defaultView.TypeError`). The same
@@ -3754,6 +3817,7 @@ globalThis.__rbHost = (function () {
           return Reflect.get(t, prop, receiver);
         }
         if (constCache !== null && constCache.has(prop)) return constCache.get(prop);
+        if (prop === "data" && shape.name === "ImageData" && isProxy(receiver)) return pixelsOf(receiver);
         if (ifaceFrozenArrays !== null && ifaceFrozenArrays.has(prop)) {
           return frozenArrayRead(ifaceAttrCache, prop, rehydrate(__rb_host_get(handle, prop)));
         }

@@ -42,6 +42,7 @@ class Dommy::Rack::TestResponse < Minitest::Test
 
     text = build(200, {"Content-Type" => "text/plain; charset=iso-8859-1"}, ["caf\xE9".b])
     assert_equal "caf\u00E9", text.document.query_selector("pre").text_content
+    assert_equal "Shift_JIS", html.document.character_encoding
   end
 
   def test_text_plain_body_is_shown_in_a_pre

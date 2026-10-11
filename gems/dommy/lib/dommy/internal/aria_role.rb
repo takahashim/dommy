@@ -68,7 +68,7 @@ module Dommy
       end
 
       def explicit_role(element)
-        raw = element.__internal_attribute_value__("role").to_s.strip
+        raw = element.__internal_aria_value__("role").to_s.strip
         return nil if raw.empty?
 
         raw.split(/\s+/).each do |token|
@@ -219,7 +219,7 @@ module Dommy
       end
 
       def named?(element)
-        return true if present?(element.__internal_attribute_value__("aria-label"))
+        return true if present?(element.__internal_aria_value__("aria-label"))
         return true if references?(element, "aria-labelledby")
 
         present?(element.__internal_attribute_value__("title"))
@@ -241,7 +241,7 @@ module Dommy
       def presentation_conflict?(element)
         return true if focusable?(element)
 
-        present?(element.__internal_attribute_value__("aria-label")) ||
+        present?(element.__internal_aria_value__("aria-label")) ||
           %w[aria-labelledby aria-describedby].any? { |a| references?(element, a) }
       end
 

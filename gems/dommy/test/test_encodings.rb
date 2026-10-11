@@ -210,40 +210,39 @@ class TestEncodings < Minitest::Test
     assert_equal("utf-8", Dommy::TextEncoder.new.encoding)
   end
 
-  # The legacy multi-byte encodings go through Ruby's converter for the
-  # encoding closest to the spec's index (Encodings::RUBY_ENCODINGS), and
-  # "closest" is not "equal". This records where they land today, so a change
-  # under us — a Ruby upgrade, a different converter — is visible rather than
-  # silent. These are OUR behaviour, not the spec's; the one known divergence
-  # is called out.
-  DIVERGENCES = {
-    # The spec's shift_jis decoder returns the byte itself for 0x00..0x80, so
-    # 0x80 is U+0080. Windows-31J has no mapping for it.
-    ["Shift_JIS", "\x80"] => "\ufffd", # spec: U+0080
+  # The legacy multi-byte encodings decode with the spec's handlers, reading
+  # their indexes through Ruby; a few code points where Ruby's tables are not
+  # the spec's index (Windows-31J for jis0208, GB18030-2005/2022 over 2000).
+  SPEC_DECODES = {
+    ["Shift_JIS", "\x80"] => "\u0080",     # the byte itself; Windows-31J has no mapping
+    ["Shift_JIS", "\xA1"] => "｡",     # halfwidth ideographic full stop
+    ["Shift_JIS", "\xDF"] => "ﾟ",     # halfwidth katakana semi-voiced mark
+    ["Shift_JIS", "\x81\x5F"] => "＼", # fullwidth reverse solidus
+    ["EUC-JP", "\xA1\xDD"] => "－",    # jis0208's fullwidth hyphen-minus, not U+2212
+    ["EUC-KR", "\xA1\xA1"] => "　",
+    ["Big5", "\xA1\x40"] => "　",
+    ["GBK", "\x80"] => "€",           # euro sign
+    ["gb18030", "\xA8\xBC"] => "ḿ",   # GB18030-2005
+    ["gb18030", "\xFE\x59"] => "龴",   # GB18030-2022
+    ["EUC-JP", "\xFF"] => "�",
+  ["Big5", "\xA3\xE1"] => "€",          # from the spec's index; Ruby's HKSCS lacks it
+  ["Big5", "\xF9\xFA"] => "╭",
+  ["gb18030", "\x81\x30\x81\x30"] => "\u0080", # a four-byte range
+  ["gb18030", "\xA3\xA0"] => "\u3000",   # the index's compatibility mapping
   }.freeze
 
-  AGREEMENTS = {
-    ["Shift_JIS", "\xA1"] => "\uff61",     # halfwidth ideographic full stop
-    ["Shift_JIS", "\xDF"] => "\uff9f",     # halfwidth katakana semi-voiced mark
-    ["Shift_JIS", "\x81\x5F"] => "\uff3c", # fullwidth reverse solidus
-    ["EUC-KR", "\xA1\xA1"] => "\u3000",
-    ["Big5", "\xA1\x40"] => "\u3000",
-    ["GBK", "\x80"] => "\u20ac",           # euro sign
-    ["EUC-JP", "\xFF"] => "\ufffd",
-  }.freeze
-
-  def test_the_converter_approximations_still_land_where_they_did
-    (DIVERGENCES.merge(AGREEMENTS)).each do |(name, bytes), expected|
+  def test_the_legacy_multi_byte_decoders_follow_the_spec_index
+    SPEC_DECODES.each do |(name, bytes), expected|
       assert_equal(expected, Dommy::Encodings.decode(bytes.b, name), "#{name} #{bytes.b.inspect}")
     end
   end
 
-  # Every legacy multi-byte name must have a converter, or decoder_for blows up
-  # at the first byte of such a page.
-  def test_every_legacy_multi_byte_name_resolves_to_a_converter
-    Dommy::Encodings::RUBY_ENCODINGS.each_key do |name|
-      assert_kind_of(Dommy::Encodings::ConverterDecoder, Dommy::Encodings.decoder_for(name), name)
-    end
+  # A broken sequence gives an ASCII byte back to the stream, so it is not
+  # swallowed by the error.
+  def test_an_ascii_byte_after_a_broken_lead_is_kept
+    assert_equal("�@", Dommy::Encodings.decode("\x81\x40".b, "Big5"))
+    assert_equal("A� A", Dommy::Encodings.decode("A\xA1 A".b, "EUC-KR"))
+    assert_equal("�$P", Dommy::Encodings.decode("\x1B$P".b, "ISO-2022-JP"))
   end
 
   # A name the standard does not know is the caller's mistake, and says so
@@ -251,5 +250,109 @@ class TestEncodings < Minitest::Test
   def test_decoder_for_rejects_a_name_outside_the_standard
     error = assert_raises(ArgumentError) { Dommy::Encodings.decoder_for("Nonexistent") }
     assert_match(/not an encoding the standard names/, error.message)
+  end
+
+  # HTML's prescan: a <meta charset> or http-equiv Content-Type in the first
+  # 1024 bytes, outside comments.
+  def test_prescan_finds_a_meta_charset
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<!doctype html><meta charset="big5">))
+    assert_equal "Shift_JIS", Dommy::Encodings.prescan(%(<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">))
+    assert_equal "UTF-8", Dommy::Encodings.prescan(%(<meta charset="utf-16le">))
+    assert_nil Dommy::Encodings.prescan(%(<!-- <meta charset="big5"> --><p>x</p>))
+  end
+
+  # A document's encoding decides how a link's query is encoded, with the
+  # spec's Big5 and ISO-2022-JP encoders.
+  def test_a_documents_encoding_encodes_link_queries
+    query = lambda do |encoding, text|
+      doc = Dommy.parse(%(<!doctype html><a href="https://e.test/?#{text}">x</a>), encoding: encoding).document
+      [doc.character_encoding, doc.query_selector("a").__js_get__("search")]
+    end
+    assert_equal ["Big5", "?%A3%E1"], query.("Big5", "\u20AC")
+    assert_equal ["Big5", "?%26%239731%3B"], query.("Big5", "\u2603")
+    assert_equal ["ISO-2022-JP", "?%1B(J\\%1B(B"], query.("ISO-2022-JP", "\u00A5")
+    assert_equal ["UTF-8", "?%E2%82%AC"], query.("UTF-8", "\u20AC")
+  end
+
+  # Markup given as a string is text already: its document is UTF-8 whatever
+  # its <meta charset> says, and so is a body fragment's.
+  def test_a_document_parsed_from_a_string_is_utf8
+    assert_equal "UTF-8", Dommy.parse(%(<!doctype html><meta charset="shift_jis"><p>x</p>)).document.character_encoding
+    assert_equal "Shift_JIS", Dommy.parse("<!-- c --><meta charset=shift_jis><p>x</p>", encoding: "Shift_JIS").document.character_encoding
+  end
+
+  # Shift_JIS, EUC-JP and EUC-KR encode with the spec's encoders and indexes
+  # (Windows-31J's and CP949's, not Ruby's narrower Shift_JIS and EUC-KR):
+  # NEC row 13 and CP949's extended hangul have bytes.
+  def test_shift_jis_euc_jp_and_euc_kr_encode_with_the_spec_indexes
+    query = lambda do |encoding, text|
+      Dommy.parse(%(<!doctype html><a href="https://e.test/?#{text}">x</a>), encoding: encoding).document.query_selector("a").__js_get__("search")
+    end
+    assert_equal "?%87@%81`", query.("Shift_JIS", "\u2460\uFF5E")
+    assert_equal "?%93%FA%B1\\", query.("Shift_JIS", "\u65E5\uFF71\u00A5")
+    assert_equal "?%C6%FC%8E%B1", query.("EUC-JP", "\u65E5\uFF71")
+    assert_equal "?%81A%C7%D1", query.("EUC-KR", "\uAC02\uD55C")
+    assert_equal "?%26%23128512%3B", query.("Shift_JIS", "\u{1F600}")
+  end
+
+  # A document built from bytes takes the encoding they were decoded with:
+  # the Content-Type's charset over the page's own <meta>.
+  def test_a_document_from_bytes_takes_the_encoding_it_was_decoded_with
+    nav = Dommy::Internal::ChildNavigable
+    sjis = "<!doctype html><a id=a href=\"/s?q=\u65E5\">x</a>".encode("Windows-31J").b
+    win = nav.window_for_response(sjis, "text/html; charset=Shift_JIS", "http://e.test/")
+    assert_equal ["Shift_JIS", "http://e.test/s?q=%93%FA"], [win.document.character_encoding, win.document.get_element_by_id("a").href]
+
+    meta = "<!-- c --><meta charset=shift_jis><a id=a href=\"/s?q=\u65E5\">x</a>".encode("Windows-31J").b
+    win = nav.window_for_response(meta, "text/html", "http://e.test/")
+    assert_equal ["Shift_JIS", "http://e.test/s?q=%93%FA"], [win.document.character_encoding, win.document.get_element_by_id("a").href]
+
+    utf8 = "<!doctype html><meta charset=shift_jis><a id=a href=\"/s?q=\u65E5\">x</a>".b
+    win = nav.window_for_response(utf8, "text/html; charset=utf-8", "http://e.test/")
+    assert_equal ["UTF-8", "http://e.test/s?q=%E6%97%A5"], [win.document.character_encoding, win.document.get_element_by_id("a").href]
+
+    text = nav.window_for_response("caf\xE9".b, "text/plain; charset=iso-8859-1", "http://e.test/t")
+    assert_equal "windows-1252", text.document.character_encoding
+  end
+
+  # fetch, sendBeacon and cookieStore use the plain URL parser: a query is
+  # UTF-8 whatever the document's encoding. A link, XHR and history encode
+  # it in the document's.
+  def test_fetch_encodes_a_query_in_utf8_on_a_legacy_page
+    win = Dommy.parse("<!doctype html><p>x</p>", encoding: "Shift_JIS")
+    win.location.__internal_set_url__("http://e.test/")
+    assert_equal "http://e.test/a?q=%93%FA", win.__internal_parse_url__("/a?q=\u65E5")
+    assert_equal "http://e.test/a?q=%E6%97%A5", win.__internal_parse_url__("/a?q=\u65E5", utf8: true)
+
+    requested = []
+    resources = Object.new
+    resources.define_singleton_method(:request) { |method:, url:, **| (requested << url) && nil }
+    win.globals["__fetch_handler__"] = Dommy::Resources::FetchHandler.new(resources)
+    Dommy::FetchFn.new(win).__js_call__("fetch", ["/a?q=\u65E5", nil])
+    assert_equal ["http://e.test/a?q=%E6%97%A5"], requested
+  end
+
+  # The legacy decoders copy ASCII runs and look two-byte sequences up
+  # instead of handing every byte to the handler; what they produce must be
+  # what the handler alone produces, broken sequences, a lead at the end and
+  # chunked input included.
+  def test_the_shortcuts_decode_as_the_handler_alone_does
+    rng = Random.new(20_261_011)
+    {
+      "Shift_JIS" => Dommy::Encodings::ShiftJisDecoder, "EUC-JP" => Dommy::Encodings::EucJpDecoder,
+      "Big5" => Dommy::Encodings::Big5Decoder, "EUC-KR" => Dommy::Encodings::EucKrDecoder,
+      "gb18030" => Dommy::Encodings::Gb18030Decoder
+    }.each do |name, klass|
+      slow = Class.new(klass) { private def idle? = false }
+      150.times do
+        bytes = Array.new(rng.rand(1..40)) { rng.rand < 0.3 ? rng.rand(0x20..0x7E) : rng.rand(0x80..0xFF) }.pack("C*")
+        cut = rng.rand(0..bytes.bytesize)
+        fast = klass.new(false)
+        expected = slow.new(false)
+        got = fast.decode(bytes.byteslice(0, cut), flush: false) + fast.decode(bytes.byteslice(cut..), flush: true)
+        want = expected.decode(bytes.byteslice(0, cut), flush: false) + expected.decode(bytes.byteslice(cut..), flush: true)
+        assert_equal want, got, "#{name} #{bytes.unpack1("H*")} cut at #{cut}"
+      end
+    end
   end
 end

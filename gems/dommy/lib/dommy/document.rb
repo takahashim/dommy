@@ -693,12 +693,17 @@ module Dommy
       @quirks_mode = value
     end
 
-    # The document's character encoding, as an Encoding Standard name. Dommy
-    # holds the DOM as UTF-8 and models no other encoding; this is the one place
-    # HTML's "encoding-parse a URL" reads it from (see Element#resolve_url), so a
-    # future non-UTF-8 document has a single place to teach.
+    # The document's character encoding, as an Encoding Standard name: what
+    # its bytes were decoded with, or what its own `<meta charset>` declared
+    # when it was parsed from text, else UTF-8. The DOM is held as UTF-8
+    # either way; the encoding is what HTML's "encoding-parse a URL" (a link's
+    # query) and form submission encode with.
     def character_encoding
-      "UTF-8"
+      @character_encoding || "UTF-8"
+    end
+
+    def __internal_character_encoding__=(name)
+      @character_encoding = name
     end
 
     # ----- Public Ruby API (snake_case) -----
@@ -843,6 +848,13 @@ module Dommy
       return view.location.href if view&.location
 
       @creator_url || "about:blank"
+    end
+
+    # The window whose event loop runs this document's tasks and microtasks:
+    # its own, or for a document with none, the window of the document whose
+    # API made it.
+    def __internal_event_loop_window__
+      @default_view || @origin_document&.__internal_event_loop_window__
     end
 
     # A document made by a parsing or creation API (DOMParser,
@@ -2820,10 +2832,18 @@ module Dommy
       @shadow_registry.find_enclosing(node)
     end
 
+    # Whether any shadow root is attached in this document.
+    def __internal_any_shadow_roots__ = @shadow_registry.any?
+
     # Every ShadowRoot attached in this document — the cascade collects each
     # one's <style> sheets and scopes them to that shadow tree.
     def __internal_all_shadow_roots__
       @shadow_registry.all
+    end
+
+    # The slots whose slotchange is pending (DOM "signal slots").
+    def __internal_slot_signals__
+      @slot_signals ||= Internal::SlotSignals.new(self)
     end
 
     # Lifecycle callback dispatchers. Errors raised inside user

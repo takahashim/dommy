@@ -78,6 +78,11 @@ module Dommy
 
     def __dommy_backend_node__ = @__node__
 
+    # The first slot of each name in this tree, as name => backend node: what
+    # slotchange compares with when the tree's slots change
+    # (Internal::SlotSignals).
+    attr_accessor :__internal_first_slots__
+
     def initialize(host, mode:, delegates_focus: false, slot_assignment: "named", clonable: false, serializable: false)
       @host = host
       @mode = mode.to_s
@@ -86,6 +91,7 @@ module Dommy
       @clonable = clonable ? true : false
       @serializable = serializable ? true : false
       @__internal_declarative__ = false
+      @__internal_first_slots__ = {}
       @document = host.document
       @__node__ = Parser.fragment("", owner_doc: @document.backend_doc)
       @document.__internal_register_shadow_fragment__(@__node__, self)

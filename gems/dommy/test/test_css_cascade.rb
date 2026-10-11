@@ -986,4 +986,32 @@ class TestCssCascade < Minitest::Test
     assert_equal "rgb(255, 0, 0)", declaration.__js_call__("getPropertyValue", ["color"])
     assert_equal "rgb(255, 0, 0)", declaration.__js_get__("color")
   end
+
+  # CSSOM getComputedStyle's pseudoElt: without a colon it is ignored; with
+  # one it names a pseudo-element, and an unknown one (or a single-colon name
+  # CSS2 did not have) gets an empty declaration.
+  def test_get_computed_style_pseudo_argument
+    doc = doc_for('<style>li { color: red } li::marker { color: green }</style><li id="d">x</li>')
+    element = doc.get_element_by_id("d")
+    style = ->(pseudo) { doc.default_view.get_computed_style(element, pseudo) }
+    assert_equal "rgb(255, 0, 0)", style.("marker")["color"]
+    assert_equal "rgb(0, 128, 0)", style.("::marker")["color"]
+    assert_equal 0, style.(":marker").length
+    assert_equal 0, style.("::nope").length
+    assert_operator style.("nope").length, :>, 0
+  end
+
+  def test_writing_a_computed_property_from_script_is_not_allowed
+    doc = doc_for('<div id="x">x</div>')
+    declaration = doc.default_view.get_computed_style(doc.get_element_by_id("x"))
+    assert_raises(Dommy::DOMException::NoModificationAllowedError) { declaration.__js_set__("color", "red") }
+    assert_raises(Dommy::DOMException::NoModificationAllowedError) { declaration.__js_set__("margin", "1px") }
+    assert_equal Dommy::Bridge::UNHANDLED, declaration.__js_set__("myExpando", 1)
+  end
+
+  # Math functions in a color's components, with lengths against the font.
+  def test_color_components_may_be_math_functions
+    doc = doc_for('<p id="x" style="color: hsl(calc(50deg + (sign(1em - 10px) * 10deg)) 100% 37.5% / 50%)">x</p>')
+    assert_equal "rgba(191, 191, 0, 0.5)", computed(doc, "x")["color"]
+  end
 end

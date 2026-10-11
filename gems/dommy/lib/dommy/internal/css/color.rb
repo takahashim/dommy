@@ -180,7 +180,11 @@ module Dommy
         #
         # @param value [String] a CSS color value, e.g. "Red", "#0f0", "rgb(0,0,0)"
         # @return [String] "rgb(r, g, b)", "rgba(r, g, b, a)", or +value+ itself
-        def normalize(value)
+        #
+        # A math function among an rgb()/hsl() function's components (`calc()`,
+        # `sign()`, …) is reduced first; `length_px` resolves a length inside
+        # one (`sign(1em - 10px)`), as the property's computed value does.
+        def normalize(value, &length_px)
           stripped = value.strip
           lower = stripped.downcase
 
@@ -195,7 +199,8 @@ module Dommy
           end
 
           if (match = COLOR_FN_PATTERN.match(stripped))
-            return normalize_function(match[1].downcase, match[2]) || value
+            args = reduce_math(match[2], length_px)
+            return (args && normalize_function(match[1].downcase, args)) || value
           end
 
           value
@@ -222,6 +227,38 @@ module Dommy
           nil
         end
 
+        MATH_FUNCTION = /\b(?:calc|min|max|clamp|sign|abs)\(/i
+        private_constant :MATH_FUNCTION
+
+        # `args` with each math function replaced by the number, percentage or
+        # angle it reduces to; nil when one does not reduce.
+        def reduce_math(args, length_px)
+          out = +""
+          rest = args
+          while (match = MATH_FUNCTION.match(rest))
+            out << match.pre_match
+            close = matching_paren(rest, match.end(0) - 1)
+            return nil unless close
+
+            kind, number = Calc.evaluate(rest[match.begin(0)..close], typed: true) { |text| length_px&.call(text) }
+            return nil unless kind && kind != :length
+
+            out << format_number(number) << {angle: "deg", percentage: "%", number: ""}.fetch(kind)
+            rest = rest[(close + 1)..]
+          end
+          out << rest
+        end
+
+        def matching_paren(text, open)
+          depth = 0
+          (open...text.length).each do |i|
+            depth += 1 if text[i] == "("
+            depth -= 1 if text[i] == ")"
+            return i if depth.zero?
+          end
+          nil
+        end
+
         # Normalize an rgb()/hsl() function body to rgb()/rgba(). Returns nil
         # when the channels don't parse (the caller keeps the original text).
         def normalize_function(name, args)
@@ -240,7 +277,10 @@ module Dommy
             if name.start_with?("rgb")
               channels.map { |channel| rgb_channel(channel) }
             else
-              hsl_to_rgb(hue(channels[0]), percentage(channels[1]), percentage(channels[2]))
+              # The modern (space-separated) syntax also takes a bare number
+              # for saturation and lightness; the legacy comma one does not.
+              modern = !args.include?(",")
+              hsl_to_rgb(hue(channels[0]), percentage(channels[1], number: modern), percentage(channels[2], number: modern))
             end
           return nil if rgb.any?(&:nil?)
 
@@ -351,8 +391,9 @@ module Dommy
           degrees && degrees % 360
         end
 
-        def percentage(text)
+        def percentage(text, number: false)
           return 0.0 if none?(text)
+          return (Float(text) / 100.0).clamp(0.0, 1.0) if number && !text.end_with?("%")
           return nil unless text.end_with?("%")
 
           (Float(text[0..-2]) / 100.0).clamp(0.0, 1.0)

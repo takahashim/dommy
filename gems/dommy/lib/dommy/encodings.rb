@@ -8,27 +8,14 @@ module Dommy
   # each encoding that turns bytes into code points, streaming, with the
   # replacement-or-throw error mode TextDecoder exposes as `fatal`.
   #
-  # UTF-8, UTF-16 and the legacy single-byte encodings are decoded here, from
-  # the spec's own algorithms and index tables. The legacy multi-byte
-  # encodings (Big5, EUC-JP, ISO-2022-JP, Shift_JIS, EUC-KR, GBK, gb18030) go
-  # through Ruby's converters for the encoding closest to the spec's index,
-  # which differ from it in a few code points and in how many U+FFFD a broken
-  # sequence yields.
+  # Every decoder is the spec's own algorithm: UTF-8, UTF-16 and the legacy
+  # single-byte encodings here, with their index tables, and the legacy
+  # multi-byte ones (Big5, EUC-JP, ISO-2022-JP, Shift_JIS, EUC-KR, GBK,
+  # gb18030) in encodings/legacy_multibyte, which read their indexes through
+  # the Ruby encoding that matches each.
   #
   # Spec: https://encoding.spec.whatwg.org/
   module Encodings
-    # The Ruby encoding whose mapping is closest to the spec's index for each
-    # legacy multi-byte encoding.
-    RUBY_ENCODINGS = {
-      "Big5" => "Big5-HKSCS",
-      "EUC-JP" => "EUC-JP",
-      "ISO-2022-JP" => "ISO-2022-JP",
-      "Shift_JIS" => "Windows-31J",
-      "EUC-KR" => "CP949",
-      "GBK" => "GBK",
-      "gb18030" => "GB18030"
-    }.freeze
-
     REPLACEMENT_CHARACTER = 0xFFFD
 
     # The name of the encoding `label` stands for, or nil. Only ASCII
@@ -36,7 +23,7 @@ module Dommy
     #
     # Spec: https://encoding.spec.whatwg.org/#concept-encoding-get
     def self.get(label)
-      LABELS[label.gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "").downcase]
+      LABELS[label.gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "").downcase(:ascii)]
     end
 
     # The byte-order marks that name their own encoding, longest first.
@@ -67,14 +54,83 @@ module Dommy
       valid_utf8(bytes, name) || decoder_for(name).decode(bytes, flush: true).pack("U*")
     end
 
-    # A document's bytes as text, in the encoding its response declares: a
-    # byte-order mark first, then the Content-Type's `charset`, else UTF-8.
-    # (HTML's prescan of a `<meta charset>` is not done.)
+    # A document's bytes as text, and the encoding they were decoded with
+    # (::document_encoding), which is the document's: a caller hands both to
+    # the document, so that its URLs encode a query as its bytes were.
+    # `html: false` (an XML or a text document) skips the `<meta>` prescan.
+    def self.decode_document(bytes, content_type, html: true)
+      encoding = document_encoding(bytes, content_type, html: html)
+      [decode(bytes.to_s, encoding), encoding]
+    end
+
+    # The encoding an HTML document's bytes are in: a byte-order mark's, else
+    # the Content-Type's `charset`, else what a `<meta>` in the first 1024
+    # bytes declares (the prescan), else UTF-8.
     #
     # Spec: https://html.spec.whatwg.org/#determining-the-character-encoding
-    def self.decode_document(bytes, content_type)
+    def self.document_encoding(bytes, content_type, html: true)
+      bytes = bytes.to_s.b
+      BOMS.each { |mark, name| return name if bytes.start_with?(mark) }
       label = Internal::MimeType.charset_of(content_type.to_s)
-      decode(bytes.to_s, (label && get(label)) || "UTF-8")
+      (label && get(label)) || (html && prescan(bytes)) || "UTF-8"
+    end
+
+    META_TAG = /<meta(?=[\s\/>])([^>]*)>/i
+    META_ATTRIBUTE = /([^\s="'\/>][^\s=\/>]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/
+    private_constant :META_TAG, :META_ATTRIBUTE
+
+    # HTML's "prescan a byte stream to determine its encoding", for the
+    # `<meta charset>` and `<meta http-equiv=content-type content="…;
+    # charset=…">` forms, outside comments, in the first 1024 bytes. A
+    # declared UTF-16 is UTF-8 (the bytes are ASCII-compatible if the tag was
+    # read), and x-user-defined windows-1252.
+    #
+    # Spec: https://html.spec.whatwg.org/#prescan-a-byte-stream-to-determine-its-encoding
+    def self.prescan(source)
+      head = source.to_s.b.byteslice(0, 1024).gsub(/<!--.*?(?:-->|\z)/m, "")
+      head.scan(META_TAG) do |(attributes)|
+        attrs = {}
+        attributes.scan(META_ATTRIBUTE) { |name, value| attrs[name.downcase] ||= value.to_s.delete_prefix('"').delete_suffix('"').delete_prefix("'").delete_suffix("'") }
+        label =
+          if attrs["charset"]
+            attrs["charset"]
+          elsif attrs["http-equiv"]&.casecmp?("content-type") && attrs["content"]
+            Internal::MimeType.charset_of(attrs["content"]) || attrs["content"][/charset\s*=\s*["']?([^"';\s]+)/i, 1]
+          end
+        name = label && get(label)
+        next unless name
+
+        return "UTF-8" if name.start_with?("UTF-16")
+        return name == "x-user-defined" ? "windows-1252" : name
+      end
+      nil
+    end
+
+    # The bytes `string` encodes to in the encoding named `name` (as `get`
+    # returns it); a code point the encoding cannot represent is the bytes the
+    # block returns for it. A name Ruby has no encoding for (x-user-defined,
+    # replacement), like UTF-8, encodes as UTF-8.
+    #
+    # Spec: https://encoding.spec.whatwg.org/#encode
+    def self.encode(name, string, &unmappable)
+      return LegacyEncoders.encode(name, string, &unmappable).pack("C*") if LegacyEncoders.handles?(name)
+
+      ruby = begin
+        ::Encoding.find(name.to_s)
+      rescue ArgumentError
+        nil
+      end
+      return string.b if ruby.nil? || ruby == ::Encoding::UTF_8
+
+      begin
+        string.encode(ruby).b
+      rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError
+        string.each_char.each_with_object(+"".b) do |char, out|
+          out << char.encode(ruby).b
+        rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError
+          out << unmappable.call(char.ord).pack("C*")
+        end
+      end
     end
 
     # Already-valid UTF-8 needs no decoding: the spec's decoder would walk it
@@ -101,17 +157,21 @@ module Dommy
       when "UTF-16BE" then Utf16Decoder.new(fatal, big_endian: true)
       when "x-user-defined" then XUserDefinedDecoder.new(fatal)
       when "replacement" then ReplacementDecoder.new(fatal)
+      when "ISO-2022-JP" then Iso2022JpDecoder.new(fatal)
+      when "Shift_JIS" then ShiftJisDecoder.new(fatal)
+      when "EUC-JP" then EucJpDecoder.new(fatal)
+      when "Big5" then Big5Decoder.new(fatal)
+      when "EUC-KR" then EucKrDecoder.new(fatal)
+      # GBK's decoder is gb18030's.
+      when "GBK", "gb18030" then Gb18030Decoder.new(fatal)
       else
         index = SINGLE_BYTE_INDEXES[name]
         return SingleByteDecoder.new(fatal, index) if index
 
-        ruby_encoding = RUBY_ENCODINGS[name]
         # `name` comes from ::get, so every spec encoding is covered above. A
         # name from anywhere else is the caller's mistake, and says so rather
         # than surfacing a Hash's KeyError.
-        raise ArgumentError, "not an encoding the standard names: #{name.inspect}" unless ruby_encoding
-
-        ConverterDecoder.new(fatal, ruby_encoding)
+        raise ArgumentError, "not an encoding the standard names: #{name.inspect}"
       end
     end
 
@@ -307,34 +367,7 @@ module Dommy
         [replacement!]
       end
     end
-
-    # A legacy multi-byte encoding, through Ruby's converter. Partial input is
-    # held between calls; at a flush what is left over is an error.
-    class ConverterDecoder < Decoder
-      def initialize(fatal, ruby_encoding)
-        super(fatal)
-        options = fatal ? {} : {invalid: :replace, undef: :replace, replace: "\uFFFD"}
-        @converter = ::Encoding::Converter.new(ruby_encoding, "UTF-8", **options)
-      end
-
-      def decode(bytes, flush:)
-        output = +""
-        result = @converter.primitive_convert(bytes.dup, output, nil, nil, partial_input: !flush)
-        code_points = output.codepoints
-        case result
-        when :finished, :source_buffer_empty
-          code_points
-        when :incomplete_input, :invalid_byte_sequence, :undefined_conversion
-          # Only reached in fatal mode, or by an incomplete sequence at a
-          # flush; either way the stream is over.
-          code_points << replacement!
-        else
-          # :destination_buffer_full and :after_output need a byte limit or an
-          # output filter to occur, and this call passes neither. Reaching here
-          # would mean the converter contract changed under us.
-          raise "unexpected Encoding::Converter result: #{result.inspect}"
-        end
-      end
-    end
   end
 end
+
+require_relative "encodings/legacy_multibyte"

@@ -108,6 +108,22 @@ class TestInnerTextGetter < Minitest::Test
   def test_closed_details_hides_non_summary_content
     assert_equal "abc", inner_text("<div><details><summary>abc</summary>123")
   end
+
+  # Floats, absolutely positioned boxes and flex / grid items are blockified,
+  # so their text is on lines of its own.
+  def test_blockified_boxes_break_lines
+    assert_equal "abc\n123\ndef", inner_text("<div>abc<span style='float:left'>123</span>def")
+    assert_equal "abc\n123\ndef", inner_text("<div>abc<span style='position:absolute'>123</span>def")
+    assert_equal "1\n2", inner_text("<div style='display:flex'><span>1</span><span>2</span></div>")
+  end
+
+  def test_svg_elements_that_are_never_rendered_have_no_text
+    assert_equal "", inner_text("<div><svg><defs><text>abc</text></defs></svg></div>")
+  end
+
+  def test_turkish_text_transform
+    assert_equal "İ I", inner_text("<div><div lang='tr' style='text-transform:uppercase'>i ı")
+  end
 end
 
 class TestOuterText < Minitest::Test

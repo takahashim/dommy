@@ -175,36 +175,34 @@ module Dommy
     end
   end
 
-  # `ctx.getImageData(...)` / `createImageData(...)` result: width, height, and a
-  # zeroed RGBA `data` buffer of length width*height*4 (a plain numeric array,
-  # which supports the `.length` and `data[i]` reads canvas code does).
+  # `ctx.getImageData(...)` / `createImageData(...)` result: a width and a
+  # height. Dommy paints nothing, so its pixels are transparent black until a
+  # page writes them, and the page's writes stay in its own `data` typed array
+  # (host_runtime.js), which a structured clone copies. `data` read here is
+  # the transparent black RGBA buffer of length width*height*4, made at the
+  # read.
   class ImageData
     attr_reader :width, :height
 
     def initialize(width, height)
       @width = [width.to_i, 0].max
       @height = [height.to_i, 0].max
-      @data = Array.new(@width * @height * 4, 0)
     end
 
-    # ImageData's serialization + deserialization steps: same size, a copy of
-    # the pixels.
+    # ImageData's serialization + deserialization steps: the same size (the
+    # pixels are copied JS-side).
     def __internal_structured_clone__(_for_storage = false)
-      copy = ImageData.new(@width, @height)
-      copy.instance_variable_set(:@data, @data.dup)
-      copy
+      ImageData.new(@width, @height)
     end
 
     def __js_get__(key)
       case key
       when "width" then @width
       when "height" then @height
-      when "data" then @data
+      when "data" then Array.new(@width * @height * 4, 0)
       when "colorSpace" then "srgb"
       else Bridge::ABSENT
       end
     end
-
-    def __js_set__(_key, _value) = Bridge::UNHANDLED
   end
 end

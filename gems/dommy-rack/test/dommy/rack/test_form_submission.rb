@@ -261,7 +261,27 @@ class Dommy::Rack::TestFormSubmission < Minitest::Test
         <input type="text" name="q" value="あ">
       </form>
     HTML
-    assert_equal "あ".encode("Shift_JIS").b, param(result, "q")
+    assert_equal "\x82\xA0".b, param(result, "q")
+  end
+
+  # HTML "pick an encoding for the form": with no accept-charset, the
+  # document's encoding (the Shift_JIS page's search form submits Shift_JIS).
+  def test_a_form_without_accept_charset_submits_in_the_documents_encoding
+    form = Dommy.parse("<form action='/x'><input name='q' value='\u3042'><input type=hidden name=_charset_></form>",
+                       encoding: "Shift_JIS").document.query_selector("form")
+    result = Dommy::Rack::FormSubmission.new(form, nil, config).submit!
+    assert_equal "\x82\xA0".b, param(result, "q")
+    assert_equal "Shift_JIS", param(result, "_charset_")
+  end
+
+  # accept-charset is a list of Encoding Standard labels split on ASCII
+  # whitespace: the first that names an encoding wins, none means UTF-8, and
+  # UTF-16 submits as UTF-8.
+  def test_accept_charset_takes_the_first_encoding_label
+    sjis = submit("<form action='/x' accept-charset='bogus x-sjis utf-8'><input name='q' value='\u3042'></form>")
+    assert_equal "\x82\xA0".b, param(sjis, "q")
+    assert_equal "\u3042", param(submit("<form action='/x' accept-charset='bogus'><input name='q' value='\u3042'></form>"), "q")
+    assert_equal "\u3042", param(submit("<form action='/x' accept-charset='utf-16le'><input name='q' value='\u3042'></form>"), "q")
   end
 
   def test_accept_charset_utf8_is_noop

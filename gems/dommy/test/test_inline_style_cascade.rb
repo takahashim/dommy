@@ -23,4 +23,22 @@ class TestInlineStyleCascade < Minitest::Test
   def test_an_important_declaration_beats_a_later_normal_one
     assert_equal "rgb(0, 0, 255)", computed("color: blue !important; color: red")["color"]
   end
+
+  # CSSOM's camel-cased and webkit-cased attribute names, and the Compat
+  # Standard's -webkit- legacy name aliases.
+  def test_css_float_and_webkit_aliases
+    el = Dommy.parse("<p>t</p>").document.query_selector("p")
+    el.style.__js_set__("cssFloat", "left")
+    el.style.__js_set__("webkitFilter", "blur(1px)")
+    assert_equal "float: left; filter: blur(1px);", el.get_attribute("style")
+    assert_equal "blur(1px)", el.style.__js_get__("webkitFilter")
+  end
+
+  # A float, an absolutely positioned box and a flex item compute an
+  # inline-level display to its block-level form.
+  def test_blockification_of_the_computed_display
+    doc = Dommy.parse(%(<div style="display:flex"><span id="a">x</span></div><span id="b" style="float:left">y</span><span id="c" style="position:absolute;display:inline-flex">z</span>)).document
+    display = ->(id) { Dommy::Internal::CSS::Cascade.computed_style(doc.get_element_by_id(id))["display"] }
+    assert_equal %w[block block flex], %w[a b c].map(&display)
+  end
 end

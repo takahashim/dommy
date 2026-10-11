@@ -17,21 +17,25 @@ module Dommy
         # (a %, an unknown unit, a unit clash, or a syntax error).
         class Unresolvable < StandardError; end
 
-        FUNCTION = /\A(?:calc|min|max|clamp)\(/i
+        FUNCTION = /\A(?:calc|min|max|clamp|sign|abs)\(/i
 
         module_function
 
         # [:length, px] or [:number, n] for a reduced math function; nil when
         # `value` is not one, or cannot reduce. `length_px` takes one
         # "<number><unit>" and answers its px magnitude, or nil.
-        def evaluate(value, &length_px)
+        #
+        # `typed: true` also reduces percentages and angles, as their own kinds
+        # ([:percentage, n] and [:angle, degrees]) — what a color component
+        # takes, where a percentage is not resolved against anything.
+        def evaluate(value, typed: false, &length_px)
           value = value.to_s.strip
           return nil unless value.match?(FUNCTION)
 
           tokens = tokenize(value)
           return nil unless tokens
 
-          parser = Parser.new(tokens, length_px)
+          parser = Parser.new(tokens, length_px, typed: typed)
           result = parser.parse_value
           parser.done? ? result : nil
         rescue Unresolvable
@@ -93,9 +97,10 @@ module Dommy
         # CSS Values 4 calc unit algebra: +/- need matching kinds, * needs a
         # number operand, / needs a number divisor.
         class Parser
-          def initialize(tokens, length_px)
+          def initialize(tokens, length_px, typed: false)
             @tokens = tokens
             @length_px = length_px
+            @typed = typed
             @pos = 0
           end
 
@@ -140,6 +145,12 @@ module Dommy
               raise Unresolvable unless args.length == 3
 
               clamp(*args)
+            when "sign", "abs"
+              args = parse_arguments
+              raise Unresolvable unless args.length == 1
+
+              kind, number = args.first
+              name == "sign" ? [:number, number.positive? ? 1.0 : (number.negative? ? -1.0 : number)] : [kind, number.abs]
             else
               raise Unresolvable
             end
@@ -211,9 +222,15 @@ module Dommy
             [kval, [[val, hi].min, lo].max]
           end
 
+          ANGLE_DEGREES = {"deg" => 1.0, "grad" => 0.9, "rad" => 180 / Math::PI, "turn" => 360.0}.freeze
+
           def dimension(token)
             unit = token[:unit]
             return [:number, token[:num]] if unit.empty?
+            if @typed
+              return [:percentage, token[:num]] if unit == "%"
+              return [:angle, token[:num] * ANGLE_DEGREES[unit]] if ANGLE_DEGREES.key?(unit)
+            end
             raise Unresolvable if unit == "%"
 
             px = @length_px.call("#{token[:num]}#{unit}")

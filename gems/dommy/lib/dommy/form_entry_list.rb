@@ -7,9 +7,9 @@ module Dommy
   # (Dommy::Interaction::FormSubmission) and `new FormData(form)` build on this,
   # so the two paths collect and fire identically.
   class FormEntryList
-    # @param encoding [Encoding] the submission encoding, used for a
+    # @param encoding [String] the submission encoding's name, used for a
     #   hidden `_charset_`. `new FormData(form)` uses UTF-8.
-    def initialize(form, submitter: nil, encoding: Encoding::UTF_8)
+    def initialize(form, submitter: nil, encoding: "UTF-8")
       @form = form
       @submitter = submitter
       @encoding = encoding
@@ -115,7 +115,7 @@ module Dommy
         collect_file(el, name, data)
       when "hidden"
         # A hidden `_charset_` reports the submission encoding.
-        data.append(name, name.casecmp?("_charset_") ? @encoding.name : el.value.to_s)
+        data.append(name, name.casecmp?("_charset_") ? @encoding : el.value.to_s)
       else
         data.append(name, el.value.to_s)
       end

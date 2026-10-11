@@ -24,8 +24,15 @@ module Dommy
         approximate_layout? ? DOMRect.new(**__internal_approx_box) : DOMRect.new
       end
 
+      # An element being rendered has a box, so it has a client rect even with
+      # nothing laid out: one zero rect, where an element that is not rendered
+      # (display:none, disconnected) has none. That is what tells
+      # `el.getClientRects().length` (jQuery's :visible, WPT's popover helpers)
+      # a shown element from a hidden one.
       def get_client_rects
-        return [] unless approximate_layout?
+        unless approximate_layout?
+          return Focusability.being_rendered?(self) ? [DOMRect.new] : []
+        end
 
         box = __internal_approx_box
         box[:width].positive? || box[:height].positive? ? [DOMRect.new(**box)] : []

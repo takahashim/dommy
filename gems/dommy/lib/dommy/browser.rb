@@ -58,8 +58,11 @@ module Dommy
       browser
     end
 
+    # `encoding` is the encoding the page's bytes were decoded with
+    # (Encodings.decode_document), when it came from bytes; HTML given as a
+    # string makes a UTF-8 document.
     def initialize(html, url: "http://localhost/", resources: nil, execute_scripts: true, strict: true, settle: true,
-      wasm_memory_shim: false, backend: nil, navigable: false, same_origin: false)
+      wasm_memory_shim: false, backend: nil, navigable: false, same_origin: false, encoding: nil)
       @resources = resources
       @same_origin = same_origin
       @backend = backend
@@ -81,7 +84,7 @@ module Dommy
       @cookie_jar = CookieJar.new
       @before_unload_handler = nil
 
-      @window = Dommy.parse(html)
+      @window = Dommy.parse(html, encoding: encoding)
       @window.location.__internal_set_url__(url) if url
       @window.storage_provider = @storage_provider
       @window.cookie_jar = @cookie_jar
@@ -558,7 +561,8 @@ module Dommy
       fire_unload(old_window)
       check_js_errors!
 
-      new_window = Dommy.parse(Encodings.decode_document(response.body, response_header(response, "content-type")))
+      text, encoding = Encodings.decode_document(response.body, response_header(response, "content-type"))
+      new_window = Dommy.parse(text, encoding: encoding)
       new_window.location.__internal_set_url__(final_url)
       new_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))
       new_window.document.__internal_referrer__ = referrer if referrer

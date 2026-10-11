@@ -46,19 +46,7 @@ module Dommy
       # else null. Per the spec's "open flag", a closed shadow tree always
       # returns null (mirrors `Element#shadowRoot` being null when closed).
       def assigned_slot
-        parent = @__node__.parent
-        return nil unless parent&.element?
-
-        host = @document.wrap_node(parent)
-        return nil unless host.respond_to?(:shadow_root)
-
-        sr = host.shadow_root
-        return nil unless sr
-
-        slot_name = @__node__.element? ? __internal_attribute_value__("slot").to_s : ""
-        sr.query_selector_all("slot").find do |slot|
-          (slot.respond_to?(:name) ? slot.name.to_s : "") == slot_name
-        end
+        SlotAssignment.find_slot(@document, @__node__, open: true)
       end
 
       # `el.attachShadow(init)` (DOM): the ShadowRootInit dictionary is

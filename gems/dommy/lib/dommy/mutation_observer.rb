@@ -76,7 +76,6 @@ module Dommy
       @callback = callback
       @observed = []
       @records = []
-      @scheduled = false
       @registered_docs = []
       # Transient registered observers (WHATWG DOM): when a node is removed from
       # an observed subtree, its subtree keeps being observed until the next
@@ -228,10 +227,31 @@ module Dommy
 
     def enqueue(record)
       @records << record
-      return nil if @scheduled
+      @window.__internal_mutation_observer_microtask__.observer_pending(self)
+      nil
+    end
 
-      @scheduled = true
-      @window.scheduler.queue_microtask(proc { flush })
+    # This observer's part of "notify mutation observers": its transient
+    # registered observers end, and its records, if it has any, go to its
+    # callback.
+    def __internal_notify__
+      @transients.clear
+      return if @records.empty?
+
+      records = @records.dup
+      @records.clear
+      # Per spec the callback receives (mutationRecords, observer) and is invoked
+      # with `this` set to the observer.
+      invoke_observer_callback(records)
+    rescue StandardError => e
+      # A throwing observer callback MUST NOT escape its dispatch — WHATWG says to
+      # report the exception and keep notifying the other observers, and a page's
+      # JS must not be derailed by it. The engine swallows this for callbacks
+      # (HostBridge#invoke_callback, raising:false), but that has proven
+      # engine/Ruby-version-dependent, so guard here too. Without this, one broken
+      # observer (e.g. an image lazy-loader that throws on a batch of <img>
+      # mutations) cascades into a blank / "something went wrong" page.
+      __dommy_dump_mo_failure__(records, e) if ENV["DOMMY_MO_DEBUG"]
       nil
     end
 
@@ -274,7 +294,6 @@ module Dommy
 
     def disconnect
       @records.clear
-      @scheduled = false
       @observed.clear
       @registered_docs.each { |doc| doc.unregister_observer(self) }
       @registered_docs.clear
@@ -291,35 +310,12 @@ module Dommy
 
     # WHATWG takeRecords(): clone the record queue, empty it, return the clone.
     # It does NOT end the transient registered observers' lifetime — only the
-    # microtask checkpoint ("notify mutation observers", `flush` below) does, so
+    # microtask checkpoint ("notify mutation observers", #__internal_notify__) does, so
     # a caller that drains records by hand keeps observing a removed subtree.
     def take_records
       out = @records.dup
       @records.clear
-      @scheduled = false
       out
-    end
-
-    def flush
-      @scheduled = false
-      @transients.clear
-      return if @records.empty?
-
-      records = @records.dup
-      @records.clear
-      # Per spec the callback receives (mutationRecords, observer) and is invoked
-      # with `this` set to the observer.
-      invoke_observer_callback(records)
-    rescue StandardError => e
-      # A throwing observer callback MUST NOT escape its dispatch — WHATWG says to
-      # report the exception and keep notifying the other observers, and a page's
-      # JS must not be derailed by it. The engine swallows this for callbacks
-      # (HostBridge#invoke_callback, raising:false), but that has proven
-      # engine/Ruby-version-dependent, so guard here too. Without this, one broken
-      # observer (e.g. an image lazy-loader that throws on a batch of <img>
-      # mutations) cascades into a blank / "something went wrong" page.
-      __dommy_dump_mo_failure__(records, e) if ENV["DOMMY_MO_DEBUG"]
-      nil
     end
 
     def invoke_observer_callback(records)

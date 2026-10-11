@@ -508,8 +508,8 @@ module Dommy
           return false unless @document.respond_to?(:__internal_shadow_root_containing__)
           # No shadow roots in the document — skip the per-element ancestor
           # walk entirely (the overwhelmingly common case).
-          return false if @document.respond_to?(:__internal_all_shadow_roots__) &&
-                          @document.__internal_all_shadow_roots__.empty?
+          return false if @document.respond_to?(:__internal_any_shadow_roots__) &&
+                          !@document.__internal_any_shadow_roots__
 
           !@document.__internal_shadow_root_containing__(element.__dommy_backend_node__).nil?
         end

@@ -128,6 +128,9 @@ require_relative "dommy/shadow_root"
 require_relative "dommy/internal/ce_reactions"
 require_relative "dommy/custom_elements"
 require_relative "dommy/internal/form_associated_custom_elements"
+require_relative "dommy/internal/mutation_observer_microtask"
+require_relative "dommy/internal/slot_assignment"
+require_relative "dommy/internal/slot_signals"
 require_relative "dommy/element_internals"
 require_relative "dommy/tree_walker"
 require_relative "dommy/url"
@@ -174,12 +177,20 @@ module Dommy
   #
   # The Window has no host (standalone CRuby usage); embedders that need
   # bridge callbacks (e.g. a wasm host) pass a host instead.
-  def self.parse(html)
+  #
+  # `encoding` is the encoding the markup's bytes were decoded with, when it
+  # came from bytes (Encodings.decode_document). Markup given as a string is
+  # already text, so its document is UTF-8, whatever a `<meta charset>` in it
+  # says — as for DOMParser.
+  def self.parse(html, encoding: nil)
     s = html.to_s
     if s.match?(/\A\s*(<!doctype|<html\b)/i)
-      Window.new(nil, backend_doc: Backend.parse(s))
+      window = Window.new(nil, backend_doc: Backend.parse(s))
+      window.document.__internal_character_encoding__ = encoding || "UTF-8"
+      window
     else
       window = Window.new
+      window.document.__internal_character_encoding__ = encoding || "UTF-8"
       body = window.document.body
       body.inner_html = s
       # The markup stands for a page's body, which the document's parser

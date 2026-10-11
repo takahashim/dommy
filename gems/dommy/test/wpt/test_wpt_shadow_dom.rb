@@ -246,6 +246,7 @@ class TestWPTShadowSlots < Minitest::Test
     fired = false
     slot.add_event_listener("slotchange", proc { fired = true })
     slot.assign(host.children[0])
+    @win.scheduler.drain_microtasks
     assert(fired)
   end
 end

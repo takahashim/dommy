@@ -16,7 +16,7 @@ module Dommy
       # A run of text as it appears in the item list, before the block-wide
       # white-space pass: the raw data plus the two computed properties that
       # decide how it renders.
-      TextRun = Data.define(:text, :white_space, :text_transform) do
+      TextRun = Data.define(:text, :white_space, :text_transform, :turkic) do
         def empty? = text.empty?
 
         def collapsible? = COLLAPSIBLE_WHITE_SPACE.include?(white_space)
@@ -29,12 +29,14 @@ module Dommy
         # neither shows nor separates anything.
         def collapsible_whitespace_only? = collapsible? && text.match?(/\A[ \t\n\r\f]*\z/)
 
-        # The text with `text-transform` applied.
+        # The text with `text-transform` applied, with Turkish and Azeri
+        # casing (dotted and dotless i) where the content language is one.
         def transformed_text
+          options = turkic ? [:turkic] : []
           case text_transform
-          when "uppercase" then text.upcase
-          when "lowercase" then text.downcase
-          when "capitalize" then text.gsub(/\b\p{L}/) { |c| c.upcase }
+          when "uppercase" then text.upcase(*options)
+          when "lowercase" then text.downcase(*options)
+          when "capitalize" then text.gsub(/\b\p{L}/) { |c| c.upcase(*options) }
           else text
           end
         end

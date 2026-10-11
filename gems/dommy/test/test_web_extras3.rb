@@ -44,8 +44,16 @@ class TestElementScrollAndSize < Minitest::Test
     end
   end
 
-  def test_get_client_rects_empty
+  # A rendered element has a box, so one rect (zero-sized: nothing is laid
+  # out); one that is not rendered has none.
+  def test_get_client_rects_is_one_zero_rect_while_rendered
+    rects = @el.__js_call__("getClientRects", [])
+    assert_equal(1, rects.length)
+    assert_equal([0.0, 0.0], [rects.first.width, rects.first.height])
+
+    @el.set_attribute("style", "display: none")
     assert_equal([], @el.__js_call__("getClientRects", []))
+    assert_equal([], @win.document.create_element("div").__js_call__("getClientRects", []))
   end
 
   # Opt-in approximate geometry: with window.approximate_layout on, geometry is a

@@ -41,17 +41,18 @@ module Dommy
       def window_for_response(body, content_type, url)
         type = content_type.to_s.split(";").first.to_s.strip.downcase
         type = type_for_path(url) if type.empty?
-        body = Encodings.decode_document(body, content_type)
+        body, encoding = Encodings.decode_document(body, content_type, html: type == "text/html")
         win =
           if MimeType.xml?(type)
             w = Window.new(nil, backend_doc: Backend.parse_xml(body.to_s))
             w.document.content_type = type
             w
           elsif type == "text/html"
-            Dommy.parse(body.to_s)
+            Dommy.parse(body.to_s, encoding: encoding)
           else
             text_window(body, type)
           end
+        win.document.__internal_character_encoding__ = encoding
         win.location.__internal_set_url__(url.to_s)
         win
       end
