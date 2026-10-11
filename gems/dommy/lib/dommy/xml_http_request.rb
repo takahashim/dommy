@@ -475,7 +475,7 @@ module Dommy
         begin
           # WHATWG "parse JSON from bytes": UTF-8 decode (dropping a leading BOM)
           # before JSON.parse; an invalid parse yields null.
-          JSON.parse(Response.utf8_decode(body))
+          JSON.parse(Response.utf8_decode(body), **Response::JSON_OPTIONS)
         rescue JSON::ParserError
           nil
         end

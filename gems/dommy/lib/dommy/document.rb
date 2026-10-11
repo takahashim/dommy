@@ -2530,7 +2530,7 @@ module Dommy
       view = @default_view
       if view
         load = Event.new("load")
-        load.__internal_set_target__(self)
+        load.__internal_set_legacy_target_override__(self)
         view.dispatch_event(load.__internal_mark_trusted__)
         view.dispatch_event(__internal_page_transition_event__("pageshow"))
       end
@@ -2569,7 +2569,7 @@ module Dommy
     # back/forward cache), targeted at the document (legacy target override).
     def __internal_page_transition_event__(type, persisted: false)
       event = PageTransitionEvent.new(type, "persisted" => persisted, "bubbles" => true, "cancelable" => true)
-      event.__internal_set_target__(self)
+      event.__internal_set_legacy_target_override__(self)
       event.__internal_mark_trusted__
     end
 

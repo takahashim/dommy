@@ -16,12 +16,41 @@ module Dommy
       def __internal_each_live_range__
         return if @live_ranges.nil? || @live_ranges.size.zero?
 
-        @live_ranges.each_key { |range| yield range }
+        @live_ranges.each_pair { |range, live| yield range if live }
       end
 
       def live_ranges?
         !@live_ranges.nil? && @live_ranges.size.positive?
       end
+
+      # A subtree adopted into `destination` takes the ranges inside it along:
+      # live ranges belong to no document, so a later mutation there has to
+      # find them. `root` is the adopted node, already in `destination`.
+      def __internal_hand_over_ranges__(root, destination)
+        return unless live_ranges?
+
+        moving = []
+        __internal_each_live_range__ { |range| moving << range if inclusive_ancestor_of?(root, range.start_container) }
+        moving.each do |range|
+          # Marked rather than deleted: ObjectSpace::WeakMap#delete is Ruby
+          # 3.3's, and a range that comes back is registered true again.
+          @live_ranges[range] = false
+          destination.__internal_register_range__(range)
+        end
+        nil
+      end
+
+      # Whether `node` is `root` or inside it (by parents, so a CharacterData
+      # root, which has no contains?, works too).
+      def inclusive_ancestor_of?(root, node)
+        while node
+          return true if node.equal?(root)
+
+          node = node.respond_to?(:parent_node) ? node.parent_node : nil
+        end
+        false
+      end
+      private :inclusive_ancestor_of?
 
       # WHATWG normalize() steps 6.1-6.4. `current` is a contiguous exclusive Text
       # sibling whose data has just been appended to `node` at `length`; its own

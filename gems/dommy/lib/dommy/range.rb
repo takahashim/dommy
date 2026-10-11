@@ -564,6 +564,12 @@ module Dommy
       # Steps 2-5: what the node goes in front of, and whose child it becomes.
       reference = splitting ? start_node : child_at(start_node, @start_offset)
       parent = reference.nil? ? start_node : parent_of(reference)
+      # Pre-insert's first check: only a Document, DocumentFragment or Element
+      # takes children, so an Attr-rooted range has nowhere to put the node.
+      unless parent.respond_to?(:__internal_ensure_insertion_validity__)
+        raise DOMException::HierarchyRequestError, "the range's start node cannot have children"
+      end
+
       # Step 6, ahead of the split: an insertion pre-insert would reject must
       # not leave the Text node split behind it.
       ref_bn = reference&.__dommy_backend_node__
@@ -847,7 +853,16 @@ module Dommy
     end
 
     def boundaries_moved
+      track_in_document_of(@start_container)
       @selection&.__internal_range_moved__(self)
+    end
+
+    # A range is live wherever its boundaries are: one set into another
+    # document's tree has to hear that document's mutations, which only its
+    # registry reports. (Registration is weak and idempotent.)
+    def track_in_document_of(node)
+      document = node.is_a?(Document) ? node : (node.owner_document if node.respond_to?(:owner_document))
+      document.__internal_register_range__(self) if document.respond_to?(:__internal_register_range__)
     end
 
     # A Text node in the spec's sense, which includes a CDATASection.

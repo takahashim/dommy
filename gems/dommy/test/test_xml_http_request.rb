@@ -387,4 +387,25 @@ class TestXMLHttpRequest < Minitest::Test
     xhr = ctor.__js_new__([])
     assert_kind_of(Dommy::XMLHttpRequest, xhr)
   end
+
+  # JSON.parse as ECMAScript does it: a duplicate key keeps the last value
+  # (json 3 rejects duplicates by default).
+  def test_response_type_json_keeps_the_last_of_duplicate_keys
+    install_stub("/api/dup" => {"status" => 200, "body" => "{\"b\":1,\"a\":2,\"b\":3}", "contentType" => "application/json"})
+    xhr = new_xhr
+    xhr.response_type = "json"
+    xhr.open("GET", "/api/dup", false)
+    xhr.send
+    assert_equal({"b" => 3, "a" => 2}, xhr.response)
+  end
+
+  # `window.event` is set around a listener on a target that is not a node.
+  def test_window_event_is_set_for_a_listener_on_an_xhr
+    xhr = new_xhr
+    seen = nil
+    xhr.add_event_listener("x", proc { seen = @win.__js_get__("event") })
+    event = Dommy::Event.new("x")
+    xhr.dispatch_event(event)
+    assert_same(event, seen)
+  end
 end

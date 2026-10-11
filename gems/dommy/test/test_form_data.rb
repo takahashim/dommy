@@ -67,10 +67,44 @@ class TestFormDataStandalone < Minitest::Test
     assert_equal([["a", "1", true]], seen)
   end
 
-  def test_nil_value_becomes_empty_string
+  # USVString conversion, as in JS: null is "null".
+  def test_nil_value_becomes_null_string
     fd = Dommy::FormData.new
     fd.append("k", nil)
-    assert_equal("", fd.get("k"))
+    fd.set("j", nil)
+    assert_equal("null", fd.get("k"))
+    assert_equal("null", fd.get("j"))
+  end
+
+  # Only the (name, Blob, filename) overload takes a filename.
+  def test_filename_with_a_string_value_is_a_type_error
+    fd = Dommy::FormData.new
+    assert_raises(Dommy::Bridge::TypeError) { fd.append("k", "v", "f.txt") }
+    assert_raises(Dommy::Bridge::TypeError) { fd.set("k", "v", "f.txt") }
+  end
+
+  # A third argument picks that overload whatever it is, undefined and null
+  # included; for a Blob, undefined is no filename and null is "null".
+  def test_any_third_argument_picks_the_blob_overload
+    fd = Dommy::FormData.new
+    [nil, Dommy::Bridge::UNDEFINED].each do |filename|
+      assert_raises(Dommy::Bridge::TypeError) { fd.append("k", "v", filename) }
+      assert_raises(Dommy::Bridge::TypeError) { fd.__js_call__("set", ["k", "v", filename]) }
+    end
+
+    blob = Dommy::Blob.new(["x"])
+    fd.append("u", blob, Dommy::Bridge::UNDEFINED)
+    fd.append("n", blob, nil)
+    fd.__js_call__("append", ["m", blob])
+    assert_equal(%w[blob null blob], %w[u n m].map { |name| fd.get(name).name })
+  end
+
+  def test_renamed_file_keeps_its_last_modified
+    fd = Dommy::FormData.new
+    fd.set("f", Dommy::File.new([], "name", "lastModified" => 123), "custom name")
+    file = fd.get("f")
+    assert_equal("custom name", file.name)
+    assert_equal(123, file.last_modified)
   end
 end
 

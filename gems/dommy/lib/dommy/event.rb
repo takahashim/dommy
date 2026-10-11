@@ -344,27 +344,22 @@ module Dommy
       end
 
       event.__internal_set_current_target__(entry.invocation_target)
-      # The legacy `window.event` global is set for the duration of a listener,
-      # then restored — but NOT for a listener inside a shadow tree, which would
-      # otherwise hand an encapsulated event to the outer global.
-      window = window_of(entry.invocation_target)
-      previous_event = window&.__internal_current_event__
-      window.__internal_set_current_event__(event) if window && !entry.in_shadow_tree
-      begin
-        entry.invocation_target.__internal_deliver_event__(event, phase)
-      ensure
-        window&.__internal_set_current_event__(previous_event)
-      end
+      entry.invocation_target.__internal_deliver_event__(event, phase, in_shadow_tree: entry.in_shadow_tree)
       throw :stop_propagation if event.propagation_stopped?
     end
 
-    # The Window whose `event` global covers this node, or nil for a node with
-    # no browsing context.
+    # The Window whose `event` global covers this target, or nil for a node
+    # with no browsing context. A target that is not a node (an
+    # XMLHttpRequest, a WebSocket, a MessagePort) is covered by the window it
+    # was created for.
     def window_of(node)
       return node if node.is_a?(Window)
 
       document = node.is_a?(Document) ? node : (node.document if node.respond_to?(:document))
-      document.default_view if document.respond_to?(:default_view)
+      return document.default_view if document.respond_to?(:default_view)
+
+      window = node.instance_variable_get(:@window) unless node.is_a?(Node)
+      window if window.is_a?(Window)
     end
 
     # WHATWG dispatch steps 5-12: walk from the target outward, recording one
@@ -493,7 +488,9 @@ module Dommy
 
     # `phase` is :capture (capture listeners), :bubble (non-capture), or :both
     # (at the target). stopImmediatePropagation ends delivery within this node.
-    def __internal_deliver_event__(event, phase = :both)
+    # `in_shadow_tree` is DOM's invocationTargetInShadowTree, which keeps
+    # `window.event` from showing an encapsulated event.
+    def __internal_deliver_event__(event, phase = :both, in_shadow_tree: false)
       listeners = listeners_for(event.type).dup
       listeners.each do |entry|
         next if entry.removed?
@@ -513,23 +510,50 @@ module Dommy
           end
         end
 
-        if entry.event_handler?
-          # The event handler processing algorithm: the handler's CURRENT value
-          # runs, and its return value is processed — onerror on a global
-          # cancels on `true`, every other handler on `false`
-          # (`onsubmit="return false"`).
-          invoked, result = invoke_event_handler(entry, event)
-          __internal_process_event_handler_return__(event, result) if invoked
-        elsif entry.passive?
-          event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
-        else
-          invoke_listener_isolated(entry.listener, event, self)
+        with_current_event(listener_global(entry.listener), event, in_shadow_tree) do
+          if entry.event_handler?
+            # The event handler processing algorithm: the handler's CURRENT value
+            # runs, and its return value is processed — onerror on a global
+            # cancels on `true`, every other handler on `false`
+            # (`onsubmit="return false"`).
+            invoked, result = invoke_event_handler(entry, event)
+            __internal_process_event_handler_return__(event, result) if invoked
+          elsif entry.passive?
+            event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
+          else
+            invoke_listener_isolated(entry.listener, event, self)
+          end
         end
 
         break if event.immediate_propagation_stopped?
       end
 
       nil
+    end
+
+    # DOM "inner invoke" steps 8-11: the legacy `window.event` of the listener's
+    # global is the event while the listener runs (unless the invocation target
+    # is in a shadow tree), and what it was before afterwards. A global that is
+    # not a Window has none.
+    def with_current_event(window, event, in_shadow_tree)
+      return yield unless window.is_a?(Window)
+
+      previous_event = window.__internal_current_event__
+      window.__internal_set_current_event__(event) unless in_shadow_tree
+      begin
+        yield
+      ensure
+        window.__internal_set_current_event__(previous_event)
+      end
+    end
+
+    # The global of a listener's callback's realm: a script function's
+    # window. A Ruby listener (or an event handler, which Dommy compiles in
+    # the target's window) has no realm of its own; the target's window
+    # stands for it.
+    def listener_global(listener)
+      window = listener.__internal_window__ if listener.respond_to?(:__internal_window__)
+      window || window_of(self)
     end
 
     # WHATWG event handler processing algorithm, step "process return value":
@@ -859,8 +883,20 @@ module Dommy
       @in_passive_listener = previous
     end
 
+    # Dispatch's targetOverride: the target itself, or the document a Window
+    # event carries under the legacy target override. The override holds for
+    # one dispatch only, so a re-dispatch starts from its own target rather
+    # than from where the previous dispatch left `target`.
     def __internal_prepare_for_dispatch__(target)
-      @target ||= target
+      @target = @legacy_target_override || target
+      @legacy_target_override = nil
+    end
+
+    # HTML's "legacy target override flag": a Window's load, pageshow,
+    # pagehide and unload are targeted at its document.
+    def __internal_set_legacy_target_override__(document)
+      @legacy_target_override = document
+      self
     end
 
     # The shadow-adjusted target for the node currently being visited. The
@@ -957,8 +993,9 @@ module Dommy
         @propagation_stopped = true if value
       when "returnValue"
         # Legacy alias: returnValue = false cancels the event (like
-        # preventDefault); a truthy value does not un-cancel.
-        @default_prevented = true if !value && @cancelable
+        # preventDefault, so not from a passive listener); a truthy value does
+        # not un-cancel.
+        @default_prevented = true if !Internal::WebIDL.boolean(value) && @cancelable && !@in_passive_listener
       else
         return Bridge::UNHANDLED
       end
@@ -2061,8 +2098,8 @@ module Dommy
           @key = nullable_string(args[3])
           @old_value = nullable_string(args[4])
           @new_value = nullable_string(args[5])
-          @url = (args[6] || "").to_s
-          @storage_area = args[7]
+          @url = optional_url(args[6])
+          @storage_area = args[7].equal?(Bridge::UNDEFINED) ? nil : args[7]
         end
         nil
       else
@@ -2071,6 +2108,12 @@ module Dommy
     end
 
     private
+
+    # initStorageEvent's `optional USVString url = ""`: an undefined (or
+    # omitted) argument takes the default.
+    def optional_url(value)
+      value.nil? || value.equal?(Bridge::UNDEFINED) ? "" : value.to_s
+    end
 
     # The IDL's nullable DOMString: a present value stringifies, null/undefined
     # stay null rather than becoming "".

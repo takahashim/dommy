@@ -124,6 +124,12 @@ module Dommy
         if FormAssociatedCustomElements.any?
           removed_nodes.each { |nk| FormAssociatedCustomElements.refresh_subtree(@document, nk) }
           added_nodes.each { |nk| FormAssociatedCustomElements.refresh_subtree(@document, nk) }
+          # A legend coming or going can change which is a fieldset's first
+          # legend, and so which of its descendants the fieldset disables.
+          if target_node.element? && target_node.name.casecmp?("fieldset") &&
+             (added_nodes + removed_nodes).any? { |nk| nk.element? && nk.name.casecmp?("legend") }
+            FormAssociatedCustomElements.refresh_subtree(@document, target_node)
+          end
         end
 
         # Custom Element connected/disconnected callbacks, script execution, and

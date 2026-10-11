@@ -99,6 +99,12 @@ module Dommy
       raise DOMException::NotSupportedError, "a shadow root cannot be cloned"
     end
 
+    # DocumentOrShadowRoot's elementFromPoint: with no layout, no element is
+    # at any point (as for the document).
+    def element_from_point(_x, _y)
+      nil
+    end
+
     def inner_html
       return Internal::XmlSerialization.serialize_children_of(self) unless @document.html_document?
 
@@ -344,6 +350,12 @@ module Dommy
         11
       when "nodeName"
         "#document-fragment"
+      when "ownerDocument"
+        @document
+      when "isConnected"
+        is_connected?
+      when "baseURI"
+        @document.base_uri
       when "parentNode", "parentElement", "nextSibling", "previousSibling", "nodeValue"
         # A ShadowRoot is a DocumentFragment attached to its host, never
         # inserted as a child of it: no parent, no siblings, and a null
@@ -380,7 +392,7 @@ module Dommy
       querySelector querySelectorAll getElementById append prepend replaceChildren moveBefore appendChild
       insertBefore removeChild replaceChild
       getRootNode contains addEventListener removeEventListener dispatchEvent
-      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition getHTML setHTMLUnsafe
+      isEqualNode isSameNode hasChildNodes normalize compareDocumentPosition getHTML setHTMLUnsafe cloneNode elementFromPoint
     ]
     def __js_call__(method, args)
       case method
@@ -395,6 +407,10 @@ module Dommy
       when "setHTMLUnsafe"
         set_html_unsafe(args[0], args[1])
         Bridge::UNDEFINED
+      when "cloneNode"
+        clone_node(args[0])
+      when "elementFromPoint"
+        element_from_point(args[0], args[1])
       when "isEqualNode"
         is_equal_node(args[0])
       when "isSameNode"

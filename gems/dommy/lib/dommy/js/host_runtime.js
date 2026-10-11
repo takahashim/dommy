@@ -169,6 +169,14 @@ globalThis.__rbHost = (function () {
     return isProxy(arg) ? arg : String(arg);
   }
 
+  // Whether `name` on interface `iface` is the ParentNode / ChildNode
+  // `(Node or DOMString)...` member. The names are shared with members that
+  // take something else — FormData's, URLSearchParams' and Headers' `append`
+  // — so the interface has to be a Node.
+  function nodeOrStringMember(name, iface) {
+    return NODE_OR_STRING_METHODS.has(name) && !!iface && signatureChain(iface).indexOf("Node") !== -1;
+  }
+
   // HTML "get the current value of the event handler", the compile step: an
   // event handler content attribute's body becomes a function named after the
   // handler (`function onclick(event) {\n…\n}`, so its source text reads as a
@@ -419,7 +427,7 @@ globalThis.__rbHost = (function () {
   // the DOM changes underneath a cached parentNode / attribute snapshot and the
   // next read hands back the state from before the call.
   function memberMethodStub(name, iface) {
-    const coerce = NODE_OR_STRING_METHODS.has(name);
+    const coerce = nodeOrStringMember(name, iface);
     const readOnly = NON_MUTATING_METHODS.has(name);
     const stub = withArity(function (...args) {
       // Resolve back through the receiver: the proxy get trap returns the
@@ -877,7 +885,7 @@ globalThis.__rbHost = (function () {
       // getter.
       const proto = Object.getPrototypeOf(v);
       const isExotic = proto !== Object.prototype && proto !== null;
-      const handlesEvents = "handleEvent" in v;
+      const handlesEvents = "handleEvent" in v || listenerObjects.has(v);
       const acceptsNodes = "acceptNode" in v;
       if (isExotic || handlesEvents || acceptsNodes) {
         const ref = { __rb_js_ref: registerJsRef(v) };
@@ -1974,6 +1982,12 @@ globalThis.__rbHost = (function () {
     CommandEvent: {
       bubbles: "boolean", cancelable: "boolean", composed: "boolean",
       command: "DOMString", source: "any",
+    },
+    // `key`, `oldValue` and `newValue` are `DOMString?` and `storageArea` a
+    // `Storage?`, so null passes through to Ruby; `url` is a USVString.
+    StorageEvent: {
+      bubbles: "boolean", cancelable: "boolean", composed: "boolean",
+      key: "any", newValue: "any", oldValue: "any", storageArea: "any", url: "DOMString",
     },
   };
 
@@ -3105,9 +3119,16 @@ globalThis.__rbHost = (function () {
     };
   }
 
+  // Objects passed as an EventListener: one with no handleEvent yet is still a
+  // callback interface (handleEvent is looked up when it is called), so it
+  // crosses as a live reference rather than as a data map.
+  const listenerObjects = new WeakSet();
+
   function listenerStub(prop, ctx) {
     const handle = ctx.handle;
     return (...args) => {
+      const listener = args[1];
+      if (listener !== null && typeof listener === "object") listenerObjects.add(listener);
       if (args.length >= 3) args[2] = flattenListenerOptions(prop, args[2]);
       return hostCallResult(prop, __rb_host_call(handle, prop, dehydrateArgs(args)), ctx.ifaceName);
     };
@@ -3275,7 +3296,7 @@ globalThis.__rbHost = (function () {
     if (!fn) {
       if (CANCELED_STATE_METHODS.has(prop)) fn = canceledStateStub(prop, ctx);
       else if (NON_MUTATING_METHODS.has(prop)) fn = nonMutatingStub(prop, ctx);
-      else if (NODE_OR_STRING_METHODS.has(prop)) fn = nodeOrStringStub(prop, ctx);
+      else if (nodeOrStringMember(prop, ctx.ifaceName)) fn = nodeOrStringStub(prop, ctx);
       else fn = mutatingStub(prop, ctx);
     }
     fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
@@ -3633,15 +3654,16 @@ globalThis.__rbHost = (function () {
       return attrsCache;
     };
     // A cached-attribute read: answers from the snapshot when one is
-    // available, else falls back to a normal bridge call. Lookup lowercases
-    // the argument — snapshots exist only for elements whose Ruby-side lookup
-    // is case-insensitive, so this matches get_attribute exactly. "__proto__"
+    // available, else falls back to a normal bridge call. Lookup ASCII-
+    // lowercases the argument — snapshots exist only for elements whose
+    // Ruby-side lookup is case-insensitive, so this matches get_attribute
+    // exactly (toLowerCase would also fold "Ä" to "ä"). "__proto__"
     // is excluded (a snapshot object can't represent it as a data property).
     const cachedAttrRead = (method, name) => {
       let attrs = null;
       let key;
       if (typeof name === "string") {
-        key = name.toLowerCase();
+        key = name.replace(/[A-Z]+/g, (s) => s.toLowerCase());
         if (key !== "__proto__") attrs = attrsSnapshot();
       }
       if (attrs === null) return rehydrate(__rb_host_call(handle, method, dehydrateArgs([name])));

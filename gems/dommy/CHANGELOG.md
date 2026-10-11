@@ -1,5 +1,33 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- `FormData#append` and `#set` convert a non-Blob value as a USVString, so `nil` (JS `null`) is `"null"` instead of `""`, as CharacterData's methods already do.
+
+### Fixed
+
+- `FormData#append(name, value, filename)` and `#set` with a value that is not a Blob throw TypeError, also when the filename is `undefined` or `null`: a third argument picks the Blob overload. For a Blob, an `undefined` filename is none (`"blob"`) and `null` is `"null"`.
+- `FormData`'s, `URLSearchParams`' and `Headers`' `append` no longer get ParentNode's `(Node or DOMString)` conversion from script, which turned `fd.append("a", blob, undefined)`'s filename into `"undefined"`.
+- A File put in a FormData under another name keeps its `lastModified`; only a Blob gets the current time.
+- `range.insertNode()` and `range.surroundContents()` on a range whose start node is an Attr throw HierarchyRequestError instead of a Ruby NoMethodError.
+- `element.getAttribute(name)` and `hasAttribute(name)` from script lowercase only ASCII letters, so `getAttribute("Ä")` finds an attribute set as `"Ä"` (the attribute cache folded it to `"ä"`).
+- `shadowRoot.cloneNode()` from script throws NotSupportedError, as `clone_node` already did in Ruby.
+- Clicking a radio button that is already checked fires only `click`, not `input` and `change`.
+- `event.returnValue = false` in a passive listener does not cancel the event, as `preventDefault()` already did not; the value is read with ToBoolean.
+- `dialog.showModal()` throws InvalidStateError when the dialog's document is not fully active (a `createHTMLDocument()` or `DOMParser` document).
+- NodeIterator follows the DOM Standard's candidate reference: a filter that removes the node it is filtering leaves `referenceNode` on a node still in the tree, and the traversal continues from there. A filter that calls `nextNode()` on its own iterator gets InvalidStateError and leaves the outer traversal where it was.
+- `new StorageEvent(type, {url: null})` has `url` `"null"`, and `{url: undefined}` `""`; `initStorageEvent` with an undefined `url` or `storageArea` takes the default (`""`, null).
+- `XMLHttpRequest`'s `json` response, `Response#json()`, `Request#json()` and import maps keep the last of duplicate keys, as JavaScript's `JSON.parse` does; with json 3 (Ruby 4's) such a body was null or a rejection.
+- An object with no `handleEvent` yet can be registered as an event listener; `handleEvent` is looked up when the listener is called. It was passed as a plain data object and never called.
+- `window.event` is set around a listener whose target is not a node (`new EventTarget()`, an AbortSignal, an XMLHttpRequest), and to the listener's realm's window rather than the target's document's.
+- A re-dispatched event starts from its own target: the previous dispatch's `target` no longer leaks into the path, so a target still inside a shadow tree when the path ends is cleared. The legacy target override (a Window's `load`, `pageshow`, `pagehide`, `unload` targeted at its document) holds for its one dispatch.
+- A ShadowRoot answers `ownerDocument`, `isConnected` and `baseURI` to script, and has `elementFromPoint()` (null, as the document's).
+- `element.click()` from script returns undefined, not true.
+- A live Range follows the mutations of the document its boundaries are in: one set into another document's tree with `setStart` / `setEnd`, and one inside a subtree adopted into another document.
+- Inserting or removing a fieldset's legend refreshes the disabled state of the form-associated custom elements in it, firing `formDisabledCallback` when the first legend changes.
+
 ## 0.16.0 — 2026-10-10
 
 ### Breaking changes

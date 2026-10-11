@@ -40,6 +40,10 @@ module Dommy
         @bridge.invoke_callback(@id, args)
       end
 
+      # The Window that is the function's realm's global: whose `event` a
+      # listener sees set (DOM "inner invoke").
+      def __internal_window__ = @bridge.window
+
       # The full invocation, with both of the choices a caller has:
       #
       #   this:    the receiver the JS function sees as `this` — a
@@ -75,6 +79,9 @@ module Dommy
       def handle_event(event)
         @bridge.invoke_js_ref_handle_event(@ref, event)
       end
+
+      # See HostCallback#__internal_window__.
+      def __internal_window__ = @bridge.window
     end
 
     # A NodeFilter backed by a live JS object implementing the callback interface

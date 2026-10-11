@@ -187,6 +187,12 @@ module Dommy
       @last_modified = (raw_lm || (Time.now.to_f * 1000)).to_i
     end
 
+    # A File under another name keeps its lastModified (XHR's "create an
+    # entry"); only a Blob gets a new one.
+    def __internal_file_named__(name)
+      File.new([@data], name, {"type" => @type, "lastModified" => @last_modified}, @window)
+    end
+
     # File's serialization + deserialization steps: bytes, type, name and
     # lastModified.
     def __internal_structured_clone__(_for_storage = false)
