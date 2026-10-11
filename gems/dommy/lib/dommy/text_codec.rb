@@ -71,11 +71,8 @@ module Dommy
     # invalid sequence throws a TypeError; otherwise it is replaced with U+FFFD.
     # A leading byte-order mark is stripped unless `ignoreBOM` was set. With
     # `stream: true` a partial sequence at the end is kept for the next call.
-    #
-    # Spec: https://encoding.spec.whatwg.org/#dom-textdecoder-decode
-    # TextDecoder decode(): a call that does not continue a stream starts a
-    # new decoder — at its start, so one a fatal error left mid-sequence is
-    # not reused.
+    # A call that does not continue a stream starts a new decoder — at its
+    # start, so one a fatal error left mid-sequence is not reused.
     #
     # Spec: https://encoding.spec.whatwg.org/#dom-textdecoder-decode
     def decode(input = nil, options = nil)

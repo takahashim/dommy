@@ -278,10 +278,6 @@ module Dommy
           Declaration.new(name, value, important)
         end
 
-        # CSSOM property-name normalization, for a name read from a declaration
-        # block or handed to `getPropertyValue` / `setProperty` alike: ASCII
-        # case-insensitive, except a CUSTOM property, whose name is
-        # case-SENSITIVE (`--Foo` and `--foo` are two properties).
         # Compat Standard §3.4.1: -webkit- names that are legacy name aliases
         # of the unprefixed property, which is what they set and serialize as.
         WEBKIT_ALIASES = %w[
@@ -299,6 +295,10 @@ module Dommy
           "-webkit-mask-box-image-source" => "mask-border-source", "-webkit-mask-box-image-width" => "mask-border-width"
         ).freeze
 
+        # CSSOM property-name normalization, for a name read from a declaration
+        # block or handed to `getPropertyValue` / `setProperty` alike: ASCII
+        # case-insensitive, except a CUSTOM property, whose name is
+        # case-SENSITIVE (`--Foo` and `--foo` are two properties).
         def property_name(name)
           str = name.to_s
           return str if custom_property?(str)

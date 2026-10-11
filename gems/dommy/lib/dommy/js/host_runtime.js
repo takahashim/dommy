@@ -1132,10 +1132,6 @@ globalThis.__rbHost = (function () {
     return Array.prototype.map.call(args, dehydrateTop);
   }
 
-  // A host call that raised a Dommy::DOMException comes back tagged so it can be
-  // re-thrown JS-side as a real DOMException (name + legacy code, and
-  // `instanceof DOMException`). Without this the quickjs gem flattens it to a
-  // plain Error, breaking assert_throws_dom and the DOM's error contracts.
   // WebIDL's QuotaExceededError: a DOMException named "QuotaExceededError"
   // with the amount `requested` and the `quota`, each null when unknown. Made
   // once DOMException exists, and installed as a global.
@@ -1173,6 +1169,10 @@ globalThis.__rbHost = (function () {
     return QuotaExceededError;
   }
 
+  // A host call that raised a Dommy::DOMException comes back tagged so it can be
+  // re-thrown JS-side as a real DOMException (name + legacy code, and
+  // `instanceof DOMException`). Without this the quickjs gem flattens it to a
+  // plain Error, breaking assert_throws_dom and the DOM's error contracts.
   function makeHostError(info) {
     const G = globalThis;
     if (info.name === "QuotaExceededError" && !info.js_native) {
