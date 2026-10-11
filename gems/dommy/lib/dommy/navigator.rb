@@ -286,6 +286,7 @@ module Dommy
   # PromiseValue so callers' `.await` chains keep working.
   class Clipboard
     include EventTarget
+    include Internal::WindowBound
 
     def initialize(window)
       @window = window
@@ -434,6 +435,7 @@ module Dommy
   # permission).
   class PermissionStatus
     include EventTarget
+    include Internal::WindowBound
 
     attr_reader :name, :state
 
@@ -611,6 +613,7 @@ module Dommy
 
   class WakeLockSentinel
     include EventTarget
+    include Internal::WindowBound
 
     attr_reader :type
 

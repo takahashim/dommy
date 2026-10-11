@@ -80,7 +80,9 @@ module Dommy
 
     # The first slot of each name in this tree, as name => backend node: what
     # slotchange compares with when the tree's slots change
-    # (Internal::SlotSignals).
+    # (Internal::SlotSignals). Kept current wherever the tree's slots change
+    # without a mutation record: empty for a new root, set again after a
+    # declarative root is filled and after an adopt moves the tree.
     attr_accessor :__internal_first_slots__
 
     def initialize(host, mode:, delegates_focus: false, slot_assignment: "named", clonable: false, serializable: false)

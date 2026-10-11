@@ -108,12 +108,15 @@ module Dommy
 
     # The bytes `string` encodes to in the encoding named `name` (as `get`
     # returns it); a code point the encoding cannot represent is the bytes the
-    # block returns for it. A name Ruby has no encoding for (x-user-defined,
-    # replacement), like UTF-8, encodes as UTF-8.
+    # block returns for it. The legacy multi-byte encoders and the single-byte
+    # ones (an index read backwards) are the spec's own; Ruby encodes the rest
+    # (GBK, gb18030), and UTF-8 is the string's own bytes.
     #
     # Spec: https://encoding.spec.whatwg.org/#encode
     def self.encode(name, string, &unmappable)
       return LegacyEncoders.encode(name, string, &unmappable).pack("C*") if LegacyEncoders.handles?(name)
+      return single_byte_encode(single_byte_pointers(name), string, &unmappable) if SINGLE_BYTE_INDEXES.key?(name)
+      return x_user_defined_encode(string, &unmappable) if name == "x-user-defined"
 
       ruby = begin
         ::Encoding.find(name.to_s)
@@ -132,6 +135,39 @@ module Dommy
         end
       end
     end
+
+    # A single-byte index read backwards, code point => byte, made once per
+    # encoding.
+    @single_byte_pointers = {}
+    def self.single_byte_pointers(name)
+      @single_byte_pointers[name] ||= SINGLE_BYTE_INDEXES[name].each_with_index.each_with_object({}) do |(code_point, pointer), map|
+        map[code_point] ||= pointer + 0x80 if code_point
+      end.freeze
+    end
+    private_class_method :single_byte_pointers
+
+    # Spec: https://encoding.spec.whatwg.org/#single-byte-encoder
+    def self.single_byte_encode(pointers, string, &unmappable)
+      string.each_codepoint.each_with_object(+"".b) do |code_point, out|
+        byte = code_point <= 0x7F ? code_point : pointers[code_point]
+        byte ? out << byte : out << unmappable.call(code_point).pack("C*")
+      end
+    end
+    private_class_method :single_byte_encode
+
+    # Spec: https://encoding.spec.whatwg.org/#x-user-defined-encoder
+    def self.x_user_defined_encode(string, &unmappable)
+      string.each_codepoint.each_with_object(+"".b) do |code_point, out|
+        if code_point <= 0x7F
+          out << code_point
+        elsif code_point.between?(0xF780, 0xF7FF)
+          out << (code_point - 0xF780 + 0x80)
+        else
+          out << unmappable.call(code_point).pack("C*")
+        end
+      end
+    end
+    private_class_method :x_user_defined_encode
 
     # Already-valid UTF-8 needs no decoding: the spec's decoder would walk it
     # byte by byte and rebuild it code point by code point, which measures ~40x

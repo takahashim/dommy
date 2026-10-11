@@ -329,3 +329,29 @@ class TestSlotChangeWithoutWindow < Minitest::Test
     assert fired
   end
 end
+
+# DOM "adopt" moves a host's shadow tree with it: the shadow root, its slots
+# and their assignment work in the document the host went to.
+class TestShadowTreeAdoption < Minitest::Test
+  include DommyTestHelper
+
+  def test_a_host_moved_to_another_document_keeps_its_shadow_tree
+    win = make_window("<div id='h'><span>x</span></div>")
+    doc = win.document
+    host = doc.get_element_by_id("h")
+    sr = host.attach_shadow({"mode" => "open"})
+    sr.inner_html = "<p><slot></slot></p>"
+    slot = sr.query_selector("slot")
+    span = host.query_selector("span")
+    other = doc.implementation.create_html_document("")
+    other.body.append_child(host)
+
+    assert_same slot, span.assigned_slot
+    assert_same other, slot.owner_document
+    assert_same sr, other.__internal_shadow_root_for_host__(host.__dommy_backend_node__)
+    reached = []
+    slot.add_event_listener("ping", proc { reached << :slot })
+    span.dispatch_event(Dommy::Event.new("ping", {"bubbles" => true}))
+    assert_equal [:slot], reached
+  end
+end

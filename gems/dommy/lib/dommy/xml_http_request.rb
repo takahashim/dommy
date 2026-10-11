@@ -23,6 +23,7 @@ module Dommy
   # Spec: https://xhr.spec.whatwg.org/
   class XMLHttpRequest
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     UNSENT = 0

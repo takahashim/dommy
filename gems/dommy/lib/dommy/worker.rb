@@ -19,6 +19,7 @@ module Dommy
   # Spec (real): https://html.spec.whatwg.org/multipage/workers.html
   class Worker
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     attr_reader :url

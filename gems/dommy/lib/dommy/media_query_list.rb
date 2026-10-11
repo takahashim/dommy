@@ -17,6 +17,7 @@ module Dommy
   # Spec: https://drafts.csswg.org/cssom-view/#mediaquerylist
   class MediaQueryList
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     attr_reader :media

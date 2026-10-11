@@ -480,9 +480,9 @@ globalThis.__rbHost = (function () {
   // pixels. Dommy paints nothing, so an ImageData starts transparent black and
   // only the page's writes change it. They stay here and do not cross the
   // bridge when the ImageData does (a 1920x1080 image is 8 MB) — except for a
-  // structured clone: the deserialized ImageData belongs to the host (a
+  // structured clone: the deserialized ImageData may belong to the host (a
   // MessageEvent's data, a history state), which keeps it beyond the life of
-  // any proxy of it, so the host holds its pixels too.
+  // any proxy of it, so its pixels go to the host when its last proxy goes.
   //
   // The pixels are keyed by handle, not by proxy: QuickJS frees a proxy as
   // soon as nothing refers to it (`e.data.data` drops `e.data` at once), and
@@ -493,28 +493,31 @@ globalThis.__rbHost = (function () {
   //
   //   pixels      the Uint8ClampedArray `data` returns
   //   hostBacked  the host keeps this ImageData (a clone), so keeps its pixels
-  //   exposed     the page has had the array since the host last had it
+  //   exposed     the array may hold what the host does not (the page has had
+  //               it, or it came from a serialized record)
   const pixelsByHandle = new Map();
   function pixelsOf(proxy) {
     const handle = proxyHandles.get(proxy);
     let entry = pixelsByHandle.get(handle);
     if (entry === undefined) {
-      // A clone sent before anything read its `data` has no pixels yet: it is
-      // the host's all the same, and its transparent black is made here.
-      const held = rehydrate(__rb_host_get(handle, "__dommyPixels"));
-      let pixels;
-      if (held instanceof Uint8Array) {
-        pixels = new Uint8ClampedArray(held.buffer, held.byteOffset, held.byteLength);
-      } else {
-        const width = rehydrate(__rb_host_get(handle, "width"));
-        const height = rehydrate(__rb_host_get(handle, "height"));
-        pixels = new Uint8ClampedArray(width * height * 4);
-      }
-      entry = { pixels, hostBacked: rehydrate(__rb_host_get(handle, "__dommyClone")) === true, exposed: false };
+      // No proxy of it has had pixels yet. One the host keeps (a clone) is
+      // host-backed, whatever pixels it starts with.
+      entry = { pixels: null, hostBacked: rehydrate(__rb_host_get(handle, "__dommyClone")) === true, exposed: false };
       pixelsByHandle.set(handle, entry);
     }
+    if (entry.pixels === null) entry.pixels = hostPixels(handle);
     entry.exposed = true;
     return entry.pixels;
+  }
+
+  // The pixels the host holds for an ImageData (a clone's), else transparent
+  // black of its size.
+  function hostPixels(handle) {
+    const held = rehydrate(__rb_host_get(handle, "__dommyPixels"));
+    if (held instanceof Uint8Array) return new Uint8ClampedArray(held.buffer, held.byteOffset, held.byteLength);
+    const width = rehydrate(__rb_host_get(handle, "width"));
+    const height = rehydrate(__rb_host_get(handle, "height"));
+    return new Uint8ClampedArray(width * height * 4);
   }
 
   // The handle is going: a host-backed ImageData's pixels the page may have
@@ -1518,7 +1521,7 @@ globalThis.__rbHost = (function () {
       const snapshot = rehydrate(__rb_host_clone(proxyHandles.get(value), !!forStorage));
       serialized = { type: "Platform", interface: primaryInterfaceOf(value), snapshot };
       const entry = pixelsByHandle.get(proxyHandles.get(value));
-      if (entry !== undefined) serialized.pixels = entry.pixels.slice();
+      if (entry !== undefined && entry.pixels !== null) serialized.pixels = entry.pixels.slice();
     } else if (type === "function") {
       throw dataCloneError("A function could not be cloned");
     } else if (brandedBy(SC.symbolValueOf, value) || brandedBy(SC.weakMapHas, value, {}) ||
@@ -1624,11 +1627,14 @@ globalThis.__rbHost = (function () {
       case "Platform":
         // A new instance from the host's snapshot.
         value = rehydrate(__rb_host_clone(proxyHandles.get(serialized.snapshot), false));
-        if (serialized.pixels !== undefined) {
-          const handle = proxyHandles.get(value);
-          const pixels = serialized.pixels.slice();
-          __rb_host_set(handle, "__dommyPixels", dehydrate(pixels));
-          pixelsByHandle.set(handle, { pixels, hostBacked: true, exposed: false });
+        // An ImageData's pixels: the record's, a copy for each deserialization
+        // (none when its data was never read: made at the first read). Only a
+        // clone the host will keep — a message's, a history state's — sends
+        // them across, when its last proxy goes (releasePixels); a
+        // structuredClone() result stays in this realm.
+        if (serialized.interface === "ImageData") {
+          const pixels = serialized.pixels === undefined ? null : serialized.pixels.slice();
+          pixelsByHandle.set(proxyHandles.get(value), { pixels, hostBacked: deserializingForHost, exposed: pixels !== null });
         }
         break;
       case "TransferredArrayBuffer":
@@ -1745,15 +1751,23 @@ globalThis.__rbHost = (function () {
   // this realm, as `{ value, ports }` (the MessagePorts among the transferred
   // values, in order), or `{ error }` when deserialization threw — the caller
   // then fires `messageerror`.
+  // Whether the value being deserialized goes to the host (a record the host
+  // asked for: a message, a history state), which may keep it beyond any proxy
+  // of it.
+  let deserializingForHost = false;
   function deserializeRecord(id) {
     const record = serializedRecords.get(id);
     if (!record) return { error: "The serialized message is gone" };
+    const outer = deserializingForHost;
+    deserializingForHost = true;
     try {
       const { deserialized, transferredValues } = structuredDeserializeWithTransfer(record);
       const ports = transferredValues.filter((v) => isProxy(v) && primaryInterfaceOf(v) === "MessagePort");
       return { value: dehydrateSettle(deserialized), ports: ports.map((p) => ({ __rb_handle: proxyHandles.get(p) })) };
     } catch (e) {
       return { error: String(e && e.message) };
+    } finally {
+      deserializingForHost = outer;
     }
   }
   function releaseRecord(id) {

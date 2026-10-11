@@ -10,6 +10,7 @@ module Dommy
   # Spec: https://cookiestore.spec.whatwg.org/
   class CookieStore
     include EventTarget
+    include Internal::WindowBound
 
     def initialize(window)
       @window = window

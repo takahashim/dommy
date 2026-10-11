@@ -274,6 +274,21 @@ class TestEncodings < Minitest::Test
     assert_equal ["UTF-8", "?%E2%82%AC"], query.("UTF-8", "\u20AC")
   end
 
+  # The single-byte encodings encode with their index read backwards, those
+  # Ruby lacks (macintosh, x-mac-cyrillic, ISO-8859-8-I) and windows-1252's
+  # C1 bytes included; x-user-defined with its own encoder.
+  def test_single_byte_encodings_encode_with_their_indexes
+    query = lambda do |encoding, text|
+      Dommy.parse(%(<!doctype html><a href="https://e.test/?#{text}">x</a>), encoding: encoding).document.query_selector("a").__js_get__("search")
+    end
+    assert_equal "?%8E", query.("macintosh", "\u00E9")
+    assert_equal "?%80", query.("x-mac-cyrillic", "\u0410")
+    assert_equal "?%E0", query.("ISO-8859-8-I", "\u05D0")
+    assert_equal "?%81%80%26%2312354%3B", query.("windows-1252", "\u0081\u20AC\u3042")
+    unmappable = ->(code_point) { "&##{code_point};".bytes }
+    assert_equal "a\x81&#233;".b, Dommy::Encodings.encode("x-user-defined", "a\uF781\u00E9", &unmappable)
+  end
+
   # Markup given as a string is text already: its document is UTF-8 whatever
   # its <meta charset> says, and so is a body fragment's.
   def test_a_document_parsed_from_a_string_is_utf8

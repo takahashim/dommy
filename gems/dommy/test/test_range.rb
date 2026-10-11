@@ -228,6 +228,19 @@ class TestRange < Minitest::Test
     assert_equal(0, range.end_offset)
   end
 
+  # ...and so does one inside the shadow tree of an adopted host, which the
+  # adopt carries along.
+  def test_a_range_inside_an_adopted_hosts_shadow_tree_follows_its_mutations
+    host = @doc.body.append_child(@doc.create_element("div"))
+    text = host.attach_shadow({"mode" => "open"}).append_child(@doc.create_text_node("abcdef"))
+    range = @doc.create_range
+    range.set_start(text, 4)
+    range.set_end(text, 5)
+    @doc.implementation.create_html_document("").body.append_child(host)
+    text.split_text(2)
+    assert_equal([false, 2], [range.start_container.equal?(text), range.start_offset])
+  end
+
   # A range set into another document's tree follows that document's
   # mutations, whichever document created it.
   def test_a_range_set_into_another_document_follows_its_mutations

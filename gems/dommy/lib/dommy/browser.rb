@@ -561,7 +561,11 @@ module Dommy
       fire_unload(old_window)
       check_js_errors!
 
-      text, encoding = Encodings.decode_document(response.body, response_header(response, "content-type"))
+      # HTML's <meta charset> prescan is for an HTML document (one that names
+      # no type is taken for one); an XML type's encoding is not a <meta>'s.
+      content_type = response_header(response, "content-type")
+      type = content_type.to_s.split(";").first.to_s.strip.downcase
+      text, encoding = Encodings.decode_document(response.body, content_type, html: type.empty? || type == "text/html")
       new_window = Dommy.parse(text, encoding: encoding)
       new_window.location.__internal_set_url__(final_url)
       new_window.document.__internal_set_last_modified__(response_header(response, "last-modified"))

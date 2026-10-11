@@ -40,15 +40,11 @@ module Dommy
         nil
       end
 
-      # Whether `node` is `root` or inside it (by parents, so a CharacterData
-      # root, which has no contains?, works too).
+      # Whether `node` is `root` or inside it, shadow trees included: an adopt
+      # carries the host's shadow tree along (by parents and hosts, so a
+      # CharacterData root, which has no contains?, works too).
       def inclusive_ancestor_of?(root, node)
-        while node
-          return true if node.equal?(root)
-
-          node = node.respond_to?(:parent_node) ? node.parent_node : nil
-        end
-        false
+        Retargeting.shadow_including_inclusive_ancestor?(root, node)
       end
       private :inclusive_ancestor_of?
 

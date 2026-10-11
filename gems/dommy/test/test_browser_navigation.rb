@@ -44,6 +44,20 @@ class TestBrowserNavigation < Minitest::Test
     assert_equal ["http://localhost/"], b.history.entries
   end
 
+  # HTML's <meta charset> prescan is an HTML document's: an XHTML response
+  # that names no charset is UTF-8 whatever a <meta> in it says.
+  def test_an_xml_response_is_not_prescanned_for_a_meta_charset
+    xhtml = %(<html xmlns="http://www.w3.org/1999/xhtml"><head><meta charset="shift_jis"/></head><body><p>\u65E5</p></body></html>)
+    b = visit("/" => {"body" => xhtml.b, "content_type" => "application/xhtml+xml"})
+    assert_equal ["UTF-8", "\u65E5"], [b.document.character_encoding, b.document.query_selector("p").text_content]
+  end
+
+  def test_an_html_response_is_prescanned_for_a_meta_charset
+    page = %(<!doctype html><meta charset="shift_jis"><p>\u65E5</p>).encode("Windows-31J").b
+    b = visit("/" => {"body" => page, "content_type" => "text/html"})
+    assert_equal ["Shift_JIS", "\u65E5"], [b.document.character_encoding, b.document.query_selector("p").text_content]
+  end
+
   # --- link activation performs a real cross-document navigation ---
 
   def test_link_click_replaces_the_document

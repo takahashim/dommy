@@ -88,6 +88,7 @@ module Dommy
   # Spec: https://drafts.csswg.org/web-animations/#animation
   class Animation
     include EventTarget
+    include Internal::WindowBound
 
     attr_accessor :id
     attr_reader :effect, :timeline, :play_state

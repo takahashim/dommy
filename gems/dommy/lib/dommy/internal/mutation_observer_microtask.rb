@@ -12,27 +12,32 @@ module Dommy
     #
     # Spec: https://dom.spec.whatwg.org/#notify-mutation-observers
     class MutationObserverMicrotask
+      # The pending observers and the signal slots are ordered sets: a Hash by
+      # identity keeps insertion order and answers "already in?" in O(1), as a
+      # record is queued on every mutation an observer sees.
       def initialize(scheduler)
         @scheduler = scheduler
-        @observers = []
-        @signal_slots = []
+        @observers = new_set
+        @signal_slots = new_set
         @queued = false
       end
 
       # DOM "append observer to the pending mutation observers": `observer`
       # was handed a record.
       def observer_pending(observer)
-        @observers << observer unless @observers.any? { |o| o.equal?(observer) }
+        @observers[observer] = true
         queue
       end
 
       # DOM "signal a slot change".
       def signal_slot(slot)
-        @signal_slots << slot unless @signal_slots.any? { |s| s.equal?(slot) }
+        @signal_slots[slot] = true
         queue
       end
 
       private
+
+      def new_set = {}.compare_by_identity
 
       def queue
         return if @queued
@@ -43,10 +48,10 @@ module Dommy
 
       def notify
         @queued = false
-        observers = @observers
-        @observers = []
-        slots = @signal_slots
-        @signal_slots = []
+        observers = @observers.keys
+        @observers = new_set
+        slots = @signal_slots.keys
+        @signal_slots = new_set
         observers.each(&:__internal_notify__)
         slots.each { |slot| slot.dispatch_event(Event.new("slotchange", "bubbles" => true).__internal_mark_trusted__) }
       end

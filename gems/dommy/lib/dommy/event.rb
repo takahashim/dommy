@@ -351,14 +351,15 @@ module Dommy
     # The Window whose `event` global covers this target, or nil for a node
     # with no browsing context. A target that is not a node (an
     # XMLHttpRequest, a WebSocket, a MessagePort) is covered by the window it
-    # was created for.
+    # was made for (Internal::WindowBound); one made for none
+    # (`new EventTarget()`, an AbortSignal) has none.
     def window_of(node)
       return node if node.is_a?(Window)
 
       document = node.is_a?(Document) ? node : (node.document if node.respond_to?(:document))
       return document.default_view if document.respond_to?(:default_view)
 
-      window = node.instance_variable_get(:@window) unless node.is_a?(Node)
+      window = node.__internal_relevant_window__ if node.respond_to?(:__internal_relevant_window__)
       window if window.is_a?(Window)
     end
 

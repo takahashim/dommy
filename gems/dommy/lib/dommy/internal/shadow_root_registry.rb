@@ -27,6 +27,13 @@ module Dommy
         @by_host[Backend.identity_key(host_node)]
       end
 
+      # Forget a shadow root that moved to another document with its host
+      # (`fragment_node` and `host_node` are what it was registered under).
+      def unregister(fragment_node, host_node)
+        @shadow_roots.delete(Backend.identity_key(fragment_node))
+        @by_host.delete(Backend.identity_key(host_node))
+      end
+
       # Find the ShadowRoot for a given fragment (if any)
       def find_for_fragment(fragment_node)
         return nil unless fragment_node
