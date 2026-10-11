@@ -14,6 +14,35 @@ class TestEventTargetExtras < Minitest::Test
     @btn = @doc.get_element_by_id("b")
   end
 
+  # A listener whose callback comes from another window's realm.
+  class RealmListener
+    def initialize(window, &block)
+      @window = window
+      @block = block
+    end
+
+    def __internal_window__ = @window
+
+    def call(event) = @block.call(event)
+  end
+
+  # DOM "inner invoke": `window.event` is set on each listener's own realm's
+  # global while it runs, not on one window picked for the whole node.
+  def test_window_event_is_set_on_each_listeners_own_global
+    other = make_window("<p></p>")
+    seen = []
+    @btn.add_event_listener("x", RealmListener.new(other) { |e|
+      seen << [:other_realm, other.__internal_current_event__.equal?(e), @win.__internal_current_event__]
+    }, {"capture" => true})
+    @btn.add_event_listener("x", proc { |e|
+      seen << [:own_realm, @win.__internal_current_event__.equal?(e), other.__internal_current_event__]
+    })
+    @btn.dispatch_event(Dommy::Event.new("x"))
+    assert_equal [[:other_realm, true, nil], [:own_realm, true, nil]], seen
+    assert_nil @win.__internal_current_event__
+    assert_nil other.__internal_current_event__
+  end
+
   def test_dispatch_event_raises_for_non_event
     assert_raises(Dommy::Bridge::TypeError) { @btn.dispatch_event("not-an-event") }
     assert_raises(Dommy::Bridge::TypeError) { @btn.dispatch_event({}) }

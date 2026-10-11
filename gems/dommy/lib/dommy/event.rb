@@ -344,17 +344,7 @@ module Dommy
       end
 
       event.__internal_set_current_target__(entry.invocation_target)
-      # The legacy `window.event` global is set for the duration of a listener,
-      # then restored — but NOT for a listener inside a shadow tree, which would
-      # otherwise hand an encapsulated event to the outer global.
-      window = listener_window(entry.invocation_target, event.type) || window_of(entry.invocation_target)
-      previous_event = window&.__internal_current_event__
-      window.__internal_set_current_event__(event) if window && !entry.in_shadow_tree
-      begin
-        entry.invocation_target.__internal_deliver_event__(event, phase)
-      ensure
-        window&.__internal_set_current_event__(previous_event)
-      end
+      entry.invocation_target.__internal_deliver_event__(event, phase, in_shadow_tree: entry.in_shadow_tree)
       throw :stop_propagation if event.propagation_stopped?
     end
 
@@ -370,18 +360,6 @@ module Dommy
 
       window = node.instance_variable_get(:@window) unless node.is_a?(Node)
       window if window.is_a?(Window)
-    end
-
-    # For a target with no window of its own (`new EventTarget()`, an
-    # AbortSignal), the window of a script listener's realm, whose `event` the
-    # spec sets around each listener.
-    def listener_window(target, type)
-      target.__send__(:listeners_for, type).each do |entry|
-        listener = entry.listener
-        window = listener.__internal_window__ if listener.respond_to?(:__internal_window__)
-        return window if window.is_a?(Window)
-      end
-      nil
     end
 
     # WHATWG dispatch steps 5-12: walk from the target outward, recording one
@@ -510,7 +488,9 @@ module Dommy
 
     # `phase` is :capture (capture listeners), :bubble (non-capture), or :both
     # (at the target). stopImmediatePropagation ends delivery within this node.
-    def __internal_deliver_event__(event, phase = :both)
+    # `in_shadow_tree` is DOM's invocationTargetInShadowTree, which keeps
+    # `window.event` from showing an encapsulated event.
+    def __internal_deliver_event__(event, phase = :both, in_shadow_tree: false)
       listeners = listeners_for(event.type).dup
       listeners.each do |entry|
         next if entry.removed?
@@ -530,23 +510,50 @@ module Dommy
           end
         end
 
-        if entry.event_handler?
-          # The event handler processing algorithm: the handler's CURRENT value
-          # runs, and its return value is processed — onerror on a global
-          # cancels on `true`, every other handler on `false`
-          # (`onsubmit="return false"`).
-          invoked, result = invoke_event_handler(entry, event)
-          __internal_process_event_handler_return__(event, result) if invoked
-        elsif entry.passive?
-          event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
-        else
-          invoke_listener_isolated(entry.listener, event, self)
+        with_current_event(listener_global(entry.listener), event, in_shadow_tree) do
+          if entry.event_handler?
+            # The event handler processing algorithm: the handler's CURRENT value
+            # runs, and its return value is processed — onerror on a global
+            # cancels on `true`, every other handler on `false`
+            # (`onsubmit="return false"`).
+            invoked, result = invoke_event_handler(entry, event)
+            __internal_process_event_handler_return__(event, result) if invoked
+          elsif entry.passive?
+            event.__internal_run_passive__ { invoke_listener_isolated(entry.listener, event, self) }
+          else
+            invoke_listener_isolated(entry.listener, event, self)
+          end
         end
 
         break if event.immediate_propagation_stopped?
       end
 
       nil
+    end
+
+    # DOM "inner invoke" steps 8-11: the legacy `window.event` of the listener's
+    # global is the event while the listener runs (unless the invocation target
+    # is in a shadow tree), and what it was before afterwards. A global that is
+    # not a Window has none.
+    def with_current_event(window, event, in_shadow_tree)
+      return yield unless window.is_a?(Window)
+
+      previous_event = window.__internal_current_event__
+      window.__internal_set_current_event__(event) unless in_shadow_tree
+      begin
+        yield
+      ensure
+        window.__internal_set_current_event__(previous_event)
+      end
+    end
+
+    # The global of a listener's callback's realm: a script function's
+    # window. A Ruby listener (or an event handler, which Dommy compiles in
+    # the target's window) has no realm of its own; the target's window
+    # stands for it.
+    def listener_global(listener)
+      window = listener.__internal_window__ if listener.respond_to?(:__internal_window__)
+      window || window_of(self)
     end
 
     # WHATWG event handler processing algorithm, step "process return value":

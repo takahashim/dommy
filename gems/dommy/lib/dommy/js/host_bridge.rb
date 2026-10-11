@@ -96,13 +96,13 @@ module Dommy
         obj
       end
 
+      # The Window this realm's global is (nil before install_window).
+      attr_reader :window
+
       # Bind the window the bridge draws on for JS constructors (new Event(...))
       # and custom element registration. Called by Runtime#install_window — kept
       # distinct from define_host_object so the generic binder has no hidden
       # side effects. The realm wiring itself is WindowWiring's.
-      # The Window this realm's global is (nil before install_window).
-      attr_reader :window
-
       def window=(win)
         @window = win # the window host promises (thenable adoption) schedule on
         @window_wiring.attach(win)

@@ -564,14 +564,14 @@ module Dommy
       # Steps 2-5: what the node goes in front of, and whose child it becomes.
       reference = splitting ? start_node : child_at(start_node, @start_offset)
       parent = reference.nil? ? start_node : parent_of(reference)
-      # Step 6, ahead of the split: an insertion pre-insert would reject must
-      # not leave the Text node split behind it.
       # Pre-insert's first check: only a Document, DocumentFragment or Element
       # takes children, so an Attr-rooted range has nowhere to put the node.
       unless parent.respond_to?(:__internal_ensure_insertion_validity__)
         raise DOMException::HierarchyRequestError, "the range's start node cannot have children"
       end
 
+      # Step 6, ahead of the split: an insertion pre-insert would reject must
+      # not leave the Text node split behind it.
       ref_bn = reference&.__dommy_backend_node__
       parent.__internal_ensure_insertion_validity__([node], ref_bn)
 

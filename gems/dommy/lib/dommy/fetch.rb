@@ -909,14 +909,14 @@ module Dommy
       end
     end
 
-    # WHATWG "UTF-8 decode" for a body's text(): interpret the raw bytes as
-    # UTF-8, replacing any ill-formed sequence with U+FFFD, and drop a single
-    # leading byte-order mark (U+FEFF). Well-formed UTF-8 (the common case) is
-    # returned unchanged. Used by both Request and Response text().
     # ECMAScript's JSON.parse, which a page's JSON goes through, keeps the last
     # of duplicate keys; json 3 rejects them unless told otherwise.
     JSON_OPTIONS = {allow_duplicate_key: true}.freeze
 
+    # WHATWG "UTF-8 decode" for a body's text(): interpret the raw bytes as
+    # UTF-8, replacing any ill-formed sequence with U+FFFD, and drop a single
+    # leading byte-order mark (U+FEFF). Well-formed UTF-8 (the common case) is
+    # returned unchanged. Used by both Request and Response text().
     def self.utf8_decode(bytes)
       s = bytes.to_s.dup.force_encoding(Encoding::UTF_8)
       s = s.scrub("\u{FFFD}") unless s.valid_encoding?
