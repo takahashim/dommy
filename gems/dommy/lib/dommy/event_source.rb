@@ -14,6 +14,7 @@ module Dommy
   # Spec: https://html.spec.whatwg.org/multipage/server-sent-events.html
   class EventSource
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     CONNECTING = 0

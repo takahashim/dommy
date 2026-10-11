@@ -8,6 +8,7 @@ module Dommy
   # Spec: https://notifications.spec.whatwg.org/
   class Notification
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     @permission = "default"

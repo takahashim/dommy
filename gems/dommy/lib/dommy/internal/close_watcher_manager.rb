@@ -162,6 +162,7 @@ module Dommy
   # `close` at itself.
   class CloseWatcher
     include EventTarget
+    include Internal::WindowBound
 
     def initialize(window, options = nil)
       @window = window

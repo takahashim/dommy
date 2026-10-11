@@ -40,6 +40,7 @@ module Dommy
   # receiver gets (see #__internal_transfer__).
   class MessagePort
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     def initialize(window)
@@ -265,6 +266,7 @@ module Dommy
   # name within the same Window.
   class BroadcastChannel
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     @@registries = Hash.new { |h, w| h[w] = Hash.new { |c, n| c[n] = [] } }

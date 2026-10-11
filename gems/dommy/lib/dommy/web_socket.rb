@@ -18,6 +18,7 @@ module Dommy
   # Spec: https://websockets.spec.whatwg.org/
   class WebSocket
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     CONNECTING = 0

@@ -43,6 +43,16 @@ class TestEventTargetExtras < Minitest::Test
     assert_nil other.__internal_current_event__
   end
 
+  # A target that is not a node is covered by the window it was made for:
+  # an XMLHttpRequest's listener sees that window's `event` set.
+  def test_window_event_is_set_for_a_window_bound_target
+    xhr = Dommy::XMLHttpRequest.new(@win)
+    seen = nil
+    xhr.add_event_listener("x", proc { |e| seen = @win.__internal_current_event__.equal?(e) })
+    xhr.dispatch_event(Dommy::Event.new("x"))
+    assert_equal true, seen
+  end
+
   def test_dispatch_event_raises_for_non_event
     assert_raises(Dommy::Bridge::TypeError) { @btn.dispatch_event("not-an-event") }
     assert_raises(Dommy::Bridge::TypeError) { @btn.dispatch_event({}) }

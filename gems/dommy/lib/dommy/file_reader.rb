@@ -9,6 +9,7 @@ module Dommy
   # Spec: https://w3c.github.io/FileAPI/#APIASynch
   class FileReader
     include EventTarget
+    include Internal::WindowBound
     include Internal::EventHandlers::IdlAttributeBridge
 
     EMPTY = 0
