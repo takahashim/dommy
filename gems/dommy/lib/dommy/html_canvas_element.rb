@@ -175,34 +175,53 @@ module Dommy
     end
   end
 
-  # `ctx.getImageData(...)` / `createImageData(...)` result: a width and a
-  # height. Dommy paints nothing, so its pixels are transparent black until a
-  # page writes them, and the page's writes stay in its own `data` typed array
-  # (host_runtime.js), which a structured clone copies. `data` read here is
-  # the transparent black RGBA buffer of length width*height*4, made at the
-  # read.
+  # `ctx.getImageData(...)` / `createImageData(...)` result: a width, a height
+  # and pixels. Dommy paints nothing, so the pixels are transparent black until
+  # a page writes them, and the page writes into its own `data` typed array
+  # (host_runtime.js), which stays in the JS realm.
+  #
+  # The one time the pixels come here is a structured clone: the clone a
+  # message or a history state delivers belongs to this side (a MessageEvent,
+  # the history entry) and outlives any one JS proxy of it, so it holds the
+  # pixels the page had written (`__dommyPixels`, packed bytes) until a proxy
+  # first reads `data` and takes them over.
   class ImageData
     attr_reader :width, :height
 
-    def initialize(width, height)
+    def initialize(width, height, pixels = nil)
       @width = [width.to_i, 0].max
       @height = [height.to_i, 0].max
+      @pixels = pixels
     end
 
-    # ImageData's serialization + deserialization steps: the same size (the
-    # pixels are copied JS-side).
+    # ImageData's serialization + deserialization steps: the same size and the
+    # pixels this side holds (JS adds the ones its typed array holds).
     def __internal_structured_clone__(_for_storage = false)
-      ImageData.new(@width, @height)
+      ImageData.new(@width, @height, @pixels)
     end
 
     def __js_get__(key)
       case key
       when "width" then @width
       when "height" then @height
-      when "data" then Array.new(@width * @height * 4, 0)
+      when "data" then @pixels ? @pixels.unpack("C*") : Array.new(byte_length, 0)
+      when "__dommyPixels" then @pixels && Bridge::Bytes.new(@pixels)
       when "colorSpace" then "srgb"
       else Bridge::ABSENT
       end
     end
+
+    # The pixels of a deserialized clone, from the serialized record. A buffer
+    # of any other length is not this image's.
+    def __js_set__(key, value)
+      return Bridge::UNHANDLED unless key == "__dommyPixels"
+
+      @pixels = value.is_a?(Bridge::Bytes) && value.length == byte_length ? value.pack_bytes : nil
+      nil
+    end
+
+    private
+
+    def byte_length = @width * @height * 4
   end
 end

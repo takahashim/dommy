@@ -61,6 +61,32 @@ class TestCanvas < Minitest::Test
     assert_equal(5, clone.__js_get__("height"))
   end
 
+  # A deserialized clone holds the pixels the page wrote, and its clones keep
+  # them; a buffer of another length is not this image's.
+  def test_a_clone_holds_the_pixels_it_was_given
+    img = @ctx.__js_call__("createImageData", [1, 1])
+    img.__js_set__("__dommyPixels", Dommy::Bridge::Bytes.new([1, 2, 3, 4]))
+    clone = img.__internal_structured_clone__
+    assert_equal([1, 2, 3, 4], clone.__js_get__("data"))
+    assert_equal([1, 2, 3, 4], clone.__js_get__("__dommyPixels").to_a)
+    img.__js_set__("__dommyPixels", Dommy::Bridge::Bytes.new([1, 2]))
+    assert_equal([0, 0, 0, 0], img.__js_get__("data"))
+    assert_nil(@ctx.__js_call__("createImageData", [1, 1]).__js_get__("__dommyPixels"))
+  end
+
+  # A deserialized clone holds the pixels the page wrote, and its clones keep
+  # them; a buffer of another length is not this image's.
+  def test_a_clone_holds_the_pixels_it_was_given
+    img = @ctx.__js_call__("createImageData", [1, 1])
+    img.__js_set__("__dommyPixels", Dommy::Bridge::Bytes.new([1, 2, 3, 4]))
+    clone = img.__internal_structured_clone__
+    assert_equal([1, 2, 3, 4], clone.__js_get__("data"))
+    assert_equal([1, 2, 3, 4], clone.__js_get__("__dommyPixels").to_a)
+    img.__js_set__("__dommyPixels", Dommy::Bridge::Bytes.new([1, 2]))
+    assert_equal([0, 0, 0, 0], img.__js_get__("data"))
+    assert_nil(@ctx.__js_call__("createImageData", [1, 1]).__js_get__("__dommyPixels"))
+  end
+
   def test_measure_text_reports_a_width
     metrics = @ctx.__js_call__("measureText", ["hello"])
     assert_operator(metrics.__js_get__("width"), :>, 0)
