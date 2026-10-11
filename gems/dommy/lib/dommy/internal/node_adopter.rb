@@ -161,6 +161,7 @@ module Dommy
         # two subtrees are walked together.
         def carry_over(orig, copy)
           reseat_wrapper(orig, copy)
+          carry_over_shadow_root(orig, copy) if orig.element?
           if destination_registry.template_node?(orig)
             carry_over_template(orig, copy)
           else
@@ -180,6 +181,27 @@ module Dommy
         end
 
         private
+
+        # DOM "adopt" sets the node document of the shadow-including
+        # descendants: a host's shadow tree, which the backend's import of the
+        # host does not reach, moves with it — its fragment imported into the
+        # destination, its wrappers carried over, and the shadow root
+        # registered there under the host's copy.
+        # Spec: https://dom.spec.whatwg.org/#concept-node-adopt
+        def carry_over_shadow_root(orig, copy)
+          return unless @source.respond_to?(:__internal_shadow_root_for_host__)
+
+          shadow = @source.__internal_shadow_root_for_host__(orig)
+          return unless shadow
+
+          fragment = shadow.__dommy_backend_node__
+          moved = Backend.adopt(fragment, @destination.backend_doc)
+          carry_over_each(fragment.children.to_a, moved.children.to_a)
+          @source.__internal_unregister_shadow_root__(fragment, orig)
+          shadow.__internal_reseat__(moved, @destination)
+          @destination.__internal_register_shadow_fragment__(moved, shadow)
+          shadow.__internal_first_slots__ = SlotAssignment.first_slots_by_name(shadow)
+        end
 
         # A length mismatch means the copies are not the import of the
         # originals, so nothing is paired at all rather than paired wrongly.

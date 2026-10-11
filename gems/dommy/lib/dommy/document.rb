@@ -2742,6 +2742,10 @@ module Dommy
     # node back to its shadow boundary.
     # Delegate to ShadowRootRegistry
 
+    def __internal_unregister_shadow_root__(fragment_node, host_node)
+      @shadow_registry.unregister(fragment_node, host_node)
+    end
+
     def __internal_register_shadow_fragment__(fragment_node, shadow_root)
       @shadow_registry.register(fragment_node, shadow_root)
     end
