@@ -64,9 +64,7 @@ module Dommy
       def entry_list
         return @entry_list if defined?(@entry_list)
 
-        @entry_list = Dommy::FormEntryList.new(
-          @form, submitter: @submitter, encoding: form_charset || Encoding::UTF_8
-        ).form_data
+        @entry_list = Dommy::FormEntryList.new(@form, submitter: @submitter, encoding: form_charset).form_data
       end
 
       # A non-multipart form submits only a file's basename, per browsers. The
@@ -127,54 +125,36 @@ module Dommy
       # represents every character, so it is a no-op.
       def apply_charset(pairs)
         charset = form_charset
-        return pairs if charset.nil? || charset == Encoding::UTF_8
+        return pairs if charset == "UTF-8"
 
         pairs.map { |name, value| [encode_in(name, charset), encode_in(value, charset)] }
       end
 
+      # HTML "pick an encoding for the form": the first `accept-charset` label
+      # that names an encoding, else UTF-8 when it has none that does, else
+      # (no attribute) the document's character encoding; as an output
+      # encoding, so UTF-16 and replacement submit UTF-8.
+      #
+      # Spec: https://html.spec.whatwg.org/#picking-an-encoding-for-the-form
       def form_charset
-        raw = attr(@form, "accept-charset").to_s
-        token = raw.split(/[\s,]+/).find { |t| !t.empty? }
-        return nil unless token
-
-        begin
-          Encoding.find(token)
-        rescue ArgumentError
-          nil
+        @form_charset ||= begin
+          raw = attr(@form, "accept-charset")
+          name =
+            if raw
+              raw.split(/[\t\n\f\r ]+/).filter_map { |label| Encodings.get(label) unless label.empty? }.first || "UTF-8"
+            else
+              @form.owner_document&.character_encoding || "UTF-8"
+            end
+          name.start_with?("UTF-16") || name == "replacement" ? "UTF-8" : name
         end
       end
 
       def encode_in(value, charset)
         case value
         when Array then value.map { |v| encode_in(v, charset) }
-        when String then encode_string(value, charset)
+        when String then Encodings.encode(charset, value.scrub("\u{FFFD}")) { |code_point| "&##{code_point};".bytes }
         else value # File/Blob pass through unchanged
         end
-      end
-
-      # Byte string in `charset`, with each code point the charset cannot
-      # represent emitted as `&#N;` (and a lone surrogate as U+FFFD).
-      def encode_string(value, charset)
-        source = value.valid_encoding? ? value : value.encode(Encoding::UTF_8, invalid: :replace, undef: :replace)
-        source.each_codepoint.each_with_object(+"".b) do |code_point, out|
-          char = code_point_char(code_point)
-          if char.nil?
-            out << "&#65533;" # a lone surrogate is U+FFFD
-            next
-          end
-
-          begin
-            out << char.encode(charset).b
-          rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
-            out << "&##{code_point};"
-          end
-        end
-      end
-
-      def code_point_char(code_point)
-        code_point.chr(Encoding::UTF_8)
-      rescue RangeError
-        nil
       end
 
       def apply_method_override(method, pairs)

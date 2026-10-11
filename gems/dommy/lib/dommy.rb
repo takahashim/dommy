@@ -179,16 +179,18 @@ module Dommy
   # bridge callbacks (e.g. a wasm host) pass a host instead.
   #
   # `encoding` is the encoding the markup's bytes were decoded with, when it
-  # came from bytes; otherwise a full document takes what its own `<meta
-  # charset>` declares.
+  # came from bytes (Encodings.decode_document). Markup given as a string is
+  # already text, so its document is UTF-8, whatever a `<meta charset>` in it
+  # says — as for DOMParser.
   def self.parse(html, encoding: nil)
     s = html.to_s
     if s.match?(/\A\s*(<!doctype|<html\b)/i)
       window = Window.new(nil, backend_doc: Backend.parse(s))
-      window.document.__internal_character_encoding__ = encoding || Encodings.prescan(s) || "UTF-8"
+      window.document.__internal_character_encoding__ = encoding || "UTF-8"
       window
     else
       window = Window.new
+      window.document.__internal_character_encoding__ = encoding || "UTF-8"
       body = window.document.body
       body.inner_html = s
       # The markup stands for a page's body, which the document's parser

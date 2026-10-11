@@ -263,29 +263,36 @@ class TestEncodings < Minitest::Test
 
   # A document's encoding decides how a link's query is encoded, with the
   # spec's Big5 and ISO-2022-JP encoders.
-  def test_a_documents_meta_charset_encodes_link_queries
-    query = lambda do |charset, text|
-      doc = Dommy.parse(%(<!doctype html><meta charset="#{charset}"><a href="https://e.test/?#{text}">x</a>)).document
+  def test_a_documents_encoding_encodes_link_queries
+    query = lambda do |encoding, text|
+      doc = Dommy.parse(%(<!doctype html><a href="https://e.test/?#{text}">x</a>), encoding: encoding).document
       [doc.character_encoding, doc.query_selector("a").__js_get__("search")]
     end
-    assert_equal ["Big5", "?%A3%E1"], query.("big5", "€")
-    assert_equal ["Big5", "?%26%239731%3B"], query.("big5", "☃")
-    assert_equal ["ISO-2022-JP", "?%1B(J\\%1B(B"], query.("iso-2022-jp", "¥")
-    assert_equal ["UTF-8", "?%E2%82%AC"], query.("utf-8", "€")
+    assert_equal ["Big5", "?%A3%E1"], query.("Big5", "\u20AC")
+    assert_equal ["Big5", "?%26%239731%3B"], query.("Big5", "\u2603")
+    assert_equal ["ISO-2022-JP", "?%1B(J\\%1B(B"], query.("ISO-2022-JP", "\u00A5")
+    assert_equal ["UTF-8", "?%E2%82%AC"], query.("UTF-8", "\u20AC")
+  end
+
+  # Markup given as a string is text already: its document is UTF-8 whatever
+  # its <meta charset> says, and so is a body fragment's.
+  def test_a_document_parsed_from_a_string_is_utf8
+    assert_equal "UTF-8", Dommy.parse(%(<!doctype html><meta charset="shift_jis"><p>x</p>)).document.character_encoding
+    assert_equal "Shift_JIS", Dommy.parse("<!-- c --><meta charset=shift_jis><p>x</p>", encoding: "Shift_JIS").document.character_encoding
   end
 
   # Shift_JIS, EUC-JP and EUC-KR encode with the spec's encoders and indexes
   # (Windows-31J's and CP949's, not Ruby's narrower Shift_JIS and EUC-KR):
   # NEC row 13 and CP949's extended hangul have bytes.
   def test_shift_jis_euc_jp_and_euc_kr_encode_with_the_spec_indexes
-    query = lambda do |charset, text|
-      Dommy.parse(%(<!doctype html><meta charset="#{charset}"><a href="https://e.test/?#{text}">x</a>)).document.query_selector("a").__js_get__("search")
+    query = lambda do |encoding, text|
+      Dommy.parse(%(<!doctype html><a href="https://e.test/?#{text}">x</a>), encoding: encoding).document.query_selector("a").__js_get__("search")
     end
-    assert_equal "?%87@%81`", query.("shift_jis", "\u2460\uFF5E")
-    assert_equal "?%93%FA%B1\\", query.("shift_jis", "\u65E5\uFF71\u00A5")
-    assert_equal "?%C6%FC%8E%B1", query.("euc-jp", "\u65E5\uFF71")
-    assert_equal "?%81A%C7%D1", query.("euc-kr", "\uAC02\uD55C")
-    assert_equal "?%26%23128512%3B", query.("shift_jis", "\u{1F600}")
+    assert_equal "?%87@%81`", query.("Shift_JIS", "\u2460\uFF5E")
+    assert_equal "?%93%FA%B1\\", query.("Shift_JIS", "\u65E5\uFF71\u00A5")
+    assert_equal "?%C6%FC%8E%B1", query.("EUC-JP", "\u65E5\uFF71")
+    assert_equal "?%81A%C7%D1", query.("EUC-KR", "\uAC02\uD55C")
+    assert_equal "?%26%23128512%3B", query.("Shift_JIS", "\u{1F600}")
   end
 
   # A document built from bytes takes the encoding they were decoded with:
@@ -294,6 +301,10 @@ class TestEncodings < Minitest::Test
     nav = Dommy::Internal::ChildNavigable
     sjis = "<!doctype html><a id=a href=\"/s?q=\u65E5\">x</a>".encode("Windows-31J").b
     win = nav.window_for_response(sjis, "text/html; charset=Shift_JIS", "http://e.test/")
+    assert_equal ["Shift_JIS", "http://e.test/s?q=%93%FA"], [win.document.character_encoding, win.document.get_element_by_id("a").href]
+
+    meta = "<!-- c --><meta charset=shift_jis><a id=a href=\"/s?q=\u65E5\">x</a>".encode("Windows-31J").b
+    win = nav.window_for_response(meta, "text/html", "http://e.test/")
     assert_equal ["Shift_JIS", "http://e.test/s?q=%93%FA"], [win.document.character_encoding, win.document.get_element_by_id("a").href]
 
     utf8 = "<!doctype html><meta charset=shift_jis><a id=a href=\"/s?q=\u65E5\">x</a>".b
@@ -308,7 +319,7 @@ class TestEncodings < Minitest::Test
   # UTF-8 whatever the document's encoding. A link, XHR and history encode
   # it in the document's.
   def test_fetch_encodes_a_query_in_utf8_on_a_legacy_page
-    win = Dommy.parse(%(<!doctype html><meta charset="shift_jis"><p>x</p>))
+    win = Dommy.parse("<!doctype html><p>x</p>", encoding: "Shift_JIS")
     win.location.__internal_set_url__("http://e.test/")
     assert_equal "http://e.test/a?q=%93%FA", win.__internal_parse_url__("/a?q=\u65E5")
     assert_equal "http://e.test/a?q=%E6%97%A5", win.__internal_parse_url__("/a?q=\u65E5", utf8: true)

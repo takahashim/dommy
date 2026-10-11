@@ -106,6 +106,33 @@ module Dommy
       nil
     end
 
+    # The bytes `string` encodes to in the encoding named `name` (as `get`
+    # returns it); a code point the encoding cannot represent is the bytes the
+    # block returns for it. A name Ruby has no encoding for (x-user-defined,
+    # replacement), like UTF-8, encodes as UTF-8.
+    #
+    # Spec: https://encoding.spec.whatwg.org/#encode
+    def self.encode(name, string, &unmappable)
+      return LegacyEncoders.encode(name, string, &unmappable).pack("C*") if LegacyEncoders.handles?(name)
+
+      ruby = begin
+        ::Encoding.find(name.to_s)
+      rescue ArgumentError
+        nil
+      end
+      return string.b if ruby.nil? || ruby == ::Encoding::UTF_8
+
+      begin
+        string.encode(ruby).b
+      rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError
+        string.each_char.each_with_object(+"".b) do |char, out|
+          out << char.encode(ruby).b
+        rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError
+          out << unmappable.call(char.ord).pack("C*")
+        end
+      end
+    end
+
     # Already-valid UTF-8 needs no decoding: the spec's decoder would walk it
     # byte by byte and rebuild it code point by code point, which measures ~40x
     # the cost of asking Ruby, on the whole-buffer path an XHR response takes.

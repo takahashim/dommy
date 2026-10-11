@@ -165,39 +165,9 @@ module Dommy
         end
 
         # The bytes `input` encodes to under `encoding_name` (an Encoding
-        # Standard name), or its UTF-8 bytes when the name is nil or Ruby has no
-        # matching encoding. Only a handful of the standard's names lack one
-        # (x-user-defined, replacement), and those are never a document's.
+        # Standard name), or its UTF-8 bytes when the name is nil.
         def encode_bytes(encoding_name, input)
-          if Encodings::LegacyEncoders.handles?(encoding_name)
-            return Encodings::LegacyEncoders.encode(encoding_name, input) { |cp| "%26%23#{cp}%3B".bytes }
-          end
-
-          ruby = begin
-            ::Encoding.find(encoding_name.to_s)
-          rescue ArgumentError
-            nil
-          end
-          return input.b.bytes if ruby.nil? || ruby == ::Encoding::UTF_8
-
-          begin
-            input.encode(ruby).b.bytes
-          rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError
-            per_code_point_bytes(ruby, input)
-          end
-        end
-
-        # A code point the encoding cannot represent yields the numeric-reference
-        # escape, already percent-encoded so the caller's per-byte pass leaves it
-        # alone.
-        def per_code_point_bytes(ruby, input)
-          out = +"".b
-          input.each_char do |char|
-            out << char.encode(ruby)
-          rescue ::Encoding::UndefinedConversionError, ::Encoding::InvalidByteSequenceError
-            out << "%26%23#{char.ord}%3B"
-          end
-          out.bytes
+          Encodings.encode(encoding_name, input) { |cp| "%26%23#{cp}%3B".bytes }.bytes
         end
 
         def percent_decode(str)
