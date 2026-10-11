@@ -45,6 +45,20 @@ class TestFetchHandler < Minitest::Test
     assert_equal "data", init["body"]
   end
 
+  # fetch(request) sends the request; an init passed alongside overrides it.
+  def test_fetch_sends_a_request
+    request = Dommy::Request.new("/app", {"method" => "POST", "body" => "data", "headers" => {"X-Token" => "t1"}}, @win)
+
+    response = Dommy::FetchFn.new(@win).__js_call__("fetch", [request]).await
+
+    assert_equal 201, response.__js_get__("status")
+    url, init = @handler.calls.last
+    assert_equal ["http://localhost/app", "POST", "data", "t1"], [url, init["method"], init["body"], init["headers"]["x-token"]]
+
+    Dommy::FetchFn.new(@win).__js_call__("fetch", [request, {"method" => "PUT"}]).await
+    assert_equal ["PUT", "data"], @handler.calls.last.last.values_at("method", "body")
+  end
+
   def test_fetch_falls_through_to_stub_when_handler_declines
     response = Dommy::FetchFn.new(@win).__js_call__("fetch", ["/stubbed", nil]).await
 

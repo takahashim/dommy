@@ -36,8 +36,15 @@ module Dommy
       # Per Fetch, the request URL is resolved against the document base URL up
       # front; the handler, stub maps, and response.url all see the absolute
       # URL (no per-handler resolution).
-      url = @window.__internal_resolve_url__(args[0].to_s, utf8: true)
-      init = normalize_init(args[1] || {})
+      input, init = args
+      # fetch(request, init) is a fetch of `new Request(request, init)`: the
+      # request's URL, and its members as far as `init` leaves them.
+      if input.is_a?(Request)
+        init = input.__internal_init__.merge(init.is_a?(Hash) ? init.transform_keys(&:to_s) : {})
+        input = input.url
+      end
+      url = @window.__internal_resolve_url__(input.to_s, utf8: true)
+      init = normalize_init(init || {})
       # A cross-origin request always carries an Origin header (even for GET,
       # which normalize_init omits it for same-origin GETs).
       if cross_origin?(url) && !header?(init["headers"], "origin")
@@ -613,10 +620,7 @@ module Dommy
 
   # `Request` polyfill — minimal Fetch API Request object so callers
   # constructing `new Request(url, init)` get a value with `.url`,
-  # `.method`, `.headers`, `.body`. The stub-based `fetch` doesn't
-  # consume it directly (it still takes `(url, init)`), but having
-  # Request available means JS code that constructs one before
-  # passing to fetch keeps working.
+  # `.method`, `.headers`, `.body`, which `fetch(request)` sends.
   class Request
     attr_reader :url, :method, :body
 
@@ -685,20 +689,7 @@ module Dommy
     def __js_call__(method, _args)
       case method
       when "clone"
-        Request.new(
-          @url,
-          {
-            "method" => @method,
-            "body" => @body,
-            "headers" => @headers.to_h,
-            "credentials" => @credentials,
-            "mode" => @mode,
-            "cache" => @cache,
-            "redirect" => @redirect,
-            "signal" => @signal
-          },
-          @window
-        )
+        Request.new(@url, __internal_init__, @window)
       when "text"
         consume_body { immediate(Response.utf8_decode(@body_bytes)) }
       when "json"
@@ -717,6 +708,21 @@ module Dommy
       when "formData"
         consume_body { consume_form_data(@body_bytes) }
       end
+    end
+
+    # The request as a `RequestInit`: what `clone()` builds a copy from, and
+    # what `fetch(request, init)` starts from before `init` overrides it.
+    def __internal_init__
+      {
+        "method" => @method,
+        "body" => @body,
+        "headers" => @headers.to_h,
+        "credentials" => @credentials,
+        "mode" => @mode,
+        "cache" => @cache,
+        "redirect" => @redirect,
+        "signal" => @signal
+      }
     end
 
     private
