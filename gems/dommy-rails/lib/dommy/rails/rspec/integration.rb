@@ -10,6 +10,7 @@ module Dommy
         # deliberately overrides the CapyStyleMatchers version.
         include ::Dommy::RSpec::CapyStyleMatchers
         include Dommy::Rails::RSpec::Matchers
+        include Dommy::Rails::RSpec::MailMatchers
       end
     end
   end

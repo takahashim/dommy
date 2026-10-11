@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `Request#referrer` and `Request#referrerPolicy`, from a RequestInit's `referrer` and `referrerPolicy`.
+
 ### Changed
 
 - A document's character encoding is what its bytes were decoded with — a byte-order mark's, the Content-Type's `charset`, else what a `<meta charset>` in the first 1024 bytes declares (HTML's prescan), else UTF-8. It was always UTF-8. `document.characterSet` and the queries of HTML's URLs — a link's, a form's, an iframe's, XHR's, `window.open`'s, `history.pushState`'s (`a.href = "?€"` in a Big5 page is `?%A3%E1`) — follow it, while `fetch`, `navigator.sendBeacon` and `cookieStore` encode a query in UTF-8 as browsers do. A page, frame or popup from a response (`Dommy::Browser`, `Dommy::Rack::Session`) takes the encoding its bytes were decoded with; `Encodings.decode_document` returns the text and that encoding, and `Dommy.parse` and `Dommy::Browser.new` take `encoding:`; markup given as a string makes a UTF-8 document. A form with no `accept-charset` submits in the document's encoding, and `accept-charset` is read as a list of Encoding Standard labels (`x-sjis` is Shift_JIS, UTF-16 submits UTF-8). The single-byte encodings encode with the Encoding Standard's indexes, so a `macintosh`, `x-mac-cyrillic` or `ISO-8859-8-I` page (which Ruby has no encoding for) encodes its queries and forms in that encoding rather than UTF-8, and windows-1252 keeps its C1 bytes (U+0081 is `%81`).
@@ -17,6 +21,9 @@
 
 ### Fixed
 
+- `fetch()` and `XMLHttpRequest` send a Referer under the request's referrer policy, else the document's `<meta name="referrer">`, else `strict-origin-when-cross-origin`: from `https://a.test/page?q=1#x`, a same-origin request carries `https://a.test/page?q=1` and a cross-origin one `https://a.test/`. A Referer the page sets itself is dropped.
+- `fetch()` follows its AbortSignal for every response, including one from the app a `Dommy::Rack::Session` routes to: an abort before the response arrives rejects the fetch with the signal's reason, and one after it errors the body not yet read (`text()` rejects, and so does a reader of `body`).
+- `fetch(request)` sends the Request's URL, method, headers, body and signal, with an `init` given alongside overriding them; the Request was sent as the URL `"#<Dommy::Request:...>"`.
 - Adopting a shadow host into another document carries its shadow tree along: the shadow root, its slots and the live ranges inside it belong to the destination document, so `assignedSlot`, slot assignment and event paths keep working after `otherDocument.body.append(host)`.
 - An Observable subscribed again while its producer is running shares that run: the new observer gets the values from then on, and the producer's teardowns run when the last observer unsubscribes. `Observable.from()` converts an iterable as the spec does — an async iterable falls back to the sync protocol, and an abort calls the iterator's `return()` with the abort reason — and `inspect()`'s `abort` callback runs only when a consumer unsubscribes, not after the source finished (dom/observable 207 -> 228/241).
 - `FormData#append(name, value, filename)` and `#set` with a value that is not a Blob throw TypeError, also when the filename is `undefined` or `null`: a third argument picks the Blob overload. For a Blob, an `undefined` filename is none (`"blob"`) and `null` is `"null"`.

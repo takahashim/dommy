@@ -108,6 +108,15 @@ expect(mail).to have_html_text("Confirm your account")
 expect(mail).to have_plain_text("Welcome")
 ```
 
+These come from `Dommy::Rails::RSpec::MailMatchers`, which `Integration`
+includes. To check a mail from a browser or system spec, include that module
+alone: `Dommy::Rails::RSpec::Matchers` has DOM matchers named as Capybara's
+are (`have_title`, `have_link`), which would hide Capybara's waiting ones.
+
+```ruby
+config.include Dommy::Rails::RSpec::MailMatchers, type: :system
+```
+
 ## Failure traces in CI
 
 A failed browser test saves a self-contained bundle under

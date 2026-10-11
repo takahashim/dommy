@@ -9,4 +9,5 @@ end
 require "dommy/rspec/capy_style_matchers"
 require_relative "../rails"
 require_relative "rspec/matchers"
+require_relative "rspec/mail_matchers"
 require_relative "rspec/integration"

@@ -475,9 +475,9 @@ module Dommy
         result
       end
 
-      def navigate(method: "GET", url:, params: nil, body: nil, enctype: nil, headers: {}, replace: false)
+      def navigate(method: "GET", url:, params: nil, body: nil, enctype: nil, headers: {}, replace: false, method_override: false)
         @navigation.navigate(method: method, url: url, params: params, body: body, enctype: enctype,
-                             headers: headers, replace: replace)
+                             headers: headers, replace: replace, method_override: method_override)
       end
 
       def reload
@@ -868,7 +868,8 @@ module Dommy
         result = FormSubmission.new(form, submitter, @config).submit!
         @trace&.__internal_record_form(method: result[:method], url: result[:url], params: result[:params])
         navigate(method: result[:method], url: resolve_document_url(result[:url]),
-                 params: result[:params], enctype: result[:enctype], headers: referer_headers)
+                 params: result[:params], enctype: result[:enctype], headers: referer_headers,
+                 method_override: result[:method_override])
       end
 
       alias submit submit_form
@@ -1223,13 +1224,14 @@ module Dommy
         return unless %w[http https].include?(uri_scheme(target))
         return if nav[:params].nil? && same_page_fragment?(target)
 
-        method = (nav[:method] || "GET").to_s.upcase
+        requested = (nav[:method] || "GET").to_s.upcase
+        method = requested
         params = nav[:params]
         method, params = apply_delegate_method_override(method, params) if params
         # A form the page submitted is traced as #submit_form's are.
         @trace&.__internal_record_form(method: method, url: target, params: params) if nav[:source] == :form
         navigate(method: method, url: target, params: params, body: nav[:body], enctype: nav[:enctype],
-                 headers: referer_headers, replace: nav[:replace])
+                 headers: referer_headers, replace: nav[:replace], method_override: method != requested)
       end
 
       # The delegate path serializes forms through core FormSubmission, which

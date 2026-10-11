@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- **The mail matchers (`have_html_link`, `have_html_text`, `have_plain_text`) move from `Dommy::Rails::RSpec::Matchers` to `Dommy::Rails::RSpec::MailMatchers`.** `Integration` includes both, so a spec that includes `Integration` is unaffected. A suite that includes `Matchers` for the mail matchers includes `MailMatchers` instead, which does not bring `Matchers`' `have_title` and `have_link` over Capybara's in a system spec.
+
 ## 0.16.0 — 2026-10-10
 
 Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.16.0; no change of its own.

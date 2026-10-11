@@ -3,6 +3,7 @@
 require "json"
 require "securerandom"
 require_relative "data_uri"
+require_relative "internal/referrer"
 
 module Dommy
   # `fetch` polyfill. No real network — instead resolves a response
@@ -36,8 +37,20 @@ module Dommy
       # Per Fetch, the request URL is resolved against the document base URL up
       # front; the handler, stub maps, and response.url all see the absolute
       # URL (no per-handler resolution).
-      url = @window.__internal_resolve_url__(args[0].to_s, utf8: true)
-      init = normalize_init(args[1] || {})
+      input, init = args
+      # fetch(request, init) is a fetch of `new Request(request, init)`: the
+      # request's URL, and its members as far as `init` leaves them.
+      if input.is_a?(Request)
+        init = input.__internal_init__.merge(init.is_a?(Hash) ? init.transform_keys(&:to_s) : {})
+        input = input.url
+      end
+      url = @window.__internal_resolve_url__(input.to_s, utf8: true)
+      init = normalize_init(init || {})
+      begin
+        add_referer(url, init)
+      rescue Bridge::TypeError => e
+        return PromiseValue.reject(@window, e)
+      end
       # A cross-origin request always carries an Origin header (even for GET,
       # which normalize_init omits it for same-origin GETs).
       if cross_origin?(url) && !header?(init["headers"], "origin")
@@ -53,6 +66,14 @@ module Dommy
       @window.globals["__last_body__"] = init["body"] if init.is_a?(Hash)
 
       promise = PromiseValue.new(@window)
+      # An aborted signal rejects the fetch with its reason: before anything is
+      # sent when it already is, else whenever it aborts until the response
+      # arrives (the request has reached the app by then, as it would a server).
+      if (signal = request_signal(init))
+        return promise.reject(signal.reason) if signal.aborted?
+
+        signal.__internal_add_abort_algorithm__(proc { promise.reject(signal.reason) })
+      end
       # `mode: "same-origin"` forbids a cross-origin request — it is a network
       # error before any fetch happens.
       if (init["mode"] || "cors").to_s == "same-origin" && cross_origin?(url)
@@ -270,8 +291,11 @@ module Dommy
     end
 
     def deliver_entry(promise, entry, url, init)
+      # Aborted while the response was on its way.
+      return if promise.settled?
+
       if entry.nil?
-        promise.fulfill(Response.new(@window, body: "not found", status: 404, status_text: "Not Found", type: "basic"))
+        fulfill_response(promise, Response.new(@window, body: "not found", status: 404, status_text: "Not Found", type: "basic"), init)
         return
       end
 
@@ -292,11 +316,28 @@ module Dommy
       if (delay = entry["delay"])
         install_delayed_resolve(promise, body, status, status_text, headers, init, delay)
       else
-        promise.fulfill(
+        fulfill_response(
+          promise,
           Response.new(@window, body: body, status: status, status_text: status_text,
-            headers: headers, url: response_url, redirected: redirected, type: entry["type"] || "basic")
+            headers: headers, url: response_url, redirected: redirected, type: entry["type"] || "basic"),
+          init
         )
       end
+    end
+
+    # The fetch's AbortSignal (`init.signal`, a Request's own), or nil.
+    def request_signal(init)
+      signal = init["signal"]
+      signal if signal.is_a?(AbortSignal)
+    end
+
+    # Fulfill the fetch with its response, whose body an abort of the signal
+    # errors from then on (Fetch's "abort the fetch() call" with a response).
+    def fulfill_response(promise, response, init)
+      if (signal = request_signal(init))
+        signal.__internal_add_abort_algorithm__(proc { response.__internal_abort_body__(signal.reason) })
+      end
+      promise.fulfill(response)
     end
 
     # Resolve the response entry for a request: a `__fetch_handler__`
@@ -376,6 +417,19 @@ module Dommy
         end
       end
       headers
+    end
+
+    # The Referer the page's request carries (Referrer Policy), in place of
+    # any the caller gave: a forbidden request header is the browser's to set.
+    def add_referer(url, init)
+      headers = init["headers"]
+      headers.delete_if { |name, _| name.to_s.casecmp?("referer") }
+      referer = Internal::Referrer.header_value(
+        @window, url,
+        referrer: Internal::Referrer.request_referrer(@window, init["referrer"]),
+        policy: Internal::Referrer.request_policy(init["referrerPolicy"])
+      )
+      headers["Referer"] = referer if referer
     end
 
     def request_origin
@@ -528,32 +582,18 @@ module Dommy
       nil
     end
 
+    # Fulfill after a simulated `delay`. An abort before then rejects the fetch
+    # (see #__js_call__) and clears the timer, so it does not linger in the
+    # scheduler's queue.
     def install_delayed_resolve(promise, body, status, status_text, headers, init, delay_ms)
-      # AbortController cancellation: when init.signal is present and
-      # `.abort()` fires before the timer, reject with an AbortError.
-      # The timer is cleared in that path so it doesn't leak through
-      # the test scheduler's drain loop.
-      cancelled = [false]
       timer_id = @window.scheduler.set_timeout(
         lambda do |*_args|
-          next if cancelled[0]
-
-          promise.fulfill(Response.new(@window, body: body, status: status, status_text: status_text, headers: headers, type: "basic"))
+          fulfill_response(promise, Response.new(@window, body: body, status: status, status_text: status_text, headers: headers, type: "basic"), init)
         end,
         delay_ms.to_i
       )
-      signal = init.is_a?(Hash) ? init["signal"] : nil
-      return unless signal.is_a?(AbortSignal)
-
-      window_ref = @window
-      abort_cb = lambda do |*_args|
-        cancelled[0] = true
-        window_ref.scheduler.clear_timeout(timer_id)
-        err = ErrorValue.new("aborted", name: "AbortError")
-        promise.reject(err)
-      end
-
-      signal.__js_call__("addEventListener", ["abort", abort_cb])
+      scheduler = @window.scheduler
+      request_signal(init)&.__internal_add_abort_algorithm__(proc { scheduler.clear_timeout(timer_id) })
     end
   end
 
@@ -613,10 +653,7 @@ module Dommy
 
   # `Request` polyfill — minimal Fetch API Request object so callers
   # constructing `new Request(url, init)` get a value with `.url`,
-  # `.method`, `.headers`, `.body`. The stub-based `fetch` doesn't
-  # consume it directly (it still takes `(url, init)`), but having
-  # Request available means JS code that constructs one before
-  # passing to fetch keeps working.
+  # `.method`, `.headers`, `.body`, which `fetch(request)` sends.
   class Request
     attr_reader :url, :method, :body
 
@@ -650,9 +687,11 @@ module Dommy
       # `request.signal.removeEventListener` crash.
       sig = opts["signal"] || opts[:signal]
       @signal = sig.is_a?(AbortSignal) ? sig : AbortSignal.new
+      @referrer = Internal::Referrer.request_referrer(window, opts["referrer"] || opts[:referrer])
+      @referrer_policy = Internal::Referrer.request_policy(opts["referrerPolicy"] || opts[:referrerPolicy])
     end
 
-    attr_reader :headers, :credentials, :mode, :cache, :redirect, :signal
+    attr_reader :headers, :credentials, :mode, :cache, :redirect, :signal, :referrer, :referrer_policy
 
     def __js_get__(key)
       case key
@@ -674,6 +713,10 @@ module Dommy
         @redirect
       when "signal"
         @signal
+      when "referrer"
+        @referrer
+      when "referrerPolicy"
+        @referrer_policy
       else
         Bridge::ABSENT
       end
@@ -685,20 +728,7 @@ module Dommy
     def __js_call__(method, _args)
       case method
       when "clone"
-        Request.new(
-          @url,
-          {
-            "method" => @method,
-            "body" => @body,
-            "headers" => @headers.to_h,
-            "credentials" => @credentials,
-            "mode" => @mode,
-            "cache" => @cache,
-            "redirect" => @redirect,
-            "signal" => @signal
-          },
-          @window
-        )
+        Request.new(@url, __internal_init__, @window)
       when "text"
         consume_body { immediate(Response.utf8_decode(@body_bytes)) }
       when "json"
@@ -717,6 +747,23 @@ module Dommy
       when "formData"
         consume_body { consume_form_data(@body_bytes) }
       end
+    end
+
+    # The request as a `RequestInit`: what `clone()` builds a copy from, and
+    # what `fetch(request, init)` starts from before `init` overrides it.
+    def __internal_init__
+      {
+        "method" => @method,
+        "body" => @body,
+        "headers" => @headers.to_h,
+        "credentials" => @credentials,
+        "mode" => @mode,
+        "cache" => @cache,
+        "redirect" => @redirect,
+        "signal" => @signal,
+        "referrer" => @referrer,
+        "referrerPolicy" => @referrer_policy
+      }
     end
 
     private
@@ -772,6 +819,7 @@ module Dommy
       @type = type
       @has_body = has_body ? true : false
       @body_used = false
+      @body_error = nil
       @body_stream = nil
     end
 
@@ -1006,6 +1054,15 @@ module Dommy
       Bridge::UNHANDLED
     end
 
+    # The response's fetch was aborted: a body not yet read errors with the
+    # abort reason, for a consume method and for a reader of `body` alike.
+    def __internal_abort_body__(reason)
+      return if @body_used
+
+      @body_error = reason
+      @body_stream&.__internal_error__(reason)
+    end
+
     include Bridge::Methods
     include FormDataBody
     js_methods %w[text json arrayBuffer blob formData clone]
@@ -1043,13 +1100,16 @@ module Dommy
     end
 
     # Run a body-consume (text/json/arrayBuffer/blob), rejecting if the body was
-    # already used (spec returns a rejected promise, not a synchronous throw).
+    # already used (spec returns a rejected promise, not a synchronous throw),
+    # or with the abort reason when its fetch was aborted before it was read.
     def consume_body
       if body_used?
         return rejected(ErrorValue.new("Failed to read body: body stream already read", name: "TypeError"))
       end
 
       @body_used = true
+      return rejected(@body_error) if @body_error
+
       yield
     end
 
@@ -1062,6 +1122,7 @@ module Dommy
         stream = ReadableStream.new(@window)
         stream.__internal_enqueue__(Bridge::Bytes.new(@body.bytes)) unless @body.empty?
         stream.__internal_close__
+        stream.__internal_error__(@body_error) if @body_error
         stream
       end
     end

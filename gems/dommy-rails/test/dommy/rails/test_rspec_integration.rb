@@ -176,4 +176,13 @@ class TestRSpecIntegration < Minitest::Test
     assert context.have_html_text("Confirm your account").matches?(mail)
     assert context.have_plain_text("Welcome").matches?(mail)
   end
+
+  # The mail matchers can be included without the DOM matchers, whose
+  # have_title / have_link would hide Capybara's in a system spec.
+  def test_mail_matchers_stand_apart_from_the_dom_matchers
+    mail_only = Class.new { include Dommy::Rails::RSpec::MailMatchers }.new
+    assert_respond_to mail_only, :have_html_link
+    refute_respond_to mail_only, :have_title
+    refute_respond_to Class.new { include Dommy::Rails::RSpec::Matchers }.new, :have_html_link
+  end
 end

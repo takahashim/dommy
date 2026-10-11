@@ -2,6 +2,7 @@
 
 require "json"
 require_relative "data_uri"
+require_relative "internal/referrer"
 
 module Dommy
   # `XMLHttpRequest` polyfill. Consults the same stub maps that
@@ -378,7 +379,7 @@ module Dommy
       if handler.respond_to?(:call)
         entry = handler.call(
           @url,
-          {"method" => @method, "headers" => @request_headers, "body" => @request_body_bytes,
+          {"method" => @method, "headers" => headers_with_referer, "body" => @request_body_bytes,
            "withCredentials" => @with_credentials ? true : false}
         )
         return entry if entry
@@ -390,6 +391,14 @@ module Dommy
       return nil unless stub_map.is_a?(Hash)
 
       stub_map[@url] || stub_map[@window.__internal_url_path__(@url)]
+    end
+
+    # The author's headers and the Referer the browser sets (Referrer Policy),
+    # in place of one the author tried to set: it is a forbidden header.
+    def headers_with_referer
+      headers = @request_headers.reject { |name, _| name.to_s.casecmp?("referer") }
+      referer = Internal::Referrer.header_value(@window, @url)
+      referer ? headers.merge("Referer" => referer) : headers
     end
 
     # Bookkeeping that lets specs assert "fetch was called N times"
