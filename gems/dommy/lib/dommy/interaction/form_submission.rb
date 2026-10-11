@@ -22,20 +22,22 @@ module Dommy
         @method_override_param = method_override_param
       end
 
-      # Returns { method:, url:, params:, enctype:, target: }, or nil when the
-      # form is already constructing its entry list (HTML returns then).
+      # Returns { method:, method_override:, url:, params:, enctype:, target: },
+      # or nil when the form is already constructing its entry list (HTML
+      # returns then). `method_override` says the method is a `_method`
+      # field's: the request a browser sends is a POST.
       def submit!
-        method = form_method
         list = entry_list
         return nil if list.nil?
 
         params = reduce_files(list.entries)
-        method = apply_method_override(method, params)
+        method = apply_method_override(form_method, params)
         params = normalize_line_endings(params)
         params = apply_charset(params)
 
         {
           method: method,
+          method_override: method != form_method,
           url: resolve_action(form_method),
           params: params,
           enctype: form_enctype,

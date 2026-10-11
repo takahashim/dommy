@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A form whose `_method` field overrides its method (Rails' `PUT`, `PATCH`, `DELETE`) follows a 301 or 302 with a GET, as the POST a browser sends is; the redirect target got the overridden method and answered 404. A 307 or 308 keeps the method and the params.
+
 ## 0.16.0 — 2026-10-10
 
 ### Breaking changes

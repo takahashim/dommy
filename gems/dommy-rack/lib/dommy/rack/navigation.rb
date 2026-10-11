@@ -48,7 +48,9 @@ module Dommy
 
       # Perform a navigation, following redirects per session policy, then
       # apply the final response to the session (updating document + history).
-      def navigate(method:, url:, params: nil, body: nil, enctype: nil, headers: {}, replace: false)
+      # `method_override:` marks a method a form's `_method` field gave, which a
+      # redirect treats as the POST a browser sends (see #run).
+      def navigate(method:, url:, params: nil, body: nil, enctype: nil, headers: {}, replace: false, method_override: false)
         return navigate_about(url.to_s) if url.to_s.start_with?("about:")
 
         verb = method.to_s.upcase
@@ -64,7 +66,8 @@ module Dommy
         end
         check_same_origin!(target)
 
-        response, final_url = run(method: verb, url: target, params: params, body: body, enctype: enctype, headers: headers)
+        response, final_url = run(method: verb, url: target, params: params, body: body, enctype: enctype, headers: headers,
+                                  method_override: method_override)
         # replace: a location.replace() / reload() / redirect updates the current
         # history entry in place rather than pushing a new one.
         @session.apply_navigation_response(response, final_url, replace: replace)
@@ -100,7 +103,12 @@ module Dommy
 
       # Run the request/redirect loop. Returns [response, final_url].
       # Public so Session#fetch can reuse it without applying navigation state.
-      def run(method:, url:, params: nil, body: nil, enctype: nil, headers: {}, follow: true, exchange: nil)
+      #
+      # A `method_override` request carries the method a form's `_method` field
+      # gave (the session resolves it for the app), but what a browser sends is
+      # a POST, which a 301/302 turns into a GET; a real PUT keeps its method
+      # (Fetch), and a 307/308 keeps either one, with its params.
+      def run(method:, url:, params: nil, body: nil, enctype: nil, headers: {}, follow: true, exchange: nil, method_override: false)
         verb = method
         target = url
         # Carry the fragment across redirects: a redirect Location without its
@@ -139,7 +147,7 @@ module Dommy
             params = nil
             body = nil
           end
-          verb = redirect_method(response.status, verb)
+          verb = redirect_method(response.status, verb, method_override)
         end
       end
 
@@ -218,10 +226,10 @@ module Dommy
           !response.location_header.to_s.empty?
       end
 
-      def redirect_method(status, original)
+      def redirect_method(status, original, method_override)
         case status
         when 303 then "GET"
-        when 301, 302 then original == "POST" ? "GET" : original
+        when 301, 302 then original == "POST" || method_override ? "GET" : original
         else original # 307, 308 keep the method
         end
       end

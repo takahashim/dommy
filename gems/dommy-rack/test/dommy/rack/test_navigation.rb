@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "support/null_runtime"
 
 class Dommy::Rack::TestNavigation < Minitest::Test
   include RackTestHelper
@@ -55,6 +56,71 @@ class Dommy::Rack::TestNavigation < Minitest::Test
     session = Dommy::Rack::Session.new(app)
     session.post("/a", params: {"k" => "v"})
     assert_equal ["v"], seen
+  end
+
+  # A form's `_method` override goes out as a POST from a browser, so a
+  # 301/302/303 is followed with a GET (Rails' resources route a PUT to the
+  # redirect target nowhere); a 307 keeps the method and the params.
+  def override_app(status, seen, javascript: false)
+    form = '<form method="post" action="/thing"><input type="hidden" name="_method" value="put">' \
+           '<input name="k" value="v"><button>Save</button></form>'
+    app = app_for(
+      "GET /form" => html_response(form),
+      "PUT /thing" => [status, {"Location" => "/done"}, []],
+      "GET /done" => html_response("<p>done</p>"),
+      "PUT /done" => ->(req) {
+        seen << req.params
+        html_response("<p>done</p>")
+      }
+    )
+    Dommy::Rack::Session.new(app, javascript: javascript)
+  end
+
+  def test_a_method_override_form_follows_a_redirect_with_get
+    [301, 302, 303].each do |status|
+      seen = []
+      session = override_app(status, seen)
+      session.visit("/form")
+      session.click_button("Save")
+      assert_equal [200, "/done", []], [session.status, session.current_path, seen], "status #{status}"
+    end
+  end
+
+  def test_a_method_override_form_keeps_its_method_through_a_307
+    seen = []
+    session = override_app(307, seen)
+    session.visit("/form")
+    session.click_button("Save")
+    assert_equal [{"k" => "v"}], seen
+  end
+
+  # With JavaScript the page submits the form (its navigation delegate),
+  # which resolves the override on its own path.
+  def test_a_method_override_form_the_page_submits_follows_a_redirect_with_get
+    previous_factory = DommyRackTestSupport::NullRuntimeBackend.install
+    seen = []
+    session = override_app(302, seen, javascript: true)
+    session.visit("/form")
+    session.click_button("Save")
+    assert_equal [200, "/done", []], [session.status, session.current_path, seen]
+  ensure
+    session&.dispose
+    DommyRackTestSupport::NullRuntimeBackend.restore(previous_factory)
+  end
+
+  # A PUT that really is one keeps its method through a 302, as Fetch has it.
+  def test_a_put_keeps_its_method_through_a_302
+    seen = []
+    app = app_for(
+      "PUT /thing" => [302, {"Location" => "/done"}, []],
+      "PUT /done" => ->(req) {
+        seen << req.request_method
+        html_response("<p>done</p>")
+      }
+    )
+    session = Dommy::Rack::Session.new(app)
+    session.put("/thing")
+    assert_equal ["PUT"], seen
   end
 
   def test_raises_on_too_many_redirects
