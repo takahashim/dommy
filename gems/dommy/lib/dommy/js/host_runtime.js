@@ -492,13 +492,15 @@ globalThis.__rbHost = (function () {
   // back to a host that holds the pixels.
   //
   //   pixels      the Uint8ClampedArray `data` returns
-  //   hostBacked  the host holds pixels for this ImageData (a clone)
+  //   hostBacked  the host keeps this ImageData (a clone), so keeps its pixels
   //   exposed     the page has had the array since the host last had it
   const pixelsByHandle = new Map();
   function pixelsOf(proxy) {
     const handle = proxyHandles.get(proxy);
     let entry = pixelsByHandle.get(handle);
     if (entry === undefined) {
+      // A clone sent before anything read its `data` has no pixels yet: it is
+      // the host's all the same, and its transparent black is made here.
       const held = rehydrate(__rb_host_get(handle, "__dommyPixels"));
       let pixels;
       if (held instanceof Uint8Array) {
@@ -508,7 +510,7 @@ globalThis.__rbHost = (function () {
         const height = rehydrate(__rb_host_get(handle, "height"));
         pixels = new Uint8ClampedArray(width * height * 4);
       }
-      entry = { pixels, hostBacked: held instanceof Uint8Array, exposed: false };
+      entry = { pixels, hostBacked: rehydrate(__rb_host_get(handle, "__dommyClone")) === true, exposed: false };
       pixelsByHandle.set(handle, entry);
     }
     entry.exposed = true;

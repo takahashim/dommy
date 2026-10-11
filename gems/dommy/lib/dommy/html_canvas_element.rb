@@ -182,22 +182,23 @@ module Dommy
   #
   # The one time the pixels come here is a structured clone: the clone a
   # message or a history state delivers belongs to this side (a MessageEvent,
-  # the history entry) and outlives any one JS proxy of it, so it holds the
-  # pixels the page had written (`__dommyPixels`, packed bytes) until a proxy
-  # first reads `data` and takes them over.
+  # the history entry) and outlives any one JS proxy of it (`__dommyClone`), so
+  # it holds the pixels the page wrote (`__dommyPixels`, packed bytes), given
+  # when it is made or when the last proxy that could write them goes.
   class ImageData
     attr_reader :width, :height
 
-    def initialize(width, height, pixels = nil)
+    def initialize(width, height, pixels = nil, clone: false)
       @width = [width.to_i, 0].max
       @height = [height.to_i, 0].max
       @pixels = pixels
+      @clone = clone
     end
 
     # ImageData's serialization + deserialization steps: the same size and the
     # pixels this side holds (JS adds the ones its typed array holds).
     def __internal_structured_clone__(_for_storage = false)
-      ImageData.new(@width, @height, @pixels)
+      ImageData.new(@width, @height, @pixels, clone: true)
     end
 
     def __js_get__(key)
@@ -206,6 +207,7 @@ module Dommy
       when "height" then @height
       when "data" then @pixels ? @pixels.unpack("C*") : Array.new(byte_length, 0)
       when "__dommyPixels" then @pixels && Bridge::Bytes.new(@pixels)
+      when "__dommyClone" then @clone
       when "colorSpace" then "srgb"
       else Bridge::ABSENT
       end
