@@ -290,8 +290,6 @@
       "isHistoryNavigation",
       "isReloadNavigation",
       "keepalive",
-      "referrer",
-      "referrerPolicy",
       "textStream"
     ],
     "Response": [

@@ -3,6 +3,7 @@
 require "json"
 require "securerandom"
 require_relative "data_uri"
+require_relative "internal/referrer"
 
 module Dommy
   # `fetch` polyfill. No real network — instead resolves a response
@@ -45,6 +46,11 @@ module Dommy
       end
       url = @window.__internal_resolve_url__(input.to_s, utf8: true)
       init = normalize_init(init || {})
+      begin
+        add_referer(url, init)
+      rescue Bridge::TypeError => e
+        return PromiseValue.reject(@window, e)
+      end
       # A cross-origin request always carries an Origin header (even for GET,
       # which normalize_init omits it for same-origin GETs).
       if cross_origin?(url) && !header?(init["headers"], "origin")
@@ -413,6 +419,19 @@ module Dommy
       headers
     end
 
+    # The Referer the page's request carries (Referrer Policy), in place of
+    # any the caller gave: a forbidden request header is the browser's to set.
+    def add_referer(url, init)
+      headers = init["headers"]
+      headers.delete_if { |name, _| name.to_s.casecmp?("referer") }
+      referer = Internal::Referrer.header_value(
+        @window, url,
+        referrer: Internal::Referrer.request_referrer(@window, init["referrer"]),
+        policy: Internal::Referrer.request_policy(init["referrerPolicy"])
+      )
+      headers["Referer"] = referer if referer
+    end
+
     def request_origin
       @window.location.__js_get__("origin").to_s
     rescue StandardError
@@ -668,9 +687,11 @@ module Dommy
       # `request.signal.removeEventListener` crash.
       sig = opts["signal"] || opts[:signal]
       @signal = sig.is_a?(AbortSignal) ? sig : AbortSignal.new
+      @referrer = Internal::Referrer.request_referrer(window, opts["referrer"] || opts[:referrer])
+      @referrer_policy = Internal::Referrer.request_policy(opts["referrerPolicy"] || opts[:referrerPolicy])
     end
 
-    attr_reader :headers, :credentials, :mode, :cache, :redirect, :signal
+    attr_reader :headers, :credentials, :mode, :cache, :redirect, :signal, :referrer, :referrer_policy
 
     def __js_get__(key)
       case key
@@ -692,6 +713,10 @@ module Dommy
         @redirect
       when "signal"
         @signal
+      when "referrer"
+        @referrer
+      when "referrerPolicy"
+        @referrer_policy
       else
         Bridge::ABSENT
       end
@@ -735,7 +760,9 @@ module Dommy
         "mode" => @mode,
         "cache" => @cache,
         "redirect" => @redirect,
-        "signal" => @signal
+        "signal" => @signal,
+        "referrer" => @referrer,
+        "referrerPolicy" => @referrer_policy
       }
     end
 
