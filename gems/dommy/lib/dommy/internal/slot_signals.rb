@@ -38,7 +38,7 @@ module Dommy
             signal(slot) if slot && in_tree?(slot, shadow)
           end
         else
-          firsts = first_slots(shadow)
+          firsts = shadow.__internal_first_slots__
           names = (added + removed).filter_map { |node| SlotAssignment.slottable_name(node) if SlotAssignment.slottable?(node) }
           names.uniq.each { |name| signal_node(firsts[name]) }
         end
@@ -48,7 +48,7 @@ module Dommy
       def slottable_renamed(shadow, old_name, new_name)
         return if shadow.slot_assignment == "manual" || old_name == new_name
 
-        firsts = first_slots(shadow)
+        firsts = shadow.__internal_first_slots__
         signal_node(firsts[old_name])
         signal_node(firsts[new_name])
       end
@@ -58,7 +58,7 @@ module Dommy
       def slots_changed(shadow, added: [], removed: [])
         return manual_slots_changed(shadow, added + removed) if shadow.slot_assignment == "manual"
 
-        before = shadow.__internal_first_slots__ || first_slots_without(shadow, added)
+        before = shadow.__internal_first_slots__
         after = SlotAssignment.first_slots_by_name(shadow)
         shadow.__internal_first_slots__ = after
         host_node = shadow.host&.__dommy_backend_node__
@@ -116,19 +116,6 @@ module Dommy
         end
       end
 
-      def first_slots(shadow)
-        shadow.__internal_first_slots__ ||= SlotAssignment.first_slots_by_name(shadow)
-      end
-
-      # The first slots before `added` came in.
-      def first_slots_without(shadow, added)
-        keys = added.to_h { |node| [Backend.identity_key(node), true] }
-        firsts = {}
-        SlotAssignment.slot_nodes(shadow.__dommy_backend_node__).each do |node|
-          firsts[SlotAssignment.slot_name(node)] ||= node unless keys.key?(Backend.identity_key(node))
-        end
-        firsts
-      end
 
       def in_tree?(slot, shadow)
         @document.__internal_shadow_root_containing__(slot.__dommy_backend_node__).equal?(shadow)
