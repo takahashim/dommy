@@ -44,7 +44,7 @@
 - The Big5, ISO-2022-JP, Shift_JIS, EUC-JP and EUC-KR encoders are the spec's (Big5 without the HKSCS extensions and with its six last-pointer duplicates; ISO-2022-JP's escape sequences; Shift_JIS and EUC-JP over index jis0208 with its NEC and IBM rows, so `①` and `～` have bytes; EUC-KR over CP949's index, so `갂` does), used where a URL's query is encoded in such a document. The legacy multi-byte indexes take the entries where Ruby's tables differ from the spec's index files from a generated `encodings/multibyte_overrides.rb` (218 in Big5, among them U+20AC at 0xA3E1).
 - `element.style.cssFloat` is `float`, a `webkit`-cased name (`webkitFilter`) is the `-webkit-` property, and the Compat Standard's `-webkit-` legacy name aliases (`-webkit-filter`, `-webkit-transform`, …) set and read the unprefixed property.
 - `innerText` drops SVG elements that are never rendered (`<defs>`, gradient `<stop>`s, …) and applies Turkish and Azeri casing in a `lang="tr"` / `"az"` element's `text-transform`.
-- `imageData.data` is a Uint8ClampedArray, the same one on every read, and what a page writes into it is what `putImageData`, `structuredClone` and the rest see; it was a fresh plain array whose writes were lost.
+- `imageData.data` is a Uint8ClampedArray, the same one on every read, holding the ImageData's pixels: `structuredClone` copies what the page wrote, and the pixels stay in the JS realm, so handing a 1920x1080 ImageData to `putImageData` no longer copies 8 MB across the bridge. It was a fresh plain array whose writes were lost.
 - `QuotaExceededError` is WebIDL's interface (a DOMException subclass with `requested` and `quota`), and what `crypto.getRandomValues` and other quota errors throw.
 
 ## 0.16.0 — 2026-10-10

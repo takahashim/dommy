@@ -476,14 +476,22 @@ globalThis.__rbHost = (function () {
     return hostSetWire(handle, name, dehydrateTop(value));
   }
 
-  // ImageData's `data`: one Uint8ClampedArray per ImageData, made from the
-  // host's pixels at the first read and the page's to write into. The host
-  // copies the pixels back in (`__dommyPixels`) before it next needs them —
-  // when the ImageData crosses to it, or is cloned.
+  // ImageData's `data`: one Uint8ClampedArray per ImageData, which holds its
+  // pixels. Dommy paints nothing, so an ImageData starts transparent black and
+  // only the page's writes change it; the host keeps the size and never needs
+  // the pixels. They stay here, then, and never cross the bridge (a
+  // 1920x1080 image is 8 MB): a structured clone copies them into its record.
   const livePixels = new WeakMap();
-  function syncLivePixels(proxy) {
-    const pixels = livePixels.get(proxy);
-    if (pixels !== undefined) __rb_host_set(proxyHandles.get(proxy), "__dommyPixels", Array.from(pixels));
+  function pixelsOf(proxy) {
+    let pixels = livePixels.get(proxy);
+    if (pixels === undefined) {
+      const handle = proxyHandles.get(proxy);
+      const width = rehydrate(__rb_host_get(handle, "width"));
+      const height = rehydrate(__rb_host_get(handle, "height"));
+      pixels = new Uint8ClampedArray(width * height * 4);
+      livePixels.set(proxy, pixels);
+    }
+    return pixels;
   }
 
   // hostSet for a value already in its wire form.
@@ -855,10 +863,7 @@ globalThis.__rbHost = (function () {
   function dehydrate(v, seen) {
     if (typeof v === "string") return /[\ud800-\udfff]/.test(v) ? scrubLoneSurrogates(v) : v;
     if (typeof v === "function") return { __rb_callback: registerCallback(v) };
-    if (isProxy(v)) {
-      syncLivePixels(v);
-      return { __rb_handle: proxyHandles.get(v) };
-    }
+    if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
     if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
     // A BufferSource (ArrayBuffer or any typed-array/DataView view) crosses as
     // its raw bytes, so host code gets a uniform byte buffer (TextDecoder.decode,
@@ -1025,10 +1030,7 @@ globalThis.__rbHost = (function () {
     if (v === null) return null;
     const t = typeof v;
     if (t === "object" || t === "function") {
-      if (isProxy(v)) {
-        syncLivePixels(v);
-        return { __rb_handle: proxyHandles.get(v) };
-      }
+      if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
       if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
       return { __rb_js_ref: registerJsRef(v) };
     }
@@ -1480,9 +1482,10 @@ globalThis.__rbHost = (function () {
       // A serializable platform object: the host snapshots it (and throws a
       // DataCloneError for any other interface, a Node or a Window included).
       if (!isProxy(value)) throw dataCloneError("The object could not be cloned");
-      syncLivePixels(value);
       const snapshot = rehydrate(__rb_host_clone(proxyHandles.get(value), !!forStorage));
       serialized = { type: "Platform", interface: primaryInterfaceOf(value), snapshot };
+      const pixels = livePixels.get(value);
+      if (pixels !== undefined) serialized.pixels = pixels.slice();
     } else if (type === "function") {
       throw dataCloneError("A function could not be cloned");
     } else if (brandedBy(SC.symbolValueOf, value) || brandedBy(SC.weakMapHas, value, {}) ||
@@ -1588,6 +1591,7 @@ globalThis.__rbHost = (function () {
       case "Platform":
         // A new instance from the host's snapshot.
         value = rehydrate(__rb_host_clone(proxyHandles.get(serialized.snapshot), false));
+        if (serialized.pixels !== undefined) livePixels.set(value, serialized.pixels.slice());
         break;
       case "TransferredArrayBuffer":
       case "TransferredPlatform":
@@ -3813,14 +3817,7 @@ globalThis.__rbHost = (function () {
           return Reflect.get(t, prop, receiver);
         }
         if (constCache !== null && constCache.has(prop)) return constCache.get(prop);
-        if (prop === "data" && shape.name === "ImageData") {
-          let pixels = isProxy(receiver) ? livePixels.get(receiver) : undefined;
-          if (pixels === undefined) {
-            pixels = new Uint8ClampedArray(rehydrate(__rb_host_get(handle, "data")));
-            if (isProxy(receiver)) livePixels.set(receiver, pixels);
-          }
-          return pixels;
-        }
+        if (prop === "data" && shape.name === "ImageData" && isProxy(receiver)) return pixelsOf(receiver);
         if (ifaceFrozenArrays !== null && ifaceFrozenArrays.has(prop)) {
           return frozenArrayRead(ifaceAttrCache, prop, rehydrate(__rb_host_get(handle, prop)));
         }
