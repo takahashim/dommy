@@ -17,6 +17,7 @@
 
 ### Fixed
 
+- `fetch()` follows its AbortSignal for every response, including one from the app a `Dommy::Rack::Session` routes to: an abort before the response arrives rejects the fetch with the signal's reason, and one after it errors the body not yet read (`text()` rejects, and so does a reader of `body`).
 - `fetch(request)` sends the Request's URL, method, headers, body and signal, with an `init` given alongside overriding them; the Request was sent as the URL `"#<Dommy::Request:...>"`.
 - Adopting a shadow host into another document carries its shadow tree along: the shadow root, its slots and the live ranges inside it belong to the destination document, so `assignedSlot`, slot assignment and event paths keep working after `otherDocument.body.append(host)`.
 - An Observable subscribed again while its producer is running shares that run: the new observer gets the values from then on, and the producer's teardowns run when the last observer unsubscribes. `Observable.from()` converts an iterable as the spec does — an async iterable falls back to the sync protocol, and an abort calls the iterator's `return()` with the abort reason — and `inspect()`'s `abort` callback runs only when a consumer unsubscribes, not after the source finished (dom/observable 207 -> 228/241).

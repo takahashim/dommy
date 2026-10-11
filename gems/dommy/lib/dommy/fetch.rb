@@ -60,6 +60,14 @@ module Dommy
       @window.globals["__last_body__"] = init["body"] if init.is_a?(Hash)
 
       promise = PromiseValue.new(@window)
+      # An aborted signal rejects the fetch with its reason: before anything is
+      # sent when it already is, else whenever it aborts until the response
+      # arrives (the request has reached the app by then, as it would a server).
+      if (signal = request_signal(init))
+        return promise.reject(signal.reason) if signal.aborted?
+
+        signal.__internal_add_abort_algorithm__(proc { promise.reject(signal.reason) })
+      end
       # `mode: "same-origin"` forbids a cross-origin request — it is a network
       # error before any fetch happens.
       if (init["mode"] || "cors").to_s == "same-origin" && cross_origin?(url)
@@ -277,8 +285,11 @@ module Dommy
     end
 
     def deliver_entry(promise, entry, url, init)
+      # Aborted while the response was on its way.
+      return if promise.settled?
+
       if entry.nil?
-        promise.fulfill(Response.new(@window, body: "not found", status: 404, status_text: "Not Found", type: "basic"))
+        fulfill_response(promise, Response.new(@window, body: "not found", status: 404, status_text: "Not Found", type: "basic"), init)
         return
       end
 
@@ -299,11 +310,28 @@ module Dommy
       if (delay = entry["delay"])
         install_delayed_resolve(promise, body, status, status_text, headers, init, delay)
       else
-        promise.fulfill(
+        fulfill_response(
+          promise,
           Response.new(@window, body: body, status: status, status_text: status_text,
-            headers: headers, url: response_url, redirected: redirected, type: entry["type"] || "basic")
+            headers: headers, url: response_url, redirected: redirected, type: entry["type"] || "basic"),
+          init
         )
       end
+    end
+
+    # The fetch's AbortSignal (`init.signal`, a Request's own), or nil.
+    def request_signal(init)
+      signal = init["signal"]
+      signal if signal.is_a?(AbortSignal)
+    end
+
+    # Fulfill the fetch with its response, whose body an abort of the signal
+    # errors from then on (Fetch's "abort the fetch() call" with a response).
+    def fulfill_response(promise, response, init)
+      if (signal = request_signal(init))
+        signal.__internal_add_abort_algorithm__(proc { response.__internal_abort_body__(signal.reason) })
+      end
+      promise.fulfill(response)
     end
 
     # Resolve the response entry for a request: a `__fetch_handler__`
@@ -535,32 +563,18 @@ module Dommy
       nil
     end
 
+    # Fulfill after a simulated `delay`. An abort before then rejects the fetch
+    # (see #__js_call__) and clears the timer, so it does not linger in the
+    # scheduler's queue.
     def install_delayed_resolve(promise, body, status, status_text, headers, init, delay_ms)
-      # AbortController cancellation: when init.signal is present and
-      # `.abort()` fires before the timer, reject with an AbortError.
-      # The timer is cleared in that path so it doesn't leak through
-      # the test scheduler's drain loop.
-      cancelled = [false]
       timer_id = @window.scheduler.set_timeout(
         lambda do |*_args|
-          next if cancelled[0]
-
-          promise.fulfill(Response.new(@window, body: body, status: status, status_text: status_text, headers: headers, type: "basic"))
+          fulfill_response(promise, Response.new(@window, body: body, status: status, status_text: status_text, headers: headers, type: "basic"), init)
         end,
         delay_ms.to_i
       )
-      signal = init.is_a?(Hash) ? init["signal"] : nil
-      return unless signal.is_a?(AbortSignal)
-
-      window_ref = @window
-      abort_cb = lambda do |*_args|
-        cancelled[0] = true
-        window_ref.scheduler.clear_timeout(timer_id)
-        err = ErrorValue.new("aborted", name: "AbortError")
-        promise.reject(err)
-      end
-
-      signal.__js_call__("addEventListener", ["abort", abort_cb])
+      scheduler = @window.scheduler
+      request_signal(init)&.__internal_add_abort_algorithm__(proc { scheduler.clear_timeout(timer_id) })
     end
   end
 
@@ -778,6 +792,7 @@ module Dommy
       @type = type
       @has_body = has_body ? true : false
       @body_used = false
+      @body_error = nil
       @body_stream = nil
     end
 
@@ -1012,6 +1027,15 @@ module Dommy
       Bridge::UNHANDLED
     end
 
+    # The response's fetch was aborted: a body not yet read errors with the
+    # abort reason, for a consume method and for a reader of `body` alike.
+    def __internal_abort_body__(reason)
+      return if @body_used
+
+      @body_error = reason
+      @body_stream&.__internal_error__(reason)
+    end
+
     include Bridge::Methods
     include FormDataBody
     js_methods %w[text json arrayBuffer blob formData clone]
@@ -1049,13 +1073,16 @@ module Dommy
     end
 
     # Run a body-consume (text/json/arrayBuffer/blob), rejecting if the body was
-    # already used (spec returns a rejected promise, not a synchronous throw).
+    # already used (spec returns a rejected promise, not a synchronous throw),
+    # or with the abort reason when its fetch was aborted before it was read.
     def consume_body
       if body_used?
         return rejected(ErrorValue.new("Failed to read body: body stream already read", name: "TypeError"))
       end
 
       @body_used = true
+      return rejected(@body_error) if @body_error
+
       yield
     end
 
@@ -1068,6 +1095,7 @@ module Dommy
         stream = ReadableStream.new(@window)
         stream.__internal_enqueue__(Bridge::Bytes.new(@body.bytes)) unless @body.empty?
         stream.__internal_close__
+        stream.__internal_error__(@body_error) if @body_error
         stream
       end
     end
