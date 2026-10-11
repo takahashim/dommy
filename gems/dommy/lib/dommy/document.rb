@@ -694,8 +694,9 @@ module Dommy
     end
 
     # The document's character encoding, as an Encoding Standard name: what
-    # its bytes were decoded with, or what its own `<meta charset>` declared
-    # when it was parsed from text, else UTF-8. The DOM is held as UTF-8
+    # its bytes were decoded with (Encodings.decode_document, which reads a
+    # `<meta charset>` from an HTML document's bytes); a document parsed from a
+    # string, which is text already, is UTF-8. The DOM is held as UTF-8
     # either way; the encoding is what HTML's "encoding-parse a URL" (a link's
     # query) and form submission encode with.
     def character_encoding
