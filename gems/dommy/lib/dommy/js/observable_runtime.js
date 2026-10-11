@@ -305,13 +305,19 @@
       return;
     }
     if (subscriber.signal.aborted) return;
+    // IteratorClose; what it throws is reported, as the abort algorithm runs
+    // where no caller could catch it.
     onConsumerAbort(subscriber.signal, () => {
       if (record.done) return;
       record.done = true;
-      const ret = getMethod(record.iterator, "return");
-      if (ret === undefined) return;
-      const result = ret.call(record.iterator);
-      if (result === null || typeof result !== "object") throw new TypeError("Iterator#return() must return an Object");
+      try {
+        const ret = getMethod(record.iterator, "return");
+        if (ret === undefined) return;
+        const result = ret.call(record.iterator);
+        if (result === null || typeof result !== "object") throw new TypeError("Iterator#return() must return an Object");
+      } catch (e) {
+        reportException(e);
+      }
     });
     while (true) {
       let item;
