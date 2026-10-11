@@ -103,15 +103,17 @@
       void this.#token;
       if (arguments.length < 1) throw new TypeError("Subscriber.error requires 1 argument");
       if (!this.#active) { reportException(err); return; }
-      this.#close(err);
+      const closeError = this.#close(err);
       for (const observer of this.#observers.slice()) observer.error(err);
+      if (closeError) throw closeError.value;
     }
 
     complete() {
       void this.#token;
       if (!this.#active) return;
-      this.#close(undefined);
+      const closeError = this.#close(undefined);
       for (const observer of this.#observers.slice()) observer.complete();
+      if (closeError) throw closeError.value;
     }
 
     addTeardown(teardown) {
@@ -125,16 +127,20 @@
     }
 
     // "Close a subscription": inactive first (re-entrance is a no-op), then
-    // the signal aborts, then the teardowns run in reverse order.
+    // the signal aborts, then the teardowns run in reverse order. What the
+    // abort throws is handed back ({ value }) for the caller to throw once
+    // its own steps are done.
     #close(reason) {
-      if (!this.#active) return;
+      if (!this.#active) return null;
       this.#active = false;
-      try { this.#ac.abort(reason); } catch (_e) {}
+      let abortError = null;
+      try { this.#ac.abort(reason); } catch (e) { abortError = { value: e }; }
       const teardowns = this.#teardowns;
       this.#teardowns = [];
       for (let i = teardowns.length - 1; i >= 0; i--) {
         try { teardowns[i].call(undefined); } catch (e) { reportException(e); }
       }
+      return abortError;
     }
 
     [kAddObserver](observer) { this.#observers.push(observer); }
@@ -145,7 +151,9 @@
       if (!this.#active) return;
       const index = this.#observers.indexOf(observer);
       if (index !== -1) this.#observers.splice(index, 1);
-      if (this.#observers.length === 0) this.#close(reason);
+      if (this.#observers.length !== 0) return;
+      const closeError = this.#close(reason);
+      if (closeError) throw closeError.value;
     }
   }
 
@@ -305,19 +313,14 @@
       return;
     }
     if (subscriber.signal.aborted) return;
-    // IteratorClose; what it throws is reported, as the abort algorithm runs
-    // where no caller could catch it.
+    // IteratorClose; what it throws reaches the caller of abort().
     onConsumerAbort(subscriber.signal, () => {
       if (record.done) return;
       record.done = true;
-      try {
-        const ret = getMethod(record.iterator, "return");
-        if (ret === undefined) return;
-        const result = ret.call(record.iterator);
-        if (result === null || typeof result !== "object") throw new TypeError("Iterator#return() must return an Object");
-      } catch (e) {
-        reportException(e);
-      }
+      const ret = getMethod(record.iterator, "return");
+      if (ret === undefined) return;
+      const result = ret.call(record.iterator);
+      if (result === null || typeof result !== "object") throw new TypeError("Iterator#return() must return an Object");
     });
     while (true) {
       let item;
@@ -835,7 +838,7 @@
   function wireConsumerAbort(options, controller, reject) {
     const outer = options && options.signal;
     if (!outer) return;
-    const onAbort = () => { reject(outer.reason); try { controller.abort(outer.reason); } catch (_e) {} };
+    const onAbort = () => { reject(outer.reason); controller.abort(outer.reason); };
     if (outer.aborted) onAbort();
     else onConsumerAbort(outer, onAbort);
   }

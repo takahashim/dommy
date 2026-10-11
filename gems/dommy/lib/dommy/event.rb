@@ -2435,8 +2435,12 @@ module Dommy
         dependents_to_abort << dependent
       end
 
-      __internal_run_abort_steps__
-      dependents_to_abort.each(&:__internal_run_abort_steps__)
+      error = __internal_run_abort_steps__
+      dependents_to_abort.each do |dependent|
+        dependent_error = dependent.__internal_run_abort_steps__
+        error ||= dependent_error
+      end
+      raise error if error
     end
 
     # ----- dependent-signal plumbing (package-private, used by .any) -----
@@ -2470,22 +2474,21 @@ module Dommy
 
     # The spec's "abort steps": run the registered abort algorithms first
     # (synchronously, ahead of any listener), then fire the trusted "abort" event.
+    # What a JS algorithm throws is returned (the first one) for `abort()` to
+    # throw to its caller once every step has run.
     def __internal_run_abort_steps__
       algorithms = @abort_algorithms
       @abort_algorithms = []
-      algorithms.each { |algo| invoke_abort_algorithm(algo) }
+      error = nil
+      algorithms.each do |algo|
+        CallableInvoker.invoke_raising(algo)
+      rescue Bridge::ThrowValue => e
+        error ||= e
+      rescue StandardError
+        nil
+      end
       dispatch_event(Event.new("abort", "bubbles" => false, "cancelable" => false).__internal_mark_trusted__)
-    end
-
-    # Run one abort algorithm (a JS callback over the bridge, or a Ruby proc).
-    # A throw is swallowed deliberately: WHATWG runs every abort algorithm and
-    # then fires the "abort" event regardless, so one algorithm's failure must
-    # not abort the run. (The sole caller — the Observable polyfill — already
-    # catches inside its own teardown, so this is a defensive backstop.)
-    def invoke_abort_algorithm(algo)
-      CallableInvoker.invoke(algo)
-    rescue StandardError
-      nil
+      error
     end
   end
 
