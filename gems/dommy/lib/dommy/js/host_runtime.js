@@ -478,20 +478,52 @@ globalThis.__rbHost = (function () {
 
   // ImageData's `data`: one Uint8ClampedArray per ImageData, which holds its
   // pixels. Dommy paints nothing, so an ImageData starts transparent black and
-  // only the page's writes change it; the host keeps the size and never needs
-  // the pixels. They stay here, then, and never cross the bridge (a
-  // 1920x1080 image is 8 MB): a structured clone copies them into its record.
-  const livePixels = new WeakMap();
+  // only the page's writes change it. They stay here and do not cross the
+  // bridge when the ImageData does (a 1920x1080 image is 8 MB) — except for a
+  // structured clone: the deserialized ImageData belongs to the host (a
+  // MessageEvent's data, a history state), which keeps it beyond the life of
+  // any proxy of it, so the host holds its pixels too.
+  //
+  // The pixels are keyed by handle, not by proxy: QuickJS frees a proxy as
+  // soon as nothing refers to it (`e.data.data` drops `e.data` at once), and
+  // the next read makes a new proxy for the same handle, which must find the
+  // same array. A handle lasts until its last proxy is finalized (see
+  // `finalizers`), which is when an array the page could have written goes
+  // back to a host that holds the pixels.
+  //
+  //   pixels      the Uint8ClampedArray `data` returns
+  //   hostBacked  the host keeps this ImageData (a clone), so keeps its pixels
+  //   exposed     the page has had the array since the host last had it
+  const pixelsByHandle = new Map();
   function pixelsOf(proxy) {
-    let pixels = livePixels.get(proxy);
-    if (pixels === undefined) {
-      const handle = proxyHandles.get(proxy);
-      const width = rehydrate(__rb_host_get(handle, "width"));
-      const height = rehydrate(__rb_host_get(handle, "height"));
-      pixels = new Uint8ClampedArray(width * height * 4);
-      livePixels.set(proxy, pixels);
+    const handle = proxyHandles.get(proxy);
+    let entry = pixelsByHandle.get(handle);
+    if (entry === undefined) {
+      // A clone sent before anything read its `data` has no pixels yet: it is
+      // the host's all the same, and its transparent black is made here.
+      const held = rehydrate(__rb_host_get(handle, "__dommyPixels"));
+      let pixels;
+      if (held instanceof Uint8Array) {
+        pixels = new Uint8ClampedArray(held.buffer, held.byteOffset, held.byteLength);
+      } else {
+        const width = rehydrate(__rb_host_get(handle, "width"));
+        const height = rehydrate(__rb_host_get(handle, "height"));
+        pixels = new Uint8ClampedArray(width * height * 4);
+      }
+      entry = { pixels, hostBacked: rehydrate(__rb_host_get(handle, "__dommyClone")) === true, exposed: false };
+      pixelsByHandle.set(handle, entry);
     }
-    return pixels;
+    entry.exposed = true;
+    return entry.pixels;
+  }
+
+  // The handle is going: a host-backed ImageData's pixels the page may have
+  // written go back to the host, which keeps the ImageData.
+  function releasePixels(handle) {
+    const entry = pixelsByHandle.get(handle);
+    if (entry === undefined) return;
+    pixelsByHandle.delete(handle);
+    if (entry.hostBacked && entry.exposed) __rb_host_set(handle, "__dommyPixels", dehydrate(entry.pixels));
   }
 
   // hostSet for a value already in its wire form.
@@ -643,6 +675,7 @@ globalThis.__rbHost = (function () {
     const ref = cache.get(handle);
     if (!ref || ref.deref() === undefined) {
       cache.delete(handle);
+      releasePixels(handle);
       __rb_release_handle(handle);
     }
   });
@@ -1484,8 +1517,8 @@ globalThis.__rbHost = (function () {
       if (!isProxy(value)) throw dataCloneError("The object could not be cloned");
       const snapshot = rehydrate(__rb_host_clone(proxyHandles.get(value), !!forStorage));
       serialized = { type: "Platform", interface: primaryInterfaceOf(value), snapshot };
-      const pixels = livePixels.get(value);
-      if (pixels !== undefined) serialized.pixels = pixels.slice();
+      const entry = pixelsByHandle.get(proxyHandles.get(value));
+      if (entry !== undefined) serialized.pixels = entry.pixels.slice();
     } else if (type === "function") {
       throw dataCloneError("A function could not be cloned");
     } else if (brandedBy(SC.symbolValueOf, value) || brandedBy(SC.weakMapHas, value, {}) ||
@@ -1591,7 +1624,12 @@ globalThis.__rbHost = (function () {
       case "Platform":
         // A new instance from the host's snapshot.
         value = rehydrate(__rb_host_clone(proxyHandles.get(serialized.snapshot), false));
-        if (serialized.pixels !== undefined) livePixels.set(value, serialized.pixels.slice());
+        if (serialized.pixels !== undefined) {
+          const handle = proxyHandles.get(value);
+          const pixels = serialized.pixels.slice();
+          __rb_host_set(handle, "__dommyPixels", dehydrate(pixels));
+          pixelsByHandle.set(handle, { pixels, hostBacked: true, exposed: false });
+        }
         break;
       case "TransferredArrayBuffer":
       case "TransferredPlatform":
@@ -4075,6 +4113,7 @@ globalThis.__rbHost = (function () {
       if (existing) {
         cache.delete(handle);
         pinned.delete(handle);
+        pixelsByHandle.delete(handle);
         proxyHandles.delete(existing);
         proxyInterfaces.delete(existing);
       }
