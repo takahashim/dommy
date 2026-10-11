@@ -51,8 +51,8 @@ module Dommy
             @environment_values = @environment.to_a
             @quirks = document.respond_to?(:quirks_mode?) && document.quirks_mode?
             @import_resolver = document.respond_to?(:css_import_resolver) ? document.css_import_resolver : nil
-            @shadow_roots = document.respond_to?(:__internal_all_shadow_roots__) &&
-                            !document.__internal_all_shadow_roots__.empty?
+            @shadow_roots = document.respond_to?(:__internal_any_shadow_roots__) &&
+                            document.__internal_any_shadow_roots__
           end
 
           # Author sheets in document order. <style> and <link rel=stylesheet>

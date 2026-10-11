@@ -147,6 +147,7 @@ module Dommy
         # Where the merge below leaves the text that followed the template.
         shadow.__internal_parsed_before__ = template.previous_sibling if text?(template.previous_sibling) && text?(template.next_sibling)
         move_contents(template, shadow.__dommy_backend_node__)
+        shadow.__internal_first_slots__ = SlotAssignment.first_slots_by_name(shadow)
         drop_template(template)
         @attached << shadow
         shadow

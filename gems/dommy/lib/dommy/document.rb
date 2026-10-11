@@ -850,6 +850,13 @@ module Dommy
       @creator_url || "about:blank"
     end
 
+    # The window whose event loop runs this document's tasks and microtasks:
+    # its own, or for a document with none, the window of the document whose
+    # API made it.
+    def __internal_event_loop_window__
+      @default_view || @origin_document&.__internal_event_loop_window__
+    end
+
     # A document made by a parsing or creation API (DOMParser,
     # DOMImplementation) takes its origin from `document` — the relevant
     # global object's associated Document — and, for DOMParser, its URL too.
@@ -2824,6 +2831,9 @@ module Dommy
     def __internal_shadow_root_containing__(node)
       @shadow_registry.find_enclosing(node)
     end
+
+    # Whether any shadow root is attached in this document.
+    def __internal_any_shadow_roots__ = @shadow_registry.any?
 
     # Every ShadowRoot attached in this document — the cascade collects each
     # one's <style> sheets and scopes them to that shadow tree.

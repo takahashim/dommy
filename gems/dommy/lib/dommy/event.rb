@@ -463,16 +463,9 @@ module Dommy
     # `assignedSlot` deliberately reports null for a closed tree, but the event
     # path still has to route through the slot.
     def assigned_slot_of(node)
-      return nil unless node.respond_to?(:parent_node)
+      return nil unless node.is_a?(Node) && (document = node.owner_document) && (backend = node.__dommy_backend_node__)
 
-      host = node.parent_node
-      return nil unless host.respond_to?(:__internal_shadow_root__)
-
-      root = host.__internal_shadow_root__
-      return nil unless root
-
-      name = node.respond_to?(:__internal_attribute_value__) ? node.__internal_attribute_value__("slot").to_s : ""
-      root.query_selector_all("slot").find { |slot| (slot.respond_to?(:name) ? slot.name.to_s : "") == name }
+      Internal::SlotAssignment.find_slot(document, backend)
     end
 
     def closed_shadow_root?(node)

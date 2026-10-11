@@ -235,3 +235,97 @@ class TestNestedShadow < Minitest::Test
     assert_empty(detached_slot.assigned_nodes)
   end
 end
+
+# The slot changes worked out from each mutation (Internal::SlotSignals), and
+# the slots DOM's "find a slot" sees.
+class TestSlotChangeSignals < Minitest::Test
+  include DommyTestHelper
+
+  def setup
+    @win = Dommy.parse(<<~HTML)
+      <div id="h"><template shadowrootmode="open"><slot name="a"></slot><slot name="b"></slot><slot></slot></template><span slot="a">A</span></div>
+    HTML
+    @doc = @win.document
+    @host = @doc.get_element_by_id("h")
+    @sr = @host.shadow_root
+  end
+
+  def slot(name) = @sr.query_selector(name.empty? ? "slot:not([name])" : "slot[name='#{name}']")
+
+  def fired_after
+    @win.scheduler.drain_microtasks
+    fired = []
+    @sr.query_selector_all("slot").each do |s|
+      s.add_event_listener("slotchange", proc { fired << s.get_attribute("name").to_s })
+    end
+    yield
+    @win.scheduler.drain_microtasks
+    fired
+  end
+
+  # A parsed declarative shadow tree's slots start out with what they have:
+  # only the slot that gains a node is signaled.
+  def test_a_declarative_tree_signals_only_the_slot_that_changed
+    child = @doc.create_element("i")
+    child.set_attribute("slot", "b")
+    assert_equal ["b"], fired_after { @host.append_child(child) }
+  end
+
+  def test_a_slottable_added_to_the_host_signals_its_slot_only
+    assert_equal [""], fired_after { @host.append_child(@doc.create_element("i")) }
+    assert_equal [], fired_after { @host.append_child(@doc.create_comment("c")) }
+  end
+
+  def test_a_slot_attribute_change_signals_the_old_and_the_new_slot
+    span = @host.query_selector("span")
+    assert_equal %w[a b], fired_after { span.set_attribute("slot", "b") }.sort
+    assert_equal [], fired_after { span.set_attribute("slot", "b") }
+  end
+
+  # Renaming a slot to a name an earlier slot has hands nothing over; renaming
+  # the first slot of a name the host uses moves its nodes on.
+  def test_renaming_a_slot
+    assert_equal [], fired_after { slot("b").set_attribute("name", "z") }
+    fired = fired_after { slot("a").set_attribute("name", "y") }
+    assert_equal ["y"], fired
+    assert_empty @sr.query_selector("slot[name='y']").assigned_nodes
+  end
+
+  # An SVG or MathML <slot> is an ordinary element: it takes no slottables
+  # and is never signaled.
+  def test_a_foreign_slot_is_not_a_slot
+    @sr.inner_html = "<svg><slot name='a'></slot></svg><math><slot name='a'></slot></math><slot name='a'></slot>"
+    @host.append_child(@doc.create_element("i")).set_attribute("slot", "a")
+    @win.scheduler.drain_microtasks
+    html_slot = @sr.query_selector_all("slot").find { |s| s.is_a?(Dommy::HTMLSlotElement) }
+    assert_equal 2, html_slot.assigned_nodes.length
+    assert_equal html_slot, @host.query_selector("span").assigned_slot
+  end
+
+  # assignedSlot reads one slot, whatever the number of the tree's slots.
+  def test_assigned_slot_of_text_and_elements
+    text = @host.append_child(@doc.create_text_node("t"))
+    assert_equal slot(""), text.assigned_slot
+    assert_equal slot("a"), @host.query_selector("span").assigned_slot
+  end
+end
+
+# A document with no window of its own still has slotchange: the window of the
+# document that made it runs the microtask.
+class TestSlotChangeWithoutWindow < Minitest::Test
+  include DommyTestHelper
+
+  def test_a_created_document_signals_through_its_creators_window
+    win = make_window
+    doc = win.document.implementation.create_html_document("")
+    host = doc.body.append_child(doc.create_element("div"))
+    sr = host.attach_shadow({"mode" => "open", "slotAssignment" => "manual"})
+    slot = sr.append_child(doc.create_element("slot"))
+    child = host.append_child(doc.create_element("p"))
+    fired = false
+    slot.add_event_listener("slotchange", proc { fired = true })
+    slot.assign(child)
+    win.scheduler.drain_microtasks
+    assert fired
+  end
+end
