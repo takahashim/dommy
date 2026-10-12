@@ -17,53 +17,50 @@ module Dommy
       # neither in its snapshot — so they stay out of this list.
       FLAG_ORDER = %i[checked disabled expanded level pressed selected].freeze
 
-      module_function
+      class << self
+        def serialize(root)
+          lines = []
+          root.children.each { |child| emit(child, 0, lines) }
+          return "" if lines.empty?
 
-      def serialize(root)
-        lines = []
-        root.children.each { |child| emit(child, 0, lines) }
-        return "" if lines.empty?
-
-        "#{lines.join("\n")}\n"
-      end
-
-      def emit(node, depth, lines)
-        indent = "  " * depth
-        if node.text?
-          lines << "#{indent}- text: #{quote(node.name)}"
-          return
+          "#{lines.join("\n")}\n"
         end
 
-        header = "#{indent}- #{node.role}"
-        header += " #{quote(node.name)}" unless node.name.to_s.empty?
-        flags(node.states).each { |flag| header += " #{flag}" }
-        header += ":" unless node.children.empty?
-        lines << header
+        private
 
-        node.children.each { |child| emit(child, depth + 1, lines) }
-      end
+        def emit(node, depth, lines)
+          indent = "  " * depth
+          if node.text?
+            lines << "#{indent}- text: #{quote(node.name)}"
+            return
+          end
 
-      # The bracketed flag tokens for a node's states, in FLAG_ORDER. Booleans
-      # render only when true/"mixed"; a "mixed" value renders `[flag=mixed]`.
-      def flags(states)
-        FLAG_ORDER.filter_map do |key|
-          value = states[key]
-          if key == :level
-            "[level=#{value}]" if value
-          elsif value == "mixed"
-            "[#{key}=mixed]"
-          elsif value == true
-            "[#{key}]"
+          header = "#{indent}- #{node.role}"
+          header += " #{quote(node.name)}" unless node.name.to_s.empty?
+          flags(node.states).each { |flag| header += " #{flag}" }
+          header += ":" unless node.children.empty?
+          lines << header
+
+          node.children.each { |child| emit(child, depth + 1, lines) }
+        end
+
+        # The bracketed flag tokens for a node's states, in FLAG_ORDER. Booleans
+        # render only when true/"mixed"; a "mixed" value renders `[flag=mixed]`.
+        def flags(states)
+          FLAG_ORDER.filter_map do |key|
+            value = states[key]
+            if key == :level
+              "[level=#{value}]" if value
+            elsif value == "mixed"
+              "[#{key}=mixed]"
+            elsif value == true
+              "[#{key}]"
+            end
           end
         end
+
+        def quote(text) = "\"#{text.to_s.gsub("\\", "\\\\\\\\").gsub("\"", "\\\"")}\""
       end
-
-      def quote(text) = "\"#{text.to_s.gsub("\\", "\\\\\\\\").gsub("\"", "\\\"")}\""
-
-      # Everything below compute is how it is computed, not API.
-      private_class_method :emit
-      private_class_method :flags
-      private_class_method :quote
     end
   end
 end

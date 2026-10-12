@@ -17,157 +17,154 @@ module Dommy
     # on combinators, pseudo-classes, case and namespace — yields exactly the
     # same set in the same order.
     module BackendPrefilter
-      module_function
-
-      # Every descendant ELEMENT of the backend node `bnode`, in document order,
-      # excluding `bnode` itself — walking lexbor nodes directly via the
-      # first-child / next-sibling chain (no Dommy wrap and, unlike
-      # `element_children`, no per-node NodeSet allocation, which dominated GC).
-      # A tree is entirely one backend's nodes, so the capability test runs once
-      # per query here rather than once per node inside the walk.
-      def each_backend_descendant(bnode, &block)
-        if bnode.respond_to?(:first_element_child)
-          each_backend_element_descendant(bnode, &block)
-        else
-          each_backend_child_list_descendant(bnode, &block)
-        end
-      end
-
-      def each_backend_element_descendant(bnode, &block)
-        child = bnode.first_element_child
-        while child
-          block.call(child)
-          each_backend_element_descendant(child, &block)
-          # `next_element` is the backend's native (C) element-only sibling step;
-          # it skips intervening text/comment nodes in one call, where a Ruby
-          # `.next`-until-element loop cost ~6% of a heavy page's wall time.
-          child = child.next_element
-        end
-      end
-
-      # The XML backend has no first_element_child / next_element sibling walk
-      # (a Document there answers neither); its `element_children` list is the
-      # equivalent, at the cost of materializing one array per level. Same
-      # guard as Internal::SelectorIndex#populate.
-      def each_backend_child_list_descendant(bnode, &block)
-        bnode.element_children.each do |child|
-          block.call(child)
-          each_backend_child_list_descendant(child, &block)
-        end
-      end
-
-      # One [kind, value] pre-filter per complex selector — taken from its subject
-      # (rightmost) compound. nil when ANY subject lacks a static id/class/attribute
-      # to filter on (a universal- or pseudo-only subject), so the whole query
-      # falls back to the Ruby matcher.
-      def static_prefilters(selector_ast)
-        selector_ast.selectors.map do |complex|
-          compound = complex.parts.last.compound
-          return nil if compound.pseudo_element
-
-          prefilter_for(compound) || (return nil)
-        end
-      end
-
-      # The most selective static check in `compound` (id > class > attribute >
-      # type); nil if it has none (universal/pseudo-only subject). The exact
-      # case/namespace and pseudo state are still left to the authoritative
-      # #matches? — the prefilter only has to be a SUPERSET. An id or class
-      # prefilter is tested as the document's mode compares it (see
-      # #backend_passes? and SelectorIndex).
-      def prefilter_for(compound)
-        id = klass = attr = nil
-        compound.subclass_selectors.each do |sub|
-          case sub
-          when SelectorAST::IdSelector then id ||= sub.value
-          when SelectorAST::ClassSelector then klass ||= sub.value
-          when SelectorAST::AttributeSelector then attr ||= sub.name if sub.namespace.nil?
+      class << self
+        # Every descendant ELEMENT of the backend node `bnode`, in document order,
+        # excluding `bnode` itself — walking lexbor nodes directly via the
+        # first-child / next-sibling chain (no Dommy wrap and, unlike
+        # `element_children`, no per-node NodeSet allocation, which dominated GC).
+        # A tree is entirely one backend's nodes, so the capability test runs once
+        # per query here rather than once per node inside the walk.
+        def each_backend_descendant(bnode, &block)
+          if bnode.respond_to?(:first_element_child)
+            each_backend_element_descendant(bnode, &block)
+          else
+            each_backend_child_list_descendant(bnode, &block)
           end
         end
-        return [:id, id] if id
-        return [:class, klass] if klass
-        return [:attr, attr] if attr
 
-        # A concrete tag (`a`, `div span`) gates the backend walk by tag name —
-        # without it a type-only subject wraps EVERY element before matching,
-        # which dominated a jQuery-heavy page (`$.find('div a')`). Case/namespace
-        # exactness is matches?'s job, so this is a (case-insensitive) superset.
-        type = compound.type
-        return [:type, type.name.to_s] if type.is_a?(SelectorAST::TypeSelector) && !type.name.to_s.empty?
+        # One [kind, value] pre-filter per complex selector — taken from its subject
+        # (rightmost) compound. nil when ANY subject lacks a static id/class/attribute
+        # to filter on (a universal- or pseudo-only subject), so the whole query
+        # falls back to the Ruby matcher.
+        def static_prefilters(selector_ast)
+          selector_ast.selectors.map do |complex|
+            compound = complex.parts.last.compound
+            return nil if compound.pseudo_element
 
-        nil
-      end
+            prefilter_for(compound) || (return nil)
+          end
+        end
 
-      # [:class|:id, value] when `compound` is EXACTLY one class or id selector
-      # (no type, no pseudo, nothing else), else nil. For such a compound the index
-      # lookup is an exact match — not just a superset — so an index "does an
-      # ancestor match?" answer can be trusted without re-running Match#compound?
-      # — in a quirks-mode document too, whose index folds case as the selector
-      # does.
-      def exact_class_or_id_prefilter(compound)
-        return nil unless compound.type.nil? && compound.pseudo_element.nil?
+        # The most selective static check in `compound` (id > class > attribute >
+        # type); nil if it has none (universal/pseudo-only subject). The exact
+        # case/namespace and pseudo state are still left to the authoritative
+        # #matches? — the prefilter only has to be a SUPERSET. An id or class
+        # prefilter is tested as the document's mode compares it (see
+        # #backend_passes? and SelectorIndex).
+        def prefilter_for(compound)
+          id = klass = attr = nil
+          compound.subclass_selectors.each do |sub|
+            case sub
+            when SelectorAST::IdSelector then id ||= sub.value
+            when SelectorAST::ClassSelector then klass ||= sub.value
+            when SelectorAST::AttributeSelector then attr ||= sub.name if sub.namespace.nil?
+            end
+          end
+          return [:id, id] if id
+          return [:class, klass] if klass
+          return [:attr, attr] if attr
 
-        subs = compound.subclass_selectors
-        return nil unless subs.size == 1
+          # A concrete tag (`a`, `div span`) gates the backend walk by tag name —
+          # without it a type-only subject wraps EVERY element before matching,
+          # which dominated a jQuery-heavy page (`$.find('div a')`). Case/namespace
+          # exactness is matches?'s job, so this is a (case-insensitive) superset.
+          type = compound.type
+          return [:type, type.name.to_s] if type.is_a?(SelectorAST::TypeSelector) && !type.name.to_s.empty?
 
-        case subs.first
-        when SelectorAST::ClassSelector then [:class, subs.first.value]
-        when SelectorAST::IdSelector then [:id, subs.first.value]
+          nil
+        end
+
+        # [:class|:id, value] when `compound` is EXACTLY one class or id selector
+        # (no type, no pseudo, nothing else), else nil. For such a compound the index
+        # lookup is an exact match — not just a superset — so an index "does an
+        # ancestor match?" answer can be trusted without re-running Match#compound?
+        # — in a quirks-mode document too, whose index folds case as the selector
+        # does.
+        def exact_class_or_id_prefilter(compound)
+          return nil unless compound.type.nil? && compound.pseudo_element.nil?
+
+          subs = compound.subclass_selectors
+          return nil unless subs.size == 1
+
+          case subs.first
+          when SelectorAST::ClassSelector then [:class, subs.first.value]
+          when SelectorAST::IdSelector then [:id, subs.first.value]
+          end
+        end
+
+        # Does the backend node satisfy a pre-filter? A SUPERSET test (presence /
+        # exact id / class token / tag) — never a false negative, so #matches? can
+        # prune. In a quirks-mode document an id or a class token compares ASCII
+        # case-insensitively, as the selector does there.
+        def backend_passes?(bnode, prefilter, quirks: false)
+          kind, value = prefilter
+          case kind
+          when :id
+            id = Backend.no_namespace_attribute_value(bnode, "id")
+            quirks ? !id.nil? && id.downcase(:ascii) == value.downcase(:ascii) : id == value
+          when :class
+            raw = Backend.no_namespace_attribute_value(bnode, "class")
+            quirks ? class_attr_token?(raw&.downcase(:ascii), value.downcase(:ascii)) : class_attr_token?(raw, value)
+          when :attr then !bnode[value].nil?
+          when :type then (name = bnode.local_name) && name.casecmp?(value)
+          end
+        end
+
+        # The backend (lexbor) node whose subtree holds the candidates.
+        def backend_root_of(root)
+          root.is_a?(Document) ? root.backend_doc : root.__dommy_backend_node__
+        end
+
+        # The owning Document (for identity-stable #wrap_node of a backend match).
+        def document_of(root)
+          return root if root.is_a?(Document)
+
+          root.document if root.respond_to?(:document)
+        end
+
+        private
+
+        def each_backend_element_descendant(bnode, &block)
+          child = bnode.first_element_child
+          while child
+            block.call(child)
+            each_backend_element_descendant(child, &block)
+            # `next_element` is the backend's native (C) element-only sibling step;
+            # it skips intervening text/comment nodes in one call, where a Ruby
+            # `.next`-until-element loop cost ~6% of a heavy page's wall time.
+            child = child.next_element
+          end
+        end
+
+        # The XML backend has no first_element_child / next_element sibling walk
+        # (a Document there answers neither); its `element_children` list is the
+        # equivalent, at the cost of materializing one array per level. Same
+        # guard as Internal::SelectorIndex#populate.
+        def each_backend_child_list_descendant(bnode, &block)
+          bnode.element_children.each do |child|
+            block.call(child)
+            each_backend_child_list_descendant(child, &block)
+          end
+        end
+
+        # Is `token` a whitespace-separated word of the raw class attribute? Scans in
+        # place (no split/allocation), since this runs for every node in the tree.
+        def class_attr_token?(raw, token)
+          return false if raw.nil? || raw.empty?
+
+          pos = 0
+          len = token.length
+          while (i = raw.index(token, pos))
+            before = i.zero? || Infra.ascii_whitespace?(raw[i - 1])
+            after_index = i + len
+            after = after_index >= raw.length || Infra.ascii_whitespace?(raw[after_index])
+            return true if before && after
+
+            pos = i + 1
+          end
+          false
         end
       end
-
-      # Does the backend node satisfy a pre-filter? A SUPERSET test (presence /
-      # exact id / class token / tag) — never a false negative, so #matches? can
-      # prune. In a quirks-mode document an id or a class token compares ASCII
-      # case-insensitively, as the selector does there.
-      def backend_passes?(bnode, prefilter, quirks: false)
-        kind, value = prefilter
-        case kind
-        when :id
-          id = Backend.no_namespace_attribute_value(bnode, "id")
-          quirks ? !id.nil? && id.downcase(:ascii) == value.downcase(:ascii) : id == value
-        when :class
-          raw = Backend.no_namespace_attribute_value(bnode, "class")
-          quirks ? class_attr_token?(raw&.downcase(:ascii), value.downcase(:ascii)) : class_attr_token?(raw, value)
-        when :attr then !bnode[value].nil?
-        when :type then (name = bnode.local_name) && name.casecmp?(value)
-        end
-      end
-
-      # Is `token` a whitespace-separated word of the raw class attribute? Scans in
-      # place (no split/allocation), since this runs for every node in the tree.
-      def class_attr_token?(raw, token)
-        return false if raw.nil? || raw.empty?
-
-        pos = 0
-        len = token.length
-        while (i = raw.index(token, pos))
-          before = i.zero? || Infra.ascii_whitespace?(raw[i - 1])
-          after_index = i + len
-          after = after_index >= raw.length || Infra.ascii_whitespace?(raw[after_index])
-          return true if before && after
-
-          pos = i + 1
-        end
-        false
-      end
-
-      # The backend (lexbor) node whose subtree holds the candidates.
-      def backend_root_of(root)
-        root.is_a?(Document) ? root.backend_doc : root.__dommy_backend_node__
-      end
-
-      # The owning Document (for identity-stable #wrap_node of a backend match).
-      def document_of(root)
-        return root if root.is_a?(Document)
-
-        root.document if root.respond_to?(:document)
-      end
-
-      # Everything above is the module; everything below is how.
-      private_class_method :each_backend_element_descendant
-      private_class_method :each_backend_child_list_descendant
-      private_class_method :class_attr_token?
     end
   end
 end

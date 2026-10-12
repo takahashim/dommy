@@ -69,6 +69,18 @@ class TestWebIdlInheritance < Minitest::Test
     assert_empty names - seeded - NOT_INTERFACES
   end
 
+  # An interface object is a global from the start, not from when its first
+  # instance crosses: `typeof Location` was "undefined" until a script read
+  # `location`, though a page may test `instanceof Location` before that.
+  # So every Window-exposed interface Dommy has a class for is seeded, the
+  # ones no script constructs included.
+  def test_every_window_interface_with_a_class_is_seeded_as_a_global
+    unseeded = WebIdlAudit.window_interfaces.keys.select do |name|
+      WebIdlAudit.ruby_class_for(name) && !WebIdlAudit.seeded_interfaces.include?(name)
+    end
+    assert_empty unseeded.sort
+  end
+
   # Every seeded prototype chain must be the IDL's own inheritance chain.
   # A wrong one is directly observable: `reader instanceof EventTarget`,
   # `file instanceof Blob`, `range instanceof AbstractRange`.

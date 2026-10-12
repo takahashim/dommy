@@ -179,7 +179,18 @@ module Dommy
         %w[HTMLUnknownElement HTMLElement Element Node EventTarget],
         %w[HTMLMediaElement HTMLElement Element Node EventTarget],
         %w[HTMLAudioElement HTMLMediaElement HTMLElement Element Node EventTarget],
-        %w[HTMLVideoElement HTMLMediaElement HTMLElement Element Node EventTarget]
+        %w[HTMLVideoElement HTMLMediaElement HTMLElement Element Node EventTarget],
+        # The rest of the Window-exposed interfaces Dommy has a class for,
+        # which a script reaches through an instance (location, navigator,
+        # el.style, matchMedia(), …) rather than constructs: an interface
+        # object is a global before any instance has crossed.
+        %w[Window EventTarget], %w[Location], %w[History], %w[Navigator], %w[Screen], %w[BarProp],
+        %w[External], %w[CustomElementRegistry], %w[MimeTypeArray], %w[PluginArray],
+        %w[MessagePort EventTarget], %w[MediaQueryList EventTarget], %w[MediaQueryListEvent Event],
+        %w[CSSStyleDeclaration], %w[MediaList], %w[DOMStringMap], %w[NamedNodeMap],
+        %w[HTMLOptionsCollection HTMLCollection], %w[MutationRecord], %w[ValidityState],
+        %w[DataTransferItem], %w[DataTransferItemList], %w[TouchList],
+        %w[ImageData], %w[CanvasRenderingContext2D], %w[CanvasGradient], %w[TextMetrics]
       ].freeze
 
       module_function

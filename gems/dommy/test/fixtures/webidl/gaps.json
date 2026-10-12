@@ -359,6 +359,8 @@
   "arity_gaps": {},
   "constructor_arity_gaps": {
     "CloseEvent": "length 0 (IDL requires 1)",
+    "ImageData": "length 0 (IDL requires 2)",
+    "MediaQueryListEvent": "length 0 (IDL requires 1)",
     "MouseEvent": "length 0 (IDL requires 1)",
     "Notification": "length 0 (IDL requires 1)",
     "PointerEvent": "length 0 (IDL requires 1)",

@@ -13,8 +13,6 @@ module Dommy
       # notations, and `rgb()` / `rgba()` functional notation. Anything else
       # (hsl(), var(), …) is passed through unchanged.
       module Color
-        module_function
-
         # CSS Color Module Level 4 named colors (148 keywords) => [r, g, b].
         NAMED = {
           "aliceblue" => [240, 248, 255],
@@ -168,280 +166,287 @@ module Dommy
         }.freeze
 
         HEX_PATTERN = /\A#(\h{3}|\h{4}|\h{6}|\h{8})\z/
+
         private_constant :HEX_PATTERN
 
         # rgb()/rgba()/hsl()/hsla() in either legacy comma syntax or modern
         # space syntax (`rgb(R G B / A)`), with integer or percentage channels.
         COLOR_FN_PATTERN = /\A(rgba?|hsla?)\((.*)\)\z/im
+
         private_constant :COLOR_FN_PATTERN
 
-        # Normalizes +value+ to the computed-style serialization.
-        # Unrecognized values are returned as-is (never raises).
-        #
-        # @param value [String] a CSS color value, e.g. "Red", "#0f0", "rgb(0,0,0)"
-        # @return [String] "rgb(r, g, b)", "rgba(r, g, b, a)", or +value+ itself
-        #
-        # A math function among an rgb()/hsl() function's components (`calc()`,
-        # `sign()`, …) is reduced first; `length_px` resolves a length inside
-        # one (`sign(1em - 10px)`), as the property's computed value does.
-        def normalize(value, &length_px)
-          stripped = value.strip
-          lower = stripped.downcase
-
-          return "rgba(0, 0, 0, 0)" if lower == "transparent"
-
-          if (rgb = NAMED[lower])
-            return serialize(*rgb)
-          end
-
-          if (match = HEX_PATTERN.match(lower))
-            return from_hex(match[1])
-          end
-
-          if (match = COLOR_FN_PATTERN.match(stripped))
-            args = reduce_math(match[2], length_px)
-            return (args && normalize_function(match[1].downcase, args)) || value
-          end
-
-          value
-        end
-
-        # Extracts the first color token from a compound value (used by
-        # shorthand expansion, e.g. `background: red url(x)`). Returns the
-        # normalized color, or nil when no recognizable color is present.
-        #
-        # @param value [String] a whitespace-separated CSS shorthand value
-        # @return [String, nil]
-        def extract(value)
-          ValueTokens.split(value).each do |token|
-            lower = token.downcase
-            if token.include?("(")
-              # Function tokens are skipped wholesale (url(#abc),
-              # linear-gradient(red, blue), …) — except rgb()/rgba(),
-              # which are themselves colors.
-              return normalize(token) if lower.start_with?("rgb(", "rgba(")
-            elsif HEX_PATTERN.match?(lower) || lower == "transparent" || NAMED.key?(lower)
-              return normalize(token)
-            end
-          end
-          nil
-        end
-
         MATH_FUNCTION = /\b(?:calc|min|max|clamp|sign|abs)\(/i
+
         private_constant :MATH_FUNCTION
 
-        # `args` with each math function replaced by the number, percentage or
-        # angle it reduces to; nil when one does not reduce.
-        def reduce_math(args, length_px)
-          out = +""
-          rest = args
-          while (match = MATH_FUNCTION.match(rest))
-            out << match.pre_match
-            close = matching_paren(rest, match.end(0) - 1)
-            return nil unless close
+        class << self
+          # Normalizes +value+ to the computed-style serialization.
+          # Unrecognized values are returned as-is (never raises).
+          #
+          # @param value [String] a CSS color value, e.g. "Red", "#0f0", "rgb(0,0,0)"
+          # @return [String] "rgb(r, g, b)", "rgba(r, g, b, a)", or +value+ itself
+          #
+          # A math function among an rgb()/hsl() function's components (`calc()`,
+          # `sign()`, …) is reduced first; `length_px` resolves a length inside
+          # one (`sign(1em - 10px)`), as the property's computed value does.
+          def normalize(value, &length_px)
+            stripped = value.strip
+            lower = stripped.downcase
 
-            kind, number = Calc.evaluate(rest[match.begin(0)..close], typed: true) { |text| length_px&.call(text) }
-            return nil unless kind && kind != :length
+            return "rgba(0, 0, 0, 0)" if lower == "transparent"
 
-            out << format_number(number) << {angle: "deg", percentage: "%", number: ""}.fetch(kind)
-            rest = rest[(close + 1)..]
+            if (rgb = NAMED[lower])
+              return serialize(*rgb)
+            end
+
+            if (match = HEX_PATTERN.match(lower))
+              return from_hex(match[1])
+            end
+
+            if (match = COLOR_FN_PATTERN.match(stripped))
+              args = reduce_math(match[2], length_px)
+              return (args && normalize_function(match[1].downcase, args)) || value
+            end
+
+            value
           end
-          out << rest
-        end
 
-        def matching_paren(text, open)
-          depth = 0
-          (open...text.length).each do |i|
-            depth += 1 if text[i] == "("
-            depth -= 1 if text[i] == ")"
-            return i if depth.zero?
+          # Extracts the first color token from a compound value (used by
+          # shorthand expansion, e.g. `background: red url(x)`). Returns the
+          # normalized color, or nil when no recognizable color is present.
+          #
+          # @param value [String] a whitespace-separated CSS shorthand value
+          # @return [String, nil]
+          def extract(value)
+            ValueTokens.split(value).each do |token|
+              lower = token.downcase
+              if token.include?("(")
+                # Function tokens are skipped wholesale (url(#abc),
+                # linear-gradient(red, blue), …) — except rgb()/rgba(),
+                # which are themselves colors.
+                return normalize(token) if lower.start_with?("rgb(", "rgba(")
+              elsif HEX_PATTERN.match?(lower) || lower == "transparent" || NAMED.key?(lower)
+                return normalize(token)
+              end
+            end
+            nil
           end
-          nil
-        end
 
-        # Normalize an rgb()/hsl() function body to rgb()/rgba(). Returns nil
-        # when the channels don't parse (the caller keeps the original text).
-        def normalize_function(name, args)
-          channels, raw_alpha = split_color_args(args)
-          return nil unless channels.length == 3
+          private
 
-          # css-color-4: a `none` component is MISSING, not zero, and a missing
-          # component does not survive the conversion to the legacy rgb() form
-          # — substituting 0 for it turns `hsl(120 none 50%)` into
-          # `rgb(128, 128, 128)`, a grey the author never wrote. Such a color
-          # computes in its own color space, keeping the keyword.
-          return serialize_missing(name, channels, raw_alpha) if missing_component?(channels, raw_alpha)
+          # `args` with each math function replaced by the number, percentage or
+          # angle it reduces to; nil when one does not reduce.
+          def reduce_math(args, length_px)
+            out = +""
+            rest = args
+            while (match = MATH_FUNCTION.match(rest))
+              out << match.pre_match
+              close = matching_paren(rest, match.end(0) - 1)
+              return nil unless close
 
-          alpha = raw_alpha && parse_alpha(raw_alpha)
-          rgb =
-            if name.start_with?("rgb")
-              channels.map { |channel| rgb_channel(channel) }
+              kind, number = Calc.evaluate(rest[match.begin(0)..close], typed: true) { |text| length_px&.call(text) }
+              return nil unless kind && kind != :length
+
+              out << format_number(number) << {angle: "deg", percentage: "%", number: ""}.fetch(kind)
+              rest = rest[(close + 1)..]
+            end
+            out << rest
+          end
+
+          def matching_paren(text, open)
+            depth = 0
+            (open...text.length).each do |i|
+              depth += 1 if text[i] == "("
+              depth -= 1 if text[i] == ")"
+              return i if depth.zero?
+            end
+            nil
+          end
+
+          # Normalize an rgb()/hsl() function body to rgb()/rgba(). Returns nil
+          # when the channels don't parse (the caller keeps the original text).
+          def normalize_function(name, args)
+            channels, raw_alpha = split_color_args(args)
+            return nil unless channels.length == 3
+
+            # css-color-4: a `none` component is MISSING, not zero, and a missing
+            # component does not survive the conversion to the legacy rgb() form
+            # — substituting 0 for it turns `hsl(120 none 50%)` into
+            # `rgb(128, 128, 128)`, a grey the author never wrote. Such a color
+            # computes in its own color space, keeping the keyword.
+            return serialize_missing(name, channels, raw_alpha) if missing_component?(channels, raw_alpha)
+
+            alpha = raw_alpha && parse_alpha(raw_alpha)
+            rgb =
+              if name.start_with?("rgb")
+                channels.map { |channel| rgb_channel(channel) }
+              else
+                # The modern (space-separated) syntax also takes a bare number
+                # for saturation and lightness; the legacy comma one does not.
+                modern = !args.include?(",")
+                hsl_to_rgb(hue(channels[0]), percentage(channels[1], number: modern), percentage(channels[2], number: modern))
+              end
+            return nil if rgb.any?(&:nil?)
+
+            serialize(*rgb, alpha)
+          end
+
+          # [[c1, c2, c3], alpha_or_nil]. Channels are comma- or space-separated;
+          # a `/` introduces the alpha (modern syntax), as does a 4th legacy comma
+          # value.
+          # The alpha comes back as its source text, not a number: `none` and `0`
+          # are the same alpha and different serializations.
+          def split_color_args(args)
+            args = args.strip
+            if args.include?("/")
+              main, alpha = args.split("/", 2)
+              [main.strip.split(/[\s,]+/), alpha.strip]
             else
-              # The modern (space-separated) syntax also takes a bare number
-              # for saturation and lightness; the legacy comma one does not.
-              modern = !args.include?(",")
-              hsl_to_rgb(hue(channels[0]), percentage(channels[1], number: modern), percentage(channels[2], number: modern))
+              parts = args.split(/[\s,]+/)
+              parts.length == 4 ? [parts[0, 3], parts[3]] : [parts, nil]
             end
-          return nil if rgb.any?(&:nil?)
-
-          serialize(*rgb, alpha)
-        end
-
-        # [[c1, c2, c3], alpha_or_nil]. Channels are comma- or space-separated;
-        # a `/` introduces the alpha (modern syntax), as does a 4th legacy comma
-        # value.
-        # The alpha comes back as its source text, not a number: `none` and `0`
-        # are the same alpha and different serializations.
-        def split_color_args(args)
-          args = args.strip
-          if args.include?("/")
-            main, alpha = args.split("/", 2)
-            [main.strip.split(/[\s,]+/), alpha.strip]
-          else
-            parts = args.split(/[\s,]+/)
-            parts.length == 4 ? [parts[0, 3], parts[3]] : [parts, nil]
           end
-        end
 
-        def missing_component?(channels, raw_alpha)
-          channels.any? { |channel| none?(channel) } || (raw_alpha && none?(raw_alpha))
-        end
+          def missing_component?(channels, raw_alpha)
+            channels.any? { |channel| none?(channel) } || (raw_alpha && none?(raw_alpha))
+          end
 
-        # A color with a missing component, serialized in its own color space.
-        # `hsla()` is `hsl()` here: the alpha is a component of the same color,
-        # not a different function.
-        def serialize_missing(name, channels, raw_alpha)
-          components =
-            if name.start_with?("rgb")
-              channels.map { |channel| none?(channel) ? "none" : rgb_channel(channel) }
+          # A color with a missing component, serialized in its own color space.
+          # `hsla()` is `hsl()` here: the alpha is a component of the same color,
+          # not a different function.
+          def serialize_missing(name, channels, raw_alpha)
+            components =
+              if name.start_with?("rgb")
+                channels.map { |channel| none?(channel) ? "none" : rgb_channel(channel) }
+              else
+                [none?(channels[0]) ? "none" : format_number(hue(channels[0]))] +
+                  channels[1, 2].map { |channel| none?(channel) ? "none" : format_percentage(percentage(channel)) }
+              end
+            return nil if components.any?(&:nil?)
+
+            space = name.start_with?("rgb") ? "rgb" : "hsl"
+            "#{space}(#{(components + missing_alpha_part(raw_alpha)).join(" ")})"
+          end
+
+          # ["/", alpha] when the color carries one worth serializing — an alpha
+          # of 1 is the default and is left off, as it is in rgb().
+          def missing_alpha_part(raw_alpha)
+            return [] if raw_alpha.nil?
+            return ["/", "none"] if none?(raw_alpha)
+
+            alpha = parse_alpha(raw_alpha)
+            return [] if alpha.nil? || alpha == 1
+
+            ["/", format_alpha(alpha)]
+          end
+
+          def format_number(value)
+            return nil if value.nil?
+
+            value == value.to_i ? value.to_i.to_s : value.to_s
+          end
+
+          def format_percentage(fraction)
+            return nil if fraction.nil?
+
+            "#{format_number(fraction * 100)}%"
+          end
+
+          # The css-color-4 `none` keyword marks a missing component; in the
+          # legacy rgb()/rgba() serialization a computed color uses 0 for it.
+          def none?(text) = text.casecmp("none").zero?
+
+          def rgb_channel(channel)
+            return 0 if none?(channel)
+
+            if channel.end_with?("%")
+              value = Float(channel[0..-2]) / 100.0 * 255
             else
-              [none?(channels[0]) ? "none" : format_number(hue(channels[0]))] +
-                channels[1, 2].map { |channel| none?(channel) ? "none" : format_percentage(percentage(channel)) }
+              value = Float(channel)
             end
-          return nil if components.any?(&:nil?)
-
-          space = name.start_with?("rgb") ? "rgb" : "hsl"
-          "#{space}(#{(components + missing_alpha_part(raw_alpha)).join(" ")})"
-        end
-
-        # ["/", alpha] when the color carries one worth serializing — an alpha
-        # of 1 is the default and is left off, as it is in rgb().
-        def missing_alpha_part(raw_alpha)
-          return [] if raw_alpha.nil?
-          return ["/", "none"] if none?(raw_alpha)
-
-          alpha = parse_alpha(raw_alpha)
-          return [] if alpha.nil? || alpha == 1
-
-          ["/", format_alpha(alpha)]
-        end
-
-        def format_number(value)
-          return nil if value.nil?
-
-          value == value.to_i ? value.to_i.to_s : value.to_s
-        end
-
-        def format_percentage(fraction)
-          return nil if fraction.nil?
-
-          "#{format_number(fraction * 100)}%"
-        end
-
-        # The css-color-4 `none` keyword marks a missing component; in the
-        # legacy rgb()/rgba() serialization a computed color uses 0 for it.
-        def none?(text) = text.casecmp("none").zero?
-
-        def rgb_channel(channel)
-          return 0 if none?(channel)
-
-          if channel.end_with?("%")
-            value = Float(channel[0..-2]) / 100.0 * 255
-          else
-            value = Float(channel)
+            value.round.clamp(0, 255)
+          rescue ArgumentError, TypeError
+            nil
           end
-          value.round.clamp(0, 255)
-        rescue ArgumentError, TypeError
-          nil
-        end
 
-        def parse_alpha(text)
-          return 0.0 if none?(text)
+          def parse_alpha(text)
+            return 0.0 if none?(text)
 
-          value = text.end_with?("%") ? Float(text[0..-2]) / 100.0 : Float(text)
-          value.clamp(0.0, 1.0)
-        rescue ArgumentError, TypeError
-          nil
-        end
+            value = text.end_with?("%") ? Float(text[0..-2]) / 100.0 : Float(text)
+            value.clamp(0.0, 1.0)
+          rescue ArgumentError, TypeError
+            nil
+          end
 
-        # An <hue>: a bare number or <angle> (deg/grad/rad/turn), wrapped into
-        # [0, 360). nil when unparseable.
-        def hue(text)
-          text = text.downcase
-          return 0.0 if none?(text)
+          # An <hue>: a bare number or <angle> (deg/grad/rad/turn), wrapped into
+          # [0, 360). nil when unparseable.
+          def hue(text)
+            text = text.downcase
+            return 0.0 if none?(text)
 
-          degrees =
-            case text
-            when /\A(-?\d*\.?\d+)deg\z/ then Float(Regexp.last_match(1))
-            when /\A(-?\d*\.?\d+)grad\z/ then Float(Regexp.last_match(1)) * 0.9
-            when /\A(-?\d*\.?\d+)rad\z/ then Float(Regexp.last_match(1)) * 180 / Math::PI
-            when /\A(-?\d*\.?\d+)turn\z/ then Float(Regexp.last_match(1)) * 360
-            when /\A-?\d*\.?\d+\z/ then Float(text)
-            end
-          degrees && degrees % 360
-        end
+            degrees =
+              case text
+              when /\A(-?\d*\.?\d+)deg\z/ then Float(Regexp.last_match(1))
+              when /\A(-?\d*\.?\d+)grad\z/ then Float(Regexp.last_match(1)) * 0.9
+              when /\A(-?\d*\.?\d+)rad\z/ then Float(Regexp.last_match(1)) * 180 / Math::PI
+              when /\A(-?\d*\.?\d+)turn\z/ then Float(Regexp.last_match(1)) * 360
+              when /\A-?\d*\.?\d+\z/ then Float(text)
+              end
+            degrees && degrees % 360
+          end
 
-        def percentage(text, number: false)
-          return 0.0 if none?(text)
-          return (Float(text) / 100.0).clamp(0.0, 1.0) if number && !text.end_with?("%")
-          return nil unless text.end_with?("%")
+          def percentage(text, number: false)
+            return 0.0 if none?(text)
+            return (Float(text) / 100.0).clamp(0.0, 1.0) if number && !text.end_with?("%")
+            return nil unless text.end_with?("%")
 
-          (Float(text[0..-2]) / 100.0).clamp(0.0, 1.0)
-        rescue ArgumentError, TypeError
-          nil
-        end
+            (Float(text[0..-2]) / 100.0).clamp(0.0, 1.0)
+          rescue ArgumentError, TypeError
+            nil
+          end
 
-        # HSL -> [r, g, b] (0..255). h in degrees, s/l in 0..1.
-        def hsl_to_rgb(h, s, l)
-          return [nil] if h.nil? || s.nil? || l.nil?
+          # HSL -> [r, g, b] (0..255). h in degrees, s/l in 0..1.
+          def hsl_to_rgb(h, s, l)
+            return [nil] if h.nil? || s.nil? || l.nil?
 
-          chroma = (1 - (2 * l - 1).abs) * s
-          secondary = chroma * (1 - ((h / 60.0) % 2 - 1).abs)
-          match = l - chroma / 2
-          r, g, b =
-            case h
-            when 0...60 then [chroma, secondary, 0]
-            when 60...120 then [secondary, chroma, 0]
-            when 120...180 then [0, chroma, secondary]
-            when 180...240 then [0, secondary, chroma]
-            when 240...300 then [secondary, 0, chroma]
-            else [chroma, 0, secondary]
-            end
-          [r, g, b].map { |channel| ((channel + match) * 255).round }
-        end
+            chroma = (1 - (2 * l - 1).abs) * s
+            secondary = chroma * (1 - ((h / 60.0) % 2 - 1).abs)
+            match = l - chroma / 2
+            r, g, b =
+              case h
+              when 0...60 then [chroma, secondary, 0]
+              when 60...120 then [secondary, chroma, 0]
+              when 120...180 then [0, chroma, secondary]
+              when 180...240 then [0, secondary, chroma]
+              when 240...300 then [secondary, 0, chroma]
+              else [chroma, 0, secondary]
+              end
+            [r, g, b].map { |channel| ((channel + match) * 255).round }
+          end
 
-        # Expands a 3/4/6/8-digit hex body into the rgb()/rgba() form.
-        def from_hex(hex)
-          hex = hex.chars.map { |c| c * 2 }.join if hex.length <= 4
-          r, g, b, a = hex.scan(/\h{2}/).map { |pair| pair.to_i(16) }
-          serialize(r, g, b, a && a / 255.0)
-        end
+          # Expands a 3/4/6/8-digit hex body into the rgb()/rgba() form.
+          def from_hex(hex)
+            hex = hex.chars.map { |c| c * 2 }.join if hex.length <= 4
+            r, g, b, a = hex.scan(/\h{2}/).map { |pair| pair.to_i(16) }
+            serialize(r, g, b, a && a / 255.0)
+          end
 
-        # Builds "rgb(r, g, b)" or, when alpha is present and not 1,
-        # "rgba(r, g, b, a)".
-        def serialize(r, g, b, alpha = nil)
-          return "rgb(#{r}, #{g}, #{b})" if alpha.nil? || alpha == 1
+          # Builds "rgb(r, g, b)" or, when alpha is present and not 1,
+          # "rgba(r, g, b, a)".
+          def serialize(r, g, b, alpha = nil)
+            return "rgb(#{r}, #{g}, #{b})" if alpha.nil? || alpha == 1
 
-          "rgba(#{r}, #{g}, #{b}, #{format_alpha(alpha)})"
-        end
+            "rgba(#{r}, #{g}, #{b}, #{format_alpha(alpha)})"
+          end
 
-        # Formats an alpha component: round to 5 decimals, drop trailing
-        # zeros, and serialize integral values without a decimal point.
-        def format_alpha(alpha)
-          rounded = alpha.round(5)
-          return rounded.to_i.to_s if rounded == rounded.to_i
+          # Formats an alpha component: round to 5 decimals, drop trailing
+          # zeros, and serialize integral values without a decimal point.
+          def format_alpha(alpha)
+            rounded = alpha.round(5)
+            return rounded.to_i.to_s if rounded == rounded.to_i
 
-          rounded.to_s
+            rounded.to_s
+          end
         end
       end
     end

@@ -19,79 +19,6 @@ module Dommy
 
         FUNCTION = /\A(?:calc|min|max|clamp|sign|abs)\(/i
 
-        module_function
-
-        # [:length, px] or [:number, n] for a reduced math function; nil when
-        # `value` is not one, or cannot reduce. `length_px` takes one
-        # "<number><unit>" and answers its px magnitude, or nil.
-        #
-        # `typed: true` also reduces percentages and angles, as their own kinds
-        # ([:percentage, n] and [:angle, degrees]) — what a color component
-        # takes, where a percentage is not resolved against anything.
-        def evaluate(value, typed: false, &length_px)
-          value = value.to_s.strip
-          return nil unless value.match?(FUNCTION)
-
-          tokens = tokenize(value)
-          return nil unless tokens
-
-          parser = Parser.new(tokens, length_px, typed: typed)
-          result = parser.parse_value
-          parser.done? ? result : nil
-        rescue Unresolvable
-          nil
-        end
-
-        # Tokens: "(" ")" "," operators, {num:, unit:}, {fn:} (an ident, only
-        # valid before "("). Returns nil on an unexpected character — or when a
-        # binary +/- lacks the whitespace CSS Values 4 §10.1 requires on both
-        # sides (`1px+1px` is invalid; a unary sign after (/,/operator is fine).
-        def tokenize(str)
-          tokens = []
-          index = 0
-          length = str.length
-          space_before = true # the opening boundary counts as whitespace
-          while index < length
-            char = str[index]
-            if char.match?(/\s/)
-              space_before = true
-              index += 1
-              next
-            end
-
-            if (char == "+" || char == "-") && binary_operator_position?(tokens.last)
-              space_after = index + 1 < length && str[index + 1].match?(/\s/)
-              return nil unless space_before && space_after
-
-              tokens << char
-            elsif "+-*/(),".include?(char)
-              tokens << char
-            elsif (match = str[index..].match(/\A(\d*\.\d+|\d+\.?\d*)([a-z%]*)/i))
-              tokens << {num: match[1].to_f, unit: match[2].downcase}
-              index += match[0].length
-              space_before = false
-              next
-            elsif (match = str[index..].match(/\A[a-z]+/i))
-              tokens << {fn: match[0].downcase}
-              index += match[0].length
-              space_before = false
-              next
-            else
-              return nil
-            end
-
-            space_before = false
-            index += 1
-          end
-          tokens
-        end
-
-        # A +/- is a binary operator (vs a unary sign) when it follows a value:
-        # a number/dimension or a closing paren.
-        def binary_operator_position?(previous)
-          previous == ")" || (previous.is_a?(Hash) && previous.key?(:num))
-        end
-
         # Recursive-descent evaluator over #tokenize's output. Values are
         # [kind, number] where kind is :length (px) or :number. Operators follow
         # CSS Values 4 calc unit algebra: +/- need matching kinds, * needs a
@@ -249,6 +176,81 @@ module Dommy
 
           def expect(char)
             raise Unresolvable unless advance == char
+          end
+        end
+
+        class << self
+          # [:length, px] or [:number, n] for a reduced math function; nil when
+          # `value` is not one, or cannot reduce. `length_px` takes one
+          # "<number><unit>" and answers its px magnitude, or nil.
+          #
+          # `typed: true` also reduces percentages and angles, as their own kinds
+          # ([:percentage, n] and [:angle, degrees]) — what a color component
+          # takes, where a percentage is not resolved against anything.
+          def evaluate(value, typed: false, &length_px)
+            value = value.to_s.strip
+            return nil unless value.match?(FUNCTION)
+
+            tokens = tokenize(value)
+            return nil unless tokens
+
+            parser = Parser.new(tokens, length_px, typed: typed)
+            result = parser.parse_value
+            parser.done? ? result : nil
+          rescue Unresolvable
+            nil
+          end
+
+          private
+
+          # Tokens: "(" ")" "," operators, {num:, unit:}, {fn:} (an ident, only
+          # valid before "("). Returns nil on an unexpected character — or when a
+          # binary +/- lacks the whitespace CSS Values 4 §10.1 requires on both
+          # sides (`1px+1px` is invalid; a unary sign after (/,/operator is fine).
+          def tokenize(str)
+            tokens = []
+            index = 0
+            length = str.length
+            space_before = true # the opening boundary counts as whitespace
+            while index < length
+              char = str[index]
+              if char.match?(/\s/)
+                space_before = true
+                index += 1
+                next
+              end
+
+              if (char == "+" || char == "-") && binary_operator_position?(tokens.last)
+                space_after = index + 1 < length && str[index + 1].match?(/\s/)
+                return nil unless space_before && space_after
+
+                tokens << char
+              elsif "+-*/(),".include?(char)
+                tokens << char
+              elsif (match = str[index..].match(/\A(\d*\.\d+|\d+\.?\d*)([a-z%]*)/i))
+                tokens << {num: match[1].to_f, unit: match[2].downcase}
+                index += match[0].length
+                space_before = false
+                next
+              elsif (match = str[index..].match(/\A[a-z]+/i))
+                tokens << {fn: match[0].downcase}
+                index += match[0].length
+                space_before = false
+                next
+              else
+                return nil
+              end
+
+              space_before = false
+              index += 1
+            end
+            tokens
+          end
+
+          # A +/- is a binary operator (vs a unary sign) when it follows a value:
+          # a number/dimension or a closing paren.
+          def binary_operator_position?(previous)
+            previous == ")" || (previous.is_a?(Hash) && previous.key?(:num))
           end
         end
       end
