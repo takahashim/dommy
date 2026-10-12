@@ -3,13 +3,13 @@
 require_relative "../test_helper"
 require "dommy/internal/element_matching"
 
-# `module_function` publishes every method a module defines, so each of these
-# modules closes the ones that are only how it works with private_class_method.
-# That list is written by hand, which means it goes stale the moment someone
-# adds a method and forgets — this test is what notices.
+# Each of these modules defines its functions in `class << self`, the ones
+# other code calls above `private` and the ones that are only how it works
+# below. A method defined on the wrong side of that line still works, so
+# nothing but this test notices it.
 #
 # A new public method here is either API, and belongs in the table below with a
-# caller to justify it, or it is not, and belongs behind private_class_method.
+# caller to justify it, or it is not, and belongs under `private`.
 class TestInternalModuleApi < Minitest::Test
   API = {
     Dommy::Internal::AccessibleName => %w[compute referenced_names block_level?],
@@ -182,7 +182,7 @@ class TestInternalModuleApi < Minitest::Test
       "#{mod}: #{extra.join(", ")}" unless extra.empty?
     end
     assert_empty unexpected,
-      "public but not API — add a private_class_method, or list it here with the caller that needs it"
+      "public but not API — move it under `private`, or list it here with the caller that needs it"
   end
 
   def test_each_listed_method_exists

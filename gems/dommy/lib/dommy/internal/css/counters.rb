@@ -160,90 +160,90 @@ module Dommy
       # `counters()` resolution (generated-content text), pure formatting over an
       # element's `{ name => stack }`.
       module Counters
-        module_function
-
-        # element => { counter_name => [outermost..innermost values] } for the
-        # whole document. See CounterMap.
-        def build(document, style_for)
-          CounterMap.new(style_for).build(document)
-        end
-
-        # Replace each `counter()` / `counters()` in a `content` value with a
-        # double-quoted CSS string of its resolved text, so the caller's normal
-        # string handling (unescape) yields the value. `values` is the element's
-        # { name => stack } from #build. (Separators containing `)` are a
-        # documented limitation of the `[^)]` scan.)
-        def substitute(content, values)
-          content.gsub(/\bcounters?\([^)]*\)/i) { |function| quote(resolve_function(function, values)) }
-        end
-
-        def resolve_function(function, values)
-          if (match = function.match(/\Acounter\(\s*([\w-]+)\s*(?:,\s*([\w-]+)\s*)?\)\z/i))
-            stack = values[match[1]]
-            format(stack ? stack.last : 0, match[2])
-          elsif (match = function.match(/\Acounters\(\s*([\w-]+)\s*,\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*(?:,\s*([\w-]+)\s*)?\)\z/i))
-            separator = unquote(match[2])
-            (values[match[1]] || []).map { |value| format(value, match[3]) }.join(separator)
-          else
-            ""
-          end
-        end
-
         # Format a counter value per a `<counter-style>` name (a curated subset:
         # decimal, decimal-leading-zero, {lower,upper}-{alpha,latin,roman}). An
         # unsupported style or an out-of-range value falls back to decimal.
         ROMAN = [[1000, "m"], [900, "cm"], [500, "d"], [400, "cd"], [100, "c"], [90, "xc"],
                  [50, "l"], [40, "xl"], [10, "x"], [9, "ix"], [5, "v"], [4, "iv"], [1, "i"]].freeze
 
-        def format(value, style)
-          case style.to_s.downcase
-          when "", "decimal" then value.to_s
-          when "decimal-leading-zero" then value.between?(0, 9) ? "0#{value}" : value.to_s
-          when "lower-alpha", "lower-latin" then alpha(value)&.downcase || value.to_s
-          when "upper-alpha", "upper-latin" then alpha(value)&.upcase || value.to_s
-          when "lower-roman" then roman(value)&.downcase || value.to_s
-          when "upper-roman" then roman(value)&.upcase || value.to_s
-          else value.to_s
+        class << self
+          # element => { counter_name => [outermost..innermost values] } for the
+          # whole document. See CounterMap.
+          def build(document, style_for)
+            CounterMap.new(style_for).build(document)
           end
-        end
 
-        # Bijective base-26 (1 -> "a", 26 -> "z", 27 -> "aa"); nil for n < 1.
-        def alpha(number)
-          return nil if number < 1
-
-          letters = +""
-          while number.positive?
-            number -= 1
-            letters.prepend((("a".ord) + (number % 26)).chr)
-            number /= 26
+          # Replace each `counter()` / `counters()` in a `content` value with a
+          # double-quoted CSS string of its resolved text, so the caller's normal
+          # string handling (unescape) yields the value. `values` is the element's
+          # { name => stack } from #build. (Separators containing `)` are a
+          # documented limitation of the `[^)]` scan.)
+          def substitute(content, values)
+            content.gsub(/\bcounters?\([^)]*\)/i) { |function| quote(resolve_function(function, values)) }
           end
-          letters
-        end
 
-        # Lowercase Roman numerals for 1..3999; nil outside that range.
-        def roman(number)
-          return nil if number < 1 || number > 3999
+          private
 
-          out = +""
-          ROMAN.each do |value, symbol|
-            while number >= value
-              out << symbol
-              number -= value
+          def resolve_function(function, values)
+            if (match = function.match(/\Acounter\(\s*([\w-]+)\s*(?:,\s*([\w-]+)\s*)?\)\z/i))
+              stack = values[match[1]]
+              format(stack ? stack.last : 0, match[2])
+            elsif (match = function.match(/\Acounters\(\s*([\w-]+)\s*,\s*("(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')\s*(?:,\s*([\w-]+)\s*)?\)\z/i))
+              separator = unquote(match[2])
+              (values[match[1]] || []).map { |value| format(value, match[3]) }.join(separator)
+            else
+              ""
             end
           end
-          out
-        end
 
-        def quote(text)
-          %("#{text.gsub(/(["\\])/) { "\\#{Regexp.last_match(1)}" }}")
-        end
+          def format(value, style)
+            case style.to_s.downcase
+            when "", "decimal" then value.to_s
+            when "decimal-leading-zero" then value.between?(0, 9) ? "0#{value}" : value.to_s
+            when "lower-alpha", "lower-latin" then alpha(value)&.downcase || value.to_s
+            when "upper-alpha", "upper-latin" then alpha(value)&.upcase || value.to_s
+            when "lower-roman" then roman(value)&.downcase || value.to_s
+            when "upper-roman" then roman(value)&.upcase || value.to_s
+            else value.to_s
+            end
+          end
 
-        def unquote(token)
-          inner = token[1...-1].to_s
-          inner.gsub(/\\(.)/) { Regexp.last_match(1) }
-        end
+          # Bijective base-26 (1 -> "a", 26 -> "z", 27 -> "aa"); nil for n < 1.
+          def alpha(number)
+            return nil if number < 1
 
-        private_class_method :resolve_function, :format, :alpha, :roman, :quote, :unquote
+            letters = +""
+            while number.positive?
+              number -= 1
+              letters.prepend((("a".ord) + (number % 26)).chr)
+              number /= 26
+            end
+            letters
+          end
+
+          # Lowercase Roman numerals for 1..3999; nil outside that range.
+          def roman(number)
+            return nil if number < 1 || number > 3999
+
+            out = +""
+            ROMAN.each do |value, symbol|
+              while number >= value
+                out << symbol
+                number -= value
+              end
+            end
+            out
+          end
+
+          def quote(text)
+            %("#{text.gsub(/(["\\])/) { "\\#{Regexp.last_match(1)}" }}")
+          end
+
+          def unquote(token)
+            inner = token[1...-1].to_s
+            inner.gsub(/\\(.)/) { Regexp.last_match(1) }
+          end
+        end
       end
     end
   end

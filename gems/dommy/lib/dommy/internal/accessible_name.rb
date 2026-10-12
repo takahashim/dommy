@@ -56,291 +56,276 @@ module Dommy
 
       extend TextFlattening
 
-      module_function
-
-      # The accessible name string ("" when none). ASCII whitespace runs are
-      # collapsed and the result trimmed, matching how browsers / Playwright
-      # flatten an accessible name.
-      def compute(element)
-        squish(name_of(element, Traversal.start, referenced: false, allow_content: false))
-      end
-
-      # `referenced`: this node was reached through aria-labelledby, so it must
-      # not start a fresh labelledby traversal (prevents loops, and lets a
-      # self-reference fall through to its own aria-label/content).
-      # `allow_content`: name-from-content is permitted regardless of role (true
-      # for referenced and recursed-into nodes); at the top it is role-gated.
-      def name_of(node, traversal, referenced:, allow_content:)
-        return "" unless node.is_a?(Node) && node.__dommy_backend_node__
-
-        # 1. aria-labelledby (not when already inside a labelledby traversal).
-        unless referenced
-          labelled = labelledby_name(node, traversal)
-          return labelled unless labelled.nil?
-        end
-
-        # 2. aria-label.
-        aria_label = node.__internal_aria_value__("aria-label").to_s
-        return aria_label unless aria_label.strip.empty?
-
-        # 3. Native host-language labeling.
-        native = native_name(node, traversal)
-        return native unless native.nil?
-
-        # 4. Name from content (role-permitting, or when recursing). Guard
-        #    against content cycles with the visited set.
-        key = node.__dommy_backend_node__
-        names_from_content = allow_content || NAME_FROM_CONTENT.include?(node.computed_role) ||
-                             NAME_FROM_CONTENT_TAGS.include?(node.local_name.to_s.downcase)
-        if names_from_content && !traversal.seen?(key)
-          content = content_name(node, traversal.entering(key))
-          # Preserve whitespace-only content: a space deep in the subtree is the
-          # separator between sibling text runs ("button" + " " + "label").
-          return content unless content.empty?
-        end
-
-        # 5. Tooltip (title) fallback.
-        title = node.__internal_attribute_value__("title").to_s
-        return title unless title.empty?
-
-        # 6. Placeholder — the lowest-priority name source (below the title).
-        placeholder = placeholder_fallback(node)
-        return placeholder if placeholder
-
-        ""
-      end
-
-      # aria-labelledby: join each referenced element's name. Returns nil when
-      # the attribute is absent/empty (so the caller falls through).
-      def labelledby_name(node, traversal)
-        referenced_names(node, "aria-labelledby", traversal)
-      end
-
-      # Join the accessible names of the elements an IDREF-list attribute
-      # (aria-labelledby / aria-describedby) associates — the ones its
-      # reflection gives, explicitly set or found by ID in the element's own
-      # tree. Returns nil when there are none, so the caller falls through.
-      # Each referenced node is named with `referenced: true` (it does not
-      # restart a labelledby traversal) and `allow_content: true`.
-      def referenced_names(node, attribute, traversal = Traversal.start)
-        refs = node.respond_to?(:__internal_aria_associated_elements__) ? node.__internal_aria_associated_elements__(attribute) : nil
-        return nil if refs.nil? || refs.empty?
-
-        parts = refs.map do |ref|
-          name_of(ref, traversal.naming(hidden_root: AccessibilityVisibility.hidden_for_name?(ref)),
-            referenced: true, allow_content: true)
-        end
-        joined = parts.join(" ").strip
-        joined.empty? ? nil : joined
-      end
-
-      # <label>/alt host-language names. Returns nil when not applicable.
-      def native_name(node, traversal)
-        tag = node.tag_name.to_s.downcase
-        case tag
-        when "img", "area"
-          alt = node.__internal_attribute_value__("alt")
-          alt.nil? ? nil : alt
-        when "input"
-          input_native_name(node, traversal)
-        when "fieldset"
-          child_element_name(node, "legend", traversal)
-        when "figure"
-          child_element_name(node, "figcaption", traversal)
-        when "table"
-          child_element_name(node, "caption", traversal)
-        when *LABELABLE
-          label_text(node, traversal)
-        end
-      end
-
-      # The name of the first child element with the given tag (e.g. a
-      # <fieldset>'s <legend>, a <table>'s <caption>). nil when absent.
-      def child_element_name(node, tag, traversal)
-        bn = node.__dommy_backend_node__
-        return nil unless bn
-
-        child = bn.children.find { |c| c.name.to_s.casecmp?(tag) }
-        return nil unless child
-
-        name_of(node.document.wrap_node(child), traversal, referenced: false, allow_content: true)
-      end
-
       # Input types for which the placeholder contributes the accessible name
       # (the text-like inputs); type=number / range / date / … do not.
       PLACEHOLDER_TYPES = %w[text search tel url email password].freeze
-
-      def input_native_name(node, traversal)
-        type = node.__internal_attribute_value__("type").to_s.downcase
-        return node.__internal_attribute_value__("alt") || node.__internal_attribute_value__("value").to_s if type == "image"
-        return node.__internal_attribute_value__("value").to_s if %w[button submit reset].include?(type)
-
-        label_text(node, traversal)
-      end
-
-      # The placeholder names a text-like input / textarea, but only as the
-      # lowest-priority source (below the title).
-      def placeholder_fallback(node)
-        tag = node.tag_name.to_s.downcase
-        return placeholder_name(node) if tag == "textarea"
-        return nil unless tag == "input"
-
-        type = node.__internal_attribute_value__("type").to_s.downcase
-        (type.empty? || PLACEHOLDER_TYPES.include?(type)) ? placeholder_name(node) : nil
-      end
-
-      def placeholder_name(node)
-        placeholder = node.__internal_attribute_value__("placeholder").to_s
-        placeholder.empty? ? nil : placeholder
-      end
-
-      # The concatenated text of the <label>s associated with a control:
-      # label[for=id] anywhere, plus an ancestor <label>. nil → no labels.
-      def label_text(node, traversal)
-        labels = associated_labels(node)
-        return nil if labels.empty?
-
-        text = labels.map do |label|
-          name_of(label, traversal.naming(skip: node, hidden_root: AccessibilityVisibility.hidden_for_name?(label)),
-            referenced: false, allow_content: true)
-        end.join(" ").strip
-        text.empty? ? nil : text
-      end
-
-      # A labelable control answers its own `labels` (HTML's live list, which
-      # already covers both the `for=` references and a wrapping label, in
-      # document order). Anything else can still sit inside a label, so the
-      # ancestor walk remains as the fallback.
-      def associated_labels(node)
-        return node.labels.to_a if node.respond_to?(:labels) && node.labels
-
-        [closest_label(node)].compact
-      end
-
-      def closest_label(node)
-        bn = node.__dommy_backend_node__&.parent
-        while bn
-          return node.document.wrap_node(bn) if bn.name.to_s.casecmp?("label")
-
-          bn = bn.parent
-        end
-        nil
-      end
-
-      # Concatenate child text nodes and the names of element children, with the
-      # `::before` content prepended and `::after` content appended (accname
-      # name-from-content folds in generated content).
-      def content_name(node, traversal)
-        bn = node.__dommy_backend_node__
-        return "" unless bn
-
-        children = bn.children.map do |child|
-          if child.text?
-            child.text.to_s
-          elsif child.element?
-            wrapped = node.document.wrap_node(child)
-            next "" unless wrapped
-            # The control a label names contributes nothing to that label's text
-            # — `<label>Name <select>…</select></label>` names the select "Name",
-            # not "Name" plus its own options.
-            next "" if traversal.skip && NodeIdentity.same_node?(traversal.skip, child)
-            # A hidden subtree is not part of the name computed from content —
-            # unless the traversal started at a hidden node, which brings its
-            # whole subtree along.
-            next "" if !traversal.hidden_root && AccessibilityVisibility.hidden_for_name?(wrapped)
-
-            name = name_of(wrapped, traversal, referenced: false, allow_content: true)
-            # Concatenate contributions directly (inline content glues:
-            # "button" + "" + "label" -> "buttonlabel"); a block-level box is
-            # padded with spaces so sibling cells / blocks separate
-            # ("Profile" + "A" -> "Profile A"). compute collapses the runs.
-            block_level?(wrapped) ? " #{name} " : name
-          else
-            ""
-          end
-        end.join
-
-        pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
-      end
 
       # Elements that generate a block-level box by the UA stylesheet — used as
       # the fallback when an element has no computed `display`.
       BLOCK_TAGS = CSS::UAStylesheet::BLOCK_LEVEL_TAGS
 
-      # Whether an element generates a block-level box, so its text is separated
-      # from siblings by whitespace in name-from-content (inline boxes glue). The
-      # computed `display` decides (honoring author CSS); without one the
-      # UA-default block-tag set is used so table cells / list items still
-      # separate.
-      def block_level?(element)
-        display = computed_display(element)
-        return BLOCK_TAGS.include?(element.local_name.to_s.downcase) if display.nil?
-
-        !display.start_with?("inline") && !%w[none contents].include?(display)
-      end
-
-      # nil when the element has no computed `display` (it is in no
-      # document), so block_level? falls back to the UA-default tag set.
-      def computed_display(element)
-        value = Internal::CSS::Cascade.computed_style(element)["display"].to_s
-        value.empty? ? nil : value
-      end
-
-      # The text contribution of a `::before` / `::after` pseudo-element's
-      # computed `content`. "" when the pseudo has no generated content
-      # (`none` / `normal`), or its content is purely non-text
-      # (counter/url/etc.).
-      def pseudo_content(node, pseudo)
-        decl = Internal::CSS::ComputedStyleDeclaration.new(node, pseudo_element: pseudo)
-        content_text(decl.get_property_value("content"), node)
-      end
-
-      # Resolve a computed `content` value to its accname text. `counter()` /
-      # `counters()` are resolved first (to quoted strings); then it scans for
-      # the text-bearing components in order — quoted strings (CSS-unescaped) and
-      # `attr(name)` (read off `node`) — and ignores everything else (`none` /
-      # `normal`, `url()`, keywords). The image `/ "alt"` syntax is covered for
-      # free: its alt string matches the quoted-string branch.
-      def content_text(value, node)
-        v = value.to_s.strip
-        return "" if v.empty? || v == "none" || v == "normal"
-
-        if v.match?(/\bcounters?\(/i)
-          v = Internal::CSS::Counters.substitute(v, Internal::CSS::Cascade.counter_values(node))
+      class << self
+        # The accessible name string ("" when none). ASCII whitespace runs are
+        # collapsed and the result trimmed, matching how browsers / Playwright
+        # flatten an accessible name.
+        def compute(element)
+          squish(name_of(element, Traversal.start, referenced: false, allow_content: false))
         end
 
-        text = +""
-        v.scan(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|attr\(\s*([-\w]+)\s*\)/) do
-          dq, sq, attr = Regexp.last_match.captures
-          text << (attr ? node.__internal_attribute_value__(attr).to_s : unescape_css_string(dq || sq))
-        end
-        text
-      end
+        # Join the accessible names of the elements an IDREF-list attribute
+        # (aria-labelledby / aria-describedby) associates — the ones its
+        # reflection gives, explicitly set or found by ID in the element's own
+        # tree. Returns nil when there are none, so the caller falls through.
+        # Each referenced node is named with `referenced: true` (it does not
+        # restart a labelledby traversal) and `allow_content: true`.
+        def referenced_names(node, attribute, traversal = Traversal.start)
+          refs = node.respond_to?(:__internal_aria_associated_elements__) ? node.__internal_aria_associated_elements__(attribute) : nil
+          return nil if refs.nil? || refs.empty?
 
-      # CSS string unescaping: `\HEX ` → the code point, `\<char>` → the char.
-      def unescape_css_string(str)
-        str.gsub(/\\(?:([0-9a-fA-F]{1,6})[ \t\n]?|(.))/) do
-          hex = Regexp.last_match(1)
-          hex ? [hex.to_i(16)].pack("U") : Regexp.last_match(2)
+          parts = refs.map do |ref|
+            name_of(ref, traversal.naming(hidden_root: AccessibilityVisibility.hidden_for_name?(ref)),
+              referenced: true, allow_content: true)
+          end
+          joined = parts.join(" ").strip
+          joined.empty? ? nil : joined
+        end
+
+        # Whether an element generates a block-level box, so its text is separated
+        # from siblings by whitespace in name-from-content (inline boxes glue). The
+        # computed `display` decides (honoring author CSS); without one the
+        # UA-default block-tag set is used so table cells / list items still
+        # separate.
+        def block_level?(element)
+          display = computed_display(element)
+          return BLOCK_TAGS.include?(element.local_name.to_s.downcase) if display.nil?
+
+          !display.start_with?("inline") && !%w[none contents].include?(display)
+        end
+
+        private
+
+        # `referenced`: this node was reached through aria-labelledby, so it must
+        # not start a fresh labelledby traversal (prevents loops, and lets a
+        # self-reference fall through to its own aria-label/content).
+        # `allow_content`: name-from-content is permitted regardless of role (true
+        # for referenced and recursed-into nodes); at the top it is role-gated.
+        def name_of(node, traversal, referenced:, allow_content:)
+          return "" unless node.is_a?(Node) && node.__dommy_backend_node__
+
+          # 1. aria-labelledby (not when already inside a labelledby traversal).
+          unless referenced
+            labelled = labelledby_name(node, traversal)
+            return labelled unless labelled.nil?
+          end
+
+          # 2. aria-label.
+          aria_label = node.__internal_aria_value__("aria-label").to_s
+          return aria_label unless aria_label.strip.empty?
+
+          # 3. Native host-language labeling.
+          native = native_name(node, traversal)
+          return native unless native.nil?
+
+          # 4. Name from content (role-permitting, or when recursing). Guard
+          #    against content cycles with the visited set.
+          key = node.__dommy_backend_node__
+          names_from_content = allow_content || NAME_FROM_CONTENT.include?(node.computed_role) ||
+                               NAME_FROM_CONTENT_TAGS.include?(node.local_name.to_s.downcase)
+          if names_from_content && !traversal.seen?(key)
+            content = content_name(node, traversal.entering(key))
+            # Preserve whitespace-only content: a space deep in the subtree is the
+            # separator between sibling text runs ("button" + " " + "label").
+            return content unless content.empty?
+          end
+
+          # 5. Tooltip (title) fallback.
+          title = node.__internal_attribute_value__("title").to_s
+          return title unless title.empty?
+
+          # 6. Placeholder — the lowest-priority name source (below the title).
+          placeholder = placeholder_fallback(node)
+          return placeholder if placeholder
+
+          ""
+        end
+
+        # aria-labelledby: join each referenced element's name. Returns nil when
+        # the attribute is absent/empty (so the caller falls through).
+        def labelledby_name(node, traversal)
+          referenced_names(node, "aria-labelledby", traversal)
+        end
+
+        # <label>/alt host-language names. Returns nil when not applicable.
+        def native_name(node, traversal)
+          tag = node.tag_name.to_s.downcase
+          case tag
+          when "img", "area"
+            alt = node.__internal_attribute_value__("alt")
+            alt.nil? ? nil : alt
+          when "input"
+            input_native_name(node, traversal)
+          when "fieldset"
+            child_element_name(node, "legend", traversal)
+          when "figure"
+            child_element_name(node, "figcaption", traversal)
+          when "table"
+            child_element_name(node, "caption", traversal)
+          when *LABELABLE
+            label_text(node, traversal)
+          end
+        end
+
+        # The name of the first child element with the given tag (e.g. a
+        # <fieldset>'s <legend>, a <table>'s <caption>). nil when absent.
+        def child_element_name(node, tag, traversal)
+          bn = node.__dommy_backend_node__
+          return nil unless bn
+
+          child = bn.children.find { |c| c.name.to_s.casecmp?(tag) }
+          return nil unless child
+
+          name_of(node.document.wrap_node(child), traversal, referenced: false, allow_content: true)
+        end
+
+        def input_native_name(node, traversal)
+          type = node.__internal_attribute_value__("type").to_s.downcase
+          return node.__internal_attribute_value__("alt") || node.__internal_attribute_value__("value").to_s if type == "image"
+          return node.__internal_attribute_value__("value").to_s if %w[button submit reset].include?(type)
+
+          label_text(node, traversal)
+        end
+
+        # The placeholder names a text-like input / textarea, but only as the
+        # lowest-priority source (below the title).
+        def placeholder_fallback(node)
+          tag = node.tag_name.to_s.downcase
+          return placeholder_name(node) if tag == "textarea"
+          return nil unless tag == "input"
+
+          type = node.__internal_attribute_value__("type").to_s.downcase
+          (type.empty? || PLACEHOLDER_TYPES.include?(type)) ? placeholder_name(node) : nil
+        end
+
+        def placeholder_name(node)
+          placeholder = node.__internal_attribute_value__("placeholder").to_s
+          placeholder.empty? ? nil : placeholder
+        end
+
+        # The concatenated text of the <label>s associated with a control:
+        # label[for=id] anywhere, plus an ancestor <label>. nil → no labels.
+        def label_text(node, traversal)
+          labels = associated_labels(node)
+          return nil if labels.empty?
+
+          text = labels.map do |label|
+            name_of(label, traversal.naming(skip: node, hidden_root: AccessibilityVisibility.hidden_for_name?(label)),
+              referenced: false, allow_content: true)
+          end.join(" ").strip
+          text.empty? ? nil : text
+        end
+
+        # A labelable control answers its own `labels` (HTML's live list, which
+        # already covers both the `for=` references and a wrapping label, in
+        # document order). Anything else can still sit inside a label, so the
+        # ancestor walk remains as the fallback.
+        def associated_labels(node)
+          return node.labels.to_a if node.respond_to?(:labels) && node.labels
+
+          [closest_label(node)].compact
+        end
+
+        def closest_label(node)
+          bn = node.__dommy_backend_node__&.parent
+          while bn
+            return node.document.wrap_node(bn) if bn.name.to_s.casecmp?("label")
+
+            bn = bn.parent
+          end
+          nil
+        end
+
+        # Concatenate child text nodes and the names of element children, with the
+        # `::before` content prepended and `::after` content appended (accname
+        # name-from-content folds in generated content).
+        def content_name(node, traversal)
+          bn = node.__dommy_backend_node__
+          return "" unless bn
+
+          children = bn.children.map do |child|
+            if child.text?
+              child.text.to_s
+            elsif child.element?
+              wrapped = node.document.wrap_node(child)
+              next "" unless wrapped
+              # The control a label names contributes nothing to that label's text
+              # — `<label>Name <select>…</select></label>` names the select "Name",
+              # not "Name" plus its own options.
+              next "" if traversal.skip && NodeIdentity.same_node?(traversal.skip, child)
+              # A hidden subtree is not part of the name computed from content —
+              # unless the traversal started at a hidden node, which brings its
+              # whole subtree along.
+              next "" if !traversal.hidden_root && AccessibilityVisibility.hidden_for_name?(wrapped)
+
+              name = name_of(wrapped, traversal, referenced: false, allow_content: true)
+              # Concatenate contributions directly (inline content glues:
+              # "button" + "" + "label" -> "buttonlabel"); a block-level box is
+              # padded with spaces so sibling cells / blocks separate
+              # ("Profile" + "A" -> "Profile A"). compute collapses the runs.
+              block_level?(wrapped) ? " #{name} " : name
+            else
+              ""
+            end
+          end.join
+
+          pseudo_content(node, "::before") + children + pseudo_content(node, "::after")
+        end
+
+        # nil when the element has no computed `display` (it is in no
+        # document), so block_level? falls back to the UA-default tag set.
+        def computed_display(element)
+          value = Internal::CSS::Cascade.computed_style(element)["display"].to_s
+          value.empty? ? nil : value
+        end
+
+        # The text contribution of a `::before` / `::after` pseudo-element's
+        # computed `content`. "" when the pseudo has no generated content
+        # (`none` / `normal`), or its content is purely non-text
+        # (counter/url/etc.).
+        def pseudo_content(node, pseudo)
+          decl = Internal::CSS::ComputedStyleDeclaration.new(node, pseudo_element: pseudo)
+          content_text(decl.get_property_value("content"), node)
+        end
+
+        # Resolve a computed `content` value to its accname text. `counter()` /
+        # `counters()` are resolved first (to quoted strings); then it scans for
+        # the text-bearing components in order — quoted strings (CSS-unescaped) and
+        # `attr(name)` (read off `node`) — and ignores everything else (`none` /
+        # `normal`, `url()`, keywords). The image `/ "alt"` syntax is covered for
+        # free: its alt string matches the quoted-string branch.
+        def content_text(value, node)
+          v = value.to_s.strip
+          return "" if v.empty? || v == "none" || v == "normal"
+
+          if v.match?(/\bcounters?\(/i)
+            v = Internal::CSS::Counters.substitute(v, Internal::CSS::Cascade.counter_values(node))
+          end
+
+          text = +""
+          v.scan(/"((?:[^"\\]|\\.)*)"|'((?:[^'\\]|\\.)*)'|attr\(\s*([-\w]+)\s*\)/) do
+            dq, sq, attr = Regexp.last_match.captures
+            text << (attr ? node.__internal_attribute_value__(attr).to_s : unescape_css_string(dq || sq))
+          end
+          text
+        end
+
+        # CSS string unescaping: `\HEX ` → the code point, `\<char>` → the char.
+        def unescape_css_string(str)
+          str.gsub(/\\(?:([0-9a-fA-F]{1,6})[ \t\n]?|(.))/) do
+            hex = Regexp.last_match(1)
+            hex ? [hex.to_i(16)].pack("U") : Regexp.last_match(2)
+          end
         end
       end
-
-      # Everything below compute is how it is computed, not API.
-      private_class_method :name_of
-      private_class_method :labelledby_name
-      private_class_method :native_name
-      private_class_method :child_element_name
-      private_class_method :input_native_name
-      private_class_method :placeholder_fallback
-      private_class_method :placeholder_name
-      private_class_method :label_text
-      private_class_method :associated_labels
-      private_class_method :closest_label
-      private_class_method :content_name
-      private_class_method :computed_display
-      private_class_method :pseudo_content
-      private_class_method :content_text
-      private_class_method :unescape_css_string
     end
   end
 end

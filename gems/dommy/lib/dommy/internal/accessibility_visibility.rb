@@ -16,29 +16,28 @@ module Dommy
     # `display: none` by the UA sheet, so the two agree wherever CSS is
     # available and this covers the case where it is not.
     module AccessibilityVisibility
-      module_function
+      class << self
+        def hidden?(element)
+          return true if aria_hidden?(element)
 
-      def hidden?(element)
-        return true if aria_hidden?(element)
+          !DomMatching.visible?(element)
+        end
 
-        !DomMatching.visible?(element)
+        # The name-from-content variant. A node the author pointed at directly
+        # with aria-labelledby is still named even when hidden — this only governs
+        # the traversal INTO a subtree.
+        def hidden_for_name?(element)
+          return true if element.respond_to?(:__internal_has_attribute__?) && element.__internal_has_attribute__?("hidden")
+
+          hidden?(element)
+        end
+
+        private
+
+        def aria_hidden?(element)
+          element.__internal_attribute_value__("aria-hidden").to_s.casecmp?("true")
+        end
       end
-
-      # The name-from-content variant. A node the author pointed at directly
-      # with aria-labelledby is still named even when hidden — this only governs
-      # the traversal INTO a subtree.
-      def hidden_for_name?(element)
-        return true if element.respond_to?(:__internal_has_attribute__?) && element.__internal_has_attribute__?("hidden")
-
-        hidden?(element)
-      end
-
-      def aria_hidden?(element)
-        element.__internal_attribute_value__("aria-hidden").to_s.casecmp?("true")
-      end
-
-      # Everything above is the module; everything below is how.
-      private_class_method :aria_hidden?
     end
   end
 end
