@@ -2712,10 +2712,10 @@ globalThis.__rbHost = (function () {
       }
     }
     lazyChains.delete(name);
-    if (lazyGlobals.delete(name)) {
-      Object.defineProperty(globalThis, name, { value: ctor, writable: true, enumerable: true, configurable: true });
-    } else if (!(name in globalThis)) {
-      globalThis[name] = ctor;
+    // An interface object is a writable, non-enumerable, configurable global
+    // (WebIDL).
+    if (lazyGlobals.delete(name) || !(name in globalThis)) {
+      Object.defineProperty(globalThis, name, { value: ctor, writable: true, enumerable: false, configurable: true });
     }
     protos.set(name, proto);
     if (staticNames !== null) attachStaticsTo(name, ctor, staticNames[name]);
@@ -2754,21 +2754,23 @@ globalThis.__rbHost = (function () {
   // A global that builds its value the first time it is read, then becomes an
   // ordinary data property holding it. Assigning it first replaces it, as
   // assigning any global does.
+  // Interface objects and legacy factory functions are its only users, so it
+  // is non-enumerable as WebIDL has them.
   function defineLazyGlobal(name, build) {
     lazyGlobals.add(name);
     Object.defineProperty(globalThis, name, {
       get() {
         const value = build();
         if (lazyGlobals.delete(name)) {
-          Object.defineProperty(globalThis, name, { value, writable: true, enumerable: true, configurable: true });
+          Object.defineProperty(globalThis, name, { value, writable: true, enumerable: false, configurable: true });
         }
         return value;
       },
       set(value) {
         lazyGlobals.delete(name);
-        Object.defineProperty(globalThis, name, { value, writable: true, enumerable: true, configurable: true });
+        Object.defineProperty(globalThis, name, { value, writable: true, enumerable: false, configurable: true });
       },
-      enumerable: true,
+      enumerable: false,
       configurable: true,
     });
   }
@@ -2913,8 +2915,18 @@ globalThis.__rbHost = (function () {
   }
 
   // Bind a bridged Ruby object to a JS global (the bridge's define_host_object).
+  // `window` and `document` are the window's [LegacyUnforgeable] readonly
+  // attributes: an assignment to the bare name leaves them (a strict-mode one
+  // throws). They stay configurable so a host can bind them again (a fresh
+  // document per WPT file in a reused VM).
+  const UNFORGEABLE_GLOBALS = new Set(["window", "document"]);
   function defineGlobal(name, handle) {
-    globalThis[name] = makeProxy(handle);
+    const value = makeProxy(handle);
+    if (UNFORGEABLE_GLOBALS.has(name)) {
+      Object.defineProperty(globalThis, name, { value, writable: false, enumerable: true, configurable: true });
+    } else {
+      globalThis[name] = value;
+    }
   }
 
   // Expose the seeded constructors on a secondary window — an iframe's
@@ -4605,7 +4617,7 @@ globalThis.__rbHost = (function () {
   Object.defineProperty(cssProto, "size", {
     get: function size() { return customStateSetOf(this).set.size; }, enumerable: true, configurable: true,
   });
-  globalThis.CustomStateSet = CustomStateSet;
+  Object.defineProperty(globalThis, "CustomStateSet", { value: CustomStateSet, writable: true, enumerable: false, configurable: true });
 
   // ElementInternals.prototype.states ([SameObject]).
   function installElementInternalsStates(proto) {

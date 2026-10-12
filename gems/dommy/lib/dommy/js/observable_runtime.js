@@ -847,8 +847,10 @@
     value: "Observable", configurable: true,
   });
 
-  globalThis.Observable = Observable;
-  globalThis.Subscriber = Subscriber;
+  // Interface objects: non-enumerable globals, as WebIDL defines them.
+  for (const [name, value] of [["Observable", Observable], ["Subscriber", Subscriber]]) {
+    Object.defineProperty(globalThis, name, { value, writable: true, enumerable: false, configurable: true });
+  }
 
   // EventTarget.prototype.when(type, options) → Observable of events.
   if (typeof globalThis.EventTarget === "function") {
