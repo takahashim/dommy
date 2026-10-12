@@ -452,6 +452,11 @@ module Dommy
       when "cancelAnimationFrame"
         @scheduler.cancel_animation_frame(args[0])
       when "queueMicrotask"
+        # A VoidFunction argument: anything else is a TypeError, not a no-op.
+        unless CallableInvoker.callable?(args[0])
+          raise Bridge::TypeError, "Failed to execute 'queueMicrotask' on 'Window': parameter 1 is not of type 'Function'."
+        end
+
         @scheduler.queue_microtask(args[0])
       when "requestIdleCallback"
         @scheduler.request_idle_callback(args[0], (args[1].is_a?(Hash) && args[1]["timeout"]) || 0)
