@@ -873,13 +873,15 @@
     // Where the global object is not the window itself (it forwards the
     // window's EventTarget methods), the bare `when` / `self.when` is the
     // window's too.
-    // (The window may not be installed yet: it is looked up at the call.) A
-    // forward to the window, which the window must not answer `when` with.
+    // (The window may not be installed yet: it is looked up at the call.) It
+    // reaches the window's own `when` (windowMember), not whatever the window
+    // answers for the name, which is this function itself.
     if (!(globalThis instanceof EventTarget) && !("when" in globalThis)) {
-      const when = function when(type, options) { return globalThis.window.when(type, options); };
       Object.defineProperty(globalThis, "when", {
         configurable: true, writable: true,
-        value: globalThis.__rbHost ? globalThis.__rbHost.windowForward(when) : when,
+        value: function when(type, options) {
+          return globalThis.__rbHost.windowMember("when").call(globalThis.window, type, options);
+        },
       });
     }
   }

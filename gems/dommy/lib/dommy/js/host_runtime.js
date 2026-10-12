@@ -68,44 +68,62 @@ globalThis.__rbHost = (function () {
     return w != null && proxyHandles.get(w) === handle;
   };
 
-  // The bridge's bare globals that forward to the window — `fetch` calling
-  // `window.fetch(...)`, `scrollY` reading `window.scrollY` — marked (the
-  // function, or an accessor's getter) so the global window does not answer
-  // its own member with them, which would call back into itself. A forward
-  // the page replaces is no longer marked, and the window answers the page's
-  // value. The embedder marks its forwards with the non-enumerable
-  // `__rbWindowForward(fn)`; until it marks one, a Window member keeps
-  // coming from the host, as a forward it did not mark could be any of them,
-  // unless the page wrote it through the window (windowWrites).
-  const windowForwards = new WeakSet();
-  let windowForwardsMarked = false;
-  const windowWrites = new Set();
-  // One of this file's own forwards (the bare `event` and event handlers).
-  function windowForward(fn) {
-    windowForwards.add(fn);
-    return fn;
-  }
+  // The bridge's bare globals that stand for a Window member — `fetch`,
+  // `setTimeout`, `scrollY` — reach the window's own implementation through
+  // windowMember (below), never by reading the window. The window answers a
+  // property of globalThis as its own (windowOwnGlobal), so a forward that
+  // read `window.fetch` would read itself, and a page that saved the bare
+  // `fetch` and then replaced `window.fetch` with a wrapper calling it would
+  // recurse; reaching the implementation directly, a saved forward is what a
+  // saved native function is in a browser. An embedder declares that its
+  // forwards do so by passing each to the non-enumerable
+  // `__rbWindowForward(fn)`; until one does, its forwards may still read the
+  // window, so a Window member keeps coming from the host unless the page
+  // defined it on the window (windowDefinitions), as it did before.
+  let windowForwardsDirect = false;
+  const windowDefinitions = new Set();
   Object.defineProperty(globalThis, "__rbWindowForward", {
     value(fn) {
-      windowForwardsMarked = true;
-      return windowForward(fn);
+      windowForwardsDirect = true;
+      return fn;
     },
     writable: true, enumerable: false, configurable: true,
   });
 
+  // What the global window's own implementation answers for `name` — a host
+  // method or attribute, an unforgeable attribute of its target, a member of
+  // its prototype — without looking at globalThis: what a bare forward calls,
+  // as the non-enumerable `__rbWindowMember(name)`.
+  let answeringFromHost = false;
+  function windowMember(name) {
+    const w = globalThis.window;
+    if (w == null) return undefined;
+    const outer = answeringFromHost;
+    answeringFromHost = true;
+    try {
+      return w[name];
+    } finally {
+      answeringFromHost = outer;
+    }
+  }
+  Object.defineProperty(globalThis, "__rbWindowMember", {
+    value: windowMember, writable: true, enumerable: false, configurable: true,
+  });
+
   // A property of globalThis that the global window answers as its own: in a
-  // browser the window IS the global object, so a global the page made — or a
-  // Window member it replaced, by assignment or definition, through either
-  // name — is the window's property too. Not a forward (above), nor an event
-  // handler (the host registers the listener behind it).
-  function windowOwnGlobal(shape, prop) {
+  // browser the window IS the global object, so a global the page made, and a
+  // Window member — the bare forward standing for it, or what the page
+  // replaced it with through either name — is the window's property too. Not
+  // an event handler (the host registers the listener behind it), nor where
+  // the target has the name unforgeable (location, document).
+  function windowOwnGlobal(shape, t, prop) {
     if (isEventHandlerName(shape, prop)) return undefined;
     const d = Reflect.getOwnPropertyDescriptor(globalThis, prop);
     if (d === undefined) return undefined;
-    const unmarked = windowForwardsMarked || windowWrites.has(prop);
-    if (d.get !== undefined || d.set !== undefined) return unmarked && !windowForwards.has(d.get) ? d : undefined;
-    if (windowForwards.has(d.value) || (!unmarked && shape.methods.has(prop))) return undefined;
-    return d;
+    const own = Reflect.getOwnPropertyDescriptor(t, prop);
+    if (own !== undefined && !own.configurable && d.configurable) return undefined;
+    if (windowForwardsDirect || windowDefinitions.has(prop)) return d;
+    return d.get !== undefined || d.set !== undefined || shape.methods.has(prop) ? undefined : d;
   }
 
   const unforgeableGetters = new Map();
@@ -2993,7 +3011,7 @@ globalThis.__rbHost = (function () {
   function defineLegacyEventAccessor() {
     Object.defineProperty(globalThis, "event", {
       configurable: true, enumerable: false,
-      get: windowForward(function () { const w = globalThis.window; return w ? w.event : undefined; }),
+      get() { return windowMember("event"); },
     });
     defineGlobalEventHandlers();
   }
@@ -3008,7 +3026,7 @@ globalThis.__rbHost = (function () {
       if (Object.hasOwn(globalThis, name)) continue;
       Object.defineProperty(globalThis, name, {
         configurable: true, enumerable: true,
-        get: windowForward(function () { const w = globalThis.window; return w ? w[name] : undefined; }),
+        get() { const w = globalThis.window; return w ? w[name] : undefined; },
         set(v) { const w = globalThis.window; if (w) w[name] = v; },
       });
     }
@@ -3665,12 +3683,8 @@ globalThis.__rbHost = (function () {
     if (typeof prop !== "string" || !isGlobalWindow(handle) || isEventHandlerName(shape, prop)) return undefined;
     const d = Reflect.getOwnPropertyDescriptor(globalThis, prop);
     if (d === undefined) return undefined;
-    if ("value" in d) {
-      if (!Reflect.set(globalThis, prop, value)) return false;
-      windowWrites.add(prop);
-      return true;
-    }
-    if (windowOwnGlobal(shape, prop) === undefined) return undefined;
+    if ("value" in d) return Reflect.set(globalThis, prop, value);
+    if (windowOwnGlobal(shape, t, prop) === undefined) return undefined;
     return Reflect.set(globalThis, prop, value, receiver);
   }
 
@@ -3923,8 +3937,8 @@ globalThis.__rbHost = (function () {
       get(t, prop, receiver) {
         if (prop === HKEY) return handle;
         if (typeof prop === "symbol") return Reflect.get(t, prop, receiver);
-        if (isGlobalWindow(handle)) {
-          const d = windowOwnGlobal(shape, prop);
+        if (isGlobalWindow(handle) && !answeringFromHost) {
+          const d = windowOwnGlobal(shape, t, prop);
           if (d !== undefined) return "value" in d ? d.value : (d.get === undefined ? undefined : d.get.call(receiver));
           if (deletedGlobals.has(prop)) return undefined;
         }
@@ -4101,7 +4115,7 @@ globalThis.__rbHost = (function () {
           }
           if (!Reflect.defineProperty(globalThis, prop, desc)) return false;
           deletedGlobals.delete(prop);
-          windowWrites.add(prop);
+          windowDefinitions.add(prop);
           const defined = Reflect.getOwnPropertyDescriptor(globalThis, prop);
           if (defined.configurable) {
             if (own !== undefined) Reflect.deleteProperty(t, prop);
@@ -4152,7 +4166,7 @@ globalThis.__rbHost = (function () {
             // A named property behind it (`<div id=x>` after `window.x = 1;
             // delete window.x`) shows through again; the host does not resolve
             // it, so it needs no tombstone.
-            windowWrites.delete(prop);
+            windowDefinitions.delete(prop);
             if (!(named && named.global && isNamedKey(prop)) && hostResolves(prop)) deletedGlobals.add(prop);
             Reflect.deleteProperty(t, prop);
           }
@@ -4818,7 +4832,7 @@ globalThis.__rbHost = (function () {
 
   return {
     makeProxy, invokeCallback, invokeJsRefHandleEvent, invokeJsRefAcceptNode, runScript, scheduleMicrotask,
-    bumpDomEpoch, windowForward,
+    bumpDomEpoch, windowMember,
     // `tag` is the public top-level dehydrate (used by engine gems' eval_tagged
     // for evaluate() results): it tags a top-level `undefined` so
     // `evaluate("undefined")` yields UNDEFINED on every engine, not just those
