@@ -847,8 +847,10 @@
     value: "Observable", configurable: true,
   });
 
-  globalThis.Observable = Observable;
-  globalThis.Subscriber = Subscriber;
+  // Interface objects: non-enumerable globals, as WebIDL defines them.
+  for (const [name, value] of [["Observable", Observable], ["Subscriber", Subscriber]]) {
+    Object.defineProperty(globalThis, name, { value, writable: true, enumerable: false, configurable: true });
+  }
 
   // EventTarget.prototype.when(type, options) → Observable of events.
   if (typeof globalThis.EventTarget === "function") {
@@ -871,11 +873,15 @@
     // Where the global object is not the window itself (it forwards the
     // window's EventTarget methods), the bare `when` / `self.when` is the
     // window's too.
-    // (The window may not be installed yet: it is looked up at the call.)
+    // (The window may not be installed yet: it is looked up at the call.) It
+    // reaches the window's own `when` (windowMember), not whatever the window
+    // answers for the name, which is this function itself.
     if (!(globalThis instanceof EventTarget) && !("when" in globalThis)) {
       Object.defineProperty(globalThis, "when", {
         configurable: true, writable: true,
-        value: function when(type, options) { return globalThis.window.when(type, options); },
+        value: function when(type, options) {
+          return globalThis.__rbHost.windowMember("when").call(globalThis.window, type, options);
+        },
       });
     }
   }

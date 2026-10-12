@@ -457,7 +457,14 @@ module Dommy
         @backend.define_host_function("__rb_run_microtask") do |id|
           @profile.count(:__rb_run_microtask)
           callback = @microtask_procs.delete(id)
-          callback&.call
+          # A Ruby proc (MutationObserver delivery) or a JS function the page
+          # queued with window.queueMicrotask. What a JS one throws is reported
+          # at the window, as HTML's microtask callback steps do.
+          begin
+            CallableInvoker.invoke_raising(callback) if callback
+          rescue Dommy::Bridge::ThrowValue => e
+            Internal::ExceptionReport.report_at(@window, e) if @window
+          end
           nil
         end
         # Opt-in rejection diagnostics: __rbHost.installRejectionTracker (only run

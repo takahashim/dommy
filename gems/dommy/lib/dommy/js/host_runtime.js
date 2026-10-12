@@ -29,6 +29,10 @@ globalThis.__rbHost = (function () {
   // later length-shrinking mutation (pop/shift/splice) does `symbol >= newLen`
   // and throws "cannot convert symbol to number". A WeakMap lookup is pure.
   const proxyHandles = new WeakMap(); // proxy -> handle (identity, trap-free)
+  // proxy -> its target, for the bridge's own definitions on a window (the
+  // mirrored constructors), which must land on the target rather than go
+  // through the defineProperty trap that makes a page's definition a global.
+  const proxyTargets = new WeakMap();
   // proxy -> the interface name it was built for. A Ruby object can be freed and
   // its handle id reused for a DIFFERENT object, so a cached proxy is only
   // trustworthy while it still describes the same interface — otherwise the new
@@ -63,6 +67,64 @@ globalThis.__rbHost = (function () {
     const w = globalThis.window;
     return w != null && proxyHandles.get(w) === handle;
   };
+
+  // The bridge's bare globals that stand for a Window member — `fetch`,
+  // `setTimeout`, `scrollY` — reach the window's own implementation through
+  // windowMember (below), never by reading the window. The window answers a
+  // property of globalThis as its own (windowOwnGlobal), so a forward that
+  // read `window.fetch` would read itself, and a page that saved the bare
+  // `fetch` and then replaced `window.fetch` with a wrapper calling it would
+  // recurse; reaching the implementation directly, a saved forward is what a
+  // saved native function is in a browser. An embedder declares that its
+  // forwards do so by passing each to the non-enumerable
+  // `__rbWindowForward(fn)`; until one does, its forwards may still read the
+  // window, so a Window member keeps coming from the host unless the page
+  // defined it on the window (windowDefinitions), as it did before.
+  let windowForwardsDirect = false;
+  const windowDefinitions = new Set();
+  Object.defineProperty(globalThis, "__rbWindowForward", {
+    value(fn) {
+      windowForwardsDirect = true;
+      return fn;
+    },
+    writable: true, enumerable: false, configurable: true,
+  });
+
+  // What the global window's own implementation answers for `name` — a host
+  // method or attribute, an unforgeable attribute of its target, a member of
+  // its prototype — without looking at globalThis: what a bare forward calls,
+  // as the non-enumerable `__rbWindowMember(name)`.
+  let answeringFromHost = false;
+  function windowMember(name) {
+    const w = globalThis.window;
+    if (w == null) return undefined;
+    const outer = answeringFromHost;
+    answeringFromHost = true;
+    try {
+      return w[name];
+    } finally {
+      answeringFromHost = outer;
+    }
+  }
+  Object.defineProperty(globalThis, "__rbWindowMember", {
+    value: windowMember, writable: true, enumerable: false, configurable: true,
+  });
+
+  // A property of globalThis that the global window answers as its own: in a
+  // browser the window IS the global object, so a global the page made, and a
+  // Window member — the bare forward standing for it, or what the page
+  // replaced it with through either name — is the window's property too. Not
+  // an event handler (the host registers the listener behind it), nor where
+  // the target has the name unforgeable (location, document).
+  function windowOwnGlobal(shape, t, prop) {
+    if (isEventHandlerName(shape, prop)) return undefined;
+    const d = Reflect.getOwnPropertyDescriptor(globalThis, prop);
+    if (d === undefined) return undefined;
+    const own = Reflect.getOwnPropertyDescriptor(t, prop);
+    if (own !== undefined && !own.configurable && d.configurable) return undefined;
+    if (windowForwardsDirect || windowDefinitions.has(prop)) return d;
+    return d.get !== undefined || d.set !== undefined || shape.methods.has(prop) ? undefined : d;
+  }
 
   const unforgeableGetters = new Map();
   function unforgeableGetter(name) {
@@ -2712,10 +2774,10 @@ globalThis.__rbHost = (function () {
       }
     }
     lazyChains.delete(name);
-    if (lazyGlobals.delete(name)) {
-      Object.defineProperty(globalThis, name, { value: ctor, writable: true, enumerable: true, configurable: true });
-    } else if (!(name in globalThis)) {
-      globalThis[name] = ctor;
+    // An interface object is a writable, non-enumerable, configurable global
+    // (WebIDL).
+    if (lazyGlobals.delete(name) || !(name in globalThis)) {
+      Object.defineProperty(globalThis, name, { value: ctor, writable: true, enumerable: false, configurable: true });
     }
     protos.set(name, proto);
     if (staticNames !== null) attachStaticsTo(name, ctor, staticNames[name]);
@@ -2754,21 +2816,23 @@ globalThis.__rbHost = (function () {
   // A global that builds its value the first time it is read, then becomes an
   // ordinary data property holding it. Assigning it first replaces it, as
   // assigning any global does.
+  // Interface objects and legacy factory functions are its only users, so it
+  // is non-enumerable as WebIDL has them.
   function defineLazyGlobal(name, build) {
     lazyGlobals.add(name);
     Object.defineProperty(globalThis, name, {
       get() {
         const value = build();
         if (lazyGlobals.delete(name)) {
-          Object.defineProperty(globalThis, name, { value, writable: true, enumerable: true, configurable: true });
+          Object.defineProperty(globalThis, name, { value, writable: true, enumerable: false, configurable: true });
         }
         return value;
       },
       set(value) {
         lazyGlobals.delete(name);
-        Object.defineProperty(globalThis, name, { value, writable: true, enumerable: true, configurable: true });
+        Object.defineProperty(globalThis, name, { value, writable: true, enumerable: false, configurable: true });
       },
-      enumerable: true,
+      enumerable: false,
       configurable: true,
     });
   }
@@ -2832,6 +2896,7 @@ globalThis.__rbHost = (function () {
     // `instanceof` and `doc.defaultView.X` in iframe documents.
     const w = target || globalThis.window;
     if (!w) return;
+    const own = proxyTargets.get(w) || w;
     // The bare `customElements` is the window's registry, the same object as
     // `window.customElements` ([Replaceable]: an assignment replaces it).
     if (!target) {
@@ -2862,13 +2927,13 @@ globalThis.__rbHost = (function () {
       // the global the first time it is read, then holds it as a value.
       if (lazyGlobals.has(name)) {
         try {
-          Object.defineProperty(w, name, {
+          Object.defineProperty(own, name, {
             get() {
               const value = globalThis[name];
-              Object.defineProperty(w, name, { value, configurable: true, writable: true });
+              Object.defineProperty(own, name, { value, configurable: true, writable: true });
               return value;
             },
-            set(value) { Object.defineProperty(w, name, { value, configurable: true, writable: true }); },
+            set(value) { Object.defineProperty(own, name, { value, configurable: true, writable: true }); },
             configurable: true,
           });
         } catch (e) { /* non-configurable / frozen — leave as-is */ }
@@ -2890,7 +2955,7 @@ globalThis.__rbHost = (function () {
         // replaced unconditionally rather than only when it isn't already a
         // function — else `new cw.Event(...)` throws "not a constructor".
         if (current == null || interfaceNames.has(name)) {
-          Object.defineProperty(w, name, { value: ctor, configurable: true, writable: true });
+          Object.defineProperty(own, name, { value: ctor, configurable: true, writable: true });
         }
       } catch (e) { /* non-configurable / frozen — leave as-is */ }
     }
@@ -2907,14 +2972,24 @@ globalThis.__rbHost = (function () {
     for (const name of JS_GLOBALS) {
       if (!(name in globalThis)) continue;
       try {
-        Object.defineProperty(w, name, { value: globalThis[name], configurable: true, writable: true });
+        Object.defineProperty(own, name, { value: globalThis[name], configurable: true, writable: true });
       } catch (e) { /* non-configurable / frozen — leave as-is */ }
     }
   }
 
   // Bind a bridged Ruby object to a JS global (the bridge's define_host_object).
+  // `window` and `document` are the window's [LegacyUnforgeable] readonly
+  // attributes: an assignment to the bare name leaves them (a strict-mode one
+  // throws). They stay configurable so a host can bind them again (a fresh
+  // document per WPT file in a reused VM).
+  const UNFORGEABLE_GLOBALS = new Set(["window", "document"]);
   function defineGlobal(name, handle) {
-    globalThis[name] = makeProxy(handle);
+    const value = makeProxy(handle);
+    if (UNFORGEABLE_GLOBALS.has(name)) {
+      Object.defineProperty(globalThis, name, { value, writable: false, enumerable: true, configurable: true });
+    } else {
+      globalThis[name] = value;
+    }
   }
 
   // Expose the seeded constructors on a secondary window — an iframe's
@@ -2936,7 +3011,7 @@ globalThis.__rbHost = (function () {
   function defineLegacyEventAccessor() {
     Object.defineProperty(globalThis, "event", {
       configurable: true, enumerable: false,
-      get() { const w = globalThis.window; return w ? w.event : undefined; },
+      get() { return windowMember("event"); },
     });
     defineGlobalEventHandlers();
   }
@@ -3598,6 +3673,21 @@ globalThis.__rbHost = (function () {
     return true;
   }
 
+  // The global window: a write to a property of globalThis it answers as its
+  // own (see windowOwnGlobal), or to a bare forward the bridge put there for a
+  // Window member (`window.fetch = f` replaces the bare `fetch`), is a write
+  // to globalThis — a data property's value, or an accessor's setter with the
+  // window as `this`. A forward accessor keeps routing to the host (an
+  // assignment to `location` navigates).
+  function setWindowOwnGlobal(handle, shape, t, prop, value, receiver) {
+    if (typeof prop !== "string" || !isGlobalWindow(handle) || isEventHandlerName(shape, prop)) return undefined;
+    const d = Reflect.getOwnPropertyDescriptor(globalThis, prop);
+    if (d === undefined) return undefined;
+    if ("value" in d) return Reflect.set(globalThis, prop, value);
+    if (windowOwnGlobal(shape, t, prop) === undefined) return undefined;
+    return Reflect.set(globalThis, prop, value, receiver);
+  }
+
   // The global window: a write to a name the host doesn't already resolve
   // becomes a JS global (`window.X = …` ≡ `globalThis.X = …`), so window-attached
   // and globalThis-attached globals converge on ONE storage. A host-resolved
@@ -3630,6 +3720,7 @@ globalThis.__rbHost = (function () {
     rejectIndexedWrite,
     rejectNamedWrite,
     setJsExpando,
+    setWindowOwnGlobal,
     setWindowGlobal,
   ];
 
@@ -3835,11 +3926,22 @@ globalThis.__rbHost = (function () {
     // would resurrect the host-backed constructor on the next read. Re-assigning
     // the name clears the tombstone. Only the global window is affected.
     const deletedGlobals = new Set();
+    // Whether the host answers `prop` here, so that a global deleted under
+    // that name needs a tombstone.
+    const hostResolves = (prop) => {
+      if (methods.has(prop)) return true;
+      const raw = __rb_host_get(handle, prop);
+      return raw !== null && !(typeof raw === "object" && raw.__rb_absent === true);
+    };
     return {
       get(t, prop, receiver) {
         if (prop === HKEY) return handle;
         if (typeof prop === "symbol") return Reflect.get(t, prop, receiver);
-        if (typeof prop === "string" && isGlobalWindow(handle) && deletedGlobals.has(prop)) return undefined;
+        if (isGlobalWindow(handle) && !answeringFromHost) {
+          const d = windowOwnGlobal(shape, t, prop);
+          if (d !== undefined) return "value" in d ? d.value : (d.get === undefined ? undefined : d.get.call(receiver));
+          if (deletedGlobals.has(prop)) return undefined;
+        }
         if (Object.hasOwn(t, prop)) return Reflect.get(t, prop, receiver);
         // [LegacyOverrideBuiltIns] (HTMLFormElement): a named control shadows the
         // prototype's methods AND accessors, so resolve it before either. An own
@@ -3967,16 +4069,20 @@ globalThis.__rbHost = (function () {
       // Named properties (HTMLCollection ids/names, dataset keys, attr names)
       // are reflected too — non-enumerable for [LegacyUnenumerableNamedProperties].
       getOwnPropertyDescriptor(t, prop) {
-        if (typeof prop === "string" && isGlobalWindow(handle) && deletedGlobals.has(prop)) return undefined;
-        if (typeof prop !== "symbol" && Object.hasOwn(t, prop)) return Reflect.getOwnPropertyDescriptor(t, prop);
-        // The global window reflects JS globals as own properties. Clamp
-        // configurable (a top-level `var` is non-configurable on globalThis,
-        // but the proxy invariant forbids reporting non-configurable for a
-        // prop absent from the target).
-        if (typeof prop !== "symbol" && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) {
+        // The global window reflects globalThis's properties as its own, ahead
+        // of a mirror on the target. One the target has non-configurable — an
+        // unforgeable attribute, or a global defined so (see defineProperty) —
+        // is reported so, as a proxy must; any other is configurable, as only
+        // the target's own properties may be reported otherwise (a top-level
+        // `var` is non-configurable on globalThis).
+        if (typeof prop === "string" && isGlobalWindow(handle)) {
+          const own = Reflect.getOwnPropertyDescriptor(t, prop);
           const d = Reflect.getOwnPropertyDescriptor(globalThis, prop);
-          if (d) { d.configurable = true; return d; }
+          if (own !== undefined && !own.configurable) return d !== undefined && !d.configurable ? d : own;
+          if (d !== undefined) { d.configurable = true; return d; }
+          if (deletedGlobals.has(prop)) return undefined;
         }
+        if (typeof prop !== "symbol" && Object.hasOwn(t, prop)) return Reflect.getOwnPropertyDescriptor(t, prop);
         if (isIndexInRange(prop)) {
           // Indexed properties are enumerable + configurable but NOT writable
           // (these collections have no indexed property setter).
@@ -3994,6 +4100,30 @@ globalThis.__rbHost = (function () {
         return Reflect.getOwnPropertyDescriptor(t, prop);
       },
       defineProperty(t, prop, desc) {
+        // A property defined on the global window is a global (the window IS
+        // the global object in a browser), so the bare name resolves to it. One
+        // the target has non-configurable and globalThis does not (an
+        // unforgeable attribute) stays the target's. A global defined
+        // non-configurable is mirrored on the target, as a proxy may report a
+        // property non-configurable only if its target has it so; the target's
+        // other copy goes once globalThis has taken the definition.
+        if (typeof prop === "string" && isGlobalWindow(handle) && !isEventHandlerName(shape, prop)) {
+          const own = Reflect.getOwnPropertyDescriptor(t, prop);
+          const global = Reflect.getOwnPropertyDescriptor(globalThis, prop);
+          if (own !== undefined && !own.configurable && (global === undefined || global.configurable)) {
+            return Reflect.defineProperty(t, prop, desc);
+          }
+          if (!Reflect.defineProperty(globalThis, prop, desc)) return false;
+          deletedGlobals.delete(prop);
+          windowDefinitions.add(prop);
+          const defined = Reflect.getOwnPropertyDescriptor(globalThis, prop);
+          if (defined.configurable) {
+            if (own !== undefined) Reflect.deleteProperty(t, prop);
+          } else {
+            Reflect.defineProperty(t, prop, defined);
+          }
+          return true;
+        }
         if (typeof prop === "string" && deletedGlobals.has(prop)) deletedGlobals.delete(prop);
         // Cannot redefine a live indexed or read-only named property.
         if (arrayLike && isArrayIndex(prop)) return false;
@@ -4020,8 +4150,11 @@ globalThis.__rbHost = (function () {
       setPrototypeOf(t, proto) {
         return fixedShape ? proto === Reflect.getPrototypeOf(t) : Reflect.setPrototypeOf(t, proto);
       },
+      // A window refuses too: HTML's WindowProxy [[PreventExtensions]] returns
+      // false, and the global window's own keys include globalThis's, which a
+      // non-extensible target could not report.
       preventExtensions(t) {
-        return fixedShape ? false : Reflect.preventExtensions(t);
+        return fixedShape || shape.name === "Window" ? false : Reflect.preventExtensions(t);
       },
       deleteProperty(t, prop) {
         // The global window: deleting a JS global through the window drops it
@@ -4033,7 +4166,8 @@ globalThis.__rbHost = (function () {
             // A named property behind it (`<div id=x>` after `window.x = 1;
             // delete window.x`) shows through again; the host does not resolve
             // it, so it needs no tombstone.
-            if (!(named && named.global && isNamedKey(prop))) deletedGlobals.add(prop);
+            windowDefinitions.delete(prop);
+            if (!(named && named.global && isNamedKey(prop)) && hostResolves(prop)) deletedGlobals.add(prop);
             Reflect.deleteProperty(t, prop);
           }
           return removed;
@@ -4054,6 +4188,15 @@ globalThis.__rbHost = (function () {
       },
       ownKeys(t) {
         const keys = Reflect.ownKeys(t);
+        // The global window's own keys are globalThis's too (see
+        // getOwnPropertyDescriptor), less the bridge's internal names.
+        if (isGlobalWindow(handle)) {
+          const seen = new Set(keys);
+          for (const k of Reflect.ownKeys(globalThis)) {
+            if (typeof k === "string" && !seen.has(k) && !k.startsWith("__rb")) keys.push(k);
+          }
+          return keys;
+        }
         // (A [Global]'s named properties are not its own: see `named.global`.)
         if (!arrayLike && (!named || named.global)) return keys;
         const n = arrayLike ? liveLength() : 0;
@@ -4071,7 +4214,11 @@ globalThis.__rbHost = (function () {
         return result;
       },
       has(t, prop) {
-        if (typeof prop === "string" && isGlobalWindow(handle) && deletedGlobals.has(prop)) return false;
+        // The global window has its JS globals (`"Stimulus" in window`).
+        if (typeof prop === "string" && isGlobalWindow(handle)) {
+          if (Object.hasOwn(globalThis, prop)) return true;
+          if (deletedGlobals.has(prop)) return false;
+        }
         // An out-of-range index on an array-like is genuinely absent (`2 in
         // nodeList` is false past its length). A supported named key is present.
         if (arrayLike && isArrayIndex(prop)) return Number(prop) < liveLength() || Reflect.has(t, prop);
@@ -4084,9 +4231,6 @@ globalThis.__rbHost = (function () {
         // and History answer it from the host below, and `"length" in div`
         // or in a URLSearchParams is false, as it is in a browser.)
         if (methods.has(prop)) return true;
-        // The global window also reports its JS globals (`"Stimulus" in window`);
-        // inherited names already answered true via Reflect.has(t) above.
-        if (isGlobalWindow(handle) && Object.hasOwn(globalThis, prop)) return true;
         // Event-handler IDL attributes (onclick, oninput, …) the object's
         // interfaces declare exist as null-default properties, so
         // `("oninput" in document)` is true even when unset — React's
@@ -4159,6 +4303,7 @@ globalThis.__rbHost = (function () {
     const p = new Proxy(target, makeHandler(handle, shape, new Map()));
     cache.set(handle, new WeakRef(p));
     proxyHandles.set(p, handle);
+    proxyTargets.set(p, target);
     proxyInterfaces.set(p, desc.name);
     // A DOM node's JS wrapper must be STABLE for the node's lifetime, exactly as
     // in a browser (same node -> the same object every time). Otherwise an
@@ -4605,7 +4750,7 @@ globalThis.__rbHost = (function () {
   Object.defineProperty(cssProto, "size", {
     get: function size() { return customStateSetOf(this).set.size; }, enumerable: true, configurable: true,
   });
-  globalThis.CustomStateSet = CustomStateSet;
+  Object.defineProperty(globalThis, "CustomStateSet", { value: CustomStateSet, writable: true, enumerable: false, configurable: true });
 
   // ElementInternals.prototype.states ([SameObject]).
   function installElementInternalsStates(proto) {
@@ -4687,7 +4832,7 @@ globalThis.__rbHost = (function () {
 
   return {
     makeProxy, invokeCallback, invokeJsRefHandleEvent, invokeJsRefAcceptNode, runScript, scheduleMicrotask,
-    bumpDomEpoch,
+    bumpDomEpoch, windowMember,
     // `tag` is the public top-level dehydrate (used by engine gems' eval_tagged
     // for evaluate() results): it tags a top-level `undefined` so
     // `evaluate("undefined")` yields UNDEFINED on every engine, not just those
