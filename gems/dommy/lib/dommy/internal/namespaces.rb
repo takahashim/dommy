@@ -47,65 +47,67 @@ module Dommy
       # whitespace, NULL, U+003E (>).
       DOCTYPE_FORBIDDEN = Regexp.new("[\\u0000\\u0009\\u000A\\u000C\\u000D\\u0020>]")
 
-      module_function
-
-      def valid_namespace_prefix?(str)
-        !str.empty? && !str.match?(LOCAL_FORBIDDEN)
-      end
-
-      def valid_attribute_local_name?(str)
-        !str.empty? && !str.match?(ATTRIBUTE_LOCAL_FORBIDDEN)
-      end
-
-      def valid_element_local_name?(str)
-        str.match?(ELEMENT_LOCAL_NAME)
-      end
-
-      def valid_doctype_name?(str)
-        !str.match?(DOCTYPE_FORBIDDEN)
-      end
-
-      # https://dom.spec.whatwg.org/#validate-and-extract
-      # Returns [namespace_or_nil, prefix_or_nil, local_name]. Raises
-      # DOMException (InvalidCharacterError / NamespaceError) on bad input.
-      #
-      # The prefix must be a valid namespace prefix, and the local name a valid
-      # element local name (`context: :element` — createElementNS,
-      # createDocument) or a valid attribute local name (`context: :attribute`,
-      # the default — createAttributeNS, setAttributeNS).
-      def validate_and_extract(namespace, qualified_name, context: :attribute)
-        ns = namespace.to_s
-        ns = nil if ns.empty?
-        qname = qualified_name.to_s
-
-        prefix = nil
-        local = qname
-        if qname.include?(":")
-          # Split on the FIRST colon: any further colons stay in the local part
-          # (e.g. "f:o:o" → prefix "f", local "o:o").
-          prefix, local = qname.split(":", 2)
+      class << self
+        def valid_attribute_local_name?(str)
+          !str.empty? && !str.match?(ATTRIBUTE_LOCAL_FORBIDDEN)
         end
 
-        if prefix && !valid_namespace_prefix?(prefix)
-          raise DOMException::InvalidCharacterError, "invalid namespace prefix: #{prefix.inspect}"
-        end
-        valid_local = context == :element ? valid_element_local_name?(local) : valid_attribute_local_name?(local)
-        raise DOMException::InvalidCharacterError, "invalid local name: #{local.inspect}" unless valid_local
-
-        if prefix && ns.nil?
-          raise DOMException::NamespaceError, "prefix #{prefix.inspect} with null namespace"
-        end
-        if prefix == "xml" && ns != XML
-          raise DOMException::NamespaceError, "prefix 'xml' must use the XML namespace"
-        end
-        if (qname == "xmlns" || prefix == "xmlns") && ns != XMLNS
-          raise DOMException::NamespaceError, "'xmlns' must use the XMLNS namespace"
-        end
-        if ns == XMLNS && qname != "xmlns" && prefix != "xmlns"
-          raise DOMException::NamespaceError, "the XMLNS namespace requires the 'xmlns' name/prefix"
+        def valid_element_local_name?(str)
+          str.match?(ELEMENT_LOCAL_NAME)
         end
 
-        [ns, prefix, local]
+        def valid_doctype_name?(str)
+          !str.match?(DOCTYPE_FORBIDDEN)
+        end
+
+        # https://dom.spec.whatwg.org/#validate-and-extract
+        # Returns [namespace_or_nil, prefix_or_nil, local_name]. Raises
+        # DOMException (InvalidCharacterError / NamespaceError) on bad input.
+        #
+        # The prefix must be a valid namespace prefix, and the local name a valid
+        # element local name (`context: :element` — createElementNS,
+        # createDocument) or a valid attribute local name (`context: :attribute`,
+        # the default — createAttributeNS, setAttributeNS).
+        def validate_and_extract(namespace, qualified_name, context: :attribute)
+          ns = namespace.to_s
+          ns = nil if ns.empty?
+          qname = qualified_name.to_s
+
+          prefix = nil
+          local = qname
+          if qname.include?(":")
+            # Split on the FIRST colon: any further colons stay in the local part
+            # (e.g. "f:o:o" → prefix "f", local "o:o").
+            prefix, local = qname.split(":", 2)
+          end
+
+          if prefix && !valid_namespace_prefix?(prefix)
+            raise DOMException::InvalidCharacterError, "invalid namespace prefix: #{prefix.inspect}"
+          end
+          valid_local = context == :element ? valid_element_local_name?(local) : valid_attribute_local_name?(local)
+          raise DOMException::InvalidCharacterError, "invalid local name: #{local.inspect}" unless valid_local
+
+          if prefix && ns.nil?
+            raise DOMException::NamespaceError, "prefix #{prefix.inspect} with null namespace"
+          end
+          if prefix == "xml" && ns != XML
+            raise DOMException::NamespaceError, "prefix 'xml' must use the XML namespace"
+          end
+          if (qname == "xmlns" || prefix == "xmlns") && ns != XMLNS
+            raise DOMException::NamespaceError, "'xmlns' must use the XMLNS namespace"
+          end
+          if ns == XMLNS && qname != "xmlns" && prefix != "xmlns"
+            raise DOMException::NamespaceError, "the XMLNS namespace requires the 'xmlns' name/prefix"
+          end
+
+          [ns, prefix, local]
+        end
+
+        private
+
+        def valid_namespace_prefix?(str)
+          !str.empty? && !str.match?(LOCAL_FORBIDDEN)
+        end
       end
     end
   end

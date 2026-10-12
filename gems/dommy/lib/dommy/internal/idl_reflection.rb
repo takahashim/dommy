@@ -87,115 +87,117 @@ module Dommy
 
       SETTER_TYPES = %i[setter_only long_setter ulong_setter double_setter].freeze
 
-      module_function
-
-      # { idlName => { type:, attr:, options: } } for one interface: the table's
-      # entries with the overlay applied, plus the overlay's prose-only ones.
-      def declarations_for(interface)
-        @declarations ||= {}
-        @declarations[interface] ||= begin
-          out = {}
-          TABLE.fetch(interface, {}).each do |name, entry|
-            out[name] = declaration(entry, name)
-          end
-          OVERLAY.each do |key, overlay|
-            owner, name = key.split(".", 2)
-            next unless owner == interface
-
-            base = out[name] || { type: nil, attr: name.downcase, options: {} }
-            out[name] = {
-              type: overlay.fetch(:type),
-              attr: overlay.fetch(:attr, base[:attr]),
-              options: base[:options].merge(overlay.except(:type, :attr)).freeze
-            }.freeze
-          end
-          out.freeze
+      class << self
+        # The declaration the audit expects for "Interface.idlName", or nil when
+        # the spec does not reflect it (neither the IDL nor the overlay).
+        def expected(interface, name)
+          declarations_for(interface)[name]
         end
-      end
 
-      # The declaration one table entry stands for.
-      def declaration(entry, name)
-        type =
-          case entry[:shape]
-          when :url then :url
-          when :setter then SETTER_FOR_IDL[entry[:idl]]
-          else TYPE_FOR_IDL[entry[:idl]]
-          end
-        { type: type, attr: entry[:attr] || name.downcase, options: options_for(entry) }.freeze
-      end
-
-      # The numeric parameters, spelled as the reflect_* options spell them.
-      def options_for(entry)
-        options = {}
-        options[:default] = entry[:default] if entry.key?(:default)
-        options[:default] = options[:default].to_f if options.key?(:default) && entry[:idl] == "double"
-        options[:range] = entry[:range] if entry.key?(:range)
-        options[:non_negative] = true if entry[:non_negative]
-        options[:positive] = true if entry[:positive] || entry[:positive_with_fallback]
-        options[:fallback] = true if entry[:positive_with_fallback]
-        options.freeze
-      end
-
-      # The declaration the audit expects for "Interface.idlName", or nil when
-      # the spec does not reflect it (neither the IDL nor the overlay).
-      def expected(interface, name)
-        declarations_for(interface)[name]
-      end
-
-      # Every element class that takes reflect_* declarations, given the
-      # reflection its interface declares and the class has not.
-      def install_all!(root = Dommy::HTMLElement)
-        each_class(root) { |klass| install(klass) }
-      end
-
-      def each_class(klass, &block)
-        yield klass
-        klass.subclasses.sort_by { |sub| sub.name.to_s }.each { |sub| each_class(sub, &block) }
-      end
-
-      # The class's own interface (`Dommy::HTMLAnchorElement` →
-      # "HTMLAnchorElement") — only its OWN interface's attributes: an
-      # inherited interface's are its superclass's to declare.
-      def install(klass, interface = klass.name&.split("::")&.last)
-        return unless interface
-
-        declarations_for(interface).each do |name, declaration|
-          type = declaration[:type]
-          next unless INSTALLABLE.include?(type)
-          next if klass.reflect_specs.key?(name)
-
-          ruby_name = ruby_name_for(name)
-          getter = own_method?(klass, ruby_name)
-          setter = own_method?(klass, :"#{ruby_name}=")
-          # Registered for the bridge by hand (js_accessor) to an accessor the
-          # class has written: that accessor is its answer.
-          next if klass.reflected_property_map.key?(name) && getter
-          if SETTER_TYPES.include?(type)
-            # [ReflectSetter]: the getter is prose, so only a class that has
-            # written one gets the setter (and the bridge registration) here.
-            next unless getter && !setter
-          elsif getter || setter
-            # A hand-written accessor of that name is the class's own answer.
-            next
-          end
-
-          klass.__send__(:_reflect, type, [], { ruby_name => declaration[:options].merge(attr: declaration[:attr], js: name) },
-                          generated: true)
+        # Every element class that takes reflect_* declarations, given the
+        # reflection its interface declares and the class has not.
+        def install_all!(root = Dommy::HTMLElement)
+          each_class(root) { |klass| install(klass) }
         end
-      end
 
-      # Whether a Dommy class or module in the ancestry defines `name` — not
-      # Kernel's `open` or Object's `display`, which say nothing about the
-      # element.
-      def own_method?(klass, name)
-        return false unless klass.method_defined?(name) || klass.private_method_defined?(name)
+        private
 
-        klass.instance_method(name).owner.name.to_s.start_with?("Dommy")
-      end
+        # { idlName => { type:, attr:, options: } } for one interface: the table's
+        # entries with the overlay applied, plus the overlay's prose-only ones.
+        def declarations_for(interface)
+          @declarations ||= {}
+          @declarations[interface] ||= begin
+            out = {}
+            TABLE.fetch(interface, {}).each do |name, entry|
+              out[name] = declaration(entry, name)
+            end
+            OVERLAY.each do |key, overlay|
+              owner, name = key.split(".", 2)
+              next unless owner == interface
 
-      # `bgColor` → :bg_color, `aLink` → :a_link, `imageSrcset` → :image_srcset.
-      def ruby_name_for(name)
-        name.gsub(/([A-Z])/) { "_#{::Regexp.last_match(1).downcase}" }.to_sym
+              base = out[name] || { type: nil, attr: name.downcase, options: {} }
+              out[name] = {
+                type: overlay.fetch(:type),
+                attr: overlay.fetch(:attr, base[:attr]),
+                options: base[:options].merge(overlay.except(:type, :attr)).freeze
+              }.freeze
+            end
+            out.freeze
+          end
+        end
+
+        # The declaration one table entry stands for.
+        def declaration(entry, name)
+          type =
+            case entry[:shape]
+            when :url then :url
+            when :setter then SETTER_FOR_IDL[entry[:idl]]
+            else TYPE_FOR_IDL[entry[:idl]]
+            end
+          { type: type, attr: entry[:attr] || name.downcase, options: options_for(entry) }.freeze
+        end
+
+        # The numeric parameters, spelled as the reflect_* options spell them.
+        def options_for(entry)
+          options = {}
+          options[:default] = entry[:default] if entry.key?(:default)
+          options[:default] = options[:default].to_f if options.key?(:default) && entry[:idl] == "double"
+          options[:range] = entry[:range] if entry.key?(:range)
+          options[:non_negative] = true if entry[:non_negative]
+          options[:positive] = true if entry[:positive] || entry[:positive_with_fallback]
+          options[:fallback] = true if entry[:positive_with_fallback]
+          options.freeze
+        end
+
+        def each_class(klass, &block)
+          yield klass
+          klass.subclasses.sort_by { |sub| sub.name.to_s }.each { |sub| each_class(sub, &block) }
+        end
+
+        # The class's own interface (`Dommy::HTMLAnchorElement` →
+        # "HTMLAnchorElement") — only its OWN interface's attributes: an
+        # inherited interface's are its superclass's to declare.
+        def install(klass, interface = klass.name&.split("::")&.last)
+          return unless interface
+
+          declarations_for(interface).each do |name, declaration|
+            type = declaration[:type]
+            next unless INSTALLABLE.include?(type)
+            next if klass.reflect_specs.key?(name)
+
+            ruby_name = ruby_name_for(name)
+            getter = own_method?(klass, ruby_name)
+            setter = own_method?(klass, :"#{ruby_name}=")
+            # Registered for the bridge by hand (js_accessor) to an accessor the
+            # class has written: that accessor is its answer.
+            next if klass.reflected_property_map.key?(name) && getter
+            if SETTER_TYPES.include?(type)
+              # [ReflectSetter]: the getter is prose, so only a class that has
+              # written one gets the setter (and the bridge registration) here.
+              next unless getter && !setter
+            elsif getter || setter
+              # A hand-written accessor of that name is the class's own answer.
+              next
+            end
+
+            klass.__send__(:_reflect, type, [], { ruby_name => declaration[:options].merge(attr: declaration[:attr], js: name) },
+                            generated: true)
+          end
+        end
+
+        # Whether a Dommy class or module in the ancestry defines `name` — not
+        # Kernel's `open` or Object's `display`, which say nothing about the
+        # element.
+        def own_method?(klass, name)
+          return false unless klass.method_defined?(name) || klass.private_method_defined?(name)
+
+          klass.instance_method(name).owner.name.to_s.start_with?("Dommy")
+        end
+
+        # `bgColor` → :bg_color, `aLink` → :a_link, `imageSrcset` → :image_srcset.
+        def ruby_name_for(name)
+          name.gsub(/([A-Z])/) { "_#{::Regexp.last_match(1).downcase}" }.to_sym
+        end
       end
     end
   end

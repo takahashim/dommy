@@ -53,60 +53,6 @@ module Dommy
       # a race can cause, matching the existing per-document caches.
       AST_CACHE_CAP = 2048
 
-      module_function
-
-      # `namespaces` maps a prefix String to its URI (with the symbol key
-      # :default for the default namespace), letting `svg|rect` resolve in a
-      # stylesheet that declared `@namespace`. nil/empty (the DOM querySelector
-      # path) keeps any named prefix undeclared — a SyntaxError, as before.
-      def parse!(selector, namespaces: nil)
-        key = [selector.to_s, namespaces]
-        cache = (@ast_cache ||= {})
-        if cache.key?(key)
-          cached = cache[key]
-          # An invalid selector is memoized as its SyntaxError so a repeat still
-          # throws (the message embeds the selector, so re-raising is exact).
-          raise cached if cached.is_a?(::Dommy::DOMException::SyntaxError)
-
-          return cached
-        end
-
-        ast =
-          begin
-            new_parser(selector.to_s, namespaces).parse_selector_list!
-          rescue InvalidSelector => e
-            error = ::Dommy::DOMException::SyntaxError.new("'#{selector}' is not a valid selector: #{e.message}")
-            ast_cache_store(cache, key, error)
-            raise error
-          end
-        ast_cache_store(cache, key, ast)
-        ast
-      end
-
-      def ast_cache_store(cache, key, value)
-        cache.clear if cache.size >= AST_CACHE_CAP
-        cache[key] = value
-      end
-
-      # Validate `selector`; raise DOMException::SyntaxError if it is not a valid
-      # selector list, else return the original string.
-      def validate!(selector)
-        parse!(selector)
-        selector
-      end
-
-      # True when `selector` parses cleanly (no raise).
-      def valid?(selector)
-        validate!(selector)
-        true
-      rescue ::Dommy::DOMException::SyntaxError
-        false
-      end
-
-      def new_parser(string, namespaces = nil)
-        Parser.new(string, namespaces: namespaces)
-      end
-
       # Recursive-descent parser over a character buffer. Methods raise
       # InvalidSelector on the first grammar violation.
       class Parser
@@ -959,6 +905,62 @@ module Dommy
 
         def fail!(message)
           raise InvalidSelector, message
+        end
+      end
+
+      class << self
+        # `namespaces` maps a prefix String to its URI (with the symbol key
+        # :default for the default namespace), letting `svg|rect` resolve in a
+        # stylesheet that declared `@namespace`. nil/empty (the DOM querySelector
+        # path) keeps any named prefix undeclared — a SyntaxError, as before.
+        def parse!(selector, namespaces: nil)
+          key = [selector.to_s, namespaces]
+          cache = (@ast_cache ||= {})
+          if cache.key?(key)
+            cached = cache[key]
+            # An invalid selector is memoized as its SyntaxError so a repeat still
+            # throws (the message embeds the selector, so re-raising is exact).
+            raise cached if cached.is_a?(::Dommy::DOMException::SyntaxError)
+
+            return cached
+          end
+
+          ast =
+            begin
+              new_parser(selector.to_s, namespaces).parse_selector_list!
+            rescue InvalidSelector => e
+              error = ::Dommy::DOMException::SyntaxError.new("'#{selector}' is not a valid selector: #{e.message}")
+              ast_cache_store(cache, key, error)
+              raise error
+            end
+          ast_cache_store(cache, key, ast)
+          ast
+        end
+
+        # Validate `selector`; raise DOMException::SyntaxError if it is not a valid
+        # selector list, else return the original string.
+        def validate!(selector)
+          parse!(selector)
+          selector
+        end
+
+        # True when `selector` parses cleanly (no raise).
+        def valid?(selector)
+          validate!(selector)
+          true
+        rescue ::Dommy::DOMException::SyntaxError
+          false
+        end
+
+        private
+
+        def ast_cache_store(cache, key, value)
+          cache.clear if cache.size >= AST_CACHE_CAP
+          cache[key] = value
+        end
+
+        def new_parser(string, namespaces = nil)
+          Parser.new(string, namespaces: namespaces)
         end
       end
     end

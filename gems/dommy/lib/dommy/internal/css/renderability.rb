@@ -16,50 +16,52 @@ module Dommy
         # How far up the frame chain to walk before calling it a cycle.
         MAX_FRAME_DEPTH = 64
 
-        module_function
+        class << self
+          def not_rendered?(element, style_for)
+            return true if element.respond_to?(:is_connected?) && !element.is_connected?
+            return true if outside_flat_tree?(element)
 
-        def not_rendered?(element, style_for)
-          return true if element.respond_to?(:is_connected?) && !element.is_connected?
-          return true if outside_flat_tree?(element)
+            in_non_rendered_frame?(element, style_for)
+          end
 
-          in_non_rendered_frame?(element, style_for)
-        end
+          private
 
-        # Walk flat-tree parents: a light child of a shadow host is in the flat
-        # tree only if assigned to a slot, so an unslotted one (and its subtree)
-        # is outside it.
-        def outside_flat_tree?(element)
-          # No shadow roots in the document means no shadow hosts, so no
-          # element is outside the flat tree — skip the ancestor walk, which
-          # is otherwise O(depth) on every getComputedStyle.
-          doc = element.owner_document if element.respond_to?(:owner_document)
-          return false if doc.respond_to?(:__internal_any_shadow_roots__?) && !doc.__internal_any_shadow_roots__?
+          # Walk flat-tree parents: a light child of a shadow host is in the flat
+          # tree only if assigned to a slot, so an unslotted one (and its subtree)
+          # is outside it.
+          def outside_flat_tree?(element)
+            # No shadow roots in the document means no shadow hosts, so no
+            # element is outside the flat tree — skip the ancestor walk, which
+            # is otherwise O(depth) on every getComputedStyle.
+            doc = element.owner_document if element.respond_to?(:owner_document)
+            return false if doc.respond_to?(:__internal_any_shadow_roots__?) && !doc.__internal_any_shadow_roots__?
 
-          node = element
-          while node.respond_to?(:parent_element) && (host = node.parent_element)
-            if host.respond_to?(:shadow_root) && host.shadow_root &&
-               node.respond_to?(:assigned_slot) && node.assigned_slot.nil?
-              return true
+            node = element
+            while node.respond_to?(:parent_element) && (host = node.parent_element)
+              if host.respond_to?(:shadow_root) && host.shadow_root &&
+                 node.respond_to?(:assigned_slot) && node.assigned_slot.nil?
+                return true
+              end
+
+              node = host
             end
-
-            node = host
+            false
           end
-          false
-        end
 
-        # Follow the frame chain up to the top document; the element is not
-        # rendered if any hosting frame is disconnected or `display:none`.
-        def in_non_rendered_frame?(element, style_for)
-          doc = element.owner_document
-          seen = 0
-          while doc && (view = (doc.default_view if doc.respond_to?(:default_view))) &&
-                (frame = view.frame_element) && (seen += 1) < MAX_FRAME_DEPTH
-            return true if frame.respond_to?(:is_connected?) && !frame.is_connected?
-            return true if style_for.call(frame)["display"] == "none"
+          # Follow the frame chain up to the top document; the element is not
+          # rendered if any hosting frame is disconnected or `display:none`.
+          def in_non_rendered_frame?(element, style_for)
+            doc = element.owner_document
+            seen = 0
+            while doc && (view = (doc.default_view if doc.respond_to?(:default_view))) &&
+                  (frame = view.frame_element) && (seen += 1) < MAX_FRAME_DEPTH
+              return true if frame.respond_to?(:is_connected?) && !frame.is_connected?
+              return true if style_for.call(frame)["display"] == "none"
 
-            doc = frame.owner_document
+              doc = frame.owner_document
+            end
+            false
           end
-          false
         end
       end
     end

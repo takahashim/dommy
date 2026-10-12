@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../test_helper"
+require "dommy/internal/element_matching"
 
 # `module_function` publishes every method a module defines, so each of these
 # modules closes the ones that are only how it works with private_class_method.
@@ -38,19 +39,60 @@ class TestInternalModuleApi < Minitest::Test
       dir_match? lang_match? link_element? has_focus? focus_visible? focus_within? popover_open? open_element? modal_element? fullscreen_element? defined_element? custom_state?
     ],
     Dommy::Internal::Focusability => %w[
-      focusable_area? sequentially_focusable? click_focusable? tabindex_value editing_host?
-      delegates_focus? actually_disabled? being_rendered? inert? focusable_area_for
+      focusable_area? sequentially_focusable? tabindex_value editing_host?
+      delegates_focus? being_rendered? inert? focusable_area_for
       focus_delegate autofocus_delegate run_focusing_steps run_unfocusing_steps
       flat_tree_parent shadow_including_inclusive_ancestor?
     ],
     Dommy::Internal::Infra => %w[ascii_lowercase ascii_whitespace? split_on_ascii_whitespace],
     Dommy::Internal::LightDismiss => %w[run],
-    Dommy::Internal::SequentialFocusNavigation => %w[navigate navigation_order],
+    Dommy::Internal::SequentialFocusNavigation => %w[navigate],
     Dommy::Internal::InsertionPoint => %w[convert_nodes_into_a_node count previous_sibling skip_args skip_args_backwards surviving_anchor],
     Dommy::Internal::LiteralLookup => %w[element_by_id class_tokens elements_with_classes elements_named],
     Dommy::Internal::NodeIdentity => %w[same_node? key_for],
     Dommy::Internal::RenderedText::Fragment => %w[set_inner set_outer],
     Dommy::Internal::TextFlattening => %w[squish],
+    Dommy::Internal::ChildNavigable => %w[
+      matches_about_blank? without_fragment window_for_response window_for_local_url error_window text_window
+    ],
+    Dommy::Internal::CSS::Calc => %w[evaluate],
+    Dommy::Internal::CSS::Cascade => %w[computed_style author_css? index_for counter_values],
+    Dommy::Internal::CSS::Color => %w[normalize extract],
+    Dommy::Internal::CSS::Parser => %w[parse parse_block property_name valid_declaration_value?],
+    Dommy::Internal::CSS::PropertyRegistry => %w[
+      known? expansion_targets inherited? initial expand computed_value resolve_length evaluate_calc format_px
+    ],
+    Dommy::Internal::CSS::Renderability => %w[not_rendered?],
+    Dommy::Internal::CSS::Supports => %w[match? supports_declaration?],
+    Dommy::Internal::CSS::UAStylesheet => %w[rules element_declarations],
+    Dommy::Internal::CSSRuleText => %w[split_rules split_rule at_keyword],
+    Dommy::Internal::ElementMatching => %w[find_links find_forms find_selects find_checkable_fields field_labels],
+    Dommy::Internal::EventHandlers => %w[idl_attribute_names idl_attribute? event_type attribute_changed activate_parsed],
+    Dommy::Internal::ExceptionReport => %w[error_value source_position report_at thrown_host_error host_form],
+    Dommy::Internal::GlobalFunctions => %w[encode_uri_component decode_uri_component btoa atob],
+    Dommy::Internal::IdlReflection => %w[expected install_all!],
+    Dommy::Internal::JsNumber => %w[to_string],
+    Dommy::Internal::MimeType => %w[xml? charset_of with_charset],
+    Dommy::Internal::Namespaces => %w[
+      valid_attribute_local_name? valid_element_local_name? valid_doctype_name? validate_and_extract
+    ],
+    Dommy::Internal::NodeEquality => %w[equal?],
+    Dommy::Internal::Referrer => %w[request_referrer request_policy header_value],
+    Dommy::Internal::SelectorMatcher => %w[
+      matches? query query_first closest prefilter_proves? matches_type? matches_attribute?
+      matches_pseudo_class? relative_candidates nth_match? element_siblings element_descendants
+    ],
+    Dommy::Internal::SelectorParser => %w[parse! validate! valid?],
+    Dommy::Internal::SlotAssignment => %w[
+      slot_node? slottable? slot_nodes slottable_name first_slots_by_name find_slot find_slottables
+      manual_slottables slottable_named? same_node?
+    ],
+    Dommy::Internal::UnsafeHtml => %w[run_scripts? set parse_document],
+    Dommy::Internal::WebIDL => %w[
+      interface! boolean node! unsigned_long unsigned_short long nullable_node! unrestricted_double
+      to_number dom_string nullable_object! date_time_value
+    ],
+    Dommy::Internal::XmlSerialization => %w[serialize serialize_children_of copy_map],
   }.freeze
 
   # The mixins Element and Document are assembled from. A method extracted into

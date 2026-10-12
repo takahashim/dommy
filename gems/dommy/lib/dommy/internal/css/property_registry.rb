@@ -120,59 +120,6 @@ module Dommy
           "place-self" => %w[align-self justify-self],
         }.freeze
 
-        module_function
-
-        def known?(name) = PROPERTIES.key?(name)
-
-        def expansion_targets(name) = EXPANSION_TARGETS.fetch(name, [name])
-
-        # Custom properties inherit by default (css-variables-1 §2); their
-        # initial value is the guaranteed-invalid value (nil here).
-        def inherited?(name) = name.start_with?("--") || PROPERTIES[name]&.inherited || false
-
-        def initial(name) = PROPERTIES[name]&.initial
-
-        # Expand a (possibly shorthand) declaration into [[name, value], ...]
-        # longhand pairs. Cascade correctness is the point: a later shorthand
-        # must reset the longhands it covers (e.g. `background: url(x)` resets
-        # background-color to its initial). Shorthands outside this curated
-        # set pass through unexpanded (documented divergence).
-        def expand(name, value)
-          value = value.to_s.strip
-          case name
-          when "margin", "padding", "inset"
-            expand_box(BOX_SHORTHANDS[name], value) || [[name, value]]
-          when "overflow"
-            expand_overflow(value)
-          when "gap"
-            expand_gap(value)
-          when "background"
-            [["background-color", Color.extract(value) || initial("background-color")]]
-          when "font"
-            expand_font(value) || [[name, value]]
-          when "text-decoration"
-            expand_text_decoration(value)
-          when "border"
-            expand_border_all(value)
-          when "border-top", "border-right", "border-bottom", "border-left"
-            expand_border_side(name.delete_prefix("border-"), value)
-          when "border-width", "border-style", "border-color"
-            expand_border_box(name.delete_prefix("border-"), value) || [[name, value]]
-          when "outline"
-            expand_outline(value)
-          when "flex"
-            expand_flex(value)
-          when "flex-flow"
-            expand_flex_flow(value)
-          when "list-style"
-            expand_list_style(value)
-          when "place-content", "place-items", "place-self"
-            expand_place(name.delete_prefix("place-"), value)
-          else
-            [[name, value]]
-          end
-        end
-
         # px-per-unit for the absolute length units (CSS Values 4: 96px per
         # inch). These need no layout, so a computed value can carry them as px.
         ABSOLUTE_UNIT_PX = {
@@ -188,304 +135,359 @@ module Dommy
 
         LENGTH_PATTERN = /\A(-?\d+(?:\.\d+)?)(px|em|rem|pt|pc|in|cm|mm|q|vw|vh|vmin|vmax)\z/i
 
-        # The computed-value transform for one property. `font_size` /
-        # `root_font_size` are the element's / root's computed font-size in px;
-        # `viewport_width` / `viewport_height` the viewport in px. Together they
-        # let a bare length resolve to px without layout (em/rem/absolute/vw/vh).
-        def computed_value(name, value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
-          if COLOR_PROPERTIES.include?(name)
-            return Color.normalize(value) do |text|
-              resolve_length_px(text, font_size: font_size, root_font_size: root_font_size,
-                                      viewport_width: viewport_width, viewport_height: viewport_height)
-            end
-          end
-          return FONT_WEIGHT_KEYWORDS.fetch(value.downcase, value) if name == "font-weight"
-          return clamp_opacity(value) if name == "opacity"
-          # A <percentage> line-height computes to px against the element's own
-          # font-size (CSS2 §10.8.1), inherited as that length. A unitless
-          # <number> is kept as the number — its whole point is to inherit
-          # unitless and scale to each descendant's font-size.
-          if name == "line-height" && (pct = percentage_of(value, font_size))
-            return pct
-          end
+        class << self
+          def known?(name) = PROPERTIES.key?(name)
 
-          ctx = {font_size: font_size, root_font_size: root_font_size,
-                 viewport_width: viewport_width, viewport_height: viewport_height}
-          evaluate_calc(value, **ctx) || resolve_length(value, **ctx) || value
-        end
+          def expansion_targets(name) = EXPANSION_TARGETS.fetch(name, [name])
 
-        # opacity computes to a number clamped to [0, 1]; a percentage maps to
-        # that fraction (css-color-4 §13). Unparseable values pass through.
-        def clamp_opacity(value)
-          text = value.to_s.strip
-          number =
-            if text.end_with?("%")
-              Float(text[0..-2]) / 100.0
+          # Custom properties inherit by default (css-variables-1 §2); their
+          # initial value is the guaranteed-invalid value (nil here).
+          def inherited?(name) = name.start_with?("--") || PROPERTIES[name]&.inherited || false
+
+          def initial(name) = PROPERTIES[name]&.initial
+
+          # Expand a (possibly shorthand) declaration into [[name, value], ...]
+          # longhand pairs. Cascade correctness is the point: a later shorthand
+          # must reset the longhands it covers (e.g. `background: url(x)` resets
+          # background-color to its initial). Shorthands outside this curated
+          # set pass through unexpanded (documented divergence).
+          def expand(name, value)
+            value = value.to_s.strip
+            case name
+            when "margin", "padding", "inset"
+              expand_box(BOX_SHORTHANDS[name], value) || [[name, value]]
+            when "overflow"
+              expand_overflow(value)
+            when "gap"
+              expand_gap(value)
+            when "background"
+              [["background-color", Color.extract(value) || initial("background-color")]]
+            when "font"
+              expand_font(value) || [[name, value]]
+            when "text-decoration"
+              expand_text_decoration(value)
+            when "border"
+              expand_border_all(value)
+            when "border-top", "border-right", "border-bottom", "border-left"
+              expand_border_side(name.delete_prefix("border-"), value)
+            when "border-width", "border-style", "border-color"
+              expand_border_box(name.delete_prefix("border-"), value) || [[name, value]]
+            when "outline"
+              expand_outline(value)
+            when "flex"
+              expand_flex(value)
+            when "flex-flow"
+              expand_flex_flow(value)
+            when "list-style"
+              expand_list_style(value)
+            when "place-content", "place-items", "place-self"
+              expand_place(name.delete_prefix("place-"), value)
             else
-              Float(text)
+              [[name, value]]
             end
-          format_number(number.clamp(0.0, 1.0))
-        rescue ArgumentError, TypeError
-          value
-        end
-
-        # px for a "<number>%" value against `base` px, or nil when not a
-        # percentage (or no base available).
-        def percentage_of(value, base)
-          return nil unless base
-
-          match = value.to_s.strip.match(/\A(-?\d+(?:\.\d+)?)%\z/)
-          match && format_px(match[1].to_f / 100.0 * base)
-        end
-
-        # Resolve a bare "<number><unit>" length to a px string, or nil when it
-        # isn't a single resolvable length. See resolve_length_px for the units.
-        def resolve_length(value, **ctx)
-          px = resolve_length_px(value, **ctx)
-          px && format_px(px)
-        end
-
-        # The px magnitude (Float) of a single "<number><unit>" length, or nil
-        # when the value isn't such a length or its base is unavailable. Handles
-        # font-relative (em/rem), absolute (px/pt/pc/in/cm/mm/Q) and viewport
-        # (vw/vh/vmin/vmax) units — everything resolvable without layout.
-        def resolve_length_px(value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
-          match = value.to_s.match(LENGTH_PATTERN)
-          return nil unless match
-
-          number = match[1].to_f
-          case match[2].downcase
-          when "em" then font_size && number * font_size
-          when "rem" then root_font_size && number * root_font_size
-          when "vw" then viewport_width && number * viewport_width / 100.0
-          when "vh" then viewport_height && number * viewport_height / 100.0
-          when "vmin" then viewport_width && viewport_height && number * [viewport_width, viewport_height].min / 100.0
-          when "vmax" then viewport_width && viewport_height && number * [viewport_width, viewport_height].max / 100.0
-          else number * ABSOLUTE_UNIT_PX[match[2].downcase]
           end
-        end
 
-        # calc()/min()/max()/clamp(), resolved against this element's font and
-        # viewport context and serialized. nil when the value is not a math
-        # function, or cannot reduce without layout.
-        def evaluate_calc(value, **ctx)
-          kind, number = Calc.evaluate(value) { |text| resolve_length_px(text, **ctx) }
-          return nil unless kind
+          # The computed-value transform for one property. `font_size` /
+          # `root_font_size` are the element's / root's computed font-size in px;
+          # `viewport_width` / `viewport_height` the viewport in px. Together they
+          # let a bare length resolve to px without layout (em/rem/absolute/vw/vh).
+          def computed_value(name, value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
+            if COLOR_PROPERTIES.include?(name)
+              return Color.normalize(value) do |text|
+                resolve_length_px(text, font_size: font_size, root_font_size: root_font_size,
+                                        viewport_width: viewport_width, viewport_height: viewport_height)
+              end
+            end
+            return FONT_WEIGHT_KEYWORDS.fetch(value.downcase, value) if name == "font-weight"
+            return clamp_opacity(value) if name == "opacity"
+            # A <percentage> line-height computes to px against the element's own
+            # font-size (CSS2 §10.8.1), inherited as that length. A unitless
+            # <number> is kept as the number — its whole point is to inherit
+            # unitless and scale to each descendant's font-size.
+            if name == "line-height" && (pct = percentage_of(value, font_size))
+              return pct
+            end
 
-          kind == :length ? format_px(number) : format_number(number)
-        end
+            ctx = {font_size: font_size, root_font_size: root_font_size,
+                   viewport_width: viewport_width, viewport_height: viewport_height}
+            evaluate_calc(value, **ctx) || resolve_length(value, **ctx) || value
+          end
 
-        # A unitless computed result (e.g. `line-height: calc(1 + 0.5)`),
-        # serialized without a unit and without a trailing ".0".
-        def format_number(number)
-          rounded = number.round(5)
-          rounded == rounded.to_i ? rounded.to_i.to_s : rounded.to_s
-        end
+          # Resolve a bare "<number><unit>" length to a px string, or nil when it
+          # isn't a single resolvable length. See resolve_length_px for the units.
+          def resolve_length(value, **ctx)
+            px = resolve_length_px(value, **ctx)
+            px && format_px(px)
+          end
 
-        def format_px(number)
-          rounded = number.round(3)
-          rounded == rounded.to_i ? "#{rounded.to_i}px" : "#{rounded}px"
-        end
+          # calc()/min()/max()/clamp(), resolved against this element's font and
+          # viewport context and serialized. nil when the value is not a math
+          # function, or cannot reduce without layout.
+          def evaluate_calc(value, **ctx)
+            kind, number = Calc.evaluate(value) { |text| resolve_length_px(text, **ctx) }
+            return nil unless kind
 
-        # -- shorthand expansions ------------------------------------------
+            kind == :length ? format_px(number) : format_number(number)
+          end
 
-        # CSS box expansion: 1 value -> all sides, 2 -> v/h, 3 -> t/h/b, 4 ->
-        # t/r/b/l. Returns nil for token counts outside 1..4, and for a value
-        # carrying a function — `margin: calc(1px + 2px)` has whitespace this
-        # plain split cannot tell from a value separator, so it passes through.
-        def expand_box(pattern, value)
-          tokens = value.split(/\s+/)
-          return nil unless (1..4).cover?(tokens.size) && tokens.none? { |token| token.include?("(") }
+          def format_px(number)
+            rounded = number.round(3)
+            rounded == rounded.to_i ? "#{rounded.to_i}px" : "#{rounded}px"
+          end
 
-          BORDER_SIDES.zip(ValueTokens.box_sides(tokens)).map { |side, side_value| [format(pattern, side), side_value] }
-        end
+          private
 
-        def expand_overflow(value)
-          x, y = value.split(/\s+/)
-          [["overflow-x", x], ["overflow-y", y || x]]
-        end
+          # opacity computes to a number clamped to [0, 1]; a percentage maps to
+          # that fraction (css-color-4 §13). Unparseable values pass through.
+          def clamp_opacity(value)
+            text = value.to_s.strip
+            number =
+              if text.end_with?("%")
+                Float(text[0..-2]) / 100.0
+              else
+                Float(text)
+              end
+            format_number(number.clamp(0.0, 1.0))
+          rescue ArgumentError, TypeError
+            value
+          end
 
-        def expand_gap(value)
-          row, column = value.split(/\s+/)
-          [["row-gap", row], ["column-gap", column || row]]
-        end
+          # px for a "<number>%" value against `base` px, or nil when not a
+          # percentage (or no base available).
+          def percentage_of(value, base)
+            return nil unless base
 
-        # Minimal `font` shorthand: [style] [weight] <size>[/<line-height>]
-        # <family...>. Omitted sub-properties reset to their initial value
-        # (shorthand semantics). Returns nil when no size token is found
-        # (e.g. system font keywords) so the caller passes it through.
-        def expand_font(value)
-          tokens = value.split(/\s+/)
-          size_index = tokens.index { |t| t.match?(%r{\A\d+(?:\.\d+)?(px|em|rem|%)(/|\z)}i) }
-          return nil unless size_index
+            match = value.to_s.strip.match(/\A(-?\d+(?:\.\d+)?)%\z/)
+            match && format_px(match[1].to_f / 100.0 * base)
+          end
 
-          style = "normal"
-          weight = "400"
-          tokens[0...size_index].each do |token|
+          # The px magnitude (Float) of a single "<number><unit>" length, or nil
+          # when the value isn't such a length or its base is unavailable. Handles
+          # font-relative (em/rem), absolute (px/pt/pc/in/cm/mm/Q) and viewport
+          # (vw/vh/vmin/vmax) units — everything resolvable without layout.
+          def resolve_length_px(value, font_size:, root_font_size:, viewport_width: nil, viewport_height: nil)
+            match = value.to_s.match(LENGTH_PATTERN)
+            return nil unless match
+
+            number = match[1].to_f
+            case match[2].downcase
+            when "em" then font_size && number * font_size
+            when "rem" then root_font_size && number * root_font_size
+            when "vw" then viewport_width && number * viewport_width / 100.0
+            when "vh" then viewport_height && number * viewport_height / 100.0
+            when "vmin" then viewport_width && viewport_height && number * [viewport_width, viewport_height].min / 100.0
+            when "vmax" then viewport_width && viewport_height && number * [viewport_width, viewport_height].max / 100.0
+            else number * ABSOLUTE_UNIT_PX[match[2].downcase]
+            end
+          end
+
+          # A unitless computed result (e.g. `line-height: calc(1 + 0.5)`),
+          # serialized without a unit and without a trailing ".0".
+          def format_number(number)
+            rounded = number.round(5)
+            rounded == rounded.to_i ? rounded.to_i.to_s : rounded.to_s
+          end
+
+          # -- shorthand expansions ------------------------------------------
+
+          # CSS box expansion: 1 value -> all sides, 2 -> v/h, 3 -> t/h/b, 4 ->
+          # t/r/b/l. Returns nil for token counts outside 1..4, and for a value
+          # carrying a function — `margin: calc(1px + 2px)` has whitespace this
+          # plain split cannot tell from a value separator, so it passes through.
+          def expand_box(pattern, value)
+            tokens = value.split(/\s+/)
+            return nil unless (1..4).cover?(tokens.size) && tokens.none? { |token| token.include?("(") }
+
+            BORDER_SIDES.zip(ValueTokens.box_sides(tokens)).map { |side, side_value| [format(pattern, side), side_value] }
+          end
+
+          def expand_overflow(value)
+            x, y = value.split(/\s+/)
+            [["overflow-x", x], ["overflow-y", y || x]]
+          end
+
+          def expand_gap(value)
+            row, column = value.split(/\s+/)
+            [["row-gap", row], ["column-gap", column || row]]
+          end
+
+          # Minimal `font` shorthand: [style] [weight] <size>[/<line-height>]
+          # <family...>. Omitted sub-properties reset to their initial value
+          # (shorthand semantics). Returns nil when no size token is found
+          # (e.g. system font keywords) so the caller passes it through.
+          def expand_font(value)
+            tokens = value.split(/\s+/)
+            size_index = tokens.index { |t| t.match?(%r{\A\d+(?:\.\d+)?(px|em|rem|%)(/|\z)}i) }
+            return nil unless size_index
+
+            style = "normal"
+            weight = "400"
+            tokens[0...size_index].each do |token|
+              case token.downcase
+              when "italic", "oblique" then style = token.downcase
+              when "bold", /\A[1-9]00\z/ then weight = FONT_WEIGHT_KEYWORDS.fetch(token.downcase, token)
+              end
+            end
+
+            size, line_height = tokens[size_index].split("/", 2)
+            family = tokens[(size_index + 1)..].join(" ")
+
+            pairs = [
+              ["font-style", style],
+              ["font-weight", weight],
+              ["font-size", size],
+              ["line-height", line_height || "normal"],
+            ]
+            pairs << ["font-family", family] unless family.empty?
+            pairs
+          end
+
+          def expand_text_decoration(value)
+            lines = []
+            style = nil
+            color = nil
+            ValueTokens.split(value).each do |token|
+              low = token.downcase
+              if TEXT_DECORATION_LINES.include?(low)
+                lines << token
+              elsif TEXT_DECORATION_STYLES.include?(low)
+                style = token
+              else
+                color ||= token
+              end
+            end
+            [["text-decoration-line", lines.empty? ? "none" : lines.join(" ")],
+             ["text-decoration-style", style || "solid"],
+             ["text-decoration-color", color || "currentColor"]]
+          end
+
+          # Classify the tokens of a `border`/`border-<side>`/`outline` value into
+          # {width:, style:, color:} (order-independent, omitted parts nil).
+          def parse_border_shorthand(value)
+            parts = {width: nil, style: nil, color: nil}
+            ValueTokens.split(value).each do |token|
+              low = token.downcase
+              if parts[:style].nil? && BORDER_STYLE_KEYWORDS.include?(low)
+                parts[:style] = token
+              elsif parts[:width].nil? && border_width_token?(low)
+                parts[:width] = token
+              else
+                parts[:color] ||= token
+              end
+            end
+            parts
+          end
+
+          def border_width_token?(low)
+            BORDER_WIDTH_KEYWORDS.include?(low) || low.match?(/\A[.\-\d]/)
+          end
+
+          # Omitted border sub-properties reset to their initial (shorthand
+          # semantics): width medium, style none, color currentColor.
+          def border_triple(prefix, parts)
+            [["#{prefix}-width", parts[:width] || "medium"],
+             ["#{prefix}-style", parts[:style] || "none"],
+             ["#{prefix}-color", parts[:color] || "currentColor"]]
+          end
+
+          def expand_border_all(value)
+            parts = parse_border_shorthand(value)
+            BORDER_SIDES.flat_map { |side| border_triple("border-#{side}", parts) }
+          end
+
+          def expand_border_side(side, value)
+            border_triple("border-#{side}", parse_border_shorthand(value))
+          end
+
+          # `border-width|style|color: <box>` — one kind across the four sides.
+          def expand_border_box(kind, value)
+            tokens = ValueTokens.split(value)
+            return nil unless (1..4).cover?(tokens.size)
+
+            BORDER_SIDES.zip(ValueTokens.box_sides(tokens)).map { |side, v| ["border-#{side}-#{kind}", v] }
+          end
+
+          def expand_outline(value)
+            parts = parse_border_shorthand(value)
+            [["outline-width", parts[:width] || "medium"],
+             ["outline-style", parts[:style] || "none"],
+             ["outline-color", parts[:color] || "currentColor"]]
+          end
+
+          # `flex` per css-flexbox-1 §7.1.1: none -> 0 0 auto, auto -> 1 1 auto,
+          # a bare number -> grow 1 0%, etc. Omitted parts take the shorthand's
+          # reset values, not the longhand initials.
+          def expand_flex(value)
+            tokens = ValueTokens.split(value)
+            grow, shrink, basis =
+              case tokens.size
+              when 1 then flex_one(tokens[0])
+              when 2 then flex_two(tokens[0], tokens[1])
+              else tokens[0, 3]
+              end
+            [["flex-grow", grow], ["flex-shrink", shrink], ["flex-basis", basis]]
+          end
+
+          def flex_one(token)
             case token.downcase
-            when "italic", "oblique" then style = token.downcase
-            when "bold", /\A[1-9]00\z/ then weight = FONT_WEIGHT_KEYWORDS.fetch(token.downcase, token)
+            when "none" then ["0", "0", "auto"]
+            when "auto" then ["1", "1", "auto"]
+            when "initial" then ["0", "1", "auto"]
+            else number?(token) ? [token, "1", "0%"] : ["1", "1", token]
             end
           end
 
-          size, line_height = tokens[size_index].split("/", 2)
-          family = tokens[(size_index + 1)..].join(" ")
-
-          pairs = [
-            ["font-style", style],
-            ["font-weight", weight],
-            ["font-size", size],
-            ["line-height", line_height || "normal"],
-          ]
-          pairs << ["font-family", family] unless family.empty?
-          pairs
-        end
-
-        def expand_text_decoration(value)
-          lines = []
-          style = nil
-          color = nil
-          ValueTokens.split(value).each do |token|
-            low = token.downcase
-            if TEXT_DECORATION_LINES.include?(low)
-              lines << token
-            elsif TEXT_DECORATION_STYLES.include?(low)
-              style = token
-            else
-              color ||= token
-            end
+          def flex_two(first, second)
+            number?(second) ? [first, second, "0%"] : [first, "1", second]
           end
-          [["text-decoration-line", lines.empty? ? "none" : lines.join(" ")],
-           ["text-decoration-style", style || "solid"],
-           ["text-decoration-color", color || "currentColor"]]
-        end
 
-        # Classify the tokens of a `border`/`border-<side>`/`outline` value into
-        # {width:, style:, color:} (order-independent, omitted parts nil).
-        def parse_border_shorthand(value)
-          parts = {width: nil, style: nil, color: nil}
-          ValueTokens.split(value).each do |token|
-            low = token.downcase
-            if parts[:style].nil? && BORDER_STYLE_KEYWORDS.include?(low)
-              parts[:style] = token
-            elsif parts[:width].nil? && border_width_token?(low)
-              parts[:width] = token
-            else
-              parts[:color] ||= token
+          def number?(token) = token.match?(/\A-?\d+(?:\.\d+)?\z/)
+
+          def expand_flex_flow(value)
+            direction = nil
+            wrap = nil
+            ValueTokens.split(value).each do |token|
+              low = token.downcase
+              if %w[row row-reverse column column-reverse].include?(low)
+                direction = token
+              elsif %w[nowrap wrap wrap-reverse].include?(low)
+                wrap = token
+              end
             end
+            [["flex-direction", direction || "row"], ["flex-wrap", wrap || "nowrap"]]
           end
-          parts
-        end
 
-        def border_width_token?(low)
-          BORDER_WIDTH_KEYWORDS.include?(low) || low.match?(/\A[.\-\d]/)
-        end
-
-        # Omitted border sub-properties reset to their initial (shorthand
-        # semantics): width medium, style none, color currentColor.
-        def border_triple(prefix, parts)
-          [["#{prefix}-width", parts[:width] || "medium"],
-           ["#{prefix}-style", parts[:style] || "none"],
-           ["#{prefix}-color", parts[:color] || "currentColor"]]
-        end
-
-        def expand_border_all(value)
-          parts = parse_border_shorthand(value)
-          BORDER_SIDES.flat_map { |side| border_triple("border-#{side}", parts) }
-        end
-
-        def expand_border_side(side, value)
-          border_triple("border-#{side}", parse_border_shorthand(value))
-        end
-
-        # `border-width|style|color: <box>` — one kind across the four sides.
-        def expand_border_box(kind, value)
-          tokens = ValueTokens.split(value)
-          return nil unless (1..4).cover?(tokens.size)
-
-          BORDER_SIDES.zip(ValueTokens.box_sides(tokens)).map { |side, v| ["border-#{side}-#{kind}", v] }
-        end
-
-        def expand_outline(value)
-          parts = parse_border_shorthand(value)
-          [["outline-width", parts[:width] || "medium"],
-           ["outline-style", parts[:style] || "none"],
-           ["outline-color", parts[:color] || "currentColor"]]
-        end
-
-        # `flex` per css-flexbox-1 §7.1.1: none -> 0 0 auto, auto -> 1 1 auto,
-        # a bare number -> grow 1 0%, etc. Omitted parts take the shorthand's
-        # reset values, not the longhand initials.
-        def expand_flex(value)
-          tokens = ValueTokens.split(value)
-          grow, shrink, basis =
-            case tokens.size
-            when 1 then flex_one(tokens[0])
-            when 2 then flex_two(tokens[0], tokens[1])
-            else tokens[0, 3]
+          # `list-style: <type> || <position> || <image>` (any order). A `none`
+          # sets both type and image to none (css-lists-3).
+          def expand_list_style(value)
+            type = position = image = nil
+            none = false
+            ValueTokens.split(value).each do |token|
+              low = token.downcase
+              if %w[inside outside].include?(low)
+                position = token
+              elsif low.start_with?("url(")
+                image = token
+              elsif low == "none"
+                none = true
+              else
+                type = token
+              end
             end
-          [["flex-grow", grow], ["flex-shrink", shrink], ["flex-basis", basis]]
-        end
-
-        def flex_one(token)
-          case token.downcase
-          when "none" then ["0", "0", "auto"]
-          when "auto" then ["1", "1", "auto"]
-          when "initial" then ["0", "1", "auto"]
-          else number?(token) ? [token, "1", "0%"] : ["1", "1", token]
+            type ||= "none" if none
+            image ||= "none" if none
+            [["list-style-type", type || "disc"],
+             ["list-style-position", position || "outside"],
+             ["list-style-image", image || "none"]]
           end
-        end
 
-        def flex_two(first, second)
-          number?(second) ? [first, second, "0%"] : [first, "1", second]
-        end
-
-        def number?(token) = token.match?(/\A-?\d+(?:\.\d+)?\z/)
-
-        def expand_flex_flow(value)
-          direction = nil
-          wrap = nil
-          ValueTokens.split(value).each do |token|
-            low = token.downcase
-            if %w[row row-reverse column column-reverse].include?(low)
-              direction = token
-            elsif %w[nowrap wrap wrap-reverse].include?(low)
-              wrap = token
-            end
+          # place-content/items/self: `<align> [<justify>]`; a single value
+          # applies to both. (Multi-keyword alignment values like `safe center`
+          # are not split — a documented simplification.)
+          def expand_place(suffix, value)
+            tokens = ValueTokens.split(value)
+            [["align-#{suffix}", tokens[0]], ["justify-#{suffix}", tokens[1] || tokens[0]]]
           end
-          [["flex-direction", direction || "row"], ["flex-wrap", wrap || "nowrap"]]
-        end
-
-        # `list-style: <type> || <position> || <image>` (any order). A `none`
-        # sets both type and image to none (css-lists-3).
-        def expand_list_style(value)
-          type = position = image = nil
-          none = false
-          ValueTokens.split(value).each do |token|
-            low = token.downcase
-            if %w[inside outside].include?(low)
-              position = token
-            elsif low.start_with?("url(")
-              image = token
-            elsif low == "none"
-              none = true
-            else
-              type = token
-            end
-          end
-          type ||= "none" if none
-          image ||= "none" if none
-          [["list-style-type", type || "disc"],
-           ["list-style-position", position || "outside"],
-           ["list-style-image", image || "none"]]
-        end
-
-        # place-content/items/self: `<align> [<justify>]`; a single value
-        # applies to both. (Multi-keyword alignment values like `safe center`
-        # are not split — a documented simplification.)
-        def expand_place(suffix, value)
-          tokens = ValueTokens.split(value)
-          [["align-#{suffix}", tokens[0]], ["justify-#{suffix}", tokens[1] || tokens[0]]]
         end
       end
     end
