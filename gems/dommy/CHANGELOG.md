@@ -5,6 +5,7 @@
 ### Added
 
 - `Request#referrer` and `Request#referrerPolicy`, from a RequestInit's `referrer` and `referrerPolicy`.
+- `HostBridge#unify_global_window(win)`, for a backend to call in place of `define_host_object("window", win)`: the engine's global object becomes the window (`window === globalThis`, `self`, `top`, `parent`, `frames`, `document.defaultView` and a frame's `parent` are all `globalThis`, and a sloppy function's `this` is the window). The window's operations and attributes are own properties of the global, as WebIDL puts them for a `[Global]` interface, and the window proxy sits at the bottom of the global's prototype chain for named access, event handler attributes and host properties no IDL lists. It needs an engine that asks a Proxy on the global's chain for `has` while resolving a bare name, so that an undefined one still throws a ReferenceError (QuickJS does not), so it is opt-in.
 
 ### Changed
 

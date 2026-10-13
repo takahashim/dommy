@@ -68,6 +68,25 @@ globalThis.__rbHost = (function () {
     return w != null && proxyHandles.get(w) === handle;
   };
 
+  // Set by unifyGlobalWindow when the engine's global object IS the top window
+  // (`window === globalThis`, as in a browser): the window's host proxy then
+  // sits at the bottom of globalThis's prototype chain, where its traps answer
+  // the names globalThis does not have, and the window's handle stands for
+  // globalThis itself (makeProxy, dehydrate). Null while the two are separate
+  // objects whose namespaces are kept in step (the default).
+  let unifiedWindowHandle = null;
+  let unifiedWindowProxy = null;
+  // The names globalThis owned once it became the window: the window proxy
+  // below it never answers them (see unifyGlobalWindow).
+  let unifiedGlobalNames = new Set();
+  // Window members HTML defines in mixins the generated member table leaves
+  // out (WindowOrWorkerGlobalScope, …), and the writable Window attributes
+  // that are not [Replaceable]: an assignment reaches the host rather than
+  // replacing the global.
+  const WINDOW_MIXIN_READONLY = ["crypto", "indexedDB", "caches"];
+  const WINDOW_MIXIN_REPLACEABLE = ["performance", "visualViewport"];
+  const WINDOW_HOST_WRITABLE = new Set(["name", "status", "opener"]);
+
   // The bridge's bare globals that stand for a Window member — `fetch`,
   // `setTimeout`, `scrollY` — reach the window's own implementation through
   // windowMember (below), never by reading the window. The window answers a
@@ -96,7 +115,7 @@ globalThis.__rbHost = (function () {
   // as the non-enumerable `__rbWindowMember(name)`.
   let answeringFromHost = false;
   function windowMember(name) {
-    const w = globalThis.window;
+    const w = unifiedWindowProxy || globalThis.window;
     if (w == null) return undefined;
     const outer = answeringFromHost;
     answeringFromHost = true;
@@ -2917,6 +2936,9 @@ globalThis.__rbHost = (function () {
         enumerable: true, configurable: true,
       });
     }
+    // Unified, the window is the global object: its constructors and builtins
+    // are already its own properties.
+    if (own === globalThis) return;
     const names = [...protos.keys(), ...lazyChains.keys()];
     if (!names.includes("DOMException") && typeof globalThis.DOMException === "function") names.push("DOMException");
     if (quotaExceededError()) names.push("QuotaExceededError");
@@ -3001,6 +3023,75 @@ globalThis.__rbHost = (function () {
     }
   }
 
+  // Make the engine's global object the top window, given the window's handle:
+  // `window`, `self`, `frames`, `top`, `parent`, `document.defaultView` and
+  // every other place a host hands out the window are then globalThis, as in a
+  // browser. Called instead of defineGlobal("window", …); calling it again
+  // rebinds to another window.
+  //
+  // The shape is WebIDL's for a [Global] interface: the window's operations
+  // and attributes are own properties of the global itself (an operation a
+  // data property, an attribute an accessor reaching the host, a
+  // [Replaceable] one replaced by an assignment), so a bare `fetch` never
+  // crosses a trap, and `globalThis.fetch = f` replaces it. The window's host
+  // proxy goes to the bottom of globalThis's prototype chain, the place of
+  // HTML's named properties object: it answers what the global does not own —
+  // a named element, an event handler attribute, a host property no IDL
+  // lists — but never a name the global owned when it was made (an interface
+  // object, a builtin, a window member), so one the page deletes stays
+  // deleted. An unresolvable bare name still asks its `has` trap and throws a
+  // ReferenceError, which needs an engine that consults a Proxy's `has` while
+  // resolving an identifier (QuickJS does not: there a bare name a Proxy on
+  // the global's chain lacks reads as undefined), so a backend opts in.
+  function unifyGlobalWindow(handle) {
+    unifiedWindowHandle = null;
+    const proxy = makeProxy(handle, "Window");
+    unifiedWindowProxy = proxy;
+    unifiedWindowHandle = handle;
+    proxyHandles.set(globalThis, handle);
+    proxyInterfaces.set(globalThis, "Window");
+    Object.setPrototypeOf(globalThis, proxy);
+    const define = (name, desc) => {
+      try {
+        Object.defineProperty(globalThis, name, { enumerable: true, configurable: true, ...desc });
+      } catch (e) { /* a non-configurable global keeps its definition */ }
+    };
+    const replaceable = (name, get) => define(name, {
+      get, set(value) { define(name, { value, writable: true }); },
+    });
+    const missing = (name) => !Object.hasOwn(globalThis, name);
+    // [LegacyUnforgeable] readonly; configurable so a host can rebind it.
+    define("window", { value: globalThis, writable: false });
+    define("top", { get() { return globalThis; }, set(_value) {} });
+    for (const name of ["self", "frames", "parent"]) replaceable(name, () => globalThis);
+    define("location", {
+      get() { return windowMember("location"); },
+      set(value) { hostSet(handle, "location", value); },
+    });
+    const idl = globalThis.__rbIdlMembers || {};
+    const members = idl.Window || {};
+    const operations = [...(members.m || []), ...((idl.EventTarget || {}).m || [])];
+    for (const name of operations) {
+      if (!missing(name)) continue;
+      const fn = windowMember(name);
+      if (typeof fn === "function") define(name, { value: fn, writable: true });
+    }
+    for (const name of [...(members.g || []), ...WINDOW_MIXIN_READONLY]) {
+      if (missing(name)) define(name, { get() { return windowMember(name); } });
+    }
+    for (const name of [...(members.p || []), ...WINDOW_MIXIN_REPLACEABLE]) {
+      // An event handler attribute stays with the proxy, which registers the
+      // listener behind it with the host.
+      if (!missing(name) || name.startsWith("on")) continue;
+      if (WINDOW_HOST_WRITABLE.has(name)) {
+        define(name, { get() { return windowMember(name); }, set(value) { hostSet(handle, name, value); } });
+      } else {
+        replaceable(name, () => windowMember(name));
+      }
+    }
+    unifiedGlobalNames = new Set(Reflect.ownKeys(globalThis).filter((k) => typeof k === "string"));
+  }
+
   // Expose the seeded constructors on a secondary window — an iframe's
   // contentWindow — given its handle. The proxy is retained in a registry
   // because the constructors become own properties of its target: were it
@@ -3022,7 +3113,10 @@ globalThis.__rbHost = (function () {
       configurable: true, enumerable: false,
       get() { return windowMember("event"); },
     });
-    defineGlobalEventHandlers();
+    // Unified, a bare `onload` already reaches the window's handler attribute
+    // through the prototype chain; an accessor forwarding to `window.onload`
+    // would read itself.
+    if (unifiedWindowHandle === null) defineGlobalEventHandlers();
   }
 
   // The Window's event handler IDL attributes, reachable as bare globals
@@ -3501,10 +3595,12 @@ globalThis.__rbHost = (function () {
     fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
     if (prop === "toString" && ctx.ifaceName) fn = brandCheckedStringifier(fn, ctx);
     withArity(fn, prop, ctx.ifaceName);
-    // A special stub whose name no arity table lists takes the length its IDL
-    // declares (the shortest overload's required count): `postMessage.length`
-    // and `structuredClone.length` are 1.
-    if (special && fn.length === 0) {
+    // An operation's function is named after it (`fetch.name`), and one no
+    // arity table lists takes the length its IDL declares (the shortest
+    // overload's required count): `postMessage.length` and
+    // `structuredClone.length` are 1.
+    if (typeof prop === "string") Object.defineProperty(fn, "name", { value: prop, configurable: true });
+    if (fn.length === 0) {
       const call = declaredConversion(ctx.ifaceName, "operations", prop);
       if (call && call.required) Object.defineProperty(fn, "length", { value: call.required, configurable: true });
     }
@@ -3714,13 +3810,43 @@ globalThis.__rbHost = (function () {
     const absent = cur !== null && typeof cur === "object" && cur.__rb_absent === true;
     if (!absent && rehydrate(cur) !== null) return undefined;
 
+    // Unified, this write reached the window proxy through globalThis's
+    // prototype chain (globalThis has no own `prop`), so an assignment would
+    // come straight back here: define the global instead.
+    if (unifiedWindowHandle !== null) {
+      return Reflect.defineProperty(globalThis, prop, { value, writable: true, enumerable: true, configurable: true });
+    }
     globalThis[prop] = value;
     return true;
+  }
+
+  // The unified global window (see unifyGlobalWindow): a write reaches the
+  // window proxy through globalThis's prototype chain only when globalThis has
+  // no own property by that name, with globalThis as the receiver. It is then
+  // OrdinarySet over the window's own chain, as in a browser: an accessor runs
+  // with globalThis as `this` (a writable attribute reaches the host, a
+  // readonly one refuses), and an operation or any other inherited data
+  // property is shadowed by an own property of globalThis (`globalThis.fetch =
+  // f` replaces the bare `fetch`). A name the chain lacks goes on to the rules
+  // below (a host attribute, else a new global).
+  function setThroughGlobalPrototype(handle, shape, t, prop, value, receiver) {
+    if (handle !== unifiedWindowHandle || receiver !== globalThis) return undefined;
+    if (unifiedGlobalNames.has(prop)) {
+      return Reflect.defineProperty(globalThis, prop, { value, writable: true, enumerable: true, configurable: true });
+    }
+    for (let o = t; o !== null; o = Reflect.getPrototypeOf(o)) {
+      if (Reflect.getOwnPropertyDescriptor(o, prop) !== undefined) return Reflect.set(o, prop, value, receiver);
+    }
+    if (typeof prop === "symbol") {
+      return Reflect.defineProperty(globalThis, prop, { value, writable: true, enumerable: true, configurable: true });
+    }
+    return undefined;
   }
 
   // The rules that can CLAIM a write, in the order they are asked. A write no
   // rule claims is a host property write — setHostProperty, which always answers.
   const SET_RULES = [
+    setThroughGlobalPrototype,
     setSymbolKey,
     setImmutablePrototype,
     setUnforgeableAttribute,
@@ -3945,6 +4071,7 @@ globalThis.__rbHost = (function () {
     return {
       get(t, prop, receiver) {
         if (prop === HKEY) return handle;
+        if (handle === unifiedWindowHandle && receiver === globalThis && unifiedGlobalNames.has(prop)) return undefined;
         if (typeof prop === "symbol") return Reflect.get(t, prop, receiver);
         if (isGlobalWindow(handle) && !answeringFromHost) {
           const d = windowOwnGlobal(shape, t, prop);
@@ -4041,8 +4168,8 @@ globalThis.__rbHost = (function () {
         // global of the same name (an OWN globalThis prop — inherited names already
         // resolved via `prop in t` above), so e.g. a UMD bundle's
         // `globalThis.Stimulus = …` is visible as `window.Stimulus`.
-        if (hostHasNoValue && isGlobalWindow(handle) && Object.hasOwn(globalThis, prop) &&
-            !isEventHandlerName(shape, prop)) return globalThis[prop];
+        if (hostHasNoValue && isGlobalWindow(handle) && unifiedWindowHandle === null &&
+            Object.hasOwn(globalThis, prop) && !isEventHandlerName(shape, prop)) return globalThis[prop];
         // A Window's named properties (HTML "named access on the Window
         // object") come after every member and global: they live on the named
         // properties object at the bottom of its prototype chain.
@@ -4223,6 +4350,7 @@ globalThis.__rbHost = (function () {
         return result;
       },
       has(t, prop) {
+        if (handle === unifiedWindowHandle && unifiedGlobalNames.has(prop)) return false;
         // The global window has its JS globals (`"Stimulus" in window`).
         if (typeof prop === "string" && isGlobalWindow(handle)) {
           if (Object.hasOwn(globalThis, prop)) return true;
@@ -4270,6 +4398,7 @@ globalThis.__rbHost = (function () {
   }
 
   function makeProxy(handle, iface) {
+    if (handle === unifiedWindowHandle) return globalThis;
     const ref = cache.get(handle);
     if (ref) {
       const existing = ref.deref();
@@ -4863,7 +4992,7 @@ globalThis.__rbHost = (function () {
     seedInterfaces, ceConstruct, ceUpgrade, ceInvoke, attachStatics, exposeConstructorsOnWindow,
     // Realm wiring the Ruby bridge drives, kept here rather than as JS built in
     // Ruby strings (see defineGlobal / defineLegacyEventAccessor).
-    defineGlobal, exposeConstructorsOnSubWindow, defineLegacyEventAccessor, compileEventHandler,
+    defineGlobal, unifyGlobalWindow, exposeConstructorsOnSubWindow, defineLegacyEventAccessor, compileEventHandler,
     // wasm host bridge (handle-oriented access for a wasm guest)
     wasmGlobalRef, wasmEval, wasmGet, wasmSet, wasmCall, wasmApply, wasmNew,
     wasmTypeof, wasmToString, wasmStrictEqual, wasmIsNull, wasmInstanceof,
