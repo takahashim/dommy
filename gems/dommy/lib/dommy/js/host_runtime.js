@@ -594,7 +594,7 @@ globalThis.__rbHost = (function () {
   // hostSet for a value already in its wire form.
   function hostSetWire(handle, name, wire) {
     bumpDomEpoch();
-    const handled = __rb_host_set(handle, name, wire);
+    const handled = __rb_host_set(handle, hostName(name), wire);
     bumpDomEpoch();
     if (handled && typeof handled === "object" && handled.__rb_exception__) {
       throw makeHostError(handled.__rb_exception__);
@@ -894,6 +894,15 @@ globalThis.__rbHost = (function () {
       }
     }
     return out;
+  }
+
+  // A property name as the host sees it. A page-chosen name crossing as the
+  // `name` argument of a host call is a string like any argument, so it gets
+  // the same lone-surrogate scrub dehydrate gives values — otherwise
+  // `storage["\uD800"] = v` and `storage.setItem("\uD800", v)` would reach
+  // Ruby as two different keys on an engine that passes raw names through.
+  function hostName(name) {
+    return typeof name === "string" && /[\ud800-\udfff]/.test(name) ? scrubLoneSurrogates(name) : name;
   }
 
   // The spec's "flatten options": addEventListener / removeEventListener observe
@@ -3533,7 +3542,7 @@ globalThis.__rbHost = (function () {
   }
 
   function isNamedKeyOf(handle, named, prop) {
-    return !!named && typeof prop === "string" && namedKeysOf(handle, named).indexOf(prop) !== -1;
+    return !!named && typeof prop === "string" && namedKeysOf(handle, named).indexOf(hostName(prop)) !== -1;
   }
 
   // WebIDL named-property visibility: a named property is EXPOSED (reachable via
@@ -3701,7 +3710,7 @@ globalThis.__rbHost = (function () {
     // unset, so the null-means-unresolved test below would otherwise divert them
     // to a plain (never-firing) JS global.
     if (isEventHandlerName(shape, prop)) return undefined;
-    const cur = __rb_host_get(handle, prop);
+    const cur = __rb_host_get(handle, hostName(prop));
     const absent = cur !== null && typeof cur === "object" && cur.__rb_absent === true;
     if (!absent && rehydrate(cur) !== null) return undefined;
 
@@ -3912,7 +3921,7 @@ globalThis.__rbHost = (function () {
           namedKeyCache = new Set(namedKeysOf(handle, named));
           namedKeyEpoch = domEpoch;
         }
-        return namedKeyCache.has(prop);
+        return namedKeyCache.has(hostName(prop));
       }
       : (prop) => isNamedKeyOf(handle, named, prop);
     const namedShadowedByProto = (t, prop) => namedShadowedByProtoOf(named, t, prop);
@@ -3930,7 +3939,7 @@ globalThis.__rbHost = (function () {
     // that name needs a tombstone.
     const hostResolves = (prop) => {
       if (methods.has(prop)) return true;
-      const raw = __rb_host_get(handle, prop);
+      const raw = __rb_host_get(handle, hostName(prop));
       return raw !== null && !(typeof raw === "object" && raw.__rb_absent === true);
     };
     return {
@@ -3947,7 +3956,7 @@ globalThis.__rbHost = (function () {
         // prototype's methods AND accessors, so resolve it before either. An own
         // expando (checked above) still wins.
         if (named && named.overrideBuiltins && typeof prop === "string" && isNamedKey(prop)) {
-          return rehydrate(__rb_named_get(handle, prop));
+          return rehydrate(__rb_named_get(handle, hostName(prop)));
         }
         if (methods.has(prop)) {
           // A read-only collection operation resolves to the interface
@@ -4012,7 +4021,7 @@ globalThis.__rbHost = (function () {
         // A collection's `.length` is the epoch-cached live count — the same
         // value index-range checks use, fetched once per epoch not per read.
         if (arrayLike && prop === "length") return liveLength();
-        const raw = __rb_host_get(handle, prop);
+        const raw = __rb_host_get(handle, hostName(prop));
         // The host signals a genuinely-absent property with the ABSENT tag (value
         // is `undefined`); a present-but-null property is bare nil (→ JS null).
         // "Host owns nothing here" = absent OR (legacy) null, and only that drives
@@ -4038,7 +4047,7 @@ globalThis.__rbHost = (function () {
         // object") come after every member and global: they live on the named
         // properties object at the bottom of its prototype chain.
         if (hostHasNoValue && named && named.global && typeof prop === "string" && isNamedKey(prop)) {
-          return rehydrate(__rb_named_get(handle, prop));
+          return rehydrate(__rb_named_get(handle, hostName(prop)));
         }
         // A legacy platform collection returns `undefined` (not the host's null)
         // for a string property that resolves to no value. An out-of-range array
@@ -4087,13 +4096,13 @@ globalThis.__rbHost = (function () {
           // Indexed properties are enumerable + configurable but NOT writable
           // (these collections have no indexed property setter).
           return {
-            value: rehydrate(__rb_host_get(handle, prop)),
+            value: rehydrate(__rb_host_get(handle, hostName(prop))),
             writable: false, enumerable: true, configurable: true,
           };
         }
         if (isNamedKey(prop) && !named.global && !namedShadowedByProto(t, prop)) {
           return {
-            value: rehydrate(__rb_host_get(handle, prop)),
+            value: rehydrate(__rb_host_get(handle, hostName(prop))),
             writable: named.writable, enumerable: named.enumerable, configurable: true,
           };
         }
@@ -4179,7 +4188,7 @@ globalThis.__rbHost = (function () {
             // Named deleter (dataset): remove the backing attribute — a DOM
             // mutation, so invalidate attribute snapshots.
             bumpDomEpoch();
-            if (rehydrate(__rb_host_delete(handle, prop))) return true;
+            if (rehydrate(__rb_host_delete(handle, hostName(prop)))) return true;
           } else if (!named.global && isNamedKey(prop)) {
             return false; // read-only named property cannot be deleted
           }
@@ -4250,7 +4259,7 @@ globalThis.__rbHost = (function () {
         // sentinel, tagged `__rb_undefined`) — e.g. AbortSignal's `reason`
         // before abort — so report the latter present (`"reason" in signal`).
         if (constCache !== null && constCache.has(prop)) return true;
-        const raw = __rb_host_get(handle, prop);
+        const raw = __rb_host_get(handle, hostName(prop));
         // A genuinely-absent property (ABSENT tag) reports MISSING; a
         // present-but-undefined one (UNDEFINED tag) reports present.
         if (raw !== null && typeof raw === "object" && raw.__rb_absent) return false;
