@@ -36,8 +36,6 @@ module Dommy
       # Where a call of the function #next_function is asked for may start, or
       # an atom: one pattern per function name, built on its first use.
       FUNCTION_STOP = Hash.new { |stops, name| stops[name] = Regexp.union(ATOM_START, /#{Regexp.escape(name[0])}/i) }
-      # The bracket that closes a block each opening one starts.
-      CLOSER = {"(" => ")", "[" => "]", "{" => "}"}.freeze
 
       # `bytes:` is a binary String this CssSource may keep as its copy, in
       # place of `text` — a reader handing on what it has already made.
@@ -195,7 +193,7 @@ module Dommy
       # closing bracket closes the innermost only when it is that block's own
       # kind (:closed); any other closing bracket is a token like any other.
       def step_block(blocks, c)
-        if (closer = CLOSER[c])
+        if (closer = CssSyntax::CLOSER[c])
           blocks.push(closer)
           :opened
         elsif !blocks.empty? && blocks.last == c

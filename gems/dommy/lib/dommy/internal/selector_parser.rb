@@ -452,23 +452,33 @@ module Dommy
           end
         end
 
+        # The arguments run to the `)` closing the function (css-syntax-3
+        # "consume a function"); a block in them closes only at its own mirror
+        # ("consume a simple block"), and the end of the input closes
+        # everything still open. Whatever the
+        # function's grammar, its arguments are at least <any-value>, which
+        # holds no bad string, no bad url and no closing bracket that closes
+        # nothing — so any of those makes the whole selector invalid, even in
+        # :is()'s forgiving list, which drops its items only after that.
         def consume_function_argument_source(allow_empty: false)
           skip_ws
           start = @i
-          depth = 0
+          closers = []
           until eof?
             c = peek
-            break if c == ")" && depth.zero?
+            break if c == ")" && closers.empty?
 
             if (j = CssSyntax.atom_end(@s, @i))
+              fail!("bad string or url in function arguments") if CssSyntax.bad_token_at?(@s, @i)
               @i = j
               next
             end
 
-            if c == "(" || c == "["
-              depth += 1
-            elsif c == ")" || c == "]"
-              depth -= 1
+            if (closer = CssSyntax::CLOSER[c])
+              closers.push(closer)
+            elsif CssSyntax::CLOSING_BRACKETS.include?(c)
+              fail!("unmatched #{c.inspect} in function arguments") unless closers.last == c
+              closers.pop
             end
             advance
           end
@@ -524,9 +534,9 @@ module Dommy
 
             ch = source[i]
             i += 1
-            if ch == "(" || ch == "["
+            if CssSyntax::OPENING_BRACKETS.include?(ch)
               depth += 1
-            elsif ch == ")" || ch == "]"
+            elsif CssSyntax::CLOSING_BRACKETS.include?(ch)
               depth -= 1 if depth.positive?
             elsif ch == "," && depth.zero?
               out << current.strip

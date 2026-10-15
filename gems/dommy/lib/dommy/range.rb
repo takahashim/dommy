@@ -536,9 +536,11 @@ module Dommy
 
       fragment = extract_contents
       # "Replace all" with null: newParent is emptied before it takes the
-      # contents. Insert it first, then fill it — inserting a populated wrapper
-      # would place its children relative to the wrong boundary.
-      new_parent.child_nodes.to_a.each { |child| child.remove }
+      # contents, under ONE childList record naming every removed child (only
+      # a ParentNode can have any). Insert it first, then fill it — inserting a
+      # populated wrapper would place its children relative to the wrong
+      # boundary.
+      new_parent.__internal_replace_all__([]) if new_parent.is_a?(Internal::ParentNode)
       insert_node(new_parent)
       new_parent.append_child(fragment)
       select_node(new_parent)

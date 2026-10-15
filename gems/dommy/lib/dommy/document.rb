@@ -1105,10 +1105,20 @@ module Dommy
     # wrapper is owned by `this`. Per spec, the source node is left
     # in place. `deep: true` copies the entire subtree.
     def import_node(node, deep = false)
+      # WebIDL converts `options` before the method steps run, so a bad
+      # customElementRegistry is a TypeError whatever `node` is — an Attr, or
+      # even a Document.
+      deep, registry = import_node_options(deep)
+
       # Step 1: "If node is a document or shadow root, throw a
       # NotSupportedError." Neither has anywhere to go in another document.
       if node.is_a?(Document) || node.is_a?(ShadowRoot)
         raise DOMException::NotSupportedError, "a #{node.is_a?(Document) ? "document" : "shadow root"} cannot be imported"
+      end
+
+      # Step 5.3: a global registry stands only for its own document.
+      if registry && !registry.scoped? && !registry.equal?(__internal_custom_element_registry__)
+        raise DOMException::NotSupportedError, "a global registry other than the document's"
       end
 
       # An Attr is a Node but not a backend-tree node: it is copied by rebuilding
@@ -1117,29 +1127,6 @@ module Dommy
       return import_attribute(node) if node.is_a?(Attr)
       return nil unless node.is_a?(Node) && node.__dommy_backend_node__
 
-      # `(boolean or ImportNodeOptions) options = false`: missing or undefined
-      # is the default, false. Null and an object convert to the dictionary,
-      # whose `selfOnly` negates `deep` (so null clones deep) and whose
-      # `customElementRegistry` (a scoped one, or this document's) is the
-      # registry the copies fall back to. Anything else is a boolean, read
-      # with ToBoolean.
-      registry = nil
-      deep = false if deep.equal?(Bridge::UNDEFINED)
-      if deep.nil? || deep.is_a?(Hash)
-        options = deep || {}
-        deep = !Internal::WebIDL.boolean(options["selfOnly"])
-        given = options.fetch("customElementRegistry", Bridge::UNDEFINED)
-        unless given.equal?(Bridge::UNDEFINED)
-          raise Bridge::TypeError, "customElementRegistry is not a CustomElementRegistry" unless given.is_a?(CustomElementRegistry)
-          if !given.scoped? && !given.equal?(__internal_custom_element_registry__)
-            raise DOMException::NotSupportedError, "a global registry other than the document's"
-          end
-
-          registry = given
-        end
-      else
-        deep = Internal::WebIDL.boolean(deep)
-      end
       # "Clone a single node": the node's own registry — a global one standing
       # for this document's — and the fallback only for a node without one.
       fallback = registry || __internal_custom_element_registry__
@@ -3447,6 +3434,24 @@ module Dommy
 
 
     private
+
+    # `(boolean or ImportNodeOptions) options = false`, as [deep, registry]:
+    # missing or undefined is the default, false. Null and an object convert
+    # to the dictionary, whose `selfOnly` negates `deep` (so null clones deep)
+    # and whose `customElementRegistry` has to be a CustomElementRegistry.
+    # Anything else is a boolean, read with ToBoolean.
+    def import_node_options(options)
+      return [false, nil] if options.equal?(Bridge::UNDEFINED)
+      return [Internal::WebIDL.boolean(options), nil] unless options.nil? || options.is_a?(Hash)
+
+      options ||= {}
+      deep = !Internal::WebIDL.boolean(options["selfOnly"])
+      registry = options.fetch("customElementRegistry", Bridge::UNDEFINED)
+      return [deep, nil] if registry.equal?(Bridge::UNDEFINED)
+      raise Bridge::TypeError, "customElementRegistry is not a CustomElementRegistry" unless registry.is_a?(CustomElementRegistry)
+
+      [deep, registry]
+    end
 
     # HTML "is a registrable domain suffix of or is equal to" (a single label
     # stands in for the public suffix; see #domain=).
