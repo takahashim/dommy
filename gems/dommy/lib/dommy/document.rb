@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
 require "time"
 
 require_relative "internal/node_wrapper_cache"

@@ -247,11 +247,8 @@ module Dommy
       # An empty Location value is a network error (not a self-redirect).
       return nil if location.to_s.strip.empty?
 
-      target = URI.join(current, location).to_s
-      scheme = URI.parse(target).scheme&.downcase
-      %w[http https].include?(scheme) ? target : nil
-    rescue URI::Error
-      nil
+      target = Internal::UrlParser.location_url(location, current)
+      target if target&.start_with?("http:", "https:")
     end
 
     # Per Fetch: a 303 (and a 301/302 on POST) switches the method to GET and
@@ -533,24 +530,12 @@ module Dommy
       acrh.all? { |h| allowed.include?(h) || (wildcard && h != "authorization") }
     end
 
-    # Whether `url`'s origin differs from the document's. A non-absolute URL (no
-
-    # Whether `url`'s origin differs from the document's. A non-absolute URL (no
-    # scheme/host) is same-origin (already resolved against the document base).
+    # Whether `url`'s origin differs from the document's. A URL without a
+    # tuple origin (a data: URL, or one that does not parse) is taken as
+    # same-origin.
     def cross_origin?(url)
-      other = origin_of(url)
+      other = Internal::Origin.tuple_of_url(url)
       !other.nil? && other != request_origin
-    end
-
-    def origin_of(url)
-      u = URI.parse(url.to_s)
-      return nil unless u.scheme && u.host
-
-      default = u.scheme == "https" ? 443 : 80
-      port = u.port && u.port != default ? ":#{u.port}" : ""
-      "#{u.scheme}://#{u.host}#{port}"
-    rescue URI::Error
-      nil
     end
 
     # A header record from a Hash, a sequence of [name, value] pairs, or a
@@ -1062,7 +1047,7 @@ module Dommy
       when "statusText"
         @status_text
       when "url"
-        @url
+        Internal::UrlParser.without_fragment(@url)
       when "redirected"
         # Fetch API: true when the response is the result of a followed
         # redirect (so `response.url` is the final, not requested, URL).

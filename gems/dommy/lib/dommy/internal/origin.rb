@@ -9,13 +9,43 @@ module Dommy
     module Origin
       module_function
 
+      # The schemes whose URLs have a tuple origin.
+      TUPLE_SCHEMES = %w[ftp http https ws wss].freeze
+
       # The serialized origin of a URL string: a scheme/host/port tuple for the
       # special schemes, the inner URL's origin for blob:, "null" (opaque) for
       # everything else and for a URL that does not parse.
       def of_url(url)
-        Dommy::URL.new(url.to_s).origin
-      rescue StandardError
+        of_record(UrlParser.parse(url.to_s))
+      rescue UrlParser::Failure
         "null"
+      end
+
+      # The serialized origin of a URL record. A blob: URL's is that of the URL
+      # its path serializes to, when that is an http(s) or file URL. A file
+      # URL's is opaque, as the spec suggests when in doubt.
+      #
+      # Spec: https://url.spec.whatwg.org/#concept-url-origin
+      def of_record(record)
+        if record.scheme == "blob"
+          inner = begin
+            UrlParser.parse(UrlParser.serialize_path(record))
+          rescue UrlParser::Failure
+            nil
+          end
+          return inner && %w[http https file].include?(inner.scheme) ? of_record(inner) : "null"
+        end
+        return "null" unless TUPLE_SCHEMES.include?(record.scheme)
+
+        record.port ? "#{record.scheme}://#{record.host}:#{record.port}" : "#{record.scheme}://#{record.host}"
+      end
+
+      # A URL string's serialized tuple origin, or nil when it does not parse
+      # or its origin is opaque: for a same-origin check, in which two opaque
+      # origins are never the same.
+      def tuple_of_url(url)
+        origin = of_url(url)
+        origin unless origin == "null"
       end
 
       # The serialized origin of a Window's associated Document. A document whose

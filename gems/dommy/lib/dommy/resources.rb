@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
 
 module Dommy
   # The single interface through which the lightweight test browser resolves
@@ -138,10 +137,30 @@ module Dommy
     module Pathing
       module_function
 
+      # What a URL given as a bare path (a stub keyed "/api") is read against,
+      # so that it has a path to match.
+      PLACEHOLDER_BASE = "http://resources.invalid/"
+
+      # The path of `url` ("/a/b"), or `url` itself when it does not parse.
       def path_of(url)
-        URI.parse(url.to_s).path
-      rescue URI::InvalidURIError
-        url.to_s
+        record = record_of(url)
+        record ? Internal::UrlParser.serialize_path(record) : url.to_s
+      end
+
+      # The path with the query ("/search?q=hi"), or nil when `url` does not
+      # parse.
+      def path_with_query_of(url)
+        record = record_of(url)
+        return nil unless record
+
+        path = Internal::UrlParser.serialize_path(record)
+        record.query ? "#{path}?#{record.query}" : path
+      end
+
+      def record_of(url)
+        Internal::UrlParser.parse(url.to_s, PLACEHOLDER_BASE)
+      rescue Internal::UrlParser::Failure
+        nil
       end
     end
 
@@ -183,10 +202,7 @@ module Dommy
         path = Pathing.path_of(given)
         return @map[path] if @map.key?(path)
 
-        uri = URI.parse(given)
-        uri.query ? @map["#{uri.path}?#{uri.query}"] : nil
-      rescue URI::InvalidURIError
-        nil
+        @map[Pathing.path_with_query_of(given)]
       end
     end
 

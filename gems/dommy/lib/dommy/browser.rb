@@ -308,11 +308,7 @@ module Dommy
     # injected the frame's content document can wire it as that frame's delegate.
     def __internal_load_frame__(frame, nav)
       base = frame.content_window&.location&.__js_get__("href").to_s
-      resolved = begin
-        URI.join(base, nav[:url].to_s).to_s
-      rescue URI::InvalidURIError, ArgumentError
-        nav[:url].to_s
-      end
+      resolved = Internal::UrlParser.resolve(nav[:url].to_s, base.empty? ? nil : base) || nav[:url].to_s
       navigate_frame(frame, nav, resolved)
       frame.__internal_run_iframe_load_event_steps__
       nil
@@ -745,10 +741,10 @@ module Dommy
       nil
     end
 
+    # `url` parsed as HTML's "encoding-parse a URL" does, against the current
+    # document's base URL and in its encoding; unchanged when it does not parse.
     def resolve_against_current(url)
-      URI.join(current_url, url).to_s
-    rescue URI::InvalidURIError
-      url
+      @window.__internal_parse_url__(url) || url
     end
 
     # Perform a pending navigation recorded by the delegate (JS-initiated

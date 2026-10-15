@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Dommy parses and resolves every URL with its WHATWG URL parser and no longer loads Ruby's `uri` library; code that used `URI` through Dommy requires it itself.
+
+### Fixed
+
+- A redirect's `Location` is parsed by the URL parser against the URL it answered, for `fetch()` and for a navigation: `/日本` and `/a b` are followed percent-encoded rather than failing, `http:done` is relative to an `http:` URL, and a `Location` without a fragment takes the request's (`/old#top` redirected to `/new` is `/new#top`).
+- A form's action and a `<meta http-equiv=refresh>` URL are parsed against the document's base URL and in its encoding, so `<base href>` applies and `url=/a b` is followed.
+- A module specifier resolves as HTML's "resolve a module specifier" does: `./a b.js` and `./日.js` load, any absolute URL is a URL rather than a bare specifier, and a `data:` module runs.
+- `Response#url` and `XMLHttpRequest#responseURL` leave out the URL's fragment.
+
 ## 0.17.0 — 2026-10-20
 
 ### Added

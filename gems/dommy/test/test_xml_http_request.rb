@@ -66,6 +66,14 @@ class TestXMLHttpRequest < Minitest::Test
     assert_equal("hello world", xhr.response_text)
   end
 
+  # responseURL is the response's URL serialized without its fragment.
+  def test_response_url_leaves_out_the_fragment
+    xhr = new_xhr
+    xhr.open("GET", "/api/foo#top", false)
+    xhr.send
+    assert_equal(["hello world", "http://localhost/api/foo"], [xhr.response_text, xhr.__js_get__("responseURL")])
+  end
+
   def test_sync_missing_url_returns_404
     xhr = new_xhr
     xhr.open("GET", "/missing", false)

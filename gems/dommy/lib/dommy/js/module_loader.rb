@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
-
 module Dommy
   module Js
     # The ESM resolver the engine consults for every `import`. Resolves a
@@ -83,27 +81,27 @@ module Dommy
         @preloaded.include?(url) || @seeded.key?(url) || css?(url) || !fetch(url).nil?
       end
 
-      # Resolve a specifier to an absolute URL string (nil if unresolvable).
-      # Bare specifiers go through the import map; relative/absolute resolve
-      # against the importer (or the document base URL for the entry module).
+      # Resolve a specifier to an absolute URL string (nil if unresolvable), as
+      # HTML's "resolve a module specifier" does: a URL-like one is a URL
+      # (relative ones against the importer, or the document base URL for the
+      # entry module), and a bare one goes through the import map.
       def resolve_url(specifier, importer = nil)
         spec = specifier.to_s
         base = importer.to_s.empty? ? @base_url : importer.to_s
+        base = nil if base.empty?
 
-        if relative?(spec) || absolute?(spec) || spec.start_with?("/")
-          join(base, spec)
-        else
-          mapped = @import_map&.resolve(spec, importer)
-          mapped ? join(base, mapped) : nil
-        end
+        url_like(spec, base) || @import_map&.resolve(spec, importer)&.then { |mapped| Internal::UrlParser.resolve(mapped, base) }
       end
 
       private
 
-      # A network fetch of `url`, remembered: the engine asking for a module
-      # that was prefetched gets the same response. A module an earlier page
-      # fetched and ModulePreload kept is not fetched again.
+      # A data: URL's payload, else a network fetch of `url`, remembered: the
+      # engine asking for a module that was prefetched gets the same response.
+      # A module an earlier page fetched and ModulePreload kept is not fetched
+      # again.
       def fetch(url)
+        decoded = DataUri.parse(url)
+        return decoded[:body] if decoded
         return @served[url] if @served.key?(url)
 
         kept = @kept&.call(url)
@@ -123,17 +121,15 @@ module Dommy
         !@resources.respond_to?(:serves?) || @resources.serves?(url)
       end
 
-      def relative?(spec) = spec.start_with?("./", "../")
-      def absolute?(spec) = spec.match?(%r{\A[a-z][a-z0-9+.-]*://}i)
-      def css?(url) = URI.parse(url).path.to_s.downcase.end_with?(".css")
+      def css?(url) = Resources::Pathing.path_of(url).downcase.end_with?(".css")
 
-      def join(base, spec)
-        return spec if absolute?(spec)
-        return spec if base.to_s.empty?
+      # HTML's "resolve a URL-like module specifier": one starting "/", "./" or
+      # "../" parsed against `base`, any other that parses as an absolute URL
+      # (data: and blob: included), or nil for a bare specifier.
+      def url_like(spec, base)
+        return Internal::UrlParser.resolve(spec) unless spec.start_with?("/", "./", "../")
 
-        URI.join(base, spec).to_s
-      rescue URI::InvalidURIError
-        nil
+        Internal::UrlParser.resolve(spec, base)
       end
     end
   end

@@ -5,8 +5,6 @@ require_relative "internal/origin"
 require_relative "internal/user_activation"
 require_relative "internal/close_watcher_manager"
 
-require "uri"
-
 require_relative "internal/css/cascade"
 require_relative "internal/css/media_query"
 
@@ -1173,10 +1171,7 @@ module Dommy
     # The path (with query) of a URL — lets a stub keyed by a path ("/api")
     # match its resolved absolute form ("http://host/api").
     def __internal_url_path__(url)
-      uri = URI.parse(url.to_s)
-      uri.query ? "#{uri.path}?#{uri.query}" : uri.path
-    rescue URI::Error
-      url.to_s
+      Resources::Pathing.path_with_query_of(url) || url.to_s
     end
 
     # Resize the virtual viewport: updates the environment, invalidates

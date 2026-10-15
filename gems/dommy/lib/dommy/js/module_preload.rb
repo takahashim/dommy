@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
 
 module Dommy
   module Js
@@ -84,10 +83,7 @@ module Dommy
 
         # Whether `url`'s file name carries a digest of its content.
         def digested?(url)
-          path = URI.parse(url.to_s).path
-          !path.nil? && DIGESTED.match?(path)
-        rescue URI::InvalidURIError
-          false
+          DIGESTED.match?(Resources::Pathing.path_of(url))
         end
 
         # The kept source of the module fetched from `url`, or nil.
@@ -176,17 +172,10 @@ module Dommy
         end
 
         def names_for(document)
-          origin = origin_of(document&.url)
+          origin = Internal::Origin.tuple_of_url(document&.url)
           return [] if origin.nil?
 
-          @mutex.synchronize { @registered.select { |_, offered| offered }.keys }.select { |url| origin_of(url) == origin && keeps?(url) }
-        end
-
-        def origin_of(url)
-          uri = URI.parse(url.to_s)
-          uri.host && "#{uri.scheme}://#{uri.host}:#{uri.port}"
-        rescue URI::InvalidURIError
-          nil
+          @mutex.synchronize { @registered.select { |_, offered| offered }.keys }.select { |url| Internal::Origin.tuple_of_url(url) == origin && keeps?(url) }
         end
       end
     end
