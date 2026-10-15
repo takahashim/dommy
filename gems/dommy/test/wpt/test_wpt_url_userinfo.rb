@@ -49,15 +49,16 @@ class TestWPTURLUserinfoSetters < Minitest::Test
   end
 
   def test_password_setter_writes_value
-    # password requires a username for the authority `user:pass@host`
-    # form to be valid; without one, browsers still encode it but the
-    # serialization is implementation-defined. Dommy backs onto Ruby
-    # URI which requires a non-nil user when password is set, so we
-    # exercise the with-username path.
     @url.username = "bob"
     @url.password = "secret"
     assert_equal("secret", @url.password)
     assert_equal("https://bob:secret@example.test/", @url.href)
+  end
+
+  # A password with no username serializes with an empty one before the ":".
+  def test_password_without_username
+    @url.password = "secret"
+    assert_equal("https://:secret@example.test/", @url.href)
   end
 
   def test_username_setter_empty_string_clears
