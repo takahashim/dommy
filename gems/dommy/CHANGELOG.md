@@ -30,6 +30,7 @@
 - A property name with a lone surrogate reaches the host with it replaced by U+FFFD, as a string argument does, so `localStorage["\uD800"] = "v"` is read by `localStorage.getItem("\uD800")`.
 - `range.surroundContents(newParent)` empties a newParent that has children under one childList record listing them all, as "replace all" does; it queued a record per child.
 - `document.importNode(attr, options)` converts `options` like it does for any other node, so `importNode(attr, { customElementRegistry: 1 })` throws a TypeError.
+- A selector whose functional pseudo-class argument holds a bad string, a bad url or a closing bracket that closes nothing is invalid, even in `:is()` and `:where()`, whose forgiving list is `<any-value>?` before its items are dropped: `:is(a], p)` and `:is(url(a b), p)` throw a SyntaxError, while `:is(p, {a})` still matches `p`.
 - `FormData#append(name, value, filename)` and `#set` with a value that is not a Blob throw TypeError, also when the filename is `undefined` or `null`: a third argument picks the Blob overload. For a Blob, an `undefined` filename is none (`"blob"`) and `null` is `"null"`.
 - `FormData`'s, `URLSearchParams`' and `Headers`' `append` no longer get ParentNode's `(Node or DOMString)` conversion from script, which turned `fd.append("a", blob, undefined)`'s filename into `"undefined"`.
 - A File put in a FormData under another name keeps its `lastModified`; only a Blob gets the current time.

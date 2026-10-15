@@ -26,7 +26,7 @@ class TestInternalModuleApi < Minitest::Test
     ],
     Dommy::Internal::CSS::Counters => %w[build substitute],
     Dommy::Internal::CssSyntax => %w[
-      preprocess valid_escape_at? ident_start_code_point? name_code_point? atom_end
+      preprocess valid_escape_at? ident_start_code_point? name_code_point? atom_end bad_token_at?
     ],
     Dommy::Internal::CSS::CustomProperties => %w[contains_var? resolve_declared substitute split_args],
     Dommy::Internal::CSS::MediaQuery => %w[match?],

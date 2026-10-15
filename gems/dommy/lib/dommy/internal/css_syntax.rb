@@ -19,6 +19,8 @@ module Dommy
     module CssSyntax
       OPENING_BRACKETS = "([{"
       CLOSING_BRACKETS = ")]}"
+      # The mirror each opening bracket's block (or function) closes at.
+      CLOSER = {"(" => ")", "[" => "]", "{" => "}"}.freeze
       # css-syntax-3's whitespace (§4.2) — before §3.3's preprocessing folds CR
       # and FF into LF, the same set as Infra's ASCII whitespace.
       WHITESPACE = Infra::ASCII_WHITESPACE_CHARS
@@ -35,6 +37,9 @@ module Dommy
       STRING_STOP = {'"' => /["\\\n]/, "'" => /['\\\n]/}.freeze
       # What can end an unquoted url, or must be stepped over in one.
       URL_STOP = /[)\\]/
+      # What makes an unquoted url bad (§4.3.6), whitespace and escapes aside:
+      # a quote, a `(`, or a non-printable code point (§4.2).
+      BAD_URL_CODE_POINT = /["'(\u0000-\u0008\u000B\u000E-\u001F\u007F]/
       # css-syntax-3 §3.3: the newline forms and NULL the tokenizer never sees.
       NEEDS_FILTERING = /[\r\f\u0000]/
 
@@ -92,6 +97,22 @@ module Dommy
           end
         end
 
+        # Whether the string or unquoted url starting at `j` is a bad one: a
+        # <bad-string-token>, which a newline ends unclosed (§4.3.5), or a
+        # <bad-url-token> (§4.3.6). No grammar takes either, not even
+        # <any-value>.
+        def bad_token_at?(source, j)
+          c = source[j]
+          if (c == "u" || c == "U") && (k = url_contents_start(source, j))
+            bad_url?(source, k)
+          elsif c == '"' || c == "'"
+            k = string_stop(source, j + 1, c)
+            !k.nil? && source[k] == "\n"
+          else
+            false
+          end
+        end
+
         private
 
         # A single byte of a binary String at or above 0x80 is part of a
@@ -110,15 +131,22 @@ module Dommy
         # `k`, or of the newline that ends it unclosed, or the end of the input.
         # A backslash takes the code point after it (§4.3.5).
         def string_end(source, k, quote)
+          k = string_stop(source, k, quote)
+          return source.length if k.nil?
+
+          source[k] == quote ? k + 1 : k
+        end
+
+        # Index of the `quote` closing a string whose contents start at `k`, or
+        # of the newline that ends it unclosed; nil if the input ends first.
+        def string_stop(source, k, quote)
           stop = STRING_STOP[quote]
           while (k = source.index(stop, k))
-            d = source[k]
-            return k + 1 if d == quote
-            return k if d == "\n"
+            return k unless source[k] == "\\"
 
             k += 2
           end
-          source.length
+          nil
         end
 
         # Where an unquoted url token's contents start, if the ident `url`
@@ -146,6 +174,43 @@ module Dommy
             k += valid_escape_at?(source, k) ? 2 : 1
           end
           source.length
+        end
+
+        # Whether the unquoted url whose contents start at `k` is bad (§4.3.6):
+        # whitespace before anything but its `)` or the end of the input, a
+        # BAD_URL_CODE_POINT, or a backslash that starts no valid escape.
+        def bad_url?(source, k)
+          while k < source.length
+            c = source[k]
+            return false if c == ")"
+
+            if WHITESPACE.include?(c)
+              k += 1 while k < source.length && WHITESPACE.include?(source[k])
+              return k < source.length && source[k] != ")"
+            end
+            return true if c.match?(BAD_URL_CODE_POINT)
+
+            if c == "\\"
+              return true unless valid_escape_at?(source, k)
+
+              k = escape_end(source, k)
+            else
+              k += 1
+            end
+          end
+          false
+        end
+
+        # Index just past the valid escape whose backslash is at `j` (§4.3.7):
+        # up to six hex digits and one whitespace after them, or else the one
+        # code point after the backslash.
+        def escape_end(source, j)
+          hex = source[j + 1, 6].to_s[/\A\h+/]
+          return [j + 2, source.length].min if hex.nil?
+
+          k = j + 1 + hex.length
+          k += 1 if k < source.length && WHITESPACE.include?(source[k])
+          k
         end
       end
     end

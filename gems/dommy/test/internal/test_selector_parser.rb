@@ -142,6 +142,36 @@ class TestSelectorParser < Minitest::Test
     assert_equal "a", matched.first.get_attribute("class")
   end
 
+  # A forgiving list is <any-value>? before its items are dropped, so a bad
+  # string, a bad url or a closing bracket that closes nothing invalidates the
+  # whole selector. Balanced blocks are only dropped items.
+  def test_forgiving_list_must_be_any_value
+    assert SP.valid?(":is(p, {a})")
+    assert SP.valid?(":is(p, (a))")
+    assert SP.valid?(":is(p, [a])")
+    assert SP.valid?(":is(p, url(x))")
+    assert SP.valid?(":is(p, url( x ))")
+    assert SP.valid?(":is(p, url(\\41 x))")
+    assert SP.valid?(":is(p, \"a\\\nb\")")
+    assert SP.valid?(":is(p, \"a")
+    refute SP.valid?(":is(a], p)")
+    refute SP.valid?(":is(p, a})")
+    refute SP.valid?(":is(a[x), p)")
+    refute SP.valid?(":is(p, {a)})")
+    refute SP.valid?(":where(p, \"a\nb\")")
+    refute SP.valid?(":is(url(a b), p)")
+    refute SP.valid?(":is(url(a\"b), p)")
+    refute SP.valid?(":is(url(a\\\nb), p)")
+    refute SP.valid?(":is(p, :is(a]))")
+  end
+
+  # The test_invalid_selector at the end of WPT's
+  # css/selectors/parsing/parse-is-where.html: the `)` inside the `[` block
+  # closes nothing.
+  def test_wpt_parse_is_where_bad_tokens
+    refute SP.valid?(":is(# C4\u0454[\u044F0)")
+  end
+
   def test_non_forgiving_lists_still_reject_all_invalid_branches
     refute SP.valid?(":not(:unknown-xyz)")
     refute SP.valid?(":has(:unknown-xyz)")
