@@ -87,6 +87,28 @@ class TestRange < Minitest::Test
     assert(win.document.query_selector("mark span"))
   end
 
+  # Step 4 empties newParent with "replace all": one childList record holding
+  # every child, queued even when step 5 then throws.
+  def test_surround_contents_empties_new_parent_under_one_record
+    div = @doc.create_element("div")
+    text = @doc.create_text_node("xy")
+    span = @doc.create_element("span")
+    div.append(text, span)
+    @doc.body.append_child(div)
+    range = @doc.create_range
+    range.set_start(text, 0)
+    range.set_end(text, 1)
+    observer = Dommy::MutationObserver.new(@win, proc {})
+    observer.__js_call__("observe", [@doc, {"childList" => true, "subtree" => true}])
+
+    assert_raises(Dommy::DOMException::HierarchyRequestError) { range.surround_contents(div) }
+
+    records = observer.__js_call__("takeRecords", []).select { |r| r.__js_get__("type") == "childList" }
+    emptied = records.select { |r| r.__js_get__("target").equal?(div) && r.__js_get__("removedNodes").length.positive? }
+    assert_equal 1, emptied.size
+    assert_equal [text, span], emptied.first.__js_get__("removedNodes").to_a
+  end
+
   # An Attr takes no children, so pre-insert rejects a range rooted in one.
   def test_insert_node_into_an_attr_rooted_range_is_a_hierarchy_request_error
     attr = @doc.create_attribute("x")
