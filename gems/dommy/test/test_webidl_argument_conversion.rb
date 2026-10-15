@@ -116,6 +116,15 @@ class TestWebIDLArgumentConversion < Minitest::Test
     assert_equal 0, other.__js_call__("importNode", [@div]).child_nodes.length
   end
 
+  # The options are converted before the method steps, so an Attr, which the
+  # steps copy without reading them, still rejects a bad customElementRegistry.
+  def test_import_node_converts_options_for_an_attr
+    attr = @doc.create_attribute("a")
+    assert_equal "a", @doc.import_node(attr, {}).name
+    assert_raises(Dommy::Bridge::TypeError) { @doc.import_node(attr, {"customElementRegistry" => 1}) }
+    assert_raises(Dommy::Bridge::TypeError) { @doc.import_node(@doc, {"customElementRegistry" => 1}) }
+  end
+
   # Setting data, nodeValue or textContent from script is "replace data" over
   # the whole node: a live range inside it goes to its start.
   def test_setting_data_from_script_replaces_data
