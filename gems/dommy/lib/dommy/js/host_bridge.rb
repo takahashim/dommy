@@ -96,6 +96,18 @@ module Dommy
         obj
       end
 
+      # Make the engine's global object the window `win` (`window ===
+      # globalThis`), in place of define_host_object("window", win): the
+      # window's members, named elements and event handler attributes resolve
+      # through globalThis's prototype chain, and wherever the host hands out
+      # `win`, JS gets globalThis. Only for an engine whose identifier
+      # resolution asks a Proxy on the global's prototype chain for `has`, so
+      # an unresolvable bare name still throws a ReferenceError (not QuickJS).
+      def unify_global_window(win)
+        @backend.call_js("__rbHost.unifyGlobalWindow", @codec.register(win))
+        win
+      end
+
       # The Window this realm's global is (nil before install_window).
       attr_reader :window
 
