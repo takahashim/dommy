@@ -2841,6 +2841,19 @@ globalThis.__rbHost = (function () {
     }
   }
 
+  // WebIDL `[LegacyWindowAlias]`: a further global name for an interface
+  // object, `webkitURL` being URL itself. Like the interface object's own
+  // global it is writable, non-enumerable and configurable.
+  const LEGACY_WINDOW_ALIASES = { webkitURL: "URL" };
+
+  function exposeLegacyWindowAliases() {
+    for (const alias in LEGACY_WINDOW_ALIASES) {
+      const target = LEGACY_WINDOW_ALIASES[alias];
+      if (alias in globalThis || !lazyChains.has(target) && !protos.has(target)) continue;
+      defineLazyGlobal(alias, () => protoNamed(target).constructor);
+    }
+  }
+
   // A global that builds its value the first time it is read, then becomes an
   // ordinary data property holding it. Assigning it first replaces it, as
   // assigning any global does.
@@ -2880,6 +2893,7 @@ globalThis.__rbHost = (function () {
       }
     }
     exposeNamedConstructors();
+    exposeLegacyWindowAliases();
   }
 
   // 1c: expose an interface constructor's static/class methods (URL.createObjectURL,
