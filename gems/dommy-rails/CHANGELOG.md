@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `UrlNormalizer` reads a URL with dommy's URL parser, so a raw space or non-ASCII path equals its percent-encoded form, and sorts query parameters stably, keeping a repeated key's values in order.
+
 ## 0.17.0 — 2026-10-20
 
 ### Breaking changes

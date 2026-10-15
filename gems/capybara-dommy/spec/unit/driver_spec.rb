@@ -97,8 +97,8 @@ RSpec.describe Capybara::Dommy::Driver do
     driver.visit("/one")
     driver.visit("/two")
     driver.go_back
-    expect(URI.parse(driver.current_url).path).to eq("/one")
+    expect(Dommy::URL.new(driver.current_url).pathname).to eq("/one")
     driver.go_forward
-    expect(URI.parse(driver.current_url).path).to eq("/two")
+    expect(Dommy::URL.new(driver.current_url).pathname).to eq("/two")
   end
 end

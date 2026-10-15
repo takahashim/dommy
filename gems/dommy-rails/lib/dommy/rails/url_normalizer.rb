@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "cgi/escape"
-require "uri"
 
 module Dommy
   module Rails
@@ -15,6 +14,10 @@ module Dommy
     module UrlNormalizer
       module_function
 
+      # What a path-only URL (the common case) is read against: the scheme and
+      # host are dropped anyway.
+      PLACEHOLDER_BASE = "http://dommy-rails.invalid/"
+
       def equal?(expected, actual)
         normalize(expected) == normalize(actual)
       end
@@ -27,18 +30,19 @@ module Dommy
         # response bodies).
         url = CGI.unescapeHTML(url)
 
-        uri = URI.parse(url)
-        path = uri.path.to_s
+        parsed = Dommy::URL.parse(url, PLACEHOLDER_BASE)
+        return url unless parsed
+
+        path = parsed.pathname
         path = path.chomp("/") unless path == "/"
 
-        query = if uri.query
-          params = URI.decode_www_form(uri.query).sort_by(&:first)
-          URI.encode_www_form(params)
+        query = unless parsed.search.empty?
+          params = parsed.search_params
+          params.sort
+          params.to_s
         end
 
         [path, query].compact.join("?")
-      rescue URI::InvalidURIError
-        url
       end
     end
   end
