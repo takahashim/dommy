@@ -79,6 +79,9 @@ globalThis.__rbHost = (function () {
   // The names globalThis owned once it became the window: the window proxy
   // below it never answers them (see unifyGlobalWindow).
   let unifiedGlobalNames = new Set();
+  // The window's members unifyGlobalWindow defined on globalThis, which a
+  // rebinding defines again for the new window.
+  let unifiedWindowMembers = new Set();
   // Window members HTML defines in mixins the generated member table leaves
   // out (WindowOrWorkerGlobalScope, …), and the writable Window attributes
   // that are not [Replaceable]: an assignment reaches the host rather than
@@ -3091,15 +3094,19 @@ globalThis.__rbHost = (function () {
     proxyHandles.set(globalThis, handle);
     proxyInterfaces.set(globalThis, "Window");
     Object.setPrototypeOf(globalThis, proxy);
+    const previousMembers = unifiedWindowMembers;
+    unifiedWindowMembers = new Set();
     const define = (name, desc) => {
       try {
         Object.defineProperty(globalThis, name, { enumerable: true, configurable: true, ...desc });
+        unifiedWindowMembers.add(name);
       } catch (e) { /* a non-configurable global keeps its definition */ }
     };
     const replaceable = (name, get) => define(name, {
       get, set(value) { define(name, { value, writable: true }); },
     });
-    const missing = (name) => !Object.hasOwn(globalThis, name);
+    // Not on globalThis, or the previous window's member there.
+    const missing = (name) => previousMembers.has(name) || !Object.hasOwn(globalThis, name);
     // [LegacyUnforgeable] readonly; configurable so a host can rebind it.
     define("window", { value: globalThis, writable: false });
     define("top", { get() { return globalThis; }, set(_value) {} });
