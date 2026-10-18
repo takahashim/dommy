@@ -91,6 +91,9 @@ module Dommy
         doc.is_a?(::Makiri::XML::Document) ? empty_xml_document : empty_document
       end
 
+      # Whether backend node `node` belongs to an XML document's tree.
+      def xml_node?(node) = node.is_a?(::Makiri::XML::NodeMethods)
+
       # Bring `node` (already detached from its old tree) into `target_doc`,
       # returning the backend node now owned by `target_doc`. Lexbor's arenas
       # can't move a node between documents, so adoption imports a detached

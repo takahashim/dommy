@@ -272,6 +272,10 @@ class TestEncodings < Minitest::Test
     assert_equal ["Big5", "?%26%239731%3B"], query.("Big5", "\u2603")
     assert_equal ["ISO-2022-JP", "?%1B(J\\%1B(B"], query.("ISO-2022-JP", "\u00A5")
     assert_equal ["UTF-8", "?%E2%82%AC"], query.("UTF-8", "\u20AC")
+    # A UTF-16 document (or replacement) has no encoder: its URLs take UTF-8.
+    assert_equal ["UTF-16LE", "?%E2%82%AC"], query.("UTF-16LE", "\u20AC")
+    assert_equal ["UTF-16BE", "?%E2%82%AC"], query.("UTF-16BE", "\u20AC")
+    assert_equal ["replacement", "?%E2%82%AC"], query.("replacement", "\u20AC")
   end
 
   # The single-byte encodings encode with their index read backwards, those

@@ -34,11 +34,40 @@ class TestInlineStyleCascade < Minitest::Test
     assert_equal "blur(1px)", el.style.__js_get__("webkitFilter")
   end
 
+  # A sheet's -webkit- legacy name alias declares the unprefixed property,
+  # so it takes part in the cascade (later wins, `!important` beats) and
+  # serializes unprefixed, as in a style attribute.
+  def test_webkit_aliases_in_a_stylesheet
+    doc = Dommy.parse(<<~HTML).document
+      <style>#a{-webkit-transform: rotate(1deg)} #b{transform: a; -webkit-transform: b} #c{-webkit-filter: x !important; filter: y}</style>
+      <p id="a"></p><p id="b"></p><p id="c"></p>
+    HTML
+    style = ->(id) { Dommy::Internal::CSS::Cascade.computed_style(doc.get_element_by_id(id)) }
+    assert_equal "rotate(1deg)", style.("a")["transform"]
+    assert_equal "b", style.("b")["transform"]
+    assert_equal "x", style.("c")["filter"]
+    rule = doc.query_selector("style").__js_get__("sheet").__js_get__("cssRules").__js_call__("item", [0])
+    assert_equal "#a { transform: rotate(1deg); }", rule.__js_get__("cssText")
+  end
+
   # A float, an absolutely positioned box and a flex item compute an
   # inline-level display to its block-level form.
   def test_blockification_of_the_computed_display
     doc = Dommy.parse(%(<div style="display:flex"><span id="a">x</span></div><span id="b" style="float:left">y</span><span id="c" style="position:absolute;display:inline-flex">z</span>)).document
     display = ->(id) { Dommy::Internal::CSS::Cascade.computed_style(doc.get_element_by_id(id))["display"] }
     assert_equal %w[block block flex], %w[a b c].map(&display)
+  end
+
+  # The keywords that decide it are ASCII case-insensitive: `float: NONE` is
+  # no float, `position: ABSOLUTE` and a `display: Flex` parent blockify.
+  def test_blockification_reads_keywords_case_insensitively
+    doc = Dommy.parse(<<~HTML).document
+      <span id="a" style="float:NONE">a</span>
+      <span id="b" style="position:ABSOLUTE">b</span>
+      <div style="display:Flex"><span id="c">c</span></div>
+      <span id="d" style="display:Inline;float:left">d</span>
+    HTML
+    display = ->(id) { Dommy::Internal::CSS::Cascade.computed_style(doc.get_element_by_id(id))["display"] }
+    assert_equal %w[inline block block block], %w[a b c d].map(&display)
   end
 end

@@ -2,6 +2,7 @@
 
 require "json"
 require "securerandom"
+require "weakref"
 require_relative "data_uri"
 require_relative "internal/referrer"
 
@@ -1063,13 +1064,58 @@ module Dommy
     # The response's fetch can still be aborted through `signal` (Fetch's
     # "abort the fetch() call" with a response): a body not yet read errors
     # with the abort reason, for a consume method and for a reader of `body`
-    # alike. A consume method reads it all, so the signal lets go then.
+    # alike. The signal lets go once the body is read — by a consume method,
+    # or a reader taking it to its end — and holds the response and its body
+    # stream only weakly until then, so a long-lived signal does not keep a
+    # response nobody reads (`fetch(url, {signal}).then(r => r.ok)`).
     def __internal_follow_abort__(signal)
       return unless body_readable?
 
       @abort_signal = signal
-      @abort_body = proc { abort_body(signal.reason) }
+      @abort_body = BodyAbort.new(self, signal)
+      signal.__internal_remove_abort_algorithms_if__ { |algorithm| algorithm.is_a?(BodyAbort) && algorithm.gone? }
       signal.__internal_add_abort_algorithm__(@abort_body)
+    end
+
+    # The abort algorithm a Response leaves on its fetch's signal. It errors
+    # the body when the response is still around, else the body stream a
+    # reader may still hold; once both have been collected there is nothing
+    # left to abort, and the signal drops it the next time it takes one.
+    class BodyAbort
+      def initialize(response, signal)
+        @response = WeakRef.new(response)
+        @stream = nil
+        @signal = signal
+      end
+
+      def stream=(stream)
+        @stream = WeakRef.new(stream)
+      end
+
+      def gone?
+        !alive(@response) && !alive(@stream)
+      end
+
+      def call
+        if (response = alive(@response))
+          response.__internal_abort_body__(@signal.reason)
+        elsif (stream = alive(@stream)) && stream.state == :readable
+          stream.__internal_error__(@signal.reason)
+        end
+      end
+
+      private
+
+      def alive(ref)
+        ref&.weakref_alive? ? ref.__getobj__ : nil
+      rescue WeakRef::RefError
+        nil
+      end
+    end
+
+    # Fetch "error response's body" from the signal's abort algorithm.
+    def __internal_abort_body__(reason)
+      abort_body(reason)
     end
 
     include Bridge::Methods
@@ -1149,8 +1195,21 @@ module Dommy
         stream.__internal_enqueue__(Bridge::Bytes.new(@body.bytes)) unless @body.empty?
         stream.__internal_close__
         stream.__internal_error__(@body_error) if @body_error
+        follow_abort_through(stream)
         stream
       end
+    end
+
+    # A reader can outlive the response, so the abort algorithm also reaches
+    # the stream; a reader taking it to its end leaves the signal nothing to
+    # abort.
+    def follow_abort_through(stream)
+      return unless @abort_body
+
+      @abort_body.stream = stream
+      signal = @abort_signal
+      algorithm = @abort_body
+      stream.__internal_when_done__ { signal.__internal_remove_abort_algorithm__(algorithm) }
     end
 
     # WHATWG: clone throws if the body is already disturbed/locked; otherwise the

@@ -315,6 +315,7 @@ module Dommy
       @read_requests = []
       requests.each { |request| request.close_steps.call }
       @reader&.__internal_stream_closed__
+      run_done_callbacks
     end
 
     def __internal_error_stream__(reason)
@@ -326,6 +327,15 @@ module Dommy
       @read_requests = []
       requests.each { |request| request.error_steps.call(reason) }
       @reader&.__internal_stream_errored__(reason)
+      run_done_callbacks
+    end
+
+    # Run `block` once the stream stops being readable (closed or errored),
+    # at once if it already has.
+    def __internal_when_done__(&block)
+      return block.call unless @state == :readable
+
+      (@done_callbacks ||= []) << block
     end
 
     def __internal_release_reader__
@@ -353,6 +363,14 @@ module Dommy
     end
 
     class Error < StandardError
+    end
+
+    private
+
+    def run_done_callbacks
+      callbacks = @done_callbacks
+      @done_callbacks = nil
+      callbacks&.each(&:call)
     end
   end
 

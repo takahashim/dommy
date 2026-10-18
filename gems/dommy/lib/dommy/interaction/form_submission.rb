@@ -147,7 +147,7 @@ module Dommy
             else
               @form.owner_document&.character_encoding || "UTF-8"
             end
-          name.start_with?("UTF-16") || name == "replacement" ? "UTF-8" : name
+          Encodings.output_encoding(name)
         end
       end
 

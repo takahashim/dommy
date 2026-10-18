@@ -509,7 +509,9 @@ module Dommy
           @len = @chars.length
           @base = base
           @state_override = state_override
-          @encoding = encoding
+          # Basic URL parser step 6: the override as an output encoding, so
+          # a UTF-16 document's queries are UTF-8.
+          @encoding = encoding && Encodings.output_encoding(encoding)
           @state = state_override || :scheme_start
           @url = url || Record.new("", "", "", nil, nil, [], nil, nil)
           @buffer = +""

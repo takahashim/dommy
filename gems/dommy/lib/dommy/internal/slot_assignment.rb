@@ -22,11 +22,15 @@ module Dommy
 
         # The HTML slots of the subtree rooted at backend node `root` (an
         # element or a fragment, itself included), in tree order, found by the
-        # backend's selector engine rather than a walk in Ruby.
+        # backend rather than a walk in Ruby. In an XML document the backend's
+        # selector engine matches `slot` only where a default namespace is
+        # declared, which createElementNS's elements lack, so the descendants
+        # are found by local name there.
         def slot_nodes(root)
           return [] unless root.element? || root.is_a?(Backend.document_fragment_class)
 
-          slots = root.css("slot").select { |node| slot_node?(node) }
+          candidates = Backend.xml_node?(root) ? root.xpath(".//*[local-name()='slot']") : root.css("slot")
+          slots = candidates.select { |node| slot_node?(node) }
           slots.unshift(root) if slot_node?(root)
           slots
         end
