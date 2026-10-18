@@ -50,6 +50,17 @@ class TestInlineStyleCascade < Minitest::Test
     assert_equal "#a { transform: rotate(1deg); }", rule.__js_get__("cssText")
   end
 
+  # Property names are ASCII case-insensitive only: the Kelvin sign is not a
+  # `k`, in a sheet, a style attribute or CSSOM.
+  def test_property_names_fold_ascii_only
+    name = "bac\u212Aground-color"
+    doc = Dommy.parse(%(<style>#s{#{name}: blue}</style><p id="s"></p><p id="a" style="#{name}: blue"></p>)).document
+    style = ->(id) { Dommy::Internal::CSS::Cascade.computed_style(doc.get_element_by_id(id)) }
+    assert_equal "rgba(0, 0, 0, 0)", style.("s")["background-color"]
+    assert_equal "rgba(0, 0, 0, 0)", style.("a")["background-color"]
+    assert_equal "", doc.get_element_by_id("a").style.get_property_value("background-color")
+  end
+
   # A float, an absolutely positioned box and a flex item compute an
   # inline-level display to its block-level form.
   def test_blockification_of_the_computed_display
