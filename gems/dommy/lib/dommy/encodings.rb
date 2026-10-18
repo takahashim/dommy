@@ -109,8 +109,8 @@ module Dommy
     # The bytes `string` encodes to in the encoding named `name` (as `get`
     # returns it); a code point the encoding cannot represent is the bytes the
     # block returns for it. The legacy multi-byte encoders and the single-byte
-    # ones (an index read backwards) are the spec's own; Ruby encodes the rest
-    # (GBK, gb18030), and UTF-8 is the string's own bytes.
+    # ones (an index read backwards) are the spec's own; Ruby encodes the rest,
+    # and UTF-8 is the string's own bytes.
     #
     # Spec: https://encoding.spec.whatwg.org/#encode
     def self.encode(name, string, &unmappable)

@@ -543,7 +543,7 @@ module Dommy
       module_function
 
       ENCODERS = {"Big5" => :big5, "ISO-2022-JP" => :iso_2022_jp, "Shift_JIS" => :shift_jis,
-                  "EUC-JP" => :euc_jp, "EUC-KR" => :euc_kr}.freeze
+                  "EUC-JP" => :euc_jp, "EUC-KR" => :euc_kr, "GBK" => :gbk, "gb18030" => :gb18030}.freeze
       private_constant :ENCODERS
 
       def handles?(name) = ENCODERS.key?(name)
@@ -603,6 +603,57 @@ module Dommy
           out << leading + 0x81 << trailing + 0x41
         end
         out
+      end
+
+      def gbk(string, &) = gb18030(string, gbk: true, &)
+
+      # The private-use code points gb18030 encodes as two bytes ahead of the
+      # index: what the index had for those pointers before GB18030-2022.
+      GB18030_PRIVATE_USE_PAIRS = {
+        0xE78D => [0xA6, 0xD9], 0xE78E => [0xA6, 0xDA], 0xE78F => [0xA6, 0xDB], 0xE790 => [0xA6, 0xDC],
+        0xE791 => [0xA6, 0xDD], 0xE792 => [0xA6, 0xDE], 0xE793 => [0xA6, 0xDF], 0xE794 => [0xA6, 0xEC],
+        0xE795 => [0xA6, 0xED], 0xE796 => [0xA6, 0xF3], 0xE81E => [0xFE, 0x59], 0xE826 => [0xFE, 0x61],
+        0xE82B => [0xFE, 0x66], 0xE82C => [0xFE, 0x67], 0xE832 => [0xFE, 0x6D], 0xE843 => [0xFE, 0x7E],
+        0xE854 => [0xFE, 0x90], 0xE864 => [0xFE, 0xA0]
+      }.freeze
+      private_constant :GB18030_PRIVATE_USE_PAIRS
+
+      # Spec: https://encoding.spec.whatwg.org/#gb18030-encoder
+      def gb18030(string, gbk: false)
+        out = []
+        string.each_codepoint do |code_point|
+          next out << code_point if code_point <= 0x7F
+          next out.concat(yield(code_point)) if code_point == 0xE5E5
+          next out << 0x80 if gbk && code_point == 0x20AC
+          next out.concat(GB18030_PRIVATE_USE_PAIRS[code_point]) if GB18030_PRIVATE_USE_PAIRS.key?(code_point)
+
+          if (pointer = gb18030_pointer(code_point))
+            leading, trailing = pointer.divmod(190)
+            next out << leading + 0x81 << trailing + (trailing < 0x3F ? 0x40 : 0x41)
+          end
+          bytes = gbk ? nil : gb18030_four_bytes(code_point)
+          next out.concat(yield(code_point)) if bytes.nil?
+
+          out.concat(bytes)
+        end
+        out
+      end
+
+      # The index gb18030 pointer: the first pointer for a code point.
+      def gb18030_pointer(code_point)
+        (@gb18030_pointers ||= first_pointers(:gb18030, 0...LegacyIndexes::POINTER_COUNTS[:gb18030]))[code_point]
+      end
+
+      # The four bytes of a code point's index gb18030 ranges pointer. The
+      # ranges are Ruby's GB18030's four-byte sequences (the decoder reads
+      # them back the same way), but for U+E7C7, whose pointer is 7457.
+      def gb18030_four_bytes(code_point)
+        return [0x81, 0x35, 0xF4, 0x37] if code_point == 0xE7C7
+
+        bytes = code_point.chr(::Encoding::UTF_8).encode(::Encoding::GB18030).bytes
+        bytes if bytes.length == 4
+      rescue ::EncodingError
+        nil
       end
 
       def big5(string)

@@ -180,10 +180,10 @@ module Dommy
   # a page writes them, and the page writes into its own `data` typed array
   # (host_runtime.js), which stays in the JS realm.
   #
-  # The one time the pixels come here is a structured clone: the clone a
-  # message or a history state delivers belongs to this side (a MessageEvent,
-  # the history entry) and outlives any one JS proxy of it (`__dommyClone`), so
-  # it holds the pixels the page wrote (`__dommyPixels`, packed bytes), given
+  # The pixels come here only for an ImageData this side may keep beyond any
+  # one JS proxy of it: the clone a message or a history state delivers
+  # (`__dommyClone`), or one script handed over (a MessageEvent's `data`). It
+  # holds the pixels the page wrote (`__dommyPixels`, packed bytes), given
   # when it is made or when the last proxy that could write them goes.
   class ImageData
     attr_reader :width, :height

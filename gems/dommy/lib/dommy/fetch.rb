@@ -72,7 +72,9 @@ module Dommy
       if (signal = request_signal(init))
         return promise.reject(signal.reason) if signal.aborted?
 
-        signal.__internal_add_abort_algorithm__(proc { promise.reject(signal.reason) })
+        abort_fetch = proc { promise.reject(signal.reason) }
+        signal.__internal_add_abort_algorithm__(abort_fetch)
+        promise.__internal_when_settled__ { signal.__internal_remove_abort_algorithm__(abort_fetch) }
       end
       # `mode: "same-origin"` forbids a cross-origin request — it is a network
       # error before any fetch happens.
@@ -335,7 +337,7 @@ module Dommy
     # errors from then on (Fetch's "abort the fetch() call" with a response).
     def fulfill_response(promise, response, init)
       if (signal = request_signal(init))
-        signal.__internal_add_abort_algorithm__(proc { response.__internal_abort_body__(signal.reason) })
+        response.__internal_follow_abort__(signal)
       end
       promise.fulfill(response)
     end
@@ -586,14 +588,18 @@ module Dommy
     # (see #__js_call__) and clears the timer, so it does not linger in the
     # scheduler's queue.
     def install_delayed_resolve(promise, body, status, status_text, headers, init, delay_ms)
+      signal = request_signal(init)
+      clear_timer = nil
       timer_id = @window.scheduler.set_timeout(
         lambda do |*_args|
+          signal&.__internal_remove_abort_algorithm__(clear_timer)
           fulfill_response(promise, Response.new(@window, body: body, status: status, status_text: status_text, headers: headers, type: "basic"), init)
         end,
         delay_ms.to_i
       )
       scheduler = @window.scheduler
-      request_signal(init)&.__internal_add_abort_algorithm__(proc { scheduler.clear_timeout(timer_id) })
+      clear_timer = proc { scheduler.clear_timeout(timer_id) }
+      signal&.__internal_add_abort_algorithm__(clear_timer)
     end
   end
 
@@ -1054,13 +1060,16 @@ module Dommy
       Bridge::UNHANDLED
     end
 
-    # The response's fetch was aborted: a body not yet read errors with the
-    # abort reason, for a consume method and for a reader of `body` alike.
-    def __internal_abort_body__(reason)
-      return if @body_used
+    # The response's fetch can still be aborted through `signal` (Fetch's
+    # "abort the fetch() call" with a response): a body not yet read errors
+    # with the abort reason, for a consume method and for a reader of `body`
+    # alike. A consume method reads it all, so the signal lets go then.
+    def __internal_follow_abort__(signal)
+      return unless body_readable?
 
-      @body_error = reason
-      @body_stream&.__internal_error__(reason)
+      @abort_signal = signal
+      @abort_body = proc { abort_body(signal.reason) }
+      signal.__internal_add_abort_algorithm__(@abort_body)
     end
 
     include Bridge::Methods
@@ -1108,9 +1117,26 @@ module Dommy
       end
 
       @body_used = true
+      @abort_signal&.__internal_remove_abort_algorithm__(@abort_body)
       return rejected(@body_error) if @body_error
 
       yield
+    end
+
+    # Fetch "error response's body" when it is readable: all of a body is
+    # there at once, so it is readable while a nonempty one is unread — an
+    # empty one is already closed, as is a stream read to its end.
+    def abort_body(reason)
+      return if @body_used || !body_readable?
+
+      @body_error = reason
+      @body_stream&.__internal_error__(reason)
+    end
+
+    def body_readable?
+      return false unless @has_body
+
+      @body_stream ? @body_stream.state == :readable : !@body.empty?
     end
 
     # Lazily build + memoize the body ReadableStream (a single Uint8Array chunk

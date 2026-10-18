@@ -100,6 +100,16 @@ module Dommy
       @state != :pending
     end
 
+    # Call `callback` as this promise settles (at once when it has), before any
+    # reaction runs: how a host algorithm drops what it no longer needs once
+    # the promise has its outcome.
+    def __internal_when_settled__(&callback)
+      return callback.call if settled?
+
+      (@settle_callbacks ||= []) << callback
+      nil
+    end
+
     # Call `on_fulfilled` / `on_rejected` with the outcome once settled (from a
     # microtask), without a chained promise: how a JS realm Promise standing
     # for this one learns its outcome.
@@ -187,6 +197,8 @@ module Dommy
 
       @state = state
       @value = value
+      @settle_callbacks&.each(&:call)
+      @settle_callbacks = nil
       schedule_flush
       self
     end
