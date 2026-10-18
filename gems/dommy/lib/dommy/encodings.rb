@@ -26,6 +26,14 @@ module Dommy
       LABELS[label.gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "").downcase(:ascii)]
     end
 
+    # The encoding text is encoded in when `name` is the one asked for: UTF-8
+    # in place of replacement, UTF-16BE and UTF-16LE, which have no encoder.
+    #
+    # Spec: https://encoding.spec.whatwg.org/#get-an-output-encoding
+    def self.output_encoding(name)
+      name.start_with?("UTF-16") || name == "replacement" ? "UTF-8" : name
+    end
+
     # The byte-order marks that name their own encoding, longest first.
     #
     # Spec: https://encoding.spec.whatwg.org/#decode
