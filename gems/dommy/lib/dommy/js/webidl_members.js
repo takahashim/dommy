@@ -147,7 +147,7 @@ globalThis.__rbIdlMembers = {
   "ProcessingInstruction": {"g": ["target"]},
   "ProgressEvent": {"g": ["lengthComputable","loaded","total"]},
   "Range": {"m": ["cloneContents","cloneRange","collapse","compareBoundaryPoints","comparePoint","createContextualFragment","deleteContents","detach","extractContents","getBoundingClientRect","getClientRects","insertNode","intersectsNode","isPointInRange","selectNode","selectNodeContents","setEnd","setEndAfter","setEndBefore","setStart","setStartAfter","setStartBefore","surroundContents","toString"], "g": ["commonAncestorContainer"]},
-  "Request": {"m": ["arrayBuffer","blob","bytes","clone","formData","json","text"], "g": ["body","cache","credentials","headers","method","mode","redirect","referrer","referrerPolicy","signal","url"]},
+  "Request": {"m": ["arrayBuffer","blob","bytes","clone","formData","json","text"], "g": ["body","bodyUsed","cache","credentials","headers","method","mode","redirect","referrer","referrerPolicy","signal","url"]},
   "Response": {"m": ["arrayBuffer","blob","clone","formData","text"], "g": ["body","bodyUsed","headers","ok","redirected","status","statusText","type","url"]},
   "Screen": {"g": ["availHeight","availWidth","colorDepth","height","pixelDepth","width"]},
   "Selection": {"m": ["addRange","collapse","collapseToEnd","collapseToStart","containsNode","deleteFromDocument","empty","extend","getComposedRanges","getRangeAt","removeAllRanges","removeRange","selectAllChildren","setBaseAndExtent","setPosition","toString"], "g": ["anchorNode","anchorOffset","direction","focusNode","focusOffset","isCollapsed","rangeCount","type"]},

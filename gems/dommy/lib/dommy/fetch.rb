@@ -42,7 +42,14 @@ module Dommy
       # fetch(request, init) is a fetch of `new Request(request, init)`: the
       # request's URL, and its members as far as `init` leaves them.
       if input.is_a?(Request)
-        init = input.__internal_init__.merge(init.is_a?(Hash) ? init.transform_keys(&:to_s) : {})
+        given = init.is_a?(Hash) ? init.transform_keys(&:to_s) : {}
+        # A null (or undefined) body in `init` leaves the request's own.
+        given.delete("body") if given["body"].nil? || given["body"].equal?(Bridge::UNDEFINED)
+        # Sending the request's body uses it up, as reading it would.
+        if !given.key?("body") && !input.__internal_take_body__
+          return PromiseValue.reject(@window, Bridge::TypeError.new("Failed to execute 'fetch': Request body is already used"))
+        end
+        init = input.__internal_init__.merge(given)
         input = input.url
       end
       url = @window.__internal_resolve_url__(input.to_s, utf8: true)
@@ -710,6 +717,8 @@ module Dommy
         @headers
       when "body"
         @body
+      when "bodyUsed"
+        @body_used == true
       when "credentials"
         @credentials
       when "mode"
@@ -735,6 +744,8 @@ module Dommy
     def __js_call__(method, _args)
       case method
       when "clone"
+        raise Bridge::TypeError, "Failed to execute 'clone' on 'Request': Request body is already used" if @body_used
+
         Request.new(@url, __internal_init__, @window)
       when "text"
         consume_body { immediate(Response.utf8_decode(@body_bytes)) }
@@ -754,6 +765,15 @@ module Dommy
       when "formData"
         consume_body { consume_form_data(@body_bytes) }
       end
+    end
+
+    # fetch(request) sends the body: false when it was already used, else it
+    # is used now. A request with no body has nothing to use up.
+    def __internal_take_body__
+      return true if @body.nil?
+      return false if @body_used
+
+      @body_used = true
     end
 
     # The request as a `RequestInit`: what `clone()` builds a copy from, and
