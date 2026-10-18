@@ -287,7 +287,9 @@ module Dommy
           def build_style_rule(selectors, declarations)
             return nil if selectors.empty?
 
-            StyleRule.new(selectors, declarations.map { |d| Declaration.new(d[:name], declaration_value(d[:value]), d[:important]) })
+            # A -webkit- legacy name alias declares the unprefixed property, in
+            # a sheet as in a style attribute.
+            StyleRule.new(selectors, declarations.map { |d| Declaration.new(property_name(d[:name]), declaration_value(d[:value]), d[:important]) })
           end
 
           # A declaration's value as the backend hands it over can still hold a
