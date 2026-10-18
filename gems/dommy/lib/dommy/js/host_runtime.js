@@ -2979,12 +2979,15 @@ globalThis.__rbHost = (function () {
         enumerable: true, configurable: true,
       });
     }
+    // QuotaExceededError is built on its first use, which installs it as a
+    // global: build it now, so it is one from the start, unified or not.
+    const quotaExceeded = quotaExceededError();
     // Unified, the window is the global object: its constructors and builtins
     // are already its own properties.
     if (own === globalThis) return;
     const names = [...protos.keys(), ...lazyChains.keys()];
     if (!names.includes("DOMException") && typeof globalThis.DOMException === "function") names.push("DOMException");
-    if (quotaExceededError()) names.push("QuotaExceededError");
+    if (quotaExceeded) names.push("QuotaExceededError");
     // Mirror the JS built-in constructors too, so an iframe's contentWindow
     // resolves `defaultView.TypeError` / `defaultView.Array` like a real window
     // (WPT reaches for `(root.ownerDocument).defaultView.TypeError`). The same
