@@ -835,6 +835,17 @@ globalThis.__rbHost = (function () {
     return id;
   }
 
+  // Forget functions registered with registerCallback that will not be
+  // called again; a later call for one of their ids does nothing.
+  function releaseCallbacks(...fns) {
+    for (const fn of fns) {
+      const id = callbackIds.get(fn);
+      if (id === undefined) continue;
+      callbacks.delete(id);
+      callbackIds.delete(fn);
+    }
+  }
+
   // Called from Ruby when a host event dispatch reaches a JS-registered
   // listener. The live function (closure intact) is invoked; tagged args
   // (e.g. an Event handle) are rehydrated to proxies first.
@@ -1008,8 +1019,15 @@ globalThis.__rbHost = (function () {
     const promise = new Promise((resolve, reject) => { resolveFn = resolve; rejectFn = reject; });
     hostPromiseProxies.set(promise, proxy);
     realmPromises.set(handle, new WeakRef(promise));
+    // The host settles the promise once, so the two callbacks are released
+    // then: the callback table holds what it registers for good, and the
+    // resolve function would keep the Promise, its host proxy, the
+    // PromiseValue and the value it settled with (a fetch's Response) alive
+    // for the life of the page.
+    const onFulfilled = (value) => { releaseCallbacks(onFulfilled, onRejected); resolveFn(value); };
+    const onRejected = (reason) => { releaseCallbacks(onFulfilled, onRejected); rejectFn(reason); };
     // Subscribe without a chained host promise (nothing to hand back).
-    __rb_host_promise_subscribe(handle, dehydrate(resolveFn), dehydrate(rejectFn));
+    __rb_host_promise_subscribe(handle, dehydrate(onFulfilled), dehydrate(onRejected));
     return promise;
   }
 
@@ -3112,7 +3130,13 @@ globalThis.__rbHost = (function () {
     const missing = (name) => previousMembers.has(name) || !Object.hasOwn(globalThis, name);
     // [LegacyUnforgeable] readonly; configurable so a host can rebind it.
     define("window", { value: globalThis, writable: false });
-    define("top", { get() { return globalThis; }, set(_value) {} });
+    // Getter only, so a strict-mode assignment throws as on a browser's.
+    define("top", { get() { return globalThis; } });
+    // The bridge's own globals are no window members for Object.keys(window)
+    // or for-in to list (the split window proxy's ownKeys leaves them out).
+    for (const name of Object.keys(globalThis)) {
+      if (name.startsWith("__rb")) Object.defineProperty(globalThis, name, { enumerable: false });
+    }
     for (const name of ["self", "frames", "parent"]) replaceable(name, () => globalThis);
     define("location", {
       get() { return windowMember("location"); },
