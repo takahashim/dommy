@@ -3830,12 +3830,18 @@ globalThis.__rbHost = (function () {
   // Window member (`window.fetch = f` replaces the bare `fetch`), is a write
   // to globalThis — a data property's value, or an accessor's setter with the
   // window as `this`. A forward accessor keeps routing to the host (an
-  // assignment to `location` navigates).
+  // assignment to `location` navigates). The page has then defined a data
+  // property on the window, which reads back from globalThis even where the
+  // embedder's forwards may read the window (windowDefinitions).
   function setWindowOwnGlobal(handle, shape, t, prop, value, receiver) {
     if (typeof prop !== "string" || !isGlobalWindow(handle) || isEventHandlerName(shape, prop)) return undefined;
     const d = Reflect.getOwnPropertyDescriptor(globalThis, prop);
     if (d === undefined) return undefined;
-    if ("value" in d) return Reflect.set(globalThis, prop, value);
+    if ("value" in d) {
+      if (!Reflect.set(globalThis, prop, value)) return false;
+      windowDefinitions.add(prop);
+      return true;
+    }
     if (windowOwnGlobal(shape, t, prop) === undefined) return undefined;
     return Reflect.set(globalThis, prop, value, receiver);
   }
