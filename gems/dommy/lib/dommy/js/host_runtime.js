@@ -526,7 +526,7 @@ globalThis.__rbHost = (function () {
       checkReceiver(this, iface, name);
       const call = declaredConversion(receiverInterface(this, iface), "operations", name);
       const converted = call ? convertArguments(call, args) : args;
-      const wire = dehydrateArgs(coerce ? converted.map(coerceNodeOrString) : converted);
+      const wire = withImageDataRead(dehydrateArgs, iface, name)(coerce ? converted.map(coerceNodeOrString) : converted);
       return readOnly
         ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface)
         : callMutating(this[HKEY], name, wire, iface);
@@ -561,9 +561,10 @@ globalThis.__rbHost = (function () {
   // pixels. Dommy paints nothing, so an ImageData starts transparent black and
   // only the page's writes change it. They stay here and do not cross the
   // bridge when the ImageData does (a 1920x1080 image is 8 MB) — except for a
-  // structured clone: the deserialized ImageData may belong to the host (a
-  // MessageEvent's data, a history state), which keeps it beyond the life of
-  // any proxy of it, so its pixels go to the host when its last proxy goes.
+  // ImageData the host may keep beyond the life of any proxy of it: a
+  // deserialized clone (a MessageEvent's data, a history state), or one the
+  // page handed to the host (`new MessageEvent("m", {data: img})`). Its pixels
+  // go to the host when its last proxy goes.
   //
   // The pixels are keyed by handle, not by proxy: QuickJS frees a proxy as
   // soon as nothing refers to it (`e.data.data` drops `e.data` at once), and
@@ -573,7 +574,8 @@ globalThis.__rbHost = (function () {
   // back to a host that holds the pixels.
   //
   //   pixels      the Uint8ClampedArray `data` returns
-  //   hostBacked  the host keeps this ImageData (a clone), so keeps its pixels
+  //   hostBacked  the host may keep this ImageData (a clone, or one it was
+  //               given), so keeps its pixels
   //   exposed     the array may hold what the host does not (the page has had
   //               it, or it came from a serialized record)
   const pixelsByHandle = new Map();
@@ -599,6 +601,40 @@ globalThis.__rbHost = (function () {
     const width = rehydrate(__rb_host_get(handle, "width"));
     const height = rehydrate(__rb_host_get(handle, "height"));
     return new Uint8ClampedArray(width * height * 4);
+  }
+
+  // The operations that take an ImageData as such (WebIDL types the argument
+  // ImageData, or ImageBitmapSource): each reads its pixels during the call
+  // and keeps nothing, so the ImageData stays the page's alone. Everywhere
+  // else an ImageData reaches the host as an `any` or `object` value — an
+  // event's data, a signal's reason, a stream's chunk — which the host keeps.
+  const IMAGE_DATA_READERS = new Set([
+    "CanvasRenderingContext2D.createImageData", "CanvasRenderingContext2D.putImageData",
+    "OffscreenCanvasRenderingContext2D.createImageData", "OffscreenCanvasRenderingContext2D.putImageData",
+    "Window.createImageBitmap", "WorkerGlobalScope.createImageBitmap",
+  ]);
+  let readingImageData = false;
+  // `fn`, for operation `name` of `iface`, with the ImageData it is given
+  // crossing as one the host only reads, when it is such an operation.
+  function withImageDataRead(fn, iface, name) {
+    if (!IMAGE_DATA_READERS.has(iface + "." + name)) return fn;
+    return function (...args) {
+      const outer = readingImageData;
+      readingImageData = true;
+      try {
+        return fn.apply(this, args);
+      } finally {
+        readingImageData = outer;
+      }
+    };
+  }
+
+  // The ImageData crosses to the host, which may keep it: its pixels the page
+  // writes go there when its last proxy goes.
+  function markHostBacked(handle) {
+    const entry = pixelsByHandle.get(handle);
+    if (entry === undefined) pixelsByHandle.set(handle, { pixels: null, hostBacked: true, exposed: false });
+    else entry.hostBacked = true;
   }
 
   // The handle is going: a host-backed ImageData's pixels the page may have
@@ -989,7 +1025,11 @@ globalThis.__rbHost = (function () {
   function dehydrate(v, seen) {
     if (typeof v === "string") return /[\ud800-\udfff]/.test(v) ? scrubLoneSurrogates(v) : v;
     if (typeof v === "function") return { __rb_callback: registerCallback(v) };
-    if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+    if (isProxy(v)) {
+      const handle = proxyHandles.get(v);
+      if (!readingImageData && proxyInterfaces.get(v) === "ImageData") markHostBacked(handle);
+      return { __rb_handle: handle };
+    }
     if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
     // A BufferSource (ArrayBuffer or any typed-array/DataView view) crosses as
     // its raw bytes, so host code gets a uniform byte buffer (TextDecoder.decode,
@@ -3592,7 +3632,7 @@ globalThis.__rbHost = (function () {
       else if (nodeOrStringMember(prop, ctx.ifaceName)) fn = nodeOrStringStub(prop, ctx);
       else fn = mutatingStub(prop, ctx);
     }
-    fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
+    fn = withConvertedArguments(withImageDataRead(fn, ctx.ifaceName, prop), ctx.ifaceName, "operations", prop);
     if (prop === "toString" && ctx.ifaceName) fn = brandCheckedStringifier(fn, ctx);
     withArity(fn, prop, ctx.ifaceName);
     // An operation's function is named after it (`fetch.name`), and one no
