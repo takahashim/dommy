@@ -69,6 +69,22 @@ class TestInlineStyleCascade < Minitest::Test
     assert_equal %w[block block flex], %w[a b c].map(&display)
   end
 
+  # A table part blockified becomes a block, and the root element's
+  # `display: contents` computes to `block`; a table part in a table stays.
+  def test_blockification_of_table_parts_and_a_contents_root
+    doc = Dommy.parse(<<~HTML).document
+      <div style="display:flex"><span id="a" style="display:table-cell">a</span></div>
+      <span id="b" style="float:left;display:table-row">b</span>
+      <span id="c" style="position:absolute;display:table-caption">c</span>
+      <table><tr><td id="d">d</td></tr></table>
+    HTML
+    display = ->(id) { Dommy::Internal::CSS::Cascade.computed_style(doc.get_element_by_id(id))["display"] }
+    assert_equal %w[block block block table-cell], %w[a b c d].map(&display)
+
+    root = Dommy.parse("<!doctype html><html style='display:contents'><body></body></html>").document.document_element
+    assert_equal "block", Dommy::Internal::CSS::Cascade.computed_style(root)["display"]
+  end
+
   # The keywords that decide it are ASCII case-insensitive: `float: NONE` is
   # no float, `position: ABSOLUTE` and a `display: Flex` parent blockify.
   def test_blockification_reads_keywords_case_insensitively
