@@ -82,6 +82,45 @@ class TestFetchAbort < Minitest::Test
     assert_equal([:rejected, "stale"], outcome(reader.__js_call__("read", [])))
   end
 
+  # An empty body is closed as soon as it arrives, so there is nothing for an
+  # abort to error: Fetch errors only a body that is still readable.
+  def test_an_abort_leaves_an_empty_body_closed
+    @win.globals["__fetch_handler__"] = ->(_url, _init) { {"status" => 200, "body" => ""} }
+    controller = Dommy::AbortController.new
+    _, streamed = outcome(fetch("/empty", {"signal" => controller.signal}))
+    _, consumed = outcome(fetch("/empty", {"signal" => controller.signal}))
+    controller.__js_call__("abort", ["stale"])
+
+    state, result = outcome(streamed.__js_get__("body").__js_call__("getReader", []).__js_call__("read", []))
+    assert_equal(:fulfilled, state)
+    assert_equal(true, result["done"])
+    assert_equal([:fulfilled, ""], outcome(consumed.__js_call__("text", [])))
+  end
+
+  def test_an_abort_leaves_a_body_read_to_its_end
+    controller = Dommy::AbortController.new
+    _, response = outcome(fetch("/search", {"signal" => controller.signal}))
+    reader = response.__js_get__("body").__js_call__("getReader", [])
+    outcome(reader.__js_call__("read", []))
+    controller.__js_call__("abort", ["stale"])
+
+    state, result = outcome(reader.__js_call__("read", []))
+    assert_equal(:fulfilled, state)
+    assert_equal(true, result["done"])
+  end
+
+  # A signal shared by many fetches keeps none of them once each has settled
+  # and its body has been read (or the fetch failed).
+  def test_a_signal_lets_go_of_a_settled_fetch
+    controller = Dommy::AbortController.new
+    signal = controller.signal
+    _, response = outcome(fetch("/search", {"signal" => signal}))
+    outcome(response.__js_call__("text", []))
+    outcome(fetch("https://elsewhere.test/x", {"signal" => signal, "mode" => "same-origin"}))
+
+    assert_empty(signal.instance_variable_get(:@abort_algorithms))
+  end
+
   def test_an_abort_clears_a_delayed_stubs_timer
     @win.globals.delete("__fetch_handler__")
     @win.globals["__fetchy_stub__"] = {"/slow" => {"body" => "late", "delay" => 100}}
