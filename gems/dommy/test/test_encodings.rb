@@ -310,6 +310,24 @@ class TestEncodings < Minitest::Test
     assert_equal "?%26%23128512%3B", query.("Shift_JIS", "\u{1F600}")
   end
 
+  # gb18030's encoder is the spec's over GB18030-2022's index, as its decoder
+  # is: U+FE10 is two bytes, the private-use code points the 2022 index moved
+  # keep their old two bytes, and U+E5E5 has none. GBK encodes the euro as
+  # 0x80 and has no four-byte sequences.
+  def test_gbk_and_gb18030_encode_with_the_spec_index
+    encode = ->(name, text) { Dommy::Encodings.encode(name, text) { |cp| "&##{cp};".bytes }.unpack1("H*") }
+    assert_equal "a6d9a6d9a8bc8135f437", encode.("gb18030", "︐ḿ")
+    assert_equal "a2e3813084369439fc36", encode.("gb18030", "€¥\u{1F600}")
+    assert_equal "&#58853;".unpack1("H*"), encode.("gb18030", "")
+    assert_equal "80d6d0#{"&#165;".unpack1("H*")}", encode.("GBK", "€中¥")
+  end
+
+  def test_gb18030_encodes_what_it_decodes
+    text = "中文︐︙ḿ¥\u{1F600}\u{10FFFF}"
+    bytes = Dommy::Encodings.encode("gb18030", text) { raise "unmappable" }
+    assert_equal text, Dommy::Encodings.decode(bytes, "gb18030")
+  end
+
   # A document built from bytes takes the encoding they were decoded with:
   # the Content-Type's charset over the page's own <meta>.
   def test_a_document_from_bytes_takes_the_encoding_it_was_decoded_with
