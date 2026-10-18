@@ -84,17 +84,20 @@ module Dommy
 
         # CSS Display §2.7: the root element, a float, an absolutely positioned
         # box, and a flex or grid item (a child of a flex or grid container)
-        # compute an inline-level display to its block-level equivalent.
+        # compute an inline-level display to its block-level equivalent. The
+        # keywords are ASCII case-insensitive (`float: NONE` is no float).
         def blockify!(result)
-          display = result["display"]
+          display = keyword(result["display"])
           return unless display && BLOCKIFIED.key?(display)
 
           root = !@pseudo_element && @element.parent_element.nil? && @document&.document_element.equal?(@element)
-          floated = result.fetch("float", "none") != "none"
-          positioned = %w[absolute fixed].include?(result["position"])
-          item = @parent_styles && ITEM_CONTAINERS.include?(@parent_styles["display"])
+          floated = keyword(result.fetch("float", "none")) != "none"
+          positioned = %w[absolute fixed].include?(keyword(result["position"]))
+          item = @parent_styles && ITEM_CONTAINERS.include?(keyword(@parent_styles["display"]))
           result["display"] = BLOCKIFIED[display] if root || floated || positioned || item
         end
+
+        def keyword(value) = value&.downcase(:ascii)
 
         # A pseudo-element inherits from its originating element; an element
         # from its parent (nil at the root — the initial values then apply).
