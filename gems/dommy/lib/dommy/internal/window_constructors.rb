@@ -75,6 +75,8 @@ module Dommy
         "SubmitEvent" => Bridge::Constructor.new { |args| SubmitEvent.new(args[0], args[1]) },
         "FormDataEvent" => Bridge::Constructor.new { |args| FormDataEvent.new(args[0], args[1]) },
         "CloseEvent" => Bridge::Constructor.new { |args| CloseEvent.new(args[0], args[1]) },
+        "MediaQueryListEvent" => Bridge::Constructor.new { |args| MediaQueryListEvent.new(args[0], args[1]) },
+        "ImageData" => Bridge::Constructor.new { |args| ImageData.construct(args) },
         "UIEvent" => Bridge::Constructor.new { |args| UIEvent.new(args[0], args[1]) },
         "MouseEvent" => Bridge::Constructor.new { |args| MouseEvent.new(args[0], args[1]) },
         "KeyboardEvent" => Bridge::Constructor.new { |args| KeyboardEvent.new(args[0], args[1]) },

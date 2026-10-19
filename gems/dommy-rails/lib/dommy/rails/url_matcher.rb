@@ -4,8 +4,8 @@ require_relative "url_normalizer"
 
 module Dommy
   module Rails
-    # Adapts Rails URL normalization to the matcher protocol accepted by
-    # Dommy::Internal::ElementMatching.attribute_matches?, so `href:` /
+    # Adapts Rails URL normalization to the matcher protocol that
+    # Dommy::Internal::ElementMatching's link and form finders accept, so `href:` /
     # `action:` criteria absorb scheme/host, query-parameter order,
     # HTML-escaped `&amp;`, and trailing-slash differences.
     class UrlMatcher

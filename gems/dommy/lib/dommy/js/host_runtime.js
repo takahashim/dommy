@@ -835,6 +835,17 @@ globalThis.__rbHost = (function () {
     return id;
   }
 
+  // Forget functions registered with registerCallback that will not be
+  // called again; a later call for one of their ids does nothing.
+  function releaseCallbacks(...fns) {
+    for (const fn of fns) {
+      const id = callbackIds.get(fn);
+      if (id === undefined) continue;
+      callbacks.delete(id);
+      callbackIds.delete(fn);
+    }
+  }
+
   // Called from Ruby when a host event dispatch reaches a JS-registered
   // listener. The live function (closure intact) is invoked; tagged args
   // (e.g. an Event handle) are rehydrated to proxies first.
@@ -1008,8 +1019,15 @@ globalThis.__rbHost = (function () {
     const promise = new Promise((resolve, reject) => { resolveFn = resolve; rejectFn = reject; });
     hostPromiseProxies.set(promise, proxy);
     realmPromises.set(handle, new WeakRef(promise));
+    // The host settles the promise once, so the two callbacks are released
+    // then: the callback table holds what it registers for good, and the
+    // resolve function would keep the Promise, its host proxy, the
+    // PromiseValue and the value it settled with (a fetch's Response) alive
+    // for the life of the page.
+    const onFulfilled = (value) => { releaseCallbacks(onFulfilled, onRejected); resolveFn(value); };
+    const onRejected = (reason) => { releaseCallbacks(onFulfilled, onRejected); rejectFn(reason); };
     // Subscribe without a chained host promise (nothing to hand back).
-    __rb_host_promise_subscribe(handle, dehydrate(resolveFn), dehydrate(rejectFn));
+    __rb_host_promise_subscribe(handle, dehydrate(onFulfilled), dehydrate(onRejected));
     return promise;
   }
 
@@ -2554,8 +2572,42 @@ globalThis.__rbHost = (function () {
       const coerced = coerceConstructorArgs(name, args);
       return makeJsEvent(name, coerced[0], coerced[1]);
     }
+    if (name === "ImageData") return constructImageData(args);
     const r = rehydrate(__rb_construct(name, dehydrateArgs(coerceConstructorArgs(name, args))));
     if (r == null) throw new TypeError("Illegal constructor");
+    return r;
+  }
+
+  // `new ImageData(data, sw [, sh [, settings]])` keeps `data` itself as its
+  // pixels (`img.data === data`, and a write to either is seen through the
+  // other), so it stays here: the host gets the size alone. Anything but a
+  // Uint8ClampedArray first is the `(sw, sh [, settings])` overload, whose
+  // `sw` an array converts to 0.
+  //
+  // Spec: https://html.spec.whatwg.org/#dom-imagedata-with-data
+  function constructImageData(args) {
+    const data = args[0];
+    if (!(data instanceof Uint8ClampedArray)) {
+      const sized = ArrayBuffer.isView(data) || data instanceof ArrayBuffer ? [0, ...args.slice(1)] : args;
+      const r = rehydrate(__rb_construct("ImageData", dehydrateArgs(sized)));
+      if (r == null) throw new TypeError("Illegal constructor");
+      return r;
+    }
+    const fail = (message, errorName) => new globalThis.DOMException("Failed to construct 'ImageData': " + message, errorName);
+    if (args.length < 2) throw new TypeError("Failed to construct 'ImageData': 2 arguments required, but only 1 present.");
+    const length = data.length;
+    if (length === 0 || length % 4 !== 0) throw fail("the data length is not a nonzero multiple of 4", "InvalidStateError");
+    const width = Number(args[1]) >>> 0;
+    if (width === 0) throw fail("the source width is zero", "IndexSizeError");
+    const pixelCount = length / 4;
+    if (pixelCount % width !== 0) throw fail("the data length is not a multiple of the width", "IndexSizeError");
+    const height = pixelCount / width;
+    if (args[2] !== undefined && (Number(args[2]) >>> 0) !== height) {
+      throw fail("the data length is not width * height * 4", "IndexSizeError");
+    }
+    const r = rehydrate(__rb_construct("ImageData", dehydrateArgs([width, height])));
+    if (r == null) throw new TypeError("Illegal constructor");
+    pixelsByHandle.set(proxyHandles.get(r), { pixels: data, hostBacked: false, exposed: true });
     return r;
   }
 
@@ -3112,7 +3164,13 @@ globalThis.__rbHost = (function () {
     const missing = (name) => previousMembers.has(name) || !Object.hasOwn(globalThis, name);
     // [LegacyUnforgeable] readonly; configurable so a host can rebind it.
     define("window", { value: globalThis, writable: false });
-    define("top", { get() { return globalThis; }, set(_value) {} });
+    // Getter only, so a strict-mode assignment throws as on a browser's.
+    define("top", { get() { return globalThis; } });
+    // The bridge's own globals are no window members for Object.keys(window)
+    // or for-in to list (the split window proxy's ownKeys leaves them out).
+    for (const name of Object.keys(globalThis)) {
+      if (name.startsWith("__rb")) Object.defineProperty(globalThis, name, { enumerable: false });
+    }
     for (const name of ["self", "frames", "parent"]) replaceable(name, () => globalThis);
     define("location", {
       get() { return windowMember("location"); },

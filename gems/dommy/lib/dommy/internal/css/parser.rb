@@ -129,7 +129,7 @@ module Dommy
             str = name.to_s
             return str if custom_property?(str)
 
-            lower = str.downcase
+            lower = str.downcase(:ascii)
             WEBKIT_ALIASES.fetch(lower, lower)
           end
 

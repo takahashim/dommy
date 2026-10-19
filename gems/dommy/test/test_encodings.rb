@@ -259,6 +259,9 @@ class TestEncodings < Minitest::Test
     assert_equal "Shift_JIS", Dommy::Encodings.prescan(%(<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">))
     assert_equal "UTF-8", Dommy::Encodings.prescan(%(<meta charset="utf-16le">))
     assert_nil Dommy::Encodings.prescan(%(<!-- <meta charset="big5"> --><p>x</p>))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<!--><meta charset="big5">))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<!---><meta charset="big5">))
+    assert_nil Dommy::Encodings.prescan(%(<!--- <meta charset="big5">))
   end
 
   # A document's encoding decides how a link's query is encoded, with the
@@ -276,6 +279,16 @@ class TestEncodings < Minitest::Test
     assert_equal ["UTF-16LE", "?%E2%82%AC"], query.("UTF-16LE", "\u20AC")
     assert_equal ["UTF-16BE", "?%E2%82%AC"], query.("UTF-16BE", "\u20AC")
     assert_equal ["replacement", "?%E2%82%AC"], query.("replacement", "\u20AC")
+  end
+
+  # Dommy.parse's `encoding:` takes a name or a label for the encoding it
+  # names, so a label encodes with the spec's encoder too.
+  def test_parse_takes_an_encoding_label
+    doc = Dommy.parse(%(<!doctype html><a href="https://e.test/?\uFF5E">x</a>), encoding: "shift_jis").document
+    assert_equal "Shift_JIS", doc.character_encoding
+    assert_equal "?%81`", doc.query_selector("a").__js_get__("search")
+    assert_equal "replacement", Dommy.parse("<p>", encoding: "replacement").document.character_encoding
+    assert_raises(ArgumentError) { Dommy.parse("<p>", encoding: "bogus") }
   end
 
   # The single-byte encodings encode with their index read backwards, those

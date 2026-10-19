@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Added
+
+- `Session#navigate`, `Navigation#navigate` and `Navigation#run` take `method_override:` (false by default), saying the method is a form's `_method` field's, so a 301 or 302 is followed with a GET.
+
 ### Fixed
 
 - A form whose `_method` field overrides its method (Rails' `PUT`, `PATCH`, `DELETE`) follows a 301 or 302 with a GET, as the POST a browser sends is; the redirect target got the overridden method and answered 404. A 307 or 308 keeps the method and the params.

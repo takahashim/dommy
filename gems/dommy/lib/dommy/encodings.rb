@@ -26,6 +26,15 @@ module Dommy
       LABELS[label.gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "").downcase(:ascii)]
     end
 
+    # The encoding `encoding` names, given as an Encoding Standard name or
+    # label; an ArgumentError for anything else.
+    def self.name_for(encoding)
+      text = encoding.to_s
+      return text if LABELS.value?(text)
+
+      get(text) or raise ArgumentError, "unknown encoding: #{encoding.inspect}"
+    end
+
     # The encoding text is encoded in when `name` is the one asked for: UTF-8
     # in place of replacement, UTF-16BE and UTF-16LE, which have no encoder.
     #
@@ -95,7 +104,9 @@ module Dommy
     #
     # Spec: https://html.spec.whatwg.org/#prescan-a-byte-stream-to-determine-its-encoding
     def self.prescan(source)
-      head = source.to_s.b.byteslice(0, 1024).gsub(/<!--.*?(?:-->|\z)/m, "")
+      # A comment ends at the first `>` after two `-`, which may be the
+      # `<!--`'s own (`<!-->` and `<!--->` are closed comments).
+      head = source.to_s.b.byteslice(0, 1024).gsub(/<!--(?:>|->|.*?-->|.*\z)/m, "")
       head.scan(META_TAG) do |(attributes)|
         attrs = {}
         attributes.scan(META_ATTRIBUTE) { |name, value| attrs[name.downcase] ||= value.to_s.delete_prefix('"').delete_suffix('"').delete_prefix("'").delete_suffix("'") }
