@@ -2572,8 +2572,42 @@ globalThis.__rbHost = (function () {
       const coerced = coerceConstructorArgs(name, args);
       return makeJsEvent(name, coerced[0], coerced[1]);
     }
+    if (name === "ImageData") return constructImageData(args);
     const r = rehydrate(__rb_construct(name, dehydrateArgs(coerceConstructorArgs(name, args))));
     if (r == null) throw new TypeError("Illegal constructor");
+    return r;
+  }
+
+  // `new ImageData(data, sw [, sh [, settings]])` keeps `data` itself as its
+  // pixels (`img.data === data`, and a write to either is seen through the
+  // other), so it stays here: the host gets the size alone. Anything but a
+  // Uint8ClampedArray first is the `(sw, sh [, settings])` overload, whose
+  // `sw` an array converts to 0.
+  //
+  // Spec: https://html.spec.whatwg.org/#dom-imagedata-with-data
+  function constructImageData(args) {
+    const data = args[0];
+    if (!(data instanceof Uint8ClampedArray)) {
+      const sized = ArrayBuffer.isView(data) || data instanceof ArrayBuffer ? [0, ...args.slice(1)] : args;
+      const r = rehydrate(__rb_construct("ImageData", dehydrateArgs(sized)));
+      if (r == null) throw new TypeError("Illegal constructor");
+      return r;
+    }
+    const fail = (message, errorName) => new globalThis.DOMException("Failed to construct 'ImageData': " + message, errorName);
+    if (args.length < 2) throw new TypeError("Failed to construct 'ImageData': 2 arguments required, but only 1 present.");
+    const length = data.length;
+    if (length === 0 || length % 4 !== 0) throw fail("the data length is not a nonzero multiple of 4", "InvalidStateError");
+    const width = Number(args[1]) >>> 0;
+    if (width === 0) throw fail("the source width is zero", "IndexSizeError");
+    const pixelCount = length / 4;
+    if (pixelCount % width !== 0) throw fail("the data length is not a multiple of the width", "IndexSizeError");
+    const height = pixelCount / width;
+    if (args[2] !== undefined && (Number(args[2]) >>> 0) !== height) {
+      throw fail("the data length is not width * height * 4", "IndexSizeError");
+    }
+    const r = rehydrate(__rb_construct("ImageData", dehydrateArgs([width, height])));
+    if (r == null) throw new TypeError("Illegal constructor");
+    pixelsByHandle.set(proxyHandles.get(r), { pixels: data, hostBacked: false, exposed: true });
     return r;
   }
 

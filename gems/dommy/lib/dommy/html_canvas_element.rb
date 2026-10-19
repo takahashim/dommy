@@ -196,8 +196,10 @@ module Dommy
     end
 
     # `new ImageData(sw, sh [, settings])`, transparent black, or
-    # `new ImageData(data, sw [, sh [, settings]])` over a copy of `data`'s
-    # pixels (the array itself is not shared with the new ImageData).
+    # `new ImageData(data, sw [, sh [, settings]])` over `data`'s pixels. From
+    # script, the realm keeps the Uint8ClampedArray itself as the pixels and
+    # hands this the size alone (host_runtime.js constructImageData); bytes
+    # given from Ruby are copied.
     #
     # Spec: https://html.spec.whatwg.org/#dom-imagedata
     def self.construct(args)
