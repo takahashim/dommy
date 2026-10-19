@@ -770,7 +770,7 @@ module Dommy
     # fetch(request) sends the body: false when it was already used, else it
     # is used now. A request with no body has nothing to use up.
     def __internal_take_body__
-      return true if @body.nil?
+      return true unless body?
       return false if @body_used
 
       @body_used = true
@@ -796,15 +796,19 @@ module Dommy
     private
 
     # WHATWG Body: the body can be consumed once. A second consume rejects rather
-    # than throwing synchronously.
+    # than throwing synchronously. A request with no body has nothing to use
+    # up: reading it leaves `bodyUsed` false, and it can be read and cloned
+    # again.
     def consume_body
       if @body_used
         return rejected(ErrorValue.new("Failed to read body: body stream already read", name: "TypeError"))
       end
 
-      @body_used = true
+      @body_used = true if body?
       yield
     end
+
+    def body? = !@body.nil? && !@body.equal?(Bridge::UNDEFINED)
 
     def immediate(value)
       @window ? PromiseValue.resolve(@window, value) : value
@@ -1182,7 +1186,8 @@ module Dommy
         return rejected(ErrorValue.new("Failed to read body: body stream already read", name: "TypeError"))
       end
 
-      @body_used = true
+      # A null body (not an empty one) has nothing to use up.
+      @body_used = true if @has_body
       @abort_signal&.__internal_remove_abort_algorithm__(@abort_body)
       return rejected(@body_error) if @body_error
 
