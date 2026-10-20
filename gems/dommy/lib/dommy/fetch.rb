@@ -1245,13 +1245,16 @@ module Dommy
     end
 
     # WHATWG: clone throws if the body is already disturbed/locked; otherwise the
-    # clone is an independent Response over the same bytes.
+    # clone is an independent Response over the same bytes. Its body is a tee
+    # of this one's, so an abort of the fetch errors it too: the clone of a
+    # body already errored is errored, and one made before the abort follows
+    # the same signal.
     def clone_response
       if body_used?
         raise Bridge::TypeError, "Failed to execute 'clone' on 'Response': Response body is already used."
       end
 
-      Response.new(
+      copy = Response.new(
         @window,
         body: @body,
         status: @status,
@@ -1262,6 +1265,12 @@ module Dommy
         type: @type,
         has_body: @has_body
       )
+      if @body_error
+        copy.__internal_abort_body__(@body_error)
+      elsif @abort_signal
+        copy.__internal_follow_abort__(@abort_signal)
+      end
+      copy
     end
 
     # A run of one or more adjacent `\uXXXX` JSON escapes.

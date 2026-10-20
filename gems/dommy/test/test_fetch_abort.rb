@@ -75,6 +75,20 @@ class TestFetchAbort < Minitest::Test
     assert_equal([:rejected, "stale"], outcome(response.__js_call__("text", [])))
   end
 
+  # A clone's body is a tee of the response's, so an abort errors it too,
+  # whether it was cloned before the abort or after.
+  def test_an_abort_errors_a_clones_body
+    controller = Dommy::AbortController.new
+    _, response = outcome(fetch("/search", {"signal" => controller.signal}))
+    before = response.__js_call__("clone", [])
+    controller.__js_call__("abort", ["stale"])
+    after = response.__js_call__("clone", [])
+
+    assert_equal([:rejected, "stale"], outcome(before.__js_call__("text", [])))
+    assert_equal([:rejected, "stale"], outcome(after.__js_call__("text", [])))
+    assert_equal([:rejected, "stale"], outcome(response.__js_call__("text", [])))
+  end
+
   def test_an_abort_errors_the_body_stream
     controller = Dommy::AbortController.new
     _, response = outcome(fetch("/search", {"signal" => controller.signal}))
