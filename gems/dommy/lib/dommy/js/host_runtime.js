@@ -3194,7 +3194,7 @@ globalThis.__rbHost = (function () {
     for (const name of ["self", "frames", "parent"]) replaceable(name, () => globalThis);
     define("location", {
       get() { return windowMember("location"); },
-      set(value) { hostSet(handle, "location", value); },
+      set(value) { hostSet(handle, "location", convertAttributeValue("Window", "location", value)); },
     });
     const idl = globalThis.__rbIdlMembers || {};
     const members = idl.Window || {};

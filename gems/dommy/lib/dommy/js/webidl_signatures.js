@@ -6,7 +6,8 @@
 // values before the member sees them. An operation, static operation or
 // constructor has `required`, the number of arguments a call must pass
 // (fewer is a TypeError), and `arguments`, one string conversion per
-// position; a writable attribute has its value's string conversion. A
+// position; a writable or [PutForwards] attribute has its value's string
+// conversion (for [PutForwards], the forwarded-to attribute's). A
 // conversion is a string type ("DOMString", "USVString", "ByteString"),
 // "?" after it when nullable, "[LegacyNullToEmptyString] " before it when
 // null means "", "optional " before it when undefined is left for the
@@ -73,12 +74,16 @@ globalThis.__rbIdlSignatures = {
     }
   },
   "CSSImportRule": {
-    "inherits": "CSSRule"
+    "inherits": "CSSRule",
+    "attributes": {
+      "media": "[LegacyNullToEmptyString] DOMString"
+    }
   },
   "CSSKeyframeRule": {
     "inherits": "CSSRule",
     "attributes": {
-      "keyText": "DOMString"
+      "keyText": "DOMString",
+      "style": "DOMString"
     }
   },
   "CSSKeyframesRule": {
@@ -93,7 +98,10 @@ globalThis.__rbIdlSignatures = {
     }
   },
   "CSSMarginRule": {
-    "inherits": "CSSRule"
+    "inherits": "CSSRule",
+    "attributes": {
+      "style": "DOMString"
+    }
   },
   "CSSNamespaceRule": {
     "inherits": "CSSRule"
@@ -120,7 +128,8 @@ globalThis.__rbIdlSignatures = {
   "CSSPageRule": {
     "inherits": "CSSGroupingRule",
     "attributes": {
-      "selectorText": "DOMString"
+      "selectorText": "DOMString",
+      "style": "DOMString"
     }
   },
   "CSSRule": {
@@ -154,7 +163,8 @@ globalThis.__rbIdlSignatures = {
   "CSSStyleRule": {
     "inherits": "CSSGroupingRule",
     "attributes": {
-      "selectorText": "DOMString"
+      "selectorText": "DOMString",
+      "style": "DOMString"
     }
   },
   "CSSStyleSheet": {
@@ -391,6 +401,7 @@ globalThis.__rbIdlSignatures = {
       "domain": "USVString",
       "fgColor": "[LegacyNullToEmptyString] DOMString",
       "linkColor": "[LegacyNullToEmptyString] DOMString",
+      "location": "USVString",
       "title": "DOMString",
       "vlinkColor": "[LegacyNullToEmptyString] DOMString"
     }
@@ -495,6 +506,7 @@ globalThis.__rbIdlSignatures = {
       "ariaValueMin": "DOMString?",
       "ariaValueNow": "DOMString?",
       "ariaValueText": "DOMString?",
+      "classList": "DOMString",
       "className": "DOMString",
       "id": "DOMString",
       "innerHTML": "[LegacyNullToEmptyString] DOMString",
@@ -650,6 +662,7 @@ globalThis.__rbIdlSignatures = {
       "protocol": "USVString",
       "referrerPolicy": "DOMString",
       "rel": "DOMString",
+      "relList": "DOMString",
       "rev": "DOMString",
       "search": "USVString",
       "shape": "DOMString",
@@ -677,6 +690,7 @@ globalThis.__rbIdlSignatures = {
       "protocol": "USVString",
       "referrerPolicy": "DOMString",
       "rel": "DOMString",
+      "relList": "DOMString",
       "search": "USVString",
       "shape": "DOMString",
       "target": "DOMString",
@@ -794,6 +808,7 @@ globalThis.__rbIdlSignatures = {
       "nonce": "DOMString",
       "outerText": "[LegacyNullToEmptyString] DOMString",
       "popover": "DOMString?",
+      "style": "DOMString",
       "title": "DOMString",
       "writingSuggestions": "DOMString"
     }
@@ -843,6 +858,7 @@ globalThis.__rbIdlSignatures = {
       "method": "DOMString",
       "name": "DOMString",
       "rel": "DOMString",
+      "relList": "DOMString",
       "target": "DOMString"
     }
   },
@@ -902,6 +918,7 @@ globalThis.__rbIdlSignatures = {
       "marginWidth": "[LegacyNullToEmptyString] DOMString",
       "name": "DOMString",
       "referrerPolicy": "DOMString",
+      "sandbox": "DOMString",
       "scrolling": "DOMString",
       "src": "USVString",
       "srcdoc": "DOMString",
@@ -983,6 +1000,7 @@ globalThis.__rbIdlSignatures = {
     "inherits": "HTMLElement",
     "attributes": {
       "as": "DOMString",
+      "blocking": "DOMString",
       "charset": "DOMString",
       "crossOrigin": "DOMString?",
       "fetchPriority": "DOMString",
@@ -994,7 +1012,9 @@ globalThis.__rbIdlSignatures = {
       "media": "DOMString",
       "referrerPolicy": "DOMString",
       "rel": "DOMString",
+      "relList": "DOMString",
       "rev": "DOMString",
+      "sizes": "DOMString",
       "target": "DOMString",
       "type": "DOMString"
     }
@@ -1107,6 +1127,7 @@ globalThis.__rbIdlSignatures = {
     },
     "attributes": {
       "defaultValue": "DOMString",
+      "htmlFor": "DOMString",
       "name": "DOMString",
       "value": "DOMString"
     }
@@ -1147,6 +1168,7 @@ globalThis.__rbIdlSignatures = {
       "supports": {"required":1,"arguments":["DOMString"]}
     },
     "attributes": {
+      "blocking": "DOMString",
       "charset": "DOMString",
       "crossOrigin": "DOMString?",
       "event": "DOMString",
@@ -1198,6 +1220,7 @@ globalThis.__rbIdlSignatures = {
   "HTMLStyleElement": {
     "inherits": "HTMLElement",
     "attributes": {
+      "blocking": "DOMString",
       "media": "DOMString",
       "type": "DOMString"
     }
@@ -1779,6 +1802,11 @@ globalThis.__rbIdlSignatures = {
       "initStorageEvent": {"required":1,"arguments":["DOMString",null,null,"optional DOMString?","optional DOMString?","optional DOMString?","optional USVString"]}
     }
   },
+  "StyleSheet": {
+    "attributes": {
+      "media": "[LegacyNullToEmptyString] DOMString"
+    }
+  },
   "StyleSheetList": {
     "operations": {
       "item": {"required":1}
@@ -1963,6 +1991,7 @@ globalThis.__rbIdlSignatures = {
       "structuredClone": {"required":1}
     },
     "attributes": {
+      "location": "USVString",
       "name": "DOMString",
       "status": "DOMString"
     }
