@@ -67,6 +67,17 @@ module Dommy
           outline-color text-decoration-color
         ].freeze
 
+        # The registered properties whose values are keywords, numbers and
+        # dimensions alone — no <custom-ident>, <string>, <url> or font family
+        # name, which keep their case. CSS keywords are ASCII case-insensitive
+        # and serialize lowercase, as do units and function names, so such a
+        # value computes to its ASCII lowercase (`display: NONE` is `none`).
+        CASE_INSENSITIVE_PROPERTIES = %w[
+          display visibility position direction white-space text-align text-transform text-indent
+          text-decoration-line text-decoration-style font-style line-height letter-spacing word-spacing
+          list-style-position tab-size z-index flex-grow flex-shrink flex-basis flex-direction flex-wrap
+        ].to_set.freeze
+
         FONT_WEIGHT_KEYWORDS = {"normal" => "400", "bold" => "700"}.freeze
 
         # text-decoration sub-property keyword sets (the shorthand classifies
@@ -198,6 +209,7 @@ module Dommy
                                         viewport_width: viewport_width, viewport_height: viewport_height)
               end
             end
+            value = value.downcase(:ascii) if CASE_INSENSITIVE_PROPERTIES.include?(name)
             return FONT_WEIGHT_KEYWORDS.fetch(value.downcase, value) if name == "font-weight"
             return clamp_opacity(value) if name == "opacity"
             # A <percentage> line-height computes to px against the element's own

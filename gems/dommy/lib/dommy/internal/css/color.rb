@@ -182,7 +182,12 @@ module Dommy
         # css-syntax-3's <number-token>, signed.
         CSS_NUMBER = /\A[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?\z/i
 
-        private_constant :CSS_NUMBER
+        # An <hue>: a CSS number, bare or with an <angle> unit, and the degrees
+        # one of each unit is.
+        HUE = /\A([+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?)(deg|grad|rad|turn|)\z/
+        HUE_UNITS = {"" => 1.0, "deg" => 1.0, "grad" => 0.9, "rad" => 180 / Math::PI, "turn" => 360.0}.freeze
+
+        private_constant :CSS_NUMBER, :HUE, :HUE_UNITS
 
         class << self
           # Normalizes +value+ to the computed-style serialization.
@@ -397,15 +402,13 @@ module Dommy
             text = text.downcase
             return 0.0 if none?(text)
 
-            degrees =
-              case text
-              when /\A(-?\d*\.?\d+)deg\z/ then Float(Regexp.last_match(1))
-              when /\A(-?\d*\.?\d+)grad\z/ then Float(Regexp.last_match(1)) * 0.9
-              when /\A(-?\d*\.?\d+)rad\z/ then Float(Regexp.last_match(1)) * 180 / Math::PI
-              when /\A(-?\d*\.?\d+)turn\z/ then Float(Regexp.last_match(1)) * 360
-              when /\A-?\d*\.?\d+\z/ then Float(text)
-              end
-            degrees && degrees % 360
+            match = HUE.match(text)
+            return nil unless match
+
+            # A number too large for a double (1e400) is infinite, and an
+            # infinite hue is 0deg, as browsers compute hsl(calc(infinity) ...).
+            degrees = Float(match[1]) * HUE_UNITS.fetch(match[2])
+            degrees.finite? ? degrees % 360 : 0.0
           end
 
           def percentage(text, number: false)

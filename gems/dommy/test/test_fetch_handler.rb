@@ -83,6 +83,15 @@ class TestFetchHandler < Minitest::Test
     assert_equal 4, @handler.calls.length
   end
 
+  # A fetch whose init is invalid rejects before it takes the request's body,
+  # as the Request constructor validates its members before it takes it.
+  def test_an_invalid_init_leaves_a_requests_body
+    request = Dommy::Request.new("/app", {"method" => "POST", "body" => "data"}, @win)
+    fetch = Dommy::FetchFn.new(@win).__js_call__("fetch", [request, {"referrer" => "http://[bad"}])
+    assert_raises(Dommy::Bridge::TypeError) { fetch.await }
+    assert_equal false, request.__js_get__("bodyUsed")
+  end
+
   def test_fetch_falls_through_to_stub_when_handler_declines
     response = Dommy::FetchFn.new(@win).__js_call__("fetch", ["/stubbed", nil]).await
 

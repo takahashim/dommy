@@ -172,13 +172,7 @@ module Dommy
         # -webkit- property and so its legacy alias's (`webkitFilter` is
         # `filter`). A custom property is its own name.
         def camel_to_kebab(name)
-          text = name.to_s
-          return text if text.start_with?("--")
-          return "float" if text == "cssFloat" || text == "css_float"
-
-          kebab = text.tr("_", "-").gsub(/([A-Z])/) { "-#{Regexp.last_match(1).downcase}" }
-          kebab = "-#{kebab}" if kebab.start_with?("webkit-")
-          Dommy::Internal::CSS::Parser.property_name(kebab)
+          Parser.property_name(Parser.attribute_property_name(name))
         end
 
         def raise_read_only

@@ -205,18 +205,9 @@ module Dommy
       s.match?(/\A[a-z][a-zA-Z0-9_]*=?\z/) && !s.start_with?("to_") && !NOT_PROPERTY_ACCESSORS.include?(s)
     end
 
-    # The property an attribute name stands for (CSSOM's camel-cased and
-    # webkit-cased attributes): `cssFloat` is `float`, `webkitFilter`
-    # `-webkit-filter`, and a dashed name is itself. A Ruby snake_case name
-    # is the kebab one.
+    # The property an attribute name (or its Ruby setter) stands for.
     def method_to_css_name(name)
-      s = name.to_s.sub(/=\z/, "")
-      return "float" if s == "cssFloat" || s == "css_float"
-      return s if s.include?("-")
-      return s.tr("_", "-") if s.include?("_")
-
-      kebab = s.gsub(/[A-Z]/) { |m| "-#{m.downcase}" }
-      kebab.start_with?("webkit-") ? "-#{kebab}" : kebab
+      Internal::CSS::Parser.attribute_property_name(name.to_s.sub(/=\z/, ""))
     end
 
     # The declaration block as an ordered { property => [value, priority] } hash,
@@ -275,6 +266,18 @@ module Dommy
       @y = y
       @width = width
       @height = height
+    end
+
+    # `new DOMRect(x, y, width, height)`, each an optional unrestricted
+    # double that defaults to 0.
+    #
+    # Spec: https://drafts.fxtf.org/geometry/#dom-domrect-domrect
+    def self.construct(args)
+      x, y, width, height = Array.new(4) do |i|
+        arg = args[i]
+        arg.equal?(Bridge::UNDEFINED) ? 0.0 : Internal::WebIDL.unrestricted_double(arg)
+      end
+      new(x: x, y: y, width: width, height: height)
     end
 
     def top

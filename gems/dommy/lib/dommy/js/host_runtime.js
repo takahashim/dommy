@@ -2582,13 +2582,14 @@ globalThis.__rbHost = (function () {
   // pixels (`img.data === data`, and a write to either is seen through the
   // other), so it stays here: the host gets the size alone. Anything but a
   // Uint8ClampedArray first is the `(sw, sh [, settings])` overload, whose
-  // `sw` an array converts to 0.
+  // `sw` and `sh` are ToNumber'd here (`[2]` is 2, a buffer or other view
+  // NaN, so 0), so an array never reaches the host as pixels.
   //
   // Spec: https://html.spec.whatwg.org/#dom-imagedata-with-data
   function constructImageData(args) {
     const data = args[0];
     if (!(data instanceof Uint8ClampedArray)) {
-      const sized = ArrayBuffer.isView(data) || data instanceof ArrayBuffer ? [0, ...args.slice(1)] : args;
+      const sized = args.map((arg, i) => (i < 2 ? +arg : arg));
       const r = rehydrate(__rb_construct("ImageData", dehydrateArgs(sized)));
       if (r == null) throw new TypeError("Illegal constructor");
       return r;
@@ -3169,7 +3170,10 @@ globalThis.__rbHost = (function () {
     // The bridge's own globals are no window members for Object.keys(window)
     // or for-in to list (the split window proxy's ownKeys leaves them out).
     for (const name of Object.keys(globalThis)) {
-      if (name.startsWith("__rb")) Object.defineProperty(globalThis, name, { enumerable: false });
+      if (!name.startsWith("__rb")) continue;
+      try {
+        Object.defineProperty(globalThis, name, { enumerable: false });
+      } catch (e) { /* a non-configurable global stays enumerable */ }
     }
     for (const name of ["self", "frames", "parent"]) replaceable(name, () => globalThis);
     define("location", {

@@ -41,14 +41,12 @@ module Dommy
       input, init = args
       # fetch(request, init) is a fetch of `new Request(request, init)`: the
       # request's URL, and its members as far as `init` leaves them.
+      body_source = nil
       if input.is_a?(Request)
         given = init.is_a?(Hash) ? init.transform_keys(&:to_s) : {}
         # A null (or undefined) body in `init` leaves the request's own.
         given.delete("body") if given["body"].nil? || given["body"].equal?(Bridge::UNDEFINED)
-        # Sending the request's body uses it up, as reading it would.
-        if !given.key?("body") && !input.__internal_take_body__
-          return PromiseValue.reject(@window, Bridge::TypeError.new("Failed to execute 'fetch': Request body is already used"))
-        end
+        body_source = input unless given.key?("body")
         init = input.__internal_init__.merge(given)
         input = input.url
       end
@@ -58,6 +56,11 @@ module Dommy
         add_referer(url, init)
       rescue Bridge::TypeError => e
         return PromiseValue.reject(@window, e)
+      end
+      # Sending the request's body uses it up, as reading it would — once the
+      # new Request's members are valid, as its constructor takes it last.
+      if body_source && !body_source.__internal_take_body__
+        return PromiseValue.reject(@window, Bridge::TypeError.new("Failed to execute 'fetch': Request body is already used"))
       end
       # A cross-origin request always carries an Origin header (even for GET,
       # which normalize_init omits it for same-origin GETs).
@@ -1120,6 +1123,11 @@ module Dommy
         !alive(@response) && !alive(@stream)
       end
 
+      # The stream was read to its end or errored: nothing left to abort.
+      def release
+        @signal.__internal_remove_abort_algorithm__(self)
+      end
+
       def call
         if (response = alive(@response))
           response.__internal_abort_body__(@signal.reason)
@@ -1227,14 +1235,13 @@ module Dommy
 
     # A reader can outlive the response, so the abort algorithm also reaches
     # the stream; a reader taking it to its end leaves the signal nothing to
-    # abort.
+    # abort. The stream's callback is the algorithm's own method, not a block
+    # here, which would hold the response for as long as the stream.
     def follow_abort_through(stream)
       return unless @abort_body
 
       @abort_body.stream = stream
-      signal = @abort_signal
-      algorithm = @abort_body
-      stream.__internal_when_done__ { signal.__internal_remove_abort_algorithm__(algorithm) }
+      stream.__internal_when_done__(&@abort_body.method(:release))
     end
 
     # WHATWG: clone throws if the body is already disturbed/locked; otherwise the

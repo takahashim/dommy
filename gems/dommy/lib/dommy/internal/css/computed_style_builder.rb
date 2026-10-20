@@ -78,11 +78,14 @@ module Dommy
         private
 
         # The display types blockification turns an inline-level box into. A
-        # layout-internal box (a table part) becomes a block container.
+        # layout-internal box (a table or ruby part) becomes a block container,
+        # and inline ruby block ruby.
         BLOCKIFIED = {"inline" => "block", "inline-block" => "block", "inline-flex" => "flex",
-                      "inline-grid" => "grid", "inline-table" => "table", "run-in" => "block"}.merge(
+                      "inline-grid" => "grid", "inline-table" => "table", "run-in" => "block",
+                      "ruby" => "block ruby"}.merge(
                         %w[table-row-group table-header-group table-footer-group table-row table-cell
-                           table-column-group table-column table-caption].to_h { |type| [type, "block"] }
+                           table-column-group table-column table-caption
+                           ruby-base ruby-text ruby-base-container ruby-text-container].to_h { |type| [type, "block"] }
                       ).freeze
         ITEM_CONTAINERS = %w[flex inline-flex grid inline-grid].freeze
 
