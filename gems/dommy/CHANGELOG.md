@@ -23,6 +23,7 @@
 
 ### Fixed
 
+- A keyword computes to its ASCII lowercase: `display: NONE` is `none` in `getComputedStyle`, and its element is not rendered (`innerText` skips it). A font family keeps its case.
 - Every Window-exposed interface Dommy implements is a global from the start: `typeof Location` is `"function"` before a script has read `location`, and so are `CSSStyleDeclaration`, `MediaQueryList`, `NamedNodeMap` and `ImageData`, which were `undefined` until an instance crossed.
 - `fetch()` and `XMLHttpRequest` send a Referer under the request's referrer policy, else the document's `<meta name="referrer">`, else `strict-origin-when-cross-origin`: from `https://a.test/page?q=1#x`, a same-origin request carries `https://a.test/page?q=1` and a cross-origin one `https://a.test/`. A Referer the page sets itself is dropped.
 - `fetch()` follows its AbortSignal for every response, including one from the app a `Dommy::Rack::Session` routes to: an abort before the response arrives rejects the fetch with the signal's reason, and one after it errors a body not yet read (`text()` rejects, and so does a reader of `body`); an empty body is already closed, and `text()` is `""`. The signal holds a response it may still abort only weakly, and lets it go once its body has been read, so a long-lived signal does not keep responses nobody reads.
