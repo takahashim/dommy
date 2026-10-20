@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.17.0 — 2026-10-20
 
 ### Added
 
@@ -11,6 +11,7 @@
 
 ### Changed
 
+- **Requires makiri ~> 0.16.0**: a makiri release after 0.16 is not taken until dommy is tested against it. dommy-js-quickjs needs a release that allows dommy 0.17.
 - A document's character encoding is what its bytes were decoded with — a byte-order mark's, the Content-Type's `charset`, else what a `<meta charset>` in the first 1024 bytes declares (HTML's prescan), else UTF-8. It was always UTF-8. `document.characterSet` and the queries of HTML's URLs — a link's, a form's, an iframe's, XHR's, `window.open`'s, `history.pushState`'s (`a.href = "?€"` in a Big5 page is `?%A3%E1`; a UTF-16 page's are UTF-8, as it has no encoder) — follow it, while `fetch`, `navigator.sendBeacon` and `cookieStore` encode a query in UTF-8 as browsers do. A page, frame or popup from a response (`Dommy::Browser`, `Dommy::Rack::Session`) takes the encoding its bytes were decoded with; `Encodings.decode_document` returns the text and that encoding, and `Dommy.parse` and `Dommy::Browser.new` take `encoding:` (an Encoding Standard name or label; anything else is an ArgumentError); markup given as a string makes a UTF-8 document. A form with no `accept-charset` submits in the document's encoding, and `accept-charset` is read as a list of Encoding Standard labels (`x-sjis` is Shift_JIS, UTF-16 submits UTF-8). The single-byte encodings encode with the Encoding Standard's indexes, so a `macintosh`, `x-mac-cyrillic` or `ISO-8859-8-I` page (which Ruby has no encoding for) encodes its queries and forms in that encoding rather than UTF-8, and windows-1252 keeps its C1 bytes (U+0081 is `%81`).
 - The computed `display` is blockified as CSS Display specifies: the root element, a float, an absolutely positioned box and a flex or grid item turn `inline` into `block`, `inline-flex` into `flex`, a table or ruby part (`table-cell`, `ruby-text`, …) into `block`, `ruby` into `block ruby` and so on, and the root element's `display: contents` is `block` — in `getComputedStyle` and in `innerText`'s line breaks.
 
