@@ -170,4 +170,14 @@ class TestCssColor < Minitest::Test
       assert_equal text, Color.normalize(text)
     end
   end
+
+  # A hue is a CSS number too, bare or with an angle unit.
+  def test_hue_is_a_css_number
+    assert_equal "rgb(0, 255, 0)", Color.normalize("hsl(+120 100% 50%)")
+    assert_equal "rgb(0, 255, 0)", Color.normalize("hsl(1.2e2deg 100% 50%)")
+    assert_equal "rgb(0, 255, 0)", Color.normalize("hsl(.33333333333turn 100% 50%)")
+    assert_equal "hsl(0x10 100% 50%)", Color.normalize("hsl(0x10 100% 50%)")
+    assert_equal "rgb(255, 0, 0)", Color.normalize("hsl(1e400 100% 50%)")
+    assert_equal "rgb(255, 0, 0)", Color.normalize("hsl(-1e400deg 100% 50%)")
+  end
 end
