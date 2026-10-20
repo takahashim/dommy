@@ -92,6 +92,14 @@ class TestCanvas < Minitest::Test
     assert_raises(Dommy::DOMException::IndexSizeError) { ctor.__js_new__([pixels, 2, 3]) }
     assert_raises(Dommy::DOMException::InvalidStateError) { ctor.__js_new__([Dommy::Bridge::Bytes.new([0] * 6), 1]) }
     assert_raises(Dommy::Bridge::TypeError) { ctor.__js_new__([1]) }
+    assert_raises(Dommy::Bridge::TypeError) { ctor.__js_new__([pixels]) }
+  end
+
+  # An Array of pixels from Ruby is stored as a Uint8ClampedArray would store
+  # it: clamped to a byte and rounded half to even.
+  def test_image_data_clamps_an_arrays_pixels
+    image = @doc.default_view.__js_get__("ImageData").__js_new__([[300, -5, 2.5, 3.5, Float::NAN, 1.4, 254.6, 0], 2])
+    assert_equal([255, 0, 2, 4, 0, 1, 255, 0], image.__js_get__("data"))
   end
 
   def test_measure_text_reports_a_width

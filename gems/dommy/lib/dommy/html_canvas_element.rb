@@ -199,13 +199,16 @@ module Dommy
     # `new ImageData(data, sw [, sh [, settings]])` over `data`'s pixels. From
     # script, the realm keeps the Uint8ClampedArray itself as the pixels and
     # hands this the size alone (host_runtime.js constructImageData); bytes
-    # given from Ruby are copied.
+    # given from Ruby are copied, an Array's numbers clamped to bytes as a
+    # Uint8ClampedArray stores them.
     #
     # Spec: https://html.spec.whatwg.org/#dom-imagedata
     def self.construct(args)
-      first = args[0]
-      return from_data(first.is_a?(Bridge::Bytes) ? first.pack_bytes : first.pack("C*"), args) if first.is_a?(Bridge::Bytes) || first.is_a?(Array)
       raise Bridge::TypeError, "Failed to construct 'ImageData': 2 arguments required" if args.length < 2
+
+      first = args[0]
+      return from_data(first.pack_bytes, args) if first.is_a?(Bridge::Bytes)
+      return from_data(clamped_bytes(first), args) if first.is_a?(Array)
 
       width = Internal::WebIDL.unsigned_long(first)
       height = Internal::WebIDL.unsigned_long(args[1])
@@ -235,6 +238,16 @@ module Dommy
       new(width, height, bytes)
     end
     private_class_method :from_data
+
+    # WebIDL's ToUint8Clamp of each value: NaN is 0, and the rest is clamped
+    # to 0..255 and rounded half to even.
+    def self.clamped_bytes(values)
+      values.map do |value|
+        number = Internal::WebIDL.unrestricted_double(value)
+        number.nan? ? 0 : number.clamp(0, 255).round(half: :even)
+      end.pack("C*")
+    end
+    private_class_method :clamped_bytes
 
     # ImageData's serialization + deserialization steps: the same size and the
     # pixels this side holds (JS adds the ones its typed array holds).
