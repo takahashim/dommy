@@ -24,6 +24,7 @@
 
 ### Fixed
 
+- Assigning to a readonly [PutForwards] attribute converts the value as the attribute it forwards to does: `location = obj` navigates to `String(obj)`, and `el.classList = obj` sets `String(obj)`; a Symbol throws a TypeError.
 - A keyword computes to its ASCII lowercase: `display: NONE` is `none` in `getComputedStyle`, and its element is not rendered (`innerText` skips it). A font family keeps its case.
 - Every Window-exposed interface Dommy implements is a global from the start: `typeof Location` is `"function"` before a script has read `location`, and so are `CSSStyleDeclaration`, `MediaQueryList`, `NamedNodeMap` and `ImageData`, which were `undefined` until an instance crossed.
 - `fetch()` and `XMLHttpRequest` send a Referer under the request's referrer policy, else the document's `<meta name="referrer">`, else `strict-origin-when-cross-origin`: from `https://a.test/page?q=1#x`, a same-origin request carries `https://a.test/page?q=1` and a cross-origin one `https://a.test/`. A Referer the page sets itself is dropped.

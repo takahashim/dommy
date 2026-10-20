@@ -267,6 +267,18 @@ if JsSurface.available?
         "lib/dommy/js/webidl_signatures.js is stale; re-run ruby script/build_webidl_signatures.rb"
     end
 
+    # A readonly [PutForwards=x] attribute converts what is assigned to it as
+    # the x it forwards to does: `location = obj` is `location.href = obj`, a
+    # USVString, so obj's own toString runs before the value reaches the host.
+    def test_a_put_forwards_attribute_converts_as_its_target
+      require_relative "../script/build_webidl_signatures"
+      _, table = WebIdlSignatures.table
+      assert_equal "USVString", table.dig("Window", "attributes", "location")
+      assert_equal "USVString", table.dig("Document", "attributes", "location")
+      assert_equal "DOMString", table.dig("Element", "attributes", "classList")
+      assert_nil table.dig("Window", "attributes", "document"), "a readonly attribute without [PutForwards]"
+    end
+
     # The reflected attributes are declared from a table generated from this
     # fixture (Internal::IdlReflection), so a refreshed interfaces.json needs a
     # regenerated idl_reflection_table.rb.

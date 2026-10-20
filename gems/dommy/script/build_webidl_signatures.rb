@@ -132,9 +132,9 @@ module WebIdlSignatures
         call = call_entry(member["signatures"])
         entry["constructor"] = call if call
       when "attribute"
-        next if member["readonly"] || member["static"]
+        next if member["static"]
 
-        token = string_token(member["type"], member["null_to_empty_string"])
+        token = attribute_token(member)
         attributes[member["name"]] = token if token
       end
     end
@@ -143,6 +143,33 @@ module WebIdlSignatures
     entry["static_operations"] = statics.sort.to_h unless statics.empty?
     entry["attributes"] = attributes.sort.to_h unless attributes.empty?
     entry
+  end
+
+  # What an assignment to the attribute converts its value to. A writable
+  # attribute converts to its own type. A readonly [PutForwards=x] one
+  # (`window.location`, `el.classList`) forwards the value to the x attribute of
+  # the object it holds, which converts it to x's type, so the forwarded value
+  # takes that conversion: `location = obj` navigates to obj's own toString,
+  # not to whatever the host makes of the object.
+  def attribute_token(member)
+    unless member["readonly"]
+      return string_token(member["type"], member["null_to_empty_string"])
+    end
+    return nil unless member["put_forwards"]
+
+    target = forwarded_attribute(resolve(member["type"]).delete_suffix("?"), member["put_forwards"])
+    target && !target["readonly"] ? string_token(target["type"], target["null_to_empty_string"]) : nil
+  end
+
+  # The attribute `name` of interface `iface`, its own or an ancestor's.
+  def forwarded_attribute(iface, name)
+    while (record = @interfaces[iface])
+      found = record["members"].find { |m| m["kind"] == "attribute" && m["name"] == name && !m["static"] }
+      return found if found
+
+      iface = record["inherits"]
+    end
+    nil
   end
 
   # Positions after the last converted one carry no conversion: drop them.
@@ -156,6 +183,7 @@ module WebIdlSignatures
     data = JSON.parse(File.read(FIXTURE))
     @typedefs = data.fetch("typedefs", {})
     interfaces = data["interfaces"]
+    @interfaces = interfaces
     entries = interfaces.to_h { |name, record| [name, interface_entry(record)] }
     interfaces.each { |name, record| shadow(name, record, interfaces, entries) }
     out = {}
@@ -202,7 +230,8 @@ module WebIdlSignatures
       // values before the member sees them. An operation, static operation or
       // constructor has `required`, the number of arguments a call must pass
       // (fewer is a TypeError), and `arguments`, one string conversion per
-      // position; a writable attribute has its value's string conversion. A
+      // position; a writable or [PutForwards] attribute has its value's string
+      // conversion (for [PutForwards], the forwarded-to attribute's). A
       // conversion is a string type ("DOMString", "USVString", "ByteString"),
       // "?" after it when nullable, "[LegacyNullToEmptyString] " before it when
       // null means "", "optional " before it when undefined is left for the
