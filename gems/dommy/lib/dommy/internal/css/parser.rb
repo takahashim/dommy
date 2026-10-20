@@ -121,6 +121,20 @@ module Dommy
             end
           end
 
+          # The property a CSSStyleDeclaration attribute name stands for
+          # (CSSOM's camel-cased and webkit-cased attributes): `cssFloat` is
+          # `float`, `webkitFilter` `-webkit-filter`, and a dashed name is
+          # itself. A Ruby snake_case name is the kebab one.
+          def attribute_property_name(name)
+            s = name.to_s
+            return "float" if s == "cssFloat" || s == "css_float"
+            return s if s.include?("-")
+            return s.tr("_", "-") if s.include?("_")
+
+            kebab = s.gsub(/[A-Z]/) { |m| "-#{m.downcase}" }
+            kebab.start_with?("webkit-") ? "-#{kebab}" : kebab
+          end
+
           # CSSOM property-name normalization, for a name read from a declaration
           # block or handed to `getPropertyValue` / `setProperty` alike: ASCII
           # case-insensitive, except a CUSTOM property, whose name is

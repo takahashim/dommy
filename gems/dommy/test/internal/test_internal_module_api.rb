@@ -58,7 +58,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::CSS::Calc => %w[evaluate],
     Dommy::Internal::CSS::Cascade => %w[computed_style author_css? index_for counter_values],
     Dommy::Internal::CSS::Color => %w[normalize extract],
-    Dommy::Internal::CSS::Parser => %w[parse parse_block property_name valid_declaration_value?],
+    Dommy::Internal::CSS::Parser => %w[attribute_property_name parse parse_block property_name valid_declaration_value?],
     Dommy::Internal::CSS::PropertyRegistry => %w[
       known? expansion_targets inherited? initial expand computed_value resolve_length evaluate_calc format_px
     ],
