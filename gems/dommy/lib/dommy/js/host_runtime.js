@@ -3205,8 +3205,15 @@ globalThis.__rbHost = (function () {
       const fn = windowMember(name);
       if (typeof fn === "function") define(name, { value: fn, writable: true });
     }
-    for (const name of [...(members.g || []), ...WINDOW_MIXIN_READONLY]) {
+    for (const name of members.g || []) {
       if (missing(name)) define(name, { get() { return windowMember(name); } });
+    }
+    // A mixin member the window has no object for (Dommy implements neither
+    // indexedDB nor caches) is no global: a getter answering undefined would
+    // make `"indexedDB" in globalThis` claim the feature and refuse the
+    // polyfill a page assigns in its place.
+    for (const name of WINDOW_MIXIN_READONLY) {
+      if (missing(name) && windowMember(name) != null) define(name, { get() { return windowMember(name); } });
     }
     for (const name of [...(members.p || []), ...WINDOW_MIXIN_REPLACEABLE]) {
       // An event handler attribute stays with the proxy, which registers the
