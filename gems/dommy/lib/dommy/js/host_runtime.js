@@ -3170,7 +3170,10 @@ globalThis.__rbHost = (function () {
     // The bridge's own globals are no window members for Object.keys(window)
     // or for-in to list (the split window proxy's ownKeys leaves them out).
     for (const name of Object.keys(globalThis)) {
-      if (name.startsWith("__rb")) Object.defineProperty(globalThis, name, { enumerable: false });
+      if (!name.startsWith("__rb")) continue;
+      try {
+        Object.defineProperty(globalThis, name, { enumerable: false });
+      } catch (e) { /* a non-configurable global stays enumerable */ }
     }
     for (const name of ["self", "frames", "parent"]) replaceable(name, () => globalThis);
     define("location", {
