@@ -3065,6 +3065,8 @@ globalThis.__rbHost = (function () {
     // otherwise resolves them to the host-backed Constructor proxy (a
     // non-constructable "object"), so replace those the same way as interfaces.
     for (const alias in NAMED_CONSTRUCTORS) { names.push(alias); interfaceNames.add(alias); }
+    // So are the legacy window aliases, which name interface objects.
+    for (const alias in LEGACY_WINDOW_ALIASES) { names.push(alias); interfaceNames.add(alias); }
     for (const name of names) {
       // A global not built yet stays unbuilt: the window resolves it through
       // the global the first time it is read, then holds it as a value.
