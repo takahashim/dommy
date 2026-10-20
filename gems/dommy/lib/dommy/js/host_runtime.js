@@ -513,6 +513,7 @@ globalThis.__rbHost = (function () {
   function memberMethodStub(name, iface) {
     const coerce = nodeOrStringMember(name, iface);
     const readOnly = NON_MUTATING_METHODS.has(name);
+    const dehydrateCallArgs = withImageDataRead(dehydrateArgs, iface, name);
     const stub = withArity(function (...args) {
       // Resolve back through the receiver: the proxy get trap returns the
       // specialized per-proxy wrapper (epoch bumps, cached getAttribute, the
@@ -529,7 +530,7 @@ globalThis.__rbHost = (function () {
       checkReceiver(this, iface, name);
       const call = declaredConversion(receiverInterface(this, iface), "operations", name);
       const converted = call ? convertArguments(call, args) : args;
-      const wire = withImageDataRead(dehydrateArgs, iface, name)(coerce ? converted.map(coerceNodeOrString) : converted);
+      const wire = dehydrateCallArgs(coerce ? converted.map(coerceNodeOrString) : converted);
       return readOnly
         ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface)
         : callMutating(this[HKEY], name, wire, iface);
