@@ -2635,6 +2635,7 @@ module Dommy
         script.__internal_mark_parser_document__
       end
       parsed_css("meta[http-equiv]").each { |node| __internal_html_element_wrapper__(node)&.__internal_run_pragma__ }
+      parsed_css("meta[name][content]").each { |node| __internal_html_element_wrapper__(node)&.__internal_run_referrer_metadata__ }
       # An open dialog the parser inserted runs its dialog setup steps.
       parsed_css("dialog[open]").each do |node|
         dialog = __internal_html_element_wrapper__(node)
@@ -2666,6 +2667,12 @@ module Dommy
     # HTML's pragma-set default language (`<meta http-equiv=content-language
     # content=…>`): nil until such a pragma has been processed.
     attr_accessor :__internal_pragma_default_language__
+
+    # The document's referrer policy as `<meta name=referrer>` sets it
+    # (HTMLMetaElement#__internal_run_referrer_metadata__): "" (the default)
+    # until one does.
+    def __internal_referrer_policy__ = @__internal_referrer_policy__ || ""
+    attr_writer :__internal_referrer_policy__
 
     # DOMParser parses with scripting disabled (HTML) or XML scripting support
     # disabled, so every script it makes is "already started": moved or cloned

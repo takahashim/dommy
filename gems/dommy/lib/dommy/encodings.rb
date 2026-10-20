@@ -92,38 +92,13 @@ module Dommy
       (label && get(label)) || (html && prescan(bytes)) || "UTF-8"
     end
 
-    META_TAG = /<meta(?=[\s\/>])([^>]*)>/i
-    META_ATTRIBUTE = /([^\s="'\/>][^\s=\/>]*)(?:\s*=\s*("[^"]*"|'[^']*'|[^\s>]+))?/
-    private_constant :META_TAG, :META_ATTRIBUTE
-
-    # HTML's "prescan a byte stream to determine its encoding", for the
-    # `<meta charset>` and `<meta http-equiv=content-type content="…;
-    # charset=…">` forms, outside comments, in the first 1024 bytes. A
-    # declared UTF-16 is UTF-8 (the bytes are ASCII-compatible if the tag was
-    # read), and x-user-defined windows-1252.
-    #
-    # Spec: https://html.spec.whatwg.org/#prescan-a-byte-stream-to-determine-its-encoding
-    def self.prescan(source)
-      # A comment ends at the first `>` after two `-`, which may be the
-      # `<!--`'s own (`<!-->` and `<!--->` are closed comments).
-      head = source.to_s.b.byteslice(0, 1024).gsub(/<!--(?:>|->|.*?-->|.*\z)/m, "")
-      head.scan(META_TAG) do |(attributes)|
-        attrs = {}
-        attributes.scan(META_ATTRIBUTE) { |name, value| attrs[name.downcase] ||= value.to_s.delete_prefix('"').delete_suffix('"').delete_prefix("'").delete_suffix("'") }
-        label =
-          if attrs["charset"]
-            attrs["charset"]
-          elsif attrs["http-equiv"]&.casecmp?("content-type") && attrs["content"]
-            Internal::MimeType.charset_of(attrs["content"]) || attrs["content"][/charset\s*=\s*["']?([^"';\s]+)/i, 1]
-          end
-        name = label && get(label)
-        next unless name
-
-        return "UTF-8" if name.start_with?("UTF-16")
-        return name == "x-user-defined" ? "windows-1252" : name
-      end
-      nil
-    end
+    # HTML's "prescan a byte stream to determine its encoding" (Prescan): what
+    # the first 1024 bytes' `<meta charset>` or `<meta http-equiv=content-type
+    # content="…; charset=…">` declares, else what a leading `<?xml … encoding=…?>`
+    # does, or nil. A declared UTF-16 is UTF-8 (the bytes are ASCII-compatible
+    # if the tag was read), and x-user-defined windows-1252; `<?x` in UTF-16
+    # itself is that UTF-16.
+    def self.prescan(source) = Prescan.call(source)
 
     # The bytes `string` encodes to in the encoding named `name` (as `get`
     # returns it); a code point the encoding cannot represent is the bytes the
@@ -426,3 +401,4 @@ module Dommy
 end
 
 require_relative "encodings/legacy_multibyte"
+require_relative "encodings/prescan"

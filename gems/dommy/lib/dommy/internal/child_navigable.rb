@@ -90,7 +90,7 @@ module Dommy
         # as XML, anything else shown as text. A response that names no type is typed by the
         # extension of its URL's path, as a static file server would.
         def window_for_response(body, content_type, url)
-          type = content_type.to_s.split(";").first.to_s.strip.downcase
+          type = MimeType.essence(content_type)
           type = type_for_path(url) if type.empty?
           body, encoding = Encodings.decode_document(body, content_type, html: type == "text/html")
           win =

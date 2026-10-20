@@ -72,7 +72,7 @@ class TestInternalModuleApi < Minitest::Test
     Dommy::Internal::GlobalFunctions => %w[encode_uri_component decode_uri_component btoa atob],
     Dommy::Internal::IdlReflection => %w[expected install_all!],
     Dommy::Internal::JsNumber => %w[to_string],
-    Dommy::Internal::MimeType => %w[xml? charset_of with_charset],
+    Dommy::Internal::MimeType => %w[xml? essence charset_of with_charset],
     Dommy::Internal::Namespaces => %w[
       valid_attribute_local_name? valid_element_local_name? valid_doctype_name? validate_and_extract
     ],
