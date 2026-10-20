@@ -182,8 +182,11 @@ module Dommy
   # `encoding` is the encoding the markup's bytes were decoded with, when it
   # came from bytes (Encodings.decode_document). Markup given as a string is
   # already text, so its document is UTF-8, whatever a `<meta charset>` in it
-  # says — as for DOMParser.
+  # says — as for DOMParser. An Encoding Standard label is taken for the
+  # encoding it names (`"shift_jis"` is Shift_JIS); anything else is an
+  # ArgumentError.
   def self.parse(html, encoding: nil)
+    encoding = Encodings.name_for(encoding) unless encoding.nil?
     s = html.to_s
     if s.match?(/\A\s*(<!doctype|<html\b)/i)
       window = Window.new(nil, backend_doc: Backend.parse(s))

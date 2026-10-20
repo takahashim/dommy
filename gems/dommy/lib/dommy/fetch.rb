@@ -2,6 +2,7 @@
 
 require "json"
 require "securerandom"
+require "weakref"
 require_relative "data_uri"
 require_relative "internal/referrer"
 
@@ -41,7 +42,14 @@ module Dommy
       # fetch(request, init) is a fetch of `new Request(request, init)`: the
       # request's URL, and its members as far as `init` leaves them.
       if input.is_a?(Request)
-        init = input.__internal_init__.merge(init.is_a?(Hash) ? init.transform_keys(&:to_s) : {})
+        given = init.is_a?(Hash) ? init.transform_keys(&:to_s) : {}
+        # A null (or undefined) body in `init` leaves the request's own.
+        given.delete("body") if given["body"].nil? || given["body"].equal?(Bridge::UNDEFINED)
+        # Sending the request's body uses it up, as reading it would.
+        if !given.key?("body") && !input.__internal_take_body__
+          return PromiseValue.reject(@window, Bridge::TypeError.new("Failed to execute 'fetch': Request body is already used"))
+        end
+        init = input.__internal_init__.merge(given)
         input = input.url
       end
       url = @window.__internal_resolve_url__(input.to_s, utf8: true)
@@ -72,7 +80,9 @@ module Dommy
       if (signal = request_signal(init))
         return promise.reject(signal.reason) if signal.aborted?
 
-        signal.__internal_add_abort_algorithm__(proc { promise.reject(signal.reason) })
+        abort_fetch = proc { promise.reject(signal.reason) }
+        signal.__internal_add_abort_algorithm__(abort_fetch)
+        promise.__internal_when_settled__ { signal.__internal_remove_abort_algorithm__(abort_fetch) }
       end
       # `mode: "same-origin"` forbids a cross-origin request — it is a network
       # error before any fetch happens.
@@ -335,7 +345,7 @@ module Dommy
     # errors from then on (Fetch's "abort the fetch() call" with a response).
     def fulfill_response(promise, response, init)
       if (signal = request_signal(init))
-        signal.__internal_add_abort_algorithm__(proc { response.__internal_abort_body__(signal.reason) })
+        response.__internal_follow_abort__(signal)
       end
       promise.fulfill(response)
     end
@@ -586,14 +596,18 @@ module Dommy
     # (see #__js_call__) and clears the timer, so it does not linger in the
     # scheduler's queue.
     def install_delayed_resolve(promise, body, status, status_text, headers, init, delay_ms)
+      signal = request_signal(init)
+      clear_timer = nil
       timer_id = @window.scheduler.set_timeout(
         lambda do |*_args|
+          signal&.__internal_remove_abort_algorithm__(clear_timer)
           fulfill_response(promise, Response.new(@window, body: body, status: status, status_text: status_text, headers: headers, type: "basic"), init)
         end,
         delay_ms.to_i
       )
       scheduler = @window.scheduler
-      request_signal(init)&.__internal_add_abort_algorithm__(proc { scheduler.clear_timeout(timer_id) })
+      clear_timer = proc { scheduler.clear_timeout(timer_id) }
+      signal&.__internal_add_abort_algorithm__(clear_timer)
     end
   end
 
@@ -703,6 +717,8 @@ module Dommy
         @headers
       when "body"
         @body
+      when "bodyUsed"
+        @body_used == true
       when "credentials"
         @credentials
       when "mode"
@@ -728,6 +744,8 @@ module Dommy
     def __js_call__(method, _args)
       case method
       when "clone"
+        raise Bridge::TypeError, "Failed to execute 'clone' on 'Request': Request body is already used" if @body_used
+
         Request.new(@url, __internal_init__, @window)
       when "text"
         consume_body { immediate(Response.utf8_decode(@body_bytes)) }
@@ -747,6 +765,15 @@ module Dommy
       when "formData"
         consume_body { consume_form_data(@body_bytes) }
       end
+    end
+
+    # fetch(request) sends the body: false when it was already used, else it
+    # is used now. A request with no body has nothing to use up.
+    def __internal_take_body__
+      return true unless body?
+      return false if @body_used
+
+      @body_used = true
     end
 
     # The request as a `RequestInit`: what `clone()` builds a copy from, and
@@ -769,15 +796,19 @@ module Dommy
     private
 
     # WHATWG Body: the body can be consumed once. A second consume rejects rather
-    # than throwing synchronously.
+    # than throwing synchronously. A request with no body has nothing to use
+    # up: reading it leaves `bodyUsed` false, and it can be read and cloned
+    # again.
     def consume_body
       if @body_used
         return rejected(ErrorValue.new("Failed to read body: body stream already read", name: "TypeError"))
       end
 
-      @body_used = true
+      @body_used = true if body?
       yield
     end
+
+    def body? = !@body.nil? && !@body.equal?(Bridge::UNDEFINED)
 
     def immediate(value)
       @window ? PromiseValue.resolve(@window, value) : value
@@ -1054,13 +1085,61 @@ module Dommy
       Bridge::UNHANDLED
     end
 
-    # The response's fetch was aborted: a body not yet read errors with the
-    # abort reason, for a consume method and for a reader of `body` alike.
-    def __internal_abort_body__(reason)
-      return if @body_used
+    # The response's fetch can still be aborted through `signal` (Fetch's
+    # "abort the fetch() call" with a response): a body not yet read errors
+    # with the abort reason, for a consume method and for a reader of `body`
+    # alike. The signal lets go once the body is read — by a consume method,
+    # or a reader taking it to its end — and holds the response and its body
+    # stream only weakly until then, so a long-lived signal does not keep a
+    # response nobody reads (`fetch(url, {signal}).then(r => r.ok)`).
+    def __internal_follow_abort__(signal)
+      return unless body_readable?
 
-      @body_error = reason
-      @body_stream&.__internal_error__(reason)
+      @abort_signal = signal
+      @abort_body = BodyAbort.new(self, signal)
+      signal.__internal_remove_abort_algorithms_if__ { |algorithm| algorithm.is_a?(BodyAbort) && algorithm.gone? }
+      signal.__internal_add_abort_algorithm__(@abort_body)
+    end
+
+    # The abort algorithm a Response leaves on its fetch's signal. It errors
+    # the body when the response is still around, else the body stream a
+    # reader may still hold; once both have been collected there is nothing
+    # left to abort, and the signal drops it the next time it takes one.
+    class BodyAbort
+      def initialize(response, signal)
+        @response = WeakRef.new(response)
+        @stream = nil
+        @signal = signal
+      end
+
+      def stream=(stream)
+        @stream = WeakRef.new(stream)
+      end
+
+      def gone?
+        !alive(@response) && !alive(@stream)
+      end
+
+      def call
+        if (response = alive(@response))
+          response.__internal_abort_body__(@signal.reason)
+        elsif (stream = alive(@stream)) && stream.state == :readable
+          stream.__internal_error__(@signal.reason)
+        end
+      end
+
+      private
+
+      def alive(ref)
+        ref&.weakref_alive? ? ref.__getobj__ : nil
+      rescue WeakRef::RefError
+        nil
+      end
+    end
+
+    # Fetch "error response's body" from the signal's abort algorithm.
+    def __internal_abort_body__(reason)
+      abort_body(reason)
     end
 
     include Bridge::Methods
@@ -1107,10 +1186,28 @@ module Dommy
         return rejected(ErrorValue.new("Failed to read body: body stream already read", name: "TypeError"))
       end
 
-      @body_used = true
+      # A null body (not an empty one) has nothing to use up.
+      @body_used = true if @has_body
+      @abort_signal&.__internal_remove_abort_algorithm__(@abort_body)
       return rejected(@body_error) if @body_error
 
       yield
+    end
+
+    # Fetch "error response's body" when it is readable: all of a body is
+    # there at once, so it is readable while a nonempty one is unread — an
+    # empty one is already closed, as is a stream read to its end.
+    def abort_body(reason)
+      return if @body_used || !body_readable?
+
+      @body_error = reason
+      @body_stream&.__internal_error__(reason)
+    end
+
+    def body_readable?
+      return false unless @has_body
+
+      @body_stream ? @body_stream.state == :readable : !@body.empty?
     end
 
     # Lazily build + memoize the body ReadableStream (a single Uint8Array chunk
@@ -1123,8 +1220,21 @@ module Dommy
         stream.__internal_enqueue__(Bridge::Bytes.new(@body.bytes)) unless @body.empty?
         stream.__internal_close__
         stream.__internal_error__(@body_error) if @body_error
+        follow_abort_through(stream)
         stream
       end
+    end
+
+    # A reader can outlive the response, so the abort algorithm also reaches
+    # the stream; a reader taking it to its end leaves the signal nothing to
+    # abort.
+    def follow_abort_through(stream)
+      return unless @abort_body
+
+      @abort_body.stream = stream
+      signal = @abort_signal
+      algorithm = @abort_body
+      stream.__internal_when_done__ { signal.__internal_remove_abort_algorithm__(algorithm) }
     end
 
     # WHATWG: clone throws if the body is already disturbed/locked; otherwise the

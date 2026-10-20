@@ -180,10 +180,10 @@ module Dommy
   # a page writes them, and the page writes into its own `data` typed array
   # (host_runtime.js), which stays in the JS realm.
   #
-  # The one time the pixels come here is a structured clone: the clone a
-  # message or a history state delivers belongs to this side (a MessageEvent,
-  # the history entry) and outlives any one JS proxy of it (`__dommyClone`), so
-  # it holds the pixels the page wrote (`__dommyPixels`, packed bytes), given
+  # The pixels come here only for an ImageData this side may keep beyond any
+  # one JS proxy of it: the clone a message or a history state delivers
+  # (`__dommyClone`), or one script handed over (a MessageEvent's `data`). It
+  # holds the pixels the page wrote (`__dommyPixels`, packed bytes), given
   # when it is made or when the last proxy that could write them goes.
   class ImageData
     attr_reader :width, :height
@@ -194,6 +194,47 @@ module Dommy
       @pixels = pixels
       @clone = clone
     end
+
+    # `new ImageData(sw, sh [, settings])`, transparent black, or
+    # `new ImageData(data, sw [, sh [, settings]])` over `data`'s pixels. From
+    # script, the realm keeps the Uint8ClampedArray itself as the pixels and
+    # hands this the size alone (host_runtime.js constructImageData); bytes
+    # given from Ruby are copied.
+    #
+    # Spec: https://html.spec.whatwg.org/#dom-imagedata
+    def self.construct(args)
+      first = args[0]
+      return from_data(first.is_a?(Bridge::Bytes) ? first.pack_bytes : first.pack("C*"), args) if first.is_a?(Bridge::Bytes) || first.is_a?(Array)
+      raise Bridge::TypeError, "Failed to construct 'ImageData': 2 arguments required" if args.length < 2
+
+      width = Internal::WebIDL.unsigned_long(first)
+      height = Internal::WebIDL.unsigned_long(args[1])
+      raise DOMException::IndexSizeError, "Failed to construct 'ImageData': the source width is zero" if width.zero?
+      raise DOMException::IndexSizeError, "Failed to construct 'ImageData': the source height is zero" if height.zero?
+
+      new(width, height)
+    end
+
+    def self.from_data(bytes, args)
+      if bytes.empty? || (bytes.bytesize % 4).nonzero?
+        raise DOMException::InvalidStateError, "Failed to construct 'ImageData': the data length is not a nonzero multiple of 4"
+      end
+
+      width = Internal::WebIDL.unsigned_long(args[1])
+      raise DOMException::IndexSizeError, "Failed to construct 'ImageData': the source width is zero" if width.zero?
+
+      pixel_count = bytes.bytesize / 4
+      raise DOMException::IndexSizeError, "Failed to construct 'ImageData': the data length is not a multiple of the width" if (pixel_count % width).nonzero?
+
+      height = pixel_count / width
+      given = args[2]
+      if !given.nil? && !given.equal?(Bridge::UNDEFINED) && Internal::WebIDL.unsigned_long(given) != height
+        raise DOMException::IndexSizeError, "Failed to construct 'ImageData': the data length is not width * height * 4"
+      end
+
+      new(width, height, bytes)
+    end
+    private_class_method :from_data
 
     # ImageData's serialization + deserialization steps: the same size and the
     # pixels this side holds (JS adds the ones its typed array holds).

@@ -83,6 +83,33 @@ class TestRequest < Minitest::Test
     assert_same(sig, cloned.__js_get__("signal"))
   end
 
+  # A null body has nothing to use up: a Request or Response without one
+  # reads as often as asked, keeps `bodyUsed` false and can be cloned after a
+  # read. One with a body (even an empty one) is used by its first read.
+  def test_only_a_body_is_used_up_by_a_read
+    win = make_window
+    read = ->(target) { target.__js_call__("text", []).await }
+
+    bodiless = Dommy::Request.new("/api", nil, win)
+    2.times { assert_equal("", read.(bodiless)) }
+    assert_equal(false, bodiless.__js_get__("bodyUsed"))
+    assert_kind_of(Dommy::Request, bodiless.__js_call__("clone", []))
+
+    with_body = Dommy::Request.new("/api", {"method" => "POST", "body" => ""}, win)
+    read.(with_body)
+    assert_equal(true, with_body.__js_get__("bodyUsed"))
+    assert_raises(Dommy::Bridge::TypeError) { with_body.__js_call__("clone", []) }
+
+    response = win.__js_get__("Response").__js_new__([])
+    2.times { assert_equal("", read.(response)) }
+    assert_equal(false, response.__js_get__("bodyUsed"))
+    assert_kind_of(Dommy::Response, response.__js_call__("clone", []))
+
+    empty = win.__js_get__("Response").__js_new__([""])
+    read.(empty)
+    assert_equal(true, empty.__js_get__("bodyUsed"))
+  end
+
   def test_window_exposes_request_constructor
     win = make_window
     ctor = win.__js_get__("Request")

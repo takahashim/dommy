@@ -160,4 +160,14 @@ class TestCssColor < Minitest::Test
     assert_equal "rgb(191, 191, 0)", Color.normalize("hsl(60 100 37.5)")
     assert_equal "hsl(60, 100, 37.5)", Color.normalize("hsl(60, 100, 37.5)")
   end
+
+  # A component is a CSS <number>: Ruby's own spellings of one are not.
+  def test_components_are_css_numbers
+    assert_equal "rgb(10, 0, 0)", Color.normalize("rgb(1e1 0 0)")
+    assert_equal "rgb(10, 0, 0)", Color.normalize("rgb(+10 0 0)")
+    assert_equal "rgba(0, 0, 0, 0.5)", Color.normalize("rgba(0, 0, 0, .5)")
+    %w[hsl(120\ 0x10\ 50) hsl(120\ 1_0\ 50) rgb(0x10\ 0\ 0) rgb(10.\ 0\ 0) rgb(1_0%\ 0\ 0)].each do |text|
+      assert_equal text, Color.normalize(text)
+    end
+  end
 end

@@ -79,6 +79,9 @@ globalThis.__rbHost = (function () {
   // The names globalThis owned once it became the window: the window proxy
   // below it never answers them (see unifyGlobalWindow).
   let unifiedGlobalNames = new Set();
+  // The window's members unifyGlobalWindow defined on globalThis, which a
+  // rebinding defines again for the new window.
+  let unifiedWindowMembers = new Set();
   // Window members HTML defines in mixins the generated member table leaves
   // out (WindowOrWorkerGlobalScope, …), and the writable Window attributes
   // that are not [Replaceable]: an assignment reaches the host rather than
@@ -526,7 +529,7 @@ globalThis.__rbHost = (function () {
       checkReceiver(this, iface, name);
       const call = declaredConversion(receiverInterface(this, iface), "operations", name);
       const converted = call ? convertArguments(call, args) : args;
-      const wire = dehydrateArgs(coerce ? converted.map(coerceNodeOrString) : converted);
+      const wire = withImageDataRead(dehydrateArgs, iface, name)(coerce ? converted.map(coerceNodeOrString) : converted);
       return readOnly
         ? hostCallResult(name, __rb_host_call(this[HKEY], name, wire), iface)
         : callMutating(this[HKEY], name, wire, iface);
@@ -561,9 +564,10 @@ globalThis.__rbHost = (function () {
   // pixels. Dommy paints nothing, so an ImageData starts transparent black and
   // only the page's writes change it. They stay here and do not cross the
   // bridge when the ImageData does (a 1920x1080 image is 8 MB) — except for a
-  // structured clone: the deserialized ImageData may belong to the host (a
-  // MessageEvent's data, a history state), which keeps it beyond the life of
-  // any proxy of it, so its pixels go to the host when its last proxy goes.
+  // ImageData the host may keep beyond the life of any proxy of it: a
+  // deserialized clone (a MessageEvent's data, a history state), or one the
+  // page handed to the host (`new MessageEvent("m", {data: img})`). Its pixels
+  // go to the host when its last proxy goes.
   //
   // The pixels are keyed by handle, not by proxy: QuickJS frees a proxy as
   // soon as nothing refers to it (`e.data.data` drops `e.data` at once), and
@@ -573,7 +577,8 @@ globalThis.__rbHost = (function () {
   // back to a host that holds the pixels.
   //
   //   pixels      the Uint8ClampedArray `data` returns
-  //   hostBacked  the host keeps this ImageData (a clone), so keeps its pixels
+  //   hostBacked  the host may keep this ImageData (a clone, or one it was
+  //               given), so keeps its pixels
   //   exposed     the array may hold what the host does not (the page has had
   //               it, or it came from a serialized record)
   const pixelsByHandle = new Map();
@@ -599,6 +604,40 @@ globalThis.__rbHost = (function () {
     const width = rehydrate(__rb_host_get(handle, "width"));
     const height = rehydrate(__rb_host_get(handle, "height"));
     return new Uint8ClampedArray(width * height * 4);
+  }
+
+  // The operations that take an ImageData as such (WebIDL types the argument
+  // ImageData, or ImageBitmapSource): each reads its pixels during the call
+  // and keeps nothing, so the ImageData stays the page's alone. Everywhere
+  // else an ImageData reaches the host as an `any` or `object` value — an
+  // event's data, a signal's reason, a stream's chunk — which the host keeps.
+  const IMAGE_DATA_READERS = new Set([
+    "CanvasRenderingContext2D.createImageData", "CanvasRenderingContext2D.putImageData",
+    "OffscreenCanvasRenderingContext2D.createImageData", "OffscreenCanvasRenderingContext2D.putImageData",
+    "Window.createImageBitmap", "WorkerGlobalScope.createImageBitmap",
+  ]);
+  let readingImageData = false;
+  // `fn`, for operation `name` of `iface`, with the ImageData it is given
+  // crossing as one the host only reads, when it is such an operation.
+  function withImageDataRead(fn, iface, name) {
+    if (!IMAGE_DATA_READERS.has(iface + "." + name)) return fn;
+    return function (...args) {
+      const outer = readingImageData;
+      readingImageData = true;
+      try {
+        return fn.apply(this, args);
+      } finally {
+        readingImageData = outer;
+      }
+    };
+  }
+
+  // The ImageData crosses to the host, which may keep it: its pixels the page
+  // writes go there when its last proxy goes.
+  function markHostBacked(handle) {
+    const entry = pixelsByHandle.get(handle);
+    if (entry === undefined) pixelsByHandle.set(handle, { pixels: null, hostBacked: true, exposed: false });
+    else entry.hostBacked = true;
   }
 
   // The handle is going: a host-backed ImageData's pixels the page may have
@@ -796,6 +835,17 @@ globalThis.__rbHost = (function () {
     return id;
   }
 
+  // Forget functions registered with registerCallback that will not be
+  // called again; a later call for one of their ids does nothing.
+  function releaseCallbacks(...fns) {
+    for (const fn of fns) {
+      const id = callbackIds.get(fn);
+      if (id === undefined) continue;
+      callbacks.delete(id);
+      callbackIds.delete(fn);
+    }
+  }
+
   // Called from Ruby when a host event dispatch reaches a JS-registered
   // listener. The live function (closure intact) is invoked; tagged args
   // (e.g. an Event handle) are rehydrated to proxies first.
@@ -969,8 +1019,15 @@ globalThis.__rbHost = (function () {
     const promise = new Promise((resolve, reject) => { resolveFn = resolve; rejectFn = reject; });
     hostPromiseProxies.set(promise, proxy);
     realmPromises.set(handle, new WeakRef(promise));
+    // The host settles the promise once, so the two callbacks are released
+    // then: the callback table holds what it registers for good, and the
+    // resolve function would keep the Promise, its host proxy, the
+    // PromiseValue and the value it settled with (a fetch's Response) alive
+    // for the life of the page.
+    const onFulfilled = (value) => { releaseCallbacks(onFulfilled, onRejected); resolveFn(value); };
+    const onRejected = (reason) => { releaseCallbacks(onFulfilled, onRejected); rejectFn(reason); };
     // Subscribe without a chained host promise (nothing to hand back).
-    __rb_host_promise_subscribe(handle, dehydrate(resolveFn), dehydrate(rejectFn));
+    __rb_host_promise_subscribe(handle, dehydrate(onFulfilled), dehydrate(onRejected));
     return promise;
   }
 
@@ -989,7 +1046,11 @@ globalThis.__rbHost = (function () {
   function dehydrate(v, seen) {
     if (typeof v === "string") return /[\ud800-\udfff]/.test(v) ? scrubLoneSurrogates(v) : v;
     if (typeof v === "function") return { __rb_callback: registerCallback(v) };
-    if (isProxy(v)) return { __rb_handle: proxyHandles.get(v) };
+    if (isProxy(v)) {
+      const handle = proxyHandles.get(v);
+      if (!readingImageData && proxyInterfaces.get(v) === "ImageData") markHostBacked(handle);
+      return { __rb_handle: handle };
+    }
     if (hostPromiseProxies.has(v)) return { __rb_handle: proxyHandles.get(hostPromiseProxies.get(v)) };
     // A BufferSource (ArrayBuffer or any typed-array/DataView view) crosses as
     // its raw bytes, so host code gets a uniform byte buffer (TextDecoder.decode,
@@ -2511,8 +2572,42 @@ globalThis.__rbHost = (function () {
       const coerced = coerceConstructorArgs(name, args);
       return makeJsEvent(name, coerced[0], coerced[1]);
     }
+    if (name === "ImageData") return constructImageData(args);
     const r = rehydrate(__rb_construct(name, dehydrateArgs(coerceConstructorArgs(name, args))));
     if (r == null) throw new TypeError("Illegal constructor");
+    return r;
+  }
+
+  // `new ImageData(data, sw [, sh [, settings]])` keeps `data` itself as its
+  // pixels (`img.data === data`, and a write to either is seen through the
+  // other), so it stays here: the host gets the size alone. Anything but a
+  // Uint8ClampedArray first is the `(sw, sh [, settings])` overload, whose
+  // `sw` an array converts to 0.
+  //
+  // Spec: https://html.spec.whatwg.org/#dom-imagedata-with-data
+  function constructImageData(args) {
+    const data = args[0];
+    if (!(data instanceof Uint8ClampedArray)) {
+      const sized = ArrayBuffer.isView(data) || data instanceof ArrayBuffer ? [0, ...args.slice(1)] : args;
+      const r = rehydrate(__rb_construct("ImageData", dehydrateArgs(sized)));
+      if (r == null) throw new TypeError("Illegal constructor");
+      return r;
+    }
+    const fail = (message, errorName) => new globalThis.DOMException("Failed to construct 'ImageData': " + message, errorName);
+    if (args.length < 2) throw new TypeError("Failed to construct 'ImageData': 2 arguments required, but only 1 present.");
+    const length = data.length;
+    if (length === 0 || length % 4 !== 0) throw fail("the data length is not a nonzero multiple of 4", "InvalidStateError");
+    const width = Number(args[1]) >>> 0;
+    if (width === 0) throw fail("the source width is zero", "IndexSizeError");
+    const pixelCount = length / 4;
+    if (pixelCount % width !== 0) throw fail("the data length is not a multiple of the width", "IndexSizeError");
+    const height = pixelCount / width;
+    if (args[2] !== undefined && (Number(args[2]) >>> 0) !== height) {
+      throw fail("the data length is not width * height * 4", "IndexSizeError");
+    }
+    const r = rehydrate(__rb_construct("ImageData", dehydrateArgs([width, height])));
+    if (r == null) throw new TypeError("Illegal constructor");
+    pixelsByHandle.set(proxyHandles.get(r), { pixels: data, hostBacked: false, exposed: true });
     return r;
   }
 
@@ -2950,12 +3045,15 @@ globalThis.__rbHost = (function () {
         enumerable: true, configurable: true,
       });
     }
+    // QuotaExceededError is built on its first use, which installs it as a
+    // global: build it now, so it is one from the start, unified or not.
+    const quotaExceeded = quotaExceededError();
     // Unified, the window is the global object: its constructors and builtins
     // are already its own properties.
     if (own === globalThis) return;
     const names = [...protos.keys(), ...lazyChains.keys()];
     if (!names.includes("DOMException") && typeof globalThis.DOMException === "function") names.push("DOMException");
-    if (quotaExceededError()) names.push("QuotaExceededError");
+    if (quotaExceeded) names.push("QuotaExceededError");
     // Mirror the JS built-in constructors too, so an iframe's contentWindow
     // resolves `defaultView.TypeError` / `defaultView.Array` like a real window
     // (WPT reaches for `(root.ownerDocument).defaultView.TypeError`). The same
@@ -3065,18 +3163,28 @@ globalThis.__rbHost = (function () {
     proxyHandles.set(globalThis, handle);
     proxyInterfaces.set(globalThis, "Window");
     Object.setPrototypeOf(globalThis, proxy);
+    const previousMembers = unifiedWindowMembers;
+    unifiedWindowMembers = new Set();
     const define = (name, desc) => {
       try {
         Object.defineProperty(globalThis, name, { enumerable: true, configurable: true, ...desc });
+        unifiedWindowMembers.add(name);
       } catch (e) { /* a non-configurable global keeps its definition */ }
     };
     const replaceable = (name, get) => define(name, {
       get, set(value) { define(name, { value, writable: true }); },
     });
-    const missing = (name) => !Object.hasOwn(globalThis, name);
+    // Not on globalThis, or the previous window's member there.
+    const missing = (name) => previousMembers.has(name) || !Object.hasOwn(globalThis, name);
     // [LegacyUnforgeable] readonly; configurable so a host can rebind it.
     define("window", { value: globalThis, writable: false });
-    define("top", { get() { return globalThis; }, set(_value) {} });
+    // Getter only, so a strict-mode assignment throws as on a browser's.
+    define("top", { get() { return globalThis; } });
+    // The bridge's own globals are no window members for Object.keys(window)
+    // or for-in to list (the split window proxy's ownKeys leaves them out).
+    for (const name of Object.keys(globalThis)) {
+      if (name.startsWith("__rb")) Object.defineProperty(globalThis, name, { enumerable: false });
+    }
     for (const name of ["self", "frames", "parent"]) replaceable(name, () => globalThis);
     define("location", {
       get() { return windowMember("location"); },
@@ -3606,7 +3714,7 @@ globalThis.__rbHost = (function () {
       else if (nodeOrStringMember(prop, ctx.ifaceName)) fn = nodeOrStringStub(prop, ctx);
       else fn = mutatingStub(prop, ctx);
     }
-    fn = withConvertedArguments(fn, ctx.ifaceName, "operations", prop);
+    fn = withConvertedArguments(withImageDataRead(fn, ctx.ifaceName, prop), ctx.ifaceName, "operations", prop);
     if (prop === "toString" && ctx.ifaceName) fn = brandCheckedStringifier(fn, ctx);
     withArity(fn, prop, ctx.ifaceName);
     // An operation's function is named after it (`fetch.name`), and one no
@@ -3797,12 +3905,18 @@ globalThis.__rbHost = (function () {
   // Window member (`window.fetch = f` replaces the bare `fetch`), is a write
   // to globalThis — a data property's value, or an accessor's setter with the
   // window as `this`. A forward accessor keeps routing to the host (an
-  // assignment to `location` navigates).
+  // assignment to `location` navigates). The page has then defined a data
+  // property on the window, which reads back from globalThis even where the
+  // embedder's forwards may read the window (windowDefinitions).
   function setWindowOwnGlobal(handle, shape, t, prop, value, receiver) {
     if (typeof prop !== "string" || !isGlobalWindow(handle) || isEventHandlerName(shape, prop)) return undefined;
     const d = Reflect.getOwnPropertyDescriptor(globalThis, prop);
     if (d === undefined) return undefined;
-    if ("value" in d) return Reflect.set(globalThis, prop, value);
+    if ("value" in d) {
+      if (!Reflect.set(globalThis, prop, value)) return false;
+      windowDefinitions.add(prop);
+      return true;
+    }
     if (windowOwnGlobal(shape, t, prop) === undefined) return undefined;
     return Reflect.set(globalThis, prop, value, receiver);
   }

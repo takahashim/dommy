@@ -302,6 +302,27 @@ class TestSlotChangeSignals < Minitest::Test
     assert_equal html_slot, @host.query_selector("span").assigned_slot
   end
 
+  # In an XML document the slots of createElementNS's elements are found
+  # too, though no default namespace is declared on the tree; an SVG <slot>
+  # there is still not one.
+  def test_slots_in_an_xml_document
+    xhtml = Dommy::Internal::Namespaces::HTML
+    doc = @doc.implementation.create_document(xhtml, "html", nil)
+    host = doc.document_element.append_child(doc.create_element_ns(xhtml, "div"))
+    child = host.append_child(doc.create_element_ns(xhtml, "span"))
+    shadow = host.attach_shadow({"mode" => "open"})
+    shadow.append_child(doc.create_element_ns("http://www.w3.org/2000/svg", "slot"))
+    slot = shadow.append_child(doc.create_element_ns(xhtml, "div")).append_child(doc.create_element_ns(xhtml, "slot"))
+    fired = []
+    slot.add_event_listener("slotchange", proc { fired << :slotchange })
+    host.append_child(doc.create_element_ns(xhtml, "b"))
+    @win.scheduler.drain_microtasks
+
+    assert_equal 2, slot.assigned_nodes.length
+    assert_same slot, child.assigned_slot
+    assert_equal [:slotchange], fired
+  end
+
   # assignedSlot reads one slot, whatever the number of the tree's slots.
   def test_assigned_slot_of_text_and_elements
     text = @host.append_child(@doc.create_text_node("t"))

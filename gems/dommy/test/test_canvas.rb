@@ -75,6 +75,25 @@ class TestCanvas < Minitest::Test
     assert_nil(@ctx.__js_call__("createImageData", [1, 1]).__js_get__("__dommyPixels"))
   end
 
+  # `new ImageData(sw, sh)` is transparent black; `new ImageData(data, sw [, sh])`
+  # takes data's pixels, its height from the length; bad sizes are errors.
+  def test_image_data_constructor
+    ctor = @doc.default_view.__js_get__("ImageData")
+    by_size = ctor.__js_new__([2, 3])
+    assert_equal([2, 3, 24], [by_size.width, by_size.height, by_size.__js_get__("data").length])
+
+    pixels = Dommy::Bridge::Bytes.new([200] + [0] * 15)
+    from_data = ctor.__js_new__([pixels, 2])
+    assert_equal([2, 2, 200], [from_data.width, from_data.height, from_data.__js_get__("data")[0]])
+    assert_equal(2, ctor.__js_new__([pixels, 2, 2]).height)
+
+    assert_raises(Dommy::DOMException::IndexSizeError) { ctor.__js_new__([0, 1]) }
+    assert_raises(Dommy::DOMException::IndexSizeError) { ctor.__js_new__([pixels, 3]) }
+    assert_raises(Dommy::DOMException::IndexSizeError) { ctor.__js_new__([pixels, 2, 3]) }
+    assert_raises(Dommy::DOMException::InvalidStateError) { ctor.__js_new__([Dommy::Bridge::Bytes.new([0] * 6), 1]) }
+    assert_raises(Dommy::Bridge::TypeError) { ctor.__js_new__([1]) }
+  end
+
   def test_measure_text_reports_a_width
     metrics = @ctx.__js_call__("measureText", ["hello"])
     assert_operator(metrics.__js_get__("width"), :>, 0)

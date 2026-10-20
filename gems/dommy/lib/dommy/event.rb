@@ -2411,6 +2411,19 @@ module Dommy
       nil
     end
 
+    # DOM "remove an algorithm from a signal": for a caller whose algorithm
+    # has nothing left to abort, so a long-lived signal does not keep it.
+    def __internal_remove_abort_algorithm__(callback)
+      @abort_algorithms.delete(callback)
+      nil
+    end
+
+    # Drop the algorithms the block says have nothing left to abort.
+    def __internal_remove_abort_algorithms_if__(&block)
+      @abort_algorithms.reject!(&block)
+      nil
+    end
+
     # Sentinel meaning "no reason argument was supplied" — distinct from an
     # explicit `null` reason (`abort(null)` keeps reason null, but `abort()` /
     # `abort(undefined)` default to a fresh AbortError).

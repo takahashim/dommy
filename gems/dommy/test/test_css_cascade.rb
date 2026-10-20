@@ -937,6 +937,21 @@ class TestCssCascade < Minitest::Test
     end
   end
 
+  # The attribute names map to properties as on element.style: cssFloat is
+  # `float`, a webkit-cased name its -webkit- legacy alias's property; and a
+  # write to one of them is the read-only error.
+  def test_get_computed_style_attribute_names
+    doc = doc_for('<style>#x { float: left; filter: blur(1px); --Foo: 1 }</style><div id="x">x</div>')
+    declaration = doc.default_view.get_computed_style(doc.get_element_by_id("x"))
+
+    assert_equal "left", declaration.__js_get__("cssFloat")
+    assert_equal "blur(1px)", declaration.__js_get__("webkitFilter")
+    assert_equal "blur(1px)", declaration.get_property_value("-webkit-filter")
+    assert_equal "1", declaration.__js_get__("--Foo")
+    assert_equal "", declaration.get_property_value("--foo")
+    assert_raises(Dommy::DOMException::NoModificationAllowedError) { declaration.__js_set__("cssFloat", "right") }
+  end
+
   def test_get_computed_style_is_live_across_mutations
     doc = doc_for('<style>.hidden { display: none }</style><div id="x">x</div>')
     declaration = doc.default_view.get_computed_style(doc.get_element_by_id("x"))

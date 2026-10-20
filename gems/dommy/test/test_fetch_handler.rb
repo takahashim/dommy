@@ -55,8 +55,32 @@ class TestFetchHandler < Minitest::Test
     url, init = @handler.calls.last
     assert_equal ["http://localhost/app", "POST", "data", "t1"], [url, init["method"], init["body"], init["headers"]["x-token"]]
 
-    Dommy::FetchFn.new(@win).__js_call__("fetch", [request, {"method" => "PUT"}]).await
+    another = Dommy::Request.new("/app", {"method" => "POST", "body" => "data"}, @win)
+    Dommy::FetchFn.new(@win).__js_call__("fetch", [another, {"method" => "PUT"}]).await
     assert_equal ["PUT", "data"], @handler.calls.last.last.values_at("method", "body")
+  end
+
+  # Sending a request's body uses it up: it cannot be sent, read or cloned
+  # again. A body given in `init` is sent instead and leaves the request's
+  # alone; a null one does not replace it.
+  def test_fetch_uses_up_a_requests_body
+    fetch = ->(*args) { Dommy::FetchFn.new(@win).__js_call__("fetch", args) }
+    request = Dommy::Request.new("/app", {"method" => "POST", "body" => "data"}, @win)
+    assert_equal false, request.__js_get__("bodyUsed")
+
+    fetch.(request, {"body" => nil}).await
+    assert_equal "data", @handler.calls.last.last["body"]
+    assert_equal true, request.__js_get__("bodyUsed")
+    assert_raises(Dommy::Bridge::TypeError) { fetch.(request).await }
+    assert_raises(Dommy::Bridge::TypeError) { request.__js_call__("clone", []) }
+    assert_equal 1, @handler.calls.length
+
+    fetch.(request, {"body" => "other"}).await
+    assert_equal "other", @handler.calls.last.last["body"]
+
+    bodiless = Dommy::Request.new("/app", nil, @win)
+    2.times { fetch.(bodiless).await }
+    assert_equal 4, @handler.calls.length
   end
 
   def test_fetch_falls_through_to_stub_when_handler_declines

@@ -47,6 +47,11 @@ class TestMatchMedia < Minitest::Test
     mql.__test_set_matches__(true)
     assert_equal(true, captured)
   end
+
+  def test_media_query_list_event_constructor
+    event = @win.__js_get__("MediaQueryListEvent").__js_new__(["change", {"media" => "(min-width: 1px)", "matches" => true}])
+    assert_equal(["change", "(min-width: 1px)", true], [event.type, event.media, event.matches])
+  end
 end
 
 # --- structuredClone (global) ---------------------------------------

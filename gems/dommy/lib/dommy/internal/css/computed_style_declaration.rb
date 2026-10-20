@@ -26,10 +26,9 @@ module Dommy
         end
 
         def get_property_value(name)
-          key = name.to_s
-          # Custom properties are case-sensitive; everything else isn't.
-          key = key.downcase unless key.start_with?("--")
-          styles[key].to_s
+          # Custom properties are case-sensitive; everything else is ASCII
+          # case-insensitive, and a -webkit- legacy alias reads its property.
+          styles[Dommy::Internal::CSS::Parser.property_name(name)].to_s
         end
 
         def [](name)
@@ -168,8 +167,18 @@ module Dommy
           Cascade.computed_style(@element, pseudo_element: "::#{base}")
         end
 
+        # The property a camel-cased (or snake_case) attribute name stands for,
+        # as on element.style: `cssFloat` is `float`, a webkit-cased name the
+        # -webkit- property and so its legacy alias's (`webkitFilter` is
+        # `filter`). A custom property is its own name.
         def camel_to_kebab(name)
-          name.to_s.tr("_", "-").gsub(/([A-Z])/) { "-#{Regexp.last_match(1).downcase}" }
+          text = name.to_s
+          return text if text.start_with?("--")
+          return "float" if text == "cssFloat" || text == "css_float"
+
+          kebab = text.tr("_", "-").gsub(/([A-Z])/) { "-#{Regexp.last_match(1).downcase}" }
+          kebab = "-#{kebab}" if kebab.start_with?("webkit-")
+          Dommy::Internal::CSS::Parser.property_name(kebab)
         end
 
         def raise_read_only

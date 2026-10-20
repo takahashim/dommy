@@ -190,7 +190,8 @@ module Dommy
         %w[CSSStyleDeclaration], %w[MediaList], %w[DOMStringMap], %w[NamedNodeMap],
         %w[HTMLOptionsCollection HTMLCollection], %w[MutationRecord], %w[ValidityState],
         %w[DataTransferItem], %w[DataTransferItemList], %w[TouchList],
-        %w[ImageData], %w[CanvasRenderingContext2D], %w[CanvasGradient], %w[TextMetrics]
+        %w[ImageData], %w[CanvasRenderingContext2D], %w[CanvasGradient], %w[TextMetrics],
+        %w[Crypto], %w[SubtleCrypto], %w[Performance], %w[DOMRect]
       ].freeze
 
       module_function

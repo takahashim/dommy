@@ -26,6 +26,23 @@ module Dommy
       LABELS[label.gsub(/\A[\t\n\f\r ]+|[\t\n\f\r ]+\z/, "").downcase(:ascii)]
     end
 
+    # The encoding `encoding` names, given as an Encoding Standard name or
+    # label; an ArgumentError for anything else.
+    def self.name_for(encoding)
+      text = encoding.to_s
+      return text if LABELS.value?(text)
+
+      get(text) or raise ArgumentError, "unknown encoding: #{encoding.inspect}"
+    end
+
+    # The encoding text is encoded in when `name` is the one asked for: UTF-8
+    # in place of replacement, UTF-16BE and UTF-16LE, which have no encoder.
+    #
+    # Spec: https://encoding.spec.whatwg.org/#get-an-output-encoding
+    def self.output_encoding(name)
+      name.start_with?("UTF-16") || name == "replacement" ? "UTF-8" : name
+    end
+
     # The byte-order marks that name their own encoding, longest first.
     #
     # Spec: https://encoding.spec.whatwg.org/#decode
@@ -87,7 +104,9 @@ module Dommy
     #
     # Spec: https://html.spec.whatwg.org/#prescan-a-byte-stream-to-determine-its-encoding
     def self.prescan(source)
-      head = source.to_s.b.byteslice(0, 1024).gsub(/<!--.*?(?:-->|\z)/m, "")
+      # A comment ends at the first `>` after two `-`, which may be the
+      # `<!--`'s own (`<!-->` and `<!--->` are closed comments).
+      head = source.to_s.b.byteslice(0, 1024).gsub(/<!--(?:>|->|.*?-->|.*\z)/m, "")
       head.scan(META_TAG) do |(attributes)|
         attrs = {}
         attributes.scan(META_ATTRIBUTE) { |name, value| attrs[name.downcase] ||= value.to_s.delete_prefix('"').delete_suffix('"').delete_prefix("'").delete_suffix("'") }
@@ -109,8 +128,8 @@ module Dommy
     # The bytes `string` encodes to in the encoding named `name` (as `get`
     # returns it); a code point the encoding cannot represent is the bytes the
     # block returns for it. The legacy multi-byte encoders and the single-byte
-    # ones (an index read backwards) are the spec's own; Ruby encodes the rest
-    # (GBK, gb18030), and UTF-8 is the string's own bytes.
+    # ones (an index read backwards) are the spec's own; Ruby encodes the rest,
+    # and UTF-8 is the string's own bytes.
     #
     # Spec: https://encoding.spec.whatwg.org/#encode
     def self.encode(name, string, &unmappable)

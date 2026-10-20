@@ -283,7 +283,6 @@
       "value"
     ],
     "Request": [
-      "bodyUsed",
       "destination",
       "duplex",
       "integrity",

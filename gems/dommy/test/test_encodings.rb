@@ -259,6 +259,9 @@ class TestEncodings < Minitest::Test
     assert_equal "Shift_JIS", Dommy::Encodings.prescan(%(<meta http-equiv="Content-Type" content="text/html; charset=shift_jis">))
     assert_equal "UTF-8", Dommy::Encodings.prescan(%(<meta charset="utf-16le">))
     assert_nil Dommy::Encodings.prescan(%(<!-- <meta charset="big5"> --><p>x</p>))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<!--><meta charset="big5">))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<!---><meta charset="big5">))
+    assert_nil Dommy::Encodings.prescan(%(<!--- <meta charset="big5">))
   end
 
   # A document's encoding decides how a link's query is encoded, with the
@@ -272,6 +275,20 @@ class TestEncodings < Minitest::Test
     assert_equal ["Big5", "?%26%239731%3B"], query.("Big5", "\u2603")
     assert_equal ["ISO-2022-JP", "?%1B(J\\%1B(B"], query.("ISO-2022-JP", "\u00A5")
     assert_equal ["UTF-8", "?%E2%82%AC"], query.("UTF-8", "\u20AC")
+    # A UTF-16 document (or replacement) has no encoder: its URLs take UTF-8.
+    assert_equal ["UTF-16LE", "?%E2%82%AC"], query.("UTF-16LE", "\u20AC")
+    assert_equal ["UTF-16BE", "?%E2%82%AC"], query.("UTF-16BE", "\u20AC")
+    assert_equal ["replacement", "?%E2%82%AC"], query.("replacement", "\u20AC")
+  end
+
+  # Dommy.parse's `encoding:` takes a name or a label for the encoding it
+  # names, so a label encodes with the spec's encoder too.
+  def test_parse_takes_an_encoding_label
+    doc = Dommy.parse(%(<!doctype html><a href="https://e.test/?\uFF5E">x</a>), encoding: "shift_jis").document
+    assert_equal "Shift_JIS", doc.character_encoding
+    assert_equal "?%81`", doc.query_selector("a").__js_get__("search")
+    assert_equal "replacement", Dommy.parse("<p>", encoding: "replacement").document.character_encoding
+    assert_raises(ArgumentError) { Dommy.parse("<p>", encoding: "bogus") }
   end
 
   # The single-byte encodings encode with their index read backwards, those
@@ -308,6 +325,24 @@ class TestEncodings < Minitest::Test
     assert_equal "?%C6%FC%8E%B1", query.("EUC-JP", "\u65E5\uFF71")
     assert_equal "?%81A%C7%D1", query.("EUC-KR", "\uAC02\uD55C")
     assert_equal "?%26%23128512%3B", query.("Shift_JIS", "\u{1F600}")
+  end
+
+  # gb18030's encoder is the spec's over GB18030-2022's index, as its decoder
+  # is: U+FE10 is two bytes, the private-use code points the 2022 index moved
+  # keep their old two bytes, and U+E5E5 has none. GBK encodes the euro as
+  # 0x80 and has no four-byte sequences.
+  def test_gbk_and_gb18030_encode_with_the_spec_index
+    encode = ->(name, text) { Dommy::Encodings.encode(name, text) { |cp| "&##{cp};".bytes }.unpack1("H*") }
+    assert_equal "a6d9a6d9a8bc8135f437", encode.("gb18030", "︐ḿ")
+    assert_equal "a2e3813084369439fc36", encode.("gb18030", "€¥\u{1F600}")
+    assert_equal "&#58853;".unpack1("H*"), encode.("gb18030", "")
+    assert_equal "80d6d0#{"&#165;".unpack1("H*")}", encode.("GBK", "€中¥")
+  end
+
+  def test_gb18030_encodes_what_it_decodes
+    text = "中文︐︙ḿ¥\u{1F600}\u{10FFFF}"
+    bytes = Dommy::Encodings.encode("gb18030", text) { raise "unmappable" }
+    assert_equal text, Dommy::Encodings.decode(bytes, "gb18030")
   end
 
   # A document built from bytes takes the encoding they were decoded with:

@@ -179,6 +179,11 @@ module Dommy
 
         private_constant :MATH_FUNCTION
 
+        # css-syntax-3's <number-token>, signed.
+        CSS_NUMBER = /\A[+-]?(?:\d+(?:\.\d+)?|\.\d+)(?:e[+-]?\d+)?\z/i
+
+        private_constant :CSS_NUMBER
+
         class << self
           # Normalizes +value+ to the computed-style serialization.
           # Unrecognized values are returned as-is (never raises).
@@ -356,13 +361,21 @@ module Dommy
           # legacy rgb()/rgba() serialization a computed color uses 0 for it.
           def none?(text) = text.casecmp("none").zero?
 
+          # A CSS <number>, as Float; an ArgumentError for anything else, such
+          # as the spellings Float() takes that CSS does not (`0x10`, `1_0`).
+          def css_number(text)
+            raise ArgumentError, "not a CSS number: #{text.inspect}" unless CSS_NUMBER.match?(text)
+
+            Float(text)
+          end
+
           def rgb_channel(channel)
             return 0 if none?(channel)
 
             if channel.end_with?("%")
-              value = Float(channel[0..-2]) / 100.0 * 255
+              value = css_number(channel[0..-2]) / 100.0 * 255
             else
-              value = Float(channel)
+              value = css_number(channel)
             end
             value.round.clamp(0, 255)
           rescue ArgumentError, TypeError
@@ -372,7 +385,7 @@ module Dommy
           def parse_alpha(text)
             return 0.0 if none?(text)
 
-            value = text.end_with?("%") ? Float(text[0..-2]) / 100.0 : Float(text)
+            value = text.end_with?("%") ? css_number(text[0..-2]) / 100.0 : css_number(text)
             value.clamp(0.0, 1.0)
           rescue ArgumentError, TypeError
             nil
@@ -397,10 +410,10 @@ module Dommy
 
           def percentage(text, number: false)
             return 0.0 if none?(text)
-            return (Float(text) / 100.0).clamp(0.0, 1.0) if number && !text.end_with?("%")
+            return (css_number(text) / 100.0).clamp(0.0, 1.0) if number && !text.end_with?("%")
             return nil unless text.end_with?("%")
 
-            (Float(text[0..-2]) / 100.0).clamp(0.0, 1.0)
+            (css_number(text[0..-2]) / 100.0).clamp(0.0, 1.0)
           rescue ArgumentError, TypeError
             nil
           end
