@@ -31,8 +31,9 @@ module Dommy
 
         def contents? = display == "contents"
 
-        # Inline-level, counting an unknown display as the inline default.
-        def inline_level? = display.nil? || display.start_with?("inline")
+        # Inline-level, counting an unknown display as the inline default:
+        # `ruby` is `inline ruby`, and the ruby-internal boxes sit in its line.
+        def inline_level? = display.nil? || display.start_with?("inline", "ruby")
       end
     end
   end

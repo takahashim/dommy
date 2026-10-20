@@ -85,6 +85,17 @@ class TestInlineStyleCascade < Minitest::Test
     assert_equal "block", Dommy::Internal::CSS::Cascade.computed_style(root)["display"]
   end
 
+  # Inline ruby blockified is block ruby, and a ruby part a block.
+  def test_blockification_of_ruby
+    doc = Dommy.parse(<<~HTML).document
+      <span id="a" style="float:left;display:ruby">a</span>
+      <div style="display:flex"><span id="b" style="display:ruby-text">b</span></div>
+      <span id="c" style="display:ruby">c</span>
+    HTML
+    display = ->(id) { Dommy::Internal::CSS::Cascade.computed_style(doc.get_element_by_id(id))["display"] }
+    assert_equal ["block ruby", "block", "ruby"], %w[a b c].map(&display)
+  end
+
   # The keywords that decide it are ASCII case-insensitive: `float: NONE` is
   # no float, `position: ABSOLUTE` and a `display: Flex` parent blockify.
   def test_blockification_reads_keywords_case_insensitively

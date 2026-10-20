@@ -115,6 +115,12 @@ class TestInnerTextGetter < Minitest::Test
     assert_equal "abc\n123\ndef", inner_text("<div>abc<span style='float:left'>123</span>def")
     assert_equal "abc\n123\ndef", inner_text("<div>abc<span style='position:absolute'>123</span>def")
     assert_equal "1\n2", inner_text("<div style='display:flex'><span>1</span><span>2</span></div>")
+    assert_equal "abc\n123\ndef", inner_text("<div>abc<span style='float:left;display:ruby'>123</span>def")
+  end
+
+  # Inline ruby and its parts sit in the line.
+  def test_ruby_is_inline_level
+    assert_equal "abcd", inner_text("<div>a<span style='display:ruby'>b<span style='display:ruby-text'>c</span></span>d")
   end
 
   def test_svg_elements_that_are_never_rendered_have_no_text
