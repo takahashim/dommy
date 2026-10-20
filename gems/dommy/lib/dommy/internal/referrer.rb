@@ -93,19 +93,12 @@ module Dommy
           nil
         end
 
-        # The document's referrer policy: the last `<meta name="referrer">` with
-        # a policy for content, else the default.
+        # The document's referrer policy (what its `<meta name="referrer">`
+        # set, HTMLMetaElement#__internal_run_referrer_metadata__), else the
+        # default.
         def document_policy(document)
-          return DEFAULT_POLICY if document.nil?
-
-          document.query_selector_all("meta[name]").reverse_each do |meta|
-            next unless meta.get_attribute("name").to_s.casecmp?("referrer")
-
-            content = meta.get_attribute("content").to_s.strip.downcase(:ascii)
-            content = LEGACY_META_POLICIES.fetch(content, content)
-            return content if POLICIES.include?(content)
-          end
-          DEFAULT_POLICY
+          policy = document.respond_to?(:__internal_referrer_policy__) ? document.__internal_referrer_policy__ : ""
+          policy.empty? ? DEFAULT_POLICY : policy
         end
 
         # Referrer Policy "determine request's referrer" for a request from

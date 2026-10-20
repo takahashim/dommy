@@ -59,6 +59,54 @@ class TestFetchReferrer < Minitest::Test
     assert_equal("https://a.test/dir/page?q=1", referer("/api", {"referrerPolicy" => "unsafe-url"}))
   end
 
+  # The policy a <meta name=referrer> sets holds until another one sets one:
+  # the parser's, a change of content, the most recently inserted whatever
+  # its place in tree order. Removing one, or renaming it, changes nothing,
+  # and one outside the document tree sets none.
+  def test_the_documents_policy_follows_its_meta_referrers
+    win = Dommy.parse(%(<!doctype html><head><meta name=referrer content=never></head><p>x</p>))
+    win.location.__internal_set_url__("https://a.test/page")
+    win.globals["__fetch_handler__"] = @handler
+    @win = win
+    assert_nil(referer("/api"))
+
+    first = win.document.query_selector("meta")
+    first.set_attribute("content", "origin")
+    assert_equal("https://a.test/", referer("/api"))
+
+    second = win.document.create_element("meta")
+    second.set_attribute("name", "referrer")
+    second.set_attribute("content", "unsafe-url")
+    win.document.head.insert_before(second, first)
+    assert_equal("https://a.test/page", referer("http://b.test/api"))
+
+    second.remove
+    assert_equal("https://a.test/page", referer("/api"))
+    first.set_attribute("content", "origin")
+    assert_equal("https://a.test/", referer("/api"))
+    first.set_attribute("name", "description")
+    assert_equal("https://a.test/", referer("/api"))
+    first.set_attribute("name", "referrer")
+    first.set_attribute("content", "never")
+    assert_nil(referer("/api"))
+    first.set_attribute("content", "origin")
+
+    detached = win.document.create_element("meta")
+    detached.set_attribute("name", "referrer")
+    detached.set_attribute("content", "no-referrer")
+    win.document.create_element("div").append_child(detached)
+    assert_equal("https://a.test/", referer("/api"))
+  end
+
+  # An empty or unknown content sets no policy: the one before holds.
+  def test_an_empty_meta_referrer_sets_no_policy
+    win = make_window(%(<meta name=referrer content=origin><meta name=referrer content=""><meta name=referrer content=bogus>))
+    win.location.__internal_set_url__("https://a.test/page")
+    win.globals["__fetch_handler__"] = @handler
+    @win = win
+    assert_equal("https://a.test/", referer("/api"))
+  end
+
   def test_the_request_referrer_is_none_a_same_origin_url_or_the_page
     assert_nil(referer("/api", {"referrer" => ""}))
     assert_equal("https://a.test/other", referer("/api", {"referrer" => "/other#x"}))

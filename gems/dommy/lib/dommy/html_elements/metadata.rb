@@ -476,6 +476,29 @@ module Dommy
       @document.__internal_pragma_default_language__ = language if language
     end
 
+    # HTML's referrer metadata steps, run when a meta element is inserted into
+    # the document or has its name or content changed: one in the document
+    # tree named `referrer` whose content (ASCII lowercased, the legacy
+    # keywords mapped) is a nonempty referrer policy sets the document's. For
+    # historical reasons removing one does nothing and tree order does not
+    # matter: the most recently inserted or changed one has the effect.
+    #
+    # Spec: https://html.spec.whatwg.org/#meta-referrer
+    def __internal_run_referrer_metadata__
+      return unless __internal_attribute_value__("name").to_s.downcase(:ascii) == "referrer"
+
+      value = __internal_attribute_value__("content").to_s.downcase(:ascii)
+      return if value.empty? || !get_root_node.equal?(@document)
+
+      value = Internal::Referrer::LEGACY_META_POLICIES.fetch(value, value)
+      @document.__internal_referrer_policy__ = value if Internal::Referrer::POLICIES.include?(value)
+    end
+
+    def __internal_attribute_changed__(name, _old_value, _new_value, namespace)
+      super
+      __internal_run_referrer_metadata__ if namespace.nil? && (name == "name" || name == "content")
+    end
+
     private
 
     # The Content language state's steps: no content attribute, or one with a

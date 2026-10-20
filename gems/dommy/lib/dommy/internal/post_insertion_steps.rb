@@ -25,6 +25,7 @@ module Dommy
         run_connected_script(element)
         iframe_post_connection(element)
         element.__internal_run_pragma__ if element.respond_to?(:__internal_run_pragma__)
+        element.__internal_run_referrer_metadata__ if element.respond_to?(:__internal_run_referrer_metadata__)
         autofocus_inserted(element)
         element.__internal_dialog_inserted__ if element.respond_to?(:__internal_dialog_inserted__)
       end
