@@ -264,6 +264,48 @@ class TestEncodings < Minitest::Test
     assert_nil Dommy::Encodings.prescan(%(<!--- <meta charset="big5">))
   end
 
+  # The prescan reads attributes as the tokenizer does: a `>` in a quoted
+  # value does not end the tag, and a `<meta>` inside another tag's
+  # attribute value is no declaration.
+  def test_prescan_reads_quoted_attribute_values
+    assert_equal "Shift_JIS", Dommy::Encodings.prescan(%(<meta content="a>b" charset=shift_jis>))
+    assert_nil Dommy::Encodings.prescan(%(<div title="<meta charset=euc-jp>">x</div>))
+    assert_equal "EUC-JP", Dommy::Encodings.prescan(%(<div title='>'><meta charset='euc-jp'>))
+    assert_nil Dommy::Encodings.prescan(%(<?xml <meta charset=big5>?>))
+  end
+
+  # A content charset needs an http-equiv=content-type on the same <meta>;
+  # a charset attribute needs none, and wins over a content one. The first
+  # of a repeated attribute counts.
+  def test_prescan_pragma_and_charset_attributes
+    assert_nil Dommy::Encodings.prescan(%(<meta content="text/html; charset=big5">))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<meta content="text/html; charset='big5'" http-equiv=Content-Type>))
+    assert_equal "EUC-KR", Dommy::Encodings.prescan(%(<meta content="text/html; charset=big5" charset=euc-kr>))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<meta charset=big5 charset=euc-kr>))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<meta charset=bogus><meta charset=big5>))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<meta http-equiv=content-type content="charset x; charset = big5;">))
+    assert_equal "windows-1252", Dommy::Encodings.prescan(%(<meta charset=x-user-defined>))
+  end
+
+  # A declaration cut off by the 1024th byte is not read; UTF-16 is told by
+  # an XML declaration in it.
+  def test_prescan_limits
+    assert_nil Dommy::Encodings.prescan("#{" " * 1010}<meta charset=big5>")
+    assert_equal "Big5", Dommy::Encodings.prescan("#{" " * 1000}<meta charset=big5>")
+    assert_equal "UTF-16LE", Dommy::Encodings.prescan("<?xml".encode("UTF-16LE").b)
+  end
+
+  # With no <meta> declaring one, a leading XML declaration's encoding is the
+  # prescan's answer; one it does not quote, or after its `>`, is not.
+  def test_prescan_falls_back_to_an_xml_declaration
+    assert_equal "windows-1252", Dommy::Encodings.prescan(%(<?xml version="1.0" encoding='latin1'?><p>x))
+    assert_equal "Big5", Dommy::Encodings.prescan(%(<?xml encoding="euc-kr"?><meta charset=big5>))
+    assert_equal "UTF-8", Dommy::Encodings.prescan(%(<?xml encoding="utf-16le"?>))
+    assert_nil Dommy::Encodings.prescan(%(<?xml encoding=big5?>))
+    assert_nil Dommy::Encodings.prescan(%(<?xml?><p encoding="big5">))
+    assert_nil Dommy::Encodings.prescan(%( <?xml encoding="big5"?>))
+  end
+
   # A document's encoding decides how a link's query is encoded, with the
   # spec's Big5 and ISO-2022-JP encoders.
   def test_a_documents_encoding_encodes_link_queries
