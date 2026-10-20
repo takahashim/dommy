@@ -26,6 +26,10 @@ module Dommy
           essence == "text/xml" || essence == "application/xml" || essence.end_with?("+xml")
         end
 
+        # The MIME type's essence (type/subtype), lowercased; "" when there is
+        # none.
+        def essence(mime_type) = mime_type.to_s.split(";").first.to_s.strip.downcase(:ascii)
+
         # The charset parameter, or nil.
         def charset_of(mime_type) = parameter(mime_type, "charset")
 

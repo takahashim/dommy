@@ -484,7 +484,7 @@ module Dommy
     end
 
     def safe_content_type?(value)
-      CORS_SAFE_CONTENT_TYPES.include?(value.to_s.split(";").first.to_s.strip.downcase)
+      CORS_SAFE_CONTENT_TYPES.include?(Internal::MimeType.essence(value))
     end
 
     # Run the CORS preflight (an OPTIONS carrying Access-Control-Request-Method /
