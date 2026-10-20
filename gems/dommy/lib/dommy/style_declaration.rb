@@ -277,6 +277,18 @@ module Dommy
       @height = height
     end
 
+    # `new DOMRect(x, y, width, height)`, each an optional unrestricted
+    # double that defaults to 0.
+    #
+    # Spec: https://drafts.fxtf.org/geometry/#dom-domrect-domrect
+    def self.construct(args)
+      x, y, width, height = Array.new(4) do |i|
+        arg = args[i]
+        arg.equal?(Bridge::UNDEFINED) ? 0.0 : Internal::WebIDL.unrestricted_double(arg)
+      end
+      new(x: x, y: y, width: width, height: height)
+    end
+
     def top
       @y
     end

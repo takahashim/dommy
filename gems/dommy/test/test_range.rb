@@ -236,6 +236,14 @@ class TestRange < Minitest::Test
     assert_equal(0.0, rect.width)
   end
 
+  # DOMRect is a global, and constructible: each member an optional double.
+  def test_dom_rect_constructor
+    ctor = @win.__js_get__("DOMRect")
+    rect = ctor.__js_new__([1, "2", nil])
+    assert_equal([1.0, 2.0, 0.0, 0.0, 1.0], [rect.x, rect.y, rect.width, rect.height, rect.right])
+    assert_equal([0.0, 0.0], ctor.__js_new__([]).then { |r| [r.x, r.height] })
+  end
+
   # Live ranges belong to no document: one inside a subtree adopted into
   # another document still follows that subtree's mutations.
   def test_a_range_inside_an_adopted_subtree_follows_its_mutations
