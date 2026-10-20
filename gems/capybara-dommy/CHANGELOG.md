@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.17.0 — 2026-10-20
+
+Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.17.0; no change of its own.
+
 ## 0.16.0 — 2026-10-10
 
 ### Breaking changes
