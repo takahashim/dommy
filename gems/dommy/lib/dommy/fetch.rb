@@ -1123,6 +1123,11 @@ module Dommy
         !alive(@response) && !alive(@stream)
       end
 
+      # The stream was read to its end or errored: nothing left to abort.
+      def release
+        @signal.__internal_remove_abort_algorithm__(self)
+      end
+
       def call
         if (response = alive(@response))
           response.__internal_abort_body__(@signal.reason)
@@ -1230,14 +1235,13 @@ module Dommy
 
     # A reader can outlive the response, so the abort algorithm also reaches
     # the stream; a reader taking it to its end leaves the signal nothing to
-    # abort.
+    # abort. The stream's callback is the algorithm's own method, not a block
+    # here, which would hold the response for as long as the stream.
     def follow_abort_through(stream)
       return unless @abort_body
 
       @abort_body.stream = stream
-      signal = @abort_signal
-      algorithm = @abort_body
-      stream.__internal_when_done__ { signal.__internal_remove_abort_algorithm__(algorithm) }
+      stream.__internal_when_done__(&@abort_body.method(:release))
     end
 
     # WHATWG: clone throws if the body is already disturbed/locked; otherwise the
