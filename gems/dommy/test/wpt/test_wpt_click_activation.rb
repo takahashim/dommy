@@ -576,10 +576,12 @@ class TestWPTNestedFormEvents < Minitest::Test
     @outer.add_event_listener("reset") { @seen << "outer-reset" }
   end
 
+  # Built with DOM calls: the parser cannot nest a form, since fragment parsing
+  # under the outer form drops a `<form>` start tag.
   def nest(inner_html)
-    host = @doc.get_element_by_id("host")
-    host.inner_html = "<form id='inner'>#{inner_html}</form>"
-    inner = @doc.get_element_by_id("inner")
+    inner = @doc.create_element("form")
+    inner.inner_html = inner_html
+    @doc.get_element_by_id("host").append_child(inner)
     inner.add_event_listener("submit") { |e| @seen << "inner-submit"; e.__js_call__("preventDefault", []) }
     inner.add_event_listener("reset") { @seen << "inner-reset" }
     inner
