@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Breaking changes
+
+- **Requires Ruby >= 3.3**: Ruby 3.2 is past its end of life.
+
 ## 0.17.0 — 2026-10-20
 
 Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.17.0; no change of its own.
