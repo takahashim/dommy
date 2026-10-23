@@ -129,7 +129,7 @@ Until the gem is available from RubyGems, install it from GitHub:
 gem "capybara-dommy", github: "takahashim/capybara-dommy"
 ```
 
-`capybara-dommy` requires Ruby 3.2 or newer.
+`capybara-dommy` requires Ruby 3.3 or newer.
 
 ## Usage
 

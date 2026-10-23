@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- **Requires Ruby >= 3.3**: Ruby 3.2 is past its end of life.
+
 ### Fixed
 
 - `visit` resolves a path with a space or non-ASCII against the app host like any other path, percent-encoded; it went to the session unresolved, which read a relative one against the current page. An iframe whose `src` has one loads instead of raising `URI::InvalidURIError`.

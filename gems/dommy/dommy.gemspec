@@ -13,7 +13,7 @@ Gem::Specification.new do |spec|
     A pure Ruby DOM polyfill built on Makiri, inspired by happy-dom and jsdom. It gives Ruby tests a browser style DOM with events, MutationObserver, Custom Elements, Shadow DOM, the File API, timers, and Storage, without requiring a real browser.
   DESC
   spec.homepage = "https://github.com/takahashim/dommy"
-  spec.required_ruby_version = ">= 3.2"
+  spec.required_ruby_version = ">= 3.3"
   spec.license = "MIT"
 
   spec.metadata["homepage_uri"] = spec.homepage
