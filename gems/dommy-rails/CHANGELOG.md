@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- **Requires Ruby >= 3.3**: Ruby 3.2 is past its end of life.
+
 ### Fixed
 
 - `UrlNormalizer` reads a URL with dommy's URL parser, so a raw space or non-ASCII path equals its percent-encoded form, and sorts query parameters stably, keeping a repeated key's values in order.

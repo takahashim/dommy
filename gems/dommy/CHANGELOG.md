@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Breaking changes
+
+- **Requires Ruby >= 3.3**: Ruby 3.2 is past its end of life.
+
 ### Changed
 
 - Dommy parses and resolves every URL with its WHATWG URL parser and no longer loads Ruby's `uri` library; code that used `URI` through Dommy requires it itself.
