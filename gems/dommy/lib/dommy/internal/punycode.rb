@@ -3,8 +3,8 @@
 module Dommy
   module Internal
     # RFC 3492 Punycode encoder / decoder. Used by `Internal::IDNA` to
-    # turn IDN labels (e.g. `日本`) into ASCII (`wgv71a`) before they
-    # reach Ruby's `URI` parser, which rejects non-ASCII hosts.
+    # turn IDN labels (e.g. `日本`) into ASCII (`wgv71a`), the form the URL
+    # parser's host parser serializes a domain in.
     #
     # `encode` / `decode` produce / consume the bare Punycode form
     # (no `xn--` prefix). The IDNA layer is responsible for adding /

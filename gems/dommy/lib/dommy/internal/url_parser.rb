@@ -123,6 +123,38 @@ module Dommy
         run(input.to_s, nil, url: url, state_override: state)
       end
 
+      # `input` parsed against `base` (a String, a Record or nil) and
+      # serialized, or nil when either does not parse.
+      def resolve(input, base = nil)
+        serialize(parse(input, base))
+      rescue Failure
+        nil
+      end
+
+      # The URL string `url` serialized with exclude fragment, as a response's
+      # URL is exposed (Response#url, XMLHttpRequest#responseURL); `url` itself
+      # when it does not parse, the empty string included.
+      def without_fragment(url)
+        serialize(parse(url.to_s), exclude_fragment: true)
+      rescue Failure
+        url.to_s
+      end
+
+      # Fetch's "location URL": a redirect's Location parsed against the URL
+      # it answered, given that URL's fragment when it has none of its own, and
+      # serialized; nil when it does not parse. The header's bytes are read as
+      # UTF-8.
+      #
+      # Spec: https://fetch.spec.whatwg.org/#concept-response-location-url
+      def location_url(location, request_url)
+        request = parse(request_url)
+        url = parse(location.to_s.dup.force_encoding(::Encoding::UTF_8).scrub, request)
+        url.fragment ||= request.fragment
+        serialize(url)
+      rescue Failure
+        nil
+      end
+
       # The URL Standard vocabulary the parser is written in: the percent-encode
       # sets, the host and IPv6 parsers, the serializers, and the path helpers.
       # Every one is a function of its arguments alone.

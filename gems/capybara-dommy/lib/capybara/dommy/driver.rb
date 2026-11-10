@@ -124,9 +124,7 @@ module Capybara
         @frame_stack = []
         # A fresh visit resolves a relative path against the host root (not the
         # current page's directory), matching browser address-bar semantics.
-        rack_session.visit(::URI.join("#{effective_host}/", path.to_s).to_s)
-      rescue URI::InvalidURIError
-        rack_session.visit(path)
+        rack_session.visit(::Dommy::URL.parse(path.to_s, "#{effective_host}/")&.href || path)
       end
 
       def current_url
@@ -450,7 +448,8 @@ module Capybara
         src = iframe_element.get_attribute("src").to_s
         raise Capybara::Dommy::Error, "iframe has no src" if src.empty?
 
-        url = ::URI.join(frame_url, src).to_s
+        url = ::Dommy::URL.parse(src, frame_url)&.href
+        raise Capybara::Dommy::Error, "iframe src does not parse: #{src}" unless url
         response = rack_session.fetch(url, headers: {"Referer" => frame_url})
         doc = response.document
         raise Capybara::Dommy::Error, "iframe did not return an HTML document" unless doc

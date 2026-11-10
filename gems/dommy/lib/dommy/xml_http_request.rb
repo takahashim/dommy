@@ -445,7 +445,7 @@ module Dommy
       @status = status
       @status_text = status_text
       @response_headers = headers
-      @response_url = @url
+      @response_url = Internal::UrlParser.without_fragment(@url)
       @response_text = text_response(body)
       @response = decode_response(body)
 

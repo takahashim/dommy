@@ -117,6 +117,51 @@ class TestBrowserNavigation < Minitest::Test
     assert_equal "arrived", b.document.query_selector("h1").text_content
   end
 
+  # The Location is parsed by the URL parser, against the URL it answered:
+  # non-ASCII and spaces are percent-encoded rather than failing the redirect.
+  def test_a_redirect_location_is_parsed_as_a_url
+    b = visit(
+      "/" => html("<a id='go' href='/old'>go</a>"),
+      "/old" => {"status" => 302, "headers" => {"Location" => "/\u65E5 x"}},
+      "/%E6%97%A5%20x" => html("<h1>arrived</h1>")
+    )
+
+    b.click_link("go")
+
+    assert_equal "http://localhost/%E6%97%A5%20x", b.current_url
+    assert_equal "arrived", b.document.query_selector("h1").text_content
+  end
+
+  # Fetch's location URL takes the request's fragment when it has none.
+  def test_a_redirect_keeps_the_fragment
+    b = visit(
+      "/" => html("<p>home</p>"),
+      "/old" => {"status" => 302, "headers" => {"Location" => "/new"}},
+      "/own" => {"status" => 302, "headers" => {"Location" => "/new#own"}},
+      "/new" => html("<h1>arrived</h1>")
+    )
+
+    b.visit("http://localhost/old#top")
+    assert_equal "http://localhost/new#top", b.current_url
+    b.visit("http://localhost/own#top")
+    assert_equal "http://localhost/new#own", b.current_url
+  end
+
+  # A form's action is parsed against the document's base URL.
+  def test_a_form_action_resolves_against_the_base_url
+    b = visit(
+      "/" => html(
+        "<base href='/sub/'><form id='f' method='get' action='search'>" \
+        "<input name='q' value='hi'><button id='go' type='submit'>go</button></form>"
+      ),
+      "/sub/search?q=hi" => html("<h1>results</h1>")
+    )
+    b.document.get_element_by_id("f").request_submit(b.document.get_element_by_id("go"))
+    b.settle
+
+    assert_equal "http://localhost/sub/search?q=hi", b.current_url
+  end
+
   # --- form submission (GET) folds params into the query and navigates ---
 
   def test_form_get_submission_navigates_with_query
@@ -307,6 +352,16 @@ class TestBrowserNavigation < Minitest::Test
     assert_equal "arrived", b.document.query_selector("h1").text_content
     # The refresh replaces rather than pushes, so back leaves the app root.
     assert_equal ["http://localhost/dest"], b.history.entries
+  end
+
+  def test_meta_refresh_url_is_parsed_as_a_url
+    b = visit(
+      "/" => "<!doctype html><html><head>" \
+             "<meta http-equiv='refresh' content='0; url=/a b'></head><body>x</body></html>",
+      "/a%20b" => html("<h1>arrived</h1>")
+    )
+
+    assert_equal "http://localhost/a%20b", b.current_url
   end
 
   def test_meta_refresh_self_loop_is_capped

@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "uri"
 require "securerandom"
 
 module Dommy
@@ -130,7 +129,7 @@ module Dommy
         verb = method.to_s.upcase
         target = url.to_s
         # The first request establishes the origin the session is scoped to.
-        @origin ||= origin_of(target) if @same_origin
+        @origin ||= Internal::Origin.tuple_of_url(target) if @same_origin
         return [nil, target] if cross_origin?(target)
 
         hdrs = headers.dup
@@ -149,7 +148,7 @@ module Dommy
       # form submission always has a (possibly empty) query part, so an empty
       # entry list still leaves a trailing "?".
       def append_query(url, params)
-        encoded = URI.encode_www_form(params)
+        encoded = URLSearchParams.new(params).to_s
         base, hash, fragment = url.to_s.partition("#")
         sep = base.include?("?") ? (encoded.empty? ? "" : "&") : "?"
         return url if encoded.empty? && sep.empty?
@@ -170,10 +169,10 @@ module Dommy
         if REDIRECT_STATUSES.include?(status) && location && !location.empty?
           raise TooManyRedirectsError, "exceeded #{@max_redirects} redirects" if count >= @max_redirects
 
-          nxt = resolve(location, target)
-          # Fetch "HTTP-redirect fetch": a Location that is not an HTTP(S) URL
-          # is a network error.
-          return [nil, nxt] unless nxt.to_s.match?(%r{\Ahttps?:}i)
+          nxt = Internal::UrlParser.location_url(location, target)
+          # Fetch "HTTP-redirect fetch": a Location that does not parse, or is
+          # not an HTTP(S) URL, is a network error.
+          return [nil, nxt || target] unless nxt&.start_with?("http:", "https:")
           # A redirect that crosses the scoped origin is blocked (a browser would
           # follow it, but the test policy keeps navigation on the app).
           return [nil, nxt] if cross_origin?(nxt)
@@ -196,17 +195,7 @@ module Dommy
       def cross_origin?(url)
         return false unless @same_origin && @origin
 
-        origin_of(url) != @origin
-      end
-
-      def origin_of(url)
-        u = URI.parse(url.to_s)
-        return nil unless u.scheme && u.host
-
-        port = u.port || u.default_port
-        "#{u.scheme.downcase}://#{u.host.downcase}:#{port}"
-      rescue URI::InvalidURIError
-        nil
+        Internal::Origin.tuple_of_url(url) != @origin
       end
 
       # Serialize a form data set to a request body. `multipart/form-data`
@@ -220,7 +209,7 @@ module Dommy
         when "multipart/form-data"
           multipart_body(params)
         else
-          [URI.encode_www_form(params), "application/x-www-form-urlencoded"]
+          [URLSearchParams.new(params).to_s, "application/x-www-form-urlencoded"]
         end
       end
 
@@ -274,12 +263,6 @@ module Dommy
         when 301, 302 then original == "POST" ? "GET" : original
         else original # 307, 308 keep the method
         end
-      end
-
-      def resolve(location, base)
-        URI.join(base, location).to_s
-      rescue URI::InvalidURIError
-        location.to_s
       end
 
       # Case-insensitive header lookup over the plain Hash a Resources::Response

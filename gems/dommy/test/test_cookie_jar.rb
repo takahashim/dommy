@@ -177,7 +177,7 @@ class TestBrowserCookies < Minitest::Test
     end
 
     def request(method:, url:, headers: {}, body: nil)
-      path = URI.parse(url).path
+      path = Dommy::URL.new(url).pathname
       @cookies_sent << [path, headers["Cookie"]]
       hdrs = {"Content-Type" => "text/html"}
       hdrs["Set-Cookie"] = @set_cookies[path] if @set_cookies[path]

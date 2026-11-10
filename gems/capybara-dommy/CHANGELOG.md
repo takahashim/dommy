@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `visit` resolves a path with a space or non-ASCII against the app host like any other path, percent-encoded; it went to the session unresolved, which read a relative one against the current page. An iframe whose `src` has one loads instead of raising `URI::InvalidURIError`.
+
 ## 0.17.0 — 2026-10-20
 
 Versioned in lockstep with [`dommy`](https://github.com/takahashim/dommy) 0.17.0; no change of its own.

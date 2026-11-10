@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "json"
-require "uri"
 
 module Dommy
   module Js

@@ -3,6 +3,7 @@
 require "securerandom"
 
 require_relative "internal/url_parser"
+require_relative "internal/origin"
 require_relative "internal/url_record_accessors"
 
 module Dommy
@@ -170,13 +171,7 @@ module Dommy
   end
 
   def origin
-    scheme = @record.scheme
-    return blob_inner_origin if scheme == "blob"
-    return "null" unless TUPLE_ORIGIN_SCHEMES.include?(scheme)
-    return "null" if @record.host.nil?
-
-    port_part = @record.port ? ":#{@record.port}" : ""
-    "#{scheme}://#{@record.host}#{port_part}"
+    Internal::Origin.of_record(@record)
   end
 
   def username
@@ -260,29 +255,6 @@ module Dommy
   def __internal_notify_params_changed__
     q = @search_params.to_s
     @record.query = q.empty? ? nil : q
-  end
-
-  # WHATWG: only http(s) / ws(s) / ftp produce a tuple origin. file / data /
-  # javascript / etc. resolve to `"null"`. `blob:` is handled specially.
-  TUPLE_ORIGIN_SCHEMES = %w[http https ws wss ftp].freeze
-
-  private
-
-  # HTML Standard "origin" for a blob: URL — parse the opaque path as a URL and
-  # return its origin only when that inner URL's scheme is http/https/file;
-  # any other scheme (ftp, ws, a nested blob, …) yields an opaque origin.
-  def blob_inner_origin
-    return "null" unless @record.opaque_path?
-
-    body = @record.path
-    return "null" if body.nil? || body.empty?
-
-    inner = URL.new(body)
-    return "null" unless %w[http https file].include?(inner.protocol.delete_suffix(":"))
-
-    inner.origin
-  rescue Bridge::TypeError
-    "null"
   end
   end
 

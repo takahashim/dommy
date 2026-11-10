@@ -59,7 +59,7 @@ class TestModulePreload < Minitest::Test
     end
 
     def get(url, *rest, **opts)
-      @requests[URI.parse(url.to_s).path] += 1
+      @requests[Dommy::URL.new(url.to_s).pathname] += 1
       @inner.get(url, *rest, **opts)
     end
 
